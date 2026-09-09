@@ -49,11 +49,16 @@ command SHALL not launch, retry or resume a run or provider.
 Omitting `--turn` SHALL return the complete bounded projection. `--turn`
 SHALL accept a positive unsigned 64-bit integer and refer to the one-based
 position in the same projected sequence the TUI displays. The projection,
-malformed-line count and both size caps SHALL be evaluated before selection.
+malformed-line and unrecognized-record counts and both size caps SHALL be
+evaluated before selection.
 A retained selection SHALL return one unchanged `Turn`, retain its original
-position in text output and preserve the source's truncation and malformed
-line notices. It SHALL NOT count only assistant messages, checkpoint turns,
-provider steps or raw JSONL lines.
+position in text output and preserve all of the source's notices, including
+truncation, malformed lines and unrecognized records. It SHALL NOT count only
+assistant messages, checkpoint turns,
+provider steps or raw JSONL lines. Indices address one bounded snapshot;
+they are not durable message ids across refreshes. If canonical content
+replaces fallback events/chunks, numbering SHALL be recomputed from the new
+source-ordered projection, exactly as for the TUI.
 
 Zero, negative, nonnumeric and overflowing turn arguments SHALL be usage
 errors. A positive index beyond the retained turns SHALL return
@@ -77,6 +82,14 @@ The command SHALL not scan past the caps to satisfy a turn request.
 - **WHEN** the projection is truncated after three turns and the operator selects turn four
 - **THEN** the command fails with `turn-not-retained`, retains `truncated: true` and states that the requested turn is outside the retained prefix
 
+#### Scenario: Turn selection preserves unknown-record diagnostics
+- **WHEN** a readable source has two retained turns and three unrecognized records, and the operator requests turn two
+- **THEN** the unchanged second turn is returned with `unrecognized_records: 3` and `unrecognized transcript records: 3`, just as in the whole read
+
+#### Scenario: Turn indices follow assembly within each snapshot
+- **WHEN** two displayed DSH chunk turns are replaced by one assembled message on a subsequent read
+- **THEN** CLI and TUI use the new projection's one-based indices, and a requested index that was present only in the previous snapshot receives `turn-not-retained` instead of stale content
+
 #### Scenario: Invalid or absent turns fail explicitly
 - **WHEN** the operator passes turn zero, a negative or non-integer turn, or a positive index beyond a complete two-turn file
 - **THEN** invalid syntax is a usage error, and the valid out-of-range index returns `turn-not-retained` without returning the last available turn instead
@@ -96,10 +109,11 @@ and the following members, present even when null or empty:
 | `turn` | Requested one-based index, or null for the whole transcript. |
 | `turns` | Ordered shared `Turn` values, filtered to one when requested. |
 | `truncated` | Boolean for source/display truncation before turn selection. |
-| `skipped_lines` | Count of complete malformed JSON lines encountered in the bounded read. |
-| `notices` | Strings for truncation and skipped lines; truncation uses the shared notice verbatim. |
+| `skipped_lines` | Nonnegative integer count of complete malformed JSON lines in the bounded source snapshot, before display capping and turn selection; zero before any read. |
+| `unrecognized_records` | Nonnegative integer count of complete valid JSON records with unsupported types/envelopes/content variants, once per record, as defined by `transcript-reading`; zero before any read. |
+| `notices` | Ordered shared strings: exact truncation notice, malformed-line count, unrecognized-record count; include only those whose condition holds. |
 | `unavailable` | Null on a readable result, otherwise the reason token defined below. |
-| `full_session` | Kind-specific informational line from `transcript-tui`, or null when no safe hint can be formed. |
+| `full_session` | Exact informational string or null required by the `transcript-reading` kind/resolution table; independent of TUI rendering. |
 
 This document SHALL be an explicit local read result, not a journal record,
 export format, or addition of prose to `RunView`. It SHALL NOT change the
@@ -117,6 +131,22 @@ explicit version change in its schema identifier.
 - **WHEN** one read resolves an empty valid file and another resolves a missing file
 - **THEN** both carry an empty `turns` array, but the first has `unavailable: null` and the second `unavailable: "not-found"` with no fabricated source path
 
+#### Scenario: JSON reports unknown records independently of empty and malformed
+- **WHEN** an owned file contains a recognized header, five unrecognized complete records and no readable turns or malformed lines
+- **THEN** JSON has `turns: []`, `unavailable: null`, `truncated: false`, `skipped_lines: 0`, `unrecognized_records: 5` and `notices: ["unrecognized transcript records: 5"]`; the text read says `no readable turns` with that same notice and exits zero
+
+#### Scenario: A missing Codex rollout has a fixed full-session value
+- **WHEN** a participant's valid reference is `{"kind":"codex-thread","locator":"019c-222a","home":"/retained/codex"}` and lookup finds no matching file
+- **THEN** JSON has `path: null`, `unavailable: "not-found"` and `full_session: "full session: rollout unavailable; codex exec resume 019c-222a; home: \"/retained/codex\""`, exactly, with empty turns and zero diagnostic counts; the command exits one
+
+#### Scenario: Missing Claude and DSH files have distinct fixed hints
+- **WHEN** valid Claude id `abcd-1234` and a valid DSH reference each lack a matching local file
+- **THEN** each JSON read reports `not-found` and a null path, Claude has `full_session: "full session: claude --resume abcd-1234"`, and DSH has `full_session: null`
+
+#### Scenario: Invalid DSH ownership has no fabricated path
+- **WHEN** the only DSH candidate has a session header with a nonnumeric delegation depth
+- **THEN** JSON carries `unavailable: "not-found"`, `path: null` and `full_session: null`, stderr says `no valid depth-zero DSH session header`, and no content from that candidate is returned
+
 #### Scenario: Legacy synthesis is visible
 - **WHEN** the command uses the guarded pre-0032 Claude fallback
 - **THEN** `legacy` is true and `transcript` carries the effective Claude reference used for that lookup; common-reference reads have `legacy: false`
@@ -133,12 +163,14 @@ roles, recorded stamps and every retained block in order. It SHALL use the
 same kind-specific full-session hint and notices as the TUI. A valid empty
 projection SHALL say `no readable turns`; a truncated zero-turn projection
 SHALL say it was truncated instead of implying that the session was empty.
+A positive `unrecognized_records` SHALL append its shared counted notice to
+the explanation, never make unsupported content look like an empty recording.
 Terminal control characters SHALL be sanitized in content, references,
 paths, hints and diagnostics. Tool arguments/results SHALL remain readable
 text and SHALL never be executed.
 
-A readable result, including empty, skipped-line or truncated results, SHALL
-exit zero unless a requested turn was not retained. Once run and participant
+A readable result, including empty, skipped-line, unrecognized-record or
+truncated results, SHALL exit zero unless a requested turn was not retained. Once run and participant
 are selected, unavailability SHALL be one of `no-reference`, `none`,
 `unsupported-kind`, `unannounced`, `missing-home`, `invalid-reference`,
 `unsafe-path`, `not-found`, `ambiguous-source`, `discovery-limit`,
@@ -146,15 +178,19 @@ are selected, unavailability SHALL be one of `no-reference`, `none`,
 turns, and provide a sanitized explanation on stderr. With `--json` it SHALL
 also emit the document above with the corresponding reason on stdout;
 without `--json` the unavailable read SHALL emit no transcript body on stdout.
-Known path and cap/skip facts SHALL remain available in an error document.
+Known path, cap, both diagnostic counts and shared notices SHALL remain
+available in an error document; a read failure SHALL still return no turns.
 
-Reference failure precedence SHALL be: absent/ineligible reference,
+Reference failure precedence SHALL be: absent/ineligible common or legacy
+reference candidate,
 `none`, unsupported kind, empty locator, missing home, malformed reference,
 then discovery/read failure. Unsafe candidate paths SHALL return
 `unsafe-path` when no safe unique source is established, and a discovery
 limit SHALL take precedence over a provisional unique candidate. The reader
 SHALL report `unreadable` if an I/O failure prevents establishing a unique
-answer. `turn-not-retained` SHALL apply only after a readable projection.
+answer. `turn-not-retained` SHALL apply only after a readable projection. Eligible
+legacy provenance with a nonempty invalid id SHALL follow the reading
+capability's `invalid-reference` rule instead of being treated as absent.
 Usage, run selection and participant selection failures occur before a
 transcript document exists: they SHALL exit nonzero with safe stderr and
 empty stdout, including when `--json` was requested.
@@ -171,6 +207,37 @@ empty stdout, including when `--json` was requested.
 - **WHEN** a readable file has a skipped malformed line and a valid prefix exceeding a size budget
 - **THEN** whole-transcript text and JSON both exit zero, expose the retained prefix and carry the malformed-line and truncation notices
 
+#### Scenario: All active notices keep the same order
+- **WHEN** a readable source exceeds a size budget and its bounded snapshot contains one malformed line and two unrecognized records
+- **THEN** text and JSON both carry notices in this order: `transcript truncated (size cap)`, `malformed transcript lines skipped: 1`, `unrecognized transcript records: 2`, without provider suffixes or quoted payloads
+
 #### Scenario: Unknown selection cannot fall back to another seat
 - **WHEN** `--seat` matches no participant or is an ambiguous label
 - **THEN** either output mode fails before file lookup, leaves stdout empty and names the selection problem on stderr without reading another seat's prose
+
+## Decisions
+
+### C1 / clarification 3 — Diagnostic counts survive selection and errors
+
+Add `unrecognized_records` to the not-yet-published `brokkr.transcript/v1`
+document now, alongside `skipped_lines`. Whole and selected reads share both
+counts and notices; neither turn selection nor a zero-turn projection hides
+format drift. Unknown but valid JSON is a counted omission and remains a
+successful bounded read, distinct from source unavailability. A future
+structural change after publication requires a new document version.
+
+### C2 / clarifications 4–6 — JSON consumes the reader's exact hint and notices
+
+The reading capability, not the terminal UI, owns `full_session` and its
+string/null table. The unresolved Codex scenario fixes the exact value and
+shows that an informational command does not turn `not-found` into success.
+Malformed, unknown-record and truncation notices also have one owner and
+fixed ordering. Claude's convenience remains in the hint, never a suffix
+that alters the common truncation string.
+
+### C3 / clarifications 1–2 — Display indices are snapshot positions
+
+Canonical records can replace streaming fallbacks when a file grows. Keeping
+an old index attached to new content would misidentify the requested turn.
+Each invocation selects only after the shared current projection is complete;
+no durable message identity or frozen index across file changes is promised.

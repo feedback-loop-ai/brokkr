@@ -15,7 +15,9 @@ implementation and review.
   into one ordered, serializable `Turn` shape in `brokkr-view`; keep file
   access in the local read layer. Preserve Claude's existing content
   projection and add Codex and DSH messages, readable reasoning, tool calls
-  and tool outputs without duplicating streaming echoes.
+  and tool outputs. Read recognized Codex event content and DSH chunks when
+  their canonical content is absent, then replace proven echoes when the
+  canonical record arrives; retain file order within each bounded snapshot.
 - Resolve the selected participant's recorded kind, locator and home to
   its own retained file. Distinguish missing, invalid, ambiguous and
   unreadable references; never substitute another seat, a delegated DSH
@@ -32,23 +34,32 @@ implementation and review.
 - Apply the existing 4,000,000-byte displayed-block budget to every kind,
   with bounded source reads and discovery and an explicit truncation
   notice shared by text, JSON and both TUI doors. Preserve journal privacy,
-  transcript retention, terminal sanitization and accepted contracts.
+  transcript retention, terminal sanitization and accepted contracts. Count
+  unrecognized records separately from malformed lines, so unsupported content
+  cannot silently look like an empty session. Retire Claude's truncation suffix;
+  every kind uses exactly `transcript truncated (size cap)`.
+- **BREAKING**: require a leading hexadecimal character in Claude/Codex ids
+  everywhere they are read or used in a convenience command, including the
+  existing Claude browser drill and its client guard. Leading-hyphen ids that
+  the old guard admitted become invalid.
 - Require reserved decision **0055**, with status **proposed**, for the
   new local reading, selection, output and limit semantics. The council
-  design must author it and register it before implementation; only the
-  operator can accept it. No semantic production change is made in this
-  specification phase.
+  design must author it and register it before implementation, explicitly
+  proposing the replacement of decision 0032 ruling 4's command-construction
+  binding stated in S2; only the operator can accept it. No semantic production
+  change is made in this specification phase.
 
 ## Capabilities
 
 ### New Capabilities
 
 - `transcript-reading`: local identity and ownership checks, per-kind
-  content projection into ordered turns, bounded reads and privacy.
+  content projection into ordered turns, bounded reads, diagnostic counts,
+  deterministic full-session information and privacy.
 - `transcript-command`: run/seat/turn selection, text and versioned JSON
   output, and explicit command failures for unavailable transcripts.
 - `transcript-tui`: all-kind transcript navigation, live refresh,
-  truthful full-session hints and consistent truncation notices.
+  rendering the shared full-session information and notices.
 
 ### Modified Capabilities
 
@@ -60,9 +71,11 @@ as separate capabilities.
 
 Production work belongs in `crates/brokkr-view` and the CLI's local reader,
 argument handling, rendering and TUI shell. Existing Claude browser drills
-must consume the shared Claude derivation and remain compatible; adding
-Codex/DSH browser routes is outside this commission. Tests belong in the
-existing view, CLI, TUI and reader suites, with synthetic files in test-owned
+must consume the shared Claude derivation and keep their response shape and
+supported Claude content. Their identifier guard and truncation text change
+as declared above; adding Codex/DSH browser routes is outside this commission.
+Tests belong in the existing view, CLI, TUI and reader suites, with synthetic
+files in test-owned
 homes. The read-surfaces guide and proposed decision/index accompany the
 implementation. No new production language or provider dependency is needed.
 
@@ -89,7 +102,23 @@ this phase does not archive it or implement production code.
 The issue's earlier suggestion of "no new decision" is declined because the
 later operator commission and house rules explicitly require a proposed
 decision for semantic changes. Decision 0032 still owns the common reference,
-retention and paths-only journal law; 0055 supplements it for local reading.
+retention and paths-only journal law. Proposed 0055 supplements local reading
+and explicitly proposes to supersede **only ruling 4's enforcement binding
+for resume-command construction**, whose accepted text limits it to Claude.
+The replacement binding to carry into 0055 is:
+
+> The shared local transcript derivation constructs informational full-session
+> lines by validated kind: `claude-session` names `claude --resume <id>`;
+> `codex-thread` names `codex exec resume <thread>`, the recorded home and
+> either the confirmed rollout path or explicit rollout unavailability;
+> `dsh-session` names only a confirmed session file and no command. TUI and
+> transcript CLI consume that same result. No other kind borrows either
+> command, and displaying a hint executes nothing.
+
+The common transcript cell, ownership, retention, journal privacy and decision
+0030's same-seat/sandbox bindings remain unchanged. Accepted 0032 is not
+edited or silently reinterpreted; this is a proposed replacement for the
+operator to rule on.
 The registry on the commissioned base ends at 0053. The controller reserves
 0054 for DSH Git repair, 0055 for #222 and 0056 for #226; those reservations
 are not evidence that either sibling has landed. The council must preserve
@@ -112,12 +141,19 @@ On 2026-09-09, the workspace's PATH exposes OpenSpec 1.12.0, but no `codex`,
 `dsh`, `claude`, `cargo` or `rustup`. Installed provider help and full content
 schemas cannot be re-measured in this seat. Council design must record
 bounded installed help/source evidence for content variants and hint syntax,
-or identify the precise missing proof for controller handoff. This does not
-justify omitting Codex/DSH reading, weakening acceptance, inventing formats,
+or identify the precise missing proof for controller handoff. In particular,
+the missing evidence is a versioned, redacted Codex rollout/source definition
+showing `event_msg` content alone and beside `response_item` with their
+message/call association, and a DSH source definition or retained step with
+`assistant/chunk` payloads, turn/step association and its later assembled
+message. Design must map those facts to the fallback scenarios; textual
+equality or speculative payload pointers are not evidence of identity. This
+does not justify omitting Codex/DSH reading, weakening acceptance, inventing formats,
 changing global settings, or starting paid model experiments.
 
 ### S4 — Validation evidence is scoped to what ran
 
+On the first specify visit,
 `openspec validate read-every-transcript-kind --strict --no-interactive`
 passed. `openspec status --change read-every-transcript-kind --json` reports
 proposal and specs done, design ready and tasks blocked on design. These are
@@ -133,6 +169,16 @@ must extend the proving suites and run all commissioned commands. The
 controller owns final host exact coverage with those variables, remote CI,
 publication and integration; no seat can replace host boundary proof with
 skipped tests inside a nested sandbox.
+
+On the returned specify visit, the strict OpenSpec validation passed again
+and status still reports only proposal/specs done. The same five Cargo
+commands were attempted with both concurrency limits and remained unavailable
+because `cargo` is absent. Exact coverage was attempted unchanged with
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; `mktemp` refused the
+absent `/var/tmp` directory before any coverage proof ran. The command results
+are recorded in `.forge/specify/read-every-transcript-kind-validation.json`.
+These pending delivery checks are not prerequisites fabricated for drafting,
+and drafting is not a claim of implemented or fully validated behavior.
 
 ### S5 — Extra bounds are proposed policy, not provider measurements
 
@@ -150,3 +196,28 @@ Selection, malformed-record handling and omission choices are answered in
 the owning capability scenarios. Synthetic parser and filesystem cases must
 be added under the existing crate test suites; the frozen evaluator fixtures
 are never regenerated or repurposed for transcript examples.
+
+### S6 — Return from clarify: eight findings answered in their owning scenarios
+
+Adopted the existing change at `10f3c3c`; the earlier triage framing is not at
+fault. All eight findings in
+`.forge/clarify/read-every-transcript-kind-ambiguities.md` identify choices this
+specification owed. The return amends the proposal first and then the three
+deltas; no design or tasks artifact exists yet to revise. The owning
+capabilities' `## Decisions` record reasons, and their scenarios bind the
+observable answers:
+
+| Finding | Resolution and owning scenario |
+|---|---|
+| 1 — Codex event-only content | Require fallback projection and replacement only for proven associations; reading: "A Codex event-only snapshot is readable" and "A late canonical record replaces its event fallback". |
+| 2 — DSH chunks without an assembled step | Project readable chunks until the step is assembled; reading: "An interrupted DSH step retains its chunks"; TUI: "Assembly replaces chunks while the journal is unchanged". |
+| 3 — Unrecognized content versus empty | Add `unrecognized_records` and a shared counted notice; reading: "Unrecognized records cannot masquerade as an empty session"; command: "JSON reports unknown records independently of empty and malformed". |
+| 4 — 0032 ruling 4 | Explicitly propose its replacement binding in 0055, as S2 states; reading: "The proposed convenience binding remains kind-specific". |
+| 5 — Unresolved full-session line | Reading owns deterministic strings/nulls for all kinds, consumed by both renderers; command: "A missing Codex rollout has a fixed full-session value". |
+| 6 — Claude truncation suffix | Retire it on every surface; TUI: "Claude and Codex use the identical notice". |
+| 7 — Leading-hyphen identifiers | Tighten the shared Rust guard and the browser's copy together; reading: "The browser drill rejects a leading-hyphen id". |
+| 8 — Invalid DSH depth | Deliberately require valid ownership evidence even where the old adapter coerced it to zero; reading: "A driver-folded invalid DSH depth is explicitly refused". |
+
+These answers do not claim new installed-provider measurements or bypass the
+independent clarification and analysis judgments. Design must return upstream
+with evidence if a measured format cannot satisfy these behaviors.
