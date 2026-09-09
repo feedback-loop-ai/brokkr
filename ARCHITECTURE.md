@@ -18,7 +18,7 @@ flowchart TB
   operator([operator]) -- "run · resume · retry · stop" --> cli
   subgraph binary["the brokkr binary — how far a delivery advances"]
     cli["brokkr-cli<br/>commands · embedded UI · driver entry"]
-    runtime["brokkr-runtime<br/>engine loop · bundles · recovery · confinement"]
+    runtime["brokkr-runtime<br/>engine loop · bundles · recovery · the boundary"]
     core["brokkr-core — PURE<br/>envelope · hashing · fold · policy"]
     store[("brokkr-store<br/>SQLite journal, hash-chained")]
     protocol["brokkr-protocol<br/>forge-driver/v1 over stdio"]
@@ -33,25 +33,18 @@ flowchart TB
   protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · exec<br/>capability, as leaf effects])
 ```
 
-Every edge drawn is a real dependency and every crate is drawn; the
-edges a path already implies are left out (decision 0037).
+Every edge is a real dependency; all seven crates are drawn. Transitive
+edges are omitted (decision 0037).
 
-Trust separates the crates, not deployment. `brokkr-core` performs no
-I/O, clock reads, randomness or process execution: given the same
-journal and bundle it returns the same state and the same ruling.
-Everything effectful sits above it and is journaled around it.
-`brokkr-view` is pure for a different reason: it is the one answer to
-every display question, rendered by `ui.html` as pixels and by
-`render.rs` as text, so the two surfaces cannot drift. Its manifest
-depends on exactly `brokkr-core`, `serde` and `serde_json`, which makes
-that purity a compile error rather than a review convention
-(decision 0013).
+`brokkr-core` performs no I/O, clock reads, randomness or process execution.
+The same journal and bundle produce the same state and ruling. Effectful work
+sits above it and is journaled. `brokkr-view` is also pure: one display
+answer rendered as HTML or terminal text. Its dependencies are restricted to
+`brokkr-core`, `serde` and `serde_json` (decision 0013).
 
-Brokkr decides how far a delivery advances and nothing else. What is
-worth delivering is decided above it, who pays is settled beside it
-from the journal's seat ids and cost checkpoints, and the harnesses
-below supply capability and nothing else. Each layer refuses a specific
-kind of lying, and none overrides another's law.
+Brokkr decides how far delivery advances. Product priorities are decided above
+it; costs are measured beside it from seat ids and checkpoints; harnesses below
+supply capability. None overrides another layer's authority.
 
 ## The journal is the run
 
@@ -119,7 +112,10 @@ never retries, because a retry could duplicate or re-pay for finished
 work. Exhaustion, schema violations, unmatched results and unknown
 anything park the run with the raw evidence attached — never repaired,
 coerced, or handed to a model to fix (decision 0001). Operator commands
-are journal events, not prose.
+are journal events, not prose. `operator --action supersede` records the named
+residual findings an operator closes, with the actor and optional closing-run
+citation (decision 0047); it does not rewrite a past verdict or resume a
+completed run.
 
 ## Policy is data
 
@@ -210,27 +206,17 @@ inheritance at run time, no dynamic lookup. Named things merge by name,
 redefining needs the marker, removal fails if its target is absent, and
 the constitutional lint runs on the resolved table.
 
-Agents are defined once and adapters are data (decision 0016): no Rust
-match arm over provider names is ever written, and a capability a
-provider cannot express is declared as the explicit string
-`"unsupported"`. Model policy is data with two compile-time refusals
-behind it (decision 0021): every driver-bearing site declares a `class`
-(`work` produces output the machine checks, `gate` is the check), every
-adapter declares a `trust_tier`, and clearance to RECEIVE belongs to
-the route, not the binary (decision 0036): an adapter declares an
-egress class (`local`/`contracted`/`uncontracted`) for its own
-destination and a `routes` map for the several one CLI may front, a
-route being the prefix of a concrete model id, and a seat with secret
-bindings compiles only if its resolved route meets the bundle's
-`egress_minimum`. Both axes read closed on absence: an undeclared tier
-is untrusted, an undeclared class is uncontracted, and a route the
-adapter does not name inherits nothing — a ruling on one destination
-clears no other the same binary reaches. Local is structural, not
-earned: it says where an endpoint runs and confers no gate seat. Fallback along an agent's model chain is bounded to
-`Failed` before `Accepted`, so a mid-session switch is unreachable by
-construction. What allowed a site is pinned into the manifest, so
-demoting a tier in `adapters/` moves the digest of every bundle standing
-on it.
+Agents and adapters are data (decision 0016). Unsupported capabilities are
+explicit refusals. Each driver-bearing site declares `work` or `gate`; gates
+require a trusted adapter. Secret bindings require the resolved route to meet
+the bundle's `egress_minimum` (decisions 0021 and 0036).
+
+Egress classes are `local`, `contracted` and `uncontracted`, declared for the
+adapter's destination and separately for each route it serves. Unknown tiers
+are untrusted; unknown classes and routes are uncontracted. A local endpoint
+gets no gate authority merely by being local. Fallback is bounded to failure
+before acceptance; sessions cannot switch models midway. Authorising adapters
+are pinned, so a changed trust declaration changes bundle identity.
 
 ## Drivers
 
@@ -242,7 +228,7 @@ sequenceDiagram
   E->>D: hello
   D-->>E: capabilities
   E->>D: start — seat prompt, result path, deadline
-  D->>H: spawn, optionally inside a pinned container
+  D->>H: spawn, behind the realm's boundary
   D-->>E: accepted
   loop each turn
     H-->>D: session stream
@@ -259,16 +245,24 @@ NDJSON over stdio, stdout protocol-only, stderr captured as an artifact.
 The adapters for Claude Code, Codex, dsh and any
 prompt-in/result-file-out harness are built into the binary as
 `{brokkr} driver <kind>` (decision 0009), while the protocol stays
-language-neutral for third-party drivers. Trust classes are data too:
-`driver.confine {image, network, mounts}` wraps the command in a pinned
-container with the workdir mounted at the same path.
+language-neutral for third-party drivers. What stands around a seat is
+the realm's **boundary** (decision 0046): `namespace`, `seatbelt`,
+`container`, `harness` or `open`, pinned per site, rendered *unboxed*
+under `harness` or `open`. Decision 0008's `driver.confine` is refused
+(0046 ruling 5) until slice (iii) builds `container`.
+
+The implemented boundaries are `namespace` (Linux/WSL2 with bubblewrap),
+`harness` and `open`. `seatbelt` and `container` refuse at start until their
+implementation lands. Harness gates require a measured adapter fragment;
+therefore not every shipped recipe is available under `harness`. The manifest
+pins the selected boundary, and CLI, TUI and web readouts retain that fact.
 
 ## Verification, in layers
 
 | Layer | What it pins |
 |---|---|
 | Differential corpus | A frozen 97-case corpus in [fixtures/](fixtures/) pins the evaluator: contract data, never regenerated. |
-| Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, confinement and bundle pinning. |
+| Machine proof | End-to-end scenarios drive the real binary and real subprocess protocol through success, retries, stops, parks, crash recovery at every durable boundary, panels, boxed hands and bundle pinning. |
 | Self-delivery | `bundles/self` lets the engine deliver changes to this repository; `shipped` is the sole entry into `done`, and the operator keeps push and merge. |
 | Brokkr verification | `bundles/verify` examines an already-delivered change with a verify seat and a strictly read-only review seat. It has hard-stopped its own author's work on a real security finding. |
 
@@ -286,3 +280,17 @@ the same `brokkr-view` models (decision 0014): read-only, no operator
 command, nothing written to the journal. `brokkr costs` reports per-seat
 attempts, turns and USD from journal checkpoints, keyed by the stable
 seat ids a cost ledger can join on.
+
+## Release preparation
+
+`release-manager` prepares versions, commit-derived notes, documentation and
+organization-profile patches. Its charter is portable; the realm's house file
+supplies extensible configuration, covered by the existing house digest and
+prompt assembly. Configuration describes required work and evidence; it does
+not execute commands or add checks to a gate.
+
+`recipes/release` combines the manager and library reviewer with `fast`'s policy
+and boxed exec gates. The shipped verifier is Rust-specific; another stack
+replaces it through recipe composition. External patches and base commits are
+reviewed in the handoff. Publication and cross-repository application are
+verified separately from local run completion.

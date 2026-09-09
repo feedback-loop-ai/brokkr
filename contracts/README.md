@@ -21,7 +21,7 @@ those bytes:
 |---|---|---|
 | Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | Looper, brokkr-core, Brokkr bridge |
 | Looper-bound run manifest | `run-manifest.v2.schema.json` | brokkr-runtime, brokkr-store export/resume, Brokkr bridge |
-| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v3.schema.json`, below) |
+| Seat record | `seat-record.v1.schema.json` | every driver, brokkr-store append/export/verify, every seat readout (superseded for new runs by `seat-record.v4.schema.json`, below) |
 
 The v2 manifest embeds the complete canonical dispatch envelope. The existing
 `runs.manifest` immutability trigger therefore makes Looper correlation,
@@ -97,8 +97,9 @@ Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
 | Contract | File | Consumers |
 |---|---|---|
 | The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
-| Specification dialect | `dialect.v1.schema.json` | superseded for new files by v2, below; bytes frozen |
-| Specification dialect, with the install identity | `dialect.v2.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
+| Specification dialect | `dialect.v1.schema.json` | no longer written; read from a run's pin, for the runs that pinned it; bytes frozen |
+| Specification dialect, with the install identity | `dialect.v2.schema.json` | no longer written; read from a run's pin, for the runs that pinned it; bytes frozen |
+| Specification dialect, with the archive instruction | `dialect.v3.schema.json` | brokkr-runtime (loading, map checks, boxed dialect steps and the smith's fold) |
 
 `forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
 house is a repository-relative Markdown file; its content and digest are
@@ -108,6 +109,31 @@ maps artifact and judge phases to framework artifacts, instructions,
 validators, dependency order and lifecycle commands. The loader checks the
 map and pins the resolved JSON content, not merely its declaration. A v2 map
 remains byte- and behavior-compatible.
+
+Decision 0042's addendum of 2026-09-06 adds `dialect.v3`, v2 plus one thing:
+a dialect that folds a change into a living truth tree declares the
+instruction its archive step carries. The archive command's `instructions`
+is a dialect-relative Markdown file rendered into the smith's implement
+prompt, where it tells the smith to append one `## Provenance` line per
+capability the change touched — the archived directory's name and the day it
+was folded, appended and never rewritten. A dialect with no truth tree
+declares the archive `unsupported` and names no instruction. v1 and v2 are
+not edited; their bytes stay frozen beside v3.
+
+A dialect FILE is v3, and only v3: it is written today, so it is written at
+the version this build writes, and an older declaration may not be used to
+escape what v3 requires. A dialect PIN may be any of the three. A dialect is
+not only a file on disk — a run pins its resolved content into the manifest,
+and a resume rehydrates that pin — and `realms.json` has declared a dialect
+since 2026-09-04, so runs have pinned `brokkr.dialect/v1` and `v2` bodies. A
+build that read v3 everywhere would strand every one of them, and would say
+so only as an untagged-variant mismatch. So `Dialect::parse` reads a file and
+`Dialect::parse_pinned` reads a pin; both refuse a version they do not read
+BY ITS VERSION, before the bytes are given a shape, and both hold each read
+version to its own shape: `tool.install` is absent at v1 and required from
+v2, and the archive command's `instructions` is absent below v3 and required
+at v3. An older dialect therefore folds exactly as it did on the day it was
+pinned — carrying no provenance instruction, because then there was none.
 
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six
@@ -187,6 +213,16 @@ Decision 0041 ruling 7 adds `phase-entered-case.v1.schema.json` on the same
 additive rule: `phase/entered.case` names the selected strategy case and is
 absent when the seat does not select. The fold does not read it; resume
 recomputes selection from the journal's `strategy` fact.
+Decision 0046 ruling 3 adds `effect-boundary.v1.schema.json` on the same
+rule: `effect/started.boundary` is a list with one entry per invocation site
+of the attempt — `member`, the site tag checkpoints and provenance already
+use; `boundary`, one of the five words or `not applicable` for a site
+without hands; `gate`, whether the site is gate class — present only when at
+least one site of the attempt declares hands. `fold` never reads it; a run
+over a bundle that boxes nothing journals byte-identical payloads. It is a
+narrowed reading of ruling 3's "every `effect/started`", named as such: a
+field on every start would be a v2 event, and the ruling's "every" is
+carried by the seat record instead.
 
 Reforging (decision 0022) adds one more file and changes none of the bytes
 above:
@@ -394,6 +430,55 @@ have carried — v3 adds an optional property and takes none away. Naming the
 unreleased line instead would judge every record this engine writes under
 v2 and refuse the `state` field it is already writing, which is the defect
 this addendum fixes.
+
+Decision 0046 (the boundary is named) adds four files and changes none of
+the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the boundary each realm's boxed hands stand behind | `realms.v4.schema.json` | brokkr-core (shape), brokkr-runtime (loading and the per-site resolution), `brokkr doctor` |
+| Run manifest with the boundary pinned per hands site | `run-manifest.v9.schema.json` | brokkr-runtime, brokkr-store export/resume, every bundle whose seats declare `hands` |
+| Seat record with the boundary that stood | `seat-record.v4.schema.json` | the engine's stamp, brokkr-store append/export/verify, every seat readout |
+| Effect boundary payload extension | `effect-boundary.v1.schema.json` | brokkr-runtime, brokkr-view, every readout that renders *unboxed* |
+
+`forge.realms/v4` is `v3` plus exactly one optional property per realm:
+`boundary`, one of `namespace`, `seatbelt`, `container`, `harness` or `open`
+— the mechanism that stands between a boxed seat's hands and that realm's
+machine, named for what varies and never for the operating system (ruling
+1). Absent, it reads `namespace`, which is what every bundle meant before
+the word existed, so a v3 map loads and resolves exactly as before. The
+enumeration is frozen the way a contract is: a new boundary is a new
+decision. The boundary is the realm's fact because the machine a realm runs
+on is the realm's fact; a bundle never names it, and the site parser refuses
+a `boundary` key in any site or `hands` object naming the realm as its home.
+
+`run-manifest.v9` is `v8` plus one optional `boundary` property: a map from
+hands site label to the realm's one resolved word, present exactly when the
+manifest has a `hands` key and absent with it — the schema's `dependencies`
+bind the two both ways — so a bundle that boxes nothing keeps its exact v8
+identity, and a run under `seatbelt` and a run under `namespace` are two
+identities, as decision 0043 ruling 4 requires. Like `drivers`, this key IS
+bundle data: it moves the digest, which is the point of the pin.
+
+`seat-record.v4` is `v3`'s vocabulary plus one optional property on the
+checkpoint and the successful result: `boundary`, the five words or decision
+0031's sentinel `not applicable` for a site without hands. The engine stamps
+it, never the driver — it is the only party that knows which boundary it
+built, and a driver's value never survives the stamp: a record that names a
+`model` carries `boundary` beside it, a record that names none carries no
+`boundary`. `v3` is not edited; its bytes are pinned by the embedded-copy test
+and did not move. The store dispatches the 0.9 engine line and later to v4
+and the 0.8 line to v3, on the same rule v2 and v3 stated: a record is
+validated against the version its run's engine wrote, and journals from the
+tagged 0.9.0 and 0.9.1 engines validate under v4 because it is additive. The
+data carries the plain word; every readout renders the adjective *unboxed*
+for a run whose gate stood under `harness` or `open`, and a record written
+before the word existed renders an explicit absence, never a default.
+
+`effect-boundary.v1` is the extension-field schema described under the event
+vocabulary above. Rulings 3 and 6 of the decision name the seat-record file
+`v3`; the decision's erratum records that v3 already existed and the field
+therefore lands as v4, nothing else renumbered.
 
 Decision 0047 adds one more file and changes none of the bytes above:
 

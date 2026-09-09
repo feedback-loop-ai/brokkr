@@ -35,17 +35,17 @@ a stable toolchain.
 |---|---|---|
 | A stable Rust toolchain | format, clippy, tests, the bundle compiles, the release build | `cargo --version` |
 | Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
-| A nightly toolchain with `llvm-tools-preview` | the coverage gate | `cargo +nightly --version` |
+| The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` | the coverage gate | `cargo llvm-cov --version` |
 | `jq` | the coverage gate (the script refuses without it) | `jq --version` |
 | `cargo-deny` | the licence gate | `cargo deny --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
-install 1.88.0`, `rustup toolchain install nightly --component
+install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
 llvm-tools-preview`, `cargo install cargo-llvm-cov cargo-deny`, and `jq`
 from your package manager. There is no `rust-toolchain.toml` in this
 tree, so your default toolchain is what `cargo` uses and the `+1.88.0`
-and `+nightly` prefixes are how the other two get selected.
+and dated-nightly prefixes are how the other two get selected.
 
 You do **not** need `cargo-audit`; the RustSec check runs only in CI.
 Installing it locally is a convenience, not a requirement — see
@@ -208,17 +208,16 @@ forge_coverage_dir="$(mktemp -d "${TMPDIR:-/tmp}/forge-coverage.XXXXXX")"
 (RAM-backed, and commonly a few gigabytes), that instrumented target
 directory can fill it and the run dies with `ENOSPC` partway through a
 link step. This project has hit exactly that. If your `/tmp` is small or
-RAM-backed, point `TMPDIR` at a disk-backed scratch directory before
-running:
+RAM-backed, point `TMPDIR` at a disk-backed scratch directory outside any Git
+worktree before running:
 
 ```
-mkdir -p target/coverage-scratch
-TMPDIR="$PWD/target/coverage-scratch" bash scripts/coverage-exact.sh
+TMPDIR=/var/tmp bash scripts/coverage-exact.sh
 ```
 
-`target/` is git-ignored, so the scratch directory never reaches a
-commit. The script deletes its own temporary directory on exit either
-way.
+The directory must be outside a Git worktree: tests that create ordinary
+temporary directories expect Git discovery to find no parent repository.
+The script deletes its own temporary build directory on exit.
 
 ### Dependency licences
 
@@ -345,6 +344,21 @@ judges an already-merged change and is the operator's tool, not yours).
 This is a recommendation, not a gate: nobody's pull request is rejected
 for skipping it. Its value is that the obvious findings are yours to fix
 before a human spends their attention on them.
+
+## The landing: let the machine finish what you wrote by hand
+
+Everything above is what a hand-authored branch has to satisfy. Since
+decision 0051 you do not have to run it yourself to propose the branch:
+light `brokkr run --recipe landing --repo . --feature "landing: <what
+the branch is>"` on it. A gate of seconds reads the branch's class
+against `.github/delivery-classes.json`; prose goes straight to the
+review seat, code goes through the verifier first — the same nine
+checks, boxed — and a failure or a finding above low comes back to an
+implement seat commissioned by that finding, twice at most. A clean
+judgment ships: the anchor carries the branch's patch map, and the
+contribution gate vouches for your pull request at tier `vouched`
+without the operator's `by-hand` label. Name the run as `Brokkr-Run:` in
+the pull request. `preflight` remains the way to ask without landing.
 
 ## The coverage gate, practically
 

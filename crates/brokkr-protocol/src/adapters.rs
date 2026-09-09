@@ -15,10 +15,13 @@
 //! spelling for one more release (decision 0019, `legacy`).
 
 use std::io::{BufRead, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+use crate::dsh_sandbox;
+use crate::hands::GitFacts;
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
@@ -104,9 +107,65 @@ impl AdapterKind {
     }
 }
 
+/// The hands paragraph a model-backed seat reads inside its result
+/// contract (decision 0043; decision 0046 rulings 3 and 4). Keyed off
+/// the input's `hands` marker and `boundary` word:
+///
+/// - `hands: boxed` — today's words: the workspace tool is the only
+///   writer, whatever the boxed word is;
+/// - `boundary: harness` — the harness's own sandbox stands, no
+///   workspace tool is served, and the result reaches the engine through
+///   the door the input names: the one file the sandbox lets the seat
+///   write, or the seat's final message, which the harness captures;
+/// - `boundary: open` — nothing of Brokkr's stands; the seat writes the
+///   file;
+/// - neither — no paragraph, as before the box existed.
+fn hands_paragraph(input: &Value) -> String {
+    let word = input.get("boundary").and_then(Value::as_str);
+    if input.get("hands").and_then(Value::as_str) == Some("boxed") {
+        return "\n\nYour hands are boxed: the worktree, and this result file, are \
+         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
+         harness's own shell runs outside the box and cannot write here — a \
+         file written through it never reaches the engine. Write the result \
+         file with the workspace tool."
+            .to_string();
+    }
+    match word {
+        Some("harness") if last_message_door(input) => "\n\nYour hands stand under the \
+         `harness` boundary: no workspace tool of Brokkr's is served, and you run under \
+         your harness's own read-only sandbox. Your FINAL message must be exactly the \
+         result object above and nothing else — the harness writes that message to the \
+         result path, so you do not write the file yourself."
+            .to_string(),
+        Some("harness") => "\n\nYour hands stand under the `harness` boundary: no workspace \
+         tool of Brokkr's is served, and you run under your harness's own sandbox. The \
+         result path above is the one file that sandbox lets you write; write it yourself."
+            .to_string(),
+        Some("open") => "\n\nYour hands stand under the `open` boundary: nothing of \
+         Brokkr's stands between you and the machine, and no workspace tool is served. \
+         Write the result file yourself."
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Whether the seat's result reaches the engine through its harness's
+/// capture of the final message rather than a file the seat writes
+/// (decision 0046 ruling 4; design D23).
+fn last_message_door(input: &Value) -> bool {
+    input.get("result_delivery").and_then(Value::as_str) == Some("last-message")
+}
+
 /// Render the model-facing prompt from the three independently owned texts in
 /// one engine input: charter, optional realm house, and site result contract.
-pub fn render_prompt(input: &Value) -> String {
+///
+/// `kind` is the driver about to read it (decision 0046; design DD21): the
+/// hands paragraph is prose for a model, so it is rendered for the four
+/// model kinds and never for `exec`, whose script reads the composed
+/// environment and not a sentence. The rest of the prompt is the same
+/// for every kind, which is what lets the shipped verify and ship
+/// scripts keep reading the result path off it by line.
+pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
     let get = |key: &str| input.get(key).and_then(Value::as_str).unwrap_or("");
     let role = input
         .get("role_path")
@@ -138,29 +197,44 @@ pub fn render_prompt(input: &Value) -> String {
     // Decision 0043: a boxed seat's harness keeps its own shell outside
     // the box, read-only or worse, and the first astra-judged gate wrote
     // its verdict through that shell twice and met no result contract.
-    // The contract therefore names the one tool that can write.
-    let hands = if input.get("hands").and_then(Value::as_str) == Some("boxed") {
-        "\n\nYour hands are boxed: the worktree, and this result file, are \
-         reachable ONLY through the `mcp__brokkr__workspace` tool. Your \
-         harness's own shell runs outside the box and cannot write here — a \
-         file written through it never reaches the engine. Write the result \
-         file with the workspace tool."
+    // The contract therefore names the one tool that can write — and,
+    // since decision 0046, the boundary the seat stands under. An exec
+    // driver reads no paragraph: its script reads the environment.
+    let hands = match kind {
+        AdapterKind::Exec => String::new(),
+        _ => hands_paragraph(input),
+    };
+    // Under a `last-message` door (decision 0046 ruling 4) the contract's
+    // own line says how the file comes to exist: the harness writes the
+    // seat's final message to it. The path stays on its own line, where
+    // every reader of this prompt finds it.
+    let (asked, only) = if kind != AdapterKind::Exec && last_message_door(input) {
+        (
+            "your FINAL message must be exactly a JSON object, which your harness writes to \
+             exactly this file",
+            "The file is the ONLY channel the engine reads; your harness writes your final \
+             message there, so a final message that is not the bare object counts as \
+             producing no result.",
+        )
     } else {
-        ""
+        (
+            "write a JSON object to exactly this file",
+            "The file is the ONLY channel the engine reads. Printing the JSON instead of \
+             writing the file counts as producing no result.",
+        )
     };
     format!(
         "{role}{house}{dialect}\n\n---\n## Task\n\nFeature: {feature}\nPhase: {phase} (you are this \
          phase's only seat)\nWorking directory: {workdir}\n\nRun context \
          (journal-derived, read-only):\n```json\n{context}\n```\n\n## Result contract \
-         — MANDATORY\n\nWhen your work is finished, write a JSON object to exactly \
-         this file:\n\n    {result_path}\n\nwith the shape:\n\n    {{\"result\": \
+         — MANDATORY\n\nWhen your work is finished, {asked}:\n\n    {result_path}\n\nwith the shape:\n\n    {{\"result\": \
          \"<one of: {allowed}>\",\n      \"inputs\": {{ ...optional typed facts for \
          the phase machine... }},\n      \"notes\": \"<short human summary of what \
-         you did and why>\"}}\n\nThe file is the ONLY channel the engine reads. \
-         Printing the JSON instead of writing the file counts as producing no \
-         result. The object carries exactly these top-level keys — result, \
-         inputs, notes — and nothing else: a typed fact goes INSIDE inputs, \
-         and a record with any other top-level key is refused where it is \
+         you did and why>\"}}
+
+{only} The object carries exactly these top-level \
+         keys — result, inputs, notes — and nothing else: a typed fact goes INSIDE \
+         inputs, and a record with any other top-level key is refused where it is \
          sealed (decision 0034), which loses the whole attempt. You never decide the next phase — the engine's policy table rules \
          on your typed result.{hands}\n",
         role = role,
@@ -182,6 +256,20 @@ struct Invocation {
     stdout: String,
     stderr: String,
     state: Option<String>,
+    /// A provider refusal the harness recorded BEFORE its first turn
+    /// (decision 0053). `Some(reason)` is a candidate refusal to start:
+    /// no turn had opened when it was classified, so — IF no work began
+    /// afterwards — no work exists for a different model to fail to
+    /// inherit, and the attempt is reported with `result: failed` and NO
+    /// `accepted` so the engine's structural fail-to-start predicate can
+    /// advance the chain. `None` is every other shape, including a
+    /// refusal that arrived after the first turn — that one stays a
+    /// mid-session failure under decision 0016.
+    ///
+    /// The "if" is `run_seat`'s to settle, not the fold's: a harness may
+    /// report an error and then go on to work, and a session that worked
+    /// is not one that refused to start.
+    refusal: Option<String>,
 }
 
 /// Provider-reported model ids are journal data, so admit only the
@@ -419,6 +507,159 @@ fn run_cli(
     io_context(child.wait_with_output(), "agent CLI did not conclude")
 }
 
+/// One line of wire text, whitespace-collapsed and clamped: every field
+/// a refusal reason quotes comes off the harness's stream, so it is
+/// arbitrary-length and may carry newlines. The journal is append-only
+/// and every readout renders what lands in it, so a reason is bounded
+/// here rather than trusted — the same discipline as the ≤80-char tool
+/// names and targets and the 4000-byte stderr tail. Control characters
+/// go with the newlines: a terminal escape belongs in a record no more
+/// than a line break does.
+fn bounded_wire_line(text: &str, limit: usize) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(limit)
+        .collect()
+}
+
+/// The token's own bound. A machine token is a short identifier
+/// (`rate_limit`, `authentication_error`); the checkpoint bound for a
+/// harness-supplied name governs it too.
+const REFUSAL_TOKEN_LIMIT: usize = 80;
+
+/// And the excerpt's, which may be a sentence.
+const REFUSAL_TEXT_LIMIT: usize = 160;
+
+/// Bound one refusal reason for the journal: a single line, clamped, and
+/// never empty. The reason is the provider's own machine token when it
+/// gave one, the HTTP status when it gave that, and a short excerpt of
+/// its prose when it gave that — the same evidence a stderr tail already
+/// carries on a failed attempt, and nothing executable is derived from it.
+///
+/// The token is bounded exactly like the excerpt. It is read from the
+/// harness's stream, so "the provider's own token" is only ever a claim
+/// about where the bytes came from: a harness emitting a 200KB
+/// newline-bearing `error` must not put that in a durable record.
+fn refusal_reason(token: &str, status: Option<i64>, text: Option<&str>) -> String {
+    let token = bounded_wire_line(token, REFUSAL_TOKEN_LIMIT);
+    // Never empty: a refusal with no token at all is still a refusal,
+    // and an empty one would leave the line dangling after its colon.
+    let token = if token.is_empty() {
+        "api_error"
+    } else {
+        &token
+    };
+    let mut reason = format!("provider refused before the first turn: {token}");
+    if let Some(status) = status {
+        reason.push_str(&format!(" (HTTP {status})"));
+    }
+    if let Some(text) = text {
+        let excerpt = bounded_wire_line(text, REFUSAL_TEXT_LIMIT);
+        if !excerpt.is_empty() {
+            reason.push_str(": ");
+            reason.push_str(&excerpt);
+        }
+    }
+    reason
+}
+
+/// The claude (and, byte-for-byte, lanetally) stream-json record of a
+/// provider refusal. Three measured shapes, all meaning the request was
+/// rejected before any inference (decision 0053):
+///
+/// - the synthetic assistant message #68816 records, carrying
+///   `isApiErrorMessage: true` and an `error` token (`rate_limit`,
+///   `authentication_error`, …) beside an ordinary terminal
+///   `stop_reason: "stop_sequence"` — the shape the #219 run measured,
+///   and the reason a `type` test alone cannot see it;
+/// - the error `result` #79500 records, `is_error: true` with the prose
+///   in `result` and no turn behind it;
+/// - the `rate_limit_event` lifecycle message newer CLIs emit.
+///
+/// A record with none of those fields is an ordinary turn and is never
+/// read here; nothing in this classifier looks at a model's prose.
+fn claude_refusal(event: &Value) -> Option<String> {
+    match event.get("type").and_then(Value::as_str) {
+        Some("rate_limit_event") => Some(refusal_reason(
+            "rate_limit",
+            event.get("apiErrorStatus").and_then(Value::as_i64),
+            event
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| event.get("error").and_then(Value::as_str)),
+        )),
+        Some("assistant") => {
+            let api_error = event
+                .get("isApiErrorMessage")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || event.get("error").and_then(Value::as_str).is_some();
+            api_error.then(|| {
+                refusal_reason(
+                    event
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("api_error"),
+                    event.get("apiErrorStatus").and_then(Value::as_i64),
+                    event
+                        .pointer("/message/content/0/text")
+                        .and_then(Value::as_str),
+                )
+            })
+        }
+        Some("result") => {
+            let is_error = event
+                .get("is_error")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                || event.get("error").and_then(Value::as_str).is_some();
+            is_error.then(|| {
+                refusal_reason(
+                    event
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("api_error"),
+                    event.get("apiErrorStatus").and_then(Value::as_i64),
+                    event.get("result").and_then(Value::as_str),
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
+/// The codex `exec --json` record of a pre-session refusal: the harness's
+/// own machine-readable `error` event, or a `turn.failed` that arrived
+/// before any `turn.started`. Codex puts the provider's message in
+/// `message` on the one and under `error.message` on the other; neither
+/// is model prose, and a record with any other type is never read here.
+fn codex_refusal(event: &Value) -> Option<String> {
+    match event.get("type").and_then(Value::as_str) {
+        Some("error") => Some(refusal_reason(
+            "api_error",
+            None,
+            event
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| event.pointer("/error/message").and_then(Value::as_str)),
+        )),
+        Some("turn.failed") => Some(refusal_reason(
+            "api_error",
+            None,
+            event
+                .pointer("/error/message")
+                .and_then(Value::as_str)
+                .or_else(|| event.get("message").and_then(Value::as_str)),
+        )),
+        _ => None,
+    }
+}
+
 /// One parsed claude stream-json line folded into the seat's telemetry:
 /// `system`/`init` and `result` feed `session_meta`; each `tool_use`
 /// block of an `assistant` message becomes one seat-turn checkpoint,
@@ -435,15 +676,31 @@ fn fold_stream_event(
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
-) {
+) -> Option<String> {
+    // Decision 0053: a provider refusal is not a turn. It is classified
+    // ONLY before the first real turn; once one has been counted the
+    // session has opened and decision 0016's mid-session boundary holds
+    // unchanged. A refusal record emits no checkpoint and no usage, so
+    // the structural fail-to-start predicate can see it.
+    if *assistant_turns == 0 {
+        if let Some(reason) = claude_refusal(event) {
+            return Some(reason);
+        }
+    }
     match event.get("type").and_then(Value::as_str) {
         Some("system") if event.get("subtype").and_then(Value::as_str) == Some("init") => {
             if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                // Journaled NOW, not only at session end: the
-                // transcript drilldowns can only locate — and live-
-                // stream — a WORKING seat's prose if the id is known
-                // from the first message. Decision 0032's shared module
-                // clamps and journals the one transcript shape.
+                // Recorded NOW, not only at session end: the transcript
+                // drilldowns can only locate — and live-stream — a
+                // WORKING seat's prose if the id is known from the first
+                // message. Decision 0032's shared module clamps and
+                // shapes the one transcript row. Since decision 0053 the
+                // row reaches the JOURNAL one beat later: `run_seat`
+                // buffers it until a checkpoint proves work began,
+                // because a checkpoint before that would put a refused
+                // attempt on the mid-session side of decision 0016's
+                // boundary. A refused attempt keeps the locator in its
+                // failure reason instead.
                 transcript.record(session_id, session_meta, emit);
             }
         }
@@ -567,6 +824,7 @@ fn fold_stream_event(
         }
         _ => {}
     }
+    None
 }
 
 /// How deep below `<codex home>/sessions` the thread record may sit.
@@ -752,17 +1010,32 @@ fn fold_codex_event(
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Value),
-) {
+) -> Option<String> {
+    // Decision 0053: an error codex reported before its first `turn.started`
+    // is a refusal to start, not a turn. After the first turn the boundary
+    // is decision 0016's, unchanged.
+    if *turn == 0 {
+        if let Some(reason) = codex_refusal(event) {
+            return Some(reason);
+        }
+    }
     match event.get("type").and_then(Value::as_str) {
         Some("thread.started") => {
             if let Some(thread_id) = event.get("thread_id").and_then(Value::as_str) {
                 echo.locate(transcript.home(), thread_id);
-                // Journaled NOW, as the claude fold journals its own —
+                // Recorded NOW, as the claude fold records its own —
                 // and for a second reason here: the thread id is what a
                 // retry resumes (decision 0030), and an attempt killed
                 // on its deadline never reaches the session-finished
-                // checkpoint. Captured at `thread.started`, the id
-                // survives exactly the failure a retry follows.
+                // checkpoint. Captured at `thread.started`, the id is in
+                // hand from the harness's first message. It reaches the
+                // JOURNAL with the attempt's first work checkpoint,
+                // which `run_seat` flushes it ahead of: a pre-session
+                // row would put a refused attempt on decision 0016's
+                // mid-session side. So a kill AFTER the first turn still
+                // hands its thread to the retry that follows, and a kill
+                // before it has none to hand — decision 0053 ruling 8,
+                // which names that window and its cost.
                 transcript.record(thread_id, session_meta, emit);
             }
         }
@@ -859,6 +1132,7 @@ fn fold_codex_event(
         }
         _ => {}
     }
+    None
 }
 
 /// One harness-reported token count folded into the session totals.
@@ -1290,6 +1564,15 @@ fn invoke_stream_json(
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
     let mut assistant_turns = 0u64;
+    // Decision 0053: the FIRST pre-turn refusal is the one reported, and
+    // the fold keeps reading the whole stream after it. A latched
+    // refusal is not a decision to stop listening: a harness that
+    // retried and then worked emits turns behind it, and those turns are
+    // the seat's served model, usage, cost and resumable session id
+    // (decision 0030). Whether the refusal ends the attempt is settled
+    // by whether any work began — `run_seat` reads that from the
+    // checkpoints, not from where the classifier stopped.
+    let mut refusal: Option<String> = None;
     for line in std::io::BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
         // Unparseable stream lines are noise, never repaired
@@ -1297,13 +1580,14 @@ fn invoke_stream_json(
         let Ok(event) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        fold_stream_event(
+        let classified = fold_stream_event(
             &event,
             &mut assistant_turns,
             &mut session_meta,
             &mut transcript,
             emit,
         );
+        refusal = refusal.or(classified);
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
     transcript.finish(&mut session_meta, emit);
@@ -1313,6 +1597,7 @@ fn invoke_stream_json(
         stdout: String::new(),
         stderr: stderr_thread.join().unwrap_or_default(),
         state: None,
+        refusal,
     })
 }
 
@@ -1639,10 +1924,17 @@ fn invoke_codex(
     let mut session_meta = Map::new();
     let mut turn = 0;
     let mut echo = CodexThreadEcho::default();
+    // Decision 0053: codex's wire protocol DOES carry the distinction —
+    // a machine-readable `error`/`turn.failed` before the first
+    // `turn.started` is a refusal to start. After a turn it is 0016's
+    // mid-session failure, so the fold classifies only at `turn == 0`,
+    // and — as in the claude arm — it keeps folding the rest of the
+    // stream so a session that recovered keeps its thread id and totals.
+    let mut refusal: Option<String> = None;
     for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
         let Ok(line) = line else { break };
         if let Ok(event) = serde_json::from_str::<Value>(&line) {
-            fold_codex_event(
+            let classified = fold_codex_event(
                 &event,
                 &mut turn,
                 &mut session_meta,
@@ -1650,6 +1942,7 @@ fn invoke_codex(
                 &mut echo,
                 emit,
             );
+            refusal = refusal.or(classified);
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
@@ -1696,6 +1989,7 @@ fn invoke_codex(
         stdout: String::new(),
         stderr,
         state: None,
+        refusal,
     })
 }
 
@@ -1764,7 +2058,31 @@ fn invoke_dsh_with(
         dsh_transcript_root_under(Some(transcript.home().to_path_buf()))
     })?;
     let root = root_dir.as_path();
-    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), root)?;
+    // The dsh harness sandbox confines writes to the session workspace
+    // (decision 0054). A linked worktree's git metadata lives outside it,
+    // so the driver resolves the two git directories through Git NOW —
+    // before the seat can edit anything — and, when the seat's mode
+    // confines writes, points dsh's sandbox provider at the scoped
+    // runner that can reach them. A seat that cannot commit refuses
+    // here, before it spends an implementation.
+    let facts = if workdir.is_empty() {
+        GitFacts::default()
+    } else {
+        crate::hands::git_facts(Path::new(workdir))
+    };
+    let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
+    // The private git store is named in every command's runner argv, so
+    // it is held here for the seat's whole life and handed to the
+    // promotion below, which is the only way anything the seat committed
+    // reaches the shared repository.
+    let staged = dsh_sandbox_row_for(workdir, &facts, &mode)?;
+    let sandbox_row = staged.as_ref().map(|(row, _, _)| row.clone());
+    let overlay = dsh_seat_overlay_with(
+        model.as_deref(),
+        effort.as_deref(),
+        root,
+        sandbox_row.as_deref(),
+    )?;
     let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
     transcript.record(&locator, &mut session_meta, emit);
@@ -1784,13 +2102,27 @@ fn invoke_dsh_with(
     ];
     command.extend(passthrough);
     command.push(prompt.into());
-    let child = Command::new(&command[0])
+    let mut child = Command::new(&command[0]);
+    child
         .args(&command[1..])
         .current_dir(if workdir.is_empty() { "." } else { workdir })
+        // Seat commits are unsigned (CONTRIBUTING): the host's own
+        // `commit.gpgsign` is outranked for every git call this seat
+        // makes, and the signing wrapper and its key stay outside the
+        // harness's sandbox.
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn();
+        .stderr(Stdio::piped());
+    // The seat commits under the host's identity, resolved outside the
+    // sandbox the way the namespace box resolves it (decision 0043
+    // ruling 6).
+    for (key, value) in &facts.identity {
+        child.env(key, value);
+    }
+    let child = child.spawn();
     let mut child = io_context(child, "could not invoke the agent CLI")?;
     let stderr_pipe = child.stderr.take().expect("piped");
     let stderr_thread = std::thread::spawn(move || {
@@ -1801,21 +2133,66 @@ fn invoke_dsh_with(
     });
     let mut turns = 0u64;
     let mut tail = DshTail::default();
-    let exit_code = poll_until_exit(
+    let exit_code = match poll_until_exit(
         || wait(&mut child),
         || drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit),
-    )?;
+    ) {
+        Ok(code) => code,
+        // Everything the seat committed is in the private store and
+        // nowhere else until the promotion below moves it. Returning here
+        // would drop the store — and the seat's work with it — behind a
+        // spawn-level error naming neither (decision 0054 ruling 5).
+        Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
+    };
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
     // No pin lands in session_meta: "model" there is only ever what the
     // transcript said served (decision 0031).
+    //
+    // Decision 0053: dsh's headless profile makes no machine-readable
+    // pre-session refusal available. Its stdout is the final answer or
+    // nothing, and a provider rejection reaches this driver only as
+    // stderr prose plus a non-zero exit — sniffing that prose to make a
+    // control decision is exactly the repair decision 0001 forbids. So
+    // dsh classifies nothing here and a refusal before its first turn
+    // follows decision 0006 unchanged; the guide says so beside claude
+    // and codex.
+    let mut stderr = redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default());
+    // The seat wrote its objects and moved its branch inside the private
+    // common directory the driver staged; the shared repository was
+    // read-only to it throughout. This is where the ONE ref the worktree
+    // owns crosses over, outside every box (decision 0054 ruling 5). A
+    // promotion that cannot happen is a driver failure with the store's
+    // path in it, never a silent loss of the seat's commits.
+    if let Some((_, scope, staged)) = staged {
+        if let Some(promotion) = dsh_sandbox::promote_seat_commits(staged, &scope)? {
+            stderr.push_str(&promotion.summary());
+            stderr.push('\n');
+        }
+    }
     Ok(Invocation {
         exit_code,
         session_meta,
         stdout: String::new(),
-        stderr: redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default()),
+        stderr,
         state: None,
+        refusal: None,
     })
+}
+
+/// A driver failure that reaches a seat BEFORE its promotion keeps the
+/// private store and names it, exactly as a promotion that cannot happen
+/// does: the store holds the only copy of the seat's commits until the
+/// promotion moves them. A seat with no scoped store has nothing to lose,
+/// so its failure travels unchanged.
+fn dsh_failure_before_promotion(
+    problem: String,
+    staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
+) -> String {
+    match staged {
+        Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem),
+        None => problem,
+    }
 }
 
 /// The one dsh stderr stream the journal may not quote.
@@ -2007,6 +2384,11 @@ fn invoke_with_stager(
                 stdout: String::from_utf8_lossy(&stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr).into_owned(),
                 state,
+                // Decision 0053: exec has no model turn and no provider
+                // to refuse it. Its failures are the script's own, and
+                // an inline exec site carries an empty chain anyway, so
+                // there is no fallback for a refusal to reach.
+                refusal: None,
             })
         }
     }
@@ -2181,12 +2563,147 @@ impl DshSeatOverlay {
     }
 }
 
-fn dsh_seat_overlay(
+/// The git metadata a dsh `workspace-write` seat cannot reach, resolved
+/// by the trusted driver before the seat starts (decision 0054). `None`
+/// when the workspace's git directory already sits inside the writable
+/// root, when the mode needs no writes, or when the workspace is not a
+/// repository. The session cwd — not the repository toplevel — is the
+/// provider's writable root, so a git directory outside it is the defect
+/// whether the seat's cwd is a linked worktree or a subdirectory.
+///
+/// A scope this returns is not automatically served: `dsh_sandbox_row_for`
+/// asks `scope_refusal` first, because only a linked worktree Git itself
+/// created can be bound without widening the boundary (decision 0054
+/// ruling 3).
+fn dsh_git_runner_scope(
+    workdir: &str,
+    facts: &GitFacts,
+    mode: &str,
+) -> Option<dsh_sandbox::GitScope> {
+    let common = facts.common_dir.as_ref()?;
+    // The git paths are absolute; a relative `--repo .` resolves against
+    // the driver's cwd, which is the workspace itself. Both sides are
+    // canonicalized so a symlinked or nested spelling agrees with the
+    // workspace dsh itself canonicalizes for its profile.
+    let workspace = std::path::absolute(workdir).unwrap_or_else(|_| PathBuf::from(workdir));
+    let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
+    let common = std::fs::canonicalize(common).unwrap_or_else(|_| common.clone());
+    if common.starts_with(&workspace) {
+        return None;
+    }
+    if mode == "read-only" || mode == "danger-full-access" {
+        return None;
+    }
+    let git_dir = facts.git_dir.clone().unwrap_or_else(|| common.clone());
+    Some(dsh_sandbox::GitScope {
+        workspace,
+        git_dir: std::fs::canonicalize(&git_dir).unwrap_or(git_dir),
+        common_dir: common,
+    })
+}
+
+/// The scoped-runner row for one seat, the scope it was written for and
+/// the host state it names, or `None` when the seat's git metadata
+/// already sits inside the writable workspace. A seat whose linked
+/// worktree cannot reach its git directory refuses here, before it spends
+/// an implementation.
+///
+/// The caller must hold the staged store for the seat's whole life:
+/// dropping it unlinks the private common directory every command in the
+/// seat is writing into, and the empty file they mount over `config` and
+/// `config.worktree`. It is handed to `promote_seat_commits` afterwards,
+/// which is how the seat's branch reaches the shared repository.
+fn dsh_sandbox_row_for(
+    workdir: &str,
+    facts: &GitFacts,
+    mode: &str,
+) -> Result<Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>, String> {
+    let Some(scope) = dsh_git_runner_scope(workdir, facts, mode) else {
+        return Ok(None);
+    };
+    // A layout the scoped runner will not serve refuses here, before the
+    // seat spends an implementation, rather than at the seat's first
+    // commit (decision 0054).
+    if let Some(problem) = dsh_sandbox::scope_refusal(&scope) {
+        return Err(format!("dsh driver: {problem}"));
+    }
+    let bwrap = dsh_bwrap()?;
+    let program = dsh_runner_program();
+    let staged = dsh_sandbox::stage_seat_store(&scope)?;
+    let row = dsh_sandbox::sandbox_row(&program, &bwrap, &staged, &scope)?;
+    Ok(Some((row, scope, staged)))
+}
+
+/// The bwrap binary the scoped runner needs, or the refusal that names
+/// why the seat cannot start. A present-but-unusable bubblewrap is not
+/// support: dsh would have fallen back to its Landlock rung, which
+/// cannot express an extra writable root either. The path is absolute,
+/// so the runner executes exactly this binary rather than searching
+/// `PATH` again inside the seat.
+#[cfg(target_os = "linux")]
+fn dsh_bwrap_on(path: &std::ffi::OsStr) -> Result<PathBuf, String> {
+    let bwrap = crate::hands::bwrap_on(path).map_err(|problem| {
+        format!(
+            "dsh driver: {problem}; a linked worktree's git metadata lies outside the seat's \
+             writable workspace and this driver will not run the seat without a scoped runner"
+        )
+    })?;
+    let bwrap = std::fs::canonicalize(&bwrap).unwrap_or(bwrap);
+    dsh_sandbox::require_usable_bwrap(&bwrap)?;
+    Ok(bwrap)
+}
+
+#[cfg(target_os = "linux")]
+fn dsh_bwrap() -> Result<PathBuf, String> {
+    dsh_bwrap_on(&std::env::var_os("PATH").unwrap_or_default())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn dsh_bwrap() -> Result<PathBuf, String> {
+    Err(format!(
+        "dsh driver: this host ({}) has no bubblewrap-compatible runner for a linked \
+         worktree's git metadata; use a standalone checkout, or a realm boundary that can \
+         write the git directory",
+        std::env::consts::OS
+    ))
+}
+
+/// The runner program the sandbox row names: the override a test or a
+/// non-`PATH` installation sets, else this binary, else the name a
+/// `PATH` lookup resolves. The `dsh-sandbox-runner` verb is appended by
+/// the row, never stored here. The executable arrives as the host's own
+/// answer rather than as a rendered error, so the one way it can fail
+/// needs no translation step of its own.
+fn dsh_runner_program_from(
+    override_value: Option<String>,
+    executable: std::io::Result<PathBuf>,
+) -> String {
+    if let Some(program) = override_value {
+        return program;
+    }
+    match executable {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => "brokkr".to_string(),
+    }
+}
+
+fn dsh_runner_program() -> String {
+    dsh_runner_program_from(
+        crate::legacy::env("BROKKR_DSH_RUNNER", None),
+        std::env::current_exe(),
+    )
+}
+
+/// The seat overlay with the scoped sandbox row a linked-worktree seat
+/// needs (decision 0054). It is one patch file because `--patch` is the
+/// launcher's only override channel.
+fn dsh_seat_overlay_with(
     model: Option<&str>,
     effort: Option<&str>,
     root: &std::path::Path,
+    sandbox: Option<&str>,
 ) -> Result<DshSeatOverlay, String> {
-    dsh_seat_overlay_in(model, effort, root, || {
+    dsh_seat_overlay_in(model, effort, root, sandbox, || {
         tempfile::Builder::new()
             .prefix("brokkr-dsh-seat-")
             .suffix(".yml")
@@ -2204,6 +2721,7 @@ fn dsh_seat_overlay_in(
     model: Option<&str>,
     effort: Option<&str>,
     root: &std::path::Path,
+    sandbox: Option<&str>,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<DshSeatOverlay, String> {
     let mut rows = dsh_transcript_row(root)?;
@@ -2228,6 +2746,9 @@ fn dsh_seat_overlay_in(
         }
         _ => None,
     };
+    if let Some(sandbox) = sandbox {
+        rows.push_str(sandbox);
+    }
     let mut patch = match model {
         Some(model) => dsh_model_overlay_in(model, create)?,
         None => io_context(create(), "could not stage the dsh seat overlay")?,
@@ -2336,6 +2857,42 @@ fn stderr_tail_start(stderr: &str) -> usize {
     start
 }
 
+/// Whether a driver checkpoint proves the harness began work (decision
+/// 0053). Every row a driver writes before the session opens is one of
+/// two pre-session shapes — the shared `transcript` locator, and the
+/// `harness-started` launch row codex and dsh write — and the first row
+/// that is neither is the one that flips the attempt across decision
+/// 0016's boundary. Exec has no model turn: its `exec-started` row IS the
+/// start.
+fn begins_work(step: &str) -> bool {
+    !matches!(step, "transcript" | "harness-started")
+}
+
+/// The refused attempt's pointer at its own prose: `<kind>/<locator>`
+/// off the transcript row decision 0032 already shapes, or nothing when
+/// the harness never announced a session. Neither half is read for
+/// anything — it is an address a person types into a drilldown — but the
+/// locator is a harness-supplied field like every other one this reason
+/// quotes, and decision 0032's own clamp bounds its LENGTH only. It is
+/// put through the same wire bound as the token here, so the composed
+/// reason is one line whatever a harness announced its session as.
+fn transcript_locator(session_meta: &Map<String, Value>) -> Option<String> {
+    let transcript = session_meta.get("transcript")?;
+    let locator = transcript.get("locator").and_then(Value::as_str)?;
+    let locator = bounded_wire_line(locator, REFUSAL_TOKEN_LIMIT);
+    if locator.is_empty() {
+        return None;
+    }
+    let kind = bounded_wire_line(
+        transcript
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("none"),
+        REFUSAL_TOKEN_LIMIT,
+    );
+    Some(format!("{kind}/{locator}"))
+}
+
 /// `session` is the prior session the engine handed back for this seat
 /// (decision 0030), or `None` for the cold start every attempt was
 /// before it. Only the codex arm knows what to do with one; the rest
@@ -2350,11 +2907,22 @@ fn run_seat(
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
-    send(Body::Accepted {
-        effect_id: effect_id.clone(),
-        attempt_id: attempt_id.clone(),
-        session_ref: None,
-    });
+    // Decision 0053: `accepted` is withheld until a checkpoint proves a
+    // turn began. A provider that refuses before its first turn sends
+    // `result: failed` with NO `accepted` and NO checkpoint — exactly the
+    // engine's structural fail-to-start predicate, so the chain advances
+    // as it does for a driver the machine cannot reach at all. Every
+    // other path sends `accepted` exactly as it did before, so nothing
+    // widens but the refusal decision 0016 already calls a failure to
+    // start; a refusal after the first turn is still a mid-session
+    // failure under 0016.
+    let mut accepted_sent = false;
+    // A checkpoint is withheld until one proves work began. The rows a
+    // driver writes before the session opens — the transcript locator and
+    // the codex/dsh launch row — are buffered, flushed once the attempt
+    // crosses the boundary, and dropped when it refused to start.
+    let mut began_work = false;
+    let mut buffered: Vec<Value> = Vec::new();
     let result_path = input
         .get("result_path")
         .and_then(Value::as_str)
@@ -2389,6 +2957,16 @@ fn run_seat(
         match secret::resolve_bindings(std::path::Path::new(store), &declared) {
             Ok(bindings) => bindings,
             Err(error) => {
+                // A missing secret is a determinate configuration refusal,
+                // not a provider's. It keeps the attempt's `accepted`
+                // exactly as it always was, so the fail-to-start boundary
+                // moves for a provider refusal and for nothing else. The
+                // driver has not spawned, so no turn can have begun.
+                send(Body::Accepted {
+                    effect_id: effect_id.clone(),
+                    attempt_id: attempt_id.clone(),
+                    session_ref: None,
+                });
                 send(Body::Result {
                     effect_id,
                     attempt_id,
@@ -2401,7 +2979,7 @@ fn run_seat(
         }
     };
 
-    let prompt = render_prompt(&input);
+    let prompt = render_prompt(&input, kind);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
     let invocation = match invoke(
@@ -2446,15 +3024,57 @@ fn run_seat(
                     .to_string(),
                 )
             });
-            send(Body::Checkpoint {
-                effect_id: effect_id.clone(),
-                attempt_id: attempt_id.clone(),
-                data,
-            });
+            let starts = data
+                .get("step")
+                .and_then(Value::as_str)
+                .is_some_and(begins_work);
+            if began_work || starts {
+                began_work = true;
+                if !accepted_sent {
+                    accepted_sent = true;
+                    send(Body::Accepted {
+                        effect_id: effect_id.clone(),
+                        attempt_id: attempt_id.clone(),
+                        session_ref: None,
+                    });
+                }
+                for row in buffered.drain(..) {
+                    send(Body::Checkpoint {
+                        effect_id: effect_id.clone(),
+                        attempt_id: attempt_id.clone(),
+                        data: row,
+                    });
+                }
+                send(Body::Checkpoint {
+                    effect_id: effect_id.clone(),
+                    attempt_id: attempt_id.clone(),
+                    data,
+                });
+            } else {
+                buffered.push(data);
+            }
         },
     ) {
         Ok(invocation) => invocation,
         Err(error) => {
+            // A driver that could not be invoked at all never opened a
+            // turn, but it is not a CLASSIFIED provider refusal: keep
+            // `accepted` exactly as it always was, so only the refusal
+            // moves the fail-to-start boundary.
+            if !accepted_sent {
+                send(Body::Accepted {
+                    effect_id: effect_id.clone(),
+                    attempt_id: attempt_id.clone(),
+                    session_ref: None,
+                });
+                for row in buffered.drain(..) {
+                    send(Body::Checkpoint {
+                        effect_id: effect_id.clone(),
+                        attempt_id: attempt_id.clone(),
+                        data: row,
+                    });
+                }
+            }
             send(Body::Result {
                 effect_id,
                 attempt_id,
@@ -2471,7 +3091,63 @@ fn run_seat(
         stdout,
         stderr,
         state,
+        refusal,
     } = invocation;
+    // A provider refusal before the first turn is a determinate failure
+    // to start (decision 0053): `result: failed`, no `accepted`, no
+    // checkpoint, and the reason is the result's error so the journal
+    // keeps the refused attempt and why the chain descends. The buffered
+    // pre-session rows are dropped with it — a checkpoint would put the
+    // attempt on 0016's other side — so the reason carries the transcript
+    // locator instead. That pointer is the evidence #219 was diagnosed
+    // from, and a refused attempt that named nowhere to look would make
+    // the next such diagnosis start from scratch.
+    //
+    // Two facts have to agree before an attempt is thrown away as a
+    // refusal to start: no work checkpoint, and no delivery. A classifier
+    // reads its harness's machine fields, not the seat's own contract, so
+    // if a record it read as a refusal is overtaken by a clean exit with
+    // the result file written, the delivered work is the fact and the
+    // refusal was a notice. No measured CLI both refuses and delivers —
+    // `began_work` catches every shape #219 saw — so this is the second
+    // wall, and it is the one that keeps the single asserted shape
+    // (`rate_limit_event`, which a newer CLI may yet emit as an advisory
+    // rather than a rejection) from ever discarding a seat's work.
+    let delivered = exit_code == 0 && std::fs::metadata(&result_path).is_ok();
+    if let Some(reason) = refusal {
+        if !began_work && !delivered {
+            let stderr_tail_start = stderr_tail_start(&stderr);
+            eprint!("{}", &stderr[stderr_tail_start..]);
+            send(Body::Result {
+                effect_id,
+                attempt_id,
+                status: ResultStatus::Failed,
+                result: None,
+                error: Some(match transcript_locator(&session_meta) {
+                    Some(locator) => format!("{reason} [transcript {locator}]"),
+                    None => reason,
+                }),
+            });
+            return;
+        }
+    }
+    // Every non-refusal path reports `accepted` exactly as it always
+    // did, flushing the pre-session rows buffered while the session was
+    // opening.
+    if !accepted_sent {
+        send(Body::Accepted {
+            effect_id: effect_id.clone(),
+            attempt_id: attempt_id.clone(),
+            session_ref: None,
+        });
+        for row in buffered.drain(..) {
+            send(Body::Checkpoint {
+                effect_id: effect_id.clone(),
+                attempt_id: attempt_id.clone(),
+                data: row,
+            });
+        }
+    }
     let served_model = if kind == AdapterKind::Exec {
         MODEL_NOT_APPLICABLE.to_string()
     } else {

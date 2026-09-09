@@ -299,10 +299,10 @@ fn the_release_workflow_puts_the_packages_through_the_attested_pipeline() {
 /// equality, no threshold — and rode the only unpinned toolchain in CI
 /// until a nightly release on 2026-09-07 reddened every pull request on
 /// bytes that had not changed (issue #235). One file names the compiler,
-/// the workflow and the script both read it, and neither may say a bare
+/// both workflows and the script read it, and none may say a bare
 /// `nightly` again.
 #[test]
-fn the_coverage_toolchain_is_pinned_and_both_readers_use_one_pin() {
+fn the_coverage_toolchain_is_pinned_in_ci_release_and_the_script() {
     let pin = read("rust-nightly-version.txt");
     let pin = pin.trim();
     let date = pin
@@ -317,15 +317,21 @@ fn the_coverage_toolchain_is_pinned_and_both_readers_use_one_pin() {
         );
     }
 
-    let workflow = read(".github/workflows/ci.yml");
-    assert!(
-        !workflow.contains("rust-toolchain@nightly"),
-        "ci.yml installs an unpinned nightly"
-    );
-    assert!(
-        workflow.contains(r#"echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT""#),
-        "ci.yml does not read the coverage pin"
-    );
+    for path in [".github/workflows/ci.yml", ".github/workflows/release.yml"] {
+        let workflow = read(path);
+        assert!(
+            !workflow.contains("rust-toolchain@nightly"),
+            "{path} installs an unpinned nightly"
+        );
+        assert!(
+            workflow.contains(r#"echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT""#),
+            "{path} does not read the coverage pin"
+        );
+        assert!(
+            workflow.contains("toolchain: ${{ steps.nightly.outputs.toolchain }}"),
+            "{path} does not install the toolchain it read"
+        );
+    }
 
     let script = read("scripts/coverage-exact.sh");
     assert!(

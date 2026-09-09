@@ -4,10 +4,11 @@ This document states what you can build against, what may still move,
 and how a change to a frozen thing is made when it has to happen.
 
 **Where the tree is right now:** the workspace version in `Cargo.toml`
-is **0.5.0**. This is pre-1.0 software. The contracts under
+is **0.10.0**. This is pre-1.0 software. The contracts under
 `contracts/` are nonetheless already frozen and have been since the
 first implementation — the freeze is older than the version number and
-does not wait for it.
+does not wait for it. See the [v0.10.0 release notes](../releases/v0.10.0.md)
+for the boundary migration and current platform limitations.
 
 - [Two different promises](#two-different-promises)
 - [The frozen-contract law](#the-frozen-contract-law)
@@ -26,7 +27,7 @@ other is not yet.
 | | Frozen contracts | The CLI surface |
 |---|---|---|
 | **Promise** | A version's bytes never change. A change is a new numbered version file beside the old one. | Semver from 1.0: breaking changes to subcommands and flags need a major bump. |
-| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.5.0, flags may still move. |
+| **In force** | **Now**, and since the first implementation. Independent of the crate version. | **From 1.0.** Today, at 0.10.0, flags may still move. |
 | **Enforced by** | CI compiles the frozen and additive contracts; the fixtures corpus differential-tests the evaluator; manifest schemas pin `{"const": 1}` on `event_schema`. | Convention today; release process from 1.0. |
 
 The contracts freeze is the load-bearing one, because it is what a
@@ -45,9 +46,8 @@ the README's contributing section:
 Three things follow, and all three are enforced rather than trusted:
 
 1. **New version files sit beside the old ones.** `contracts/` today
-   contains `run-manifest.v1`, `.v2`, `.v3` and `.v4` as four separate
-   files. None of the earlier three were touched when the later ones
-   landed.
+   contains separately numbered `run-manifest.v1` through `.v9` files.
+   A later version does not replace or edit the earlier versions.
 2. **A version cannot quietly widen.** Schemas set
    `additionalProperties: false` and the loaders refuse unknown fields.
    `forge.realms/v1` refuses unknown keys at both levels specifically so
@@ -84,7 +84,7 @@ fields defined so far live in `effect-provenance.v1.schema.json`.
 There are **two** manifest lineages, not one line, and conflating them
 is the mistake to avoid.
 
-**The local lineage: `run-manifest.v1` → `v3` → `v4`.**
+**The local lineage: `run-manifest.v1` → `v3` → `v4` → `v5` → `v6` → `v7` → `v8` → `v9`.**
 
 - `v3` is `v1`'s bytes plus one optional `agents` property (decision
   0016), absent when no seat references an agent — so every
@@ -99,12 +99,21 @@ is the mistake to avoid.
   drops `realms` before comparing, so pinning a world moves no bundle
   digest and makes no run unresumable.
 
+- `v5` adds authorising adapter witnesses (`drivers`); `v6` adds boxed
+  hands; `v7` records strategy-selected cases; `v8` records per-step
+  result vocabularies; `v9` pins the selected boundary per hands site.
+  These are bundle identity. The current compiler writes v9; older
+  contract files remain available for their readers.
+- Realm maps now reach `forge.realms/v4`: v3 added house and dialect
+  declarations, and v4 adds the realm's boundary. House content and its
+  digest are pinned in the run's realms record.
+
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its
 round-trip reconstructs a bundle manifest from six named keys and drops
 the rest, so an `agents` or `realms` key would be silently dropped and
 the run would become unresumable with a diff that blames no file. Rather
 than widen a contract a counterpart system reads, the engine **refuses**:
-`build_run_manifest_v2` rejects a bundle manifest carrying `agents`, and
+`build_run_manifest_v2` rejects every key outside its six-key round-trip, and
 `brokkr run` refuses `--dispatch` together with a realms map. Lifting
 either needs a jointly agreed v2-lineage manifest version.
 
@@ -119,13 +128,16 @@ either needs a jointly agreed v2-lineage manifest version.
 | Phase-machine table | `phase-machine.v2.schema.json` | `v2` = `v1` plus exactly one thing: a rule may rule a park. `v1` tables are read exactly as they always were. |
 | The world's map | `realms.v1.schema.json` | `forge.realms/v1`: realms (name, path, default branch) and the world's single `journal`. |
 | The world's map, many hearths | `realms.v2.schema.json` | `v2` = `v1` plus exactly one thing: a realm may name its own `journal`, falling back to the world's when it does not. `v1` maps are read exactly as they always were, and the one new word is refused under a `v1` label. |
+| Named boundary | `realms.v4.schema.json`, `run-manifest.v9.schema.json`, `seat-record.v4.schema.json`, `effect-boundary.v1.schema.json` | The realm selects the boundary, the manifest pins it, and effects and readouts retain it. Earlier versions remain unchanged. |
+| Specification dialect | `dialect.v1.schema.json`, `dialect.v2.schema.json`, `dialect.v3.schema.json` | `v2` = `v1` plus the tool's install identity; `v3` = `v2` plus the archive step's instruction. A dialect FILE is written and read at v3 only. A dialect PIN — a run embeds its resolved dialect in the manifest, and a resume rehydrates it — is read at any of the three, so a run pinned before a version landed still resumes and still folds exactly as it did. Each version is held to its own shape: a field is refused under a label that predates it. |
+| Finding closure | `operator-supersede.v1.schema.json` | The operator names the residual findings being closed and may cite the closing run. |
 | Evaluator behavior | `fixtures/evaluator/corpus.ndjson` | Frozen contract data. Never regenerated, only versioned. |
 
 The binary reports the versions it was built against:
 
 ```
 $ brokkr doctor
-ok       contracts: engine 0.5.0, event_schema 1, database_schema 1, driver_protocol 1
+ok       contracts: engine 0.10.0, event_schema 1, database_schema 1, driver_protocol 1
 ```
 
 `event_schema`, `database_schema` and `driver_protocol` are all `1` and
@@ -178,11 +190,10 @@ by a `brokkr` major bump, because the protocol version is what it reads.
 
 Stated plainly, because this is a 0.x tree:
 
-- **CLI flags and defaults may still move.** Decision 0023's realms flag
-  reached `run` and seven read surfaces in its first phase; `resume`,
-  `conclude`, `rerun`, `doctor`, `ui`, `costs`, `compare`, `anchor` and
-  `bridge` still take `--db` alone. Closing that gap will change those
-  command lines.
+- **CLI flags and defaults may still move.** Realm-aware execution and
+  read surfaces have expanded since the original realms release. Use
+  each command's `--help` for its current selectors and database flags;
+  pre-1.0 development may extend or change those command lines.
 - **Bundle-schema additions may land.** New optional seat keys, new
   aggregates, new step forms. These are additive by construction — a
   bundle that compiles today should keep compiling — but a bundle
@@ -196,7 +207,7 @@ Stated plainly, because this is a 0.x tree:
 - **What does *not* break, even pre-1.0:** the frozen contracts. Every
   decision that has touched them so far — 0016, 0022, 0023 — added a new
   numbered version beside the old one and left the old bytes alone. That
-  is the one guarantee that is already load-bearing at 0.5.0, and it is
+  is the one guarantee that is already load-bearing at 0.10.0, and it is
   the one to build against.
 
 ## The live deprecation window

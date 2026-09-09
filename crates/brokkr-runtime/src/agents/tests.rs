@@ -1583,3 +1583,245 @@ fn hands_declarations_are_refused_where_malformed_and_named_where_refused() {
     let error = adapters.adapters_error();
     assert!(error.contains("unsupported"), "{error}");
 }
+
+// ---------------------------------- decision 0046 ruling 4: hands.harness
+
+/// An adapter whose `hands` carries the given `harness` object beside a
+/// workspace fragment.
+fn harness_adapter(harness: Value) -> Value {
+    let mut claude = claude_body();
+    claude["hands"] = json!({"workspace": ["--tools", ""], "harness": harness});
+    claude
+}
+
+/// The loader's vocabulary for `hands.harness` (task 8.3): three members
+/// and no other; `result` one of two doors; a workspace token in either
+/// fragment refused as a fragment that would run with a literal token in
+/// it; an empty fragment a legal measured declaration; `unsupported`
+/// with a reason a measured gap and not a capability; and every shape
+/// outside the three refused by name.
+#[test]
+fn an_adapters_harness_hands_are_three_members_and_two_doors() {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &agent_body());
+
+    tree.write(
+        "adapters/claude.json",
+        &harness_adapter(json!({"judge": []})),
+    );
+    let error = tree.adapters_error();
+    assert!(
+        error.contains("'hands.harness' has unknown key 'judge'; known keys: gate, work, result"),
+        "{error}"
+    );
+
+    tree.write(
+        "adapters/claude.json",
+        &harness_adapter(json!({"gate": [], "result": "stdout"})),
+    );
+    let error = tree.adapters_error();
+    assert!(
+        error.contains("'hands.harness'.result is 'stdout'; a gate's result reaches the engine through 'file' (the seat writes it) or 'last-message' (the harness's capture writes the final message to it) and nothing else"),
+        "{error}"
+    );
+
+    for (member, token) in [
+        ("gate", "{hands_mcp_json}"),
+        ("work", "{hands_args_toml}"),
+        ("gate", "mcp_servers.brokkr.args={hands_args_toml}"),
+    ] {
+        tree.write(
+            "adapters/claude.json",
+            &harness_adapter(json!({ member: ["--flag", token] })),
+        );
+        let error = tree.adapters_error();
+        assert!(
+            error.contains(&format!(
+                "'hands.harness'.{member} names '{token}', but no workspace tool is served \
+                 under the `harness` boundary — a fragment there may carry {{result_path}} \
+                 and {{brokkr}} and nothing of the box's (decision 0046 ruling 4)"
+            )),
+            "{member} {token}: {error}"
+        );
+    }
+
+    // An empty fragment: the driver argv already stands in that mode.
+    tree.write(
+        "adapters/claude.json",
+        &harness_adapter(json!({"gate": [], "work": []})),
+    );
+    let adapters = tree.adapters();
+    let harness = &adapters.adapter("claude").unwrap().harness;
+    assert_eq!(harness.gate, Some(Vec::new()));
+    assert_eq!(harness.work, Some(Vec::new()));
+    assert_eq!(harness.gate_gap, None);
+    assert_eq!(harness.work_gap, None);
+    assert_eq!(harness.result, ResultDoor::File, "absent reads `file`");
+    assert_eq!(harness.result.word(), "file");
+
+    // A measured gap on one member, a fragment with both tokens and the
+    // capture door on the other.
+    tree.write(
+        "adapters/claude.json",
+        &harness_adapter(json!({
+            "gate": ["--read-only", "--capture", "{result_path}", "--bin", "{brokkr}"],
+            "work": {"unsupported": "no writable mode was measured"},
+            "result": "last-message",
+        })),
+    );
+    let adapters = tree.adapters();
+    let harness = &adapters.adapter("claude").unwrap().harness;
+    assert_eq!(
+        harness.gate,
+        Some(
+            [
+                "--read-only",
+                "--capture",
+                "{result_path}",
+                "--bin",
+                "{brokkr}"
+            ]
+            .map(String::from)
+            .to_vec()
+        )
+    );
+    assert_eq!(harness.work, None);
+    assert_eq!(
+        harness.work_gap.as_deref(),
+        Some("no writable mode was measured")
+    );
+    assert_eq!(harness.result, ResultDoor::LastMessage);
+    assert_eq!(harness.result.word(), "last-message");
+    // The three-shape convention `tool_permissions` uses: a gap admits
+    // no other key and needs an actual reason; a member is an array or
+    // the gap object and nothing else.
+    for (member, expected) in [
+        (
+            json!({"unsupported": "reason", "flag": "--x"}),
+            "'hands.harness'.gate has unknown key 'flag'; known keys: unsupported",
+        ),
+        (
+            json!({"unsupported": 1}),
+            "'hands.harness'.gate needs a non-empty string 'unsupported'",
+        ),
+        (
+            json!("--read-only"),
+            "'hands.harness'.gate needs 'gate' as an array of strings",
+        ),
+        (
+            json!([1]),
+            "'hands.harness'.gate 'gate' must hold strings only",
+        ),
+    ] {
+        tree.write(
+            "adapters/claude.json",
+            &harness_adapter(json!({"gate": member})),
+        );
+        let error = tree.adapters_error();
+        assert!(error.contains(expected), "{error}");
+    }
+    tree.write("adapters/claude.json", &harness_adapter(json!("read-only")));
+    let error = tree.adapters_error();
+    assert!(error.contains("'hands.harness'"), "{error}");
+
+    // No `harness` at all: every member undeclared, fail-closed, and the
+    // door `file` — the reading of every adapter written before the ruling.
+    let mut bare = claude_body();
+    bare["hands"] = json!({"workspace": ["--tools", ""]});
+    tree.write("adapters/claude.json", &bare);
+    assert_eq!(
+        tree.adapters().adapter("claude").unwrap().harness,
+        HarnessHands::default()
+    );
+    assert_eq!(HarnessHands::default().result, ResultDoor::File);
+}
+
+/// The shipped adapter data (task 8.8): codex declares both fragments and
+/// its capture door exactly as decision 0046 ruling 4 names them; claude's
+/// two members are each undeclared with no reason — not yet measured, the
+/// loader's fail-closed reading — and its door reads `file`; dsh and
+/// lanetally declare no `hands.harness`. The candidate resolved from a
+/// hands agent carries the declaration to the engine.
+#[test]
+fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let codex = &adapters.adapter("codex").unwrap().harness;
+    assert_eq!(
+        codex.gate,
+        Some(
+            [
+                "--sandbox",
+                "read-only",
+                "--output-last-message",
+                "{result_path}"
+            ]
+            .map(String::from)
+            .to_vec()
+        )
+    );
+    assert_eq!(
+        codex.work,
+        Some(["--sandbox", "workspace-write"].map(String::from).to_vec())
+    );
+    assert_eq!(codex.result, ResultDoor::LastMessage);
+    assert_eq!(codex.gate_gap, None);
+    assert_eq!(codex.work_gap, None);
+
+    let claude = &adapters.adapter("claude").unwrap().harness;
+    match (&claude.gate, &claude.gate_gap) {
+        (None, None) => {}
+        (Some(fragment), None) => assert!(
+            fragment.iter().any(|token| token.contains("{result_path}")),
+            "a measured gate fragment names its door: {fragment:?}"
+        ),
+        (None, Some(reason)) => assert!(!reason.is_empty()),
+        (Some(_), Some(_)) => unreachable!("a member is a fragment or a gap, never both"),
+    }
+    match (&claude.work, &claude.work_gap) {
+        (Some(_), Some(_)) => unreachable!("a member is a fragment or a gap, never both"),
+        (None, Some(reason)) => assert!(!reason.is_empty()),
+        _ => {}
+    }
+    // As the tree stands: undeclared, pending the operator's measurement.
+    assert_eq!(claude.gate, None);
+    assert_eq!(claude.gate_gap, None);
+    assert_eq!(claude.work, None);
+    assert_eq!(claude.work_gap, None);
+    assert_eq!(claude.result, ResultDoor::File);
+
+    for quiet in ["dsh", "lanetally", "exec"] {
+        assert_eq!(
+            adapters.adapter(quiet).unwrap().harness,
+            HarnessHands::default(),
+            "{quiet} declares no hands.harness"
+        );
+    }
+
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let resolution = resolve(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "reviewer",
+    )
+    .expect("the reviewer resolves");
+    let astra = resolution
+        .candidates
+        .iter()
+        .find(|candidate| candidate.model == "astra")
+        .expect("the reviewer chains astra");
+    assert_eq!(astra.provider, "codex");
+    assert_eq!(&astra.harness, codex);
+    let fable = resolution
+        .candidates
+        .iter()
+        .find(|candidate| candidate.model == "fable")
+        .expect("the reviewer chains fable");
+    assert_eq!(&fable.harness, claude);
+}

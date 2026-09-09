@@ -1460,15 +1460,49 @@ fn draw_runs(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
 
 fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunView) {
     let lens = lens_of(tui, views);
-    let [graph, seats, trail] = Layout::vertical([
-        Constraint::Percentage(34),
-        Constraint::Percentage(33),
-        Constraint::Percentage(33),
-    ])
-    .areas(area);
+    let [graph, seats, trail] =
+        Layout::vertical(estate(view, lens.as_ref(), usize::from(area.height))).areas(area);
     draw_graph(frame, graph, tui, views, view, lens.as_ref());
     draw_seats(frame, seats, tui, view, lens.as_ref());
     draw_trail(frame, trail, tui, view, lens.as_ref());
+}
+
+/// The graph may take at most this share of the run level, however
+/// deep its forks: the seats and the trail are where a run is read.
+const GRAPH_SHARE_MAX: usize = 45;
+
+/// How the run level's rows are dealt between its three panes: each
+/// pane gets the rows its content needs, and the trail gets the rest.
+///
+/// Three equal thirds was the first cut, and it read badly the moment
+/// a real run was under it: a one-lane rail floated in a third of the
+/// screen of air while the seats below it clipped at the bottom and
+/// the trail showed a dozen of its hundreds of rows. The graph's need
+/// is exact — [`rows_wanted`] is the same arithmetic [`plan`] deals
+/// its rows by — and the seats' need is one row per line it lists.
+/// Both are capped, the graph at [`GRAPH_SHARE_MAX`] and the seats at
+/// half of what the graph leaves, so a deep fork or a long roster
+/// degrades the way the thirds did rather than starving the trail.
+fn estate(view: &RunView, lens: Option<&render::Lens>, height: usize) -> [Constraint; 3] {
+    let head = usize::from(!view.boundary.text.is_empty()) + view.notices.len();
+    let graph = (2 + head + rows_wanted(&view.phases)).min(height * GRAPH_SHARE_MAX / 100);
+    let seats = (3 + seat_lines(view, lens)).min(height.saturating_sub(graph) / 2);
+    [
+        Constraint::Length(u16::try_from(graph).unwrap_or(u16::MAX)),
+        Constraint::Length(u16::try_from(seats).unwrap_or(u16::MAX)),
+        Constraint::Min(0),
+    ]
+}
+
+/// The lines the seats pane lists under its header: one per seat the
+/// lens keeps, and one more under each seat that carries a provenance
+/// sentence.
+fn seat_lines(view: &RunView, lens: Option<&render::Lens>) -> usize {
+    view.participants
+        .iter()
+        .filter(|part| render::keeps_participant(lens, part))
+        .map(|part| 1 + usize::from(part.provenance.is_some()))
+        .sum()
 }
 
 // --------------------------------------------------------------- the graph
@@ -2210,6 +2244,28 @@ fn window(built: &[Built], anchor: usize, connector: usize, budget: usize) -> (u
 /// lists **every** phase whether scoped or not — the lens marks, it does
 /// not hide, here — and returns a layout that fits by construction.
 #[allow(clippy::too_many_arguments)]
+/// The deepest fork's lane pairs: how many rows the rail needs on EACH
+/// side of itself to draw every lane in full.
+fn lane_pairs(phases: &[Phase]) -> usize {
+    phases
+        .iter()
+        .flat_map(|phase| phase.columns.iter())
+        .map(|column| column.nodes.len() / 2)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The rows a full drawing of these phases takes, and not one more:
+/// the lanes either side of the rail, the rail itself, the row the
+/// selection box's upper edge rides above the topmost lane, the name
+/// baseline, the box's lower edge, and the road back when the journal
+/// recorded one. [`plan`] deals its rows from the bottom and calls the
+/// rest headroom; this is the height at which that headroom is zero,
+/// so [`estate`] can give the graph its drawing and nothing else.
+fn rows_wanted(phases: &[Phase]) -> usize {
+    2 * lane_pairs(phases) + 4 + usize::from(!returns_of(phases).is_empty())
+}
+
 fn plan(
     phases: &[Phase],
     lens: Option<&render::Lens>,
@@ -2219,12 +2275,7 @@ fn plan(
     width: usize,
     height: usize,
 ) -> Plan {
-    let needed = phases
-        .iter()
-        .flat_map(|phase| phase.columns.iter())
-        .map(|column| column.nodes.len() / 2)
-        .max()
-        .unwrap_or(0);
+    let needed = lane_pairs(phases);
     let mode = mode_for(height, needed);
     // Row allocation is fixed and ordered: the name baseline is the last
     // row, the rail sits one row above the deepest lane it needs, and
@@ -2687,6 +2738,12 @@ fn draw_graph(
     // capability gap is a fact an operator must SEE, not find (decision
     // 0016) — then the graph, planned into whatever rows remain.
     let mut lines: Vec<Line> = Vec::new();
+    // The run header's boundary line (decision 0046 ruling 3): the
+    // model's rendered text, adjective included, printed and never
+    // composed. A run that boxes nothing carries no line at all.
+    if !view.boundary.text.is_empty() {
+        lines.push(line(&format!("boundary  {}", view.boundary.text), plain()));
+    }
     for notice in &view.notices {
         lines.push(line(
             &format!("note  {} — {}", notice.kind, notice.text),
@@ -2725,26 +2782,19 @@ fn draw_seats(
 ) {
     let cursor = tui.cursor[1].as_deref();
     let header = Row::new(
-        [
-            "participant",
-            "status",
-            "attempts",
-            "turns",
-            "cost",
-            "tokens",
-            "model",
-            "activity",
-        ]
-        .iter()
-        .map(|name| cell(name, header_style()))
-        .collect::<Vec<Cell>>(),
+        SEAT_COLUMNS
+            .iter()
+            .map(|name| cell(name, header_style()))
+            .collect::<Vec<Cell>>(),
     );
-    let mut rows: Vec<Row> = Vec::new();
-    for part in view
+    let kept: Vec<&Participant> = view
         .participants
         .iter()
         .filter(|part| render::keeps_participant(lens, part))
-    {
+        .collect();
+    let texts: Vec<[String; 8]> = kept.iter().map(|part| seat_texts(part)).collect();
+    let mut rows: Vec<Row> = Vec::new();
+    for (part, fixed) in kept.iter().zip(&texts) {
         // `activity.text` IS the model's composition of `tool` and
         // `target_short` while a seat works, and its result-and-duration
         // once it concludes. The live/concluded distinction is a model
@@ -2754,19 +2804,24 @@ fn draw_seats(
             Some(_) => tone_style("working"),
             None => plain(),
         };
-        rows.push(
-            Row::new(vec![
-                cell(&part.label, plain()),
-                cell(&part.status, tone_style(&part.status)),
-                cell(&part.attempts.to_string(), plain()),
-                cell(&part.turns_cell.text, plain()),
-                cell(&part.cost_cell.text, plain()),
-                cell(&part.usage_cell.text, plain()),
-                cell(&part.model.text, plain()),
-                cell(&part.activity.text, live),
-            ])
-            .style(selected_style(cursor == Some(part.key.as_str()))),
-        );
+        // The model and the boundary its hands stood behind, through the
+        // one pair helper (decision 0046 ruling 3): two cells, one read.
+        let mut cells: Vec<Cell> = fixed
+            .iter()
+            .enumerate()
+            .map(|(index, text)| {
+                cell(
+                    text,
+                    if index == 1 {
+                        tone_style(&part.status)
+                    } else {
+                        plain()
+                    },
+                )
+            })
+            .collect();
+        cells.push(cell(&part.activity.text, live));
+        rows.push(Row::new(cells).style(selected_style(cursor == Some(part.key.as_str()))));
         // Which agent, model and provider actually served this seat
         // (decision 0016). The sentence is the model's; this pane only
         // places it, so a fallback cannot go unmentioned here while it
@@ -2783,26 +2838,76 @@ fn draw_seats(
                 cell("", plain()),
                 cell("", plain()),
                 cell("", plain()),
+                cell("", plain()),
                 cell(&format!("↳ {}", provenance.line), plain()),
             ]));
         }
     }
-    let widths = [
-        Constraint::Length(22),
-        Constraint::Length(13),
-        Constraint::Length(8),
-        Constraint::Length(6),
-        Constraint::Length(10),
-        Constraint::Length(18),
-        Constraint::Length(22),
-        Constraint::Min(10),
-    ];
     frame.render_widget(
-        Table::new(rows, widths)
+        Table::new(rows, seat_widths(&texts))
             .header(header)
             .block(pane("seats", tui.pane == 1)),
         area,
     );
+}
+
+/// The seats pane's columns, in order. The first eight are fitted to
+/// their content; the last takes what remains.
+const SEAT_COLUMNS: [&str; 9] = [
+    "participant",
+    "status",
+    "attempts",
+    "turns",
+    "cost",
+    "tokens",
+    "model",
+    "boundary",
+    "activity",
+];
+
+/// No fitted column grows past this, so one runaway label cannot push
+/// the activity column off the pane.
+const SEAT_COLUMN_MAX: usize = 40;
+
+/// A seat's fitted cells, in [`SEAT_COLUMNS`] order minus the activity
+/// column. Every text is the model's own; this pane places it.
+fn seat_texts(part: &Participant) -> [String; 8] {
+    let pair = render::served_text(&part.served);
+    [
+        part.label.clone(),
+        part.status.clone(),
+        part.attempts.to_string(),
+        part.turns_cell.text.clone(),
+        part.cost_cell.text.clone(),
+        part.usage_cell.text.clone(),
+        pair.model.as_str().to_string(),
+        pair.boundary.as_str().to_string(),
+    ]
+}
+
+/// Each fitted column is exactly as wide as its widest cell, header
+/// included, and the activity column takes the rest. Fixed widths were
+/// the first cut, and a real run clipped them at once — `Σ 1.25M tok`
+/// lost its unit at ten columns and `namespace, not applicable` its
+/// second half at fourteen — while the activity column beside them held
+/// most of a wide screen of air. Fitting is a measurement of what is
+/// listed, so no cell is clipped that the pane had room to show, and
+/// the provenance line under a seat keeps the widest column it needs.
+fn seat_widths(texts: &[[String; 8]]) -> Vec<Constraint> {
+    let mut widths: Vec<Constraint> = (0..8)
+        .map(|index| {
+            let widest = texts
+                .iter()
+                .map(|fixed| width_of(&fixed[index]))
+                .chain(std::iter::once(width_of(SEAT_COLUMNS[index])))
+                .max()
+                .unwrap_or(0)
+                .min(SEAT_COLUMN_MAX);
+            Constraint::Length(u16::try_from(widest).unwrap_or(u16::MAX))
+        })
+        .collect();
+    widths.push(Constraint::Min(10));
+    widths
 }
 
 fn draw_trail(
@@ -2819,11 +2924,7 @@ fn draw_trail(
         .filter(|row| row.in_trail && render::keeps_row(lens, row))
         .map(|row| {
             let seq = row.seq.to_string();
-            let model = if row.model.absent {
-                String::new()
-            } else {
-                format!(" · model {}", row.model.text)
-            };
+            let model = render::trail_pair(&render::served_text(&row.served));
             line(
                 &format!("{seq}  {}  {}{model}", row.event_type, row.what.text),
                 selected_style(cursor == Some(seq.as_str())),
@@ -2847,6 +2948,7 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
     // keeps the resume line decision 0014 established; no other kind is
     // ever rendered as a Claude command.
     let session = claude_session(part);
+    let pair = render::served_text(&part.served);
     let mut lines = vec![
         Line::from(vec![
             span(&part.label, header_style()),
@@ -2875,8 +2977,17 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         // what the plan pinned and what the harness echoed as applied,
         // kept apart because ruling 6 keeps them apart. None of the
         // three measures what the model did; the reasoning count in the
-        // tokens line below is the only figure here that does.
-        line(&format!("model     {} (claimed)", part.model.text), plain()),
+        // tokens line below is the only figure here that does. The
+        // boundary beside the model is the plain word its hands stood
+        // behind (decision 0046 ruling 3), read through the pair helper.
+        line(
+            &format!(
+                "model     {} (claimed) · boundary {}",
+                pair.model.as_str(),
+                pair.boundary.as_str()
+            ),
+            plain(),
+        ),
         line(
             &format!(
                 "effort    pinned {} · applied {} (configuration)",
@@ -2898,12 +3009,14 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         .checkpoints
         .iter()
         .map(|row| {
+            let pair = render::served_text(&row.served);
             line(
                 &format!(
-                    "{}  {}  model {}  effort {}  tokens {}  {}  {}",
+                    "{}  {}  model {}  boundary {}  effort {}  tokens {}  {}  {}",
                     row.turn.text,
                     row.step,
-                    row.model.text,
+                    pair.model.as_str(),
+                    pair.boundary.as_str(),
                     row.effort.text,
                     row.usage.text,
                     row.target.text,

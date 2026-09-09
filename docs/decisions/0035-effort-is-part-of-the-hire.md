@@ -330,3 +330,40 @@ tests; driver conformance, whose dsh shim reads the level off the
 document the overlay names and fails on an `--effort` in its argv.
 Ruling 3's text above is left as written, since it was true when
 written; this addendum is what a dsh row means from here.
+
+## Addendum — 2026-09-08, proposed: a custom dsh route states its levels
+
+The addendum above carried the research lane's `--effort high` to dsh
+for the first time, and the first sweep that reached the wire with it
+(workflow run 34115364530, 2026-09-07, Research issue #234) died in one
+second: `UNSUPPORTED_REASONING_EFFORT: provider "dashscope" model
+"qwen3.8-max" does not support reasoning effort "high"`. Measured on
+0.1.2-rc.1 and re-measured on 0.1.3-alpha.2, identically:
+
+- **A custom entry without levels has none.** dsh resolves a custom
+  provider's model entry that declares no `reasoningEfforts` against
+  its installed catalog under the same provider key. No catalog ships
+  for `dashscope`, so the entry materialised as a non-reasoning model
+  and every effort was refused, not only `high`.
+- **`high` is not a level this model has.** dsh's bundled Qwen catalog
+  lists Qwen3.8-Max with `low`, `medium` and `xhigh`; `high` and `max`
+  are pinned unsupported. The ruled level could never have been sent.
+
+**Rulings.** A custom dsh route states its model's `reasoningEfforts`
+on the entry, each declared level carrying its wire value and every
+undeclared level staying refused; the research lane's overlay states
+`low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's own
+catalog lists. The lane pins `xhigh`, the nearest declared level to
+the `high` of decision 0044 ruling 5's hire; the level is the
+operator's to change, and a change moves the recipe's witness digest.
+Evidence, 2026-09-08, the operator's session: a one-turn driver call
+with `--effort xhigh` and the patched overlay passed dsh's validation
+and echoed `xhigh` on the request header, then failed on the provider
+with `QUOTA: 429 insufficient_quota` — the token-plan weekly quota is
+spent until 2026-09-12 14:37 UTC, so the weekly workflow cannot succeed
+before that reset regardless of this fix.
+
+**Enforcement binding:** `recipes/research-dsh/drivers/research-web.yml`
+and `recipes/research-dsh/bundle.json`, held by the
+`recipes/research-dsh` row of
+`crates/brokkr-runtime/tests/witness_digests.rs`.

@@ -41,6 +41,47 @@ const SANDBOX_HOME: &str = "/runtime/home";
 pub const SANDBOX_BUNDLE: &str = "/runtime/bundle";
 /// Set by the engine in every namespace so box-building tests do not recurse.
 pub const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
+/// Set on a host that must PRODUCE the boundary evidence, not merely be
+/// allowed to. A boundary proof that cannot build a real namespace — no
+/// `bwrap`, an environment that is already a box, no fixture root — is
+/// worth logging as a skip on a developer's laptop and is worth failing
+/// on the host whose whole job is to run it. Without this, a skipped
+/// proof prints `... ok` and is indistinguishable in CI output from a
+/// pass, which is how a red behavioral test once reached a commit
+/// (decision 0054).
+pub const BOUNDARY_EVIDENCE_ENV: &str = "BROKKR_REQUIRE_BOUNDARY_EVIDENCE";
+
+/// Whether this host has declared that boundary proofs must really run.
+pub fn boundary_evidence_required() -> bool {
+    boundary_evidence_declared(std::env::var_os(BOUNDARY_EVIDENCE_ENV))
+}
+
+/// The declaration, read from a value rather than from the process, so a
+/// test can ask all three answers without changing the environment every
+/// other test in the binary shares. An empty value is not a declaration:
+/// a workflow that expands an unset variable must not silently arm the
+/// gate for a matrix leg that has no namespace to open.
+fn boundary_evidence_declared(value: Option<std::ffi::OsString>) -> bool {
+    value.is_some_and(|value| !value.is_empty())
+}
+
+/// Log a boundary proof's skip, or fail the test when this host declared
+/// that it must produce the evidence. `required` is passed in rather than
+/// read here so both answers are reachable from one process.
+#[track_caller]
+pub fn skip_boundary_proof(required: bool, reason: &str) {
+    assert!(
+        !required,
+        "{BOUNDARY_EVIDENCE_ENV} is set, so this host must produce real boundary evidence, \
+         but a proof skipped: {reason}"
+    );
+    eprintln!("skipped: {reason}");
+}
+/// Where the boundary lives (decision 0046 ruling 1), said once for
+/// every site that tries to write it into a bundle or an agent file.
+pub const BOUNDARY_IS_THE_REALMS: &str = "the boundary is declared by the realm \
+    (realms.json, forge.realms/v4) and never by a bundle or an agent, because the \
+    machine a realm runs on is the realm's fact (decision 0046 ruling 1)";
 const OUTPUT_BYTES: usize = 262_144;
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
@@ -107,6 +148,11 @@ impl HandsSpec {
                 ))
             }
         };
+        // Named as a misplaced field, never as an unknown key: the author
+        // is told where the word lives (decision 0046 ruling 1).
+        if object.contains_key("boundary") {
+            return Err(format!("hands names 'boundary'; {BOUNDARY_IS_THE_REALMS}"));
+        }
         for key in object.keys() {
             if !["kind", "network", "binds"].contains(&key.as_str()) {
                 return Err(format!(
@@ -200,6 +246,16 @@ impl Bind {
     }
 }
 
+/// The engine's home as an environment table states it: `HOME`, or on
+/// Windows `USERPROFILE`, or nothing — the `~` every bind and every
+/// toolchain locator resolves against.
+pub fn home_dir(env: &std::collections::BTreeMap<String, String>) -> PathBuf {
+    let home = env.get("HOME");
+    #[cfg(windows)]
+    let home = home.or_else(|| env.get("USERPROFILE"));
+    home.map(PathBuf::from).unwrap_or_default()
+}
+
 /// `~/x` against the host home; anything else as written.
 fn expand_home(path: &str, home: &Path) -> PathBuf {
     match path.strip_prefix("~/") {
@@ -210,13 +266,24 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
 
 /// What the host knows about the worktree's git that the box must be
 /// told, gathered OUTSIDE the box before it is built (decision 0043
-/// ruling 6): where the git directory is, and who the seat commits as.
+/// ruling 6): where the two git directories are, and who the seat
+/// commits as.
+///
+/// A repository has two identities, and a linked `git worktree` makes
+/// the difference load-bearing: `--git-dir` names the per-worktree
+/// directory (the one holding this worktree's `index` and `HEAD`), while
+/// `--git-common-dir` names the shared one (the main checkout's `.git`,
+/// holding `objects`, `refs` and `config`). A primary checkout has one
+/// path for both.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitFacts {
-    /// The git directory's absolute path — inside the worktree for a
-    /// primary checkout, elsewhere for a `git worktree`. `None` when the
-    /// workdir is not a git repository.
+    /// The per-worktree git directory, absolute. Inside the worktree for
+    /// a primary checkout; under the shared `.git/worktrees/<name>` for
+    /// a linked worktree. `None` when the workdir is not a repository.
     pub git_dir: Option<PathBuf>,
+    /// The shared git directory, absolute — the main checkout's `.git`
+    /// for a linked worktree. `None` when the workdir is not a repository.
+    pub common_dir: Option<PathBuf>,
     /// `user.name` and `user.email` as the host resolves them, as the
     /// environment entries git reads them from.
     pub identity: Vec<(String, String)>,
@@ -237,8 +304,19 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .filter(|text| !text.is_empty())
     };
-    let git_dir =
-        git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).map(PathBuf::from);
+    let (git_dir, common_dir) = match Command::new("git")
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ])
+        .current_dir(workdir)
+        .output()
+    {
+        Ok(out) if out.status.success() => parse_git_dirs(&String::from_utf8_lossy(&out.stdout)),
+        _ => (None, None),
+    };
     let mut identity = Vec::new();
     for (env, key) in [("NAME", "user.name"), ("EMAIL", "user.email")] {
         if let Some(value) = git(&["config", key]) {
@@ -246,7 +324,31 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
             identity.push((format!("GIT_COMMITTER_{env}"), value));
         }
     }
-    GitFacts { git_dir, identity }
+    GitFacts {
+        git_dir,
+        common_dir,
+        identity,
+    }
+}
+
+/// The two git directories `git rev-parse --git-dir --git-common-dir`
+/// printed: one path per line, in the order asked, and no trim — a path
+/// may end in a space. A path that itself spans a line makes the output
+/// ambiguous, and an ambiguous git directory is no git directory: both
+/// stay `None` and the box has no git to bind.
+fn parse_git_dirs(reported: &str) -> (Option<PathBuf>, Option<PathBuf>) {
+    let mut lines = reported.lines();
+    match (lines.next(), lines.next(), lines.next()) {
+        (Some(git_dir), Some(common_dir), None)
+            if !git_dir.is_empty() && !common_dir.is_empty() =>
+        {
+            (
+                Some(PathBuf::from(git_dir)),
+                Some(PathBuf::from(common_dir)),
+            )
+        }
+        _ => (None, None),
+    }
 }
 
 /// Render a host path as a path inside the box. Paths inside the namespace
@@ -406,16 +508,40 @@ pub fn box_argv(
     // worktree and is bound so git works at all; either way its `hooks`
     // are hidden behind an empty tmpfs and its `config` is read-only, so
     // nothing a boxed command writes can become a program the host runs
-    // on its next git invocation.
-    if let Some(git_dir) = &git.git_dir {
-        if !git_dir.starts_with(workdir) {
-            argv.extend([s("--bind"), host_path(git_dir), namespace_path(git_dir)]);
+    // on its next git invocation. The per-worktree directory lies under
+    // the shared one for a linked worktree, so binding the common
+    // directory covers both.
+    //
+    // KNOWN OPEN, and much wider than the harness runner beside it.
+    // Binding the whole common directory read-write leaves four things
+    // open that the dsh runner closes:
+    //
+    //   * every worktree's `config.worktree`, `commondir` and `gitdir`,
+    //     so in a repository carrying `extensions.worktreeConfig` a boxed
+    //     command can write `<common>/worktrees/<name>/config.worktree`
+    //     and the host's next `git` there honours a `core.hooksPath` the
+    //     box chose;
+    //   * the shared REF store — `refs`, `packed-refs`, `logs` — so a
+    //     boxed command can move a branch a sibling worktree has checked
+    //     out, at every spelling git uses;
+    //   * the shared OBJECT store, which a boxed command can destroy or
+    //     corrupt, and `objects/info/alternates`, which it can repoint;
+    //   * every sibling worktree's administrative directory.
+    //
+    // The dsh runner answers all four by giving the seat a PRIVATE common
+    // directory and promoting one ref afterwards (`dsh_sandbox`, decision
+    // 0054). Narrowing THIS write set the same way is a change under
+    // decision 0043 and takes its own number — see 0054's consequences,
+    // which record it rather than fixing it silently.
+    if let Some(common) = &git.common_dir {
+        if !common.starts_with(workdir) {
+            argv.extend([s("--bind"), host_path(common), namespace_path(common)]);
         }
         argv.extend([
             s("--tmpfs"),
-            namespace_join(&namespace_path(git_dir), Path::new("hooks")),
+            namespace_join(&namespace_path(common), Path::new("hooks")),
         ]);
-        let config = git_dir.join("config");
+        let config = common.join("config");
         argv.extend([
             s("--ro-bind-try"),
             host_path(&config),
@@ -516,16 +642,225 @@ pub fn box_argv(
     Ok(argv)
 }
 
+/// The engine's own uid and gid: what the box maps to `runner`, and what
+/// the unboxed network prefix maps root back to (decision 0046 ruling 4).
 #[cfg(unix)]
-fn ids() -> (u32, u32) {
+pub fn ids() -> (u32, u32) {
     // SAFETY: getuid/getgid take no arguments, read process credentials
     // and cannot fail.
     unsafe { (libc_getuid(), libc_getgid()) }
 }
 
 #[cfg(not(unix))]
-fn ids() -> (u32, u32) {
+pub fn ids() -> (u32, u32) {
     (65_534, 65_534)
+}
+
+/// The closed Windows process-startup set. Carried verbatim when set
+/// on Windows only (decision 0046 ruling 4;
+/// design DD10); on every other host these names are not consulted.
+const WINDOWS_BOOTSTRAP: [&str; 14] = [
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+];
+
+/// The environment an unboxed exec dispatch starts in under `harness`
+/// and `open` (decision 0046 ruling 4; design DD10): the box's own
+/// allow-list, with each entry that states a fact of a namespace
+/// replaced by the fact that stands outside one. From an EMPTY table —
+/// the credentials the engine's environment carries never enter it —
+/// this sets exactly:
+///
+/// - `HOME` and `TMPDIR`: the two private directories the caller created
+///   for the attempt, never the operator's own, because the real home
+///   carries `.ssh`, `.netrc` and `.cargo/credentials.toml`;
+/// - `PATH`, `USER` and `LOGNAME`: the engine's own, each only when set
+///   there — the box's fixed `PATH` names mounts that exist only inside a
+///   namespace, and a `runner` name would not match the operator's uid.
+///   Windows matches names without ASCII case and emits these canonical
+///   keys, so the engine's `Path` survives the cleared environment;
+/// - `CARGO_HOME`, `RUSTUP_HOME`, `NPM_CONFIG_CACHE`: the operator's
+///   `~/.cargo`, `~/.rustup`, `~/.npm` exactly when the spec's binds
+///   declare that path, as the box sets them; a bind's `mask` is declared
+///   and not enforced outside a namespace;
+/// - [`HANDS_BOX_ENV`]: inherited exactly when the engine itself already
+///   stands inside a box, never set here, because it is the marker every
+///   box-building test skips on;
+/// - the box's fixed switches, the gpgsign triple, and the bundle's git
+///   identity;
+/// - on Windows only, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`,
+///   `SYSTEMROOT`, `SYSTEMDRIVE`, `WINDIR`, `COMSPEC`, `PATHEXT`, `TEMP`,
+///   `TMP`, `USERNAME`, `APPDATA`, `LOCALAPPDATA` and `PROGRAMDATA`,
+///   matched without ASCII case and inherited verbatim only when set.
+///
+/// Pure over its inputs, so the table is read directly by tests.
+/// Clearing the environment confines nothing on disk: an unboxed script
+/// may open any host path the operator's uid may read.
+pub fn unboxed_environment(
+    engine_env: &std::collections::BTreeMap<String, String>,
+    home: &Path,
+    spec: &HandsSpec,
+    identity: &[(String, String)],
+    private_home: &Path,
+    private_tmp: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    unboxed_environment_on(
+        cfg!(windows),
+        engine_env,
+        home,
+        spec,
+        identity,
+        private_home,
+        private_tmp,
+    )
+}
+
+/// Keep both platform tables executable on every host, so Linux tests
+/// pin Windows inheritance as well as the Unix table.
+fn unboxed_environment_on(
+    windows: bool,
+    engine_env: &std::collections::BTreeMap<String, String>,
+    home: &Path,
+    spec: &HandsSpec,
+    identity: &[(String, String)],
+    private_home: &Path,
+    private_tmp: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    let mut table = std::collections::BTreeMap::new();
+    let mut set = |key: &str, value: String| {
+        table.insert(key.to_string(), value);
+    };
+    set("HOME", private_home.to_string_lossy().into_owned());
+    set("TMPDIR", private_tmp.to_string_lossy().into_owned());
+    for key in ["PATH", "USER", "LOGNAME", HANDS_BOX_ENV] {
+        let value = if windows {
+            engine_env
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                .map(|(_, value)| value)
+        } else {
+            engine_env.get(key)
+        };
+        if let Some(value) = value {
+            set(key, value.clone());
+        }
+    }
+    for (key, value) in [
+        ("LANG", "C.UTF-8"),
+        ("LC_ALL", "C.UTF-8"),
+        ("CI", "true"),
+        ("DISABLE_AUTOUPDATER", "1"),
+        ("DISABLE_TELEMETRY", "1"),
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+        ("GIT_CONFIG_VALUE_0", "false"),
+    ] {
+        set(key, value.to_string());
+    }
+    for (key, dir) in [
+        ("CARGO_HOME", ".cargo"),
+        ("RUSTUP_HOME", ".rustup"),
+        ("NPM_CONFIG_CACHE", ".npm"),
+    ] {
+        let target = home.join(dir);
+        if spec
+            .binds
+            .iter()
+            .any(|bind| expand_home(&bind.path, home) == target)
+        {
+            set(key, target.to_string_lossy().into_owned());
+        }
+    }
+    for (key, value) in identity {
+        set(key, value.clone());
+    }
+    bootstrap(windows, engine_env, &mut table);
+    table
+}
+
+/// On Windows only, the process-bootstrap set passes verbatim.
+fn bootstrap(
+    windows: bool,
+    engine_env: &std::collections::BTreeMap<String, String>,
+    table: &mut std::collections::BTreeMap<String, String>,
+) {
+    if !windows {
+        return;
+    }
+    for (key, value) in engine_env {
+        if WINDOWS_BOOTSTRAP
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(key))
+        {
+            table.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+/// The network narrowing an unboxed exec dispatch runs behind on Linux
+/// when the probe passes (decision 0046 ruling 4): a user namespace with
+/// the engine mapped to root, so the exec'd `sh` keeps the capability to
+/// bring the loopback up, then a second user namespace mapping root back
+/// to the operator, so the dispatch runs as the operator with its
+/// capabilities dropped on exec and the network namespace inherited.
+/// Every layer replaces itself by exec, so the PID the engine holds is
+/// the driver's and the deadline kill reaches it. Eight tokens; the
+/// dispatch follows as `"$@"`.
+pub fn network_prefix(uid: u32, gid: u32) -> Vec<String> {
+    vec![
+        "unshare".to_string(),
+        "--map-root-user".to_string(),
+        "--net".to_string(),
+        "--".to_string(),
+        "sh".to_string(),
+        "-c".to_string(),
+        format!("ip link set lo up && exec unshare --map-user={uid} --map-group={gid} -- \"$@\""),
+        "sh".to_string(),
+    ]
+}
+
+/// Does the prefix work here? The prefix around `true`, run in the
+/// dispatch's own environment against the `PATH` that environment
+/// carries (decision 0046 ruling 4; design DD15). With no `unshare` on
+/// that path nothing is spawned and the answer is no; a non-zero exit is
+/// no; zero is yes. The engine asks once per process and remembers the
+/// answer, and nothing anywhere reports it: the record marks the run
+/// *unboxed* either way.
+pub fn probe_network_prefix(
+    env: &std::collections::BTreeMap<String, String>,
+    uid: u32,
+    gid: u32,
+) -> bool {
+    let path = env.get("PATH").cloned().unwrap_or_default();
+    let found = std::env::split_paths(&path)
+        .map(|dir| dir.join("unshare"))
+        .find(|candidate| candidate.is_file());
+    let Some(unshare) = found else {
+        return false;
+    };
+    let mut argv = network_prefix(uid, gid);
+    argv.push("true".to_string());
+    Command::new(unshare)
+        .args(&argv[1..])
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 #[cfg(unix)]

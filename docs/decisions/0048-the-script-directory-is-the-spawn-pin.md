@@ -1,0 +1,508 @@
+# 0048 — The script directory is the spawn pin
+
+Status: proposed
+Date: 2026-09-06
+
+## Context
+
+The returned review of decision 0046 slice (i), commit 78e33d9, names
+two defects in the unboxed exec check. Replacing every backslash in a
+manifest path merges the Unix file `scripts\gate.sh` with
+`scripts/gate.sh`; the retained digest can describe the wrong file.
+Re-walking the entire declaring layer also rejects a realm created by
+`brokkr init .`: its journal, result files and implementation sources
+live beside its bundle and change during the run.
+
+The task commissions both repairs. This proposal records the narrower
+reading of the archived design's DD9; it does not claim operator
+acceptance. Checking only the executable would lose the check on helpers
+it sources. Excluding particular journal filenames would miss configured
+journal paths and would still freeze the implementation's sources.
+
+## Rulings
+
+1. **A manifest key preserves the actual filename components.** Only
+   separators between filesystem components become `/`. A literal Unix
+   backslash remains a backslash in its own key. A filename that cannot
+   be represented as UTF-8 is refused instead of being decoded lossily
+   into another file's key. Ordinary portable bundle keys keep their
+   existing bytes and digests.
+
+   **Enforcement binding:** `walk_files` in
+   `crates/brokkr-runtime/src/bundle.rs`; the two filename regressions
+   in `bundle/model_policy_tests.rs`, including both names in one layer.
+
+2. **Spawn checks the script directory against its compiled file map.**
+   Before every unboxed exec spawn, re-walk the directory containing the
+   script and its descendants. Refuse changed, missing or added files,
+   naming the declaring layer and the actual file key. Keep ancestor
+   file maps from the exact manifests hashed into their compose digests;
+   never take a new baseline at spawn. The script token is the first
+   expanded bundle path in the dispatch, before its unjudged arguments.
+   Compare paths by components under compile's canonical layer roots.
+
+   This narrows DD9's whole-layer check: `scripts/` remains protected in
+   an `init .` realm while sibling source trees, `.forge/results/` and
+   the journal may change. A script at the layer root still selects that
+   entire directory. Bundle identity and resume's manifest comparison
+   keep their existing scope. No new manifest field or contract version
+   is introduced.
+
+   **Enforcement binding:** `script_directory` and `spawn_site` in
+   `crates/brokkr-runtime/src/engine.rs`, `layer_drift` in `bundle.rs`,
+   and the retained ancestor maps in `bundle/compose.rs`. Runtime tests
+   cover leaf and inherited helpers and panel spawns; the CLI's
+   `boundary_verbs.rs` runs `init .`, then an implementation and two
+   unboxed gates with source edits, an existing journal and result
+   files inside the layer, under both `harness` and `open`.
+
+3. **Admission refuses interpreter startup metacharacters at compile.**
+   The operator's 2026-09-07 security ruling below narrows which raw
+   `./` script components the pinned-script grammar admits under
+   `harness` and `open`, for work and gate sites alike, on every host.
+   It never rewrites a filename, a manifest key, or the canonical spawn
+   pin. Identity remains ruling 1's exact bytes; ruling 2's containing
+   directory remains the re-walk scope. This document stays proposed;
+   recording this specific operator ruling does not accept its other
+   proposals.
+
+   **Enforcement binding:** `pinned_key`, called by `pinned_script` in
+   `crates/brokkr-runtime/src/bundle.rs`; the compile matrices and
+   mutable-sibling regression in `bundle/model_policy_tests.rs`, the
+   inherited-seat refusal in `bundle/compose_tests.rs`, and the real
+   `compile`/`run` refusal in the CLI's `tests/boundary_verbs.rs`.
+
+4. **The pin checks bundle integrity; execution depends on the boundary.**
+   Decision 0049, "The platform classes" (accepted by the operator,
+   2026-09-07; PR #233, not yet present in this tree), ruling 3 narrows
+   the guarantee of decision 0046 ruling 4 and this proposal. The
+   pinned-script rule is always an integrity check over the bundle's
+   own bytes. It is an execution guarantee only under a boundary that
+   supplies the filesystem and the `PATH`: `namespace`, `seatbelt`,
+   `container`. Decision 0046's addendum still refuses `seatbelt` and
+   `container` at start until their implementation slices land.
+
+   Under `harness` and `open` the interpreter is unpinned and resolved
+   through an inherited `PATH`. Here the rule defends a careless bundle,
+   not a hostile seat; the execution guarantee does not hold. A bare
+   interpreter name is not an identity: anything earlier on `PATH` can
+   answer to it, so closing a list of interpreter names would not close
+   the execution surface. The refused character set is closed against
+   the interpreters that have been measured only; a different interpreter
+   may reinterpret other bytes. The guarantee rests on the boundary,
+   not on the set.
+
+   Decision 0049 names Linux first-class, macOS supported and Windows
+   best-effort. Where operating-system behaviour defeats a stated
+   guarantee, ruling 3 requires naming the guarantee as not holding
+   there rather than pursuing it. The backtick refusal below is a small
+   engineering choice that closes the one route the PowerShell review
+   traced, with no guarantee attached. No interpreter survey, additional
+   refusals beyond the backtick, or parent-process attempt to defeat
+   shell startup handling belongs to this correction. Rulings 1 and 2's
+   exact filename identity and canonical pin stand unchanged.
+
+   **Enforcement binding:** `pinned_key`'s measured set and diagnostic in
+   `bundle.rs`; the backtick mutable-sibling compile regression in
+   `bundle/model_policy_tests.rs`; the scope stated here and in both the
+   archived and promoted `gate-boundary-policy` capability texts.
+
+## Consequences
+
+The integrity check covers the script directory, not every host file a
+script may read. Helpers outside that directory and the interval between
+the walk and exec are outside the check. Under `harness` and `open` the
+execution guarantee does not hold (0049 ruling 3); the run remains visibly
+unboxed.
+The original manifest still records the complete layer. Canonical paths
+are not compared with independently canonicalised script targets, so a
+symlink continues to pin the bytes read through its real entry name.
+
+The review's third finding is a deletion: unboxed agent resolution
+already omits the workspace fragment, so engine composition appends the
+harness fragment directly and never removes matching tokens again.
+
+D34's delivery-summary absence case and missing explicit open-work
+delta scenario remain accepted residuals for Muninn. Claude's harness
+fragments and codex's capture measurement remain operator-owned and
+deferred as recorded in the slice's completion note.
+
+## Platform repair evidence — 2026-09-06
+
+The platform repair leaves both rulings above intact. The invalid UTF-8
+filename test now runs only on Linux: APFS and HFS+ refuse its filename
+at creation, so that lossy-alias case is excluded on macOS before the
+compiler can read it. Linux still proves the compiler's refusal with
+both the invalid name and its replacement-character neighbour present.
+
+The Windows stack overflow was traced to **command construction**, not
+the script-directory walk. CI also fails `binary_names.rs` while asking
+for help, which opens no bundle. On the unmodified head `6753dd7`, Linux
+reproduces `agent_fallback.rs:194` with:
+
+```sh
+(ulimit -c 0; ulimit -s 512
+ cargo test -p brokkr-cli --test agent_fallback \
+   a_fail_to_start_falls_back_to_the_next_model_within_the_bound -- --exact)
+```
+
+Following the child with GDB stops in the stack-probing prologue of
+`Cmd::augment_subcommands`, generated by `#[derive(Subcommand)]`. Its
+callers are `Cli::augment_args`, `Cli::command`, `Parser::parse`, and
+`brokkr_cli::main`; no bundle has been opened. That Linux function
+reserves 925,272 bytes before its nested builders run. There is no
+repeated directory component or recursive file-map call in this trace.
+The file walk has an explicit worklist, the compose resolver detects
+canonical-root cycles, and script selection and map filtering use
+native path components. None needs a new depth cap for this defect.
+
+The direct command variants now delegate their arguments to separate
+`clap::Args` structs in `crates/brokkr-cli/src/cli_args.rs`. This puts
+each verb's builder temporaries in a separate frame, keeping the finite
+command tree's breadth out of one frame. Existing command groups,
+options, defaults and help text are preserved; `#[group(skip)]` avoids
+introducing implicit argument groups. The process stack is not enlarged.
+
+As corroboration, cross-compiling the CLI declarations alone to
+`x86_64-pc-windows-msvc`, using Rust 1.98.0 and the workspace's locked
+Clap 4.6.6 dependencies, gives these `.seh_stackalloc` sizes in bytes:
+
+| Generated function | Before | After |
+|---|---:|---:|
+| `Cmd::augment_subcommands` | 925,160 | 210,064 |
+| `Cmd::augment_subcommands_for_update` | 1,058,088 | 218,608 |
+
+These are individual frames, not whole-process stack measurements.
+The Linux unit test `the_command_tree_builds_on_a_small_stack` builds
+and validates both complete command trees on a 512 KiB thread. It
+aborts with stack overflow before this repair and passes after it,
+without spawning the binary or touching a filesystem. This tests the
+offending command-tree shape rather than inventing a directory cycle
+that did not cause the failure. The six fallback integration tests also
+pass with the 512 KiB process limit after the repair, and all 48 command
+help pages compare byte-for-byte with the original binary.
+
+macOS and Windows execution remain unverified in this Linux seat. The
+evidence is the [failing cross-platform CI run](https://github.com/feedback-loop-ai/brokkr/actions/runs/34054805345), the Linux
+debugger reproduction and regression, and Windows code generation;
+native execution belongs to the platform CI jobs.
+
+Local validation passes formatting, clippy with warnings denied,
+`cargo test --workspace --no-fail-fast`, and compilation of both
+`bundles/self` and `bundles/verify`. Exact coverage records
+21,228/21,228 source lines, 3,300/3,300 branches and 2,015/2,015 logical
+functions. The frozen files and witness and compose digests do not move.
+
+## Windows environment repair — 2026-09-06 (proposed)
+
+The follow-up commission names the unboxed exec dispatch's fixed
+environment and asks that the Windows startup list remain explicit and
+closed. Inspection of `1f3546a` changes the diagnosis: both capability
+specs and `hands.rs` already carry all fourteen Windows startup names,
+including `SYSTEMROOT`, `WINDIR`, `COMSPEC` and `PATHEXT`. That list is
+not missing. Its implementation already matches names without ASCII
+case, but the common inherited names use `BTreeMap<String, String>::get`,
+which drops an engine entry spelled `Path` when asking for `PATH`.
+
+The [Windows CI run at that head](https://github.com/feedback-loop-ai/brokkr/actions/runs/34056215971)
+records four failures among the five `boundary_verbs` tests. The dumped
+unboxed attempt reaches the exec driver and reports `could not invoke
+the agent CLI: program not found`. The engine spawns its own binary by
+path in `SpawnEnv::Exactly`; that driver then looks up `sh` in its own,
+already cleared environment. Losing `Path` at the first spawn removes
+the search path from the second one. The passing `agent_fallback`
+sequence in the same job also invokes `sh`, so the evidence does not
+justify changing the fixture's shell or installing another one.
+
+[Rust's Command documentation](https://doc.rust-lang.org/std/process/struct.Command.html#method.env)
+states Windows environment-name matching is case insensitive while
+preserving spelling. [Rust 1.98.0's Windows resolver](https://github.com/rust-lang/rust/blob/1.98.0/library/std/src/sys/process/windows.rs#L424-L547)
+appends `.exe` itself, independently of `PATHEXT`, and produces this
+`program not found` error before calling `CreateProcessW`. Missing
+`PATHEXT` or a loader dependency therefore is not the demonstrated
+cause. The pure regression fails on Linux before the lookup repair:
+the Windows table lacks `PATH`, `USER`, `LOGNAME` and the inherited
+marker when their input names have mixed case. It passes afterward.
+
+The proposed clarification of decision 0046 ruling 4 is:
+
+- Keep the existing Unix keys and all fourteen explicitly named Windows
+  startup keys. Inherit each Windows startup entry only when set,
+  including an empty value, retaining its spelling and value verbatim.
+  Consult none of that list on Linux or macOS.
+- Match the common inherited names `PATH`, `USER`, `LOGNAME` and
+  `BROKKR_HANDS_BOX` without ASCII case on Windows, emitting their
+  stated uppercase keys with values unchanged. Unix remains case
+  sensitive. The marker is never synthesized, and toolchain locators
+  still follow binds rather than operator environment overrides.
+- Keep both platform compositions in the same pure implementation.
+  The public function selects the native platform; Linux tests execute
+  both full tables, asserting literal key-set equality against lists
+  independent of production, mixed-case inheritance, absent and empty
+  entries, bind-derived values and exclusion of secrets and lookalikes.
+
+**Enforcement binding:** `unboxed_environment_on` and `bootstrap` in
+`crates/brokkr-protocol/src/hands.rs`, and
+`the_unboxed_environment_has_exact_keys_on_both_platforms` in its tests.
+This changes neither script-directory pinning nor a manifest field.
+
+One failing CI case removes hands and inherits its environment, so the
+cleared-table defect alone cannot explain that case. A separate Linux
+regression proves the shared gate fixture's prompt parser exits 2 for
+a Windows verbatim drive path (`\\?\C:\...`). The fixture now strips
+that prefix before recognizing the result path; production filenames
+and script pins are unchanged. The regression exercises ordinary and
+verbatim drive spellings and a Windows home value through a real shell.
+All formerly opaque run assertions now include events on failure.
+Matching this additional fixture defect to the undumped CI failure
+still requires a native Windows run; none was available in this seat.
+
+The `anchor gap ... Author identity unknown` message belongs to runner
+identity configuration. `anchor::anchor` runs Git in the engine's
+inherited environment, after the run's disposition is decided. This
+fixture supplies `git -c user.name=... -c user.email=...` only to its
+initial commit, not to later `commit-tree` calls, and CI configures no
+persistent identity. The gap is best effort and does not park the run.
+No anchor code or runner configuration is changed by this repair.
+
+Archive maintenance is explicit: the fixed-environment requirement and
+its **Windows starts its processes** scenario are amended in both
+`openspec/changes/archive/2026-09-06-boundary-named-slice-i/specs/gate-boundary-policy/spec.md`
+and `openspec/specs/gate-boundary-policy/spec.md`. The archived completion
+note records this later amendment; its original close-out remains
+historical evidence. This section remains proposed, not an operator
+acceptance.
+
+Local validation for this repair passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, and both `brokkr compile
+--bundle bundles/self` and `--bundle bundles/verify`. A fresh exact
+coverage run records 21,262/21,262 source lines, 3,306/3,306 branches
+and 2,018/2,018 logical functions. The frozen trees are unchanged and
+the witness and compose digest tests pass without repinning.
+
+## Returned security review — fixture credentials
+
+The review of `b8b89a6` found that the plain-run test's new event dump
+could print the operator's `GH_TOKEN`: that test removes hands, inherits
+the environment, and records the gate fixture's token in result notes.
+Both fixture launch paths now supply `boundary-fixture-token` explicitly,
+including the direct shell used to test Windows result-path parsing.
+The unboxed-hands tests continue to require `token=unset`, now with a
+known nonempty input regardless of the operator's environment.
+
+`a_plain_run_failure_does_not_print_the_parent_token` starts the actual
+plain-run test in a subprocess with a planted synthetic parent token and
+a marker value that makes the fixture write a valid failing result.
+It requires a failed test and a dump containing both the recorded result
+and stopped run, then proves the dummy token remains visible while the
+parent token is absent from stdout and stderr. The regression reproduced
+the leak before the fixture overrides and passes after them. No real
+credential or process-global environment mutation is used. This is a
+test-fixture repair; production inheritance and both capability specs
+keep their existing semantics, and no further archive amendment is made.
+
+## Windows script argument repair — 2026-09-07 (proposed)
+
+The next commission reports eight Windows `boundary_verbs.rs` failures
+with `agent CLI exited 127` and a stderr tail beginning
+`/usr/bin/bash: \\?C:UsersrunneradminAppDataLocalTemp...`. This is the
+operator-supplied evidence for this repair, not a native reproduction:
+bash now starts, but cannot open the script argument. Inspection confirms
+the route: compose canonicalises the layer roots, `expand_command` joins
+the raw `./scripts/...` token to that root, and `compose_site` previously
+passed it unchanged to the exec driver. The driver passes its argv to the
+interpreter. The plain fixture without hands takes the same expanded path.
+
+[Rust documents](https://doc.rust-lang.org/std/fs/fn.canonicalize.html)
+that Windows canonicalisation produces extended-length paths which other
+applications may not accept. [Microsoft's path rules](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation)
+distinguish that spelling from ordinary drive and UNC paths and specify
+the 260-character legacy limit including the terminator.
+[Its filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file)
+also reserve DOS device names and trailing dots/spaces in ordinary lookup.
+
+The proposed clarification keeps rulings 1 and 2 intact:
+
+1. **The pin keeps the canonical components.** Select the first expanded
+   script and its parent before converting any argument. Neither the
+   manifest keys, retained file maps, roots nor re-walk directory use the
+   interpreter spelling. No script target is independently canonicalised;
+   symlink entries retain their existing identity.
+2. **The interpreter receives an ordinary Windows path.** For an exec
+   script under an unboxed boundary, turn a verbatim drive path into
+   `C:/...`, or a verbatim UNC path into `//server/share/...`, only when
+   the result is below 260 UTF-16 units and its components do not require
+   verbatim lookup. Refuse longer paths, other verbatim namespaces, reserved
+   names, empty components and names with forbidden characters or trailing
+   dots/spaces before spawning. The failure names the path and the repair;
+   it never substitutes another file or silently skips the pin.
+   Plain exec sites without hands receive the same argument conversion,
+   retaining their inherited environment and absence of a re-walk. The
+   engine token, interpreter tokens and subsequent unjudged arguments
+   remain unchanged. Unix paths preserve every byte, including backslashes.
+
+**Enforcement binding:** `exec_spawn_on`, `script_argument`,
+`ordinary_windows_component`, `compose_site` and `spawn_site` in
+`crates/brokkr-runtime/src/engine.rs`. The pure
+`exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument`
+test executes both platform policies on every host, asserting complete
+argv and canonical directory separately for drive and UNC roots, with a
+later argument naming another layer. Native composition covers both
+unboxed boundaries and the plain path. Further tests cover Unicode
+length boundaries, aliases and the pre-spawn refusal. These tests open no
+interpreter and require no Windows filesystem. Existing CLI runs and the
+script/helper drift tests exercise the engine path on Linux.
+
+The archive's argv requirement and off-Linux scenario and their promoted
+capability are amended together, with a dated archive completion note.
+The frozen contracts and corpus remain unchanged; bundle file maps and
+witness and compose digests have no new input from this repair.
+
+Windows and macOS execution are unavailable in this Linux seat. Native
+Git Bash execution, including the eight reported failures, remains for
+platform CI; the reported exit-127 evidence, traced source path and pure
+cross-platform regressions support this implementation without claiming
+that native verification.
+
+Two temporary mutations verify the regression on Linux: retaining the
+canonical script in argv fails its complete-argv assertion; assigning the
+converted script's parent to the pin fails its directory assertion. Both
+mutations are removed. The final tree passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
+bundles/self` and `--bundle bundles/verify`, and `scripts/coverage-exact.sh`:
+21,328/21,328 source lines, 3,326/3,326 branches and 2,024/2,024 logical
+functions. Witness and compose digest tests pass without repinning.
+
+## Security ruling — refuse measured startup spellings, 2026-09-07 (corrected 2026-09-08)
+
+The HIGH security review of `69544d6..189257f` found that an admitted
+`./scripts[1]/gate.sh` can select `scripts1/gate.sh` at interpreter
+startup. The canonical pin correctly retains `scripts[1]`, and its
+re-walk correctly ignores independently mutable `scripts1`; that does
+not prove which file the interpreter will open. Braces and apostrophes
+allow the same substitution. The operator ruled **refuse the spelling
+at compile on every platform**, rather than make bundle admissibility
+depend on the machine reading it (decision 0046 ruling 4).
+
+The evidence crosses the boundary the prior `Vec<String>` tests did
+not: [Rust 1.98.0's Windows `append_arg`](https://github.com/rust-lang/rust/blob/1.98.0/library/std/src/sys/args/windows.rs#L163-L203)
+automatically surrounds empty arguments and arguments containing spaces
+or tabs with quotes. Brackets reach the raw command line unquoted.
+[Git for Windows's `build_argv` and `globify`](https://github.com/git-for-windows/msys2-runtime/blob/710e5275eb86d54b45b5f4d71ecc4e1cac1b9302/winsup/cygwin/dcrt0.cc#L194-L358)
+parse quotes and expand globs for a native parent when `allow_glob` is
+enabled, using `GLOB_TILDE`, `GLOB_BRACE`, `GLOB_QUOTE` and
+`GLOB_NOCHECK`. This is source-traced evidence, not a native Windows
+reproduction by this Linux seat.
+
+The refused set is the following fifteen ASCII characters, including the
+backtick added under decision 0049 ruling 3. It is closed against the
+interpreters that have been measured only: a different interpreter may
+reinterpret other bytes. The execution guarantee rests on the boundary
+that supplies the filesystem and `PATH`, not on this set. Each character
+is refused alone, paired or unmatched, anywhere in any component after
+the script's `./`, before filesystem lookup:
+
+| Characters | Reason for inclusion |
+|---|---|
+| `*`, `?`, `[`, `]` | Glob wildcards and bracket expressions can select other filenames. Both delimiters are refused. |
+| `{`, `}` | Brace expansion can select sibling alternatives. Both delimiters are refused. |
+| `(`, `)` | MSYS `globify` explicitly includes both in its startup trigger set; admission does not depend on whether a particular pattern expands. |
+| `'`, `"` | Startup quote parsing can remove delimiters or change which bytes are literal. |
+| `\` | Escape and quote processing can remove or reinterpret a backslash; the existing grammar already refused it as a component byte. |
+| `~` | The startup glob enables tilde expansion. Refusal is component-local even where the current absolute argv would suppress it. |
+| Backtick (U+0060) | The review traced `powershell.exe` removing it from ``scripts`1`` to select the mutable sibling `scripts1`. A small engineering refusal of that route, with no guarantee attached (0049 ruling 3). |
+| CR (`\r`, U+000D), LF (`\n`, U+000A) | The MSYS startup separator table splits on these bytes, while Rust's automatic quoting only recognizes space and tab. A filename could become separate arguments. |
+
+The last row follows [MSYS's `issep` definition](https://github.com/git-for-windows/msys2-runtime/blob/710e5275eb86d54b45b5f4d71ecc4e1cac1b9302/winsup/cygwin/local_includes/winsup.h#L136-L137),
+used by `build_argv` before glob expansion. It addresses the measured
+argument-splitting route as well as filename expansion; it makes no claim
+about other interpreters.
+
+The earlier reasoning that refusing interpreter options such as `-c`
+excluded shell-source interpretation for every admitted interpreter was
+false. It inferred an open set's behaviour from one parser.
+`powershell.exe` disproved it: its first positional argument is a command
+string without an option token to refuse. The review traced a backtick
+being stripped from ``scripts`1`` to select the independently mutable
+`scripts1` sibling while the canonical pin still selected the literal
+backtick directory. The grammar refuses option tokens before the script;
+that is all the option check establishes. It cannot establish how an
+unpinned interpreter interprets a positional argument.
+
+This is a compile admission rule over measured spellings, with no claim
+of complete startup or shell-source validation. Apart from the backtick,
+no character is added to the existing refusals; `$`, `;`, `&`, `|`, `<`,
+`>`, `!`, `%` and `^` remain outside the set without a claim that another
+interpreter leaves them literal. Spaces and tabs remain admissible;
+Rust's argument quoting is not proof of another interpreter's parsing.
+No Unicode character class, locale,
+operating-system branch, environment variable or sibling lookup defines
+this set. The first offending component and its first refused character
+in token order are reported, naming this decision and 0046 ruling 4.
+
+The check belongs in the existing pinned-script component walk, before
+lookup and expansion, including inherited declarations. Later unjudged
+arguments, ordinary bundle files and canonical roots keep their existing
+meaning. The rule neither normalizes admitted names nor widens the
+re-walk to freeze siblings. The boxed and no-hands admission laws are
+unchanged. Under `harness` and `open` this is careless-bundle defence only,
+with no execution guarantee through the unpinned interpreter (0049 ruling
+3; 0046 ruling 4).
+
+Tests compile actual bracketed, braced, apostrophe and backtick directories
+before and after a matching sibling is created or edited, and prove that the
+sibling changes nothing inside the selected directory's re-walk. A
+separate ordinary-script compile proves both literal keys remain in the
+manifest. The CLI regression refuses both `compile` and `run` before a
+journal or result file exists. A grammar matrix needs no metacharacter
+files, including names Windows cannot create. Each test states that it
+does not exercise native Windows/MSYS startup or `powershell.exe` parsing
+on Unix; no pre-spawn argv assertion is represented as that proof. Native
+Windows and macOS execution remain for their platform CI jobs.
+
+Both copies of `gate-boundary-policy` carry the same refusal and
+scenarios. The archive's completion note records the dated amendment;
+the original proposal, design and tasks remain historical evidence.
+
+In the preceding fourteen-character implementation, temporarily emptying
+the refusal set made both the runtime's
+mutable-sibling regression and the CLI regression fail because the
+bracketed script compiled. The mutation was removed. That
+fourteen-character rule passed `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
+bundles/self` and `--bundle bundles/verify`, and a fresh
+`scripts/coverage-exact.sh`: 21,335/21,335 source lines, 3,328/3,328
+branches and 2,025/2,025 logical functions. Frozen trees and shipped
+bundles are untouched; witness and compose digest tests need no repins.
+
+## Scope correction evidence — 2026-09-08
+
+This correction enacts decision 0049 ruling 3 as quoted by the operator
+in the commission, citing it by number while its accepted document is
+not yet in this tree. Decision 0048 remains proposed. The PowerShell
+counterexample is the review evidence supplied with that commission;
+no native Windows or macOS execution was available in this Linux seat.
+The evidence relied on is that reported backtick route, the earlier
+source trace recorded above, and the compiler and pure composition tests.
+They prove byte integrity, refusal of measured spellings and argv
+construction, without claiming native interpreter parsing.
+
+The extended mutable-sibling regression failed before the backtick was
+added because the spelling compiled under `harness`. With the refusal
+added it passes under both `harness` and `open`, before and after the
+sibling exists or changes, while the literal directory's bytes and
+manifest key remain unchanged. Later arguments still admit backticks.
+
+Local validation passes `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+`cargo test --workspace --no-fail-fast`, both `brokkr compile --bundle
+bundles/self` and `--bundle bundles/verify`, and a fresh
+`scripts/coverage-exact.sh`: 21,335/21,335 source lines, 3,328/3,328
+branches and 2,025/2,025 logical functions. Frozen files and shipped
+bundle inputs are unchanged; witness and compose pins pass without
+repinning. The archived completion note records this later correction
+to both capability copies; the proposal, design and tasks retain their
+historical claims rather than being rewritten as new evidence.

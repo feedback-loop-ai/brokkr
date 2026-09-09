@@ -111,6 +111,42 @@ engine will not guess at.
 LaneTally join surface, computed from journal checkpoints with stable
 seat ids.
 
+## The boundary on the record, and the word *unboxed*
+
+Every seat record that names a `model` carries `boundary` beside it
+(`seat-record.v4`, decision
+[0046](../decisions/0046-the-boundary-is-named.md) ruling 3): one of
+`namespace`, `seatbelt`, `container`, `harness` or `open` — the realm's
+word for what stood between that seat's hands and the machine — or
+decision 0031's sentinel `not applicable` for a site that declares no
+hands. The engine stamps it, never the driver: it is the only party
+that knows which boundary it built, and a value a driver wrote is
+replaced. `effect/started` carries the same fact for the whole attempt
+as an additive extension field, `boundary`
+(`effect-boundary.v1.schema.json`): a list with one entry per
+invocation site — `member`, the site's tag as checkpoints and
+provenance already use it; `boundary`, the word; `gate`, whether the
+site is gate class — present only when at least one site of the attempt
+declares hands, and never read by `fold`, so a run over a bundle that
+boxes nothing journals byte-identical payloads.
+
+The data carries the plain word; the screen carries the adjective. A
+run in which any gate-class site stood under `harness` or `open` is
+rendered **unboxed** wherever the run is summarised: the run header
+prints the word and the adjective together (`harness · unboxed`), the
+seats table of `brokkr inspect` and the `brokkr seats` verb show a
+`boundary` column beside `model`, the TUI, the web console and
+`costs`/`compare` show the boundary beside the model, and the delivery
+gate's check summary on the pull request (decision 0038) appends
+` · unboxed`. What *unboxed* states is exactly what the record can
+prove: nothing of Brokkr's stood there. It makes no claim about the
+network — on Linux the engine attempts a narrowing around an unboxed
+exec dispatch and reports nothing about whether it held — and no claim
+that the harness's own sandbox held, which is the harness's fact. A journal written before the word existed renders an
+explicit absence, `no boundary recorded`, on every model row and
+` · boundary not recorded` in the check summary, never a default: an
+old run is not retroactively declared boxed.
+
 Four verification layers back all of this, each mechanical: the 97-case
 differential corpus pins the evaluator; the machine-proof suite drives
 the real binary through every failure mode (30+ scenarios, three OSes,

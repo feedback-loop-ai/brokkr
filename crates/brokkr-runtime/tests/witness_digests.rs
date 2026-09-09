@@ -1,3 +1,8 @@
+//! Decision 0046: hands sites now pin the realm boundary; codex
+//! harness fragments also move every identity that consults that adapter.
+//! Pins below are updated only from the tests' reported left/right pairs.
+//! Merging main's research-dsh xhigh effort pin with this boundary slice
+//! moves that recipe again; its witness covers both changes together.
 //! The byte-identity witnesses of the agent-library slice (decision
 //! 0016, spec AC-4), pinned BEFORE any production edit so the claim is
 //! measured across the change rather than asserted after it.
@@ -158,39 +163,39 @@ fn workspace() -> PathBuf {
 const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/fast",
-        "3595ea973dc9413c40c702273a919a4b288dcdb8696ef5f6719f44a16ea45fbc",
+        "76b46f29e359a1d02bbc0c08ad3bb94a60d7ff4c26bb8f1c363bcd02b539bd31",
     ),
     (
         "recipes/node",
-        "e7d433f1a4de6b3037470a2380cebfbf1dedd88b1aa431da0dbf6ff2bf84c4b0",
+        "130f25c37f1a381fda5bb298dd9ddc9db376747d77bd139ec0c2f24f4983db94",
     ),
     (
         "recipes/preflight",
-        "51f6d5183133ba4ef84eff8bd45d7830178323583db28bb28cdd0b29ab522444",
+        "055613a1c359e83b8e15374a4a2408d84d931c6e1d4ce73245d5859d96329f9f",
     ),
     (
         "recipes/night-shift",
-        "edbf254a1377019321e4ee037efeac62bd9faa7400d40fd66fdd15817bcd186d",
+        "ef129108b90730c2327aac50a13bdcfd2cfb43791885f02371896da6982e2d1e",
     ),
     (
         "recipes/wager-harness",
-        "e581c3fbb03e1c408602060e32a96d7e108093e58905609a03389fb86d3015a4",
+        "e32e6e449f0243fb0620e68673c7209bf1323f792c84cf3e5e3be0f56ae1dd50",
     ),
     (
         "recipes/triage",
-        "b8484cf5de6e5f18db5cfd85e9c32c9be9eda498a5d4739752c47b7200ea52a9",
+        "9b206fac6916f148655e0c4ef12f77cd1c2a3fdbe7b9f9b46289bc0eac5ea2e2",
     ),
     (
         "recipes/research",
-        "332882b60cbb61f2034060a1b909cb7f8d10c6095522da9f72f44d80b129cb66",
+        "79502fc17ade00d84a6eff8185a8c5d05740be2e0dffc277f3ebcdc8e8eaadaf",
     ),
     (
         "recipes/research-dsh",
-        "8dbc090bc9fb615f488ecf8268cff832d0c51ca7c9a3054cd4e8a33e6dbc6f6e",
+        "3633c913555b12835f385d3f6dad3fc101f1b0756ed52dc9babde78c07d2d657",
     ),
     (
         "bundles/verify",
-        "44a2ccf25aa39dfae777e56848edc9cbb0f24afc439cada1b2d6efebde4b1b13",
+        "3983105a23fa0070ff10ed79c009fa37a23e2cb79fda0ddcf005d44c17d9eb0d",
     ),
 ];
 
@@ -231,11 +236,15 @@ fn pinned_bundles_keep_their_recorded_digest() {
     }
 }
 
+/// Decision 0046 ruling 1: the contract a compiled manifest claims is
+/// run-manifest/v9 — v8 plus the `boundary` map beside `hands`, present
+/// exactly with it. Every witness validates, and the ones that box
+/// something carry both keys over the same site labels.
 #[test]
-fn every_witness_manifest_satisfies_the_v8_contract_it_claims() {
+fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     let root = workspace();
     let schema: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("contracts/run-manifest.v8.schema.json")).unwrap(),
+        &std::fs::read(root.join("contracts/run-manifest.v9.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
@@ -248,7 +257,14 @@ fn every_witness_manifest_satisfies_the_v8_contract_it_claims() {
         .unwrap();
         assert!(
             validator.is_valid(&bundle.manifest),
-            "{relative} emits a manifest outside run-manifest/v8"
+            "{relative} emits a manifest outside run-manifest/v9"
+        );
+        let hands = bundle.manifest.get("hands").and_then(|v| v.as_object());
+        let boundary = bundle.manifest.get("boundary").and_then(|v| v.as_object());
+        assert_eq!(
+            hands.map(|map| map.keys().collect::<Vec<_>>()),
+            boundary.map(|map| map.keys().collect::<Vec<_>>()),
+            "{relative}: boundary is keyed exactly as hands is"
         );
     }
 }

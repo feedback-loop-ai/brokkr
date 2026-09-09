@@ -3,7 +3,9 @@
 Every readout shares ONE derivation (decision 0013): `brokkr-view` turns
 a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
-`inspect` and `watch` each take `--json` to emit that model verbatim.
+`inspect`, `seats` and `watch` each take `--json` to emit that model
+verbatim — `seats --json` is `inspect --json`'s own view model, byte for
+byte, under the same `view_version`.
 
 `--run` takes a **selector**, not only the 41-character id: any unique
 run-id prefix, or `latest` for the newest run in the workspace database
@@ -96,15 +98,17 @@ became.
 $ brokkr inspect --run latest
 run  prefix-selectors-for-the-read-su-8bf6d692
      completed · phase done · seq 38
+     boundary namespace
 ruling  SHIP-COMPLETE  ship → done · shipped
 
 seats
-  participant status    attempts turns cost activity
-  intake      succeeded 1        —     —    resolved · 0s
-  implement   succeeded 1        —     —    complete · 0s
-  verify      succeeded 1        —     —    pass · 0s
-  review      succeeded 1        —     —    clean · 0s
-  ship        succeeded 1        —     —    shipped · 0s
+  model is the provider's claim, not proof · effort is configuration
+  participant status    attempts turns cost tokens model            boundary       effort activity
+  intake      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      resolved · 0s
+  implement   succeeded 1        —     —    —      claude-fable-5-1 not applicable —      complete · 0s
+  verify      succeeded 1        —     —    —      not applicable   namespace      —      pass · 0s
+  review      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      clean · 0s
+  ship        succeeded 1        —     —    —      not applicable   namespace      —      shipped · 0s
 
 trail
    1 run/started        prefix selectors for the read surfaces…
@@ -144,6 +148,41 @@ Every line above is a rule id and a journal sequence number: the run
 states which rule fired, from where, on which typed result. Nothing in
 that trail was written by a model.
 
+The `boundary` column beside `model` is decision 0046's word for what
+a seat's hands stood behind — `namespace`, `seatbelt`, `container`,
+`harness` or `open` for a site with hands, `not applicable` for a site
+without — read from the journal's own records and never from the map.
+The header's `boundary` line is the run's word, and it reads
+`harness · unboxed` (or `open · unboxed`) when any gate stood under a
+boundary that is not Brokkr's box: the data carries the plain word, and
+only the rendered line carries the adjective. A journal written before
+the boundary was named shows `—` with the note *no boundary recorded*,
+never a default. A run that boxes nothing prints no line at all. The
+same pair appears wherever a model is named: a trail row that prints
+`· model <x>` prints `· boundary <y>` beside it, and `brokkr costs` and
+`brokkr compare` carry `boundary` beside `model` in every per-seat
+record (`not recorded` when no record names one), `compare` reporting a
+boundary difference between two runs as a divergence exactly as it
+reports a model difference.
+
+### `brokkr seats` — the seats, alone
+
+The seats block `inspect` prints — the same table, the same view, the
+`boundary` column beside `model` — and nothing else. `--run` takes the
+same selector, `--realms` and `--db` mean what they mean for `inspect`,
+and `--json` prints `inspect`'s own view model verbatim: no wire object
+is versioned for the verb, so a script that wants the seats reads
+`.participants` and `.boundary` from it as it would from `inspect`.
+
+```
+$ brokkr seats --run latest
+seats
+  model is the provider's claim, not proof · effort is configuration
+  participant status    attempts turns cost tokens model            boundary       effort activity
+  intake      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      resolved · 0s
+  verify      succeeded 1        —     —    —      not applicable   namespace      —      pass · 0s
+```
+
 The graph also shows the **way back**. When a review finds a security
 residual, decision 0022 sends the run back to implement — and the
 record shows it, visits counted per phase. A real one, from the run
@@ -173,15 +212,17 @@ $ brokkr watch --run latest
 ── 2026-08-29T22:27:40.474827119Z ──
 run  prefix-selectors-for-the-read-su-8bf6d692
      completed · phase done · seq 38
+     boundary namespace
 ruling  SHIP-COMPLETE  ship → done · shipped
 
 seats
-  participant status    attempts turns cost activity
-  intake      succeeded 1        —     —    resolved · 0s
-  implement   succeeded 1        —     —    complete · 0s
-  verify      succeeded 1        —     —    pass · 0s
-  review      succeeded 1        —     —    clean · 0s
-  ship        succeeded 1        —     —    shipped · 0s
+  model is the provider's claim, not proof · effort is configuration
+  participant status    attempts turns cost tokens model            boundary       effort activity
+  intake      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      resolved · 0s
+  implement   succeeded 1        —     —    —      claude-fable-5-1 not applicable —      complete · 0s
+  verify      succeeded 1        —     —    —      not applicable   namespace      —      pass · 0s
+  review      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      clean · 0s
+  ship        succeeded 1        —     —    —      not applicable   namespace      —      shipped · 0s
 
 graph
   intake ×1

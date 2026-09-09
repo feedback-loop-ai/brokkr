@@ -86,10 +86,21 @@ fn init_names_the_scaffolded_seats_that_need_missing_bubblewrap() {
         stderr.contains("scaffolded seats [\"ship\", \"verify\"] declare hands"),
         "{stderr}"
     );
+    // Decision 0046: the warning speaks the boundary vocabulary instead
+    // of saying the shipped gates require Linux.
     assert!(
-        stderr.contains("require Linux with bubblewrap on PATH"),
+        stderr.contains("run under the realm's boundary"),
         "{stderr}"
     );
+    assert!(
+        stderr.contains("`namespace`, the default, needs bubblewrap on PATH"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("a realm may declare `harness` instead (decision 0046)"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("require Linux"), "{stderr}");
 }
 
 #[test]
@@ -378,4 +389,52 @@ fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
     assert!(stdout.contains("'implement'"), "{stdout}");
     assert!(stdout.contains("'verify'"), "{stdout}");
     assert!(stdout.contains("--model <concrete-model-id>"), "{stdout}");
+}
+
+#[test]
+fn doctor_judges_each_boundary_and_compiles_the_discovered_dialect() {
+    use serde_json::{json, Value};
+    let dir = tempfile::tempdir().unwrap();
+    let (code, _, error) = brokkr(&["init", "."], dir.path());
+    assert_eq!(code, Some(0), "{error}");
+    let empty = dir.path().join("empty-path");
+    std::fs::create_dir(&empty).unwrap();
+    let map_path = dir.path().join("realms.json");
+    let mut map: Value = serde_json::from_slice(&std::fs::read(&map_path).unwrap()).unwrap();
+    map["schema"] = json!("forge.realms/v4");
+    let doctor = || {
+        let output = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+            .args(["doctor", "--bundle", "."])
+            .env("PATH", &empty)
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout).unwrap()
+    };
+    for (word, expected) in [
+        ("namespace", "warn     hands:"),
+        ("harness", "ok       hands:"),
+        ("open", "ok       hands:"),
+        ("seatbelt", "slice (ii)"),
+        ("container", "slice (iii)"),
+    ] {
+        map["realms"][0]["boundary"] = json!(word);
+        std::fs::write(&map_path, map.to_string()).unwrap();
+        let output = doctor();
+        assert!(output.contains(expected), "{word}: {output}");
+        assert!(
+            output.contains("boundaries: harness · open offered"),
+            "{output}"
+        );
+        assert!(output.contains("ok       bundle:"), "{output}");
+    }
+    // A declared dialect which cannot load must also fail bundle compilation;
+    // merely adding a diagnostic beside a compile with default dialect is wrong.
+    map["realms"][0]["boundary"] = json!("namespace");
+    map["realms"][0]["dialect"] = json!("missing-dialect.json");
+    std::fs::write(&map_path, map.to_string()).unwrap();
+    let output = doctor();
+    assert!(output.contains("MISSING  bundle:"), "{output}");
+    assert!(output.contains("missing-dialect.json"), "{output}");
+    assert!(!output.contains("ok       bundle:"), "{output}");
 }

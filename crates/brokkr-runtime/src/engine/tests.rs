@@ -25,7 +25,6 @@ pub(super) fn single_body(command: Vec<String>) -> SeatBody {
     SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command,
-        confine: None,
         candidates: Vec::new(),
     }
 }
@@ -66,6 +65,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         cost: String::new(),
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
+        boundary: Boundary::Namespace,
         chain: Vec::new(),
         machine: machine(),
         seats,
@@ -79,7 +79,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     }
 }
 
-fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
+pub(super) fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("work")).unwrap();
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
@@ -403,7 +403,6 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
                 body: StepBody::Single {
                     role_path: "role".into(),
                     command: vec!["missing".into()],
-                    confine: None,
                     candidates: Vec::new(),
                 },
             });
@@ -455,6 +454,8 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
             model: "none".into(),
             effort: None,
             provider: "exec".into(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -506,7 +507,6 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
                     }),
                 },
             ),
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -539,6 +539,8 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             model: "none".into(),
             effort: None,
             provider: "exec".into(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -724,21 +726,26 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
     }
 }
 
-fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
+pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
     AttemptReport {
         outcome,
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
         stderr: stderr.into(),
         accepted: true,
+        deadline_killed: false,
     }
 }
 
-fn wire(body: Body) -> String {
+pub(super) fn wire(body: Body) -> String {
     serde_json::to_string(&Message::new(body)).unwrap()
 }
 
-fn driver_command(effect_id: &str, attempt_id: &str, outcome: AttemptOutcome) -> Vec<String> {
+pub(super) fn driver_command(
+    effect_id: &str,
+    attempt_id: &str,
+    outcome: AttemptOutcome,
+) -> Vec<String> {
     let capabilities = wire(Body::Capabilities {
         driver: "test".into(),
         version: "1".into(),
@@ -1204,7 +1211,6 @@ fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
         body: StepBody::Single {
             role_path: PathBuf::from("role.md"),
             command: vec!["driver".into()],
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -1236,7 +1242,7 @@ fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
     );
 }
 
-fn event(event_type: EventType, payload: Value) -> EventEnvelope {
+pub(super) fn event(event_type: EventType, payload: Value) -> EventEnvelope {
     EventEnvelope {
         run_id: "run".into(),
         seq: 2,
@@ -1253,7 +1259,7 @@ fn event(event_type: EventType, payload: Value) -> EventEnvelope {
     }
 }
 
-fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
+pub(super) fn dispatch(bundle: &Bundle) -> DispatchEnvelopeV2 {
     let now = time::OffsetDateTime::now_utc();
     serde_json::from_value::<DispatchEnvelopeV2>(json!({
         "schema":"forge-dispatch/v2", "envelope_id":"envelope", "forge_run_id":"bound-run",
@@ -1302,14 +1308,12 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
             name: "one".into(),
             role_path: "role".into(),
             command: vec!["driver".into()],
-            confine: None,
             candidates: Vec::new(),
         },
         PanelMember {
             name: "two".into(),
             role_path: "role".into(),
             command: vec!["driver".into()],
-            confine: None,
             candidates: Vec::new(),
         },
     ];
@@ -1333,7 +1337,6 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                     body: StepBody::Single {
                         role_path: "role".into(),
                         command: vec!["driver".into()],
-                        confine: None,
                         candidates: Vec::new(),
                     },
                 },
@@ -1604,6 +1607,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
             "a1",
             DriverRun::SpawnFailed("spawn".into()),
             &Selection::new(),
+            None,
         )
         .unwrap();
     engine
@@ -1617,6 +1621,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 "",
             )),
             &Selection::new(),
+            None,
         )
         .unwrap();
     engine
@@ -1630,6 +1635,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 "stderr",
             )),
             &Selection::new(),
+            None,
         )
         .unwrap();
     engine
@@ -1643,6 +1649,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 "stderr",
             )),
             &Selection::new(),
+            None,
         )
         .unwrap();
 
@@ -1652,7 +1659,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 "effect",
                 "attempt",
                 "work",
-                &["missing-driver".into()],
+                &SiteSpawn::inherit(vec!["missing-driver".into()]),
                 json!({}),
                 std::time::Duration::from_secs(1),
                 None,
@@ -1674,7 +1681,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
                 "effect",
                 "attempt",
                 "work",
-                &command,
+                &SiteSpawn::inherit(command.clone()),
                 json!({}),
                 std::time::Duration::from_secs(2),
                 Some("step"),
@@ -1691,7 +1698,7 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
             "effect",
             "attempt",
             "work",
-            &command,
+            &SiteSpawn::inherit(command.clone()),
             json!({}),
             std::time::Duration::from_secs(2),
             None,
@@ -1734,7 +1741,7 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
         ),
     ];
     engine
-        .journal_panel_members("effect", "attempt", &outcomes, "step:")
+        .journal_panel_members("effect", "attempt", &outcomes, &[], "step:")
         .unwrap();
     assert!(matches!(
         panel_outcome(Aggregate::UnanimousPass, outcomes.clone()),
@@ -1819,7 +1826,7 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
 }
 
 #[test]
-fn git_helpers_and_confinement_fail_closed() {
+fn git_helpers_fail_closed_and_a_site_without_hands_composes_its_own_argv() {
     let dir = tempfile::tempdir().unwrap();
     assert!(Command::new("git")
         .args(["init", "-q"])
@@ -1835,27 +1842,26 @@ fn git_helpers_and_confinement_fail_closed() {
     assert_eq!(git_head(&missing), None);
     assert!(git_dirty(&missing));
 
-    let command = vec!["driver".into()];
-    let confined = confined_command(
-        &command,
-        Some(&Confine {
-            image: "image@sha256:abc".into(),
-            network: true,
-            mounts: vec!["/extra".into()],
-        }),
-        dir.path(),
-        &[dir.path().to_path_buf()],
+    // Decision 0046 ruling 5: with the docker wrapper gone, a seat, a
+    // member and a step that never declared `driver.confine` compose
+    // exactly the argv they always did — their own command, untouched.
+    let command = vec!["driver".into(), "--flag".into()];
+    assert_eq!(
+        hands_command(
+            command.clone(),
+            None,
+            dir.path(),
+            &[dir.path().to_path_buf()]
+        ),
+        command
     );
-    assert!(!confined.contains(&"--network=none".to_string()));
-    assert!(confined.iter().any(|part| part == "/extra:/extra:ro"));
 }
 
-fn member(name: &str, command: Vec<String>) -> PanelMember {
+pub(super) fn member(name: &str, command: Vec<String>) -> PanelMember {
     PanelMember {
         name: name.into(),
         role_path: "role.md".into(),
         command,
-        confine: None,
         candidates: Vec::new(),
     }
 }
@@ -1889,6 +1895,7 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
             &panel_input(&["missing"]),
             std::time::Duration::from_secs(1),
             &Selection::new(),
+            false,
         )
         .unwrap();
     assert!(failed
@@ -1921,6 +1928,7 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
         &panel_input(&["lost"]),
         std::time::Duration::from_secs(2),
         &Selection::new(),
+        false,
     )
     .unwrap();
     assert!(lost
@@ -1948,6 +1956,7 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
             &panel_input(&["ok"]),
             std::time::Duration::from_secs(2),
             &Selection::new(),
+            false,
         )
         .unwrap();
     assert!(succeeded
@@ -1975,7 +1984,6 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -2011,7 +2019,6 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
                     reason: "lost".into(),
                 },
             ),
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -3151,7 +3158,7 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
     );
 }
 
-fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {
+pub(super) fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {
     let current = state(Some("work"), Cursor::Idle);
     let input = engine.seat_input(&current, "work", effect_id).unwrap();
     event(
@@ -3196,7 +3203,6 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         name: name.into(),
         role_path: PathBuf::from(format!("{name}.md")),
         command: vec!["driver".into()],
-        confine: None,
         candidates: Vec::new(),
     };
     let members = vec![member("security"), member("correctness")];
@@ -3209,6 +3215,7 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         "allowed_results": ["clean"], "house_rules": Value::Null, "spec_dialect": Value::Null,
     });
     let runs = engine.member_runs(
+        "attempt",
         "review",
         &members,
         &meta,
@@ -3216,6 +3223,7 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         &json!({}),
         &Selection::default(),
         "",
+        false,
     );
     assert_eq!(runs[0].input["hands"], "boxed");
     assert!(runs[1].input.get("hands").is_none());
@@ -3284,7 +3292,7 @@ fn selected_ship_site_receives_the_runtime_journal_bind() {
     );
 }
 
-fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
+pub(super) fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
     let capabilities = wire(Body::Capabilities {
         driver: "test".into(),
         version: "1".into(),
@@ -3356,7 +3364,6 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
     let (dir, mut checkpointed) = engine(SeatBody::Single {
         role_path: "role.md".into(),
         command,
-        confine: None,
         candidates: Vec::new(),
     });
     fail_event(&dir.path().join("forge.db"), "effect/checkpointed");
@@ -3403,7 +3410,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
     for (event_type, outcome) in cases {
         let (_kept, mut engine) = engine_failing(event_type);
         assert!(engine
-            .conclude_single("effect", "attempt", outcome, &Selection::new())
+            .conclude_single("effect", "attempt", outcome, &Selection::new(), None)
             .is_err());
     }
 }
@@ -3421,6 +3428,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &panel_input(&["missing"]),
             std::time::Duration::from_secs(1),
             &Selection::new(),
+            false,
         )
         .is_err());
 
@@ -3442,6 +3450,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &panel_input(&["lost"]),
             std::time::Duration::from_secs(2),
             &Selection::new(),
+            false,
         )
         .is_err());
 
@@ -3463,6 +3472,7 @@ fn panel_and_sequence_storage_failures_propagate() {
             &panel_input(&["ok"]),
             std::time::Duration::from_secs(2),
             &Selection::new(),
+            false,
         )
         .is_err());
 
@@ -3474,6 +3484,7 @@ fn panel_and_sequence_storage_failures_propagate() {
     )];
     let input = panel_input(&["member"]);
     let runs = live_panel.member_runs(
+        "attempt",
         "work",
         &members,
         &input["members"],
@@ -3481,6 +3492,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         &input["context"],
         &Selection::new(),
         "",
+        false,
     );
     assert!(live_panel
         .run_panel(
@@ -3506,6 +3518,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                     "",
                 ),
             )],
+            &[],
             "",
         )
         .is_err());
@@ -3517,7 +3530,6 @@ fn panel_and_sequence_storage_failures_propagate() {
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: vec!["missing-driver".into()],
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -3547,7 +3559,6 @@ fn panel_and_sequence_storage_failures_propagate() {
                     reason: "lost".into(),
                 },
             ),
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -3577,7 +3588,6 @@ fn panel_and_sequence_storage_failures_propagate() {
                     result: json!({"result":"complete"}),
                 },
             ),
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -3601,7 +3611,6 @@ fn panel_and_sequence_storage_failures_propagate() {
         body: StepBody::Single {
             role_path: "role.md".into(),
             command: two_checkpoint_command("effect", "attempt"),
-            confine: None,
             candidates: Vec::new(),
         },
     };
@@ -3632,7 +3641,6 @@ fn panel_and_sequence_storage_failures_propagate() {
                         result: json!({"result":"first-result"}),
                     },
                 ),
-                confine: None,
                 candidates: Vec::new(),
             },
         },
@@ -3643,7 +3651,6 @@ fn panel_and_sequence_storage_failures_propagate() {
             body: StepBody::Single {
                 role_path: "role.md".into(),
                 command: vec!["missing-driver".into()],
-                confine: None,
                 candidates: Vec::new(),
             },
         },
@@ -3684,7 +3691,6 @@ fn panel_and_sequence_storage_failures_propagate() {
                         result: json!({"result":"invented"}),
                     },
                 ),
-                confine: None,
                 candidates: Vec::new(),
             },
         },
@@ -3695,7 +3701,6 @@ fn panel_and_sequence_storage_failures_propagate() {
             body: StepBody::Single {
                 role_path: "role.md".into(),
                 command: vec!["must-not-run".into()],
-                confine: None,
                 candidates: Vec::new(),
             },
         },
@@ -4111,6 +4116,155 @@ fn realm_facts_state_only_what_the_tree_answers() {
     assert!(crate::bundle::is_engine_owned(crate::bundle::REALM_FACTS));
 }
 
+/// Phase 2 slice (i), proof 4: `realm_facts` in a world of two REAL
+/// repositories, at two DIFFERENT heads. Every realm-facts test above
+/// runs in a one-realm world; this one reuses proof 1's own fixture —
+/// `crate::realms::tests::two_repositories`, one map, two git trees, two
+/// commits, two hearths — rather than building a second one. The two
+/// trees are held apart on every fact the engine keys per realm: their
+/// heads differ, and their worktrees do too (beta is left dirty, alpha
+/// clean), so `head`, `drift_detected` and `dirty_worktrees` each answer
+/// for ONE repository and a probe that read the world, or the wrong
+/// realm, contradicts what is asserted.
+///
+/// The finding this test states rather than hides: a single run's
+/// `realm_facts` can only ever carry ONE realm key. The engine keys them
+/// from `self.repo`, the one tree the run was started in, so "a run
+/// started in one realm does not record the other realm's head" is true
+/// BY CONSTRUCTION — there is no cross-realm read here for the engine to
+/// suppress. That is the contract today, not a defect: decision 0026
+/// binds a run to exactly one realm and multi-realm runs are Phase 3
+/// (0023 ruling 7, unruled). It is not a statement that a join across
+/// realms is out of scope forever, and a later crossing slice should
+/// read this comment as the ground it moves, not as a law.
+#[test]
+fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
+    let (dir, alpha_head, beta_head) = crate::realms::tests::two_repositories();
+    let alpha = dir.path().join("alpha");
+    let beta = dir.path().join("beta");
+    let map = dir.path().join("realms.json");
+    let keys = |facts: &Value| {
+        facts
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>()
+    };
+
+    // Beta is left dirty and alpha is left clean, from here to the end:
+    // the two repositories differ in worktree state as well as in head,
+    // so every `dirty_worktrees` below answers for ONE tree and a probe
+    // that read the world — or the wrong realm — reports the opposite of
+    // what is asserted.
+    std::fs::write(beta.join("uncommitted.txt"), "beta is mid-thought").unwrap();
+    assert!(git_dirty(&beta));
+    assert!(!git_dirty(&alpha));
+
+    // The run that lives in alpha. Alpha moves; beta is never touched, so
+    // the two trees stand at different heads the whole way through.
+    let mut engine = engine_in(
+        dir.path(),
+        Some(crate::realms::World::load(&map).unwrap()),
+        &alpha,
+    );
+    let moved = git_commit(&alpha, "moved");
+    assert_ne!(moved, alpha_head, "alpha moved off its fixture head");
+    assert_ne!(moved, beta_head);
+    engine
+        .decide(
+            &state(Some("review"), Cursor::Idle),
+            "effect",
+            json!({"result":"clean"}),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"]["reviewed_heads"],
+        json!({ "alpha": moved }),
+        "review recorded alpha's own head, under alpha's own name"
+    );
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "alpha": moved }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
+    let facts = inputs["realm_facts"].clone();
+    assert_eq!(keys(&facts), vec!["alpha".to_string()]);
+    assert!(
+        facts.get("beta").is_none(),
+        "beta is absent from alpha's run, not merely unread: {facts}"
+    );
+    assert_eq!(facts["alpha"]["head"], json!(moved));
+    assert_ne!(
+        facts["alpha"]["head"],
+        json!(beta_head),
+        "the copy-paste guard: alpha's facts carry alpha's head"
+    );
+    assert_eq!(facts["alpha"]["drift_detected"], json!(false));
+    assert_eq!(
+        facts["alpha"]["dirty_worktrees"],
+        json!(false),
+        "alpha's own tree is clean while its neighbour is not: a probe \
+         that read the world, or the other realm, would say true here"
+    );
+    assert_eq!(inputs["dirty_worktrees"], json!(false));
+    drop(engine);
+
+    // The same map, the other repository: beta's run records beta's own
+    // untouched head under beta, and knows nothing of the commit alpha
+    // made while it was not looking.
+    let mut engine = engine_in(
+        dir.path(),
+        Some(crate::realms::World::load(&map).unwrap()),
+        &beta,
+    );
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "beta": beta_head }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    let facts = inputs["realm_facts"].clone();
+    assert_eq!(keys(&facts), vec!["beta".to_string()]);
+    assert_eq!(facts["beta"]["head"], json!(beta_head));
+    assert_ne!(
+        facts["beta"]["head"],
+        json!(moved),
+        "beta's facts never carry alpha's head"
+    );
+    assert_eq!(
+        facts["beta"]["dirty_worktrees"],
+        json!(true),
+        "and beta's facts carry beta's OWN worktree state: the two \
+         repositories disagree, and each run answers for its own"
+    );
+    assert_eq!(inputs["dirty_worktrees"], json!(true));
+    assert_eq!(inputs["drift_detected"], json!(false));
+    drop(engine);
+
+    // And one realm's recorded head cannot answer for the other: a run in
+    // beta handed the heads ALPHA's review recorded finds no head of its
+    // own to compare against, and an unanswerable drift question is
+    // drift, never silence. This is where the two repositories bite —
+    // in a one-tree world the two realms' heads are the same string, so
+    // the same fixture proves nothing.
+    let mut engine = engine_in(
+        dir.path(),
+        Some(crate::realms::World::load(&map).unwrap()),
+        &beta,
+    );
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(json!({ "alpha": moved }));
+    engine
+        .decide(&ship, "effect", json!({"result":"shipped"}))
+        .unwrap();
+    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    assert_eq!(inputs["drift_detected"], json!(true));
+    assert_eq!(inputs["realm_facts"]["beta"]["drift_detected"], json!(true));
+    assert_eq!(inputs["realm_facts"]["beta"]["head"], json!(beta_head));
+}
+
 /// Ruling 5 must not degrade with the verb typed. `brokkr resume` takes
 /// no map — it names a journal — so the world is rehydrated from the
 /// run's own pin, and a resumed run keeps keying its facts by realm
@@ -4255,7 +4409,6 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
                     &first_capture,
                     step_result,
                 ),
-                confine: None,
                 candidates: Vec::new(),
             },
         },
@@ -4329,8 +4482,14 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
         final_step["input"]["house_rules"], "One realm rule.\n",
         "a sequence panel passes the realm house through to every member"
     );
-    let first_prompt = brokkr_protocol::adapters::render_prompt(&first["input"]);
-    let final_prompt = brokkr_protocol::adapters::render_prompt(&final_step["input"]);
+    let first_prompt = brokkr_protocol::adapters::render_prompt(
+        &first["input"],
+        brokkr_protocol::adapters::AdapterKind::Claude,
+    );
+    let final_prompt = brokkr_protocol::adapters::render_prompt(
+        &final_step["input"],
+        brokkr_protocol::adapters::AdapterKind::Claude,
+    );
     assert!(first_prompt.contains("<one of: drafted, blocked>"));
     assert!(!first_prompt.contains("<one of: pass, fail>"));
     assert!(final_prompt.contains("<one of: pass, fail>"));
@@ -4357,7 +4516,6 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                         "vocabulary-attempt",
                         AttemptOutcome::Succeeded { result },
                     ),
-                    confine: None,
                     candidates: Vec::new(),
                 },
             },
@@ -4368,7 +4526,6 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                 body: StepBody::Single {
                     role_path: "finish.md".into(),
                     command: vec!["must-not-run".into()],
-                    confine: None,
                     candidates: Vec::new(),
                 },
             },
@@ -4426,10 +4583,11 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
         &root.join("adapters"),
         Some("brokkr"),
         Some(&dialect),
+        brokkr_core::realms::Boundary::Namespace,
     )
     .unwrap();
     // These unit scenarios replace the compiled commands with the protocol
-    // fake below; confinement itself has its dedicated boxed proof.
+    // fake below; the box itself has its dedicated boxed proof.
     bundle.hands.clear();
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
@@ -4555,6 +4713,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             model: "none".into(),
             effort: None,
             provider: "exec".into(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
             argv: driver_command(
                 "check-effect",
                 "check-attempt",
@@ -4621,6 +4781,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             model: "none".into(),
             effort: None,
             provider: "exec".into(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
             argv: driver_command(
                 "clean-effect",
                 "clean-attempt",
@@ -4683,6 +4845,8 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             model: "none".into(),
             effort: None,
             provider: "exec".into(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
             argv: driver_command(
                 "analyze-effect",
                 "analyze-attempt",
@@ -4795,7 +4959,6 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
                         &start_line,
                         json!({"result": chief_rules, "notes": "synthesised"}),
                     ),
-                    confine: None,
                     candidates: Vec::new(),
                 },
             },
@@ -5427,7 +5590,7 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
 
 /// A driver that streams the given checkpoints, then the terminal
 /// message the outcome calls for — none for an indeterminate one.
-fn checkpointing_command(
+pub(super) fn checkpointing_command(
     effect_id: &str,
     attempt_id: &str,
     checkpoints: &[Value],
@@ -5559,7 +5722,7 @@ fn a_refused_checkpoint_becomes_the_attempts_outcome_once_its_driver_ends() {
             "effect",
             "attempt",
             "work",
-            &command,
+            &SiteSpawn::inherit(command),
             json!({}),
             std::time::Duration::from_secs(2),
             None,
@@ -5599,6 +5762,7 @@ fn a_refused_result_ends_a_single_seat_as_a_failed_attempt() {
                 "the driver's last words",
             )),
             &Selection::new(),
+            None,
         )
         .unwrap();
     let events = driven.store.load(&driven.run_id).unwrap();
@@ -5625,6 +5789,7 @@ fn a_refused_result_ends_a_single_seat_as_a_failed_attempt() {
                 "",
             )),
             &Selection::new(),
+            None,
         )
         .is_err());
 }
@@ -5657,6 +5822,7 @@ fn a_panel_members_refused_checkpoint_fails_that_member_alone() {
             &panel_input(&["refused", "clean"]),
             std::time::Duration::from_secs(2),
             &Selection::new(),
+            false,
         )
         .unwrap();
     let error = failed_error(&driven);
@@ -5717,7 +5883,6 @@ fn step(name: &str, command: Vec<String>) -> SequenceStep {
         body: StepBody::Single {
             role_path: "role.md".into(),
             command,
-            confine: None,
             candidates: Vec::new(),
         },
     }

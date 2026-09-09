@@ -20,8 +20,8 @@ changing an agent or recipe digest.
 
 ```
 $ brokkr agents list
-analyst	fable → astra → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
-chief-architect	fable → astra → opus	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
+analyst	opus → astra → opus	Read-only SDD judge: finds drift across the artifacts and the realm constitution.
+chief-architect	opus → astra → opus	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
 clarifier	opus → sol	Read-only SDD judge: identifies every material ambiguity in the specification.
 implementer-engine	fable → opus	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
@@ -31,13 +31,14 @@ intake-sdd	sonnet → opus	Intake for spec-driven delivery: frames the request b
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.
+release-manager	opus → astra	Prepares a configured release, its documentation and organization-profile patches.
 review-adversarial	astra → fable → opus	Review panel member: tries to break the delivered change with concrete adversarial cases.
 review-chief	astra → fable → opus	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
 review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?
-review-security	fable → astra → opus	Review panel member: the adversarial security read of the change.
+review-security	opus → astra → opus	Review panel member: the adversarial security read of the change.
 review-spec-compliance	opus → sol	Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?
 reviewer	astra → fable → opus	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
-triage	fable → astra → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
+triage	opus → astra → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
 ```
 
 ```
@@ -52,6 +53,11 @@ inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
 Inline seats stay first-class. Dialect validators such as `recipes/triage`'s
 `validate` step are also model-free execs, but their checked argv comes from
 the realm's pinned dialect rather than from an agent definition.
+
+The `release-manager` follows a portable release process. The realm's **Release
+configuration** supplies the version sources, documentation targets, checks and
+organization profiles; the [release recipe](../../recipes/release/README.md)
+explains configuration and stack-specific verification.
 
 Verifier and shipper are deliberately absent from the agent library.
 They are boxed, inline `exec` scripts with no model: verification runs a
@@ -96,13 +102,51 @@ unreachable by construction rather than by convention.
    Lifting it needs a jointly agreed v2-lineage manifest version.
 2. **Provenance does not cross the Looper bridge.** The bridge's payload
    allowlist drops it, asserted by a test rather than assumed.
-3. **"No `Accepted` ever arrives" parks, it does not fall back.** That
-   shape is `indeterminate` today, and decision 0003 rules that it parks
-   because Brokkr cannot tell "did nothing" from "already opened a
-   billed session". The honest fix is at the driver — report a
-   provider's pre-session model rejection as a determinate failure — not
-at the engine, because a bound that applies "unless a new feature is
-in play" has stopped being a bound.
+3. **A pre-session refusal falls back; "no `Accepted` ever arrives"
+   parks.** A provider that refuses before the first turn is a
+   determinate failure to start, classified at the driver (decision
+   0053): the driver withholds `accepted` until a checkpoint proves a
+   turn began, so the refused attempt reaches the engine as `Failed`,
+   never `Accepted`, no checkpoint — the structural predicate above —
+   and the chain hires the next model. The classification is the
+   driver's, per adapter, from machine-readable records only:
+
+   | Adapter | Pre-session refusal in the wire protocol? | Behavior |
+   |---|---|---|
+   | `claude`, `lanetally` | Yes: the `isApiErrorMessage` `assistant` record, the error `result`, or a `rate_limit_event` | Fails to start; the chain falls |
+   | `codex` | Yes: an `error` event or `turn.failed` before the first `turn.started` | Fails to start; the chain falls |
+   | `dsh` | No: the headless profile prints only its final answer; a rejection is stderr prose plus a non-zero exit | Not classified; follows 0006 unchanged |
+   | `exec` | Not applicable: no model turn, no provider | Not classified |
+
+   A driver that vanishes before any machine-readable refusal is
+   `indeterminate`, and decision 0003 rules that it parks because Brokkr
+   cannot tell "did nothing" from "already opened a billed session". An
+   attempt the engine's own deadline watchdog killed is `Failed` rather
+   than indeterminate — the kill is what makes non-completion
+   determinate (decision 0006) — but it parks too: the driver died
+   without saying whether a session opened, so `deadline_killed` keeps it
+   off the fail-to-start side (decision 0053 ruling 5). Otherwise one
+   hanging vendor would walk the chain down every link, each hanging for
+   a full deadline. No adapter sniffs a provider's prose to decide any of
+   these cases: that read is what decision 0001 forbids. The engine's
+   boundary is unchanged — the fix is the driver reporting which side of
+   it the attempt stands on, because a bound that applies "unless a new
+   feature is in play" has stopped being a bound.
+
+   Three consequences of the withheld `accepted` are worth knowing at
+   the readout. The transcript locator row is held until the first turn
+   checkpoints, so a live drilldown cannot locate a seat's prose during
+   a long first turn — and an attempt the deadline killed inside that
+   window journals no locator at all, so a retry after it opens a cold
+   session instead of rejoining the thread (decision 0053 ruling 8). A
+   refused attempt journals no checkpoint at all — including the
+   `<driver>-session-finished` row that carries exit code, served model,
+   usage and the ledger marker — and carries its locator in its failure
+   reason instead (`[transcript claude-session/<id>]`). And a refusal
+   that a later turn overtakes — the harness erred, retried and worked —
+   is not a failure to start at all: the fold reads the whole stream,
+   the attempt reports its own result, and a seat that delivered its
+   result file is never thrown away as a refusal.
 
 ## Hands
 

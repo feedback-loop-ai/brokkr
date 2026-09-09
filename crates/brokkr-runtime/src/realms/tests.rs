@@ -23,7 +23,9 @@ fn workspace(text: &str) -> tempfile::TempDir {
     )
     .unwrap();
     std::fs::create_dir(dir.path().join("dialects/openspec")).unwrap();
-    for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+    for name in [
+        "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
+    ] {
         std::fs::copy(
             root.join(format!("dialects/openspec/{name}.md")),
             dir.path().join(format!("dialects/openspec/{name}.md")),
@@ -184,6 +186,12 @@ fn a_pinned_world_carries_its_own_answer() {
         brokkr_core::canonical::sha256_hex(&pin["map"]),
         pin["sha256"].as_str().unwrap()
     );
+    let unselected = world.pinned(&serde_json::json!({}), None).unwrap();
+    let replayed = World::from_manifest(&unselected).unwrap().unwrap();
+    assert!(replayed
+        .house_for(&dir.path().join("brokkr"))
+        .unwrap()
+        .is_none());
 }
 
 /// The pin read back: `brokkr resume` names a journal and no map, and
@@ -385,6 +393,7 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
         journal: known.journal.clone(),
         house: known.house.clone(),
         dialect: known.dialect.clone(),
+        boundary: None,
     };
     assert!(world.dialect_for_realm(&unknown).unwrap().is_none());
     let first = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
@@ -448,6 +457,66 @@ fn a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity() {
     );
 }
 
+/// The resume bar for decision 0042's provenance addendum: a run that
+/// pinned its dialect before the addendum landed pinned a
+/// `brokkr.dialect/v2` body, and rehydrating that manifest reads it
+/// through the same parser a file goes through. The older world must come
+/// back exactly as it was pinned — its fold carries no provenance
+/// instruction, because on the day it was pinned there was none.
+#[test]
+fn a_run_that_pinned_an_older_dialect_still_rehydrates_its_world() {
+    let map = r#"{
+  "schema": "forge.realms/v3",
+  "realms": [{"name": "brokkr", "path": "brokkr", "default_branch": "main",
+              "dialect": "openspec"}],
+  "journal": "state/forge.db"
+}"#;
+    let dir = workspace(map);
+    let repo = dir.path().join("brokkr");
+    let world = World::load(&dir.path().join("realms.json")).unwrap();
+    let mut manifest = world.pinned(&json!({"files": {}}), Some(&repo)).unwrap();
+
+    // Age the pinned content back to the shape a pre-addendum run wrote.
+    let dialect = manifest["realms"]["dialect"].as_object_mut().unwrap();
+    let mut content = dialect["content"].clone();
+    content["schema"] = json!("brokkr.dialect/v2");
+    content["archive"]
+        .as_object_mut()
+        .unwrap()
+        .remove("instructions");
+    dialect.insert(
+        "sha256".into(),
+        json!(brokkr_core::canonical::sha256_hex(&content)),
+    );
+    dialect.insert("content".into(), content);
+
+    let rehydrated = World::from_manifest(&manifest)
+        .expect("a v2-pinned world resumes")
+        .unwrap();
+    let pinned = rehydrated.dialect_for(&repo).unwrap().unwrap();
+    assert_eq!(pinned.schema, "brokkr.dialect/v2");
+    assert!(pinned.rendered["specify"].contains("OpenSpec"));
+
+    // A version this build does not read is refused BY ITS VERSION, so
+    // the operator learns what happened rather than reading a variant
+    // mismatch from serde.
+    let mut future = manifest.clone();
+    let dialect = future["realms"]["dialect"].as_object_mut().unwrap();
+    let mut content = dialect["content"].clone();
+    content["schema"] = json!("brokkr.dialect/v9");
+    dialect.insert(
+        "sha256".into(),
+        json!(brokkr_core::canonical::sha256_hex(&content)),
+    );
+    dialect.insert("content".into(), content);
+    let message = refusal(World::from_manifest(&future));
+    assert!(message.contains("brokkr.dialect/v9"), "{message}");
+    assert!(
+        message.contains("a pinned dialect may be any of"),
+        "{message}"
+    );
+}
+
 #[test]
 fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself() {
     let map = r#"{
@@ -475,7 +544,9 @@ fn a_path_dialect_is_pinned_and_every_declared_text_pin_must_answer_for_itself()
     .unwrap();
     for base in [dir.path().join("brokkr/spec"), dir.path().join("brokkr")] {
         std::fs::create_dir_all(base.join("openspec")).unwrap();
-        for name in ["specify", "return", "design", "tasks", "clarify", "analyze"] {
+        for name in [
+            "specify", "return", "design", "tasks", "clarify", "analyze", "archive",
+        ] {
             std::fs::copy(
                 dir.path().join(format!("dialects/openspec/{name}.md")),
                 base.join(format!("openspec/{name}.md")),
@@ -580,6 +651,141 @@ fn a_declared_house_must_be_a_readable_file() {
     let refusal = refusal(world.house_for(&dir.path().join("brokkr")));
     assert!(refusal.contains("realm 'brokkr' names house"), "{refusal}");
     assert!(refusal.contains("missing.md"), "{refusal}");
+}
+
+// ---------------------- two DISTINCT repositories (0023 ruling 1, phase 2 ground)
+
+/// A world of two repositories. Every multi-realm map exercised before
+/// this pointed its realms at ONE tree; this one names two, each a real
+/// git repository with its own commit — so two different HEADs — and its
+/// own hearth. The map sits at the workspace root and names both by
+/// relative path.
+pub(crate) const TWO_REPOSITORIES: &str = r#"{
+  "schema": "forge.realms/v2",
+  "realms": [
+    {"name": "alpha", "path": "alpha", "default_branch": "main",
+     "journal": "state/alpha.db"},
+    {"name": "beta", "path": "beta", "default_branch": "trunk",
+     "journal": "state/beta.db"}
+  ],
+  "journal": "state/world.db"
+}"#;
+
+/// A repository with one commit of its own; the commit's message is the
+/// file it adds, so two repositories never share a tree or a sha.
+pub(crate) fn repository(root: &Path, name: &str) -> (PathBuf, String) {
+    let repo = root.join(name);
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        assert!(std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "Brokkr Test"]);
+    git(&["config", "user.email", "brokkr@test"]);
+    git(&["config", "commit.gpgSign", "false"]);
+    std::fs::write(repo.join(format!("{name}.txt")), name).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", name]);
+    let head = crate::git_head(&repo).expect("a committed repository has a HEAD");
+    (repo, head)
+}
+
+/// The fixture: a workspace whose map names two realms in two separate
+/// repositories at two different HEADs. Returns the workspace and each
+/// repository's HEAD, in map order.
+pub(crate) fn two_repositories() -> (tempfile::TempDir, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, alpha) = repository(dir.path(), "alpha");
+    let (_, beta) = repository(dir.path(), "beta");
+    assert_ne!(alpha, beta, "two repositories, two commits, two shas");
+    std::fs::write(dir.path().join("realms.json"), TWO_REPOSITORIES).unwrap();
+    (dir, alpha, beta)
+}
+
+/// Proof 1. A world of two repositories resolves BOTH realms' paths
+/// against the map file's own directory, and `realm_for` answers each
+/// repository with its own realm — never the first realm for both, and
+/// never a realm for a tree the map does not name.
+#[test]
+fn a_world_of_two_repositories_resolves_each_realm_to_its_own_tree() {
+    let (dir, alpha_head, beta_head) = two_repositories();
+    let world = World::discover(dir.path(), None).unwrap().unwrap();
+    assert_eq!(world.map.realms.len(), 2);
+    let alpha = dir.path().join("alpha");
+    let beta = dir.path().join("beta");
+    assert_eq!(world.path_of(&world.map.realms[0]), alpha);
+    assert_eq!(world.path_of(&world.map.realms[1]), beta);
+    assert_eq!(world.realm_for(&alpha).unwrap().name, "alpha");
+    assert_eq!(world.realm_for(&beta).unwrap().name, "beta");
+    assert_eq!(world.realm_for(&beta).unwrap().default_branch, "trunk");
+    assert!(
+        world.realm_for(dir.path()).is_none(),
+        "the workspace itself is no realm"
+    );
+    // Two repositories, two HEADs, read from the trees the world resolved.
+    assert_eq!(
+        crate::git_head(&world.path_of(&world.map.realms[0])),
+        Some(alpha_head.clone())
+    );
+    assert_eq!(
+        crate::git_head(&world.path_of(&world.map.realms[1])),
+        Some(beta_head.clone())
+    );
+    assert_ne!(alpha_head, beta_head);
+    // Two hearths, one per realm, and the world's own journal unread by
+    // either — the fleet reads them side by side, never merged.
+    let hearths = world.hearths();
+    assert_eq!(
+        hearths,
+        vec![
+            Hearth {
+                realms: vec!["alpha".into()],
+                journal: dir.path().join("state/alpha.db"),
+            },
+            Hearth {
+                realms: vec!["beta".into()],
+                journal: dir.path().join("state/beta.db"),
+            },
+        ]
+    );
+
+    // The same world, drawn from a map that lives one level down and
+    // names the repositories by `..`: paths are relative to the MAP
+    // FILE's directory, not to the process or the workspace root, so a
+    // moved map still finds both trees and still tells them apart.
+    std::fs::create_dir(dir.path().join("maps")).unwrap();
+    let nested = dir.path().join("maps/world.json");
+    std::fs::write(
+        &nested,
+        TWO_REPOSITORIES
+            .replace("\"path\": \"alpha\"", "\"path\": \"../alpha\"")
+            .replace("\"path\": \"beta\"", "\"path\": \"../beta\""),
+    )
+    .unwrap();
+    let moved = World::discover(dir.path(), Some(&nested)).unwrap().unwrap();
+    assert_eq!(moved.realm_for(&alpha).unwrap().name, "alpha");
+    assert_eq!(moved.realm_for(&beta).unwrap().name, "beta");
+    assert_eq!(
+        moved.journal_of(&moved.map.realms[1]),
+        dir.path().join("maps/state/beta.db"),
+        "a realm's journal follows the map file too"
+    );
+
+    // And each repository pins under its OWN realm name — the run that
+    // starts in beta believes in beta, not in whichever realm came first.
+    let pinned = world.pin(Some(&beta)).unwrap();
+    assert_eq!(pinned["realm"], json!("beta"));
+    assert_eq!(world.pin(Some(&alpha)).unwrap()["realm"], json!("alpha"));
+    let replayed = World::from_manifest(&world.pinned(&json!({}), Some(&beta)).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(replayed.realm_for(&beta).unwrap().name, "beta");
+    assert_eq!(replayed.realm_for(&alpha).unwrap().name, "alpha");
 }
 
 #[test]

@@ -1,0 +1,45 @@
+{
+  "name": "release",
+  "description": "Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review.",
+  "cost": "medium",
+  "extends": "fast",
+  "override": {
+    "bundle": [
+      "description",
+      "cost"
+    ],
+    "seats": [
+      "implement",
+      "review"
+    ]
+  },
+  "seats": {
+    "implement": {
+      "agent": "release-manager",
+      "class": "work",
+      "results": [
+        "complete",
+        "broken",
+        "blocked",
+        "oversized"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 7200
+      }
+    },
+    "review": {
+      "agent": "reviewer",
+      "class": "gate",
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      }
+    }
+  }
+}

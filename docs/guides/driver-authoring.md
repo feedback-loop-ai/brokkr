@@ -30,10 +30,22 @@ engine is narrower than the schema, this guide says so.
 
 The shipped verifier and shipper are not agents or bespoke wire
 implementations. Their inline commands dispatch through the generic
-`exec` driver and declare workspace hands, so the engine runs the whole
-script through `brokkr hands exec`. The script reads the staged prompt
-only for journal context and the result path, then writes the ordinary
-typed result file.
+`exec` driver and declare workspace hands, so under the `namespace`
+boundary the engine runs the whole script through `brokkr hands exec`.
+Under `harness` and `open` (decision
+[0046](../decisions/0046-the-boundary-is-named.md) ruling 4) the same
+`exec` dispatch runs with no verb of Brokkr's around it: the site is
+admitted only because its command is the bundle's own pinned `./`
+script, it starts in a fixed environment cleared of everything but a
+stated table, and on Linux the engine attempts a network narrowing
+around it with `unshare` where the kernel permits — attempted, never
+stated as off. At every unboxed spawn the engine re-walks the script's
+declaring layer against the identity the manifest pins, and a pinned
+byte that moved refuses the gate naming the layer and the key; the
+residual is the interval between the re-walk and the `exec`. The
+`hands` subcommand gains no verb for any of this. Either way the script
+reads the staged prompt only for journal context and the result path,
+then writes the ordinary typed result file.
 
 ## Transport
 
@@ -158,9 +170,16 @@ What a driver has to do to participate:
   sends the message, and every attempt starts cold.
 - **Report the transcript.** Use the common `session_meta.transcript`
   shape described below. For a resumable harness its `locator` is the
-  session or thread id. Report it as soon as your harness announces one,
-  not only when the session ends — an attempt killed on its deadline is
-  exactly the attempt whose retry wants the id.
+  session or thread id. Capture it as soon as your harness announces
+  one, not only when the session ends — an attempt killed on its
+  deadline is exactly the attempt whose retry wants the id. The
+  built-ins capture it there and *send* it with the attempt's first work
+  checkpoint, because a checkpoint before that point would put a
+  provider's pre-session refusal on the mid-session side of the
+  fallback boundary (decision 0053 ruling 1). The trade is a real one
+  and ruling 8 names it: a kill in the window between your harness's
+  announcement and its first turn journals no locator, and the retry
+  after it starts cold.
 - **Handle `resume` as a modifier on the `start` that follows it.** It
   arrives BEFORE that `start` and carries no `seat` and no `input`: it
   is the session handle for the attempt the next `start` describes, and
@@ -222,16 +241,24 @@ record of it there will be. Send one.
 
 ## `accepted` is the load-bearing message
 
-Send `accepted` as soon as you have committed to the work — before
-spawning your agent session, not after it finishes. It is the single bit
-the engine uses to tell two failures apart:
+`accepted` is the single bit the engine uses to tell two failures apart,
+so **when** you send it decides which side of decision 0016's boundary
+your attempt stands on. A built-in driver withholds it until a checkpoint
+proves the harness began work — the first record that is neither the
+transcript locator nor the harness launch row — and a provider refusal
+recorded before that point is reported as `result: failed` with **no
+`accepted` and no checkpoint** (decision 0053). That is the engine's
+structural fail-to-start shape, so the chain falls to the next model
+exactly as it does for a driver the machine cannot reach.
 
 | What happened | Outcome | What the engine does |
 |---|---|---|
+| You send `result: failed` with no `accepted` and no checkpoint | `failed` | A **fail-to-start**: the next model in the chain is hired (decision 0016). |
 | Your process exits **without** `accepted` and without a result | `indeterminate`, reason `driver exited before accepting the attempt` | The run **parks**. |
 | Your process exits **after** `accepted` and without a result | `indeterminate`, reason `driver exited after accepting, before a result — attempt cannot be established as complete` | The run **parks**. |
-| You send `result` with `status: "failed"` | `failed` | A retry may follow, inside the seat's `max_attempts`. |
+| You send `result` with `status: "failed"` | `failed` | A retry may follow, inside the seat's `max_attempts`; after `accepted` it is the SAME model, and the chain does not fall back. |
 | You violate the protocol | `failed` (driver defect) | A retry is a new attempt. |
+| The engine's deadline watchdog kills you | `failed`, reason `attempt exceeded its Ns deadline and was killed` | The run **parks**, whether or not you had accepted: the kill made non-completion determinate, but you never got to say whether a session opened (decision 0053 ruling 5). |
 
 The reason indeterminacy always parks rather than retrying is decision
 0003: the engine cannot distinguish "did nothing" from "already opened a
@@ -239,17 +266,38 @@ billed session and lost the pipe." A silent retry could duplicate — or
 re-pay for — completed work, so it never happens automatically. Only an
 operator's `retry` command moves a parked run.
 
-Practical consequence: **an `accepted` you send too late is a park**,
-and **an `accepted` you send and then abandon is also a park**. If you
-know you cannot do the work, send a `result` with `status: "failed"` and
-an `error` string. A determinate failure is strictly better for the
-operator than an indeterminate one.
+Practical consequence: **an `accepted` you send too early turns a
+provider's refusal to start into a mid-session failure** and strands the
+chain on an exhausted model; **an `accepted` you send and then abandon is
+a park**. Send `accepted` when the harness has begun a turn, not when you
+have spawned it, and send a `result: failed` with an `error` string for
+any failure you can name. A determinate failure is strictly better for
+the operator than an indeterminate one.
 
 The schema requires `accepted` before checkpoints and results as the
-protocol's shape. The shipped transport does not currently reject a
-`result` that arrives without one — but it records `accepted: false` on
-the attempt report, and that bit is what the fail-to-start fallback
-predicate reads. Send it.
+protocol's shape, and the withheld-`accepted` drivers keep it: the
+pre-session rows they buffer are flushed **after** `accepted`, so the
+engine never sees a checkpoint first. The shipped transport does not
+currently reject a `result` that arrives without one — but it records
+`accepted: false` on the attempt report, and that bit is what the
+fail-to-start fallback predicate reads. Send it — and, when the provider
+refuses before your first turn, send the failure without it.
+
+Three rules go with the withholding, all of them the built-ins':
+
+- **Classify from machine-readable records, and bound what you quote.**
+  The token and any prose excerpt come off your harness's stream, so
+  collapse their whitespace, drop control characters and clamp them (80
+  characters for the token, 160 for the excerpt) before they reach a
+  record the journal keeps forever.
+- **Name the transcript in the reason.** A refused attempt sends no
+  checkpoint, so the locator it would have carried goes in the failure
+  string — `[transcript claude-session/<id>]`. It is the only pointer a
+  reader has at the prose that explains the refusal.
+- **Do not stop reading.** A harness that errs and then works has not
+  refused to start: keep folding the whole stream, and let the fact that
+  work began decide. The turns behind the error are the seat's served
+  model, its usage and its resumable session id.
 
 ## Checkpoints
 
@@ -534,7 +582,8 @@ reads, that printing the JSON instead of writing it counts as producing
 no result, and that the object carries exactly `result`, `inputs` and
 `notes` at the top level — a typed fact goes inside `inputs`, and since
 decision 0034 rulings 6 and 7 a record with any other top-level key is
-refused where it is sealed, which loses the attempt. When the site's hands are boxed (decision 0043) the
+refused where it is sealed, which loses the attempt. When the site's
+hands are boxed (decision 0043, under a boundary that builds a box) the
 engine adds `"hands": "boxed"` to the input, and the contract then names
 the one tool that can write — `mcp__brokkr__workspace` — and says that
 the harness's own shell runs outside the box and cannot. The first
@@ -584,9 +633,14 @@ language.
    out of the message and hold them; every message you send from here
    carries the first two.
 
-   a. Emit `accepted` **before doing any work**, with `effect_id`,
-      `attempt_id`, and `session_ref` — your harness's session handle if
-      it has one, otherwise `null`.
+   a. Emit `accepted` **when the harness begins its first turn** — not
+      when you spawn it — with `effect_id`, `attempt_id`, and
+      `session_ref` — your harness's session handle if it has one,
+      otherwise `null`. Buffer any pre-session row (the transcript
+      locator, a launch row) and flush it after `accepted`. A provider
+      that refuses before that first turn is a determinate failure to
+      start (decision 0053): send `result: failed` with the reason and
+      **no** `accepted`, and the chain falls to the next model.
 
    b. Do the work. If you are wrapping an agent CLI, this is where you
       compose the prompt from `input.role_path` and the result contract
@@ -621,8 +675,10 @@ engine: it drives the real binary.
 The shape of each case:
 
 1. Write a **shim** — a small shell script standing in for the agent CLI
-   — and point the adapter at it with an env override. The suite has
-   four, and each one pins a different property:
+   — and point the adapter at it with an env override. Eight stand for
+   an agent CLI, and each one pins a different property (the rest of the
+   file's shims are adversarial: a lane that lies about its usage, a
+   seat that echoes a secret):
    - `OBEDIENT_SHIM` finds the result path in the prompt and writes a
      typed result there — the happy path and the result-file contract.
    - `CLAUDE_STREAM_SHIM` emits `stream-json` including a deliberate
@@ -633,8 +689,21 @@ The shape of each case:
      command execution with output — proving the adapter reports usage
      totals and does **not** put the command or its output into a
      checkpoint.
+   - `DSH_USAGE_SHIM` prints dsh's headless answer and its usage line —
+     the arm that has no structured stream to fold at all.
    - `SILENT_SHIM` consumes stdin and produces nothing — the
      no-result-file failure path.
+   - the refusal shims (`CLAUDE_REFUSAL_SHIM`, `CODEX_REFUSAL_SHIM`)
+     emit each harness's machine-readable pre-session refusal — a
+     `rate_limit` `assistant`/`result` record for claude, an `error`
+     event before any `turn.started` for codex — proving the attempt is
+     a determinate failure to start: no `accepted`, no checkpoint, one
+     `result: failed` carrying the reason (decision 0053).
+   - `REFUSING_STDERR_SHIM` is their negative: a rejection with no
+     machine-readable shape at all, only stderr prose and a non-zero
+     exit. dsh and exec must NOT classify it — sniffing that prose is
+     the read decision 0001 forbids — so they accept and then fail
+     mid-session, and the chain does not descend.
 
 2. Spawn the driver as a subprocess and write three lines to its stdin:
    `hello`, `start` (with a fully-formed `input` including
@@ -643,7 +712,9 @@ The shape of each case:
 3. Collect stdout, parse **every line** as JSON — a line that does not
    parse is itself the failure — and assert:
    - a `capabilities` message came first;
-   - an `accepted` arrived for the right `effect_id`;
+   - an `accepted` arrived for the right `effect_id` on every path that
+     began work — and on the refusal path it did **not**, and no
+     checkpoint did either;
    - checkpoints, if any, carry only bounded fields;
    - **exactly one** `result` arrived, with the expected `status`;
    - on the obedient path, the result payload is the typed JSON the shim
@@ -682,14 +753,14 @@ built-in adapters are named (`["{brokkr}", "driver", "claude", "--", …]`).
 The manifest records driver names, never resolved argv, because the
 expansion is machine-local.
 
-Optional confinement:
-
-```json
-"driver": {
-  "command": ["./drivers/my-driver"],
-  "confine": { "image": "…", "network": false, "mounts": ["…"] }
-}
-```
+There is no per-driver confinement key. `driver.confine` (decision 0008's
+`image`, `network`, `mounts`) is refused by the compiler naming the
+`container` boundary, slice (iii) and decision 0046 ruling 5: what
+stands around a seat is the realm's `boundary`, declared in
+`realms.json` and never in a bundle, and a pinned image is that
+boundary's `container` form once the slice measures it. A driver that
+wants walls declares `hands` on its site and lets the realm say which
+boundary builds them.
 
 Then check it before you run it:
 
@@ -703,7 +774,10 @@ want to run a command and have it honor the result-file contract — the
 built-in `exec` adapter already speaks `forge-driver/v1` on your behalf:
 `["{brokkr}", "driver", "exec", "--", "bash", "./my-script.sh",
 "{prompt_file}"]`. Dialect-owned validate and check sites use the same boxed
-exec path, with their argv supplied by the realm's pinned dialect.
+exec path, with their argv supplied by the realm's pinned dialect — and,
+because that argv is the dialect's tool rather than the bundle's own
+script, they compile under a boxed boundary only until a decision admits
+them under `harness` or `open`.
 
 ## See also
 

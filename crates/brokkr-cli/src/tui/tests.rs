@@ -833,7 +833,7 @@ fn the_run_level_draws_the_graph_the_seats_and_the_trail() {
         .iter_mut()
         .find(|row| row.in_trail)
         .unwrap();
-    reported.model = brokkr_view::Cell {
+    reported.served.model = brokkr_view::Cell {
         text: "claude-fable-5-1".to_string(),
         absent: false,
         note: None,
@@ -1646,18 +1646,30 @@ fn gnode(label: &str, state: &str, class: &str) -> Node {
         key: format!("key:{label}"),
         state: state.to_string(),
         state_class: class.to_string(),
-        model: brokkr_view::Cell {
-            text: "—".to_string(),
-            absent: true,
-            note: None,
+        served: brokkr_view::ModelAtBoundary {
+            model: brokkr_view::Cell {
+                text: "—".to_string(),
+                absent: true,
+                note: None,
+            },
+            boundary: brokkr_view::Cell {
+                text: "—".to_string(),
+                absent: true,
+                note: None,
+            },
         },
     }
 }
 
 fn gnode_with_model(label: &str, model: &str) -> Node {
     let mut node = gnode(label, "finished", "on-phosphor");
-    node.model = brokkr_view::Cell {
+    node.served.model = brokkr_view::Cell {
         text: model.to_string(),
+        absent: false,
+        note: None,
+    };
+    node.served.boundary = brokkr_view::Cell {
+        text: "namespace".to_string(),
         absent: false,
         note: None,
     };
@@ -5004,4 +5016,227 @@ fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
     drive(&mut terminal, &test_ops(), &mut source, &mut tui, 4).unwrap();
     assert_eq!(tui.tab, 0);
     assert_eq!(tui.status, None, "the read hearth has nothing to say");
+}
+
+// ------------------------------ decision 0046 ruling 3: the boundary
+
+/// The intake seat under one boundary: the run declares hands for it,
+/// the attempt's entry names `word` with `gate`, and the finishing
+/// checkpoint and result carry the model with the word beside it.
+fn boxed_views(word: &str, gate: bool) -> Views {
+    let mut events = journal("intake");
+    events[0].payload["manifest"] = json!({"hands": {"intake": {"binds": []}}});
+    events[3].payload["boundary"] = json!([{"member": null, "boundary": word, "gate": gate}]);
+    events[5].payload["checkpoint"]["model"] = json!("claude-fable-5-1");
+    events[5].payload["checkpoint"]["boundary"] = json!(word);
+    events[6].payload["result"]["model"] = json!("claude-fable-5-1");
+    events[6].payload["result"]["boundary"] = json!(word);
+    Views {
+        now: NOW.to_string(),
+        runs: fleet(),
+        run: Some(brokkr_view::run_view(&events, Some(&state()))),
+        transcript: None,
+        note: None,
+    }
+}
+
+/// The run level: the header line prints the model's rendered text,
+/// the seats table carries the boundary column beside the model, and a
+/// trail row that names a model names the boundary beside it.
+#[test]
+fn the_run_level_prints_the_boundary_beside_the_model_and_in_its_header() {
+    let boxed = boxed_views("harness", true);
+    let frame = frame_of(&at_run(), &boxed, 140, 40);
+    assert!(frame.contains("boundary  harness · unboxed"), "{frame}");
+    assert!(frame.contains("model"), "{frame}");
+    let header = frame
+        .lines()
+        .find(|line| line.contains("participant"))
+        .unwrap();
+    assert!(
+        header.find("model").unwrap() < header.find("boundary").unwrap(),
+        "{header}"
+    );
+    let row = frame
+        .lines()
+        .find(|line| line.contains("claude-fable-5-1") && line.contains("intake"))
+        .unwrap();
+    assert!(row.contains("harness"), "{row}");
+    assert!(
+        frame.contains("intook · model claude-fable-5-1 · boundary harness"),
+        "{frame}"
+    );
+
+    // The word alone for a box; no adjective for a work seat; nothing
+    // for a run that boxes nothing.
+    let namespace = frame_of(&at_run(), &boxed_views("namespace", true), 140, 40);
+    assert!(namespace.contains("boundary  namespace"), "{namespace}");
+    assert!(!namespace.contains("unboxed"), "{namespace}");
+    let work = frame_of(&at_run(), &boxed_views("harness", false), 140, 40);
+    assert!(work.contains("boundary  harness"), "{work}");
+    assert!(!work.contains("unboxed"), "{work}");
+    let mut events = journal("intake");
+    events[0].payload["manifest"] = json!({"hands":{"intake":{"binds":[]}}});
+    let mut old = views();
+    old.run = Some(brokkr_view::run_view(&events, Some(&state())));
+    let old = frame_of(&at_run(), &old, 140, 40);
+    assert!(old.contains("boundary  not recorded"), "{old}");
+    // The column header stands, absent-marked; the header LINE does not.
+    let plain = frame_of(&at_run(), &views(), 140, 40);
+    assert!(plain.contains("boundary"), "{plain}");
+    assert!(
+        !plain
+            .lines()
+            .any(|line| line.trim_start_matches('│').starts_with("boundary  ")),
+        "{plain}"
+    );
+}
+
+/// The seat level: the detail pane's model line carries the boundary,
+/// and every checkpoint row does.
+#[test]
+fn the_seat_level_prints_the_boundary_beside_the_model_and_on_every_checkpoint() {
+    let boxed = boxed_views("open", true);
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &boxed, Key::Enter);
+    apply(&mut tui, &boxed, Key::Enter);
+    let detail = frame_of(&tui, &boxed, 160, 40);
+    assert!(
+        detail.contains("model     claude-fable-5-1 (claimed) · boundary open"),
+        "{detail}"
+    );
+    assert!(
+        detail.contains("claude-session-finished  model claude-fable-5-1  boundary open  effort"),
+        "{detail}"
+    );
+    // The turn that named no model reads the attempt's entry beside its
+    // absent model: the boundary is the attempt's fact, not the turn's.
+    assert!(
+        detail.contains("Read  model —  boundary open  effort"),
+        "{detail}"
+    );
+
+    // A pre-0046 seat: both absences, and never a default word.
+    let inline = views();
+    let mut tui = at_seats("eff-i");
+    apply(&mut tui, &inline, Key::Enter);
+    apply(&mut tui, &inline, Key::Enter);
+    let detail = frame_of(&tui, &inline, 160, 40);
+    assert!(
+        detail.contains("model     — (claimed) · boundary —"),
+        "{detail}"
+    );
+    assert!(detail.contains("model —  boundary —  effort"), "{detail}");
+}
+
+// ------------------------------------------------ the run level's estate
+
+/// Where each pane's top border sits in a rendered frame, by title.
+fn border_row(lines: &[String], title: &str) -> usize {
+    lines
+        .iter()
+        .position(|row| row.starts_with(&format!("┌{title}─")))
+        .unwrap_or_else(|| panic!("no {title} pane"))
+}
+
+/// The three panes take the rows their content needs, and the trail
+/// takes the rest: a one-lane rail is six inner rows — lanes, rail,
+/// the box's two edges, the names — not a third of the screen, and the
+/// seats pane is its header plus one row per line it lists.
+#[test]
+fn the_run_level_deals_rows_by_need_and_gives_the_trail_the_rest() {
+    let views = views();
+    let view = views.run.as_ref().unwrap();
+    let lines = buffer_of(&at_run(), &views, 160, 40);
+    let graph = border_row(&lines, "graph");
+    let seats = border_row(&lines, "seats");
+    let trail = border_row(&lines, "trail");
+    assert_eq!(
+        rows_wanted(&view.phases),
+        6,
+        "one lane pair on the fixture rail"
+    );
+    assert_eq!(
+        seats - graph,
+        2 + rows_wanted(&view.phases),
+        "the graph pane: borders + drawing"
+    );
+    assert_eq!(
+        trail - seats,
+        3 + seat_lines(view, None),
+        "the seats pane: borders + header + one row per listed line"
+    );
+    // The last two rows are the status and footer lines, so the trail
+    // pane runs from its border to the row above them.
+    assert!(
+        lines[37].starts_with('└'),
+        "the trail closes above the status line"
+    );
+    assert!(
+        trail - seats < 40 - trail,
+        "and the trail is the tallest pane"
+    );
+}
+
+/// Short terminals degrade the way the thirds did: the graph is capped
+/// at its share, the seats at half of what it leaves, and every pane
+/// still draws. Deep forks are capped the same way.
+#[test]
+fn a_short_terminal_caps_the_graph_and_the_seats() {
+    let views = views();
+    let view = views.run.as_ref().unwrap();
+    let height = usize::from(MIN_HEIGHT) - 2;
+    let [graph, seats, trail] = estate(view, None, height);
+    assert_eq!(
+        graph,
+        Constraint::Length(u16::try_from(height * GRAPH_SHARE_MAX / 100).unwrap())
+    );
+    assert_eq!(
+        seats,
+        Constraint::Length(u16::try_from((height - height * GRAPH_SHARE_MAX / 100) / 2).unwrap())
+    );
+    assert_eq!(trail, Constraint::Min(0));
+    let lines = buffer_of(&at_run(), &views, 100, MIN_HEIGHT);
+    for title in ["graph", "seats", "trail"] {
+        border_row(&lines, title);
+    }
+}
+
+/// A seat column is as wide as its widest cell and no wider. The widest
+/// fixture label is 27 columns; the fixed 22 clipped it, and left the
+/// activity column holding the difference as air.
+#[test]
+fn a_seat_column_fits_its_widest_cell() {
+    let lines = buffer_of(&at_run(), &views(), 160, 40);
+    let header = &lines[border_row(&lines, "seats") + 1];
+    let widest = "design:positions:simplicity";
+    assert!(
+        lines
+            .iter()
+            .any(|row| row.contains(&format!("{widest} succeeded"))),
+        "the label is whole and the status column starts one space after it"
+    );
+    assert!(at(header, 1 + widest.chars().count() + 1).starts_with("status"));
+    // Fitting is a measurement of the listed texts, header included.
+    let widths = seat_widths(&[]);
+    assert_eq!(
+        widths[0],
+        Constraint::Length(u16::try_from("participant".len()).unwrap())
+    );
+    assert_eq!(widths[8], Constraint::Min(10));
+    let long = [[
+        "x".repeat(SEAT_COLUMN_MAX + 20),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+    ]];
+    assert_eq!(
+        seat_widths(&long)[0],
+        Constraint::Length(u16::try_from(SEAT_COLUMN_MAX).unwrap()),
+        "one runaway label cannot push the activity column off the pane"
+    );
 }

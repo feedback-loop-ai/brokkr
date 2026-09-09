@@ -1,5 +1,5 @@
 {
-  "schema": "brokkr.dialect/v2",
+  "schema": "brokkr.dialect/v3",
   "name": "openspec",
   "tool": {"binary": "openspec", "version": "1.12.0", "install": {"manager": "npm", "package": "@fission-ai/openspec"}},
   "requires": ["openspec/config.yaml"],
@@ -68,6 +68,9 @@
     {"before": "design", "after": "tasks"}
   ],
   "verify": {"argv": ["openspec", "validate", "--archived", "--strict", "--no-interactive"]},
-  "archive": {"argv": ["openspec", "archive", "{change}", "--yes"]},
+  "archive": {
+    "argv": ["openspec", "archive", "{change}", "--yes"],
+    "instructions": "openspec/archive.md"
+  },
   "house": {"unsupported": "OpenSpec ships no constitution; the realm house is authoritative"}
 }

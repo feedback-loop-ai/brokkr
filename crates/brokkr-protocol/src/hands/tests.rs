@@ -10,6 +10,10 @@ fn one(text: &str) -> Vec<String> {
 }
 
 #[cfg(target_os = "linux")]
+/// Whether a boundary proof can build a real namespace here. A proof
+/// that cannot is logged as a skip, or failed outright on a host that
+/// declared [`BOUNDARY_EVIDENCE_ENV`]: a skipped proof prints `... ok`
+/// and is otherwise indistinguishable from a pass (decision 0054).
 fn can_create_namespace() -> bool {
     if std::env::var_os(HANDS_BOX_ENV).is_some() {
         return false;
@@ -199,6 +203,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // not bound again, but its hooks are hidden and its config read-only.
     let inside = GitFacts {
         git_dir: Some(workdir.join(".git")),
+        common_dir: Some(workdir.join(".git")),
         identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
     };
     let argv = box_argv(
@@ -227,7 +232,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // A `git worktree`: the common dir is elsewhere and must be bound.
     let common = dir.path().join("main/.git");
     let outside = GitFacts {
-        git_dir: Some(common.clone()),
+        git_dir: Some(common.join("worktrees/wt")),
+        common_dir: Some(common.clone()),
         identity: Vec::new(),
     };
     let argv = box_argv(
@@ -609,7 +615,10 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 #[test]
 fn the_box_hides_the_host_and_holds_the_worktree() {
     if !can_create_namespace() {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -748,7 +757,10 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 #[test]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
     if !can_create_namespace() {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -792,7 +804,15 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
 
     let facts = git_facts(&worktree);
-    assert_eq!(facts.git_dir.as_deref(), Some(main.join(".git").as_path()));
+    assert_eq!(
+        facts.common_dir.as_deref(),
+        Some(main.join(".git").as_path())
+    );
+    assert_eq!(
+        facts.git_dir.as_deref(),
+        Some(main.join(".git/worktrees/wt").as_path()),
+        "the per-worktree directory is distinct from the shared one"
+    );
     assert!(facts
         .identity
         .iter()
@@ -806,6 +826,7 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     // Not a repository: no git dir to mask (the identity is the host's
     // global one either way).
     assert_eq!(git_facts(dir.path()).git_dir, None);
+    assert_eq!(git_facts(dir.path()).common_dir, None);
 
     let spec = HandsSpec::default();
     let session = session_dir("git").unwrap();
@@ -879,4 +900,533 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
         .unwrap()
         .contains("evil"));
     let _ = std::fs::remove_dir_all(&session);
+}
+
+/// Decision 0054: a boundary proof that cannot open a namespace logs a
+/// skip on a developer's laptop and FAILS on the host whose job is to
+/// produce the evidence. Both answers are reachable from one process
+/// because the requirement is passed in rather than read at the call
+/// site, so neither arm rests on a process-wide environment change.
+#[test]
+fn a_skipped_boundary_proof_passes_only_where_the_evidence_is_optional() {
+    skip_boundary_proof(false, "no bubblewrap here");
+    // An empty value is not a declaration: a workflow expanding an unset
+    // variable must not arm the gate for a leg with no namespace to open.
+    assert!(!boundary_evidence_declared(None));
+    assert!(!boundary_evidence_declared(Some(std::ffi::OsString::new())));
+    assert!(boundary_evidence_declared(Some("1".into())));
+    // And the host's own answer reads that same variable.
+    let _ = boundary_evidence_required();
+    assert_eq!(BOUNDARY_EVIDENCE_ENV, "BROKKR_REQUIRE_BOUNDARY_EVIDENCE");
+}
+
+#[test]
+#[should_panic(expected = "must produce real boundary evidence")]
+fn a_required_boundary_proof_may_not_skip() {
+    skip_boundary_proof(true, "no bubblewrap here");
+}
+
+/// Decision 0054: the two git paths arrive one per line, so a path that
+/// itself spans a line makes the answer ambiguous — and an ambiguous git
+/// directory is no git directory. The box then has no git to bind, which
+/// is the fail-closed reading.
+#[cfg(unix)]
+#[test]
+fn a_git_directory_whose_path_spans_a_line_is_not_a_git_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let weird = dir.path().join("line\nbreak");
+    std::fs::create_dir_all(&weird).unwrap();
+    let out = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&weird)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let facts = git_facts(&weird);
+    assert_eq!(facts.git_dir, None);
+    assert_eq!(facts.common_dir, None);
+}
+
+/// The same ambiguity read directly, so every arm of the parse is a plain
+/// test: two non-empty lines and nothing else is the only shape that names
+/// a git directory.
+#[test]
+fn two_non_empty_lines_and_nothing_else_are_a_git_directory() {
+    let two = |reported: &str| {
+        let (git_dir, common_dir) = parse_git_dirs(reported);
+        (git_dir.map(|p| p.display().to_string()), common_dir)
+    };
+    assert_eq!(
+        two("/repo/.git\n/repo/.git"),
+        (
+            Some("/repo/.git".to_string()),
+            Some(PathBuf::from("/repo/.git"))
+        )
+    );
+    // No trim: a path may end in a space.
+    assert_eq!(
+        two("/repo/.git \n/repo/.git \n"),
+        (
+            Some("/repo/.git ".to_string()),
+            Some(PathBuf::from("/repo/.git "))
+        )
+    );
+    // An empty line on either side, a missing line, or a third line makes
+    // the answer ambiguous and both stay absent.
+    for reported in ["", "\n", "/repo/.git\n\n", "\n/repo/.git\n", "/a\n/b\n/c\n"] {
+        assert_eq!(two(reported), (None, None), "{reported:?}");
+    }
+}
+
+// ─────────────── decision 0046 ruling 4: the unboxed exec dispatch
+
+fn engine_env(home: &Path) -> std::collections::BTreeMap<String, String> {
+    [
+        ("HOME", home.display().to_string()),
+        ("PATH", "/usr/local/bin:/usr/bin:/bin".to_string()),
+        ("USER", "carol".to_string()),
+        ("LOGNAME", "carol".to_string()),
+        ("GH_TOKEN", "ghp_secret".to_string()),
+        ("ANTHROPIC_API_KEY", "sk-secret".to_string()),
+        ("SSH_AUTH_SOCK", "/run/user/1000/ssh".to_string()),
+        ("NPM_CONFIG_CACHE", "/elsewhere/npm".to_string()),
+        ("USERPROFILE", "C:\\Users\\carol".to_string()),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_string(), value))
+    .collect()
+}
+
+/// The fixed environment is the box's own table outside a namespace: a
+/// proof about the ENVIRONMENT, not the filesystem — the same script
+/// naming the operator's home by absolute path reads it.
+#[test]
+fn the_unboxed_environment_hands_nothing_of_the_engines_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".ssh")).unwrap();
+    std::fs::create_dir_all(home.join(".cargo")).unwrap();
+    std::fs::write(home.join(".ssh/id"), "private key\n").unwrap();
+    std::fs::write(home.join(".cargo/credentials.toml"), "token\n").unwrap();
+    let private_home = dir.path().join("attempt/home");
+    let private_tmp = dir.path().join("attempt/tmp");
+    std::fs::create_dir_all(&private_home).unwrap();
+    std::fs::create_dir_all(&private_tmp).unwrap();
+    let engine = engine_env(&home);
+    assert_eq!(home_dir(&engine), home);
+    // The shipped verify seat's binds: the overlay cargo home whose mask
+    // is declared and not enforced here, and the read-only rustup.
+    let spec = spec_of(json!({
+        "kind": "workspace", "network": false,
+        "binds": [
+            {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+            {"path": "~/.rustup", "mode": "ro"}
+        ]
+    }));
+    let identity = vec![
+        ("GIT_AUTHOR_NAME".to_string(), "Seat".to_string()),
+        (
+            "GIT_COMMITTER_EMAIL".to_string(),
+            "seat@example.invalid".to_string(),
+        ),
+    ];
+    let table = unboxed_environment(
+        &engine,
+        &home,
+        &spec,
+        &identity,
+        &private_home,
+        &private_tmp,
+    );
+    assert_eq!(table["HOME"], private_home.display().to_string());
+    assert_eq!(table["TMPDIR"], private_tmp.display().to_string());
+    assert_eq!(table["PATH"], "/usr/local/bin:/usr/bin:/bin");
+    assert_eq!(table["USER"], "carol");
+    assert_eq!(table["LOGNAME"], "carol");
+    assert_eq!(
+        table["CARGO_HOME"],
+        home.join(".cargo").display().to_string()
+    );
+    assert_eq!(
+        table["RUSTUP_HOME"],
+        home.join(".rustup").display().to_string()
+    );
+    assert_eq!(table["LANG"], "C.UTF-8");
+    assert_eq!(table["LC_ALL"], "C.UTF-8");
+    assert_eq!(table["CI"], "true");
+    assert_eq!(table["DISABLE_AUTOUPDATER"], "1");
+    assert_eq!(table["DISABLE_TELEMETRY"], "1");
+    assert_eq!(table["GIT_CONFIG_COUNT"], "1");
+    assert_eq!(table["GIT_CONFIG_KEY_0"], "commit.gpgsign");
+    assert_eq!(table["GIT_CONFIG_VALUE_0"], "false");
+    assert_eq!(table["GIT_AUTHOR_NAME"], "Seat");
+    assert_eq!(table["GIT_COMMITTER_EMAIL"], "seat@example.invalid");
+    for absent in [
+        "GH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "SSH_AUTH_SOCK",
+        "NPM_CONFIG_CACHE",
+        HANDS_BOX_ENV,
+    ] {
+        assert!(!table.contains_key(absent), "{absent} leaked");
+    }
+    // The Windows bootstrap names are carried verbatim on Windows and
+    // not consulted anywhere else.
+    assert_eq!(table.contains_key("USERPROFILE"), cfg!(windows));
+
+    // A spawned shell in that table cannot find the planted key through
+    // its home; the locator still names the planted cargo home.
+    #[cfg(unix)]
+    {
+        let read = Command::new("sh")
+            .args(["-c", "cat \"$HOME/.ssh/id\""])
+            .env_clear()
+            .envs(&table)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(!read.success(), "the private home holds no key");
+        let planted = Command::new("sh")
+            .args(["-c", "test -f \"$CARGO_HOME/credentials.toml\""])
+            .env_clear()
+            .envs(&table)
+            .status()
+            .unwrap();
+        assert!(planted.success(), "the mask is declared, not enforced");
+    }
+
+    // The locators follow the binds, never the engine's environment: an
+    // npm bind gives `NPM_CONFIG_CACHE` under the engine's home.
+    let npm =
+        spec_of(json!({"kind": "workspace", "binds": [{"path": "~/.npm", "mode": "overlay"}]}));
+    let table = unboxed_environment(&engine, &home, &npm, &[], &private_home, &private_tmp);
+    assert_eq!(
+        table["NPM_CONFIG_CACHE"],
+        home.join(".npm").display().to_string()
+    );
+    assert!(!table.contains_key("CARGO_HOME"));
+    // The marker is inherited exactly when the engine already stands in
+    // a box, and never set by the dispatch; `USER` and `LOGNAME` are set
+    // only when the engine has them.
+    let mut boxed = engine.clone();
+    boxed.insert(HANDS_BOX_ENV.to_string(), "1".to_string());
+    boxed.remove("USER");
+    boxed.remove("LOGNAME");
+    let table = unboxed_environment(&boxed, &home, &npm, &[], &private_home, &private_tmp);
+    assert_eq!(table[HANDS_BOX_ENV], "1");
+    assert!(!table.contains_key("USER"));
+    assert!(!table.contains_key("LOGNAME"));
+    // No HOME nor USERPROFILE: the home is empty and nothing panics.
+    assert_eq!(home_dir(&std::collections::BTreeMap::new()), PathBuf::new());
+    let profiled: std::collections::BTreeMap<String, String> =
+        [("USERPROFILE".to_string(), "C:\\Users\\carol".to_string())].into();
+    assert_eq!(
+        home_dir(&profiled),
+        if cfg!(windows) {
+            PathBuf::from("C:\\Users\\carol")
+        } else {
+            PathBuf::new()
+        }
+    );
+}
+
+/// The network prefix's eight tokens, and the probe's arms: no
+/// `unshare` on the dispatch's path answers no without spawning, a
+/// planted non-zero one answers no, a planted zero one answers yes.
+#[test]
+fn the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path() {
+    let prefix = network_prefix(1000, 1000);
+    assert_eq!(
+        prefix,
+        [
+            "unshare",
+            "--map-root-user",
+            "--net",
+            "--",
+            "sh",
+            "-c",
+            "ip link set lo up && exec unshare --map-user=1000 --map-group=1000 -- \"$@\"",
+            "sh",
+        ]
+        .map(String::from)
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    let env_with = |path: &Path| -> std::collections::BTreeMap<String, String> {
+        [("PATH".to_string(), path.display().to_string())].into()
+    };
+    assert!(!probe_network_prefix(&env_with(&empty), 1000, 1000));
+    assert!(!probe_network_prefix(
+        &std::collections::BTreeMap::new(),
+        1000,
+        1000
+    ));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let plant = |name: &str, script: &str| {
+            let bin = dir.path().join(name);
+            std::fs::create_dir_all(&bin).unwrap();
+            let unshare = bin.join("unshare");
+            std::fs::write(&unshare, script).unwrap();
+            std::fs::set_permissions(&unshare, std::fs::Permissions::from_mode(0o755)).unwrap();
+            bin
+        };
+        let failing = plant("failing", "#!/bin/sh\nexit 1\n");
+        assert!(!probe_network_prefix(&env_with(&failing), 1000, 1000));
+        // A file of the name that cannot be run answers no as well.
+        let inert = dir.path().join("inert");
+        std::fs::create_dir_all(&inert).unwrap();
+        std::fs::write(inert.join("unshare"), "not a program").unwrap();
+        assert!(!probe_network_prefix(&env_with(&inert), 1000, 1000));
+        // The planted `unshare` sees the prefix around `true`: seven
+        // tokens after its own name, the last being the probe's command.
+        let passing = plant(
+            "passing",
+            "#!/bin/sh\n[ \"$1\" = --map-root-user ] && [ \"$8\" = true ] && exit 0\nexit 3\n",
+        );
+        assert!(probe_network_prefix(&env_with(&passing), 1000, 1000));
+    }
+}
+
+#[test]
+fn windows_bootstrap_is_verbatim_on_windows_and_absent_elsewhere() {
+    let mut engine = std::collections::BTreeMap::new();
+    let names = [
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "SystemRoot",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "USERNAME",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+    ];
+    for name in names {
+        engine.insert(name.to_string(), format!("value-for-{name}"));
+    }
+    let table = unboxed_environment(
+        &engine,
+        Path::new("engine-home"),
+        &HandsSpec::default(),
+        &[],
+        Path::new("private-home"),
+        Path::new("private-tmp"),
+    );
+    for name in names {
+        assert_eq!(
+            table.get(name),
+            cfg!(windows).then(|| &engine[name]),
+            "{name}"
+        );
+    }
+}
+
+/// Both complete tables run on Linux too: a Windows-only test cannot
+/// protect the Windows allow-list in the literal coverage gate.
+#[test]
+fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let home = Path::new("engine-home");
+    let private_home = Path::new("private-home");
+    let private_tmp = Path::new("private-tmp");
+    let spec = spec_of(json!({"kind": "workspace", "binds": [
+        {"path": "~/.cargo", "mode": "ro"},
+        {"path": "~/.rustup", "mode": "ro"},
+        {"path": "~/.npm", "mode": "ro"}
+    ]}));
+    let identity = [
+        ("GIT_AUTHOR_NAME".to_string(), "Seat".to_string()),
+        (
+            "GIT_AUTHOR_EMAIL".to_string(),
+            "seat@example.invalid".to_string(),
+        ),
+        ("GIT_COMMITTER_NAME".to_string(), "Seat".to_string()),
+        (
+            "GIT_COMMITTER_EMAIL".to_string(),
+            "seat@example.invalid".to_string(),
+        ),
+    ];
+    // Deliberately independent of WINDOWS_BOOTSTRAP: dropping a name
+    // from production must fail this proof. Mixed case is native on
+    // Windows; startup names and their values are preserved verbatim.
+    let windows_names = [
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "SystemRoot",
+        "SYSTEMDRIVE",
+        "windir",
+        "ComSpec",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "USERNAME",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+    ];
+    let mut engine = engine_env(home);
+    for name in windows_names {
+        engine.insert(name.to_string(), format!("value-for-{name}"));
+    }
+    engine.insert("TEMP".to_string(), String::new());
+    engine.insert("BROKKR_HANDS_BOX".to_string(), "1".to_string());
+    for name in [
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "SYSTEMROOT_SECRET",
+        "PathSecret",
+    ] {
+        engine.insert(name.to_string(), "must-not-be-inherited".to_string());
+    }
+
+    for windows in [false, true] {
+        let table = unboxed_environment_on(
+            windows,
+            &engine,
+            home,
+            &spec,
+            &identity,
+            private_home,
+            private_tmp,
+        );
+        let mut expected: BTreeSet<&str> = [
+            "HOME",
+            "TMPDIR",
+            "PATH",
+            "USER",
+            "LOGNAME",
+            "BROKKR_HANDS_BOX",
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "NPM_CONFIG_CACHE",
+            "LANG",
+            "LC_ALL",
+            "CI",
+            "DISABLE_AUTOUPDATER",
+            "DISABLE_TELEMETRY",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ]
+        .into();
+        if windows {
+            expected.extend(windows_names);
+            for name in windows_names {
+                assert_eq!(table[name], engine[name], "{name}");
+            }
+        }
+        assert_eq!(
+            table.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            expected
+        );
+        assert_eq!(
+            table["CARGO_HOME"],
+            home.join(".cargo").display().to_string()
+        );
+        assert_eq!(
+            table["RUSTUP_HOME"],
+            home.join(".rustup").display().to_string()
+        );
+        assert_eq!(
+            table["NPM_CONFIG_CACHE"],
+            home.join(".npm").display().to_string()
+        );
+        assert_eq!(
+            unboxed_environment(&engine, home, &spec, &identity, private_home, private_tmp),
+            unboxed_environment_on(
+                cfg!(windows),
+                &engine,
+                home,
+                &spec,
+                &identity,
+                private_home,
+                private_tmp
+            ),
+        );
+
+        let mut mixed = engine.clone();
+        for (canonical, spelling) in [
+            ("PATH", "Path"),
+            ("USER", "User"),
+            ("LOGNAME", "LogName"),
+            ("BROKKR_HANDS_BOX", "brokkr_hands_box"),
+        ] {
+            let value = mixed.remove(canonical).unwrap();
+            mixed.insert(spelling.to_string(), value);
+            if !windows {
+                expected.remove(canonical);
+            }
+        }
+        let mixed_table = unboxed_environment_on(
+            windows,
+            &mixed,
+            home,
+            &spec,
+            &identity,
+            private_home,
+            private_tmp,
+        );
+        assert_eq!(
+            mixed_table
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            expected
+        );
+        if windows {
+            assert_eq!(
+                mixed_table, table,
+                "Path must survive as PATH, with its value verbatim"
+            );
+        }
+
+        // Nothing inherited is synthesized when absent, including the
+        // Windows startup names, the marker and undeclared locators.
+        let minimal = unboxed_environment_on(
+            windows,
+            &BTreeMap::new(),
+            home,
+            &HandsSpec::default(),
+            &[],
+            private_home,
+            private_tmp,
+        );
+        let expected: BTreeSet<&str> = [
+            "HOME",
+            "TMPDIR",
+            "LANG",
+            "LC_ALL",
+            "CI",
+            "DISABLE_AUTOUPDATER",
+            "DISABLE_TELEMETRY",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+        ]
+        .into();
+        assert_eq!(
+            minimal.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            expected
+        );
+    }
 }

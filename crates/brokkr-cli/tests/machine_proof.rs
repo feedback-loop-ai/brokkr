@@ -925,7 +925,27 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
     // workspace suite inside that same boundary, and decision 0043 forbids
     // nesting it. Portable engine tests prove argv expansion and dispatch;
     // this end-to-end proof is only for a process allowed to open the box.
+    // The marker catches a Brokkr box; a harness-owned sandbox (a dsh seat,
+    // for one) refuses the namespace without setting it, so the probe
+    // decides the same way the hands tests do.
+    let required = brokkr_protocol::hands::boundary_evidence_required();
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        brokkr_protocol::hands::skip_boundary_proof(required, "this environment is already a box");
+        return;
+    }
+    let Ok(bwrap) = brokkr_protocol::hands::require_bwrap() else {
+        brokkr_protocol::hands::skip_boundary_proof(required, "no bubblewrap on PATH");
+        return;
+    };
+    let can_open_a_box = std::process::Command::new(bwrap)
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !can_open_a_box {
+        brokkr_protocol::hands::skip_boundary_proof(
+            required,
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let script = json!({"seats": {
@@ -1902,40 +1922,27 @@ fn panel_member_vanish_parks_the_whole_attempt_indeterminate() {
     assert!(reason.contains("integration"), "park reason: {reason}");
 }
 
+/// Decision 0046 ruling 5: the container scenario that once drove a
+/// docker here is gone with the wrapper. A bundle that still writes
+/// `driver.confine` is refused at compile by name, through the binary,
+/// naming the `container` boundary the field retired into.
 #[test]
-fn confined_seat_completes_inside_a_container() {
-    // Gated: needs a working docker. The intake seat's fake driver runs
-    // inside ubuntu:24.04 with the workdir and bundle mounted; everything
-    // else is the trusted native class.
-    if !cfg!(target_os = "linux") {
-        eprintln!("skipping: linux containers only");
-        return;
-    }
-    let docker_ok = std::process::Command::new("docker")
-        .arg("info")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !docker_ok {
-        eprintln!("skipping: docker unavailable");
-        return;
-    }
+fn a_confined_seat_is_refused_by_name_at_compile() {
     let ws = Workspace::new(happy_script());
     let bundle = ws.bundle_dir();
     let config_path = bundle.join("bundle.json");
     let mut config: Value =
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-    // The fake driver binary lives outside workdir/bundle: declare its
-    // directory as an extra read-only mount.
-    let bin_dir = std::path::Path::new(brokkr_bin()).parent().unwrap();
-    config["seats"]["intake"]["driver"]["confine"] = json!({
-        "image": "ubuntu:24.04",
-        "mounts": [bin_dir.to_str().unwrap()],
-    });
+    config["seats"]["intake"]["driver"]["confine"] = json!({"image": "ubuntu:24.04"});
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    let (code, summary, stderr) = ws.run();
-    assert_eq!(code, Some(0), "stderr: {stderr}");
-    assert_eq!(summary["status"], "completed");
+    let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
+    assert_eq!(code, Some(1));
+    assert!(
+        stderr.contains("seat 'intake' declares driver.confine"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("`container` boundary"), "{stderr}");
+    assert!(stderr.contains("decision 0046 ruling 5"), "{stderr}");
 }
 
 #[test]

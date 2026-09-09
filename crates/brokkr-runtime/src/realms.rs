@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical;
-use brokkr_core::realms::{Realm, RealmMap, RealmsError, DEFAULT_MAP_FILE};
+use brokkr_core::realms::{Boundary, Realm, RealmMap, RealmsError, DEFAULT_MAP_FILE};
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -281,6 +281,16 @@ impl World {
             .find(|realm| absolute(&self.path_of(realm)) == target)
     }
 
+    /// The boundary the operated repository's realm runs under (decision
+    /// 0046 ruling 1): the realm's declared word, else `namespace` — and
+    /// `namespace` too for a repository the map does not name, exactly as
+    /// a run with no map at all. The one resolver the compiler, the verbs
+    /// and the engine's entry fence all read, so they cannot disagree.
+    pub fn boundary_for(&self, repo: &Path) -> Boundary {
+        self.realm_for(repo)
+            .map_or(Boundary::Namespace, Realm::boundary)
+    }
+
     /// The immutable house text selected for this repository's realm.
     pub fn house_for(&self, repo: &Path) -> Result<Option<&str>, WorldError> {
         let Some(realm) = self.realm_for(repo) else {
@@ -474,8 +484,11 @@ fn pinned_dialect(pin: &Value) -> Result<Option<DialectPin>, WorldError> {
         )));
     }
     let text = serde_json::to_string(&content).expect("JSON serializes");
-    let (mut dialect, _) =
-        Dialect::parse(source, &text).map_err(|error| WorldError::Unpinned(error.to_string()))?;
+    // A pin is read at the version it was written, not at the version
+    // this build writes: the run pinned its world and a resume gets that
+    // world back (decision 0042's dialect versions, `dialect::SCHEMAS`).
+    let (mut dialect, _) = Dialect::parse_pinned(source, &text)
+        .map_err(|error| WorldError::Unpinned(error.to_string()))?;
     let instructions = value
         .get("instructions")
         .ok_or_else(|| WorldError::Unpinned("its dialect pin carries no instructions".into()))?;
@@ -526,5 +539,10 @@ fn pinned_texts(pin: &Value, map: &RealmMap) -> Result<RealmTexts, WorldError> {
     Ok(texts)
 }
 
+// `pub(crate)` so the two-repository fixture below can be REUSED by the
+// engine's own tests rather than rebuilt there: a private `mod` is
+// visible only to its own module and its descendants, so `pub(crate)`
+// items inside it stay unreachable from `crate::engine::tests` until the
+// module itself is widened. Test-only visibility, no production surface.
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

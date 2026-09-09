@@ -191,12 +191,33 @@ fn retired_name(line: &str) -> bool {
         || RETIRED_CRATES.iter().any(|name| line.contains(name))
 }
 
+/// Decision 0046's living specs quote these exact schema titles as data.
+/// Remove only the quoted title, so a retired marquee elsewhere on the
+/// same line remains an offense. Contract bodies already stay outside
+/// the prose walk; their names do not become new product prose when cited.
+fn without_contract_titles(file: &str, line: &str) -> String {
+    let mut prose = line.to_string();
+    if file.starts_with("openspec/specs/") {
+        for title in [
+            "`Forge run manifest v9`",
+            "`Forge effect boundary v1`",
+            "`Forge seat record v4`",
+            "`Forge realms map v4`",
+        ] {
+            prose = prose.replace(title, "");
+        }
+    }
+    prose
+}
+
 fn offenses_in(file: &str, contents: &str, surface: Surface) -> Vec<Offense> {
     contents
         .lines()
         .enumerate()
         .filter(|(_, line)| selected(surface, line))
-        .filter(|(_, line)| retired_name(line) && !explicitly_allowed(file, line))
+        .filter(|(_, line)| {
+            retired_name(&without_contract_titles(file, line)) && !explicitly_allowed(file, line)
+        })
         .map(|(index, line)| Offense {
             file: file.to_string(),
             line: index + 1,
@@ -375,6 +396,35 @@ fn retired_names_fail_with_file_and_line() {
     let offenses = offenses_in("crates/example/src/lib.rs", rust, Surface::RustComments);
     assert_eq!(offenses.len(), 1, "{}", render(&offenses));
     assert_eq!(offenses[0].line, 1);
+}
+
+#[test]
+fn a_quoted_contract_title_is_data_and_never_licenses_retired_prose() {
+    let file = "openspec/specs/boundary-record/spec.md";
+    for title in [
+        "Forge run manifest v9",
+        "Forge effect boundary v1",
+        "Forge seat record v4",
+        "Forge realms map v4",
+    ] {
+        let citation = format!("The contract title is `{title}`.");
+        assert!(offenses_in(file, &citation, Surface::Prose).is_empty());
+        assert_eq!(
+            offenses_in(
+                file,
+                &format!("{citation} Forge is the product."),
+                Surface::Prose
+            )
+            .len(),
+            1
+        );
+        assert_eq!(offenses_in(file, title, Surface::Prose).len(), 1);
+        assert_eq!(offenses_in("README.md", &citation, Surface::Prose).len(), 1);
+    }
+    assert_eq!(
+        offenses_in(file, "`Forge run manifest v10`", Surface::Prose).len(),
+        1
+    );
 }
 
 #[test]
