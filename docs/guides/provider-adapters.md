@@ -281,6 +281,20 @@ all. The fetch runs with `fetch.fsckObjects` on, given on the command
 line: it is the one write path into the shared object store, so every
 object in the received pack is validated before it lands.
 
+The same fetch runs with the shared repository's automatic maintenance
+turned off — `maintenance.auto=false`, `gc.auto=0`, `gc.autoPackLimit=0`,
+all on the command line. A promotion ADDS objects and moves one ref;
+`git fetch` otherwise ends by running the receiving repository's own
+maintenance, which packs every reachable loose object and unlinks the
+loose copy, and does it detached, under a configuration the run did not
+choose. Nothing is lost when that happens — git reads those objects out
+of the new pack — but the operator's object store is not the driver's to
+rewrite, and a repack in the middle of a promotion is indistinguishable,
+from the outside, from a seat that reached the shared store. Given as
+config rather than as `--no-auto-maintenance`, because a git that does not
+know that flag would refuse the whole fetch, while an unknown config key
+is ignored.
+
 **The store the box held is reclaimed before the driver reads it.** The
 seat owns its private common directory for its whole life, and the
 promotion then hands that directory to git as a repository — so the

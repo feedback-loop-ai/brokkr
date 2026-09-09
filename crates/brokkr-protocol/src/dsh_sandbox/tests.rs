@@ -1,5 +1,18 @@
 use super::*;
 
+/// True when a path git ANSWERED with and a path the test built name the
+/// same directory. Git resolves the directory it reports, and a temporary
+/// directory is not always reached by the spelling that made it: macOS
+/// hands out `/var/folders/...`, where `/var` is a symlink to `/private/var`,
+/// so git answers `/private/var/folders/...` for the very directory the
+/// test just created. What every one of these assertions means is "the
+/// same directory", so they compare resolved identities. Two different
+/// directories still resolve differently, so nothing is excused by this
+/// that a string comparison would have caught.
+fn same_place(answered: &str, built: &Path) -> bool {
+    resolve(Path::new(answered)) == resolve(built)
+}
+
 /// The workspace-write profile `@deepseek-ai/dsh-sandbox-local` composes,
 /// mirrored from `bwrapProfileArgs` as measured on 0.1.2-rc.1: a read-only
 /// host root, a fresh `/dev` and `/proc`, an ephemeral `/tmp`, and the
@@ -1436,10 +1449,8 @@ fn the_store_the_driver_reads_is_the_one_the_driver_authored() {
         argv.extend_from_slice(args);
         repo.git(&repo.main, &argv)
     };
-    assert_eq!(
-        store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-        evil.display().to_string()
-    );
+    let steered = store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    assert!(same_place(&steered, &evil), "{steered}");
     assert_eq!(
         store_git(&["config", "--get", "core.hooksPath"]),
         "/evil-hooks"
@@ -1487,10 +1498,8 @@ fn the_store_the_driver_reads_is_the_one_the_driver_authored() {
     );
     // Git agrees: the store is its own common directory again, carries no
     // configuration the box chose, and answers with the seat's commit.
-    assert_eq!(
-        store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-        store.display().to_string()
-    );
+    let reclaimed = store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    assert!(same_place(&reclaimed, &store), "{reclaimed}");
     assert_eq!(store_git(&["config", "--get", "core.hooksPath"]), "");
     assert_eq!(
         store_git(&["rev-parse", "--verify", "refs/heads/slice"]),
@@ -1580,10 +1589,8 @@ fn a_store_the_box_locked_is_still_reclaimed() {
         argv.extend_from_slice(args);
         repo.git(&repo.main, &argv)
     };
-    assert_eq!(
-        store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-        store.display().to_string()
-    );
+    let reclaimed = store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+    assert!(same_place(&reclaimed, &store), "{reclaimed}");
     assert_eq!(store_git(&["config", "--get", "core.hooksPath"]), "");
     assert_eq!(
         store_git(&["rev-parse", "--verify", "refs/heads/slice"]),
@@ -1713,6 +1720,158 @@ fn a_promotion_moves_the_owned_branch_and_nothing_else() {
     );
     repo.git(&repo.main, &["fsck", "--no-progress", "--no-dangling"]);
     assert!(!store.exists(), "a promoted store is discarded");
+}
+
+/// A promotion ADDS objects and moves one ref. It does not repack the
+/// operator's repository — and that is measured here, because "a seat
+/// destroyed a shared object" and "the driver's own fetch moved one" look
+/// alike to a sentinel that reads object PATHS back, and only the first
+/// is a boundary failure.
+///
+/// `git fetch` ends by running the RECEIVING repository's automatic
+/// maintenance, under whatever configuration that repository carries. A
+/// `gc --auto` that fires packs every reachable loose object and then
+/// unlinks the loose copies, so files the repository held before any seat
+/// ran are gone from the paths they were at. Detached is the default, so
+/// it also finishes at a time nothing here chose — which is how the same
+/// promotion leaves the object files alone on one host and moves them on
+/// the next.
+///
+/// Both halves are proved: the driver's promotion moves nothing, and the
+/// SAME local fetch without the two settings the driver passes moves the
+/// very files it left alone. Without the second half the first would be a
+/// line that happens to be true on this host rather than a guard.
+#[test]
+fn a_promotion_moves_one_ref_and_does_not_repack_the_host_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::linked(dir.path());
+    fill_the_loose_object_sample(&repo.main, &dir.path().join("filler"), 3);
+    // The REPOSITORY asks for the maintenance, which is the point: a fetch
+    // runs it under a configuration this run did not choose. Detaching is
+    // turned off only so the measurement below is not a race against a
+    // background repack.
+    Repo::run(&repo.main, &["config", "gc.auto", "1"]);
+    Repo::run(&repo.main, &["config", "gc.autoDetach", "false"]);
+
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
+    repo.git_with_common(&staged, &["add", "b.txt"]);
+    repo.git_with_common(&staged, &["commit", "-q", "-m", "boxed"]);
+    let before = walk(&repo.main.join(".git/objects"));
+    assert!(!before.is_empty(), "the fixture has no objects to guard");
+
+    promote_seat_commits(staged, &repo.scope).unwrap().unwrap();
+
+    // Every object file the repository held is still at the path it was
+    // at: the promotion added what the seat wrote and touched nothing that
+    // was already there.
+    for object in &before {
+        assert!(
+            Path::new(object).exists(),
+            "the promotion moved {object}, which the repository already had"
+        );
+    }
+
+    // The control: the same local fetch, from a store with the same shape,
+    // without the two settings. This is what the driver would do if the
+    // guard were dropped, and it is what makes the assertions above mean
+    // something.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    std::fs::write(repo.worktree.join("c.txt"), "c\n").unwrap();
+    repo.git_with_common(&staged, &["add", "c.txt"]);
+    repo.git_with_common(&staged, &["commit", "-q", "-m", "again"]);
+    let unguarded = walk(&repo.main.join(".git/objects"));
+    Repo::run(
+        &repo.main,
+        &[
+            "fetch",
+            "--no-tags",
+            "--no-write-fetch-head",
+            "--quiet",
+            &staged.store_path().to_string_lossy(),
+            "+refs/heads/slice:refs/brokkr/control",
+        ],
+    );
+    let moved: Vec<&String> = unguarded
+        .iter()
+        .filter(|object| !Path::new(object).exists())
+        .collect();
+    assert!(
+        !moved.is_empty(),
+        "the host's own maintenance never fired, so the guarded half above measures nothing"
+    );
+
+    // And what it did was MOVE them: git still has every object whose
+    // loose file the maintenance unlinked. That is the difference between
+    // this and a seat reaching the shared store, and it is why the guard
+    // is about the operator's repository rather than about the boundary.
+    for object in &moved {
+        let oid = loose_object_id(Path::new(object));
+        assert!(
+            !repo.git(&repo.main, &["cat-file", "-t", &oid]).is_empty(),
+            "{oid} is gone from the repository, not repacked into it"
+        );
+    }
+}
+
+/// The object name a loose object's path spells: the fan-out directory
+/// and the file inside it.
+fn loose_object_id(path: &Path) -> String {
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    let fan = path
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    format!("{fan}{name}")
+}
+
+/// Fill a repository with loose objects until git's own `gc --auto` calls
+/// it overfull. That check does not count the object store: it counts the
+/// entries in `objects/17` and multiplies by 256, so what a repository
+/// needs in order to look full is objects in that one fan-out directory.
+/// The blobs are written outside the repository and hashed in a single
+/// `git hash-object` run per batch, because the point is the sample and
+/// not the seconds.
+fn fill_the_loose_object_sample(main: &Path, scratch: &Path, wanted: usize) {
+    use std::io::Write;
+
+    std::fs::create_dir_all(scratch).unwrap();
+    let sample = main.join(".git/objects/17");
+    let mut written = 0usize;
+    while walk(&sample).len() < wanted {
+        assert!(
+            written < 8192,
+            "git's loose-object sample never filled, so this fixture cannot ask for maintenance"
+        );
+        let mut paths = String::new();
+        for _ in 0..512 {
+            written += 1;
+            let blob = scratch.join(format!("blob-{written}"));
+            std::fs::write(&blob, format!("filler {written}\n")).unwrap();
+            paths.push_str(&format!("{}\n", blob.display()));
+        }
+        let mut hash = Command::new("git")
+            .args([
+                "-C",
+                &main.to_string_lossy(),
+                "hash-object",
+                "-w",
+                "--stdin-paths",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        hash.stdin
+            .take()
+            .unwrap()
+            .write_all(paths.as_bytes())
+            .unwrap();
+        assert!(hash.wait().unwrap().success());
+    }
 }
 
 /// Every way a promotion can fail keeps the seat's commits and says
@@ -2165,19 +2324,93 @@ fn walk(root: &Path) -> Vec<String> {
 /// is not the host directory the assertions read back: the box would
 /// write to the tmpfs, the host paths would stay untouched, and the
 /// test would pass for a reason that has nothing to do with the
-/// boundary. The cargo target directory (beside this test binary) is
-/// outside that tmpfs and outside the session workspace. `None` when
-/// this binary has no target directory outside `/tmp` to root the
-/// fixture in.
+/// boundary. That requirement is absolute; WHERE the root lives is not,
+/// so three places are tried in turn and the first one outside `/tmp`
+/// that will hold a directory wins:
+///
+/// 1. **The cargo target directory**, beside this test binary. The
+///    ordinary case, and the one a developer running `cargo test` gets.
+/// 2. **This host's temporary directory**, which on a machine with
+///    `TMPDIR` set is not `/tmp` at all.
+/// 3. **`/var/tmp`**, the system temporary directory the profile does
+///    NOT replace — it puts its tmpfs over `/tmp` and nothing else.
+///
+/// The third is what makes the proof runnable under the exact-coverage
+/// gate: `scripts/coverage-exact.sh` gives cargo-llvm-cov a unique target
+/// directory under `${TMPDIR:-/tmp}`, so on a CI runner with no `TMPDIR`
+/// the test binary itself runs from `/tmp` and the first two candidates
+/// are both inside the tmpfs. Without a third the proof would skip there
+/// — and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` would rightly turn that skip
+/// into a failure. `None` when none of the three can hold a directory,
+/// which is still a skip rather than a proof.
 fn fixture_root() -> Option<tempfile::TempDir> {
-    let base = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    if base.starts_with("/tmp") {
-        return None;
-    }
-    tempfile::Builder::new()
-        .prefix("brokkr-dsh-sandbox-")
-        .tempdir_in(base)
-        .ok()
+    fixture_root_in([
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf)),
+        Some(std::env::temp_dir()),
+        Some(PathBuf::from(SYSTEM_TEMPORARY_ROOT)),
+    ])
+}
+
+/// The system temporary directory the workspace-write profile leaves
+/// alone. It puts a fresh tmpfs over `/tmp` and over nothing else, so this
+/// one is still the host's when a boxed command writes through it.
+const SYSTEM_TEMPORARY_ROOT: &str = "/var/tmp";
+
+/// The first candidate outside `/tmp` that will hold a directory. A
+/// candidate inside the tmpfs is skipped whatever else is true about it:
+/// that requirement is the proof's, not a preference.
+fn fixture_root_in(
+    candidates: impl IntoIterator<Item = Option<PathBuf>>,
+) -> Option<tempfile::TempDir> {
+    candidates
+        .into_iter()
+        .flatten()
+        .filter(|base| !base.starts_with("/tmp"))
+        .find_map(|base| {
+            tempfile::Builder::new()
+                .prefix("brokkr-dsh-sandbox-")
+                .tempdir_in(base)
+                .ok()
+        })
+}
+
+/// The proof above must be RUNNABLE on an ordinary CI runner, not only on
+/// a host whose operator exported a `TMPDIR` outside `/tmp`. Under
+/// `scripts/coverage-exact.sh` the test binary itself runs from
+/// `${TMPDIR:-/tmp}/forge-coverage.*/target`, so on a runner with no
+/// `TMPDIR` the binary's own directory AND `std::env::temp_dir()` are both
+/// inside the tmpfs the profile creates — and a proof that skips there is
+/// a proof `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` rightly fails the run over.
+/// So the last candidate is a separate system temporary root, and this
+/// measures that it is a real one on this host rather than a spelling.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place() {
+    // Everything inside the tmpfs is refused, even when it is all there is.
+    assert!(
+        fixture_root_in([
+            Some(PathBuf::from("/tmp/forge-coverage.abc/target/debug/deps")),
+            Some(PathBuf::from("/tmp")),
+        ])
+        .is_none(),
+        "a fixture inside the profile's own tmpfs proves nothing about the host"
+    );
+    // And the fallback behind them is a directory this host really hands
+    // out, so the coverage run gets a root instead of a skip.
+    let root = fixture_root_in([
+        Some(PathBuf::from("/tmp/forge-coverage.abc/target/debug/deps")),
+        Some(PathBuf::from(SYSTEM_TEMPORARY_ROOT)),
+    ])
+    .expect("this host has no system temporary root outside /tmp");
+    assert!(root.path().starts_with(SYSTEM_TEMPORARY_ROOT));
+    // A candidate that is not there at all is stepped over rather than
+    // ending the search.
+    assert!(fixture_root_in([None, Some(PathBuf::from(SYSTEM_TEMPORARY_ROOT))]).is_some());
+    // Whatever this host offers, the proof's own root is never in the tmpfs.
+    let chosen = fixture_root().expect("no fixture root on this host");
+    assert!(!chosen.path().starts_with("/tmp"), "{:?}", chosen.path());
 }
 
 /// The boundary, for real: Linux with bubblewrap, which is where dsh's
@@ -2433,12 +2666,13 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         );
         // The host still resolves the real common directory: nothing the
         // box wrote redirected it.
-        assert_eq!(
-            repo.git(
-                &worktree,
-                &["rev-parse", "--path-format=absolute", "--git-common-dir"]
-            ),
-            common.display().to_string()
+        let host_common = repo.git(
+            &worktree,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        );
+        assert!(
+            same_place(&host_common, &common),
+            "{session}: {host_common}"
         );
 
         // The store the box just held really can steer a trusted git: the
@@ -2453,10 +2687,10 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
             argv.extend_from_slice(args);
             repo.git(&main, &argv)
         };
-        assert_eq!(
-            store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-            worktree.join("evil").display().to_string(),
-            "{session}: the box could not plant a commondir, so this proves nothing"
+        let steered = store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+        assert!(
+            same_place(&steered, &worktree.join("evil")),
+            "{session}: the box could not plant a commondir, so this proves nothing: {steered}"
         );
         assert_eq!(
             store_git(&["config", "--get", "core.hooksPath"]),
@@ -2490,7 +2724,14 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
             .map(|(_, files)| files)
             .unwrap_or_default();
         for object in &objects_at_start {
-            assert!(now.contains(object), "{session}: {object} was destroyed");
+            assert!(
+                now.contains(object),
+                "{session}: {object} is gone from the shared object store. Either the seat \
+                 reached it — which is the boundary — or the promotion's own fetch repacked \
+                 the host repository, which \
+                 `a_promotion_moves_one_ref_and_does_not_repack_the_host_repository` is the \
+                 place to tell apart"
+            );
         }
         // A history boundary the seat wrote into its own store is not the
         // shared repository's: `shallow` there would truncate the parent's

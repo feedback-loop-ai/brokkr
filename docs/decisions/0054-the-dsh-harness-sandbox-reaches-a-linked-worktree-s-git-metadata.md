@@ -139,6 +139,26 @@ previous revision set out to remove from the profile parser. The answer
 is the same shape as that one: stop enumerating what to hide, and keep
 only what the store holds as a VALUE.
 
+Remote CI on three operating systems then found three more, none of them
+a hole in the boundary and all three worth the decision saying out loud.
+A shared loose object vanished from its path on one Linux runner after a
+promotion, and the run's own evidence says who moved it: the box's
+before-and-after comparison of the whole shared object store — the same
+listing — was byte-identical in both sessions, so nothing between the
+seat's first command and its last touched that file, and the only writer
+left is the driver's own fetch. `git fetch` ends by running the receiving
+repository's automatic maintenance, which packs reachable loose objects
+and unlinks the loose copies, detached by default, so it lands on one
+runner and not the next and at a moment nothing chose. Ruling 5 now turns
+that off. The other two were the proofs' own: a proof that compared a
+path git RESOLVED with the spelling the test built, which disagree on a
+host where the temporary directory is reached through a symlink, and a
+fixture root that had only one place to stand, which the exact-coverage
+gate's own unique target directory puts inside the tmpfs the profile
+creates. Ruling 9 answers the second. A proof that measures the host must
+compare host identities and must have somewhere to stand; neither is a
+reason to lower a gate.
+
 ## Rulings
 
 1. **The driver resolves the two git directories before the seat
@@ -351,6 +371,24 @@ only what the store holds as a VALUE.
    before it lands, rather than the shared store accepting whatever the
    seat's pack asserts.
 
+   It also runs with the shared repository's automatic maintenance turned
+   off, on the same command line: `maintenance.auto=false`, `gc.auto=0`
+   and `gc.autoPackLimit=0`. A promotion ADDS objects and moves one ref.
+   `git fetch` otherwise ends by running the RECEIVING repository's
+   maintenance, which packs every reachable loose object and unlinks the
+   loose copy — so object files the operator's repository held before any
+   seat ran are gone from the paths they were at, under a configuration
+   this run did not choose, and detached, so at a time it did not pick.
+   Nothing is lost when that happens: git reads those objects out of the
+   new pack. But the operator's object store is not the driver's to
+   rewrite, and from the outside a repack in the middle of a promotion
+   cannot be told apart from a seat reaching the shared store — which is
+   the one thing the whole boundary is about. Three keys rather than one
+   because a git version reaches maintenance by more than one path, and
+   config rather than `--no-auto-maintenance` because an unknown config
+   key is ignored by every git while an unknown flag is fatal to the
+   fetch.
+
    **The store is RECLAIMED before any trusted git reads it.** The box
    held that directory read-write for the seat's whole life, and the
    promotion then hands it to git as a repository — `rev-parse` over it,
@@ -469,6 +507,13 @@ only what the store holds as a VALUE.
    act, the host measures git following them, and the promotion then lands
    the seat's real commit — a promotion that read the store the box left
    would find the branch already where the host has it and move nothing.
+   For the maintenance that fetch must not run,
+   `a_promotion_moves_one_ref_and_does_not_repack_the_host_repository`:
+   a real repository asking for `gc.auto`, a real promotion that leaves
+   every object file where it was, and the SAME local fetch without those
+   settings, which moves them — and then reads each moved object back out
+   of the pack, so what the control measured is a repack rather than a
+   loss.
 
 6. **The profile is parsed by a complete option table, and an option the
    runner cannot read refuses the command.** Whether the staged read-only
@@ -538,7 +583,24 @@ only what the store holds as a VALUE.
    outside the profile's `/tmp` tmpfs, and that one routes its skip
    through the guard.
 
-   **Enforcement binding:** `hands::BOUNDARY_EVIDENCE_ENV`,
+   And a skip a strict host would fail on must not be reachable by
+   ORDINARY means. The workspace-write profile replaces `/tmp` and
+   nothing else, so a fixture under `/tmp` measures the tmpfs rather than
+   the host — but `scripts/coverage-exact.sh` gives cargo-llvm-cov a
+   unique target directory under `${TMPDIR:-/tmp}`, so on a runner with
+   no `TMPDIR` the test binary itself runs from `/tmp` and its own
+   directory is inside the tmpfs. The requirement stands; where the root
+   lives does not. Three places are tried in turn — the binary's own
+   directory, this host's temporary directory, then `/var/tmp`, the
+   system temporary root the profile leaves alone — and the first outside
+   `/tmp` that will hold a directory wins. The gate is not lowered and
+   the coverage script is not changed; the proof is simply given a place
+   to stand that does not depend on an operator having exported a
+   `TMPDIR`.
+
+   **Enforcement binding:** `fixture_root` / `fixture_root_in` and
+   `the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place`;
+   `hands::BOUNDARY_EVIDENCE_ENV`,
    `boundary_evidence_required` and `skip_boundary_proof`; every
    namespace-dependent skip routed through it — including the three
    `engine/boundary_tests.rs` proofs and `doctor/tests.rs`'s that an

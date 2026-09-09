@@ -1266,7 +1266,10 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 /// with a compare-and-swap against the BASELINE the driver recorded
 /// before the seat started, so a branch something else moved while the
 /// seat ran refuses rather than being overwritten — and its store is
-/// kept, with the seat's commits still in it. `None` means there was
+/// kept, with the seat's commits still in it. The fetch is told to run
+/// none of the shared repository's automatic maintenance: a promotion
+/// ADDS objects and moves one ref, and repacking the operator's object
+/// store is neither. `None` means there was
 /// nothing to promote — the
 /// seat committed nothing, or left its branch where the host had it.
 /// Everything else the seat wrote — a sibling's branch, a tag, a
@@ -1349,6 +1352,27 @@ fn promote(
             // the repository's own config is one this run did not choose.
             "-c",
             "fetch.fsckObjects=true",
+            // And no automatic maintenance, by any of the paths a git
+            // version reaches it through. A promotion moves ONE ref and
+            // adds the objects behind it; `git fetch` otherwise ends by
+            // running the RECEIVING repository's maintenance, and that
+            // repacks. Every reachable loose object is packed and its
+            // loose copy unlinked, so object files the operator's
+            // repository held before any seat ran are gone from the paths
+            // they were at. Nothing is LOST — git reads every one of them
+            // out of the new pack — but rewriting the operator's object
+            // store is not what promoting a branch is for, it runs under a
+            // configuration this run did not choose, and it is detached by
+            // default, so it also finishes at a time the driver did not
+            // pick. Given as CONFIG rather than as `--no-auto-maintenance`:
+            // an unknown config key is ignored by every git, while a flag
+            // an older git does not know is fatal to the whole fetch.
+            "-c",
+            "maintenance.auto=false",
+            "-c",
+            "gc.auto=0",
+            "-c",
+            "gc.autoPackLimit=0",
             "fetch",
             "--no-tags",
             "--no-write-fetch-head",
