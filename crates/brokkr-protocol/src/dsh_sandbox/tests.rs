@@ -1363,6 +1363,152 @@ fn the_private_store_copy_carries_trees_files_and_absences() {
     assert_eq!(failed.kind(), std::io::ErrorKind::NotFound);
 }
 
+/// The store the box held is not the store the driver reads.
+///
+/// A seat owns its private common directory for its whole life, and the
+/// promotion afterwards hands that directory to git as a repository,
+/// outside every box. Git resolves a git directory's COMMON directory
+/// from `<dir>/commondir` however that directory was named, `--git-dir`
+/// included — measured here against a real git, because the reclaim is
+/// only worth anything if git really does follow it — and reads the
+/// repository configuration, the ref store and the object store from
+/// wherever it lands. So the driver keeps the objects and the refs and
+/// writes everything else afresh.
+#[test]
+fn the_store_the_driver_reads_is_the_one_the_driver_authored() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::linked(dir.path());
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    let store = staged.store_path().to_path_buf();
+    std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
+    repo.git_with_common(&staged, &["add", "b.txt"]);
+    repo.git_with_common(&staged, &["commit", "-q", "-m", "boxed"]);
+    let committed = repo.git_with_common(&staged, &["rev-parse", "HEAD"]);
+
+    // Everything a seat can leave in a directory it owns. `commondir` is
+    // the one that matters: it redirects every other answer at once.
+    let evil = dir.path().join("evil common");
+    std::fs::create_dir_all(evil.join("objects/info")).unwrap();
+    std::fs::create_dir_all(evil.join("refs/heads")).unwrap();
+    std::fs::write(
+        evil.join("config"),
+        "[core]\n\trepositoryformatversion = 0\n\tbare = true\n\thooksPath = /evil-hooks\n",
+    )
+    .unwrap();
+    std::fs::write(evil.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
+    std::fs::write(evil.join("refs/heads/slice"), format!("{}\n", repo.base)).unwrap();
+    std::fs::write(
+        evil.join("objects/info/alternates"),
+        format!("{}\n", repo.main.join(".git/objects").display()),
+    )
+    .unwrap();
+    std::fs::write(store.join("commondir"), format!("{}\n", evil.display())).unwrap();
+    std::fs::write(store.join("shallow"), format!("{}\n", repo.base)).unwrap();
+    std::fs::create_dir_all(store.join("info")).unwrap();
+    std::fs::write(store.join("info/grafts"), format!("{}\n", repo.base)).unwrap();
+    std::fs::create_dir_all(store.join("hooks")).unwrap();
+    std::fs::write(store.join("hooks/post-receive"), "#!/bin/sh\n").unwrap();
+    std::fs::write(
+        store.join("config.worktree"),
+        "[core]\n\thooksPath = /evil\n",
+    )
+    .unwrap();
+    std::fs::write(store.join("surprise"), "a name nobody enumerated\n").unwrap();
+    std::fs::write(store.join("objects/info/grafts"), "").unwrap();
+    // A symlink at a KEPT name: a second name for a directory this store
+    // does not own. Following one is how a reclaim would come to delete
+    // the shared repository's own files.
+    let shared_packed = repo.main.join(".git/packed-refs");
+    let packed_before = std::fs::read_to_string(&shared_packed).unwrap();
+    std::fs::remove_file(store.join("packed-refs")).unwrap();
+    std::os::unix::fs::symlink(&shared_packed, store.join("packed-refs")).unwrap();
+
+    // The hole is real, against a real git: with the `commondir` the box
+    // wrote, a trusted `git --git-dir=<store>` reads the seat's common
+    // directory, the seat's configuration and the seat's value for the
+    // branch the driver is about to promote.
+    let store_git = |args: &[&str]| {
+        let mut argv = vec!["--git-dir", store.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        repo.git(&repo.main, &argv)
+    };
+    assert_eq!(
+        store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+        evil.display().to_string()
+    );
+    assert_eq!(
+        store_git(&["config", "--get", "core.hooksPath"]),
+        "/evil-hooks"
+    );
+    assert_eq!(
+        store_git(&["rev-parse", "--verify", "refs/heads/slice"]),
+        repo.base
+    );
+
+    staged.reclaim().unwrap();
+
+    // Nothing the box wrote survives, whether the driver had a name for
+    // it or not.
+    for gone in [
+        "commondir",
+        "shallow",
+        "info",
+        "hooks",
+        "config.worktree",
+        "surprise",
+        "logs",
+        "packed-refs",
+        "objects/info/grafts",
+    ] {
+        assert!(!store.join(gone).exists(), "{gone} survived the reclaim");
+    }
+    // And the symlinked name was unlinked, not walked into.
+    assert_eq!(
+        std::fs::read_to_string(&shared_packed).unwrap(),
+        packed_before,
+        "the reclaim followed a symlink into the shared repository"
+    );
+    // What the driver reads is what the driver wrote.
+    assert_eq!(
+        std::fs::read_to_string(store.join("HEAD")).unwrap(),
+        "ref: refs/heads/slice\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.join("config")).unwrap(),
+        std::fs::read_to_string(repo.main.join(".git/config")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.join("objects/info/alternates")).unwrap(),
+        alternates_line(&repo.scope.common_dir)
+    );
+    // Git agrees: the store is its own common directory again, carries no
+    // configuration the box chose, and answers with the seat's commit.
+    assert_eq!(
+        store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+        store.display().to_string()
+    );
+    assert_eq!(store_git(&["config", "--get", "core.hooksPath"]), "");
+    assert_eq!(
+        store_git(&["rev-parse", "--verify", "refs/heads/slice"]),
+        committed
+    );
+
+    // A name that is not there is nothing to remove, so a second reclaim
+    // is not a failure.
+    remove(&store.join("never-existed")).unwrap();
+    staged.reclaim().unwrap();
+
+    // And the promotion that follows moves the seat's commit, not the
+    // value the box aimed it at.
+    let promotion = promote_seat_commits(staged, &repo.scope).unwrap().unwrap();
+    assert_eq!(promotion.to, committed);
+    assert_eq!(repo.host_ref("refs/heads/slice"), committed);
+    // A `shallow` the seat wrote does not become the shared repository's
+    // history boundary.
+    assert!(!repo.main.join(".git/shallow").exists());
+    repo.git(&repo.main, &["fsck", "--no-progress", "--no-dangling"]);
+}
+
 /// A real repository, a real linked worktree, and a real private store:
 /// the promotion moves the ONE branch the worktree owns, leaves every
 /// other ref where the host had it, and says so.
@@ -1386,6 +1532,11 @@ fn a_promotion_moves_the_owned_branch_and_nothing_else() {
     // branch and a tag while it is there.
     let staged = stage_seat_store(&repo.scope).unwrap();
     let store = staged.store_path().to_path_buf();
+    // The anchor the objects travel through is this SEAT's, not one every
+    // seat of the repository shares.
+    let anchor = staged.promotion_ref.clone();
+    assert!(anchor.starts_with(PROMOTION_REF_PREFIX), "{anchor}");
+    assert_ne!(anchor, PROMOTION_REF_PREFIX, "{anchor}");
     let seat = |args: &[&str]| repo.git_with_common(&staged, args);
     std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
     seat(&["add", "b.txt"]);
@@ -1419,10 +1570,7 @@ fn a_promotion_moves_the_owned_branch_and_nothing_else() {
         ""
     );
     assert_eq!(
-        repo.git(
-            &repo.main,
-            &["rev-parse", "--verify", "--quiet", PROMOTION_REF]
-        ),
+        repo.git(&repo.main, &["rev-parse", "--verify", "--quiet", &anchor]),
         ""
     );
     // The worktree reads its own commit back, and the repository is whole.
@@ -1463,6 +1611,7 @@ fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
         let staged = stage_seat_store(&repo.scope).unwrap();
         commit(&staged);
         let store = staged.store_path().to_path_buf();
+        let anchor = staged.promotion_ref.clone();
         let shim = fake_git(dir.path(), needle);
         let refused =
             promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope).unwrap_err();
@@ -1470,12 +1619,22 @@ fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
         assert!(refused.contains(&store.display().to_string()), "{refused}");
         assert!(store.exists(), "{needle}: the store is kept");
         std::fs::remove_dir_all(&store).unwrap();
-        repo.git(
-            &repo.main,
-            &["update-ref", "-d", PROMOTION_REF, "--no-deref"],
-        );
+        repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
         repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
     }
+
+    // A store the driver cannot take back from the box is refused BEFORE
+    // any git reads it: the whole point of the reclaim is that no trusted
+    // git touches a store the driver has not re-authored.
+    let staged = stage_seat_store(&repo.scope).unwrap();
+    commit(&staged);
+    let store = staged.store_path().to_path_buf();
+    std::fs::remove_dir_all(&store).unwrap();
+    let refused = promote_seat_commits(staged, &repo.scope).unwrap_err();
+    assert!(
+        refused.contains("take the seat's private git store back"),
+        "{refused}"
+    );
 
     // A store whose branch the seat deleted promotes nothing rather than
     // failing: there is no commit to move to. The ref is deleted through
@@ -2080,6 +2239,9 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
             "HEAD_HELD",
             "HEAD_KEPT",
             "TRUSTED_UNREACHABLE",
+            "STORE_COMMONDIR_PLANTED",
+            "STORE_SHALLOW_PLANTED",
+            "STORE_GRAFTS_PLANTED",
         ] {
             assert!(stdout.contains(expected), "{session}: {expected}\n{stdout}");
         }
@@ -2146,7 +2308,34 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
             common.display().to_string()
         );
 
-        // And now the driver promotes the one ref the worktree owns.
+        // The store the box just held really can steer a trusted git: the
+        // `commondir` the seat wrote makes `git --git-dir=<store>` report
+        // the SEAT's directory as the common one, read the SEAT's
+        // configuration out of it, and answer with the SEAT's value for
+        // the branch about to be promoted. The reclaim inside the
+        // promotion is what stands between that and the shared
+        // repository.
+        let store_git = |args: &[&str]| {
+            let mut argv = vec!["--git-dir", store.to_str().unwrap()];
+            argv.extend_from_slice(args);
+            repo.git(&main, &argv)
+        };
+        assert_eq!(
+            store_git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+            worktree.join("evil").display().to_string(),
+            "{session}: the box could not plant a commondir, so this proves nothing"
+        );
+        assert_eq!(
+            store_git(&["config", "--get", "core.hooksPath"]),
+            "/evil-hooks",
+            "{session}"
+        );
+
+        // And now the driver promotes the one ref the worktree owns. The
+        // seat aimed `<store>/commondir` at a common directory whose
+        // `refs/heads/slice` is the branch's CURRENT host value, so a
+        // promotion that read the store the box left would find nothing
+        // to move and answer `None` — this `unwrap` is the assertion.
         let promotion = promote_seat_commits(staged, &repo.scope).unwrap().unwrap();
         assert_eq!(promotion.reference, "refs/heads/slice");
         committed = promotion.to.clone();
@@ -2170,6 +2359,10 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         for object in &objects_at_start {
             assert!(now.contains(object), "{session}: {object} was destroyed");
         }
+        // A history boundary the seat wrote into its own store is not the
+        // shared repository's: `shallow` there would truncate the parent's
+        // history for every worktree.
+        assert!(!common.join("shallow").exists(), "{session}");
         repo.git(&main, &["fsck", "--no-progress", "--no-dangling"]);
     }
 
@@ -2375,8 +2568,25 @@ fn boxed_script(repo: &Repo, store: &Path, trusted: &Path, session: &str) -> Str
          if rm -f '{head}' 2>/dev/null; then echo HEAD_UNLINKED; else echo HEAD_KEPT; fi\n\
          echo evil > '{trusted}/{mask}' 2>/dev/null || true\n\
          echo evil > '{trusted}/{pointer}' 2>/dev/null || true\n\
-         if [ ! -s '{trusted}/{mask}' ]; then echo TRUSTED_UNREACHABLE; fi\n",
+         if [ ! -s '{trusted}/{mask}' ]; then echo TRUSTED_UNREACHABLE; fi\n\
+         # LAST, because it redirects this seat's own git as well: the\n\
+         # private store is the seat's to write for its whole life, and the\n\
+         # TRUSTED driver reads that directory as a repository afterwards.\n\
+         # A `commondir` inside it steers `--git-dir` at a common directory\n\
+         # the seat built in its own workspace — config, HEAD, refs and\n\
+         # alternates all the seat's.\n\
+         git rev-parse 'HEAD^' > '{workspace}/parent-oid'\n\
+         mkdir -p '{workspace}/evil/objects/info' '{workspace}/evil/refs/heads'\n\
+         printf '[core]\\n\\trepositoryformatversion = 0\\n\\tbare = true\\n\\thooksPath = /evil-hooks\\n' > '{workspace}/evil/config'\n\
+         printf 'ref: refs/heads/slice\\n' > '{workspace}/evil/HEAD'\n\
+         cp '{workspace}/parent-oid' '{workspace}/evil/refs/heads/slice'\n\
+         echo '{common}/objects' > '{workspace}/evil/objects/info/alternates'\n\
+         if echo '{workspace}/evil' > '{store}/commondir'; then echo STORE_COMMONDIR_PLANTED; fi\n\
+         if cp '{workspace}/parent-oid' '{store}/shallow'; then echo STORE_SHALLOW_PLANTED; fi\n\
+         mkdir -p '{store}/info'\n\
+         if cp '{workspace}/parent-oid' '{store}/info/grafts'; then echo STORE_GRAFTS_PLANTED; fi\n",
         session = session,
+        workspace = repo.worktree.display(),
         parent = repo.main.join("parent-sentinel").display(),
         sibling_sentinel = repo.sibling.join("sibling-sentinel").display(),
         common = common.display(),

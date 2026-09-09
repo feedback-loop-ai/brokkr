@@ -933,7 +933,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
         // A nested box cannot open the namespace this proof needs. A host
         // that declared it must produce boundary evidence fails here
-        // instead of printing `ok` (decision 0054 ruling 7).
+        // instead of printing `ok` (decision 0054 ruling 9).
         brokkr_protocol::hands::skip_boundary_proof(
             brokkr_protocol::hands::boundary_evidence_required(),
             "this environment is already a box",
@@ -1759,7 +1759,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
         // A nested box cannot open the namespace this proof needs. A host
         // that declared it must produce boundary evidence fails here
-        // instead of printing `ok` (decision 0054 ruling 7).
+        // instead of printing `ok` (decision 0054 ruling 9).
         brokkr_protocol::hands::skip_boundary_proof(
             brokkr_protocol::hands::boundary_evidence_required(),
             "this environment is already a box",
@@ -1868,7 +1868,7 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
         // A nested box cannot open the namespace this proof needs. A host
         // that declared it must produce boundary evidence fails here
-        // instead of printing `ok` (decision 0054 ruling 7).
+        // instead of printing `ok` (decision 0054 ruling 9).
         brokkr_protocol::hands::skip_boundary_proof(
             brokkr_protocol::hands::boundary_evidence_required(),
             "this environment is already a box",

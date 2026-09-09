@@ -40,6 +40,20 @@
 //! tag, a remote-tracking ref or anything else moved it only inside a
 //! private store that is then discarded.
 //!
+//! **The store the box held is RECLAIMED before any trusted git reads
+//! it.** The seat writes that directory, and the promotion then hands it
+//! to git as a repository — so the driver first takes back every
+//! administrative name in it and re-authors the ones git resolves a
+//! repository WITH. `commondir` is why: git reads a git directory's
+//! common directory from `<dir>/commondir` for ANY directory, including
+//! one given as `--git-dir` (measured), so one file the box created
+//! would point the promotion's `rev-parse` and its `upload-pack` at a
+//! configuration, a `HEAD`, a ref store and an `alternates` line the
+//! SEAT chose. Masking a list of names inside a directory the box owns
+//! is an enumeration; keeping only the objects and the refs, and writing
+//! `HEAD`, `config` and `objects/info/alternates` afresh from the shared
+//! repository, is not.
+//!
 //! Only ONE layout is served: a genuine linked worktree, whose
 //! administrative directory Git itself would have placed at
 //! `<common>/worktrees/<name>` and whose `gitdir` back-pointer names a
@@ -86,8 +100,21 @@ const COMMONDIR_FILE: &str = "commondir";
 const ALTERNATES_FILE: &str = "alternates";
 
 /// Where the driver parks a seat's commits while it moves the branch.
-/// Not a branch, so `git fetch` has no checked-out ref to refuse.
-const PROMOTION_REF: &str = "refs/brokkr/dsh-promotion";
+/// Not a branch, so `git fetch` has no checked-out ref to refuse. The
+/// seat's own name follows, because the anchor is PER SEAT: two seats in
+/// two worktrees of one repository promote into one shared directory,
+/// and a name they shared would have each force-update and then delete
+/// the other's anchor, leaving the second seat's objects unreferenced
+/// between its fetch and its branch move.
+const PROMOTION_REF_PREFIX: &str = "refs/brokkr/dsh-promotion-";
+
+/// The only names the driver keeps out of a store the box has held: the
+/// objects the seat wrote and the refs it moved. Both are VALUES. Every
+/// other name in a common directory is something git resolves a
+/// repository WITH — `commondir`, `config`, `config.worktree`, `HEAD`,
+/// `shallow`, `info/grafts`, `hooks` — and the driver re-authors the
+/// ones it needs rather than trusting what it finds.
+const KEPT_IN_STORE: [&str; 3] = ["objects", "refs", "packed-refs"];
 
 /// The reflog message the promoted branch carries, so the host's
 /// `git reflog` says who moved it.
@@ -728,7 +755,13 @@ fn tmpfs(argv: &mut Vec<String>, path: &Path) {
 pub struct SeatGitStore {
     store: tempfile::TempDir,
     trusted: tempfile::TempDir,
+    /// The SHARED git directory, kept so the reclaim can re-author the
+    /// store's `config` and `alternates` from the one place the box
+    /// could not write.
+    common_dir: PathBuf,
     reference: String,
+    /// The ref this seat's objects travel through, unique to this seat.
+    promotion_ref: String,
     /// Where the host's branch stood when this seat STARTED. The
     /// promotion moves the branch from exactly this value, so a host that
     /// moved on meanwhile is refused rather than overwritten.
@@ -765,6 +798,96 @@ impl SeatGitStore {
     fn kept(self) -> PathBuf {
         self.store.keep()
     }
+
+    /// Take the private store back from the box, before any TRUSTED git
+    /// reads it as a repository.
+    ///
+    /// The box held this directory read-write for the seat's whole life,
+    /// and the promotion then runs `git --git-dir=<store>` and
+    /// `git fetch <store>` over it — which spawns `upload-pack` there —
+    /// outside every box. Git resolves a git directory's COMMON
+    /// directory from `<dir>/commondir` whatever way that directory was
+    /// named, `--git-dir` included, and reads the repository-level
+    /// configuration from the common directory it lands on: measured,
+    /// with a planted `commondir` making `git --git-dir=<store>` report
+    /// another directory as the common one, read a `core.hooksPath` out
+    /// of it, resolve the branch to the value it held, and serve that
+    /// value from `upload-pack`. `shallow` and `info/grafts` are the same
+    /// class one step down — a history boundary the seat chose, which a
+    /// fetch would record in the SHARED repository.
+    ///
+    /// So the reclaim keeps only what a store holds as a VALUE — the
+    /// objects the seat wrote and the refs it moved — and writes the
+    /// three things git resolves a repository WITH afresh: `HEAD` from
+    /// the branch the driver read before the seat started, `config` from
+    /// the shared repository, and `objects/info/alternates` from the
+    /// shared object store. Anything else, known or not, is removed. A
+    /// symlink at a kept name is removed too: it is a second name for a
+    /// directory this store does not own, and following one is how a
+    /// reclaim would come to delete the shared repository's own
+    /// `objects/info`.
+    fn reclaim(&self) -> std::io::Result<()> {
+        let store = self.store.path();
+        for entry in std::fs::read_dir(store)? {
+            let entry = entry?;
+            let kept = !entry.file_type()?.is_symlink()
+                && KEPT_IN_STORE.contains(&entry.file_name().to_string_lossy().as_ref());
+            if !kept {
+                remove(&entry.path())?;
+            }
+        }
+        // `objects/` carries the seat's commits, so it stays — but
+        // `objects/info` is configuration inside it (`alternates`,
+        // `grafts`, a commit-graph the box could have chosen), and the
+        // driver authors the one line it needs.
+        remove(&store.join("objects/info"))?;
+        std::fs::create_dir_all(store.join("objects/info"))?;
+        let alternates = alternates_line(&self.common_dir);
+        std::fs::write(store.join("objects/info/alternates"), alternates)?;
+        std::fs::write(store.join("HEAD"), format!("ref: {}\n", self.reference))?;
+        copy_tree(&self.common_dir.join("config"), &store.join("config"))
+    }
+}
+
+/// Unlink one name out of the private store, whatever it is: a file, a
+/// symlink, or a whole tree. `symlink_metadata` never follows the last
+/// component, so a symlink is unlinked rather than walked into. A name
+/// that is not there — a reclaim that already ran — is nothing to
+/// remove.
+fn remove(path: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(_) => Ok(()),
+    }
+}
+
+/// The `objects/info/alternates` line that makes the shared object store
+/// readable from the private one, and writable nowhere.
+fn alternates_line(common_dir: &Path) -> String {
+    format!("{}\n", common_dir.join("objects").display())
+}
+
+/// The ref this seat's objects travel through: the prefix and the seat's
+/// own store directory name, with everything outside `[A-Za-z0-9]`
+/// spelled `-` so the result is a name git will take.
+fn promotion_ref(store: &Path) -> String {
+    let seat: String = store
+        .file_name()
+        .map(|name| {
+            name.to_string_lossy()
+                .chars()
+                .map(|glyph| {
+                    if glyph.is_ascii_alphanumeric() {
+                        glyph
+                    } else {
+                        '-'
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    format!("{PROMOTION_REF_PREFIX}{seat}")
 }
 
 /// The refusal that KEEPS a seat's private store rather than discarding
@@ -777,10 +900,17 @@ impl SeatGitStore {
 /// path that returns without calling this loses the work silently.
 pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> String {
     let reference = store.reference.clone();
+    // The store is about to outlive the seat and be read by a human's
+    // own `git`, so it is reclaimed here too: the path in this message
+    // must name a repository the DRIVER authored, not one the box did.
+    // A reclaim that cannot finish changes nothing about where the
+    // commits are, and this is already the failure path.
+    let _ = store.reclaim();
     let path = store.kept();
     format!(
         "dsh driver: {problem}. The seat's commits are not lost: its private git store is kept \
-         at {path}, and `git --git-dir={path} log {reference}` still reads them",
+         at {path}, and `git --git-dir={path} log {reference}` still reads them. Nothing removes \
+         that directory afterwards; it is the operator's to delete once the commits are safe",
         path = path.display()
     )
 }
@@ -844,10 +974,13 @@ fn stage_seat_store_with(
     let store = make().map_err(staging_failed)?;
     let trusted = make().map_err(staging_failed)?;
     stage_files(scope, store.path(), trusted.path()).map_err(staging_failed)?;
+    let promotion_ref = promotion_ref(store.path());
     Ok(SeatGitStore {
         store,
         trusted,
+        common_dir: scope.common_dir.clone(),
         reference,
+        promotion_ref,
         baseline,
     })
 }
@@ -991,12 +1124,16 @@ fn bare_repository(program: &str, common_dir: &Path) -> bool {
 /// reflogs, and an `objects` whose `info/alternates` names the host's
 /// object store — so the seat READS every object the repository has and
 /// WRITES none of them. `HEAD`, `config`, `info` and `shallow` are
-/// copied because the host-side promotion reads this directory as a
-/// repository; the runner then mounts the real `config` and `HEAD` over
-/// their copies, so the box cannot choose either.
+/// copied for the SEAT's git: `info/exclude` is the host's ignore rules,
+/// and a genuinely shallow repository's boundary has to travel or the
+/// seat's `log` walks off the end of it. The runner mounts the real
+/// `config` and `HEAD` over their copies, so the box cannot choose
+/// either while it runs — and [`SeatGitStore::reclaim`] writes them
+/// again afterwards, because what the DRIVER reads must not rest on a
+/// mount that is already gone.
 fn stage_files(scope: &GitScope, store: &Path, trusted: &Path) -> std::io::Result<()> {
     let commondir = format!("{}\n", store.display());
-    let alternates = format!("{}\n", scope.common_dir.join("objects").display());
+    let alternates = alternates_line(&scope.common_dir);
     std::fs::write(trusted.join(MASK_FILE), "")?;
     std::fs::write(trusted.join(COMMONDIR_FILE), commondir)?;
     std::fs::write(trusted.join(ALTERNATES_FILE), &alternates)?;
@@ -1035,6 +1172,9 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 /// Move the seat's work out of the private store and into the shared
 /// repository: the ONE branch the worktree owns, and only it.
 ///
+/// The store is RECLAIMED first ([`SeatGitStore::reclaim`]): the box held
+/// it, and everything below reads it as a repository outside every box.
+///
 /// The objects travel through git's own local transport into a ref
 /// namespace no worktree can have checked out, and the branch then moves
 /// with a compare-and-swap against the BASELINE the driver recorded
@@ -1071,6 +1211,16 @@ fn promote(
     store: &SeatGitStore,
     scope: &GitScope,
 ) -> Result<Option<Promotion>, String> {
+    // Before ANY trusted git touches the store. Everything below reads it
+    // as a repository — `rev-parse` here, `upload-pack` inside the fetch —
+    // and until this runs, what git resolves the store WITH is whatever
+    // the box left there.
+    store.reclaim().map_err(|error| {
+        format!(
+            "could not take the seat's private git store back from the box before reading it as \
+             a repository: {error}"
+        )
+    })?;
     let private = store.store.path().to_string_lossy().into_owned();
     let common = scope.common_dir.to_string_lossy().into_owned();
     let reference = store.reference.clone();
@@ -1098,12 +1248,21 @@ fn promote(
     if from.as_deref() == Some(to.as_str()) {
         return Ok(None);
     }
-    let refspec = format!("+{reference}:{PROMOTION_REF}");
+    let anchor = store.promotion_ref.clone();
+    let refspec = format!("+{reference}:{anchor}");
     git(
         program,
         &[
             "--git-dir",
             &common,
+            // The one write path into the shared object store, so it is
+            // the one place to check what travels: `fetch.fsckObjects`
+            // makes git validate every object in the received pack before
+            // it lands, rather than accepting whatever the seat's pack
+            // says. Set on the command line, because a value read from
+            // the repository's own config is one this run did not choose.
+            "-c",
+            "fetch.fsckObjects=true",
             "fetch",
             "--no-tags",
             "--no-write-fetch-head",
@@ -1127,7 +1286,7 @@ fn promote(
     )?;
     git(
         program,
-        &["--git-dir", &common, "update-ref", "-d", PROMOTION_REF],
+        &["--git-dir", &common, "update-ref", "-d", &anchor],
     )?;
     Ok(Some(Promotion {
         reference,

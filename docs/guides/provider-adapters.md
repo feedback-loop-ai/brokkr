@@ -267,7 +267,9 @@ started — git refuses to check one branch out in two worktrees, so that
 ref is this seat's and no sibling's, and the driver verifies it by
 reading the main checkout's `HEAD` and every sibling's — fetches the
 seat's commits into
-`refs/brokkr/dsh-promotion` through git's own local transport, moves the
+`refs/brokkr/dsh-promotion-<seat>` through git's own local transport
+(a name per seat, so two seats in two worktrees of one parent do not
+delete each other's anchor), moves the
 branch with a compare-and-swap, and deletes the temporary ref. A
 sibling's branch, a tag, a remote-tracking ref or a new branch the seat
 wrote stays in the private store and is discarded with it. A worktree
@@ -275,7 +277,26 @@ with a detached HEAD owns no ref and is refused before the seat starts,
 and so is a repository whose refs live in a backend the private store
 cannot reproduce (`extensions.refstorage = reftable`), because copying
 `refs` and `packed-refs` would give the seat a store with no branch at
-all.
+all. The fetch runs with `fetch.fsckObjects` on, given on the command
+line: it is the one write path into the shared object store, so every
+object in the received pack is validated before it lands.
+
+**The store the box held is reclaimed before the driver reads it.** The
+seat owns its private common directory for its whole life, and the
+promotion then hands that directory to git as a repository — so the
+driver first keeps only what the store holds as a value (`objects`,
+`refs`, `packed-refs`) and writes `HEAD`, `config` and
+`objects/info/alternates` afresh from the shared repository. Everything
+else goes, named or not: `commondir`, `config.worktree`, `shallow`,
+`info/grafts`, `hooks`, `logs`. `commondir` is why. Git reads a git
+directory's common directory from `<dir>/commondir` however that
+directory was named, `--git-dir` included, and takes the repository
+config, the ref store and the object store from wherever it lands — so
+one file a seat creates inside its own store would otherwise steer the
+promotion's `rev-parse` and its `upload-pack` at a repository the seat
+built. A symlink at a kept name is removed rather than followed. The
+same reclaim runs on the kept-store path, so the directory a failed
+promotion names is one the driver authored.
 
 The compare-and-swap is against the BASELINE the driver recorded for that
 branch before the seat started, not against a value read after the seat
@@ -285,7 +306,9 @@ promotion refuse rather than overwrite that work. Every failure that
 reaches the driver while the private store holds the only copy of the
 seat's commits keeps the store and names its path and the branch to read
 it at: the promotion's own failures, and anything that goes wrong between
-the seat's last command and the promotion.
+the seat's last command and the promotion. Nothing sweeps a kept store
+afterwards — it holds the only copy of those commits — so deleting it is
+the operator's once the work is safe, and the refusal says so.
 
 A BARE parent repository is served: its `HEAD` is the branch a clone
 would follow rather than a checkout, `git worktree add` serves it, and

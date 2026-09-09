@@ -111,6 +111,34 @@ have honoured, and a failure path between the seat and the promotion that
 dropped the store holding the seat's only copy of its commits. Each is
 answered in the ruling it belongs to rather than by widening a mount.
 
+And one more, which ruling 6 now answers and which is the reason that
+ruling exists at all. The private store closes the box's write set, but
+it opens a directory the box owns and the TRUSTED driver later reads as
+a repository. The first form of the store answered that by masking four
+paths inside it — `config`, `config.worktree`, `HEAD`,
+`objects/info/alternates`. A review found `commondir` unmasked, and
+measured on this host what git then does:
+
+    $ printf '%s\n' "$evil" > "$store/commondir"
+    $ git --git-dir="$store" rev-parse --path-format=absolute --git-common-dir
+    <evil>
+    $ git --git-dir="$store" config --get core.hooksPath
+    /evil-hooks
+    $ git --git-dir="$store" rev-parse --verify refs/heads/main
+    <the value the seat put in $evil/refs/heads/main>
+    $ git --git-dir="$parent/.git" fetch "$store" '+refs/heads/main:refs/x'
+    fatal: git upload-pack: not our ref <that value>
+
+Git reads a git directory's COMMON directory from `<dir>/commondir`
+however that directory was named — `--git-dir` included — and takes the
+repository-level configuration, the ref store and the object store from
+wherever it lands. One file the box created defeats all four masks at
+once, and `shallow` and `info/grafts` are the same class one step down.
+That is an enumeration failing open, which is the shape ruling 6 of the
+previous revision set out to remove from the profile parser. The answer
+is the same shape as that one: stop enumerating what to hide, and keep
+only what the store holds as a VALUE.
+
 ## Rulings
 
 1. **The driver resolves the two git directories before the seat
@@ -256,6 +284,14 @@ answered in the ruling it belongs to rather than by widening a mount.
    missing destination, so the host gains an empty file and the box gains
    no way to fill it.
 
+   **The masks inside the STORE bound the box, not the driver.** The
+   three that sit over `<store>/config`, `<store>/config.worktree` and
+   `<store>/objects/info/alternates` hold for as long as the box does, and
+   the box is what they exist for. They are not what makes the store safe
+   for the trusted driver to read afterwards — a mount is gone when the
+   box is, and a mask list inside a directory the box owns is an
+   enumeration. Ruling 5's reclaim is what the driver rests on.
+
    **The mask source is an empty regular file the driver stages, never
    `/dev/null`.** Bubblewrap mounts every bind source with `MS_NODEV`, so
    a bound character device cannot be opened inside the box, and git
@@ -290,15 +326,64 @@ answered in the ruling it belongs to rather than by widening a mount.
    disk). A git that cannot answer leaves the shared directory counted as
    a checkout, which is the fail-closed direction.
 
-   After `dsh` exits, the trusted driver — outside every box — reads the
-   private store's value for that ref, fetches it into
-   `refs/brokkr/dsh-promotion` through git's own local transport (a ref
-   namespace no worktree can have checked out, so `git fetch` has no
+   After `dsh` exits, the trusted driver — outside every box — RECLAIMS
+   the store (below), reads its value for that ref, fetches it into
+   `refs/brokkr/dsh-promotion-<seat>` through git's own local transport (a
+   ref namespace no worktree can have checked out, so `git fetch` has no
    checked-out branch to refuse), moves the branch with
    `update-ref <ref> <new> <baseline>`, and deletes the temporary ref.
    Everything else the seat wrote — a sibling's branch, a tag, a
    remote-tracking ref, a new branch, an object nothing reaches — stays in
    the private store and is discarded with it.
+
+   The anchor carries the SEAT's name, not one every seat of a repository
+   shares. Two seats in two worktrees of one parent promote into one
+   shared directory, and a name they shared would have each force-update
+   and then delete the other's anchor, leaving the second's objects
+   unreferenced between its fetch and its branch move. The concurrency
+   argument below covers the BRANCH, which one worktree owns; it does not
+   cover a ref named after the mechanism.
+
+   The fetch runs with `-c fetch.fsckObjects=true`, on the command line
+   rather than out of a config this run did not choose. It is the one
+   write path into the shared object store, so it is the one place to
+   check what travels: every object in the received pack is validated
+   before it lands, rather than the shared store accepting whatever the
+   seat's pack asserts.
+
+   **The store is RECLAIMED before any trusted git reads it.** The box
+   held that directory read-write for the seat's whole life, and the
+   promotion then hands it to git as a repository — `rev-parse` over it,
+   and an `upload-pack` spawned inside it by the fetch. Git resolves a
+   git directory's common directory from `<dir>/commondir` however that
+   directory was named, `--git-dir` included, and reads the
+   repository-level configuration, the ref store and the object store from
+   the directory it lands on. So masking a list of names inside a
+   directory the box owns is an enumeration, and the measurement in the
+   context section is what it costs.
+
+   The driver keeps only what a common directory holds as a VALUE — the
+   `objects` the seat wrote and the `refs` and `packed-refs` it moved —
+   and removes every other name at the top of the store, whether or not
+   this decision has a word for it: `commondir`, `config`,
+   `config.worktree`, `HEAD`, `shallow`, `info` (`grafts` with it),
+   `hooks`, `logs`, and anything a later git version adds. It then writes
+   the three things git resolves a repository WITH: `HEAD` from the branch
+   read before the seat started, `config` copied from the shared
+   repository, and `objects/info/alternates` naming the shared object
+   store — and `objects/info` itself is removed and rebuilt, because a
+   commit-graph or a `grafts` inside it is configuration too.
+
+   A SYMLINK at a kept name is removed rather than kept: it is a second
+   name for a directory this store does not own, and following one is how
+   a reclaim would come to delete the shared repository's own
+   `objects/info`. `symlink_metadata` never follows the last component,
+   so the link is unlinked and the target is untouched.
+
+   The reclaim runs on the KEPT-store path as well. A promotion that
+   cannot happen names the store's path so a human can read the commits
+   out of it, and that path must name a repository the driver authored,
+   not one the box did.
 
    **The compare-and-swap is against the BASELINE, recorded before the
    seat started.** The branch is this seat's for the seat's whole life,
@@ -332,15 +417,25 @@ answered in the ruling it belongs to rather than by widening a mount.
    **Enforcement binding:** `checked_out_branch`, `head_branch`,
    `other_checkout_on`, `bare_repository`, `reproducible_ref_backend`,
    `stage_seat_store`, `promote_seat_commits` and `keep_store` in
-   `brokkr-protocol::dsh_sandbox`; the promotion call in `invoke_dsh_with`
+   `brokkr-protocol::dsh_sandbox`; `SeatGitStore::reclaim`, `remove`,
+   `alternates_line`, `KEPT_IN_STORE` and `promotion_ref` for the reclaim
+   and the per-seat anchor; the promotion call in `invoke_dsh_with`
    after the child exits and `dsh_failure_before_promotion` on the poll
    loop's error arm; tests over a real repository for the promotion, for
    an untouched store, for a store whose branch the seat deleted, for a
    `git` that cannot run and for each of the three steps failing, for a
-   host that moved the branch while the seat ran, for a bare parent, and
-   for a ref backend the store cannot reproduce; and the behavioral proof,
-   which moves a sibling's branch and a tag inside the box and reads the
-   host's bytes back unchanged before AND after the promotion.
+   store the driver cannot reclaim, for a host that moved the branch while
+   the seat ran, for a bare parent, and for a ref backend the store cannot
+   reproduce; a test that plants a `commondir`, a `shallow`, an
+   `info/grafts`, a `hooks` directory, a `config.worktree`, an unnamed
+   surprise and a symlinked `packed-refs` in a real store, measures a real
+   `git --git-dir=<store>` following the plant BEFORE the reclaim and the
+   store's own answers after it, and reads the shared `packed-refs` back
+   byte-identical; and the behavioral proof, in which the boxed seat
+   itself writes that `commondir`, `shallow` and `info/grafts` as its last
+   act, the host measures git following them, and the promotion then lands
+   the seat's real commit — a promotion that read the store the box left
+   would find the branch already where the host has it and move nothing.
 
 6. **The profile is parsed by a complete option table, and an option the
    runner cannot read refuses the command.** Whether the staged read-only
@@ -447,7 +542,13 @@ workspace and nothing outside it. What it may try, and what stops it:
 | Rewrite `commondir` or `gitdir` from inside the box, so the HOST's next `git` reads a config the box wrote | Both bound read-only and hard: write is `EROFS`, unlink and rename over the mount point are `EBUSY` |
 | Point `<git_dir>/HEAD` at a sibling's branch, so the NEXT seat's honest commits are promoted onto it | `HEAD` is bound read-only too, by write, by `git symbolic-ref`, by `git checkout` and by unlink; and the driver refuses a branch another checkout already claims |
 | Create `config.worktree` so `extensions.worktreeConfig` makes the host honour a `core.hooksPath` the box chose | Masked with an empty read-only regular file, whether or not the host file exists |
-| Create `<store>/config.worktree` instead, so the TRUSTED driver's own `git --git-dir=<store>` reads a configuration the box chose during the promotion | Masked with the same empty file: `<store>/config` is a copy of the shared one, so where the repository carries `extensions.worktreeConfig` the store's worktree config is live too |
+| Create `<store>/config.worktree` instead, so the TRUSTED driver's own `git --git-dir=<store>` reads a configuration the box chose during the promotion | Masked with the same empty file while the box runs, and REMOVED by ruling 5's reclaim before the driver reads the store at all |
+| Create `<store>/commondir`, so the promotion's `git --git-dir=<store>` and its `upload-pack` take their config, `HEAD`, ref store and `alternates` from a directory the seat built in its own workspace — one file that defeats every mask over the store at once | Removed by the reclaim, which keeps only `objects`, `refs` and `packed-refs` and re-authors `HEAD`, `config` and `objects/info/alternates`. Measured both ways: git really does follow it, and the reclaim really does take it back |
+| Write `<store>/shallow`, so the promotion's fetch records the seat's history boundary in the SHARED repository and truncates the parent's history | Removed by the reclaim. `<common>/shallow` is asserted absent after the boxed proof |
+| Write `<store>/info/grafts`, or a commit-graph under `<store>/objects/info`, so the promotion walks a history the seat rewrote | Removed by the reclaim: `info` goes with every other unkept name, and `objects/info` is removed and rebuilt with the driver's `alternates` alone |
+| Name something under `<store>` this decision has no word for — a file a later git version reads | Removed by the reclaim: the keep list is `objects`, `refs`, `packed-refs`, and everything else goes whether or not it was enumerated |
+| Replace a KEPT name in the store with a symlink to the shared repository, so the reclaim's own removal walks into it and destroys `<common>/objects/info` | `symlink_metadata` never follows the last component, and a symlink at a kept name is not kept: the link is unlinked, the target untouched. The proof reads the shared `packed-refs` back byte-identical through exactly this attempt |
+| Plant a malformed object in the pack the promotion fetches, so the shared object store carries it | The fetch runs `-c fetch.fsckObjects=true`, so every object in the received pack is validated before it lands |
 | Fill the mask, the `commondir` pointer or the `alternates` pointer through their SOURCE paths | The runner refuses when the staging directory lies under the source of ANY read-write bind in the profile it was handed, or under its own write set, so the answer is measured per command rather than resting on dsh's `/tmp` being a fresh tmpfs — which it is on 0.1.2-rc.1, proved by the box writing to the source path while the host's file reads back empty |
 | Plant a hook the host later runs | The host's `<common>/hooks` is read-only, and the hook path the seat's own git uses is an empty tmpfs |
 | Run the host's existing hooks | The seat's hook path is `<store>/hooks`, a fresh tmpfs; the behavioral proof plants a failing `pre-commit` on the host and the seat's commit still succeeds |
@@ -504,6 +605,26 @@ workspace and nothing outside it. What it may try, and what stops it:
   packed it is a single file. The copy is what makes every ref read back
   exactly as the host has it, which a synthesized `packed-refs` would
   only approximate.
+- **The reclaim throws away everything the seat wrote outside `objects`
+  and `refs`.** The seat's own reflogs go with it, and so do the copies
+  of the host's `info/exclude` and `shallow` that the SEAT's git wanted.
+  That is the point — they are the seat's to have while it runs and
+  nobody's to hand a trusted `git` afterwards — but it does mean the
+  kept store of a failed promotion has no reflog to read the seat's
+  earlier commits out of, only the branch the message names. The commits
+  themselves are objects and are all still there.
+- **A kept store persists until an operator removes it.** `keep_store`
+  makes the directory outlive the run on purpose, because it holds the
+  only copy of the seat's commits; nothing sweeps it, and it carries a
+  copy of the repository's local config and its whole ref tree as of the
+  seat's start. The refusal now says plainly that deleting it is the
+  operator's, once the commits are safe.
+- **A failed promotion can leave `refs/brokkr/dsh-promotion-<seat>` in
+  the shared repository.** If the fetch lands and the branch move does
+  not, that anchor is what keeps the seat's objects from being collected,
+  so it is deliberately not cleaned up on the failure path. It is a ref
+  under `refs/brokkr/`, invisible to `git branch` and `git tag`, and
+  `git update-ref -d` removes it once the work is delivered.
 - **A workspace whose `.git` file has been damaged refuses the NEXT
   seat, and says so at start.** That is the fail-closed direction — the
   alternative is binding whatever the damaged file points at — but it
