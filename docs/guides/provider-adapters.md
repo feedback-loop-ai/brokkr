@@ -457,3 +457,18 @@ bubblewrap. On a machine that cannot open a namespace it skips, and a
 skipped Rust test prints `ok`, so CI's Linux legs set
 `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`: every boundary proof then fails
 rather than skips. Set it locally to check that a proof really ran.
+
+The runner is served on Linux, and its tests are compiled and run on
+every operating system CI covers — so what those tests may ASSUME about a
+host is only what they asked it. A path is absolute because the operating
+system says so, not because it starts with a slash: Windows calls
+`/usr/bin/bwrap` relative, so the fixtures spell an absolute path the way
+the host spells one. A mount's argv is joined with the host's own
+separator, so an expected bind is built by joining, never by gluing a `/`
+into the middle of a path. And where a proof genuinely needs a Unix
+artifact — the shim that makes one promotion step refuse is a POSIX shell
+script — it runs on the platforms that have one, while the arm that needs
+no shim (a `git` that cannot be run at all) runs everywhere. What the
+other operating systems prove in their own right is the refusal they
+actually take: a host with no bubblewrap-compatible sandbox names itself
+and the remedies at seat start.

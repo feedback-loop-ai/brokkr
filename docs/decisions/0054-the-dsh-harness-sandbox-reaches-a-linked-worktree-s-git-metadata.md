@@ -159,6 +159,33 @@ creates. Ruling 9 answers the second. A proof that measures the host must
 compare host identities and must have somewhere to stand; neither is a
 reason to lower a gate.
 
+Windows then compiled and ran, and fourteen of these proofs were red on
+it — every one a fixture assumption, none a defect in the runner. Two
+assumptions, repeated. The first is that a path beginning with `/` is
+ABSOLUTE: Windows says it is not, so the runner refused
+`--bwrap /usr/bin/bwrap` before it read a single profile token, and every
+argv assertion behind that refusal stopped measuring anything. The second
+is that a path is spelled with `/`: the runner joins its argv with
+`Path::join`, which uses the host's own separator, so an expected mount
+glued together with a `/` is the fixture's spelling and not the runner's.
+Both are answered the same way — ask the host. The fixtures spell an
+absolute path the way THIS platform spells one, and build an expected
+path by joining exactly what the runner joins. Nothing about the boundary
+moved, and nothing was skipped to make a leg green: the same derivation
+and the same refusals are measured on all three operating systems.
+
+What is genuinely Unix-only is one artifact, and it says so. The shim
+that makes exactly one promotion step refuse is a POSIX shell script;
+Windows answers it with `%1 is not a valid Win32 application`. Spelling
+it as a batch file would put the promotion's own argv — paths with
+spaces, a refspec, a reflog message carrying a colon and an apostrophe —
+through `cmd.exe`'s quoting, and a proof that fails on its own escaping
+measures the shim rather than the driver. So that proof runs where its
+shim runs, the arm that needs no shim — a `git` that cannot be run at all
+— runs everywhere, and the platforms without bubblewrap gained the proof
+that is theirs to give: the refusal an unsupported host takes at seat
+start, measured where they run it.
+
 ## Rulings
 
 1. **The driver resolves the two git directories before the seat
@@ -557,7 +584,11 @@ reason to lower a gate.
    non-Linux arm; `dsh_sandbox::require_usable_bwrap`; the `--bwrap`
    flag in `sandbox_row` / `runner_argv`; tests for a missing `bwrap`,
    an unusable one, the refusal text, a relative `--bwrap`, and a decoy
-   `bwrap` on `PATH` that the runner must not exec.
+   `bwrap` on `PATH` that the runner must not exec. The non-Linux arm is
+   proved where it is taken:
+   `a_host_without_bubblewrap_refuses_the_scoped_runner_at_seat_start`
+   is compiled on macOS and Windows and names the host and both
+   remedies.
 
 8. **Seat commits are unsigned and attributed to the host.** The driver
    sets `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=commit.gpgsign`,
@@ -612,8 +643,25 @@ reason to lower a gate.
    directory and a `None` are stepped over, a list of only those answers
    `None` — carry no skip and run everywhere.
 
+   And a proof must not be red for a reason that is the FIXTURE's. These
+   tests compile and run on every operating system CI covers, so what
+   they may assume about a host is only what they asked it: a path is
+   absolute because the operating system says so, and a mount's argv is
+   spelled with the separator the runner joined it with. A proof whose
+   own artifact is Unix-only — the shell shim that refuses one promotion
+   step — runs on the platforms that have one and says why in its own
+   words, while the arm that needs no artifact runs everywhere; that is a
+   proof placed where it measures something, not a suite disabled to make
+   a leg green. Neither is a licence to narrow what a supported platform
+   proves.
+
    **Enforcement binding:** `fixture_root` / `fixture_root_in` and
    `the_fixture_root_refuses_the_profiles_tmpfs_and_takes_the_next_place`;
+   the `absolute!` and `inside` fixture helpers in
+   `dsh_sandbox/tests.rs` and `adapters/tests.rs`;
+   `a_promotion_step_that_refuses_keeps_the_store_and_names_that_step`
+   beside the everywhere-arm in
+   `a_promotion_that_cannot_happen_keeps_the_store_and_names_it`;
    `hands::BOUNDARY_EVIDENCE_ENV`,
    `boundary_evidence_required` and `skip_boundary_proof`; every
    namespace-dependent skip routed through it — including the three

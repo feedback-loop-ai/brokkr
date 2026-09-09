@@ -13,6 +13,40 @@ fn same_place(answered: &str, built: &Path) -> bool {
     resolve(Path::new(answered)) == resolve(built)
 }
 
+/// A host path spelled the way THIS platform spells an absolute one.
+/// What `--bwrap`, `--store` and `--trusted` must BE is absolute, and
+/// which spellings are absolute is the operating system's answer, not a
+/// shape: Windows calls a rooted path with no drive letter RELATIVE, so
+/// a bare `/usr/bin/bwrap` literal there measures the fixture rather
+/// than the runner — the runner refuses it before it reads a single
+/// profile token, and every argv assertion behind that refusal stops
+/// meaning anything. The drive prefix is the whole difference, because
+/// every Rust path API takes forward slashes on Windows too, so the
+/// shapes below stay the ones a reader recognises.
+#[cfg(windows)]
+macro_rules! absolute {
+    ($path:literal) => {
+        concat!("C:", $path)
+    };
+}
+#[cfg(not(windows))]
+macro_rules! absolute {
+    ($path:literal) => {
+        $path
+    };
+}
+
+/// One name inside a directory, spelled the way the runner spells it.
+/// The runner composes its argv with `Path::join`, which uses the host's
+/// own separator; a `/` a test glues on by hand agrees with that on Unix
+/// and disagrees with it on Windows, so it asserts a fixture's spelling
+/// rather than the mount the runner emits. The relative name is passed
+/// through whole, exactly as the runner passes it, so a multi-component
+/// one lands on the same bytes.
+fn inside(base: &Path, name: &str) -> String {
+    base.join(name).display().to_string()
+}
+
 /// The workspace-write profile `@deepseek-ai/dsh-sandbox-local` composes,
 /// mirrored from `bwrapProfileArgs` as measured on 0.1.2-rc.1: a read-only
 /// host root, a fresh `/dev` and `/proc`, an ephemeral `/tmp`, and the
@@ -42,7 +76,7 @@ fn dsh_workspace_write_profile(workspace: &Path) -> Vec<String> {
 }
 
 /// The absolute bubblewrap the driver probed and the runner must exec.
-const BWRAP: &str = "/usr/bin/bwrap";
+const BWRAP: &str = absolute!("/usr/bin/bwrap");
 
 /// A linked worktree's administrative layout on disk, exactly as `git
 /// worktree add` writes it: `<common>/worktrees/<name>` with a `gitdir`
@@ -61,8 +95,11 @@ struct Layout {
 impl Layout {
     fn linked() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let common_dir = dir.path().join("main/.git");
-        let git_dir = common_dir.join("worktrees/wt");
+        // Joined one component at a time, so the fixture's own spelling
+        // of a nested path is the host's rather than a POSIX one glued
+        // into the middle of a Windows path.
+        let common_dir = dir.path().join("main").join(".git");
+        let git_dir = common_dir.join("worktrees").join("wt");
         let workspace = dir.path().join("wt");
         std::fs::create_dir_all(&git_dir).unwrap();
         std::fs::create_dir_all(&workspace).unwrap();
@@ -167,16 +204,24 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     let argv = layout.argv(&["bash", "-lc", "git add -A"]).unwrap();
     assert_eq!(argv[0], BWRAP);
     let text = argv.join(" ");
-    let git = layout.scope.git_dir.display().to_string();
-    let common = layout.scope.common_dir.display().to_string();
-    let store = layout.store.display().to_string();
+    let git = &layout.scope.git_dir;
+    let common = &layout.scope.common_dir;
+    let store = &layout.store;
     let mask = layout.trusted.join(MASK_FILE).display().to_string();
 
     // The per-worktree directory — index, HEAD, its own reflog — and the
     // private common directory the seat's git is pointed at. Those are the
     // only two read-write mounts the runner adds.
-    assert!(text.contains(&format!("--bind {git} {git}")), "{text}");
-    assert!(text.contains(&format!("--bind {store} {store}")), "{text}");
+    let git_path = git.display().to_string();
+    let store_path = store.display().to_string();
+    assert!(
+        text.contains(&format!("--bind {git_path} {git_path}")),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("--bind {store_path} {store_path}")),
+        "{text}"
+    );
     assert_eq!(
         argv.iter().filter(|token| *token == "--bind").count(),
         3,
@@ -188,18 +233,23 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     // reads them through the profile's own read-only root and through the
     // store's alternates.
     for name in ["objects", "refs", "logs", "packed-refs"] {
+        let shared = inside(common, name);
         assert!(
-            !text.contains(&format!("--bind {common}/{name}")),
+            !text.contains(&format!("--bind {shared}")),
             "{name} must not be writable: {text}"
         );
         assert!(
-            !text.contains(&format!("--bind-try {common}/{name}")),
+            !text.contains(&format!("--bind-try {shared}")),
             "{name} must not be writable: {text}"
         );
     }
-    assert!(!text.contains("worktrees/sibling"), "{text}");
     assert!(
-        !text.contains(&format!("--bind {common} {common}")),
+        !text.contains(&inside(&common.join("worktrees"), "sibling")),
+        "{text}"
+    );
+    let common_path = common.display().to_string();
+    assert!(
+        !text.contains(&format!("--bind {common_path} {common_path}")),
         "the whole common dir must not be mounted writable: {text}"
     );
 
@@ -208,37 +258,39 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     // write over it.
     assert!(
         text.contains(&format!(
-            "--ro-bind {} {git}/commondir",
-            layout.trusted.join(COMMONDIR_FILE).display()
+            "--ro-bind {} {}",
+            layout.trusted.join(COMMONDIR_FILE).display(),
+            inside(git, "commondir")
         )),
         "{text}"
     );
-    assert!(
-        text.contains(&format!("--ro-bind {git}/gitdir {git}/gitdir")),
-        "{text}"
-    );
-    // `HEAD` says which branch this worktree owns, and that is the ref the
-    // driver promotes: read-only, so no seat can retarget the next one.
-    assert!(
-        text.contains(&format!("--ro-bind {git}/HEAD {git}/HEAD")),
-        "{text}"
-    );
+    for name in ["gitdir", "HEAD"] {
+        // `HEAD` says which branch this worktree owns, and that is the
+        // ref the driver promotes: read-only, so no seat can retarget
+        // the next one. `gitdir` is the pointer back at this seat's own
+        // `.git`, and the same.
+        let path = inside(git, name);
+        assert!(text.contains(&format!("--ro-bind {path} {path}")), "{text}");
+    }
 
     // Both per-worktree config paths are masked with the staged empty
     // file, never with `--ro-bind-try` and never with a device node:
     // `-try` no-ops on the absent file a linked worktree normally has,
     // and the writable directory around it would let the box create one.
     assert!(
-        text.contains(&format!("--ro-bind {mask} {git}/config.worktree")),
+        text.contains(&format!(
+            "--ro-bind {mask} {}",
+            inside(git, "config.worktree")
+        )),
         "{text}"
     );
     assert!(
-        text.contains(&format!("--ro-bind {mask} {git}/config")),
+        text.contains(&format!("--ro-bind {mask} {}", inside(git, "config"))),
         "{text}"
     );
     assert!(!text.contains("/dev/null"), "{text}");
     assert!(
-        !text.contains(&format!("--ro-bind-try {git}/config")),
+        !text.contains(&format!("--ro-bind-try {}", inside(git, "config"))),
         "{text}"
     );
 
@@ -246,11 +298,19 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     // read-only over the driver's copies, and the alternates line the
     // whole object store is read through cannot be repointed.
     assert!(
-        text.contains(&format!("--ro-bind {common}/config {store}/config")),
+        text.contains(&format!(
+            "--ro-bind {} {}",
+            inside(common, "config"),
+            inside(store, "config")
+        )),
         "{text}"
     );
     assert!(
-        text.contains(&format!("--ro-bind {common}/HEAD {store}/HEAD")),
+        text.contains(&format!(
+            "--ro-bind {} {}",
+            inside(common, "HEAD"),
+            inside(store, "HEAD")
+        )),
         "{text}"
     );
     // The store's own `config.worktree` is masked too: `<store>/config` is
@@ -258,20 +318,30 @@ fn the_runner_adds_the_scoped_git_binds_and_nothing_wider() {
     // for a repository that has run `git sparse-checkout` — and the
     // trusted driver reads the store as a repository afterwards.
     assert!(
-        text.contains(&format!("--ro-bind {mask} {store}/config.worktree")),
+        text.contains(&format!(
+            "--ro-bind {mask} {}",
+            inside(store, "config.worktree")
+        )),
         "{text}"
     );
     assert!(
         text.contains(&format!(
-            "--ro-bind {} {store}/objects/info/alternates",
-            layout.trusted.join(ALTERNATES_FILE).display()
+            "--ro-bind {} {}",
+            layout.trusted.join(ALTERNATES_FILE).display(),
+            inside(store, "objects/info/alternates")
         )),
         "{text}"
     );
 
     // Hooks are an empty tmpfs on both hook paths git could use.
-    assert!(text.contains(&format!("--tmpfs {git}/hooks")), "{text}");
-    assert!(text.contains(&format!("--tmpfs {store}/hooks")), "{text}");
+    assert!(
+        text.contains(&format!("--tmpfs {}", inside(git, "hooks"))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("--tmpfs {}", inside(store, "hooks"))),
+        "{text}"
+    );
 
     // The profile and the command travel verbatim, separated by the bare `--`.
     assert!(text.contains("--ro-bind / / --dev /dev"));
@@ -633,7 +703,7 @@ fn only_a_genuine_linked_worktree_is_served() {
 fn a_workspace_local_git_directory_never_redirects_the_write_set() {
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().join("seat");
-    let victim = dir.path().join("victim/.git");
+    let victim = dir.path().join("victim").join(".git");
     std::fs::create_dir_all(workspace.join("fake")).unwrap();
     std::fs::create_dir_all(&victim).unwrap();
     let scope = GitScope {
@@ -643,7 +713,10 @@ fn a_workspace_local_git_directory_never_redirects_the_write_set() {
     };
     let refused = scope_refusal(&scope).unwrap();
     assert!(refused.contains("administrative directories"), "{refused}");
-    assert!(refused.contains("worktrees/<name>"), "{refused}");
+    assert!(
+        refused.contains(&inside(&victim.join("worktrees"), "<name>")),
+        "{refused}"
+    );
     // A git directory with no parent at all is the same refusal, not a panic.
     let rootish = GitScope {
         git_dir: PathBuf::from("/"),
@@ -1002,21 +1075,31 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
     assert!(runner_argv(&s(&head))
         .unwrap_err()
         .contains("--bwrap is required"));
-    assert!(
-        runner_argv(&s(&[&head[..], &["--bwrap", "/bin/bwrap"][..]].concat()))
-            .unwrap_err()
-            .contains("--store is required")
-    );
+    assert!(runner_argv(&s(
+        &[&head[..], &["--bwrap", absolute!("/bin/bwrap")][..]].concat()
+    ))
+    .unwrap_err()
+    .contains("--store is required"));
     assert!(runner_argv(&s(&[
         &head[..],
-        &["--bwrap", "/bin/bwrap", "--store", "/tmp/store"][..]
+        &[
+            "--bwrap",
+            absolute!("/bin/bwrap"),
+            "--store",
+            absolute!("/tmp/store")
+        ][..]
     ]
     .concat()))
     .unwrap_err()
     .contains("--trusted is required"));
     assert!(runner_argv(&s(&[
         &head[..],
-        &["--bwrap", "/bin/bwrap", "--bwrap", "/other/bwrap"][..]
+        &[
+            "--bwrap",
+            absolute!("/bin/bwrap"),
+            "--bwrap",
+            absolute!("/other/bwrap")
+        ][..]
     ]
     .concat()))
     .unwrap_err()
@@ -1037,11 +1120,11 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
             &head[..],
             &[
                 "--bwrap",
-                pick("--bwrap", "/bin/bwrap"),
+                pick("--bwrap", absolute!("/bin/bwrap")),
                 "--store",
-                pick("--store", "/tmp/store"),
+                pick("--store", absolute!("/tmp/store")),
                 "--trusted",
-                pick("--trusted", "/tmp/trusted"),
+                pick("--trusted", absolute!("/tmp/trusted")),
             ][..],
         ]
         .concat()))
@@ -1323,7 +1406,10 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
         "ref: refs/heads/main\n",
     )
     .unwrap();
-    let sibling = layout.scope.common_dir.join("worktrees/sibling");
+    // Joined the way the driver reaches it — a directory entry under
+    // `<common>/worktrees` — so the path the refusal names and the path
+    // this test built are the same string on every host.
+    let sibling = layout.scope.common_dir.join("worktrees").join("sibling");
     std::fs::create_dir_all(&sibling).unwrap();
     std::fs::write(sibling.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
     let refused = stage_seat_store(&layout.scope).unwrap_err();
@@ -1897,24 +1983,6 @@ fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
     assert!(store.exists(), "the store is kept, not discarded");
     std::fs::remove_dir_all(&store).unwrap();
 
-    // A `git` that refuses one step. Each of the three is the one that
-    // travels, and each keeps the store.
-    for needle in ["fetch", "update-ref -m", "update-ref -d"] {
-        let staged = stage_seat_store(&repo.scope).unwrap();
-        commit(&staged);
-        let store = staged.store_path().to_path_buf();
-        let anchor = staged.promotion_ref.clone();
-        let shim = fake_git(dir.path(), needle);
-        let refused =
-            promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope).unwrap_err();
-        assert!(refused.contains("fake git refusing"), "{needle}: {refused}");
-        assert!(refused.contains(&store.display().to_string()), "{refused}");
-        assert!(store.exists(), "{needle}: the store is kept");
-        std::fs::remove_dir_all(&store).unwrap();
-        repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
-        repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
-    }
-
     // A store the driver cannot take back from the box is refused BEFORE
     // any git reads it: the whole point of the reclaim is that no trusted
     // git touches a store the driver has not re-authored.
@@ -1958,6 +2026,47 @@ fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
         "the store really has no such ref"
     );
     assert_eq!(promote_seat_commits(staged, &repo.scope).unwrap(), None);
+}
+
+/// A `git` that refuses exactly ONE step of the promotion: each of the
+/// three is the failure that travels, and each keeps the seat's store.
+///
+/// The shim is a POSIX shell script, which is the only part of this that
+/// is Unix-only — the driver code it measures is the same on every host,
+/// and the arm that carries a `git` which cannot be run AT ALL is proved
+/// beside it in
+/// `a_promotion_that_cannot_happen_keeps_the_store_and_names_it`, which
+/// runs everywhere. Spelling the shim as a Windows batch file instead
+/// would put the promotion's argv — paths with spaces, a refspec, a
+/// reflog message with a colon and an apostrophe in it — through
+/// `cmd.exe`'s quoting, and a proof that fails on its own escaping
+/// measures the shim rather than the driver.
+#[cfg(unix)]
+#[test]
+fn a_promotion_step_that_refuses_keeps_the_store_and_names_that_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repo::linked(dir.path());
+    let commit = |staged: &SeatGitStore| {
+        std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();
+        repo.git_with_common(staged, &["add", "b.txt"]);
+        repo.git_with_common(staged, &["commit", "-q", "-m", "boxed"])
+    };
+
+    for needle in ["fetch", "update-ref -m", "update-ref -d"] {
+        let staged = stage_seat_store(&repo.scope).unwrap();
+        commit(&staged);
+        let store = staged.store_path().to_path_buf();
+        let anchor = staged.promotion_ref.clone();
+        let shim = fake_git(dir.path(), needle);
+        let refused =
+            promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope).unwrap_err();
+        assert!(refused.contains("fake git refusing"), "{needle}: {refused}");
+        assert!(refused.contains(&store.display().to_string()), "{refused}");
+        assert!(store.exists(), "{needle}: the store is kept");
+        std::fs::remove_dir_all(&store).unwrap();
+        repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
+        repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
+    }
 }
 
 /// The branch is the seat's for the seat's WHOLE life, not for the
@@ -2113,8 +2222,12 @@ fn a_ref_backend_the_private_store_cannot_reproduce_refuses_at_staging() {
 }
 
 /// A `git` that refuses exactly one step and delegates the rest, so the
-/// arm that carries each failure is the one under test.
+/// arm that carries each failure is the one under test. A POSIX shell
+/// script, and therefore an executable only a Unix host can run.
+#[cfg(unix)]
 fn fake_git(dir: &Path, needle: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
     let path = dir.join(format!("fake-git-{}", needle.replace([' ', '-'], "")));
     std::fs::write(
         &path,
@@ -2123,11 +2236,7 @@ fn fake_git(dir: &Path, needle: &str) -> PathBuf {
         ),
     )
     .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
 
