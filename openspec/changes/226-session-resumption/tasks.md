@@ -1,14 +1,28 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Groups are the design's landing order (Migration Plan 1–5), which is the
-order another smith executes them in: the proposed ruling before any
-production semantic edit, the record version before anything emits its
-fields, the site identity before the query that keys on it, the query
-before the wire that carries it, the wire before the adapters that
-receive it, the shared launch lifecycle before the four provider
-planners, accounting after the planners that feed it, the charter after
-the engine work it describes, then the prose, then the re-pins, then the
-gates, then the fold.
+Groups are the design's landing order (Migration Plan 1–5): the proposed
+ruling before any production semantic edit, the record version before
+anything emits its fields, the site identity before the query that keys
+on it, the query before the wire that carries it, the wire before the
+adapters that receive it, the shared launch lifecycle before the four
+provider planners, accounting after the planners that feed it, the
+charter after the engine work it describes, then the prose, then the
+re-pins, then the gates, then the fold.
+
+Execution order is that order with one declared exception, because two
+groups consume what group 10 produces. Group 10 is split at its own
+seam. **10.1–10.4 are interface investigation**: they read installed
+help, installed source and packages, and the dated captures under
+`.forge/`, and they run **before** group 8's provider-specific
+construction (8.5–8.9) and group 9's accounting boundaries (9.1–9.3),
+whose argv, routes and cursors are their output — 8.8's DSH route is
+10.3's, and 9.1's current-work cursor is measured, not assumed.
+**10.5–10.8 are live enforcement proof**: they need dated controller
+host evidence that does not exist in this worktree, they run after
+groups 8 and 9, and they gate group 11 and nothing else. Every task that
+depends on one of the eight names it, and the `## Progress` foot of this
+file records the dependency as it actually binds rather than by group
+number.
 
 Every task names the requirement it serves as `<capability> /
 <Requirement>`. The closing gates of group 15 serve every requirement of
@@ -89,7 +103,10 @@ saved for the phase commit.
       `launch` exactly `cold | resumed`; extend the refusal enum with
       `unsupported-resume`, `unverified-harness`, `restrictions-unavailable`,
       `instance-changed` and `nonpersistent-session` beside the five v4
-      tokens; leave the `sandbox` enum at Codex's three classes — evidence / LE2.
+      tokens; leave the `sandbox` enum at Codex's three classes. The
+      published v5 file adds no unconditional requirement that a v4-valid
+      row could fail: every added property is optional and every added
+      enum member widens (design D4's superset rule) — evidence / LE2.
 - [ ] 2.2 Copy the same bytes to `crates/brokkr-store/src/seat-record.v5.schema.json`
       and add `SCHEMA_V5`/`CONTRACT_V5` beside their four siblings in
       `crates/brokkr-store/src/seat_record.rs` — evidence / LE2.
@@ -98,25 +115,47 @@ saved for the phase commit.
       the newest-within-line precedent that already maps 0.9 to v4 and
       0.8 to v3; older and unparseable engines keep v1. No package
       version is bumped — evidence / LE2.
-- [ ] 2.4 Extend the built-in conformance in `seat_record.rs` so
-      `launch: resumed` requires `root_session`, a refusal reason appears
-      only with `launch: cold`, and no added constraint invalidates a
-      historical v4 row. Diagnostics name contract and JSON pointer and
-      never echo the rejected value — evidence / LE2.
+- [ ] 2.4 Extend the built-in conformance in `seat_record.rs`, scoping
+      the one constraint that history cannot satisfy. 2.3 sends the whole
+      **0.10.0** line to v5, and `version_of` derives that version from
+      the run's engine string, so v5 also judges rows the shipped 0.10.0
+      engine already wrote — and shipped `codex_started`
+      (`crates/brokkr-protocol/src/adapters.rs`) writes `launch: resumed`
+      with no `root_session`. An unconditional resumed-requires-root rule
+      would therefore refuse valid history at append, export, import
+      verification and offline verification, against design D4's superset
+      rule and `evidence / LE5`. Scope it on the one admitted within-row
+      fact that only this change's engine writes — the 4.3 site stamp: a
+      row carrying `site_ref` with `launch: resumed` requires
+      `root_session`; an unstamped row keeps its v4 meaning and stays
+      valid. The refusal-reason-only-with-`cold` rule is unconditional,
+      because no shipped arm emits a reason beside `resumed` (the codex
+      resume path sets none), so it invalidates no history. No other
+      added constraint may fail a historical v4 or 0.10.0 row.
+      Diagnostics name contract and JSON pointer and never echo the
+      rejected value — evidence / LE2, evidence / LE5.
 - [ ] 2.5 Use the one dispatch and validator at append, export, import
       verification and offline verification through
       `crates/brokkr-store/src/lib.rs`'s existing fence, so a private
       field, invalid enum or oversized identifier is refused before
       append and the attempt's failure is journaled through the existing
-      path — evidence / LE2, evidence / LE5.
+      path. The unconditional invariant — that every `resumed` launch
+      *this change emits* carries confirmed root evidence — is enforced
+      where the records are produced, in group 7's lifecycle and proven
+      by the conformance suites of 5.8 and 9.7, not by refusing rows the
+      shipped engine already wrote — evidence / LE2, evidence / LE5.
 - [ ] 2.6 Tests in `crates/brokkr-store/src/tests.rs`: a v4 row and a v5
       row each validate against their own contract; an old 0.10.0 row
-      with none of the new fields still validates under v5; `resumed`
-      without `root_session` is refused; a refusal reason beside
-      `resumed` is refused; an 81-character `id` and a flag-like `id` are
-      refused; a Claude permission mode offered as `sandbox` is refused;
-      export, import verification and offline verification agree with
-      append — evidence / LE2, evidence / LE5.
+      with none of the new fields still validates under v5; the
+      historical regression — a 0.10.0 codex checkpoint with
+      `launch: resumed`, no `root_session` and no site stamp, in the
+      exact shape shipped `codex_started` writes — still validates under
+      v5 and is neither rewritten nor backfilled; the same row carrying a
+      `site_ref` stamp **is** refused; a refusal reason beside `resumed`
+      is refused; an 81-character `id` and a flag-like `id` are refused;
+      a Claude permission mode offered as `sandbox` is refused; export,
+      import verification and offline verification agree with append on
+      every one of these — evidence / LE2, evidence / LE5.
 - [ ] 2.7 Pin the v1–v4 seat-record bytes in
       `crates/brokkr-runtime/tests/frozen_contracts.rs` if any are not
       pinned yet, and assert `contracts/seat-record.v5.schema.json` exists
@@ -282,8 +321,16 @@ saved for the phase commit.
       applicable classes, boundaries and hands mode, the evidence
       references, and the measured limitations. A supported entry must
       name its interface, restriction, exact-root and current-accounting
-      evidence. Missing data, a bare `true` or an absent assessment reads
-      as `unmeasured` and enables nothing — safety / AS1.
+      evidence. Absence and malformation are two different outcomes and
+      6.6 tests them as two: an **absent** `resume` key, or a shape the
+      assessment does not name, resolves to `unmeasured`, loads, and
+      enables nothing — the site compiles and invokes cold. Data that is
+      **present and malformed** — a bare `true`, a status outside the
+      three tokens, a supported entry missing one of its four evidence
+      references, an assessment with no assessed version — is not
+      normalized to `unmeasured`; the loader refuses it (6.2), so an
+      authoring error cannot pass as an honest "not yet measured".
+      Neither outcome ever enables resume (design D5) — safety / AS1.
 - [ ] 6.2 Validate that shape in the loader and let the existing adapter
       content digest pin it, so a declaration edit moves bundle identity
       as it does today — safety / AS1.
@@ -295,24 +342,28 @@ saved for the phase commit.
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
       change: Codex's historically supported work shapes recorded against
-      0.148.0 and **disabled** pending the 0.153.4 remeasurement of task
-      10.1; Claude's boxed-workspace shape recorded with the 2.1.266
-      interface capture and **disabled** pending 10.2; DSH's headless
-      work shape **unmeasured** pending 10.3, with the hands deferral
-      left where it is and named as a separate matter; LaneTally
-      **unmeasured** pending 10.4 and never marked by analogy to Claude.
+      0.148.0 and **disabled** pending 10.5's remeasurement on installed
+      0.153.4; Claude's boxed-workspace shape recorded with the 2.1.266
+      interface capture and **disabled** pending 10.6; DSH's headless
+      work shape **unmeasured** pending 10.3's route and 10.7's proof,
+      with the hands deferral left where it is and named as a separate
+      matter; LaneTally **unmeasured** pending 10.8 and never marked by
+      analogy to Claude.
       `adapters/exec.json` gains no assessment — safety / AS1.
 - [ ] 6.5 Update the scaffolded adapter text in
       `crates/brokkr-cli/src/init.rs` and its expectations in
       `crates/brokkr-cli/tests/init_stacks.rs` and
       `crates/brokkr-cli/tests/init_doctor.rs` so a scaffolded workspace
       declares the same shape — safety / AS1.
-- [ ] 6.6 Tests in `crates/brokkr-runtime/src/agents/tests.rs`: each
-      status parses; a bare `true`, a supported entry missing one of its
-      four evidence references, and an assessment whose assessed version
-      is absent are all refused; an adapter with no `resume` key loads
-      and resolves to `unmeasured`; the digest moves when an assessment
-      moves — safety / AS1.
+- [ ] 6.6 Tests in `crates/brokkr-runtime/src/agents/tests.rs`, holding
+      6.1's two outcomes apart: each of the three statuses parses; an
+      adapter with **no** `resume` key loads, resolves to `unmeasured`,
+      and its site compiles and invokes cold; a **present** bare `true`,
+      an unknown status token, a supported entry missing one of its four
+      evidence references and an assessment whose assessed version is
+      absent are each a loader refusal naming the offending field, not a
+      silent downgrade to `unmeasured`; the digest moves when an
+      assessment moves — safety / AS1.
 
 ## 7. The launch lifecycle (design D7, evidence half)
 
@@ -441,7 +492,9 @@ saved for the phase commit.
       per-invocation overlay, the model and effort settings and the
       retained transcript scope, and add owned-session selection only
       through the supported settings or extension route that task 10.3
-      establishes. The launcher's TUI `--resume` is not forwarded to
+      establishes — 10.3 is this task's prerequisite, and if it reports
+      AS1 upstream this task does not proceed on a guessed route. The
+      launcher's TUI `--resume` is not forwarded to
       headless, and the retained directory is not treated as a provider
       handle. An unsupported hands shape stays refused — safety / AS1,
       safety / AS2, safety / AS3.
@@ -484,7 +537,11 @@ saved for the phase commit.
 
 - [ ] 9.1 Establish a measured restored-history/current-work boundary in
       each enabled planner before its usage and tool folds run,
-      preferring the provider's turn or event cursor; for retained-file
+      preferring the provider's turn or event cursor. The cursor or
+      interval each planner uses is the one 10.1–10.4 establish for it,
+      which is why those four precede this group; a boundary is measured,
+      never assumed, and a shape whose boundary is not established is not
+      enabled. For retained-file
       accounting capture the owned pre-followup offset or sequence
       through the existing bounded path, and never treat a byte count as
       root confirmation — evidence / LE4.
@@ -531,72 +588,107 @@ saved for the phase commit.
       keeps each member's own launch and the aggregate substitutes
       neither; exec reports no model launch — evidence / LE1, evidence / LE5.
 
-## 10. Provider evidence — controller-supplied, unchecked until dated results exist
+## 10. Provider evidence — investigation first, then dated live proof
 
-These four tasks are the gate on enablement (`safety / AS1`, answers A, F
-and G). Each stays unchecked until dated controller host evidence records
-CLI identity, exact invocation, same-root confirmation, current
-restriction enforcement and current-only accounting for the named shape.
-The seat rechecks its own availability and reads the existing captures
-under `.forge/` before calling anything unmeasured; it reaches outside
-the box for no provider source or home. Bounded probes use temporary test
-data, change no global provider setting, read no unrelated session and
-run no unnecessary model experiment.
+Group 10 is the gate on enablement (`safety / AS1`, answers A, F and G),
+and its two halves do not block on the same thing.
 
-- [ ] 10.1 Codex on installed **0.153.4** (or the actual installed
-      replacement): `codex exec resume --help`, and a bounded cold/resume
-      probe recording the exact invocation, the allowed argv, class
-      re-imposition, same-root confirmation, current-only accounting and
-      the pre-work rejection shape. 0030's 0.148.0 measurement stays
-      historical regression scope — safety / AS1.
-- [ ] 10.2 Claude **2.1.266**: root-opening semantics, the complete
-      effective restrictions and their precedence — permission mode,
-      `--tools ""`, strict MCP config, the boxed workspace fragment,
-      including expiry of the old grant and operation of the new one —
-      persistent identity, and current-only stream and accounting on
-      resume. Record tool admission and actual filesystem effects, not a
-      model's statement that it was blocked; one denied write does not
-      prove permission binding, native-tool removal, MCP exclusion and
-      grant renewal together — safety / AS1, safety / AS2.
-- [ ] 10.3 DSH: controller captures of installed
+**10.1–10.4 are investigation**, preparable in this worktree now: they
+read installed CLI help, installed source and packages, and the existing
+dated captures under `.forge/`. They run before group 8's
+provider-specific construction and group 9's accounting boundaries, whose
+argv, routes and cursors are their output.
+
+**10.5–10.8 are proof**, and each stays unchecked until dated controller
+host evidence records CLI identity, exact invocation, same-root
+confirmation, current restriction enforcement and current-only accounting
+for the named shape. They gate group 11 and nothing else.
+
+The seat rechecks its own availability before calling anything unmeasured
+and reaches outside the box for no provider source or home. Bounded probes
+use temporary test data, change no global provider setting, read no
+unrelated session and run no unnecessary model experiment. An interface
+that help or source establishes still produces its construction,
+validation and shim work while its proof is pending; interface evidence
+never enables a shape by itself (`safety / AS1`).
+
+- [ ] 10.1 Codex interface on installed **0.153.4** (or the actual
+      installed replacement): `codex exec resume --help` and the
+      installed help or source for `--json`, `-c sandbox_mode`, effort
+      configuration, safe passthrough and the thread positional,
+      recording the observed version and the allowed argv shape. 0030's
+      0.148.0 measurement is historical regression scope, not current
+      qualification. Prerequisite of 8.5 — safety / AS1.
+- [ ] 10.2 Claude interface on **2.1.266**: the resume selector and its
+      arity, the restriction flags and their precedence — permission
+      mode, model and effort, `--tools ""`, strict MCP config, the boxed
+      workspace fragment — the persistence setting, the excluded
+      selectors of 8.6, and the stream shape a resumed print invocation
+      emits, from installed help and
+      `.forge/controller-host-provider-interface.json`. Prerequisite of
+      8.6 and 8.7 — safety / AS1, safety / AS2.
+- [ ] 10.3 DSH source and interface: installed
       `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-agent`, the settings
       surface and the Cordis loader and extension exports that headless
       consumes, with package versions, exports, relevant implementation
-      and hashes. Trace root load versus creation; a supported
-      per-invocation configuration route that points headless at that
-      root; replacement of restored model, settings and tool state by the
-      current plan; and the followup's event interval. The allowed
-      integration is Rust construction of supported declarative settings
-      or patch data consumed by the installed CLI — no embedded
-      JavaScript runner, no monkey-patched `agents.create`, no overridden
-      UUID generation, no edited installed package and no TUI
-      substitution. Stop when the supported route and its consumers
+      and hashes, spending the controller captures where they reach.
+      Trace root load versus creation; a supported per-invocation
+      configuration route that points headless at that root; replacement
+      of restored model, settings and tool state by the current plan; and
+      the followup's event interval. The allowed integration is Rust
+      construction of supported declarative settings or patch data
+      consumed by the installed CLI — no embedded JavaScript runner, no
+      monkey-patched `agents.create`, no overridden UUID generation, no
+      edited installed package and no TUI substitution. This task is
+      8.8's prerequisite: no DSH session selection is written before it
+      names the route. Stop when the supported route and its consumers
       establish success, or when those interfaces have been traced and
       the route requires a forbidden mechanism; in the latter case record
       the measured limitation and report **AS1 upstream**, naming
       `proposal.md` and `adapter-resume-safety` as owners — safety / AS1.
-- [ ] 10.4 LaneTally: wrapper identity and forwarding, the underlying
-      Claude version, root confirmation, capture attribution and the
-      applicable restrictions. Unsupported hands stay unsupported — safety / AS1.
+- [ ] 10.4 LaneTally interface: wrapper identity, what it forwards to
+      Claude, how the underlying Claude version is read through a
+      measured interface, and the capture marker's attribution point. No
+      LaneTally version command is invented. Prerequisite of 8.7 — safety / AS1.
+- [ ] 10.5 Codex proof: a bounded cold/resume probe on the installed
+      version recording the exact invocation, class re-imposition,
+      same-root confirmation, current-only accounting and the pre-work
+      rejection shape — safety / AS1.
+- [ ] 10.6 Claude proof on 2.1.266: root-opening semantics, the complete
+      effective restrictions and their precedence, including expiry of
+      the old grant and operation of the new one, persistent identity,
+      and current-only stream and accounting on resume. Record tool
+      admission and actual filesystem effects, not a model's statement
+      that it was blocked; one denied write does not prove permission
+      binding, native-tool removal, MCP exclusion and grant renewal
+      together — safety / AS1, safety / AS2.
+- [ ] 10.7 DSH proof over 10.3's route: same-root rejoin, replacement of
+      the restored model, settings and tool state by the current plan,
+      the admitted headless profile and boundary preserved, and
+      current-only accounting from the measured event interval — safety / AS1,
+      safety / AS2.
+- [ ] 10.8 LaneTally proof: wrapper forwarding, the underlying Claude
+      version, root confirmation, capture attribution and the applicable
+      restrictions on resume. Unsupported hands stay unsupported — safety / AS1.
 
-## 11. Enablement — one task per shape, unchecked until group 10 supplies its proof
+## 11. Enablement — one task per shape, unchecked until 10.5–10.8 supply their proof
 
 - [ ] 11.1 Enable Codex's previously supported work shapes on the
       remeasured installed version, flip `adapters/codex.json` to
-      `supported` with 10.1's evidence references, and land its live
+      `supported` with 10.1's interface and 10.5's proof references, and land its live
       restriction, root and accounting assertions beside the shim tests.
       A Codex shape left disabled is incomplete delivery, not a lawful
       close — safety / AS1.
 - [ ] 11.2 Enable Claude's boxed-workspace work shape under its
-      already-supported boxed boundary with 10.2's evidence, and flip
-      `adapters/claude.json` — safety / AS1, safety / AS2.
+      already-supported boxed boundary with 10.2's interface and 10.6's
+      proof, and flip `adapters/claude.json` — safety / AS1, safety / AS2.
 - [ ] 11.3 Enable DSH's already-admitted headless work shape through the
-      route 10.3 establishes, and flip `adapters/dsh.json`, keeping the
-      hands deferral untouched and admitting no new tool — safety / AS1,
-      safety / AS2.
+      route 10.3 establishes, on 10.7's proof, and flip
+      `adapters/dsh.json`, keeping the hands deferral untouched and
+      admitting no new tool — safety / AS1, safety / AS2.
 - [ ] 11.4 Enable or leave declared-unsupported LaneTally on 10.4's
-      evidence, with its measured reason. Never mark it supported by
-      analogy — safety / AS1.
+      interface and 10.8's proof, with its measured reason. Never mark it
+      supported by analogy — safety / AS1.
 - [ ] 11.5 Record in each declaration and in
       `docs/guides/provider-adapters.md` which shapes remain unmeasured
       and disabled, with their reasons; a disabled shape and a shim-only
@@ -699,19 +791,30 @@ into capability truth (`progress / PM4`). Run them with
       unchanged. Inside a nested sandbox this is pending host proof, not
       a pass, and skipped boundary tests prove nothing — every
       requirement of this change.
-- [ ] 15.6 Commit the completed work unsigned, in the repository's
-      message style, with no push and no merge — progress / PM4.
-- [ ] 15.7 Fold the change: run the dialect's archive operation, then
-      append one provenance line — a list item naming the archived
-      directory in backticks, an em dash, and `folded <YYYY-MM-DD>` — in
-      the exact spelling `dialects/openspec/archive.md` gives, under the
+- [ ] 15.6 Fold the change **before** the commit, so the moved change and
+      the four promoted capability files land in the same head as the
+      code they describe (decision 0042 ruling 6, design Migration Plan 4
+      then 5): run the dialect's archive operation, then append one
+      provenance line — a list item naming the archived directory in
+      backticks, an em dash, and `folded <YYYY-MM-DD>` — in the exact
+      spelling `dialects/openspec/archive.md` gives, under the
       `## Provenance` heading at the end of
       `openspec/specs/site-session-resumption/spec.md`,
       `openspec/specs/adapter-resume-safety/spec.md`,
       `openspec/specs/adapter-launch-evidence/spec.md` and
       `openspec/specs/sdd-progress-markers/spec.md`, rewriting no
-      existing line — progress / PM4.
-- [ ] 15.8 Hand the final head and the evidence to the controller and
+      existing line. The fold is a gated change, not a bookkeeping step:
+      `crates/brokkr-cli/tests/provenance.rs` walks `openspec/specs` and
+      `openspec/changes/archive` in both directions, so re-run 15.3 (or
+      at least that test) after the fold and before the commit — progress / PM4.
+- [ ] 15.7 Commit the completed work unsigned, in the repository's
+      message style, with no push and no merge. This is the last write:
+      it carries the code, the tests, the proposed decision, the archived
+      change, the four promoted capability files with their provenance
+      lines, and the final state of this file's ticks and `## Progress`
+      section, so the head handed on in 15.8 is the committed one and
+      nothing of the fold is left in the worktree — progress / PM4.
+- [ ] 15.8 Hand that committed head and the evidence to the controller and
       leave pending, because their results do not exist yet: host
       validation, remote CI, integration with the #222 fire's
       shared-file overlap, completed-run publication, the PR, the merge
@@ -726,10 +829,13 @@ touched.
 - Coverage was self-checked by reading the four deltas: all **19**
   requirements — SR1–SR5, AS1–AS5, LE1–LE5, PM1–PM4 — are named by at
   least one task, and every task names the requirement it serves. The
-  breakdown holds **97** tasks in 15 groups.
+  breakdown holds **101** tasks in 15 groups.
 - `openspec validate 226-session-resumption --strict --no-interactive`
-  did **not** run: this seat's shell refuses the `openspec` binary, so
-  the strict validator and the status readout have no result from here.
+  did **not** run, on the first visit or on the return: this seat's shell
+  refuses the `openspec` binary, so the strict validator and the status
+  readout have no result from here. Analyze reports running it
+  successfully against the artifacts as they stood before this return's
+  repairs, which touch task prose and numbering only.
   The specify and design passes recorded their own passing runs; this
   file's shape follows `dialects/openspec/tasks.md` and the archived
   `2026-09-06-boundary-named-slice-i/tasks.md` precedent.
@@ -745,10 +851,76 @@ touched.
 - Frozen paths, contracts, policy, reference and fixtures have no diff
   from the commissioned base.
 
+## Return — analyze drift, 2026-09-09
+
+The breakdown came back with four findings, all first introduced here, and
+all four are repaired in this file. No proposal, delta or design artifact
+was edited: analyze established no fault in them, and each repair holds
+the tasks to what those artifacts already say.
+
+- **F1 (HIGH), 2.1, 2.4, 2.5 and 2.6.** The old 2.4 required the store to
+  refuse any `resumed` row without `root_session`, while 2.3 sends the
+  whole 0.10.0 line to v5 — and shipped `codex_started`
+  (`crates/brokkr-protocol/src/adapters.rs:1870`) writes exactly that
+  row, judged by whichever version the run's engine string selects. That
+  rule would have refused valid shipped history at append, export, import
+  verification and offline verification, against design D4's superset
+  rule and `evidence / LE5`. Repaired both ways the finding allows: the
+  fence rule is scoped on the 4.3 site stamp, the one within-row fact
+  only this change's engine writes, so unstamped history keeps its
+  meaning; and the unconditional new-producer invariant moves to where
+  records are produced, group 7's lifecycle with the 5.8 and 9.7
+  conformance suites. 2.6 gains the historical 0.10.0
+  resumed-without-root regression the finding asked for, alongside the
+  stamped row that must still be refused. Verified while repairing: no
+  shipped arm emits a refusal reason beside `resumed`, so that half of
+  2.4 stays unconditional and invalidates nothing.
+- **F2 (MEDIUM), 6.1 and 6.6.** The two tasks demanded different
+  observable outcomes for the same input. Reconciled on the distinction
+  the finding names, which is also design D5's: an *absent* `resume` key
+  resolves to `unmeasured`, loads and compiles cold; *present malformed*
+  data is a loader refusal naming the field, never a silent downgrade.
+  Neither outcome enables resume.
+- **F3 (MEDIUM), the header, group 10, 6.4, 8.8, 9.1, group 11 and the
+  progress record.** Group 10 is split at its real seam: 10.1–10.4 are
+  interface investigation, preparable here from installed help, source
+  and the dated `.forge/` captures, and 10.5–10.8 are the blocked live
+  proof. The stated execution order now runs the investigation before
+  its consumers — 8.5–8.9 and 9.1–9.3 — and the proof after them, gating
+  only group 11. Each dependent task names its prerequisite, and the
+  progress record below states dependencies as they bind rather than by
+  group number.
+- **F4 (MEDIUM), 15.6 and 15.7.** The commit preceded the fold, which
+  would have left the archived change and the four promoted capability
+  files outside the committed head, against decision 0042 ruling 6 and
+  the design's Migration Plan 4-then-5. Swapped: fold, re-run the gate
+  the fold moves — `crates/brokkr-cli/tests/provenance.rs` walks
+  `openspec/specs` and the archive in both directions — then commit, then
+  hand on that committed head.
+
+The repair added four tasks (97 to 101) and moved no requirement citation:
+all 19 requirements remain named.
+
 ## Progress
 
 Nothing is in progress: this file is the tasks phase's artifact and no
-implementation has begun. Groups 10 and 11 depend on dated controller
-provider evidence that does not exist in this worktree; groups 1–9 and
-12–14 depend only on the repository. Group 15's coverage gate depends on
-the host.
+implementation has begun. Prerequisites, stated as they bind rather than
+by group number:
+
+- **Preparable from the repository alone**: groups 1–7, tasks 8.1–8.4,
+  and groups 12, 13 and 14, plus the investigation tasks 10.1–10.4 to
+  whatever depth installed help, installed source and the dated `.forge/`
+  captures reach.
+- **Blocked on that investigation**: 8.5–8.9 each need their provider's
+  interface from 10.1–10.4, and 8.8 in particular is not written before
+  10.3 names DSH's supported route; 9.1–9.3 need the measured
+  current-work boundary from the same four tasks. 8.10, 8.11 and 9.6
+  follow their subjects.
+- **Blocked on dated controller host evidence**: 10.5–10.8, and group 11
+  entirely, which flips no declaration without them. Group 6 is *not*
+  blocked: 6.4 records the honest disabled or unmeasured status
+  meanwhile, which is what makes the declarations landable now.
+- **Blocked on the host**: 15.5's coverage gate. Inside a nested sandbox
+  it is pending host proof, and skipped boundary tests prove nothing.
+- **The controller's, not this fire's**: everything named in 15.8, whose
+  results do not exist yet.
