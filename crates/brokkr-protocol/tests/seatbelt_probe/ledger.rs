@@ -637,6 +637,59 @@ pub fn check_fa7_dispositions() -> Result<(), CheckRefusal> {
     Ok(())
 }
 
+/// One withdrawn or narrowed fa7 unit that a restoration diagnostic restores
+/// alone, in its fa7 form, on top of the exact candidate. Restoration is
+/// evidence only: these units are exactly the ones the disposition table
+/// withdrew or narrowed, so none is a ledger entry and the check refuses any
+/// profile that carries one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fa7Restoration {
+    pub unit: RuleUnit,
+    pub reason: &'static str,
+}
+
+/// Every withdrawn or narrowed fa7 unit, in disposition order. The seven
+/// one-class differentials are kept separate and are not part of this set.
+pub static FA7_RESTORATIONS: LazyLock<Vec<Fa7Restoration>> = LazyLock::new(|| {
+    FA7_RECORDS
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.disposition,
+                Fa7Disposition::Withdrawn | Fa7Disposition::Narrowed
+            )
+        })
+        .map(|record| Fa7Restoration {
+            unit: record.unit.clone(),
+            reason: record.reason,
+        })
+        .collect()
+});
+
+/// Render a restoration diagnostic: the exact candidate plus the named fa7
+/// units in their fa7 form, with the validated concrete cell root, payload root
+/// and helper substituted for their placeholders. It is diagnostic text only,
+/// never a candidate; the caller records it and the check refuses any profile
+/// that carries a restored unit because none is a ledger entry.
+pub fn render_restoration_profile(
+    candidate: &str,
+    restored: &[RuleUnit],
+    inputs: &CheckInputs,
+) -> String {
+    let mut text = String::from(
+        ";; RESTORATION DIAGNOSTIC: never a passing candidate and never a ledger entry\n",
+    );
+    text.push_str(candidate);
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    for unit in restored {
+        text.push_str(&render_concrete_unit(unit, inputs));
+        text.push('\n');
+    }
+    text
+}
+
 // ---------------------------------------------------------------------------
 // The closed grammar parser
 // ---------------------------------------------------------------------------
@@ -1667,7 +1720,7 @@ pub fn render_candidate_profile(ledger: &[LedgerEntry], inputs: &CheckInputs) ->
     profile
 }
 
-fn render_concrete_unit(unit: &RuleUnit, inputs: &CheckInputs) -> String {
+pub fn render_concrete_unit(unit: &RuleUnit, inputs: &CheckInputs) -> String {
     let mut unit = unit.clone();
     if let Some(filter) = unit.filter.as_mut() {
         if !filter.is_self() {

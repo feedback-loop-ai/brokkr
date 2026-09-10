@@ -61,6 +61,7 @@ fn dispatch(args: &[String]) -> Result<i32, String> {
         Some("guard") => run_guard(args),
         Some("holder") => run_holder(args),
         Some("child") => run_ordinary_child(),
+        Some("child-probe") => run_child_probe(args),
         Some("denial") => run_denial(args),
         _ => Err("unknown mode".to_string()),
     }
@@ -177,6 +178,62 @@ fn run_startup(args: &[String]) -> Result<i32, String> {
 fn run_ordinary_child() -> Result<i32, String> {
     sleep_ms(1_500);
     Ok(0)
+}
+
+/// `child-probe --root DIR --helper PATH --variant open|inherit|null`
+///
+/// The bounded child-spawn discriminating cells. Each reaches the same
+/// `executable` stage as the startup helper and then performs exactly one
+/// stream/spawn step, recording the stages it reached. They are evidence only:
+/// the shared model records every observation and admits no authority.
+fn run_child_probe(args: &[String]) -> Result<i32, String> {
+    let helper = helper_exe(args)?;
+    let root = root_of(args)?;
+    let variant = required(args, "--variant")?;
+    let payload = root.join("payload");
+    fs::create_dir_all(&payload).map_err(|error| format!("payload dir: {error}"))?;
+    let stages = payload.join("stages");
+    append_at(&stages, "entry\n")?;
+    append_at(&stages, "payload-dir\n")?;
+    append_at(&stages, "executable\n")?;
+    match variant.as_str() {
+        // Open `/dev/null` write-only with no spawn at all.
+        "open" => {
+            OpenOptions::new()
+                .write(true)
+                .open("/dev/null")
+                .map_err(|error| format!("child streams: stdout /dev/null: {error}"))?;
+            append_at(&stages, "child-streams\n")?;
+            Ok(0)
+        }
+        // Spawn with inherited stdio.
+        "inherit" => {
+            let status = Command::new(&helper)
+                .arg("child")
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status()
+                .map_err(|error| format!("child spawn/exec inherited: {error}"))?;
+            append_at(&stages, "child-spawn\n")?;
+            append_at(&stages, "child-observed\n")?;
+            Ok(if status.success() { 0 } else { 1 })
+        }
+        // Spawn with null stdio.
+        "null" => {
+            let status = Command::new(&helper)
+                .arg("child")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|error| format!("child spawn/exec null: {error}"))?;
+            append_at(&stages, "child-spawn\n")?;
+            append_at(&stages, "child-observed\n")?;
+            Ok(if status.success() { 0 } else { 1 })
+        }
+        other => Err(format!("unknown child-probe variant {other}")),
+    }
 }
 
 /// `denial --root DIR --kind credential|host-write|network|guard|peer`

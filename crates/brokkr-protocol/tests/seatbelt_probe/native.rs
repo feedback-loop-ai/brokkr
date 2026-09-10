@@ -29,12 +29,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{
-    check_startup_candidate, classify_launchd_exit, parse_launchd_print, render_candidate_profile,
-    run_gated_probe, run_startup, Case, CaseResult, CheckInputs, DenialControl, Event, GatedReport,
+    check_startup_candidate, classify_launchd_exit, detect_residual, parse_launchd_print,
+    parse_sandbox_denials, render_candidate_profile, render_restoration_profile, run_gated_probe,
+    run_startup, Case, CaseResult, CheckInputs, DenialControl, DenialLog, Event, GatedReport,
     HelperExit, LaunchdFacts, Precondition, ProbeHost, ProfileDiagnostic, RemovalStatus,
-    RepairFacts, StartupCell, StartupNegativeControl, StartupObservation, TriggerKind,
-    DIAGNOSTIC_ALLOWANCES, ROOT_TOKEN, STARTUP_DENIAL_CONTROLS, STARTUP_NEGATIVE_ALLOWANCES,
-    STARTUP_RULE_LEDGER,
+    RepairFacts, RuleUnit, StartupCell, StartupNegativeControl, StartupObservation, TriggerKind,
+    DIAGNOSTIC_ALLOWANCES, FA7_RESTORATIONS, ROOT_TOKEN, STARTUP_DENIAL_CONTROLS,
+    STARTUP_NEGATIVE_ALLOWANCES, STARTUP_RULE_LEDGER,
 };
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -43,6 +44,7 @@ const KILL: &str = "/bin/kill";
 const UID: &str = "/usr/bin/id";
 const PS: &str = "/bin/ps";
 const MKFIFO: &str = "/usr/bin/mkfifo";
+const LOG: &str = "/usr/bin/log";
 const HELPER: &str = env!("CARGO_BIN_EXE_seatbelt-probe-helper");
 const TEARDOWN: Duration = Duration::from_secs(5);
 const QUIET: Duration = Duration::from_secs(1);
@@ -50,6 +52,10 @@ const QUIET: Duration = Duration::from_secs(1);
 /// startup cell retains. A refusal must name what launchd said; the cap keeps
 /// the durable report bounded when launchd churns.
 const MAX_LAUNCHD_SAMPLES: usize = 8;
+/// The bounded number of Sandbox denial events one `log show` collection
+/// keeps, and the raw excerpt size ceiling. An unbounded log is never kept.
+const MAX_DENIAL_EVENTS: usize = 16;
+const MAX_DENIAL_LOG_BYTES: usize = 8_192;
 const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
 
 /// Gate A native test: the four-cell startup matrix on a committed revision.
@@ -142,14 +148,25 @@ fn render_startup(report: &super::StartupReport) -> String {
         if !cell.stderr.is_empty() {
             out.push_str(&format!("    stderr: {}\n", cell.stderr));
         }
+        out.push_str(&format!("    denial-log: {}\n", cell.denial_log.render()));
+        if let Some(residual) = &cell.residual {
+            out.push_str(&format!(
+                "    residual {}: {:?}\n",
+                residual.name(),
+                residual.events()
+            ));
+        }
         for diagnostic in &cell.diagnostics {
             out.push_str(&format!(
-                "    diagnostic {} ({} {}): reached_ready={} exit={} stdout={} stderr={}\n",
+                "    diagnostic {} ({} {}): reached_ready={} stages={:?} exit={} residual={:?} denial-log={} stdout={} stderr={}\n",
                 diagnostic.name,
                 diagnostic.operation,
                 diagnostic.target,
                 diagnostic.reached_ready(),
+                diagnostic.stages,
                 diagnostic.exit.describe(),
+                diagnostic.residual.as_ref().map(|residual| residual.name()),
+                diagnostic.denial_log.render(),
                 diagnostic.stdout,
                 diagnostic.stderr,
             ));
@@ -168,12 +185,14 @@ fn render_startup(report: &super::StartupReport) -> String {
         }
         for control in &cell.negative_controls {
             out.push_str(&format!(
-                "    negative-control {} ({} for {}): status={:?} exit={} stdout={} stderr={}\n",
+                "    negative-control {} ({} for {}): status={:?} exit={} residual={:?} denial-log={} stdout={} stderr={}\n",
                 control.name,
                 control.removed_rule,
                 control.consumer,
                 control.status,
                 control.exit.describe(),
+                control.residual.as_ref().map(|residual| residual.name()),
+                control.denial_log.render(),
                 control.stdout,
                 control.stderr,
             ));
@@ -491,6 +510,31 @@ impl NativeProbeHost {
                 );
                 if !observation.ready {
                     diagnostics = self.run_profile_diagnostics(&root, &helper_argv, &nonce);
+                    // Each withdrawn or narrowed fa7 unit runs alone, plus one
+                    // all-restored cell, as labelled direct diagnostics. They
+                    // are evidence only; neither set can pass the cell.
+                    let restorations =
+                        self.run_restoration_diagnostics(&root, &inputs, &helper_argv, &nonce);
+                    // A restoration that advances the stages names withheld
+                    // authority. It still admits nothing, and every denial
+                    // control reruns on the unchanged candidate, as the
+                    // specification requires.
+                    if restorations
+                        .iter()
+                        .any(|diagnostic| diagnostic.advanced_beyond(&observation.stages))
+                    {
+                        denials = self.run_denial_controls(&root, &STARTUP_DENIAL_CONTROLS);
+                    }
+                    diagnostics.extend(restorations);
+                    // A cell that failed at the child-spawn boundary names the
+                    // refusal with the four bounded direct replays.
+                    if observation.stages.last().map(String::as_str) == Some("executable") {
+                        diagnostics.extend(self.run_child_spawn_diagnostics(
+                            &root,
+                            &helper_argv,
+                            &nonce,
+                        ));
+                    }
                 }
             }
         }
@@ -520,6 +564,10 @@ impl NativeProbeHost {
         observation.diagnostics = diagnostics;
         observation.denials = denials;
         observation.negative_controls = negative_controls;
+        // A respelled toolchain source or a respelled staged helper the cell's
+        // own bounded `log show` collection named fails the cell on its own
+        // facts and admits nothing in either half of the ledger.
+        observation.residual = detect_residual(&observation.denial_log.events, &staged.path_text());
         observation.stderr = format!(
             "staged helper digest {} ; committed build digest {}\n{}",
             staged.digest, staged.build_digest, observation.stderr
@@ -546,12 +594,24 @@ impl NativeProbeHost {
         helper_argv: &[String],
     ) -> Result<StartupObservation, String> {
         let program = self.startup_program(launcher, helper_argv);
-        let output = Command::new(&program[0])
+        let started = Instant::now();
+        // Spawn rather than `output()` so the responsible process ID is known
+        // and the bounded `log show` collection can name it.
+        let child = Command::new(&program[0])
             .args(&program[1..])
-            .output()
+            .spawn()
             .map_err(|error| format!("startup launch: {error}"))?;
+        let pid = child.id();
+        let output = child
+            .wait_with_output()
+            .map_err(|error| format!("startup wait: {error}"))?;
         let exit = exit_of(&output.status);
         let (ready, ordinary_child) = read_ready(root, nonce_of(helper_argv).unwrap_or_default());
+        let denial_log = if cell.seatbelt() {
+            collect_denial_log(&self.helper_path(), &[pid], started.elapsed())
+        } else {
+            DenialLog::unavailable("the unboxed control applies no Seatbelt profile")
+        };
         Ok(StartupObservation {
             cell,
             ran: true,
@@ -580,7 +640,7 @@ impl NativeProbeHost {
             launchd_samples: Vec::new(),
             stdout: bound(&String::from_utf8_lossy(&output.stdout)),
             stderr: bound(&String::from_utf8_lossy(&output.stderr)),
-            denial_events: Vec::new(),
+            denial_log,
             residual: None,
         })
     }
@@ -631,11 +691,15 @@ impl NativeProbeHost {
         let mut samples: Vec<String> = Vec::new();
         let mut facts = None;
         let mut last_parseable: Option<LaunchdFacts> = None;
+        let mut observed_pid: Option<u32> = None;
         let terminal_started = Instant::now();
         while terminal_started.elapsed() < TEARDOWN {
             let sample = launchctl_sample(&target);
             let parsed = parse_launchd_print(&sample.stdout).ok();
             if let Some(parsed) = &parsed {
+                if parsed.pid.is_some() {
+                    observed_pid = parsed.pid;
+                }
                 last_parseable = Some(parsed.clone());
             }
             let rendered = sample.render();
@@ -692,6 +756,12 @@ impl NativeProbeHost {
             ),
             None => (None, None, None, None, None, None),
         };
+        let denial_log = if cell.seatbelt() {
+            let pids: Vec<u32> = observed_pid.into_iter().collect();
+            collect_denial_log(&self.helper_path(), &pids, started.elapsed())
+        } else {
+            DenialLog::unavailable("the unboxed control applies no Seatbelt profile")
+        };
         Ok(StartupObservation {
             cell,
             ran: true,
@@ -720,7 +790,7 @@ impl NativeProbeHost {
             launchd_samples: samples,
             stdout: read_bounded(&root.join("startup.out")),
             stderr: read_bounded(&root.join("startup.err")),
-            denial_events: Vec::new(),
+            denial_log,
             residual: None,
         })
     }
@@ -1224,39 +1294,210 @@ impl NativeProbeHost {
         let _ = fs::remove_file(root.join("payload/ready"));
         let _ = fs::remove_file(root.join("payload/identities"));
         let _ = fs::remove_file(root.join("payload/stages"));
-        let output = Command::new(SANDBOX_EXEC)
+        let replay = self.run_boxed_replay(profile, helper_argv);
+        let (ready, ordinary_child, exit, stdout, stderr, denial_log) = match &replay.output {
+            Ok(output) => {
+                let (ready, ordinary_child) = read_ready(root, nonce);
+                let pids: Vec<u32> = replay.pid.into_iter().collect();
+                (
+                    ready,
+                    ordinary_child,
+                    exit_of(&output.status),
+                    bound(&String::from_utf8_lossy(&output.stdout)),
+                    bound(&String::from_utf8_lossy(&output.stderr)),
+                    collect_denial_log(&self.helper_path(), &pids, replay.elapsed),
+                )
+            }
+            Err(error) => (
+                false,
+                false,
+                HelperExit::NotRun,
+                String::new(),
+                bound(error),
+                DenialLog::unavailable(error),
+            ),
+        };
+        let residual = detect_residual(&denial_log.events, &self.helper_path());
+        ProfileDiagnostic {
+            name: name.to_string(),
+            operation: operation.to_string(),
+            target: target.to_string(),
+            consumer: consumer.to_string(),
+            allowance: allowance.to_string(),
+            ready,
+            ordinary_child,
+            exit,
+            stdout,
+            stderr,
+            stages: read_stages(&root.join("payload/stages")),
+            denial_log,
+            residual,
+        }
+    }
+
+    /// Run each withdrawn or narrowed fa7 unit alone, in its fa7 form, plus one
+    /// cell restoring all of them at once, as labelled direct `sandbox-exec`
+    /// replays from the failing cell's validated root. No launchd label is
+    /// bootstrapped. Every diagnostic is recorded and can never pass.
+    fn run_restoration_diagnostics(
+        &self,
+        root: &Path,
+        inputs: &CheckInputs,
+        helper_argv: &[String],
+        nonce: &str,
+    ) -> Vec<ProfileDiagnostic> {
+        let candidate = fs::read_to_string(root.join("inputs/policy.sb")).unwrap_or_default();
+        if candidate.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for restoration in FA7_RESTORATIONS.iter() {
+            let units = [restoration.unit.clone()];
+            let text = render_restoration_profile(&candidate, &units, inputs);
+            let path = root.join(format!(
+                "inputs/restoration-{}.sb",
+                restoration_label(&units[0])
+            ));
+            if fs::write(&path, text).is_err() {
+                continue;
+            }
+            let operation = units[0].operation.clone();
+            let target = units[0]
+                .filter
+                .as_ref()
+                .map(|filter| filter.target.clone())
+                .unwrap_or_default();
+            let name = format!("restore-{}", restoration_label(&units[0]));
+            out.push(self.run_one_diagnostic(
+                &name,
+                &operation,
+                &target,
+                "one withdrawn or narrowed fa7 unit restored alone",
+                &units[0].render(),
+                &path,
+                root,
+                helper_argv,
+                nonce,
+            ));
+        }
+        let all: Vec<RuleUnit> = FA7_RESTORATIONS
+            .iter()
+            .map(|restoration| restoration.unit.clone())
+            .collect();
+        let text = render_restoration_profile(&candidate, &all, inputs);
+        let path = root.join("inputs/restoration-all.sb");
+        if fs::write(&path, text).is_ok() {
+            out.push(self.run_one_diagnostic(
+                "restore-all-fa7",
+                "all",
+                "all withdrawn and narrowed fa7 units",
+                "every withdrawn or narrowed fa7 unit restored at once",
+                "all restored fa7 units",
+                &path,
+                root,
+                helper_argv,
+                nonce,
+            ));
+        }
+        out
+    }
+
+    /// Run the four labelled direct-replay child-spawn discriminating cells
+    /// from the failing cell's validated root under the exact candidate: open
+    /// `/dev/null` write-only with no spawn, spawn with inherited stdio, spawn
+    /// with null stdio, and the ordinary mode plus exactly the literal-scoped
+    /// `(allow file-write-data (literal "/dev/null"))` grant. They are evidence
+    /// only; none can pass a startup cell or enter either ledger half.
+    fn run_child_spawn_diagnostics(
+        &self,
+        root: &Path,
+        helper_argv: &[String],
+        nonce: &str,
+    ) -> Vec<ProfileDiagnostic> {
+        let candidate = fs::read_to_string(root.join("inputs/policy.sb")).unwrap_or_default();
+        if candidate.is_empty() {
+            return Vec::new();
+        }
+        let helper = self.helper_path();
+        let root_text = root.to_string_lossy().to_string();
+        let mut out = Vec::new();
+        for (variant, consumer) in [
+            ("open", "open /dev/null write-only with no spawn"),
+            ("inherit", "spawn with inherited stdio"),
+            ("null", "spawn with null stdio"),
+        ] {
+            let probe_argv = vec![
+                "child-probe".to_string(),
+                "--root".to_string(),
+                root_text.clone(),
+                "--helper".to_string(),
+                helper.clone(),
+                "--variant".to_string(),
+                variant.to_string(),
+            ];
+            out.push(self.run_one_diagnostic(
+                &format!("child-probe-{variant}"),
+                "file-write-data",
+                "/dev/null",
+                consumer,
+                "child-spawn differential (no allowance applied)",
+                &root.join("inputs/policy.sb"),
+                root,
+                &probe_argv,
+                nonce,
+            ));
+        }
+        // The ordinary mode plus exactly one named literal-scoped diagnostic.
+        // If it reaches READY, the /dev/null write is the attributed authority;
+        // it still enters no ledger half and the candidate is never widened
+        // until a focused attribution admits it with its own removal entry.
+        let dev_null_write = "(allow file-write-data (literal \"/dev/null\"))";
+        let path = root.join("inputs/diagnostic-dev-null-write.sb");
+        let text = format!(
+            ";; DIAGNOSTIC ONLY (dev-null-write): never a passing candidate\n{candidate}\n\
+             {dev_null_write}\n"
+        );
+        if fs::write(&path, text).is_ok() {
+            out.push(self.run_one_diagnostic(
+                "dev-null-write",
+                "file-write-data",
+                "/dev/null",
+                "the ordinary child stream open",
+                dev_null_write,
+                &path,
+                root,
+                helper_argv,
+                nonce,
+            ));
+        }
+        out
+    }
+
+    /// Run one direct `sandbox-exec` replay of the exact helper and argv under
+    /// `profile`, keeping the responsible process ID and the elapsed window so
+    /// the caller can collect the bounded Sandbox denial events.
+    fn run_boxed_replay(&self, profile: &Path, args: &[String]) -> BoxedReplay {
+        let started = Instant::now();
+        match Command::new(SANDBOX_EXEC)
             .arg("-f")
             .arg(profile)
             .arg(self.helper_path())
-            .args(helper_argv)
-            .output();
-        match output {
-            Ok(output) => {
-                let (ready, ordinary_child) = read_ready(root, nonce);
-                ProfileDiagnostic {
-                    name: name.to_string(),
-                    operation: operation.to_string(),
-                    target: target.to_string(),
-                    consumer: consumer.to_string(),
-                    allowance: allowance.to_string(),
-                    ready,
-                    ordinary_child,
-                    exit: exit_of(&output.status),
-                    stdout: bound(&String::from_utf8_lossy(&output.stdout)),
-                    stderr: bound(&String::from_utf8_lossy(&output.stderr)),
+            .args(args)
+            .spawn()
+        {
+            Ok(child) => {
+                let pid = child.id();
+                let output = child.wait_with_output().map_err(|error| error.to_string());
+                BoxedReplay {
+                    output,
+                    pid: Some(pid),
+                    elapsed: started.elapsed(),
                 }
             }
-            Err(error) => ProfileDiagnostic {
-                name: name.to_string(),
-                operation: operation.to_string(),
-                target: target.to_string(),
-                consumer: consumer.to_string(),
-                allowance: allowance.to_string(),
-                ready: false,
-                ordinary_child: false,
-                exit: HelperExit::NotRun,
-                stdout: String::new(),
-                stderr: bound(&error.to_string()),
+            Err(error) => BoxedReplay {
+                output: Err(error.to_string()),
+                pid: None,
+                elapsed: started.elapsed(),
             },
         }
     }
@@ -1289,6 +1530,8 @@ impl NativeProbeHost {
                     exit: HelperExit::NotRun,
                     stdout: String::new(),
                     stderr: "the cell reached no READY, so the removal is not due".to_string(),
+                    denial_log: DenialLog::unavailable("the removal is not due"),
+                    residual: None,
                 });
                 continue;
             }
@@ -1304,6 +1547,8 @@ impl NativeProbeHost {
                     exit: HelperExit::NotRun,
                     stdout: String::new(),
                     stderr: "candidate profile did not carry the rule to remove".to_string(),
+                    denial_log: DenialLog::empty("the rule was absent"),
+                    residual: None,
                 });
                 continue;
             }
@@ -1321,6 +1566,10 @@ impl NativeProbeHost {
                     exit: HelperExit::NotRun,
                     stdout: String::new(),
                     stderr: "the stripped replay profile could not be written".to_string(),
+                    denial_log: DenialLog::unavailable(
+                        "the stripped replay profile was not written",
+                    ),
+                    residual: None,
                 });
                 continue;
             }
@@ -1329,16 +1578,13 @@ impl NativeProbeHost {
             let _ = fs::remove_file(root.join("payload/ready"));
             let _ = fs::remove_file(root.join("payload/identities"));
             let _ = fs::remove_file(root.join("payload/stages"));
-            let output = Command::new(SANDBOX_EXEC)
-                .arg("-f")
-                .arg(&path)
-                .arg(self.helper_path())
-                .args(helper_argv)
-                .output();
-            match output {
+            let replay = self.run_boxed_replay(&path, helper_argv);
+            match &replay.output {
                 Ok(output) => {
                     let (ready, _) = read_ready(root, nonce);
-                    let exit = exit_of(&output.status);
+                    let pids: Vec<u32> = replay.pid.into_iter().collect();
+                    let denial_log = collect_denial_log(&self.helper_path(), &pids, replay.elapsed);
+                    let residual = detect_residual(&denial_log.events, &self.helper_path());
                     controls.push(StartupNegativeControl {
                         name: allowance.name.to_string(),
                         removed_rule: allowance.removed_rule.to_string(),
@@ -1352,9 +1598,11 @@ impl NativeProbeHost {
                         } else {
                             RemovalStatus::ObservedBlocking
                         },
-                        exit,
+                        exit: exit_of(&output.status),
                         stdout: bound(&String::from_utf8_lossy(&output.stdout)),
                         stderr: bound(&String::from_utf8_lossy(&output.stderr)),
+                        denial_log,
+                        residual,
                     });
                 }
                 Err(error) => {
@@ -1365,7 +1613,9 @@ impl NativeProbeHost {
                         status: RemovalStatus::Missing,
                         exit: HelperExit::NotRun,
                         stdout: String::new(),
-                        stderr: bound(&error.to_string()),
+                        stderr: bound(error),
+                        denial_log: DenialLog::unavailable(error),
+                        residual: None,
                     });
                 }
             }
@@ -1495,6 +1745,78 @@ fn read_denial(root: &Path, kind: &str) -> Option<(bool, String)> {
             let detail = fields.next().unwrap_or_default();
             (recorded == kind).then(|| (verdict == "denied", detail.to_string()))
         })
+}
+
+/// One direct replay's raw outcome, its responsible PID and the elapsed window
+/// the bounded `log show` filter reads.
+struct BoxedReplay {
+    output: Result<std::process::Output, String>,
+    pid: Option<u32>,
+    elapsed: Duration,
+}
+
+/// A launchd-safe atom for a restored fa7 unit's profile filename and label.
+fn restoration_label(unit: &RuleUnit) -> String {
+    let target = unit
+        .filter
+        .as_ref()
+        .map(|filter| filter.target.as_str())
+        .unwrap_or("unfiltered");
+    role_atom(&format!("{}-{}", unit.operation, target))
+}
+
+/// Collect the bounded `/usr/bin/log show` Sandbox denial events for one run.
+/// The invocation is always attempted; a missing tool or a spawn failure is
+/// recorded as unavailable, and an empty result as empty, never as permission.
+/// The event count and the raw excerpt are both bounded.
+fn collect_denial_log(helper: &str, pids: &[u32], window: Duration) -> DenialLog {
+    let seconds = window.as_secs().max(1);
+    let mut clauses: Vec<String> = pids
+        .iter()
+        .map(|pid| format!("processID == {pid}"))
+        .collect();
+    clauses.push(format!(
+        "processImagePath == \"{helper}\" OR eventMessage CONTAINS \"{}\"",
+        helper.rsplit('/').next().unwrap_or(helper)
+    ));
+    let predicate = format!(
+        "(eventMessage CONTAINS \"Sandbox\") AND ({})",
+        clauses.join(" OR ")
+    );
+    match Command::new(LOG)
+        .args([
+            "show",
+            "--style",
+            "syslog",
+            "--last",
+            &format!("{seconds}s"),
+            "--predicate",
+            &predicate,
+        ])
+        .output()
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut events = parse_sandbox_denials(&stdout);
+            events.truncate(MAX_DENIAL_EVENTS);
+            let raw: String = stdout.chars().take(MAX_DENIAL_LOG_BYTES).collect();
+            // A non-zero status is an unavailable collection, not an empty
+            // one; either way it is recorded and never read as permission.
+            let available = output.status.success();
+            let status = if available && events.is_empty() {
+                format!("{}; no Sandbox denial event for {predicate}", output.status)
+            } else {
+                output.status.to_string()
+            };
+            DenialLog {
+                available,
+                status,
+                raw,
+                events,
+            }
+        }
+        Err(error) => DenialLog::unavailable(&format!("{LOG} show: {error}")),
+    }
 }
 
 impl ProbeHost for NativeProbeHost {
@@ -2333,5 +2655,68 @@ mod tests {
         assert_eq!(sanitize_tag("startup-1/2 3"), "startup-1.2.3");
         assert_eq!(role_atom("S1-direct-seatbelt"), "S1.direct.seatbelt");
         assert_eq!(role_atom(".."), "..");
+    }
+
+    /// A fresh root for a helper-behaviour test, unique per test name and PID.
+    #[cfg(unix)]
+    fn helper_test_root(name: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("brokkr-helper-test-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create helper test root");
+        root
+    }
+
+    /// The helper reads its passed `--helper` spelling before its first stage,
+    /// so one started without it exits 2 having recorded no stage.
+    #[cfg(unix)]
+    #[test]
+    fn the_helper_refuses_without_its_passed_spelling_before_any_stage() {
+        let root = helper_test_root("no-spelling");
+        let output = Command::new(HELPER)
+            .args(["startup", "--root", &root.to_string_lossy(), "--nonce", "n"])
+            .output()
+            .expect("the helper runs");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            !root.join("payload/stages").is_file(),
+            "a helper started without --helper records no stage"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The child-probe variants record the bounded spawn sub-stage each reaches,
+    /// so a child-spawn refusal localizes to its step.
+    #[cfg(unix)]
+    #[test]
+    fn the_child_probe_variants_record_the_spawn_sub_stage() {
+        for (variant, expected_last) in [
+            ("open", "child-streams"),
+            ("inherit", "child-observed"),
+            ("null", "child-observed"),
+        ] {
+            let root = helper_test_root(variant);
+            let output = Command::new(HELPER)
+                .args([
+                    "child-probe",
+                    "--root",
+                    &root.to_string_lossy(),
+                    "--helper",
+                    HELPER,
+                    "--variant",
+                    variant,
+                ])
+                .output()
+                .expect("the helper runs");
+            assert!(
+                output.status.success(),
+                "{variant}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stages = fs::read_to_string(root.join("payload/stages")).expect("stages");
+            let stages: Vec<&str> = stages.lines().collect();
+            assert_eq!(stages.last().copied(), Some(expected_last), "{variant}");
+            let _ = fs::remove_dir_all(&root);
+        }
     }
 }

@@ -846,7 +846,9 @@ pub enum RemovalStatus {
 }
 
 /// One labelled removal control: the exact candidate profile with a single
-/// load-bearing rule stripped. It is recorded, never admitted.
+/// load-bearing rule stripped. It is recorded, never admitted. It carries its
+/// own bounded denial-event collection and residual, so a respelled toolchain
+/// bind this replay produced fails the cell on its own facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartupNegativeControl {
     pub name: String,
@@ -856,6 +858,8 @@ pub struct StartupNegativeControl {
     pub exit: HelperExit,
     pub stdout: String,
     pub stderr: String,
+    pub denial_log: DenialLog,
+    pub residual: Option<StartupResidual>,
 }
 
 impl StartupNegativeControl {
@@ -884,11 +888,18 @@ pub fn satisfied_startup_negative_control(name: &str) -> StartupNegativeControl 
         exit: HelperExit::Signal(6),
         stdout: String::new(),
         stderr: "test: stripped profile blocked the payload".to_string(),
+        denial_log: DenialLog::empty("test"),
+        residual: None,
     }
 }
 
 /// One labelled diagnostic run of the exact helper under the candidate profile
-/// plus a single named allowance. It is recorded, never admitted.
+/// plus a single named allowance. It is recorded, never admitted. When a cell
+/// fails before READY, the withdrawn or narrowed fa7 units are restored one at
+/// a time, and all at once, as diagnostics of the same type: the `allowance`
+/// field carries the restored fa7 unit. `stages` localizes whether a diagnostic
+/// advanced the cell's progress, and `denial_log`/`residual` carry the native
+/// evidence so a respelled toolchain or helper bind fails the cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileDiagnostic {
     pub name: String,
@@ -901,6 +912,9 @@ pub struct ProfileDiagnostic {
     pub exit: HelperExit,
     pub stdout: String,
     pub stderr: String,
+    pub stages: Vec<String>,
+    pub denial_log: DenialLog,
+    pub residual: Option<StartupResidual>,
 }
 
 impl ProfileDiagnostic {
@@ -908,6 +922,13 @@ impl ProfileDiagnostic {
     /// authority, but it still cannot pass a startup cell or enter a profile.
     pub fn reached_ready(&self) -> bool {
         self.ready && self.exit.is_clean()
+    }
+
+    /// Whether this diagnostic advanced past the failing cell's stage prefix.
+    /// An advance names the withheld authority that this one restored unit
+    /// supplies; it is evidence and never an admission.
+    pub fn advanced_beyond(&self, cell_stages: &[String]) -> bool {
+        self.stages.len() > cell_stages.len()
     }
 }
 
@@ -984,6 +1005,9 @@ pub fn satisfied_startup_denial(name: &str) -> DenialControl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchdFacts {
     pub state: Option<String>,
+    /// The launchd-owned payload's `pid` while it is running, when present.
+    /// It is the responsible process ID the bounded `log show` filter names.
+    pub pid: Option<u32>,
     pub runs: Option<u32>,
     pub last_exit_code: Option<i32>,
     /// The raw `last exit code` value, so `(never exited)` stays typed.
@@ -1028,6 +1052,7 @@ pub fn parse_launchd_print(text: &str) -> Result<LaunchdFacts, String> {
 
     let mut facts = LaunchdFacts {
         state: None,
+        pid: None,
         runs: None,
         last_exit_code: None,
         last_exit_code_raw: None,
@@ -1095,6 +1120,7 @@ pub fn parse_launchd_print(text: &str) -> Result<LaunchdFacts, String> {
 fn clear_launchd_field(facts: &mut LaunchdFacts, key: &str) {
     match key {
         "state" => facts.state = None,
+        "pid" => facts.pid = None,
         "runs" => facts.runs = None,
         "last exit code" => {
             facts.last_exit_code = None;
@@ -1111,6 +1137,7 @@ fn clear_launchd_field(facts: &mut LaunchdFacts, key: &str) {
 fn set_launchd_field(facts: &mut LaunchdFacts, key: &str, value: &str) {
     match key {
         "state" => facts.state = Some(value.to_string()),
+        "pid" => facts.pid = value.parse::<u32>().ok(),
         "runs" => facts.runs = value.parse::<u32>().ok(),
         "last exit code" => {
             facts.last_exit_code_raw = Some(value.to_string());
@@ -1201,6 +1228,130 @@ pub fn detect_toolchain_respelling(events: &[DenialEvent]) -> Vec<DenialEvent> {
         .collect()
 }
 
+/// The bounded result of one `/usr/bin/log show` invocation: whether the
+/// invocation could be made, its exit status or the reason it was unavailable,
+/// a bounded raw excerpt and the bounded Sandbox denial events parsed from it.
+///
+/// An unavailable or empty collection is recorded as such and is never read as
+/// a positive control or as proof that an operation was allowed.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DenialLog {
+    /// The invocation was made and returned output.
+    pub available: bool,
+    /// The invocation's exit status, or the reason it could not be made.
+    pub status: String,
+    /// A bounded raw excerpt of the collected output.
+    pub raw: String,
+    /// The bounded Sandbox denial events parsed from the output.
+    pub events: Vec<DenialEvent>,
+}
+
+impl DenialLog {
+    /// A collection that could not be made (missing tool or spawn failure).
+    pub fn unavailable(reason: &str) -> DenialLog {
+        DenialLog {
+            available: false,
+            status: reason.to_string(),
+            raw: String::new(),
+            events: Vec::new(),
+        }
+    }
+
+    /// A collection that was made and held no event.
+    pub fn empty(status: &str) -> DenialLog {
+        DenialLog {
+            available: true,
+            status: status.to_string(),
+            raw: String::new(),
+            events: Vec::new(),
+        }
+    }
+
+    /// An unavailable or empty collection proves nothing and names no event.
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    pub fn render(&self) -> String {
+        format!(
+            "available={} status={} events={} raw={}",
+            self.available,
+            self.status,
+            self.events.len(),
+            self.raw,
+        )
+    }
+}
+
+/// Parse native `log show` output into bounded Sandbox denial events. Only
+/// lines that name a `deny(<n>)` operation and a path are kept; everything
+/// else is ignored and never inferred into an allowed or a denied operation.
+pub fn parse_sandbox_denials(text: &str) -> Vec<DenialEvent> {
+    let mut events = Vec::new();
+    for line in text.lines() {
+        let Some(position) = line.find("deny(") else {
+            continue;
+        };
+        let rest = &line[position..];
+        let Some(close) = rest.find(')') else {
+            continue;
+        };
+        let mut fields = rest[close + 1..].split_whitespace();
+        let Some(operation) = fields.next() else {
+            continue;
+        };
+        let Some(path) = fields.next() else {
+            continue;
+        };
+        if !path.starts_with('/') {
+            continue;
+        }
+        events.push(DenialEvent {
+            operation: operation.to_string(),
+            path: path.to_string(),
+        });
+    }
+    events
+}
+
+/// Detect the bounded native denial events that name the staged helper under
+/// another resolved spelling. A helper staged as a single-link file has no
+/// second hard-link spelling, so any other resolved spelling lies on or under
+/// the data volume.
+pub fn detect_helper_respelling(events: &[DenialEvent], helper: &str) -> Vec<DenialEvent> {
+    if helper.is_empty() {
+        return Vec::new();
+    }
+    let spellings = [format!("/System/Volumes/Data{helper}")];
+    events
+        .iter()
+        .filter(|event| {
+            spellings.iter().any(|spelling| {
+                event.path == *spelling || event.path.starts_with(&format!("{spelling}/"))
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// The named startup residual a collection of native denial events records, if
+/// any. A respelled host-toolchain source takes precedence; otherwise a
+/// respelled helper is recorded. Either residual admits nothing in either half
+/// of the ledger.
+pub fn detect_residual(events: &[DenialEvent], helper: &str) -> Option<StartupResidual> {
+    let toolchain = detect_toolchain_respelling(events);
+    if !toolchain.is_empty() {
+        return Some(StartupResidual::ToolchainRespelling { events: toolchain });
+    }
+    let helper_events = detect_helper_respelling(events, helper);
+    if !helper_events.is_empty() {
+        return Some(StartupResidual::HelperRespelling {
+            events: helper_events,
+        });
+    }
+    None
+}
+
 /// One startup cell's observation. `helper_executable`, `helper_mode`,
 /// `helper_digest`, `helper_argv` (with the root abstracted to [`ROOT_TOKEN`])
 /// and `profile_digest` are immutable launch inputs; `ready`, `ordinary_child`
@@ -1266,8 +1417,10 @@ pub struct StartupObservation {
     pub stdout: String,
     /// Bounded stderr captured for this cell.
     pub stderr: String,
-    /// The bounded raw Sandbox denial events the observer read for this cell.
-    pub denial_events: Vec<DenialEvent>,
+    /// The bounded `/usr/bin/log show` Sandbox denial collection the observer
+    /// read for this cell. An unavailable or empty collection is recorded as
+    /// such and is never read as permission.
+    pub denial_log: DenialLog,
     /// A named startup residual the cell recorded. It fails the cell and
     /// admits nothing.
     pub residual: Option<StartupResidual>,
@@ -1304,7 +1457,7 @@ impl StartupObservation {
             launchd_samples: Vec::new(),
             stdout: String::new(),
             stderr: String::new(),
-            denial_events: Vec::new(),
+            denial_log: DenialLog::unavailable("the startup cell did not run"),
             residual: None,
         }
     }
@@ -1421,6 +1574,16 @@ fn argv_is_structural(name: &str, argv: &[String], reasons: &mut Vec<String>) {
     }
 }
 
+/// The one rendering of a recorded residual, whatever produced it: the cell, a
+/// removal replay or a differential diagnostic.
+fn residual_reason(name: &str, context: &str, residual: &StartupResidual) -> String {
+    format!(
+        "{name}: the {context} recorded the startup residual {} with {} denial event(s)",
+        residual.name(),
+        residual.events().len()
+    )
+}
+
 fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<String>) {
     let name = observation.cell.name();
     if let Some(label) = &observation.diagnostic {
@@ -1441,11 +1604,28 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
         return;
     }
     if let Some(residual) = &observation.residual {
-        reasons.push(format!(
-            "{name}: recorded the startup residual {} with {} denial event(s)",
-            residual.name(),
-            residual.events().len()
-        ));
+        reasons.push(residual_reason(name, "startup cell", residual));
+    }
+    // A removal replay or a differential diagnostic that produced the same
+    // respelling evidence fails the cell on its own facts, exactly as the cell
+    // does. Neither can pass the cell.
+    for control in &observation.negative_controls {
+        if let Some(residual) = &control.residual {
+            reasons.push(residual_reason(
+                name,
+                &format!("removal replay {}", control.name),
+                residual,
+            ));
+        }
+    }
+    for diagnostic in &observation.diagnostics {
+        if let Some(residual) = &diagnostic.residual {
+            reasons.push(residual_reason(
+                name,
+                &format!("diagnostic {}", diagnostic.name),
+                residual,
+            ));
+        }
     }
     if observation.helper_executable.is_empty() {
         reasons.push(format!("{name}: no helper executable was recorded"));
@@ -1694,7 +1874,7 @@ pub fn passing_startup(cell: StartupCell) -> StartupObservation {
         launchd_samples: Vec::new(),
         stdout: String::new(),
         stderr: String::new(),
-        denial_events: Vec::new(),
+        denial_log: DenialLog::empty("test"),
         residual: None,
     }
 }

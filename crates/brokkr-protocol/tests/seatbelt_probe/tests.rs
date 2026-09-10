@@ -784,6 +784,8 @@ fn a_non_starting_seatbelt_cell_owes_no_removal_verdict() {
         exit: HelperExit::NotRun,
         stdout: String::new(),
         stderr: String::new(),
+        denial_log: DenialLog::unavailable("not due"),
+        residual: None,
     }];
     // The cell fails on its own startup facts, and the not-due removal is not
     // read as blocking.
@@ -858,6 +860,12 @@ fn a_ready_diagnostic_can_never_pass_its_cell() {
         exit: HelperExit::Clean,
         stdout: String::new(),
         stderr: String::new(),
+        stages: STARTUP_STAGES
+            .iter()
+            .map(|stage| stage.to_string())
+            .collect(),
+        denial_log: DenialLog::empty("test"),
+        residual: None,
     }];
     assert!(observation.diagnostics[0].reached_ready());
     let verdict = evaluate_startup(&[StartupCell::S1DirectSeatbelt], &[observation]);
@@ -1698,6 +1706,55 @@ fn the_candidate_carries_no_dev_null_write_unit() {
     assert!(error.reason.contains("device set"), "{}", error.reason);
 }
 
+/// An attributed `/dev/null` write enters only as the diagnosis-admitted
+/// literal with its own removal entry: the equality passes only with both, and
+/// as a baseline it fails the device-set operation anchor.
+#[test]
+fn an_attributed_dev_null_write_is_admitted_only_with_its_own_removal_entry() {
+    let inputs = fixed_inputs();
+    let dev_null = unit("file-write-data", "literal", "/dev/null");
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    ledger.push(LedgerEntry {
+        unit: dev_null.clone(),
+        class: LedgerClass::DiagnosisAdmitted(DiagnosisAdmission {
+            process: "the ordinary child stream setup".to_string(),
+            consumer: "the child's /dev/null write handle".to_string(),
+            evidence: "the child-probe-open cell advanced past the failing cell's stages"
+                .to_string(),
+            removal: "dev-null-write".to_string(),
+        }),
+    });
+    let mut removals = STARTUP_NEGATIVE_ALLOWANCES.to_vec();
+    removals.push(StartupNegativeAllowance {
+        name: "dev-null-write",
+        removed_rule: "(allow file-write-data (literal \"/dev/null\"))",
+        consumer: "the ordinary child stream setup",
+    });
+    let profile = render_candidate_profile(&ledger, &inputs);
+    check_startup_candidate(&profile, &ledger, &removals, &inputs)
+        .expect("the attributed /dev/null write passes with its own removal entry");
+    // Without the removal entry the diagnosis-admitted half and the removal set
+    // no longer match, so the equality fails.
+    check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("the attributed /dev/null write needs its own removal entry");
+
+    // Recorded instead as a baseline device-set unit, the operation anchor
+    // refuses it by name.
+    let mut baseline = STARTUP_RULE_LEDGER.clone();
+    baseline.push(LedgerEntry {
+        unit: dev_null,
+        class: LedgerClass::Baseline(Baseline {
+            kind: BaselineKind::HandsElement(HandsElement::DeviceSet),
+            justification: "smuggled".to_string(),
+            correction: None,
+        }),
+    });
+    let profile = render_candidate_profile(&baseline, &inputs);
+    let error = check_startup_candidate(&profile, &baseline, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("a baseline /dev/null write fails the device-set anchor");
+    assert!(error.reason.contains("device set"), "{}", error.reason);
+}
+
 #[test]
 fn the_startup_stage_sequence_localizes_the_child_spawn() {
     assert_eq!(
@@ -1735,18 +1792,292 @@ fn a_respelled_helper_denial_event_records_its_own_residual() {
         path: "/System/Volumes/Data/private/var/folders/xy/T/probe/bin/seatbelt-probe-helper"
             .to_string(),
     }];
-    let residual = StartupResidual::HelperRespelling {
-        events: events.clone(),
-    };
+    let residual = detect_residual(
+        &events,
+        "/private/var/folders/xy/T/probe/bin/seatbelt-probe-helper",
+    )
+    .expect("the respelled helper event records a residual");
     assert_eq!(residual.name(), "SEATBELT-R3-STARTUP-helper-respelling");
     assert_eq!(residual.events(), events.as_slice());
     let cell = StartupCell::S3LaunchdSeatbelt;
     let mut observation = passing_startup(cell);
-    observation.residual = Some(residual);
+    let helper_before = observation.helper_executable.clone();
+    let units_before: Vec<RuleUnit> = STARTUP_RULE_LEDGER
+        .iter()
+        .map(|entry| entry.unit.clone())
+        .collect();
+    observation.residual = Some(StartupResidual::HelperRespelling {
+        events: events.clone(),
+    });
     let verdict = evaluate_startup(&[cell], &[observation]);
     assert!(!verdict.is_pass());
     assert!(verdict
         .reasons()
         .iter()
         .any(|reason| reason.contains("SEATBELT-R3-STARTUP-helper-respelling")));
+    // A respelled-helper refusal changes neither `<helper>` nor the ledger.
+    assert_eq!(
+        STARTUP_RULE_LEDGER
+            .iter()
+            .map(|entry| entry.unit.clone())
+            .collect::<Vec<RuleUnit>>(),
+        units_before
+    );
+    assert_eq!(
+        passing_startup(cell).helper_executable,
+        helper_before,
+        "the helper spelling is unchanged"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Restoration diagnostics (task 1.24)
+// ---------------------------------------------------------------------------
+
+/// The restoration set is exactly the withdrawn or narrowed fa7 records, each
+/// in its fa7 form, and none of them is a ledger unit, so the check refuses any
+/// profile that carries one. A withdrawn unit therefore returns only through
+/// this bounded evidence path, never into the candidate.
+#[test]
+fn restoration_diagnostics_cover_exactly_the_withdrawn_and_narrowed_fa7_units() {
+    let expected: Vec<RuleUnit> = FA7_RECORDS
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.disposition,
+                Fa7Disposition::Withdrawn | Fa7Disposition::Narrowed
+            )
+        })
+        .map(|record| record.unit.clone())
+        .collect();
+    let actual: Vec<RuleUnit> = FA7_RESTORATIONS
+        .iter()
+        .map(|restoration| restoration.unit.clone())
+        .collect();
+    assert_eq!(actual, expected);
+    assert!(!actual.is_empty());
+    for record in FA7_RECORDS.iter() {
+        if matches!(record.disposition, Fa7Disposition::Carried) {
+            assert!(
+                !actual.contains(&record.unit),
+                "a carried fa7 unit {} is not a restoration",
+                record.unit.render()
+            );
+        }
+    }
+
+    // Every withdrawn or narrowed unit fails the check when it is injected into
+    // the exact candidate, so a restoration profile can never be admitted.
+    let inputs = fixed_inputs();
+    let candidate = fixed_profile(&inputs);
+    for unit in &actual {
+        let mut injected = candidate.clone();
+        injected.push_str(&super::ledger::render_concrete_unit(unit, &inputs));
+        injected.push('\n');
+        check_startup_candidate(
+            &injected,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &inputs,
+        )
+        .expect_err("a restored fa7 unit may never enter the candidate");
+    }
+    // And the untouched candidate never carries one.
+    check_startup_candidate(
+        &candidate,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect("the candidate carries no withdrawn or narrowed fa7 unit");
+}
+
+/// A restoration profile restores the concrete cell root, not the literal
+/// placeholder, and it is diagnostic text that is never parsed as a candidate.
+#[test]
+fn the_all_restored_diagnostic_uses_the_concrete_cell_root() {
+    let inputs = fixed_inputs();
+    let candidate = fixed_profile(&inputs);
+    let units: Vec<RuleUnit> = FA7_RESTORATIONS
+        .iter()
+        .map(|restoration| restoration.unit.clone())
+        .collect();
+    let text = render_restoration_profile(&candidate, &units, &inputs);
+    assert!(text.contains("RESTORATION DIAGNOSTIC"));
+    assert!(
+        text.contains(&format!("(subpath \"{}\")", inputs.cell_root)),
+        "the whole-cell-root restoration names the concrete root"
+    );
+    assert!(!text.contains("(subpath \"<cell-root>\")"));
+}
+
+/// A restoration diagnostic that reaches READY still cannot pass its cell, and
+/// the number of recorded diagnostics changes no verdict.
+#[test]
+fn a_reached_ready_restoration_diagnostic_can_never_pass_its_cell() {
+    let cell = StartupCell::S1DirectSeatbelt;
+    let mut observation = passing_startup(cell);
+    observation.ready = false;
+    observation.ordinary_child = false;
+    observation.stages = vec!["entry".to_string(), "payload-dir".to_string()];
+    let restoration = ProfileDiagnostic {
+        name: "restore-all-fa7".to_string(),
+        operation: "all".to_string(),
+        target: "all".to_string(),
+        consumer: "restoration".to_string(),
+        allowance: "all restored fa7 units".to_string(),
+        ready: true,
+        ordinary_child: true,
+        exit: HelperExit::Clean,
+        stdout: String::new(),
+        stderr: String::new(),
+        stages: STARTUP_STAGES
+            .iter()
+            .map(|stage| stage.to_string())
+            .collect(),
+        denial_log: DenialLog::empty("test"),
+        residual: None,
+    };
+    assert!(restoration.advanced_beyond(&["entry".to_string()]));
+    assert!(restoration.reached_ready());
+    observation.diagnostics = vec![restoration];
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("never reached")));
+}
+
+// ---------------------------------------------------------------------------
+// Bounded `log show` denial events (task 1.25)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sandbox_denial_events_are_parsed_from_synthetic_log_text() {
+    let text = "\
+Jul 10 12:00:00.000000 host kernel[0]: Sandbox: seatbelt-probe-helper(4242) deny(1) file-read-data /private/etc/ssl/certs/ca.pem
+Jul 10 12:00:00.100000 host kernel[0]: unrelated line without a denial
+Jul 10 12:00:00.200000 host kernel[0]: Sandbox: seatbelt-probe-helper(4242) deny(1) file-read-data /System/Volumes/Data/usr/local/bin/cargo
+";
+    let events = parse_sandbox_denials(text);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].operation, "file-read-data");
+    assert_eq!(events[0].path, "/private/etc/ssl/certs/ca.pem");
+    assert_eq!(events[1].path, "/System/Volumes/Data/usr/local/bin/cargo");
+}
+
+#[test]
+fn an_empty_or_unavailable_log_show_result_is_never_a_positive_control() {
+    let empty = DenialLog::empty("log show exit 0");
+    assert!(empty.is_empty());
+    assert!(empty.available);
+    assert_eq!(
+        detect_residual(
+            &empty.events,
+            "/private/var/folders/bin/seatbelt-probe-helper"
+        ),
+        None
+    );
+
+    let unavailable = DenialLog::unavailable("/usr/bin/log: not found");
+    assert!(unavailable.is_empty());
+    assert!(!unavailable.available);
+    assert_eq!(
+        detect_residual(
+            &unavailable.events,
+            "/private/var/folders/bin/seatbelt-probe-helper"
+        ),
+        None
+    );
+
+    // An empty collection leaves a passing cell passing and a passing removal
+    // control satisfied: it neither denies nor grants anything.
+    let cell = StartupCell::S1DirectSeatbelt;
+    let observation = passing_startup(cell);
+    assert!(observation.negative_controls[0].satisfied());
+    assert!(evaluate_startup(&[cell], &[observation]).is_pass());
+}
+
+/// The same synthetic denial events produce the toolchain-respelling residual
+/// for a Gate A cell, a removal replay and a restoration diagnostic alike, and
+/// the residual enters no unit into either half of the ledger.
+#[test]
+fn a_respelled_toolchain_denial_event_fails_cell_removal_and_diagnostic_alike() {
+    let events = vec![
+        DenialEvent {
+            operation: "file-read-data".to_string(),
+            path: "/System/Volumes/Data/usr/local/bin/cargo".to_string(),
+        },
+        DenialEvent {
+            operation: "file-read-data".to_string(),
+            path: "/private/etc/ssl/certs/ca.pem".to_string(),
+        },
+    ];
+    let residual = detect_residual(&events, "/private/var/folders/bin/seatbelt-probe-helper")
+        .expect("the respelled toolchain events record a residual");
+    assert_eq!(residual.name(), "SEATBELT-R3-STARTUP-toolchain-respelling");
+    assert_eq!(residual.events().len(), 2);
+
+    let cell = StartupCell::S1DirectSeatbelt;
+    let units_before: Vec<RuleUnit> = STARTUP_RULE_LEDGER
+        .iter()
+        .map(|entry| entry.unit.clone())
+        .collect();
+
+    // A Gate A cell that recorded the residual fails on its own facts.
+    let mut observation = passing_startup(cell);
+    observation.residual = Some(residual.clone());
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("SEATBELT-R3-STARTUP-toolchain-respelling")));
+
+    // The identical residual on a removal replay fails the cell.
+    let mut observation = passing_startup(cell);
+    observation.negative_controls[0].residual = Some(residual.clone());
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict.reasons().iter().any(|reason| {
+        reason.contains("SEATBELT-R3-STARTUP-toolchain-respelling")
+            && reason.contains("removal replay")
+    }));
+
+    // And on a restoration diagnostic fails the cell.
+    let mut observation = passing_startup(cell);
+    observation.diagnostics = vec![ProfileDiagnostic {
+        name: "restore-all-fa7".to_string(),
+        operation: "all".to_string(),
+        target: "all".to_string(),
+        consumer: "restoration".to_string(),
+        allowance: "all restored fa7 units".to_string(),
+        ready: false,
+        ordinary_child: false,
+        exit: HelperExit::Signal(9),
+        stdout: String::new(),
+        stderr: String::new(),
+        stages: vec!["entry".to_string()],
+        denial_log: DenialLog::empty("test"),
+        residual: Some(residual.clone()),
+    }];
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict.reasons().iter().any(|reason| {
+        reason.contains("SEATBELT-R3-STARTUP-toolchain-respelling")
+            && reason.contains("diagnostic restore-all-fa7")
+    }));
+
+    // The residual admits nothing: the ledger is unchanged and no respelled
+    // path enters the rendered candidate.
+    let units_after: Vec<RuleUnit> = STARTUP_RULE_LEDGER
+        .iter()
+        .map(|entry| entry.unit.clone())
+        .collect();
+    assert_eq!(units_after, units_before);
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    assert!(!profile.contains("/System/Volumes/Data/usr/local"));
+    assert!(!profile.contains("/private/etc/ssl"));
 }
