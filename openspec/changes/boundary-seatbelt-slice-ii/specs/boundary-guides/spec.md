@@ -145,14 +145,18 @@ in primary and linked worktrees permits full-peer status. It SHALL also cover
 controlled toolchain/SDK paths, `ro`/`rw`, network off/on, output/deadline
 limits, unsupported-layout refusals and both entry paths.
 
-The process section SHALL name the transient per-invocation `launchd` job,
-job/process-coalition ownership, `bootout` and engine-liveness guard as the
-unproven R3 candidate. It SHALL state that process-group kill, PID polling,
-`kqueue`, source reasoning, mocks and Linux runs are not the guarantee, and
-that full implementation cannot proceed until real macOS setsid/double-fork
-timeout, cancellation and supervisor-death adversaries pass. The network
-explanation SHALL distinguish shared macOS loopback from a private Linux
-network namespace; a host loopback allowance is not isolation.
+The process section SHALL name the **per-invocation transient launchd lease
+pair** as the unproven R3 candidate: one payload job whose job/process
+coalition is the candidate containment domain, plus a separately
+launchd-owned guard job in the same per-user bootstrap domain. It SHALL state
+that the guard is not a member of the payload job it must `bootout`, survives
+payload teardown and engine-liveness EOF, establishes quiescence before
+cleanup, and then unregisters itself. It SHALL state that process-group kill,
+PID polling, `kqueue`, source reasoning, mocks and Linux runs are not the
+guarantee, and that full implementation cannot proceed until real macOS
+setsid/double-fork timeout, cancellation and supervisor-death adversaries
+pass. The network explanation SHALL distinguish shared macOS loopback from a
+private Linux network namespace; a host loopback allowance is not isolation.
 
 While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
 labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.

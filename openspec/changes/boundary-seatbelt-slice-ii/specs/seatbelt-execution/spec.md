@@ -329,32 +329,65 @@ all interpreter behavior or all host helpers.
 
 ### Requirement: Native lifetime feasibility precedes full implementation
 
-The named candidate is one transient per-invocation `launchd` job using
-launchd job/process-coalition ownership as the lifetime domain, `bootout` for
-timeout and cancellation, and a guard inside that domain which observes the
-engine-liveness channel and initiates teardown after abrupt supervisor death.
-This is an unproven feasibility candidate, not an enforcement claim. Before
-any dependent Seatbelt profile, bind, Git or runtime implementation proceeds,
-a narrowly scoped macOS probe SHALL demonstrate that the candidate admits
-ordinary shell children and leaves no setsid or double-fork descendant alive
-after timeout, cancellation or engine/supervisor `SIGKILL`.
+The named candidate is the **per-invocation transient launchd lease pair** in
+an unprivileged per-user bootstrap domain. One uniquely labelled payload job
+SHALL launch the literal system `/usr/bin/sandbox-exec` and payload; that
+job's job/process coalition is the candidate payload lifetime domain. A second,
+separately launchd-owned guard job SHALL observe a private engine-liveness
+channel whose write end the payload SHALL NOT inherit. The guard SHALL NOT be
+a member of the payload job it must terminate, inherit payload stdio or trust
+payload-writable state. Timeout and explicit cancellation SHALL ask the guard
+to `bootout` the payload job; liveness EOF SHALL trigger the same teardown
+after abrupt engine/supervisor death. The guard SHALL remain alive through
+payload teardown, establish payload-domain quiescence before private-state
+cleanup, and then unregister itself. This is an unproven feasibility candidate,
+not an enforcement claim. Before any dependent production Seatbelt profile,
+bind, Git or runtime implementation proceeds, a narrowly scoped macOS probe
+limited to the lease pair, native adversary and observer helpers, and the
+minimum experimental policy needed to keep the guard outside payload authority
+SHALL demonstrate that the candidate admits ordinary shell children and leaves
+no setsid or double-fork descendant alive after timeout, cancellation or
+engine/supervisor `SIGKILL`.
 
-The observer SHALL live outside the candidate domain, record every descendant
-PID and start identity plus a moving heartbeat before the trigger, and verify
-process absence and an unchanged heartbeat for one second after the five-second
-teardown bound. The evidence SHALL name candidate revision, macOS version and
-architecture, launchd domain and exact commands, positive controls, trigger,
-exit statuses and durable logs. If launchd provides only process-group cleanup,
-requires private SPI, a privileged entitlement or global host mutation, loses
-a descendant, or cannot cover supervisor death, the probe SHALL fail, keep
-SEATBELT-R3 open and stop dependent implementation. PID polling, `kqueue`,
-source reasoning, mocks, Linux execution and launcher smoke tests may assist
-observation but SHALL NOT satisfy the guarantee.
+The observer SHALL live outside both jobs, record every descendant PID and
+non-reusable start identity plus a moving heartbeat before the trigger, and
+verify process absence within the five-second teardown bound, an unchanged
+heartbeat for one further second, and disappearance of both transient job
+labels. The required lifecycle SHALL be `prepared -> guard-registered ->
+payload-started -> terminating -> payload-quiescent -> private-state-removed
+-> guard-unregistered`. If quiescence cannot be established, the invocation
+SHALL fail and leave private state quarantined for an engine-owned reaper that
+re-establishes lease identity and quiescence; cleanup SHALL NOT trust or reuse
+a stale PID, label or filename.
+
+The evidence SHALL name candidate revision, macOS version and architecture,
+the per-user bootstrap domain, both unique job labels and exact commands,
+positive controls, trigger, exit statuses and durable logs. It SHALL also
+demonstrate that payload code cannot signal or impersonate the guard, use its
+private channel, boot out a peer invocation, or register an independently
+surviving launchd job through authority exposed by the experimental profile.
+If launchd provides only process-group cleanup, requires private SPI, a
+privileged entitlement or global host mutation, loses a descendant, cannot
+keep the guard separately owned through payload teardown, or cannot cover
+supervisor death, the probe SHALL fail, keep SEATBELT-R3 open and stop
+dependent implementation. PID polling, `kqueue`, source reasoning, mocks,
+Linux execution and launcher smoke tests may assist observation but SHALL NOT
+satisfy the guarantee.
 
 #### Scenario: The named launchd candidate must survive the detach adversary
 - **GIVEN** a native helper that proves its ordinary-child positive control, then forks, calls setsid, double-forks, ignores termination signals and reports identities while writing a heartbeat
 - **WHEN** the isolated feasibility probe triggers timeout, cancellation and abrupt supervisor death in separate runs
-- **THEN** launchd-owned teardown ends every reported descendant inside the bound and the external observer sees one second of quiet; otherwise the probe fails with SEATBELT-R3 open and no dependent implementation is authorized
+- **THEN** guard-owned teardown ends every reported payload descendant inside the bound, both transient labels disappear in order, and the external observer sees one second of quiet; otherwise the probe fails with SEATBELT-R3 open and no dependent implementation is authorized
+
+#### Scenario: The guard remains outside the payload job
+- **GIVEN** the separately labelled guard job has established its private liveness channel and the payload job is running
+- **WHEN** timeout, explicit cancellation or supervisor-liveness EOF causes the guard to boot out the payload job
+- **THEN** the guard remains alive after payload bootout, proves payload-domain quiescence before cleanup, unregisters only after cleanup, and an observer outside both jobs verifies the ordering; a guard removed with the payload fails SEATBELT-SPEC-LIFETIME-TOPOLOGY and cannot authorize dependent implementation
+
+#### Scenario: The payload cannot acquire guard or peer-job authority
+- **GIVEN** the guard endpoint, labels and control state are engine-owned and payload code is confined by the experimental profile
+- **WHEN** the payload attempts to signal or impersonate the guard, use its private channel, boot out a peer invocation or register an independently surviving launchd job
+- **THEN** every attempt is denied while the ordinary-child control remains usable; any successful interference fails the probe, leaves SEATBELT-R3 open and stops dependent implementation
 
 #### Scenario: Observation is not containment
 - **WHEN** a candidate only polls descendant PIDs, watches them with `kqueue`, or signals the original process group
@@ -377,8 +410,8 @@ commands are arbitrary hostile code. A check over command text, a caller
 promise not to daemonize, or refusing every forking command SHALL NOT
 satisfy this requirement.
 
-R3 is a feasibility prerequisite for the boundary as a whole. The named
-launchd candidate SHALL remain isolated probe code until the preceding native
+R3 is a feasibility prerequisite for the boundary as a whole. The transient
+launchd lease pair SHALL remain isolated probe code until the preceding native
 gate passes; a generic unsupported-policy refusal cannot make Seatbelt built.
 No declaration distinguishes commands that may detach, and no surviving
 payload is permitted. Any proposal to weaken that guarantee must return
@@ -560,11 +593,16 @@ relevant change SHALL not be attributed to the final candidate.
 - **R2 — denied reads.** Adopt `EACCES`/`EPERM` with no returned content
   for present Seatbelt masks. Refute the older readable-empty oracle because
   the accepted addendum replaces it for Seatbelt; namespace is untouched.
-- **R3 — launchd candidate, not a claim.** Name a transient launchd job using
-  job/process-coalition ownership, `bootout` and an engine-liveness guard.
-  Process groups are rejected because `setsid` leaves them; PID polling and
-  `kqueue` are rejected as the guarantee because the observer dies with the
-  supervisor. A real macOS feasibility pass precedes dependent implementation.
+- **R3 and SEATBELT-SPEC-LIFETIME-TOPOLOGY — launchd lease pair, not a
+  claim.** Adopt two separately launchd-owned jobs in one unprivileged per-user
+  bootstrap domain: the payload job is the candidate job/process-coalition
+  containment domain, while the guard job remains outside it, observes private
+  engine liveness, boots out the payload, establishes quiescence, cleans up and
+  then unregisters. Refute the earlier inside-guard topology because payload
+  bootout would remove the component required to verify cleanup. Process
+  groups are rejected because `setsid` leaves them; PID polling and `kqueue`
+  are rejected as the guarantee because observation is not containment. A real
+  macOS feasibility pass precedes dependent implementation.
 - **R4 — conditional full peer.** Adopt denied original hooks plus an empty
   private hooks directory for ordinary Git. Refute routing alone as protection:
   independent raw-write enforcement and native primary/linked-worktree
