@@ -89,6 +89,18 @@ next probe must collect. A later clarify visit scoped removal controls to
 cells that reach `READY` and corrected the record of fa7's empty lists. Gate B
 was correctly not run and SEATBELT-R3 remains open.
 
+The next clarify visit, on `5dca1d0`, found that the record named a
+removal-set completeness test with no source to check it against. No artifact
+said which template rules were baseline and which were admitted by diagnosis,
+and "justified baseline" was undefined. `8c53dce` had also added four
+startup-motivated rules without recording why: `/private/var/tmp`, the helper
+literal, `/dev/random` and `/dev/dtracehelper`. This visit enumerates every
+template rule in an audited startup-rule ledger. It keeps what a hands element,
+execution input or probe-harness need justifies and the one diagnosis-admitted
+root-inode read. It withdraws or narrows every other fa7 rule. The candidate
+therefore changes, and its startup is unmeasured until the controller's next
+exact-head native Gate A.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -152,6 +164,18 @@ measured, as accepted decision 0046 requires.
   cell that reaches `READY` before that cell can pass. Each removal is a direct
   `sandbox-exec` replay of the cell's own profile, S3 included. A cell without
   `READY` records its removals as not due and fails on its own startup facts.
+- Account for every rule of the experimental template in one typed
+  startup-rule ledger. A baseline entry names a hands element, an execution
+  input or a probe-harness need. A diagnosis-admitted entry names its
+  operation, single-object target, process, consumer and evidence, and has a
+  removal entry. The justified baseline is exactly the baseline half. A
+  host-independent check proves the rendered template's rule units equal the
+  disjoint union of the baseline and the removal set. The ledger narrows the
+  unfiltered process family to fork and exact-target exec, narrows `/System`
+  and the cell root, and withdraws the self-signal, `/Library`, host tmp,
+  `/dev/dtracehelper`, `sysctl-read` and `ipc-posix-shm` rules. A withdrawn
+  rule returns only as a non-admitting restoration diagnostic followed by
+  single-object attribution and a removal control.
 - Compare the two Seatbelt startup profiles as one normalized authority
   template with typed substitutions for each private cell root and payload
   root. Record the concrete bytes and digest per cell, but do not mistake those
@@ -218,8 +242,8 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved starting HEAD `c84502d`, which is measured candidate `fa7ece5` plus
-its specification reconciliations `098914c` and `c84502d`; `225d2c7`, `8c53dce`, `9f4c2c9` and their
+preserved starting HEAD `5dca1d0`, which is measured candidate `fa7ece5` plus
+its specification reconciliations `098914c`, `c84502d` and `5dca1d0`; `225d2c7`, `8c53dce`, `9f4c2c9` and their
 native measurements remain historical evidence, not checkout targets. It answers the
 current findings in dependency order. The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
@@ -248,6 +272,9 @@ authored in this specify phase. No workflow runner is invoked.
 | Child-spawn authority | **Adopt as the next discriminating measurement.** Every failing cell withheld `file-write*` outside the payload, while null stdio opens `/dev/null` for writing before exec. That is the leading hypothesis, not a conclusion. Per-sub-stage errors plus no-spawn, inherited-stdio, null-stdio and single literal diagnostic cells decide it or move attribution to the exec. | `seatbelt-execution`: Child-spawn refusal is localized to its sub-stage |
 | Root-inode removal control unobserved | **Corrected by the removal-scope clarify answer below.** No fa7 Seatbelt cell reached `READY`, so no removal was due. The empty `negative_controls` lists on S1 and S3 are the designed not-due outcome, not a gap, and S0 and S2 are unboxed. The root-inode read stays unproven as load-bearing until a cell that reaches `READY` observes its removal blocking. On such a cell an empty record fails. | `seatbelt-execution`: A Seatbelt cell without an observed removal control fails |
 | Removal-control scope (clarify, fa7) | **Adopt READY-only.** Removal controls are due on exactly the Seatbelt startup cells that reach a nonce-authenticated `READY`. Blocking means the stripped replay, from fresh payload state, reaches no `READY`. A non-`READY` cell records each removal as not due and fails on its own facts. The set is exactly the diagnosis-admitted predicates, verbatim as the template carries them; a host-independent test checks that set against the template. Each removal is a direct `/usr/bin/sandbox-exec` replay of the cell's own profile, S3 included, because launchd adds no Seatbelt authority; a launchd-only predicate is not admitted. Every-cell removal with a stage-relative "blocked" is refuted. Necessity is proven only against a candidate that starts, and a later predicate can change it. An earlier failure of a stripped non-starting run only shows that the predicate advances the stages, so recording it as load-bearing would fabricate proof. Cross-candidate stage progress stays diagnosis evidence. | `seatbelt-execution`: A non-starting Seatbelt cell owes no removal verdict; A launchd cell's removal replays the profile directly; The removal set is exactly the diagnosis-admitted predicates |
+| Startup-rule ledger (clarify, `5dca1d0`) | **Adopt.** The removal-set completeness test had no classification source. Every template rule is now a normalized rule unit (one operation, at most one filter) with exactly one class in a typed ledger. The justified baseline is defined as the baseline half. The check parses the rendered template and requires its units to equal baseline ⊎ removal set, so an unlisted, doubly classified or missing unit fails. The subset-only check it replaces could not detect a missing diagnosis-admitted rule. | `seatbelt-execution`: The experimental startup template is an audited rule ledger; The template is exactly the ledger's disjoint union |
+| The four `8c53dce` additions | **Dispose explicitly.** The helper literal is justified baseline as an execution input, and `/dev/random` as a hands element (the box's `--dev /dev` device set). `/private/var/tmp` contradicts the private per-call tmp and is withdrawn. `/dev/dtracehelper` is in no hands element and has no measurement behind it, because `8c53dce` still aborted on the root inode, so it is withdrawn. | `seatbelt-execution`: The four 8c53dce additions keep their disposition |
+| Historical template authority | **Withdraw or narrow; never grandfather.** No 0043 element justifies the unfiltered process family, self-signal, `/Library`, host `/private/tmp`, the whole cell root, `sysctl-read` or `ipc-posix-shm`. `/System` also contains `/System/Volumes/Data`. Each is narrowed to a justified unit or withdrawn, and a withdrawn unit re-enters only through a labelled restoration diagnostic, native single-object attribution and its own removal control. A `/System/Volumes/Data` credential-read denial control is added. | `seatbelt-execution`: A withdrawn unit returns only through the bounded experiment; The data-volume spelling of a credential stays denied |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
 | R5 — system launcher | **Retain.** Only the literal trusted `/usr/bin/sandbox-exec` and a bounded real allow/deny probe establish launcher readiness; lookalikes never execute. | `boundary-availability`: The system pin ignores an earlier lookalike |
@@ -367,9 +394,36 @@ unavailable or insufficient, committed minimal helpers bracket dynamic-loader,
 pre-main, filesystem, child-spawn and clean-exit stages, and bounded monotonic
 combinations determine the minimal jointly required predicates. Every proposed
 predicate names its operation, narrow target and consumer and is rerun alone
-against the newly justified baseline with credential, host-write, network,
+against the justified baseline with credential, host-write, network,
 guard and peer denial controls. A broad family or combination is diagnostic
 only and never becomes the candidate without this per-predicate evidence.
+
+The justified baseline is the baseline half of one typed startup-rule ledger,
+which accounts for every rule of the template. The ledger's unit is one `allow`
+form with one operation and at most one filter. The template's grouped
+`file-read*` form therefore counts as one unit per filter, and a removal strips
+exactly one unit. Baseline units trace to a 0043 hands element as `hands.rs`
+realizes it, an execution input or a named probe-harness need. The toolchain
+reads and execs, `/System/Library` and the OS cryptex, the helper, the typed
+inputs and payload roots, and the box's device reads are baseline. So is
+`process-fork`, the only unfiltered unit. The root-inode read is the one
+diagnosis-admitted unit, with removal entry `root-inode-read`. An attributed
+`/dev/null` write-data literal joins that half with its own removal entry.
+Every other fa7 unit is withdrawn or narrowed with a recorded reason. When the
+candidate fails before `READY`, each withdrawn unit runs alone as a labelled
+restoration diagnostic, and one cell restores all of them to reproduce fa7's
+authority. None of these cells admits anything. Seatbelt denial events are
+kept for every cell, or recorded unavailable.
+
+Three alternatives were refuted. Labelling the historical template baseline
+would claim a justification nobody recorded. Placing every historical rule in
+the removal set would prove only necessity, never narrowness: an unfiltered
+`sysctl-read` that blocks startup when stripped is still broad authority, and
+the non-goals forbid it. Starting from an empty profile would discard
+authority the hands policy itself grants, such as executing the helper that
+`sandbox-exec` must run. `/dev/null` write-data stays diagnosis-admitted, the
+stricter class the child-spawn answer ruled, even though the box's device set
+could name it as baseline.
 
 This is a hypothesis, not evidence. If launchd exposes only process-group
 cleanup, requires private SPI, a privileged entitlement or global mutation,

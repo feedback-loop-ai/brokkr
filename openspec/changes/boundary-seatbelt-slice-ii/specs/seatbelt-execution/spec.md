@@ -349,7 +349,8 @@ they are unavailable or insufficient, committed minimal helpers SHALL bracket
 dynamic-loader, pre-main, first-write, executable lookup, child-spawn and clean-
 exit behavior; bounded monotonic combinations MAY reveal jointly required
 predicates but remain diagnostic. Each proposed predicate SHALL be rerun alone
-against the newly justified baseline. Every added predicate SHALL preserve
+against the justified baseline, which is the baseline half of the startup-rule
+ledger defined by the next requirement. Every added predicate SHALL preserve
 negative controls over guard/peer authority, credentials, host writes and
 undeclared network access. Broadening an operation class merely until startup
 succeeds is forbidden, and a passing broad combination SHALL NOT be copied into
@@ -359,13 +360,15 @@ replaying the exact candidate with that one predicate stripped SHALL fail the
 payload closed before the startup verdict can pass, and a removal that still
 starts or cannot be observed SHALL fail the cell. The stripped profile is
 evidence only and SHALL NOT enter the candidate. The predicates that need a
-removal control are exactly those admitted into the candidate by startup
-diagnosis. The probe's bounded removal set SHALL list each of them verbatim as
-the normalized template carries it; today that is only the root-inode read.
-The template's baseline hands-policy rules are bounded by that policy and by the
-denial controls, not by removal. A set entry the candidate does not carry
-records an unobserved removal. A diagnosis-admitted template predicate missing
-from the set is a probe defect, and a host-independent test SHALL refuse it.
+removal control are exactly the diagnosis-admitted entries of that ledger. The
+probe's bounded removal set SHALL list each of them verbatim as one normalized
+rule unit. Baseline ledger entries are bounded by their recorded justification
+and by the denial controls, not by removal. A host-independent test SHALL prove
+that the normalized template's rule units equal the disjoint union of the
+baseline entries and the removal set. An unlisted unit, a unit in both halves
+or a listed unit the template lacks therefore fails before any native run. At
+runtime, a set entry the concrete profile does not carry records an unobserved
+removal.
 Removal controls are due on exactly the Seatbelt startup cells that reach a
 nonce-authenticated `READY`. Such a cell SHALL carry an observed removal
 control for every entry in the set. An empty, missing or unobserved record
@@ -403,12 +406,16 @@ plus exactly one named literal-scoped diagnostic
 SHALL NOT pass a startup verdict. If none of them attributes the refusal, the
 spawn/exec sub-stage error and native denial evidence SHALL name the exec-side
 operation and target, such as a `process-exec` or file read of the resolved
-helper path, before any predicate is proposed. A child-spawn predicate enters
-the candidate only when this evidence attributes the refusal to it, only in
-literal-scoped form and only with its own removal control; every denial control
-SHALL rerun on the resulting candidate. A `/dev` subpath, broad `file-write*`,
-or any process, Mach/IPC, service or network authority wider than the candidate
-already names SHALL NOT cure the spawn.
+helper path, before any predicate is proposed. The ledger's baseline already
+names the helper as an execution input, so an exec-side refusal of the helper
+under another spelling corrects that input's canonical spelling rather than
+admitting a new grant. A child-spawn predicate enters the candidate only when
+this evidence attributes the refusal to it, only in literal-scoped form and
+only as a diagnosis-admitted ledger entry with its own removal control; every
+denial control SHALL rerun on the resulting candidate. The spawn SHALL NOT be
+cured by a `/dev` subpath, a broad `file-write*`, any process operation other
+than the ledger's `process-fork` and exact-target `process-exec` units, or any
+Mach/IPC, service or network grant.
 A separately labelled `allow default` run MAY diagnose that the restrictive
 profile is the differing
 layer, but it SHALL never be a candidate observation or authorize an allowance.
@@ -612,13 +619,17 @@ verdict. Gate B was correctly not run.
 - **WHEN** the probe reports their removal controls
 - **THEN** each set entry reads not due because the cell reached no `READY`; the cell fails on its own startup facts; no stripped replay, stripped-run stages or cross-candidate contrast is recorded as blocking, satisfied or load-bearing; and the root-inode read stays unproven
 
+#### Scenario: A stripped replay that reaches READY is not blocking
+- **WHEN** a removal control's stripped replay reaches a nonce-authenticated `READY` and then exits nonzero, exits by signal or never records `return-clean`
+- **THEN** the control is observed and not blocking and the cell fails; only a stripped replay that reaches no `READY` from fresh payload state is blocking, and neither a clean exit nor a failed later stage enters the blocking verdict
+
 #### Scenario: A launchd cell's removal replays the profile directly
 - **WHEN** S3 reaches `READY` as a launchd-owned job
 - **THEN** each removal runs through direct `/usr/bin/sandbox-exec` with S3's own concrete profile minus that one predicate, from S3's private root with fresh payload state and the identical helper and argv, and no new launchd label is bootstrapped for it; a predicate whose consumer exists only under launchd ownership is not admitted
 
 #### Scenario: The removal set is exactly the diagnosis-admitted predicates
-- **WHEN** a host-independent probe test compares the removal set with the normalized candidate template
-- **THEN** every set entry appears verbatim in the template, every template predicate admitted by startup diagnosis appears in the set, and baseline hands-policy rules are not required to carry removal controls; a mismatch fails the test
+- **WHEN** a host-independent probe test compares the removal set with the rendered candidate template and the startup-rule ledger
+- **THEN** it parses the template into rule units and requires them to equal the disjoint union of the baseline entries and the removal set; every set entry appears verbatim as a diagnosis-admitted unit, baseline entries carry no removal control, and an unlisted, doubly classified or missing unit fails the test
 
 #### Scenario: Child-spawn refusal is localized to its sub-stage
 - **WHEN** a Seatbelt cell reaches `executable` and the ordinary-child spawn fails while the unboxed control spawns the identical child
@@ -627,6 +638,202 @@ verdict. Gate B was correctly not run.
 #### Scenario: A named child-spawn predicate is literal-scoped and removable
 - **WHEN** the discriminating cells attribute the child-spawn refusal to one operation and target
 - **THEN** only that literal-scoped predicate enters the candidate, its own removal control strips exactly it and observes the identical payload fail closed, every denial control reruns, and no `/dev` subpath, broad `file-write*` or wider process, Mach/IPC, service or network grant is admitted
+
+### Requirement: The experimental startup template is an audited rule ledger
+
+One committed, typed startup-rule ledger SHALL account for every rule of the
+experimental startup template, which Gate A and Gate B share. It lives beside
+the removal set in the probe's shared model and is the only source of the
+candidate's authority.
+
+The ledger's unit of account is the **rule unit**: one `allow` form with one
+operation and at most one filter. Units are written in the normalized template,
+where the typed placeholders `<cell-root>`, `<payload-root>` and `<helper>`
+replace the concrete cell root, payload root and helper path. A form carrying
+several filters normalizes into one unit per filter. An unfiltered form is one
+unit. The removal set uses the same unit, so a removal strips exactly one unit
+even when the rendered template groups units in one form. The profile frame is
+not a unit. The template SHALL open with exactly `(version 1)` and
+`(deny default)`, and SHALL carry no other `deny` form, `allow default`,
+import or parameter. `<helper>` SHALL be instantiated with the helper's
+canonical path, because Seatbelt matches resolved paths.
+
+Every rule unit SHALL carry exactly one class.
+
+- A **baseline** entry records a justification kind and a concrete
+  justification. The kind is one of three:
+  - a **hands element**, the Seatbelt image of authority that decision 0043,
+    as `hands.rs` realizes it, already gives every boxed command;
+  - an **execution input**, the exact payload executable or a typed probe root;
+  - a **probe-harness need**, a named file or process the probe itself reads,
+    writes or runs.
+
+  A rule is not baseline because an earlier template carried it. A baseline
+  entry claims no measured necessity.
+- A **diagnosis-admitted** entry records its operation, narrow target,
+  responsible process, consumer and the native evidence that admitted it. It
+  names exactly one removal-set entry. Its filter SHALL name a single object: a
+  `literal`, or one named sysctl, IPC object or service. An unfiltered unit, or
+  a `subpath`, `prefix` or `regex` filter, SHALL NOT be diagnosis-admitted.
+
+The **justified baseline** is the baseline half of this ledger and nothing
+else. The candidate's rule units SHALL equal the disjoint union of the baseline
+entries and the removal set. `(allow process-fork)` is the only unfiltered
+unit, because fork has no target. Any other unfiltered `allow` fails the check.
+
+The candidate this change prepares carries these baseline entries:
+
+| Rule unit | Kind | Justification |
+|---|---|---|
+| `(allow process-fork)` | hands element | 0043 ruling 1 runs each call as `bash -lc`, whose commands fork children. The probe's consumers are the ordinary child and the `setsid` and double-fork descendants. |
+| `(allow process-exec (literal "<helper>"))` | execution input | `sandbox-exec` executes the exact helper under the profile. The helper re-executes itself for its child and descendant roles. |
+| `(allow process-exec (subpath "/usr"))` | hands element | The host toolchain that 0043 ruling 1 lets `bash -lc` run. |
+| `(allow process-exec (subpath "/bin"))` | hands element | The same toolchain. Gate B's escape, guard and peer adversaries run the real `/bin/launchctl`, so their denials measure launchd authority rather than a refused exec. |
+| `(allow process-exec (subpath "/sbin"))` | hands element | The same toolchain. |
+| `(allow file-read* (subpath "/usr"))` | hands element | The toolchain bound read-only (`hands.rs`: `/usr/bin`, `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`, `/usr/include`). |
+| `(allow file-read* (subpath "/bin"))` | hands element | The `/bin` toolchain bind. |
+| `(allow file-read* (subpath "/sbin"))` | hands element | The `/sbin` toolchain bind. |
+| `(allow file-read* (subpath "/System/Library"))` | hands element | macOS system libraries and frameworks, the image of the `/lib`, `/lib64` and `/usr/lib` binds. |
+| `(allow file-read* (subpath "/System/Volumes/Preboot/Cryptexes/OS"))` | hands element | The OS cryptex, where current macOS keeps the dyld shared cache. It is the same element. |
+| `(allow file-read* (literal "<helper>"))` | execution input | The committed helper bytes, which no other unit covers. |
+| `(allow file-read* (subpath "<cell-root>/inputs"))` | probe-harness need | Immutable launch inputs, such as the guard and peer labels the denial adversaries target. |
+| `(allow file-read* (subpath "<payload-root>"))` | probe-harness need | The payload's own stages, ready token, identities and heartbeat. |
+| `(allow file-write* (subpath "<payload-root>"))` | hands element | The writable worktree's image, and the only writable location. It holds the payload state above. |
+| `(allow file-read* (literal "/dev/null"))` | hands element | The box's private device set (`hands.rs` `--dev /dev`). It is also the ordinary child's null stdin. |
+| `(allow file-read* (literal "/dev/urandom"))` | hands element | The same device set. |
+| `(allow file-read* (literal "/dev/random"))` | hands element | The same device set. |
+
+It carries one diagnosis-admitted entry:
+
+| Rule unit | Operation and target | Process and consumer | Evidence | Removal entry |
+|---|---|---|---|---|
+| `(allow file-read* (literal "/"))` | `file-read-data` of the root inode only | the helper, in `dyld` process initialisation | Without it, `9f4c2c9` aborted before any stage. With it, `fa7ece5` reached `executable`. | `root-inode-read` |
+
+Its necessity stays unproven until a Seatbelt cell that reaches `READY`
+observes its removal blocking. A literal `(allow file-write-data (literal
+"/dev/null"))` that the child-spawn cells attribute SHALL enter this half with
+its own removal entry. It does not enter the baseline, even though the box's
+device set could name it, because the child-spawn attribution owns it. Until
+then the candidate carries no `/dev/null` write.
+
+Every unit of the measured fa7 template, `fa7ece5` `sandbox_profile`, SHALL
+keep a recorded disposition. The units kept unchanged are the root-inode
+read, the `/usr`, `/bin` and `/sbin` reads, the helper read, the three device
+reads and the payload write. The units withdrawn or narrowed are:
+
+| fa7 unit | Disposition | Reason |
+|---|---|---|
+| `(allow process*)` | Narrowed to `process-fork` and the exact-target `process-exec` units. | The family also carries process-information and code-signing operations on other processes. The hands box unshares pid, and no consumer needs them. |
+| `(allow signal (target self))` | Withdrawn. | No consumer is named, and no measurement shows it is needed. |
+| `(allow file-read* (subpath "/System"))` | Narrowed to `/System/Library` and the OS cryptex. | `/System` also holds `/System/Volumes/Data`, the data volume that also spells `/Users` and `/private`. No hands element grants it. |
+| `(allow file-read* (subpath "/Library"))` | Withdrawn. | Host-wide preferences and keychain directories are not a hands element, and the probe names no consumer. Production toolchain paths come from the production profile's declarations, not from this template. |
+| `(allow file-read* (subpath "/private/tmp"))` | Withdrawn. | Host tmp contradicts the private per-call `/tmp` of 0043 ruling 1, and no consumer is named. |
+| `(allow file-read* (subpath "/private/var/tmp"))` | Withdrawn. | The same contradiction. |
+| `(allow file-read* (subpath "<cell-root>"))` | Narrowed to `<cell-root>/inputs` and `<payload-root>`. | Guard and observer state needs no payload read. |
+| `(allow file-read* (literal "/dev/dtracehelper"))` | Withdrawn. | It is not in the box device set, and no measurement shows it is needed. |
+| `(allow sysctl-read)` | Withdrawn. | Unfiltered, it covers the process-table and process-argument sysctls that describe other processes. |
+| `(allow ipc-posix-shm)` | Withdrawn. | Unfiltered, it opens shared memory with any same-user process. The hands box unshares ipc. |
+
+The four units that `8c53dce` added when it replaced the aborting Python
+payload of `6a19a6f` are disposed of as follows. The same exact profile still
+aborted at `8c53dce` in CI `34441725835`, so no measurement shows any of them
+needed:
+
+- `(subpath "/private/var/tmp")` is withdrawn.
+- `(literal "<helper>")` is justified baseline, as an execution input.
+- `(literal "/dev/random")` is justified baseline, as a hands element.
+- `(literal "/dev/dtracehelper")` is withdrawn.
+
+A withdrawn unit carries no authority. It returns only through the bounded
+native experiment. When a Seatbelt startup cell of the candidate fails before
+`READY`, each withdrawn unit SHALL run as its own labelled restoration
+diagnostic, meaning the exact candidate plus that one historical unit. One
+further labelled cell SHALL restore every withdrawn unit at once. It reproduces
+fa7's authority, which separates a regression caused by the withdrawal from the
+measured child-spawn refusal. These cells are diagnostics. They never pass
+startup and never admit authority. If one advances the stages, native denial
+evidence SHALL name the operation and a single-object target before a
+diagnosis-admitted entry with its own removal control enters the ledger, and
+every denial control SHALL rerun. The unfiltered process family, unfiltered
+`sysctl-read`, unfiltered `ipc-posix-shm`, host tmp reads and `(subpath
+"/System")` SHALL NOT re-enter in their historical form. Denial evidence may
+show the system-library element under another resolved spelling. That
+spelling, no wider than the element, then replaces its baseline unit, recorded
+with its evidence as a correction of the same justification.
+
+Each Seatbelt startup cell, removal replay and diagnostic SHALL keep the
+bounded native Sandbox denial events that the unprivileged observer can read
+for its responsible processes during that cell. If the host does not make them
+available, the cell SHALL record them as unavailable. An absent event never
+proves an operation allowed or unneeded. The startup denial controls SHALL add
+a read of the credential target through its `/System/Volumes/Data` spelling,
+and the candidate SHALL deny it as it denies the direct spelling.
+
+The check SHALL be a host-independent function over the rendered template text,
+the ledger and the removal set. It SHALL parse the rendered profile rather than
+trust whatever renders it. It SHALL refuse each of these:
+
+- a unit in neither half, or a unit in both halves;
+- a ledger or removal entry the template lacks;
+- a missing or altered frame, an extra `deny` or an `allow default`;
+- an unfiltered unit other than `process-fork`;
+- a baseline entry without a justification of a named kind;
+- a diagnosis-admitted entry that lacks its operation, target, process,
+  consumer, evidence or removal entry, or that uses a filter wider than a
+  single object;
+- a removal entry whose unit is not diagnosis-admitted.
+
+The fa7 template stays in the probe's test data verbatim. The check SHALL
+prove that each of its units is carried by the ledger or has a withdrawal
+record with its reason, and that each of the four `8c53dce` units keeps the
+disposition above.
+
+The ledger changes the candidate. Its startup is unmeasured until the
+controller's native Gate A runs on the exact head that carries it. fa7's
+progress to `executable` describes the fa7 template, not this one. No stage
+progress, denial result or removal verdict carries over from fa7 to the new
+candidate.
+
+#### Scenario: The template is exactly the ledger's disjoint union
+- **GIVEN** the rendered candidate template, the startup-rule ledger and the removal set
+- **WHEN** the host-independent check parses the template into normalized rule units
+- **THEN** the units equal the baseline entries plus the removal set with no overlap, the frame is exactly `(version 1)` then `(deny default)`, and `(allow process-fork)` is the only unfiltered unit
+
+#### Scenario: An unlisted or doubly classified unit fails
+- **WHEN** the check receives a template carrying one extra unit that is in neither half, such as `(allow sysctl-read)` or `(allow file-write-data (literal "/dev/null"))` without its ledger entry, or a ledger that lists one unit both as baseline and in the removal set
+- **THEN** the check fails and names the unit, and no multi-filter grouping hides an extra filter inside a listed form
+
+#### Scenario: A listed unit the template lacks fails
+- **WHEN** a baseline entry or a removal entry names a unit that the rendered template does not carry
+- **THEN** the check fails before any native run, and the adapter never reports that entry's removal as observed
+
+#### Scenario: Every ledger entry carries its typed justification
+- **WHEN** a baseline entry has an empty justification or a kind other than hands element, execution input or probe-harness need, or a diagnosis-admitted entry lacks its operation, narrow target, responsible process, consumer, evidence or removal entry
+- **THEN** the check fails; a historical presence in an earlier template is not a justification
+
+#### Scenario: A diagnosis-admitted unit names a single object
+- **WHEN** a diagnosis-admitted entry is unfiltered or uses a `subpath`, `prefix` or `regex` filter
+- **THEN** the check refuses it, whatever a restoration or one-class diagnostic observed
+
+#### Scenario: The four 8c53dce additions keep their disposition
+- **WHEN** the check reads the ledger and the retained fa7 template
+- **THEN** `(literal "<helper>")` and `(literal "/dev/random")` are baseline with their recorded kinds, `(subpath "/private/var/tmp")` and `(literal "/dev/dtracehelper")` are absent from the candidate with withdrawal records, and every other fa7 unit is carried by the ledger or has a withdrawal record
+
+#### Scenario: A withdrawn unit returns only through the bounded experiment
+- **WHEN** a Seatbelt startup cell of the ledger candidate fails before `READY` and the restoration diagnostic for one withdrawn unit, or the all-restored fa7-authority cell, advances the stages
+- **THEN** those cells stay non-passing and admit nothing, native denial evidence must name an operation and single-object target before a diagnosis-admitted entry with its own removal control enters, every denial control reruns, and no withdrawn unfiltered family, host tmp read or `(subpath "/System")` returns
+
+#### Scenario: An attributed /dev/null write is diagnosis-admitted
+- **WHEN** the child-spawn cells attribute the refusal to the null-stdio write open of `/dev/null`
+- **THEN** exactly `(allow file-write-data (literal "/dev/null"))` enters the diagnosis-admitted half with its own removal entry, the equality check passes only with both, and its necessity stays unproven until a cell that reaches `READY` observes that removal blocking
+
+#### Scenario: The data-volume spelling of a credential stays denied
+- **WHEN** a denial control reads the credential target through `/System/Volumes/Data`
+- **THEN** the read fails without returning bytes on every Seatbelt cell that runs the controls, exactly as the direct spelling does
+
+#### Scenario: The ledger candidate's startup is pending native measurement
+- **WHEN** the ledger candidate is prepared on the Linux controller
+- **THEN** its Gate A startup, denial controls and removal controls are recorded as pending for the controller's exact-head native run, and fa7's stage progress, denials and not-due removals are not attributed to it
 
 ### Requirement: Native lifetime feasibility precedes full implementation
 

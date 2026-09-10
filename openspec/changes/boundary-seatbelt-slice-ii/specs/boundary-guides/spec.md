@@ -212,6 +212,14 @@ SHALL state that Gate B did not run. The next action SHALL name child-spawn sub-
 field-wise launchd parsing. It SHALL NOT request an unchanged retry or present
 a broad diagnostic as the cure.
 
+It SHALL describe the probe's candidate authority as the audited startup-rule
+ledger. That description names the baseline units with their justification
+kinds and the root-inode read as the one diagnosis-admitted unit. It also names
+the fa7 units the ledger withdrew or narrowed, including the dispositions of
+the four `8c53dce` additions. It SHALL report the ledger candidate's startup as
+pending its own native Gate A. It SHALL NOT attribute fa7's stage progress,
+denials or not-due removals to that candidate.
+
 While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
 labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.
 Refusing shipped overlays is an unmet deliverable, not an optional limitation.
@@ -248,6 +256,10 @@ and historical examples and channel versions retain their meaning.
 #### Scenario: The fourth startup run separates progress from proof
 - **WHEN** the guide reports native CI `34457208029`
 - **THEN** it names the progress to `executable`, the child-spawn `EPERM`, the three observed denials, S2's printed clean terminal facts with an unknown crash counter, S3's printed exit 2, the removal control not due because no Seatbelt cell reached `READY`, and Gate B not run, and calls none of startup, launchd containment or any R1–R4 residual proven
+
+#### Scenario: The ledger candidate is reported as unmeasured
+- **WHEN** the guide describes the Seatbelt probe after the startup-rule ledger narrowed the fa7 template
+- **THEN** it lists the baseline units and their justification kinds, the diagnosis-admitted root-inode read, and each withdrawn or narrowed fa7 unit with its reason, and it reports that candidate's startup as pending its own native run rather than inheriting fa7's progress
 
 #### Scenario: Accepted observables and proof status stay adjacent
 - **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view
