@@ -359,12 +359,28 @@ Alternatives weighed, each rejected on evidence rather than taste:
     artifact generically; the dialects keep their own paths, formats and
     phase maps, and judges gain no permission to edit them.
 
+    Progress and delivery are two separate facts, and the artifact
+    records the first while the change is still active. Every tracked
+    repository-local obligation is finished and its tick persisted before
+    the normal archive operation, which is the final tracked artifact
+    effect; the delivery commit follows it as an untracked phase action.
+    Exact-head evidence whose subject is the immutable delivery commit or
+    a later integrated head — the host exact-coverage gate, remote CI on
+    the final head, integration, publication, PR, merge and issue closure
+    — is controller evidence recorded outside the checked task state and
+    outside this artifact, because checking it would mutate the head it
+    judges. Its absence gates the corresponding delivery or closure
+    claim; it never leaves an archived task unticked or licenses a
+    post-commit edit of this artifact.
+
     **Enforcement binding:** `agents/charters/implementer-sdd.md`; the
     charter identity in `crates/brokkr-runtime/tests/library_data.rs` and
     the rendered-prompt expectations in
     `crates/brokkr-runtime/tests/sdd_shape.rs` and
     `crates/brokkr-runtime/tests/roster.rs`; the deterministic recovery
-    exercise and the judge-read-only test beside them.
+    exercise and the judge-read-only test beside them; and the
+    finalization order in `design.md` D9/D11, whose post-task archive,
+    provenance and commit steps are deliberately not checkboxes.
 
 ## Consequences
 
