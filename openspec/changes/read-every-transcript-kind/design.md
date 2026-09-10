@@ -1,9 +1,10 @@
 ## Context
 
-Adopt **read-every-transcript-kind** through entry checkpoint `4e596fe`,
-including preserved implementation checkpoint `48739c6`, commissioned
-checkpoint `73797a6`, task repairs `c03aafc`/`c4ceb78` and all preceding
-specification/design repairs, for issue #222 on shipped main
+Adopt **read-every-transcript-kind** at entry checkpoint `d76a310`, including
+preserved implementation checkpoint `48739c6`, commissioned checkpoint
+`73797a6`, task repairs `c03aafc`/`c4ceb78`, the implementation repairs
+through `bde819a`, and all preceding specification/design repairs, for issue
+#222 on shipped main
 `5bc8cf305aaef9af269866cbf83f094939691399`.
 See [proposal.md](proposal.md) for motivation and the three capability deltas
 for requirements. This sitting belongs to run
@@ -39,27 +40,28 @@ citation-set membership despite the provider replay decoder's stricter
 ordering. R17-R21 settle browser invalidation, recovery, recurrence, admission
 and watch budgeting; R22 requires drill eligibility beside admission on every
 browser action, and R23 treats a successful zero-turn body as received rather
-than perpetually missing. This revision preserves all of those answers and
-all earlier reference, compatibility, fallback and diagnostic answers. No
-requirement or scenario is removed.
+than perpetually missing. R24 distinguishes discovery-stage from body-stage
+`unreadable`; R25 replaces unsafe ordinary JSON quoting and semicolon framing
+with one exact portable display literal and comma-separated descriptive fields.
+This revision preserves all of those answers and all earlier reference,
+compatibility, fallback and diagnostic answers. No requirement or scenario is
+removed.
 
 The current tree now contains the intended shared projector, handle-oriented
 filesystem helper, transcript command, TUI refresh, prose-free browser
-presentation and exact served-controller harness. That is the architecture to
-repair in place. Direct current-tree inspection confirms eight downstream
-faults raised by the robustness seat: source identity is not lossless on every
-supported Unix target; foreign-platform absolute spellings can reach native
-I/O; DSH version admission occurs after later-row classification; rendered
-tool blocks lose recorded identity and some provider fields; the transcript
-command bypasses world-wide run resolution; browser rendering omits the common
-reference and one graph-selection path bypasses the explicit-reset event;
-rollout-shaped directories prune Codex traversal; and DSH citation matching can
-be quadratic within the byte bound. D2-D11 make these repair constraints
-explicit. They are implementation/proof defects, not new specification
-ambiguities, and do not reopen R1-R24.
+presentation and exact served-controller harness. The eight implementation
+faults recorded by the previous design sitting were repaired through
+`bde819a`; this sitting does not reopen them without new evidence. The current
+robustness seat instead confirms one concrete R25 propagation gap: the shared
+helper, hint framing, decision, checked tasks, implementation and surface tests
+still encode ordinary JSON quoting and semicolon-separated Codex fields. D1,
+D7 and D10-D11 replace that design rule without changing the architecture.
+The decision, task, implementation and proof repairs remain dependency-ordered
+downstream work; a checked box or an earlier green result cannot prove the
+new rule.
 
-The current `returned_from` is analyze sequence 706 and carries three valid
-artifact defects. F1's earliest owner is this design: the premature archive
+The earlier analyze sequence 706 carried three valid artifact defects. F1's
+earliest owner was this design: the premature archive
 already folded the three `openspec/specs/transcript-*` capabilities, so those
 living specifications are accumulated truth and the required base for every
 active `MODIFIED` delta, not stale copies to delete. Their existing provenance
@@ -72,8 +74,9 @@ distinct locked release-profile build, and task 8.9 conflates four
 contract-admitted CLI refusal documents with the future-kind journal fence and
 the pure reader's defensive `unsupported-kind` arm. D1, D11 and the Migration
 Plan record the design constraints; the next task office must repair those
-task-owned lines. At entry the ledger has 45 checked and 29 unchecked tasks;
-no council or historical gate result changes those boxes in this sitting.
+task-owned lines. At entry the ledger has 77 checked and zero unchecked tasks. R25 invalidates
+the evidence behind the affected implementation, surface, guide, gate and fold
+items, so the next task office must reopen them before implementation resumes.
 
 Decisions 0004/0005, 0009, 0013/0014, 0030, 0032, 0034 and 0042 bind this
 work: explicit refusals, Rust production, shared derivation, read-only
@@ -85,14 +88,14 @@ reservations stand and no sibling integration is assumed.
 ### Evidence and its limits
 
 Both current positions were read completely:
-`.forge/design/positions/robustness.md` (353 lines) and
-`.forge/design/positions/simplicity.md` (318 lines), each against `4e596fe`.
+`.forge/design/positions/robustness.md` (363 lines) and
+`.forge/design/positions/simplicity.md` (234 lines), each against `d76a310`.
 They are run-local evidence, not artifacts to commit. D1 reconciles every
 material claim; the earlier sitting's rejected scope cuts remain recorded in
 proposal S9 and git history.
 
-The workspace tool exposes OpenSpec but no Cargo, rustup, Codex, DSH or Claude
-executable in this sitting. The simplicity seat reports current-head format,
+The workspace tool exposes OpenSpec and Git but no Cargo, rustup, Codex, DSH or
+Claude executable in this sitting. The simplicity seat reports current-head format,
 clippy, both bundle compilations and all workspace tests except the one
 namespace-dependent machine proof as passing from its execution boundary. Its
 results, and the older 108/108 `brokkr-view` result including 23 transcript
@@ -205,19 +208,22 @@ selected in D3 and present in the lock graph.
 | Both: admission and drill eligibility are independent, and every label/body/watch needs both. | **Adopt R22.** Admission remains the shared kind-agnostic discovery result; drill eligibility remains the Claude-kind/local-home client gate. Widening either fact into the other would make Codex, DSH or foreign-home sources call a Claude-only route. |
 | Both: a successful zero-turn body is received. | **Adopt R23.** Body state is independent of `turns.length`; HTTP 200 with `turns: []` ends the deferred repair until an explicit clear or refusal. |
 | Robustness: make R24's discovery/body `unreadable` distinction structural; simplicity: add no new public outcome, route, state or token. | **Combine.** Discovery can yield the existing `unreadable` token before admission; only an admitted arm can proceed to a body-stage failure. Private constructors enforce that split, while `TranscriptRead` remains the only public result and the browser presentation remains prose-free. D2, D7 and D9 state the legal construction and D11 proves both traces. |
+| Robustness: R25 invalidates ordinary JSON quoting and semicolon framing; simplicity: preserve the current small architecture and treat remaining work as proof and ledger repair. | **Combine, with the specification as authority.** D7 replaces the shared helper with one pure `portable_display_literal`, exact comma framing and complete-line proof. CLI, TUI and browser continue to consume one shared value, so no renderer, route, crate or public model is added. Calling this proof-only is rejected because the current design and implementation construct a different observable string from the repaired requirement. |
 | Both current positions: living capability specifications are the base for the active `MODIFIED` deltas, not disposable generated output. | **Adopt.** Proposal S16 and decision 0042 are controlling evidence: the previous fold accumulated these requirements into living truth, and every current delta modifies that truth. Pre-archive deletion, conversion back to `ADDED`, a fabricated archive directory and provenance exemptions are rejected. Preserve the specifications and their existing append-only pointers; the final archive operation reconciles the deltas once under `2026-09-10-read-every-transcript-kind`, making the existing pointers resolvable without rewriting or duplicating them. |
 | Both current positions: production dependency inspection and MSRV all-target compilation do not prove the release artifact builds. | **Adopt as a distinct downstream gate.** D11 requires `cargo build --release --locked -p brokkr-cli` with the house's job bound in addition to, and not instead of, the Boa production-graph assertion and Rust 1.88 all-targets check. This is task-owned F2; no new dependency or architecture follows. |
 | Both current positions: current CLI refusal documents and defensive unknown-kind handling are different reachability classes. | **Combine into three proofs.** Command tests cover the four contract-admitted rejected common references and preserve their documents; a journal-boundary test proves `future-session` is refused before selection with no transcript document or stdout; a pure-view test retains direct `unsupported-kind` handling. Widening frozen seat-record kinds for test convenience and deleting the defensive arm are both rejected. This is task-owned F3 and changes no requirement. |
 | Both: scope the no-mutation convention to the system under test and real operator evidence while allowing synthetic fixture creation and mutation. | **Adopt; landed in `tasks.md` at `c03aafc`.** The reader/hints/renderers never create or mutate retained evidence; test setup may create and mutate only its own synthetic homes/files between reader invocations. This preserves the production read-only boundary and makes the required append, shrink, disappearance, replacement and same-length rewrite tests possible. |
 | Robustness: use Rust 1.88 `cargo test --no-run`; simplicity: add `--all-targets` to the existing MSRV check. | **Combine on the smaller sufficient gate; landed in task 13.6 at `c03aafc`.** Run `cargo check --workspace --all-targets --all-features --locked` under the CI-installed Rust 1.88 toolchain, locally as `cargo +1.88.0 ...` when available. `--all-targets` compiles the CLI test target and its dev-only Boa dependency; `--all-features` matches the workspace admission surface. The existing remote MSRV job receives the same arguments, so no second job is needed. A production-only check is rejected because it never compiles the promised harness. |
-| Simplicity: current-head local gates show the architecture is implemented; robustness: green local suites do not close the returned faults or absent host proof. | **Combine by evidence class.** The simplicity seat's format/clippy/test/bundle runs are retained as historical current-head evidence from its boundary. Direct source inspection and the controller's failed exact-coverage record keep the eight repairs and host gate open. Neither council report is promoted into chief-executed proof. |
+| Simplicity: current-head local gates show the prior architecture is implemented; robustness: green local suites do not close R25 or absent host proof. | **Combine by evidence class.** The simplicity seat's format/clippy/test/bundle runs are retained as historical evidence from its boundary. Direct inspection of the shared helper, framing, decision and tasks keeps R25 open, while the controller's failed exact-coverage record keeps the host gate open. Neither council report is promoted into chief-executed proof for the repaired head. |
+| Simplicity: trim unused projector-stage items to `pub(crate)`. | **Reject as unrelated cleanup for this change.** It is optional, does not repair R25 or a specified compatibility boundary, and would add production API churn while the exact semantic repair and proof remain open. A later evidence-backed API cleanup may narrow those items separately. |
 | Robustness: defeat both JavaScript and HTTP stale caches; simplicity: keep this as a route/fetch detail. | **Adopt the behavior at the narrow boundary.** Presentation and body responses use `Cache-Control: no-store` (and fetches request equivalent freshness); no persistent cache or new contract field is introduced. |
-| Simplicity: resolve factual drift without adding architecture; robustness: reopen dishonest completion state. | **Combine.** Refresh this design and preserve the small public shape. The next task office must keep open the exact implementation/proof items, task 13.5, archive and final commit; a checked box cannot substitute for missing evidence. The living-spec fold is preserved as accumulated truth and updated only by one final archive operation after review, never deleted or hand-maintained beside the active deltas. |
+| Simplicity: resolve factual drift without adding architecture; robustness: reopen dishonest completion state. | **Combine.** Refresh this design and preserve the small public shape. The next task office must reopen the R25-invalidated helper/framing, surface, guide, gate, archive and final-commit items; a checked box cannot substitute for missing evidence. The living-spec fold is preserved as accumulated truth and updated only by one final archive operation after review, never deleted or hand-maintained beside the active deltas. |
 | Simplicity: keep `docs/guides/read-surfaces.md` rather than the intake's stale filename. | **Adopt.** That is the implemented and designed guide. Changing `journal-and-verification.md` would create unrelated overlap, not repair #222. |
-| Both: preserve filed proposed 0055 and avoid changing its status. | **Adopt.** Checkpoint `48739c6` contains the chief-authored decision and registry row, both still `proposed`. This sitting edits only the dialect-declared `design.md`; only the operator may accept the proposal. |
+| Both: preserve filed proposed 0055 and avoid changing its status. | **Adopt with an owning-artifact repair.** Checkpoint `48739c6` contains the decision and registry row, both still `proposed`. R25 supersedes one ruling but does not change that status. This sitting edits only the dialect-declared `design.md`; D10 supplies the exact replacement for the later decision-owning phase, and only the operator may accept it. |
 
-Decision filing is no longer pending. It remains an architectural prerequisite
-and an unaccepted proposal, not proof of implementation or operator approval.
+Decision filing is no longer pending. Its R25 wording repair is pending in the
+owning artifact. It remains an architectural prerequisite and an unaccepted
+proposal, not proof of implementation or operator approval.
 Decisions 0054/0056 remain the controller's.
 
 A Node/headless-browser job is rejected because the normal Cargo and release
@@ -639,11 +645,45 @@ Use typed constructors to enforce the failure-stage matrix:
 | Readable projection | Confirmed path / shared hint | Whole-prefix counts / either cap / retained turns, possibly zero. |
 | `turn-not-retained` after readable projection | Preserve whole-read metadata | Preserve counts/caps/notices / none. |
 
-The shared hint helper implements the reading delta's exact table and its
-JSON-string-literal path/home quoting. Claude retains `claude --resume <id>`;
-Codex names confirmed rollout or `rollout unavailable`,
-`codex exec resume <id>` and recorded home; DSH names only a confirmed file. These are inert
-strings. No ambient-home override, shell quoting or launch action is added.
+Construct every hint once in `brokkr-view` after kind-specific identifier
+validation. A single pure `portable_display_literal(value)` helper emits a
+double-quoted valid JSON string literal. Inside its quotes it emits only ASCII
+letters, digits, `/`, `.`, `_`, `-` and `:` directly. Every other Unicode
+scalar is encoded with lowercase hexadecimal: one exact four-digit `\uXXXX`
+escape for a basic-multilingual-plane scalar, or the two exact four-digit JSON
+UTF-16 surrogate escapes for a non-BMP scalar. It never uses JSON short escapes,
+deletes, normalizes or replaces a scalar; JSON decoding must recover the exact
+Rust string.
+
+Build the complete shared value with this fixed framing:
+
+| Kind / resolution | Exact shared value |
+|---|---|
+| Claude, with or without a confirmed path | `full session: claude --resume <id>` |
+| Codex, confirmed path | `full session: path <display-path>, codex exec resume <id>, home <display-home>` |
+| Codex, no confirmed path | `full session: rollout unavailable, codex exec resume <id>, home <display-home>` |
+| DSH, confirmed path | `full session: path <display-path>` |
+| DSH without a path, or rejected/absent reference | null |
+
+Commas are descriptive separators; fixed framing introduces no semicolon,
+pipe, ampersand or redirection operator. Claude and Codex ids can remain raw
+only because their closed validators have already accepted the respective
+ASCII alphanumeric/dash languages and rejected a leading dash. DSH contributes
+no raw locator. CLI text, CLI JSON, TUI and browser participant presentation
+consume the completed shared string verbatim; they neither reconstruct nor
+re-encode a fragment. Serializing `brokkr.transcript/v1` escapes the complete
+string a second time as an ordinary JSON member.
+
+This is portable display data, not POSIX, PowerShell or `cmd.exe` quoting and
+not a pasteable command. Its narrower guarantee is that an agent-controlled
+path or home cannot contribute a raw substitution, quote, command separator,
+redirection or line boundary, so submitting the complete displayed hint to a
+shell cannot evaluate or split a path/home-supplied fragment. Brokkr itself
+never submits the value anywhere. POSIX single quotes are rejected because the
+same field is shown on Windows; ordinary `serde_json::to_string` is rejected
+because valid JSON may leave `$()`, backticks and printable operators raw;
+terminal sanitization is rejected because those characters are not controls.
+No ambient-home override or launch action is added.
 
 Generate notices once, in this order when applicable:
 `transcript truncated (size cap)`, `malformed transcript lines skipped: <n>`,
@@ -820,12 +860,13 @@ body route, durable cache, watcher service or general transcript transport.
 ### D10 — Proposed decision 0055 is filed and remains unaccepted
 
 This phase's rendered output is `design.md` only. Checkpoint `48739c6`
-materialized the complete chief-authored text below as
-`docs/decisions/0055-read-every-transcript-kind.md` and inserted its
-number-ordered registry row. The task prerequisite is therefore satisfied; no
-accepted decision is amended and no acceptance is claimed. The exact test-only
-dependency and controller-harness bindings remain part of proposed 0055 and
-the adopted task breakdown.
+materialized proposed 0055 and its number-ordered registry row, but R25 now
+supersedes the filed ruling's ordinary-JSON sentence. The complete text below
+is the corrected design target for the later decision-owning phase; this
+sitting does not edit an undeclared artifact, amend an accepted decision or
+claim acceptance. The exact display encoder/framing, test-only dependency and
+controller-harness bindings must all be present before the task prerequisite
+can be treated as current.
 
 <!-- proposed-decision-0055:start -->
 
@@ -934,13 +975,26 @@ separate #226 work; hints execute nothing.
 
    The proposed replacement for 0032 ruling 4's command binding is: the shared
    local derivation constructs informational full-session lines by validated
-   kind. Claude names `claude --resume <id>`; Codex names the confirmed rollout
-   or explicit rollout unavailability, `codex exec resume <id>` and recorded
-   home; DSH names only a confirmed session file. Rejected references have no
-   hint. Path/home fragments use the reading delta's JSON-string-literal
-   quoting. TUI, CLI and browser participant presentation consume the exact
-   shared value; no other kind borrows a command and no display executes it.
-   Browser presentation stays separate from body/journal models and performs
+   kind. Claude uses exactly
+   `full session: claude --resume <id>`. Confirmed Codex uses exactly
+   `full session: path <display-path>, codex exec resume <id>, home <display-home>`.
+   Unresolved Codex uses exactly
+   `full session: rollout unavailable, codex exec resume <id>, home <display-home>`.
+   Confirmed DSH uses exactly `full session: path <display-path>`.
+   Rejected/absent references and unresolved DSH references have no hint.
+
+   One pure shared portable-display encoder produces every `<display-path>`
+   and `<display-home>` as a valid double-quoted JSON string literal. It emits
+   only ASCII letters, digits, `/`, `.`, `_`, `-` and `:` directly;
+   every other Unicode scalar uses lowercase, four-digit JSON `\u` escapes,
+   including a surrogate pair for a non-BMP scalar, with no short escapes.
+   JSON decoding recovers the exact string. The comma framing contributes no
+   semicolon, pipe, ampersand or redirection operator. The complete line is
+   portable display data, not shell syntax or a pasteable command, and outer
+   JSON serialization escapes that shared line a second time. TUI, CLI and
+   browser participant presentation consume the exact shared value without
+   fragment reconstruction; no other kind borrows a command and no display
+   executes it. Browser presentation stays separate from body/journal models and performs
    selection, validation and discovery but no body projection. Its
    kind-agnostic source admission and the browser's Claude-kind/local-home
    drill eligibility remain distinct; every session label, id-only body
@@ -974,10 +1028,13 @@ separate #226 work; hints execute nothing.
    controlled effect adapters and drained Promise jobs. Boa is not linked into
    the release binary and adds no Node or browser service, but its lockfile,
    MSRV, license, audit and all-platform Cargo results are admission evidence.
-   **Enforcement binding:** CLI selector/text/JSON tests, shared-hint/notice
-   conformance, headless TUI navigation and atomic-refresh tests, existing HTTP
-   endpoint and thin-adapter source tests, and Boa-executed exact served-client
-   transition traces for admission/eligibility loss, stale generations,
+   **Enforcement binding:** pure portable-display and exact-framing tables,
+   adversarial path/home round trips and complete-line forbidden-character
+   checks, CLI selector/text/JSON tests including the outer JSON escaping layer,
+   shared-hint/notice cross-surface equality, headless TUI navigation and
+   atomic-refresh tests, browser text-node identity, existing HTTP endpoint and
+   thin-adapter source tests, and Boa-executed exact served-client transition
+   traces for admission/eligibility loss, stale generations,
    discovery-stage unreadability, admitted non-Claude and foreign-home
    selections, body-stage unreadability, zero-turn success, refusal floors,
    both watch opening orders, recurring recovery, no-store refetch and
@@ -1020,21 +1077,22 @@ changing the rulings. Its number-ordered registry row is:
 | [0055](0055-read-every-transcript-kind.md) | Read every retained transcript kind | One bounded local projection of Claude, Codex and DSH transcripts, with recorded-reference authority, safe discovery, explicit format refusals and shared CLI/TUI/browser presentation; retained prose stays out of the journal. | proposed |
 ```
 
-The decision file and registry row are present at the adopted checkpoint.
-Their exactness and `proposed` status remain implementation-gate assertions;
-this design commit does not modify either artifact.
+The decision file and registry row are present at the adopted checkpoint and
+remain `proposed`. The file's R25 wording is not yet exact; the next owning
+phase must apply the corrected ruling above and prove it before implementation
+completion. This design commit does not modify either undeclared artifact.
 
 ### D11 — Verification proves boundaries through the shared implementation
 
 Use existing crate suites and synthetic test-owned homes. Do not copy a live
 operator session or edit the frozen evaluator corpus. Add table cases for
-every scenario, grouping related cases rather than creating 177 bespoke test
+every scenario, grouping related cases rather than creating 179 bespoke test
 functions. No parser-shaped mock in each renderer can replace cross-surface
 comparison of the same serialized `Turn` and metadata.
 
 | Requirement group | Design binding / proving suite |
 |---|---|
-| One derivation; recorded reference; full-session information | D2/D3/D7; view reference/result tables and all-kind CLI/TUI equality. |
+| One derivation; recorded reference; full-session information | D2/D3/D7; view reference/result and exact-framing tables, portable-display round trips, and all-kind CLI/TUI/browser equality. |
 | Browser eligibility; owned discovery; path ownership | D3/D9; CLI local reader and HTTP tests, native-vs-foreign home cases, rollout-shaped directory traversal, custom-home/legacy/refusal cases, lossless cross-target identity and platform safe-open/race matrices. |
 | Claude, Codex and DSH content | D5-D7; existing view tests extended with source-grounded synthetic families and their unknown variants. |
 | Partial records; source/display caps | D4/D6; below/at/above bounds, newline/UTF-8 cuts, DSH header-vs-event refusal collisions and physical/member counts. |
@@ -1065,6 +1123,19 @@ blocks, plus a bounded adversarial same-turn/step case that detects quadratic
 citation scans. Browser tests preserve successful envelopes and verify exact
 refusal responses and stale-request/watch cancellation. Platform race tests replace
 ancestors and leaves, not just filenames before a preliminary metadata check.
+
+The R25 matrix includes spaces, quote, reverse solidus, newline and other
+controls; `$()` and backticks; `;`, `&`, `|`, `<`, `>`; `%` and `!`;
+one BMP non-ASCII scalar; and one non-BMP scalar. Pure tests assert each exact
+lowercase escape, four-digit or surrogate width, absence of short escapes and
+JSON round-trip. Complete-value tests assert the fixed framing contains no
+command separator and that every hostile path/home character is absent raw.
+The same completed `full_session` string must compare equal across the view
+result, CLI text, decoded CLI JSON, TUI pane and whole overlay, and browser
+presentation; the JSON assertion separately proves the enclosing document's
+second escaping layer. A harmless isolated shell probe may supplement this
+matrix where available, but the direct alphabet and fixed framing are the
+portable proof and no shell's availability is required.
 
 Browser proof is behavioral, not a set of `PAGE.contains` assertions. Mark
 one controller block exactly once in `ui.html`, extract those exact served bytes
@@ -1112,21 +1183,19 @@ fresh bounded presentation discovery. Table cases apply the same result to
 directory I/O that defeats Claude or Codex uniqueness. This is distinct from
 the admitted-Claude body-unreadable trace above.
 
-The current `tasks.md` still carries R17-R24, A5-A7, the
-truncation/absent-partner repairs, the scoped synthetic-fixture rule, the
-discovery-refusal constructor and trace, and the Rust 1.88 all-targets Boa
-compilation gate. Its 45 checked and 29 unchecked items honestly retain landed
-work while leaving current implementation/proof and host gates open, but three
-instructions remain inconsistent with this returned design. The next task
-office must replace the living-spec deletion/seed instructions with preservation
-and final `MODIFIED` reconciliation, split task 8.9 into the four CLI documents,
-the fence/no-document proof and the pure-view defense, and add the locked
-release-profile build. It must also retain the open safe-I/O/native-path, DSH
-format/association, provider projection, world resolver, browser
-presentation/selection, cross-surface proof, gate, archive and final-commit
-items. Controller-only post-commit evidence stays outside tracked checkboxes.
-These corrections change no product requirement or settled decision; this
-sitting preserves `tasks.md` because the rendered artifact is `design.md` only.
+The current `tasks.md` retains the settled R17-R24/A5-A7 repairs, scoped
+synthetic-fixture rule, discovery-refusal trace, Rust 1.88 all-targets Boa gate,
+release build and preserved-living-spec fold. Its 77 checked items predate R25
+and therefore overstate completion. The next task office must rewrite and
+reopen at least the shared helper/framing and adversarial table (2.5/2.7),
+CLI exact-value proof (8.5/8.6/8.8/8.11 as applicable), TUI consumption
+(9.4/9.5), browser transport/rendering (10.2/10.3/10.5), cross-surface and
+privacy proof (11.1/11.2), affected guide wording (12.1/12.2), and every
+downstream gate/fold/commit item whose evidence predates the repair (13.1-13.10).
+It must also amend proposed 0055 before production edits. Controller-only
+post-commit evidence stays outside tracked checkboxes. These corrections change
+no additional product requirement or architecture; this sitting preserves
+`tasks.md` because the rendered artifact is `design.md` only.
 
 Implementation still owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
 `cargo fmt --all -- --check`, clippy for all workspace targets/features with
@@ -1159,13 +1228,18 @@ proof, PR/remote CI, publication, merging and issue closure.
   asymptotic ceiling bound work; no latency measurement is claimed.
 - **[Prose escapes through a convenient model]** → Keep the local result out
   of journal-derived models; test serialization boundaries and inert displays.
+- **[Ordinary JSON quoting leaves executable-looking fragments]** → Construct
+  the path/home literal once with D7's restricted direct alphabet, use only the
+  exact comma framing, and compare the complete shared value across every
+  surface. Treat the outer JSON member escaping as a separate serialization
+  layer; no renderer reconstructs a fragment.
 - **[Claude compatibility costs]** → Preserve the explicit breaking list in
   proposed 0055 and the read-surfaces guide, with operator-owned remediation.
 - **[A hint is mistaken for launch evidence]** → Show recorded-home and
   unavailable facts verbatim; no clickable execution or provider launch action is added.
 - **[Filed decision drifts or is treated as accepted]** → D10 records the
-  present file and registry row; implementation checks exactness and preserves
-  `Status: proposed` until the operator rules.
+  R25-corrected target and the current mismatch; the decision-owning phase must
+  amend ruling 4 while preserving `Status: proposed` until the operator rules.
 - **[The test engine expands the dependency and platform risk]** → Pin
   `boa_engine` exactly at 0.21.1, disable default features and keep it in
   `brokkr-cli` dev-dependencies only. Require the changed lockfile to pass Rust
@@ -1200,18 +1274,16 @@ proof, PR/remote CI, publication, merging and issue closure.
 
 ## Migration Plan
 
-1. Proposed 0055, its registry row and the settled F1-F3/R1-R24 repairs
-   are present. Implementation verifies their exactness and proposed status; it
-   does not reinterpret or accept the decision. The task office first reopens
-   every item whose proof was invalidated by current review or absent host
-   evidence.
-2. Repair the existing staged implementation in dependency order: native-path
-   and held-handle identity/discovery; DSH format admission and bounded
-   association; audit-complete provider projection; world-aware read-only CLI
-   resolution; then browser reference rendering and both explicit-selection
-   entry points. Extend the proving suites at each owning boundary. Keep
-   `docs/guides/read-surfaces.md` as the guide for selectors, snapshot indices,
-   error states, kind-specific hints and Claude compatibility changes.
+1. Proposed 0055, its registry row and the settled F1-F3/R1-R25 repairs
+   are present, but ruling 4 still carries R25's superseded ordinary-JSON
+   sentence. The decision-owning phase applies D10's corrected wording without
+   changing `Status: proposed`; the task office then rewrites and reopens every
+   item whose proof predates R25 or lacks host evidence.
+2. Preserve the staged reader and replace only the shared hint construction:
+   implement D7's pure portable display literal and exact comma framing, then
+   update CLI, TUI and browser consumers, adversarial cross-surface/privacy
+   proofs and `docs/guides/read-surfaces.md`. No renderer receives a second
+   encoder. Re-run every downstream gate on that repaired head.
 3. No retained file or journal migration runs. Operators control any external
    placement repair; this reader changes neither paths nor bytes. A rollback
    restores the earlier reader without altering retained evidence; Codex/DSH
@@ -1251,37 +1323,32 @@ be disguised as downstream success.
 
 ## Validation of this sitting
 
-Read the dialect manifest, design and return instructions and rendered
-`openspec instructions design --change read-every-transcript-kind --json`.
-It declares `design.md`; no workflow runner was invoked. Re-read proposal S16,
-the delta kinds and affected command requirements, the task sections that own
-F1-F3, and both current council positions in full. Strict validation reports 20
-requirements and 177 scenarios. D1 explicitly adopts, rejects or combines every
-material current-council claim based on repository and tool-boundary evidence.
+Read the dialect and return instructions through
+`openspec instructions design --change read-every-transcript-kind --json`;
+they declare only `design.md`, and no workflow runner was invoked. Adopted
+checkpoint `d76a310`, the clear clarification result, proposal S17 and the
+owning full-session requirement/scenarios. Read both current council positions
+completely and reconciled every material claim in D1: keep simplicity's small
+architecture; adopt robustness's R25 correction because the current design,
+decision, tasks and implementation demonstrably encode the superseded value;
+reject unrelated public-vocabulary cleanup.
 
-At entry checkpoint `4e596fe`,
 `openspec validate read-every-transcript-kind --strict --no-interactive`
-passes and status reports all four planning artifacts present. That is
-structural validation, not implementation or archive completion. The active
-change, preserved living-spec base and 45 checked / 29 unchecked task split are
-reported honestly above; the task office must repair its three owning defects
-in dependency order rather than treating prior results as proof.
+passes with 20 requirements and 179 scenarios, and status reports all four
+planning artifacts present. The frozen set remains byte-identical to shipped
+main. At entry the task ledger is 77 checked / zero unchecked, proposed 0055
+remains `proposed`, and the expected archive destination is absent. Those are
+current-state facts, not completion: D10-D11 and the Migration Plan make the
+decision/task/implementation/proof/fold repairs explicit instead of hiding
+them downstream.
 
-The adopted prior sitting directly inspected the implementation findings against
-current source. This returned visit independently checked F1 against proposal
-S16, the 20 `MODIFIED` deltas, the living provenance lines and decision 0042,
-and checked F2/F3 against the house release configuration, frozen-kind boundary,
-command scenarios and owning task text. The design keeps simplicity's existing
-small architecture and robustness's staged safety constraints unchanged. Proposal, capability
-deltas, tasks, decision 0055, accepted decisions and the frozen set remain
-unchanged by this sitting; the declared tracked artifact is `design.md` only.
-
-Cargo and provider executables are not exposed through this chief's authorized
-workspace boundary. The simplicity seat's current-head local gate results and
-the older 108/108 view result remain historical partial evidence, not
-completion. Exact coverage, repaired all-target/platform tests, Rust 1.88 Boa
-compilation, license/audit, remote CI, publication and live-profile proof remain
-pending until obtained for the exact repaired candidate. Drafting claims
-neither implementation completion nor operator acceptance. The phase result
-carries `inputs.change: read-every-transcript-kind` for the next declared
-office.
+This workspace exposes OpenSpec and Git but no Cargo, rustup or provider
+executable. The simplicity seat's prior local gate report and the historical
+108/108 view result remain partial historical evidence only. Exact coverage,
+repaired all-target/platform tests, Rust 1.88 Boa compilation, license/audit,
+remote CI, publication and live-profile proof remain pending until obtained
+for the exact repaired candidate. This sitting changes and commits only the
+dialect-declared `design.md`; proposal, capability deltas, tasks, proposed
+decision 0055, accepted decisions and frozen bytes remain untouched. Drafting
+claims neither implementation completion nor operator acceptance. The phase
+result carries `inputs.change: read-every-transcript-kind`.
