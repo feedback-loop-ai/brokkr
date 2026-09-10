@@ -117,7 +117,7 @@ impl NativeProbeHost {
             &payload_label,
             &[
                 SANDBOX_EXEC,
-                "-p",
+                "-f",
                 &profile.to_string_lossy(),
                 PYTHON,
                 &payload.to_string_lossy(),
@@ -156,6 +156,14 @@ impl NativeProbeHost {
             &escape_label,
             &mut events,
         );
+        if let Err(problem) = &outcome {
+            eprintln!("{}: {problem}", case.name());
+            for name in ["guard.err", "guard.out", "payload.err", "payload.out"] {
+                if let Ok(log) = fs::read_to_string(root.join(name)) {
+                    eprintln!("{name}: {log}");
+                }
+            }
+        }
         // Descriptor-rooted cleanup of the disposable harness root. The
         // recorded lifecycle already removed the payload's private state.
         let _ = fs::remove_dir_all(&root);
@@ -459,7 +467,7 @@ fn heartbeat_moved(root: &Path) -> bool {
 fn live_identities(root: &Path) -> Vec<u32> {
     read_trimmed(&root.join("identities"))
         .lines()
-        .filter_map(|line| line.split_whitespace().next())
+        .filter_map(|line| line.split_whitespace().nth(1))
         .filter_map(|pid| pid.parse::<u32>().ok())
         .filter(|pid| pid_alive(*pid))
         .collect()
@@ -555,13 +563,13 @@ fn sandbox_profile(root: &Path) -> String {
 fn guard_script() -> &'static str {
     r#"#!/bin/sh
 set -u
-ROOT="$1"; PAYLOAD_LABEL="$2"; GUARD_LABEL="$3"; UID="$4"
+ROOT="$1"; PAYLOAD_LABEL="$2"; GUARD_LABEL="$3"; PROBE_UID="$4"
 # Wait for the engine's liveness write end to close (explicit trigger or
 # abrupt supervisor death).
 cat "$ROOT/liveness" >/dev/null 2>&1 || true
 # Boot the payload job out. Detached descendants may survive this; the
 # quiescence wait below is what decides.
-/bin/launchctl bootout "gui/$UID/$PAYLOAD_LABEL" >/dev/null 2>&1 || true
+/bin/launchctl bootout "gui/$PROBE_UID/$PAYLOAD_LABEL" >/dev/null 2>&1 || true
 # Quiescence: the heartbeat unchanged for one full second.
 last=""
 stable=0
@@ -575,7 +583,7 @@ touch "$ROOT/quiesced"
 rm -rf "$ROOT/payload" 2>/dev/null || true
 touch "$ROOT/cleanup-done"
 # The guard unregisters itself last.
-/bin/launchctl bootout "gui/$UID/$GUARD_LABEL" >/dev/null 2>&1 || true
+/bin/launchctl bootout "gui/$PROBE_UID/$GUARD_LABEL" >/dev/null 2>&1 || true
 "#
 }
 
