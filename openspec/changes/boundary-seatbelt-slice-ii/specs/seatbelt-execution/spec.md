@@ -680,10 +680,28 @@ Declared binds are never toolchain binds. That covers a bind a `HandsSpec`
 declares in `ro`, `rw` or `overlay` mode, home-expanded or not, such as
 `bundles/self`'s `~/.rustup`. It also covers the git common `config` that
 `box_argv` binds read-only. Neither is in the host-toolchain set, whatever argv
-`box_argv` renders for it. The toolchain anchor, the rule that no other unit
-covers a bind source, and the data-volume rule take their bind sources from the
-host-toolchain set and from nothing else. The check's verdict on a given profile, ledger, removal set and
-concrete inputs SHALL NOT vary with any `HandsSpec`, home or `GitFacts`.
+`box_argv` renders for it. The toolchain anchor and the rule that no other
+unit covers a bind source take their bind sources from the host-toolchain set
+and from nothing else. The data-volume rule reads no bind source, because it
+refuses every path on or under `/System/Volumes/Data`. The check's verdict on
+a given profile, ledger, removal set and concrete inputs SHALL NOT vary with
+any `HandsSpec`, home or `GitFacts`.
+
+Each host-toolchain source has a fixed **spelling set**, derived from the item
+by one host-independent map and never from a host file system. The set holds
+the source's direct spelling. When the source's first component is `etc`,
+`var` or `tmp`, it also holds the source with `/private` prefixed, which is the
+spelling macOS resolves it to. For example, `/etc/ssl` has the spelling set
+`/etc/ssl` and `/private/etc/ssl`, and `/usr/bin` has only `/usr/bin`. The
+denial-control target list above and the canonical-spelling rule below use the
+same map. Every disjointness or cover test against a host-toolchain source
+uses every spelling in that source's set. That covers cell-root validation and
+the cover rule in normalized and concrete form, which also judges the helper
+units' concrete targets. The toolchain anchor alone reads only the direct
+spelling: a toolchain unit targets its source's direct spelling and nothing
+else. So the spelling set widens no grant and changes no toolchain unit.
+Every path on or under `/System/Volumes/Data` is refused by the data-volume
+rule below, so the spelling set needs no data-volume member.
 
 A host-independent test SHALL bind `box_argv` to the item, over varied
 `HandsSpec`, home and `GitFacts` values. The `--ro-bind-try` sources that
@@ -706,9 +724,11 @@ It SHALL refuse each of these and name the input and what it found:
   `/private`: equal to `/var`, `/tmp` or `/etc`, or beginning with one of them
   and then `/`;
 - a cell root that is `/`;
-- a cell root that equals, contains or lies under a host-toolchain source, a
-  committed system-library target or its recorded correction, a device-set
-  literal, or a path-valued denial-control target;
+- a cell root that equals, contains or lies under any spelling of a
+  host-toolchain source, a committed system-library target or its recorded
+  correction, a device-set literal, or a path-valued denial-control target.
+  The refusal names the source as well as the spelling it matched, for example
+  `/etc/ssl` for a cell root under `/private/etc/ssl`;
 - a cell root that is `/System/Volumes/Data`, lies under it or contains it;
 - a helper path that is `/`, or that equals, contains or lies under the cell
   root. The helper and the cell root are disjoint, so the payload cannot write
@@ -725,7 +745,8 @@ cover rule, the data-volume rule and the control-target rule below also read
 each unit's concrete target, which is the unit with its validated concrete
 values put back. A placeholder therefore never hides a concrete path those
 rules refuse. For example, a helper of `/usr/bin` makes the `<helper>` units
-cover a host-toolchain source.
+cover a host-toolchain source. A helper of `/private/etc/ld.so.cache` makes
+them cover the `/private` spelling of `/etc/ld.so.cache`.
 
 The string check proves spelling and layout, not the file system. The observer
 that runs a native cell SHALL also establish these facts before the cell runs,
@@ -811,7 +832,8 @@ element of this closed set, and the check SHALL test its target against that
 element's anchor:
 
 - A **toolchain unit** images one toolchain bind at the same path. It SHALL
-  name that one bind and target exactly that path. The check SHALL confirm
+  name that one bind and target exactly that path, in its direct spelling and
+  never another member of its spelling set. The check SHALL confirm
   that each named bind is a source in the host-toolchain set. It reads that
   set from the `hands.rs` item that `box_argv` iterates, never from a copied
   list or a rendered argv. A declared bind and the git common `config` are
@@ -828,19 +850,23 @@ element's anchor:
 - The **shell** element is `(allow process-fork)` alone.
 
 A bind's image cannot leave the toolchain check by being recorded as
-something else, and its data-volume spelling cannot enter under any class.
-Three rules hold for every unit of either half, in its normalized and in its
-concrete form:
+something else. Neither its `/private` spelling nor its data-volume spelling
+can enter under any class. Three rules hold for every unit of either half, in
+its normalized and in its concrete form:
 
-- A unit that is not a toolchain unit SHALL NOT cover a source in the
-  host-toolchain set. Covering means a `literal` or `subpath` equal to that
-  source, or a `subpath` that contains it. A declared bind and the git common
-  `config` are not sources here. A git common directory under `<payload-root>`
-  therefore leaves the writable worktree unit valid.
-- No unit SHALL target `/System/Volumes/Data` itself, the data-volume spelling
-  of a host-toolchain source (`/System/Volumes/Data` joined with that source),
-  or a path under such a spelling. No `subpath` unit SHALL contain
-  `/System/Volumes/Data`.
+- A unit that is not a toolchain unit SHALL NOT cover any spelling of a source
+  in the host-toolchain set. Covering means a `literal` or `subpath` equal to
+  that spelling, or a `subpath` that contains it. So a non-toolchain
+  `(subpath "/private/etc/ssl")` covers `/etc/ssl`, and
+  `(literal "/private/etc/ld.so.cache")` covers `/etc/ld.so.cache`. A declared
+  bind and the git common `config` are not sources here. A git common directory
+  under `<payload-root>` therefore leaves the writable worktree unit valid.
+- No unit SHALL target `/System/Volumes/Data` or any path under it, and no
+  `subpath` unit SHALL contain `/System/Volumes/Data`. This covers the
+  data-volume spelling of every host-toolchain source, such as
+  `/System/Volumes/Data/usr/local` and `/System/Volumes/Data/private/etc/ssl`.
+  It also covers every other data-volume path, so no reading of the rule
+  depends on how a source is joined to the volume.
 - No unit SHALL cover a path-valued denial-control target.
 
 The **justified baseline** is the baseline half of this ledger and nothing
@@ -965,14 +991,18 @@ cell records the named startup residual
 `SEATBELT-R3-STARTUP-toolchain-respelling` with that evidence. A toolchain unit
 carries no field for another spelling. Changing its target, or admitting
 anything under a bind's other spelling, requires a focused proposed decision.
+That holds for a `/private` spelling as for a data-volume one. A toolchain unit
+on an `/etc` source would target a spelling that macOS resolves under
+`/private`, so it would match nothing there. The candidate carries no such
+unit, and admitting the `/private` spelling waits for the same decision.
 
 The system-library element alone MAY be corrected. When native denial evidence
 shows one of its reads refused under another resolved spelling, a correction
 replaces the committed unit. The correction records the unit it replaces, the
 resolved spelling and that evidence, and it keeps the same justification.
-Like every unit, its target covers no host-toolchain source, no data-volume
-spelling of one and no path-valued denial-control target, and it does not
-contain `/System/Volumes/Data`.
+Like every unit, its target covers no spelling of a host-toolchain source and
+no path-valued denial-control target. It neither targets `/System/Volumes/Data`
+or a path under it nor, as a `subpath`, contains `/System/Volumes/Data`.
 It SHALL NOT equal or contain the target of a withdrawn or narrowed fa7 unit
 in that unit's historical form.
 
@@ -1006,10 +1036,10 @@ renderer's values. It SHALL refuse each of these:
   it names, or that names a declared bind or the git common `config`. A target
   respelled under another resolved path fails, with or without recorded
   evidence;
-- a unit that is not a toolchain unit but covers a host-toolchain source;
-- a unit that targets `/System/Volumes/Data`, the data-volume spelling of a
-  host-toolchain source or a path under one, or a `subpath` unit that contains
-  `/System/Volumes/Data`;
+- a unit that is not a toolchain unit but covers any spelling of a
+  host-toolchain source, named with the source and the spelling it covers;
+- a unit that targets `/System/Volumes/Data` or any path under it, or a
+  `subpath` unit that contains `/System/Volumes/Data`;
 - a unit that covers a path-valued denial-control target;
 - a system-library unit whose target is neither a committed target nor a
   correction that records the unit it replaces, the resolved spelling and its
@@ -1062,7 +1092,7 @@ candidate.
 
 #### Scenario: A bind's image cannot be relabelled out of the toolchain check
 - **WHEN** a unit that the ledger records as a system-library unit, device-set unit, execution input, probe-harness need or diagnosis-admitted entry is `(subpath "/usr/local")`, `(subpath "/usr")`, `(subpath "/System")`, `(subpath "/System/Volumes")` or `(literal "/bin")`
-- **THEN** the check fails and names the unit, because it covers a host-toolchain source or contains `/System/Volumes/Data`; only a toolchain unit that names the bind may target a bind source
+- **THEN** the check fails and names the unit, because it covers a spelling of a host-toolchain source or contains `/System/Volumes/Data`; only a toolchain unit that names the bind may target a bind source, and only in its direct spelling
 
 #### Scenario: A declared read-only bind is not a toolchain bind
 - **GIVEN** a `HandsSpec` that declares `~/.rustup` read-only, as `bundles/self` does, and the home `/Users/runner`, so that `box_argv` renders `--ro-bind-try /Users/runner/.rustup`
@@ -1098,11 +1128,24 @@ candidate.
 
 #### Scenario: A placeholder does not hide its concrete target
 - **WHEN** the concrete inputs pass validation but the helper is `/usr/bin`, `/private/etc/passwd` or `/System/Volumes/Data/Users/runner/seatbelt-probe-helper`
-- **THEN** the check fails and names the `<helper>` units, because their concrete targets cover a host-toolchain source, cover a credential target or target a data-volume spelling, even though their normalized form passes
+- **THEN** the check fails and names the `<helper>` units, because their concrete targets cover a host-toolchain source, cover a credential target or target a path under `/System/Volumes/Data`, even though their normalized form passes
 
 #### Scenario: A unit that covers a denial-control target fails
 - **WHEN** the ledger carries a probe-harness need `(allow file-read* (subpath "/private/etc"))` or a system-library correction whose target contains `/private/tmp/brokkr-probe-denial-write`
 - **THEN** the check fails and names the unit and the denial-control target it covers
+
+#### Scenario: A host-toolchain source is compared in its /private spelling
+- **GIVEN** the host-toolchain set, which lists `/etc/ssl`, so that `/etc/ssl` has the spelling set `/etc/ssl` and `/private/etc/ssl`
+- **WHEN** the concrete cell root is `/private/etc/ssl/brokkr-cell`, with payload root `/private/etc/ssl/brokkr-cell/payload` and inputs directory `/private/etc/ssl/brokkr-cell/inputs`
+- **THEN** the check fails before it rewrites any string, names the cell root, the source `/etc/ssl` and the spelling `/private/etc/ssl` it lies under, and the concrete write unit `(subpath "/private/etc/ssl/brokkr-cell/payload")` never reaches the equality
+
+#### Scenario: A toolchain source's /private spelling cannot enter under another class
+- **WHEN** the ledger carries a probe-harness need `(allow file-read* (subpath "/private/etc/ssl"))`, a system-library correction or diagnosis-admitted entry `(allow file-read* (literal "/private/etc/ld.so.cache"))`, a subpath `(subpath "/private/etc")` under any class, or a toolchain unit that names `/etc/ssl` and targets `/private/etc/ssl`
+- **THEN** the check fails and names the unit; the first three cover a `/private` spelling of a host-toolchain source, which only a toolchain unit may cover, and the last is a respelled toolchain target that fails with or without recorded evidence and waits for the focused proposed decision named by `SEATBELT-R3-STARTUP-toolchain-respelling`
+
+#### Scenario: Nothing on or under the data volume enters under any class
+- **WHEN** a unit of either half targets `/System/Volumes/Data/private/etc/ssl`, `/System/Volumes/Data/usr/local`, `/System/Volumes/Data/Users/runner/work` or `/System/Volumes/Data`, in its normalized or its concrete form, or a `subpath` unit targets `/System/Volumes`
+- **THEN** the check fails and names the unit and `/System/Volumes/Data`, whatever class, element or kind the ledger records for it; the committed system-library targets `/System/Library` and `/System/Volumes/Preboot/Cryptexes/OS` are neither under nor containing `/System/Volumes/Data` and still pass
 
 #### Scenario: The observer establishes what the string check cannot
 - **WHEN** a native Seatbelt cell's root already exists before the observer creates it, is not owned by the invoking user, or canonicalizes to a spelling other than its input, or the helper is not a regular file or canonicalizes to another spelling
@@ -1110,7 +1153,7 @@ candidate.
 
 #### Scenario: A system-library correction is typed and bounded
 - **WHEN** a system-library unit targets something other than `/System/Library` or `/System/Volumes/Preboot/Cryptexes/OS`
-- **THEN** the check accepts it only as a correction that records the committed unit it replaces, the resolved spelling and the native denial evidence; it fails by name if that record is missing, if the target covers a host-toolchain source or a denial-control target, targets a data-volume spelling or contains `/System/Volumes/Data`, or if it equals or contains the historical target of a withdrawn or narrowed fa7 unit such as `/System`, `/Library` or `/private/tmp`
+- **THEN** the check accepts it only as a correction that records the committed unit it replaces, the resolved spelling and the native denial evidence; it fails by name if that record is missing, if the target covers any spelling of a host-toolchain source or a denial-control target, targets `/System/Volumes/Data` or a path under it, or contains `/System/Volumes/Data`, or if it equals or contains the historical target of a withdrawn or narrowed fa7 unit such as `/System`, `/Library` or `/private/tmp`
 
 #### Scenario: The candidate's process authority is seven named units
 - **WHEN** the check reads the candidate's process units
