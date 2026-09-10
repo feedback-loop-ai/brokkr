@@ -28,6 +28,16 @@ depends on one of the eight names it, and the `## Progress` foot of this
 file records the dependency as it actually binds rather than by group
 number.
 
+The 2026-09-10 DSH correction adds one earlier truth-repair seam without
+renumbering settled task identities: execute **1.1 -> 6.4 -> 11.5 -> 13.1**
+before 8.8. Those four tasks first make proposed 0056, the disabled
+declaration and every packaged/scaffolded representation, and the provider
+guide agree that the exact 0.1.5-rc.1/plugin 0.2.0 route is selected but
+unmeasured. Task 8.8 may then build against that fail-closed truth; 10.7 still
+qualifies it and 11.3 still owns any later enablement. This is an execution
+dependency across the existing numbered groups, not a completed provider proof
+or a new task group.
+
 Every task names the requirement it serves as `<capability> /
 <Requirement>`. The closing gates of group 15 serve every requirement of
 the change and say so, because a gate is not a requirement of its own.
@@ -76,7 +86,7 @@ saved for the phase commit.
 
 ## 1. The proposed ruling (design D10)
 
-- [x] 1.1 Amend the existing proposed
+- [ ] 1.1 Amend the existing proposed
       `docs/decisions/0056-same-instance-session-resumption.md`
       with `Status: proposed`, in the register of the neighbouring
       decisions: context from #226 and the measured cold/resumed table,
@@ -85,8 +95,13 @@ saved for the phase commit.
       fresh (1), same run/site/instance and local origin with no
       older-owner resurrection (2), provider-confirmed root and the two
       admitted identity origins (3), the negotiated one-use offer (4),
-      measured provider shapes with current-version qualification and DSH
-      session integration held separate from hands (5), re-imposed
+      measured provider shapes with current-version qualification and the exact
+      official DSH core 0.1.5-rc.1 at
+      `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` plus
+      `dsh-plugin-cli-session` 0.2.0 at
+      `0f487e74c81ed102c6899440d9f5d65e8e9eabda` selected but disabled
+      pending its resolved-composite, root, restriction and accounting proof,
+      with session integration held separate from hands (5), re-imposed
       current restrictions (6), one confirmed launch in the v5 vocabulary,
       manifest dispatch from 0.10.0 under the amended boundary-record
       requirement, unchanged boundary stamping and the first-work hold (7),
@@ -96,11 +111,16 @@ saved for the phase commit.
       and exact-head controller evidence external to the task state (10).
       Preserve the existing ruling text that remains true; amend ruling 10 and
       its enforcement binding rather than replacing the decision or implying
-      operator acceptance. Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043,
-      0046 and shipped 0053 where each ruling stands on them, and quote
-      no accepted decision into a different meaning. Check the ruling against
-      design D9/D10/D12/D13 and the modified requirement — safety / AS1, progress /
-      PM4, boundary /
+      operator acceptance. Replace the consequences paragraph's stale
+      "future DSH route" ambiguity with the exact selected extension route,
+      its conditional admission and the bounded historical 0.1.2-rc.1
+      one-shot result; do not repeat that result as a global DSH limitation.
+      Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043, 0046 and shipped
+      0053 where each ruling stands on them, and quote no accepted decision into
+      a different meaning. Verify the decision remains `proposed`, its ten
+      rulings and consequences agree with design D9/D10/D12/D13 and AS1's DSH
+      scenarios, and `cargo test -p brokkr-cli --test decisions_index` passes —
+      safety / AS1, progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 - [x] 1.2 Append the registry row to `docs/decisions/README.md` in number
       order with status `proposed`, and run
@@ -442,7 +462,7 @@ saved for the phase commit.
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
       handle. No new wire type is added — safety / AS1, site / SR4.
-- [x] 6.4 Write the assessments into `adapters/codex.json`,
+- [ ] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
       change, each one loadable now under one of 6.1's two identity
@@ -453,16 +473,23 @@ saved for the phase commit.
       boxed-workspace shape **unmeasured** against the *measured* 2.1.266
       interface identity in
       `.forge/controller-host-provider-interface.json`, with the reason
-      naming the enforcement proof 10.6 still owes; DSH's headless work
-      shape **unmeasured** with the *unknown* identity and a bounded
-      reason naming 10.3's unestablished route and 10.7's proof, with
-      the hands deferral left where it is and named as a separate
-      matter; LaneTally **unmeasured** with the *unknown* identity and a
+      naming the enforcement proof 10.6 still owes; DSH's headless work shape
+      **unmeasured** with the *unknown* resolved-composite identity and a
+      bounded reason naming the selected official core 0.1.5-rc.1/plugin 0.2.0
+      commits, their supported `--session` extension route, and 10.7's still
+      missing compatibility, exact-root, restriction and current-accounting
+      proof. Preserve the installed 0.1.2-rc.1 result only as a version-bounded
+      one-shot limitation, keep the separate hands deferral unchanged, and do
+      not mark the selected route `unsupported` or `supported` before 10.7.
+      LaneTally remains **unmeasured** with the *unknown* identity and a
       bounded reason naming the wrapper identity 10.4 owes and 10.8's
       proof, never marked by analogy to Claude. 10.1–10.4 refine these
       identities and group 11 flips the statuses; neither is a
       prerequisite of writing them.
-      `adapters/exec.json` gains no assessment — safety / AS1.
+      `adapters/exec.json` gains no assessment. Verify the four shipped files
+      load through the existing runtime assessment tests, DSH resolves disabled
+      with an unknown identity, and no declaration claims a global DSH
+      limitation — safety / AS1.
 - [x] 6.5 Update the scaffolded adapter text in
       `crates/brokkr-cli/src/init.rs` and its expectations in
       `crates/brokkr-cli/tests/init_stacks.rs` and
@@ -608,7 +635,8 @@ saved for the phase commit.
       it, keep the wrapper and its capture marker, gate the planner
       separately and never substitute plain Claude to make resume
       work — safety / AS1, evidence / LE4.
-- [ ] 8.8 DSH: implement 10.3's exact isolated route for official core
+- [ ] 8.8 After 1.1, 6.4, 11.5 and 13.1 establish the corrected disabled
+      truth, implement 10.3's exact isolated DSH route for official core
       0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and
       `dsh-plugin-cli-session` 0.2.0 at
       `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Keep the admitted
@@ -720,7 +748,8 @@ saved for the phase commit.
       equated with a session. A new row without confirmed root cannot
       fall back to legacy fields to evade confirmation — site / SR3,
       evidence / LE4.
-- [ ] 9.6 Extend the existing accounting and compatibility tests with the
+- [ ] 9.6 After 8.8 and 8.10, extend the existing accounting and compatibility
+      tests with the
       selected DSH route. In deterministic retained-store fixtures, a cold
       `--new` launch confirms a fresh root and nonce and atomically journals the
       provider ID, safe persistence locator and composite runner identity; a
@@ -912,10 +941,17 @@ itself (`safety / AS1`).
 - [ ] 11.4 Enable or leave declared-unsupported LaneTally on 10.4's
       interface and 10.8's proof, with its measured reason. Never mark it
       supported by analogy — safety / AS1.
-- [x] 11.5 Record in each declaration and in
-      `docs/guides/provider-adapters.md` which shapes remain unmeasured
-      and disabled, with their reasons; a disabled shape and a shim-only
-      proof are both labelled as such — safety / AS1, evidence / LE5.
+- [ ] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
+      support representation with 6.4's corrected preparatory truth. DSH's
+      selected official core 0.1.5-rc.1/plugin 0.2.0 route is `unmeasured`,
+      disabled and waiting on 10.7; its exact commits and unknown
+      resolved-composite identity are visible, while the installed 0.1.2-rc.1
+      one-shot result is only bounded history. Preserve every other shape's
+      current status and the separate DSH hands deferral. Verify the declaration
+      loader/scaffold expectations and a repository content audit agree and find
+      no current declaration or packaged equivalent that calls DSH globally
+      unsupported; deterministic shims remain labelled as shims, not live
+      proof — safety / AS1, evidence / LE5.
 
 ## 12. The SDD charter (design D9)
 
@@ -967,10 +1003,18 @@ itself (`safety / AS1`).
 
 ## 13. Prose
 
-- [x] 13.1 `docs/guides/provider-adapters.md`: the offer, the assessment
-      shape, what each adapter's declaration says today, the measured
-      limitations, and the held-window limitation that a kill before
-      first work leaves no session evidence — safety / AS1, evidence / LE3.
+- [ ] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
+      preserving its offer, assessment and held-window guidance. The current
+      adapter table must call the exact official DSH core 0.1.5-rc.1/plugin
+      0.2.0 route `unmeasured` and disabled pending 10.7's compatibility,
+      independent-root, restriction and current-accounting proof; distinguish
+      its documented `--session` extension interface from the version-bounded
+      installed 0.1.2-rc.1 one-shot result, and keep the hands plugin deferral
+      independent. Also retain the supplied Claude observations as partial and
+      the other declarations' current truth. Verify the guide and declarations
+      agree line by line on status, identities, evidence class and limitations,
+      and that no current prose repeats the disproven global DSH limitation —
+      safety / AS1, evidence / LE3, evidence / LE5.
 - [x] 13.2 `docs/guides/driver-authoring.md`: how a third-party driver
       advertises receipt, what a correlated one-use offer looks like on
       the wire, and that not advertising it means never being handed a
@@ -1820,3 +1864,38 @@ This visit changes only `tasks.md`. Strict active validation and OpenSpec status
 pass, the structural count and requirement-citation audit pass, and
 `git diff --check` is clean. It claims no provider qualification, Rust test,
 release build, archive, publication, merge or issue closure.
+
+## Current tasks return — fail-closed DSH truth ledger, 2026-09-10
+
+This returned tasks visit answers current design D10's finding in dependency
+order. The earlier tasks return correctly selected the exact official DSH
+0.1.5-rc.1/plugin 0.2.0 route and reopened its Rust planner, guard and
+accounting work, but it left four checked artifacts certifying the displaced
+unsupported-route premise. Current evidence therefore invalidates the checks
+behind 1.1, 6.4, 11.5 and 13.1 under PM2; their implementation is not preserved
+as complete merely because the files still exist.
+
+The breakdown reopens only those four task IDs. Task 1.1 corrects proposed 0056
+while preserving `Status: proposed`; 6.4 writes the exact selected route as an
+unknown-composite, `unmeasured`, disabled assessment; 11.5 reconciles every
+shipped/packaged/scaffolded representation; and 13.1 makes the provider guide
+state the same evidence boundary. Each keeps installed 0.1.2-rc.1 as a bounded
+one-shot result, preserves the independent DSH hands deferral and refuses both
+premature enablement and the disproven global limitation.
+
+The executable dependency seam is now explicit:
+**1.1 -> 6.4 -> 11.5 -> 13.1 -> 8.8 -> 8.10 -> 9.6 -> 10.5–10.8 ->
+11.1–11.4 -> 14.1–15.7**. Checked 10.3 still owns the completed source/interface
+selection; 10.7 still owns live compatibility, independent-root, restriction
+and current-sequence/accounting qualification; 11.3 still owns evidence-gated
+DSH enablement. The Claude task continues to consume the five supplied probes
+as partial evidence and asks the controller only for their exact missing
+combined observations, never for a repeat of proven continuity or Read-grant
+replacement.
+
+The current task truth is **78 complete / 23 pending across 101 unique tasks**.
+All 20 requirements / 125 scenarios retain coverage and every task retains a
+named requirement plus verification. The preceding 82/19 account remains
+historical truth for its own visit and is superseded by this returned-design
+correction. No provider proof, Rust implementation test, release build, archive,
+publication, merge or issue closure is claimed here.
