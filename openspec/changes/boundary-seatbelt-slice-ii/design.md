@@ -277,52 +277,52 @@ started. Gate B correctly remained not run.
 
 The third run also disproves two claims in the previous repair status. Raw S1
 and S3 profile digests are not an equality oracle because required cell-private
-root substitutions change their concrete bytes. And launchd parsing still
-discards separately observable facts when one terminal shape is missing. The
-next Gate A candidate therefore repairs attribution and observation before
-retrying the native host:
+root substitutions change their concrete bytes. And launchd parsing discards
+separately observable facts when one terminal shape is missing.
 
-- represent the experimental policy as a structured, versioned template with
-  normalized rules and typed `cell_root`, `payload_root`, and
-  `helper_path` substitutions. Compare rule identity and placeholder
-  positions, retain every concrete profile and digest, and round-trip the same
-  serializer that supplies `sandbox-exec`; post-render string replacement is
-  not an authority comparison;
-- capture a bounded native Seatbelt denial window keyed by timestamps, process
-  identity, executable and nonce. Preserve raw unified-log output, collector
-  command status, truncation and unavailability. A missing log is unknown, not
-  evidence that no denial occurred;
-- run `/usr/bin/true` and `/bin/echo` through the identical launcher and
-  exact profile as diagnostic system-binary brackets. Pair each with an
-  unboxed positive control. Their success localizes the abort but cannot satisfy
-  S1 or add authority;
-- add committed diagnostic helper modes that distinguish immediate exit,
-  pre-main/first-user-instruction, argument collection, executable lookup,
-  payload-state open/write, child spawn/wait and clean return. The first marker
-  uses an observer-owned inherited endpoint and a raw, allocation-free write
-  before argument parsing or filesystem traversal, so an absent marker
-  distinguishes pre-main failure from later helper code;
-- if denial attribution remains incomplete, test only bounded monotonic
-  combinations as labelled search evidence. Each proposed production
-  predicate must then be shown necessary and sufficient against the last
-  justified baseline, with its operation, narrow target, responsible process
-  and consumer named. No broad family, combination or `allow default` result
-  enters the candidate;
-- make launchd evidence append-only and field-wise. Preserve every command's
-  argv, status/signal, bounded stdout/stderr and monotonic time, plus separate
-  loaded, PID, run, crash, last-exit, `READY`, stage, child, return-intent,
-  bootout and absence observations. An unknown field fails the cell without
-  erasing independent facts or synthesizing an exit;
-- replace ambient or fixed denial controls with nonce-bearing observer-created
-  sentinels: a known-readable nonempty outside secret, a unique absent outside
-  write target with an independently writable parent, and an owned loopback
-  endpoint. `NotFound`, no attempted operation or missing after-state is
-  unknown, not denial; and
-- on uncertain bootstrap, terminal or bootout state, seal the failing verdict
-  and quarantine the never-reused root with the label, identities, concrete
-  inputs, raw commands and cleanup attempts. Later harness cleanup is separately
-  labelled and never counts as containment; no recursive deletion or root reuse
-  occurs until exact identities and quiescence are established.
+The named cause of the pre-stage abort is now established from the retained
+matrix and the public Seatbelt record. The exact candidate profile denied a read
+of the filesystem-root inode `/`; macOS `dyld` reads that inode while
+initialising a dynamically linked process, so Seatbelt failed closed with
+`SIGABRT` before the helper could record its first stage. The seven one-class
+diagnostics did not restore startup because none supplied a root-inode
+`file-read-data` grant: `(subpath "/usr")`, `(subpath "/bin")` and the other
+subpaths do not cover `/`, and `(allow file-read-metadata)` covers only
+metadata. The labelled `allow default` control started, which is the positive
+contrast for exactly this layer and authorizes nothing.
+
+The repaired Gate A candidate therefore:
+
+- grants `(allow file-read* (literal "/"))` in the candidate profile as the
+  minimal-aperture root read — the root inode only, never `(subpath "/")` — and
+  keeps `deny default`, no `mach-lookup` and the payload-only write grant;
+- proves the rule is load-bearing by removal: it strips exactly that rule from
+  the exact candidate and requires the identical payload to fail closed before a
+  Seatbelt startup cell may pass. A removal that still starts, or that cannot be
+  observed, fails the cell; the stripped profile never enters the candidate;
+- normalizes cross-cell profile identity by substituting the typed private cell
+  root with the structural `ROOT_TOKEN` before hashing, so isolated cells
+  compare their policy rather than their private path while a real rule change
+  still changes the digest; and
+- retains a bounded sequence of distinct raw `launchctl print` samples with
+  exit status, stdout and stderr, reports the last parseable state when no
+  terminal state is reached, and refuses with the last raw sample. A reaped label
+  is recorded as reaped and a missing field is never synthesized into an exit.
+
+If the next native Gate A still fails, the following remain contingency
+hardening, not a precondition for this bounded retry: a versioned structured
+template with typed `cell_root`, `payload_root` and `helper_path` substitutions
+serialized by the same path that supplies `sandbox-exec`; a bounded native
+Seatbelt denial window keyed by timestamp, process, executable and nonce;
+`/usr/bin/true` and `/bin/echo` system-binary brackets; committed
+pre-main/first-instruction diagnostic helper modes; monotonic-combination search
+for any still-unattributed predicate; a full append-only field-wise launchd
+observation with independent loaded, PID/start identity, run, crash, last-exit,
+stage, `READY`, child, return-intent, bootout and absence facts; nonce-bearing
+observer-created denial sentinels; and sealed quarantine on uncertain bootstrap,
+terminal or bootout state. Any such predicate must still be shown necessary and
+sufficient with a named operation, narrow target, responsible process and
+consumer before it can enter the candidate.
 
 Each cell and repeated invocation continues to own a never-reused label, private
 root, plist, streams and report. The destructive launchd adapter has one
@@ -899,10 +899,12 @@ to explain away a failed probe.
 
 Three empirical questions remain in strict order:
 
-1. Which exact operation and target withheld by the bounded profile causes the
-   helper to abort before its first authenticated file stage, and can a
-   least-authority predicate be shown necessary and sufficient while every
-   denial control still passes?
+1. (Answered by the retained matrix and the public Seatbelt record.) The
+   withheld operation is the root-inode read the dynamic loader performs at
+   process init; the least-authority predicate is
+   `(allow file-read* (literal "/"))` and it is proven by removal. Whether that
+   predicate alone restores native startup is still measured by the next Gate A
+   run, not asserted here.
 2. Can the launchd observer preserve a truthful field-wise S2/S3 lifecycle on
    the current macOS format, including command status, partial fields, clean
    terminal evidence and quarantine after uncertainty?
@@ -932,19 +934,22 @@ roots and labels, target-gated Unix ABI, a single explicitly selected native
 test, and host-independent evaluator tests. Native CI `34449331270` confirms
 the Windows portability repair and the generic macOS suite.
 
-The same run invalidates the prior claim that Gate A merely awaited dispatch.
-S1 still aborts on signal 6 before any file-backed stage; seven one-class
-diagnostics do not discriminate it; only non-admitting `allow default`
-starts. S2's all-or-nothing parse loses its terminal observation, S3 is one
-non-ready crashed run, raw profile-digest equality is invalid for distinct
-private roots, denial controls never execute and Gate B remains not run.
+The same run invalidated the prior claim that Gate A merely awaited dispatch.
+S1 aborted on signal 6 before any file-backed stage; seven one-class
+diagnostics did not discriminate it; only non-admitting `allow default`
+started. S2's all-or-nothing parse lost its terminal observation, S3 was one
+non-ready crashed run, raw profile-digest equality was invalid for distinct
+private roots, denial controls never executed and Gate B remained not run.
 Neither R3 feasibility nor any R1–R4 enforcement residual is closed.
 
-The concrete next implementation unit is only the D3 Gate A discriminator and
-lossless observer described above. It must be committed as a materially changed
-probe, with dependent tasks and `evidence-residuals.md` reconciled, before the
-controller dispatches another exact-head Gate A run. No production planner,
-lifetime executor, overlay, mask, Git, runtime transport, activation edit or
-full-peer claim is authorized until Gate A and the complete B1 feasibility
-matrix pass. Exact coverage, native dispatch, final remote CI, publication,
-integration and closure remain controller-owned.
+The diagnosis and bounded repair are now committed: the missing root-inode read
+is named and granted with minimal aperture, its necessity is proven by a
+removal control that must fail closed, cross-cell profile identity is compared
+structurally with the typed private root abstracted, and launchd startup cells
+retain a bounded sequence of raw `launchctl print` samples with the last
+parseable state and last raw sample on refusal. The concrete next unit is the
+controller's exact-head Gate A rerun. No production planner, lifetime executor,
+overlay, mask, Git, runtime transport, activation edit or full-peer claim is
+authorized until Gate A and the complete B1 feasibility matrix pass. Exact
+coverage, native dispatch, final remote CI, publication, integration and
+closure remain controller-owned.

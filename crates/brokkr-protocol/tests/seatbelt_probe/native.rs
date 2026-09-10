@@ -30,9 +30,10 @@ use std::time::{Duration, Instant};
 
 use super::{
     classify_launchd_exit, parse_launchd_print, run_gated_probe, run_startup, Case, CaseResult,
-    DenialControl, Event, GatedReport, HelperExit, Precondition, ProbeHost, ProfileDiagnostic,
-    RepairFacts, StartupCell, StartupObservation, TriggerKind, DIAGNOSTIC_ALLOWANCES, ROOT_TOKEN,
-    STARTUP_DENIAL_CONTROLS,
+    DenialControl, Event, GatedReport, HelperExit, LaunchdFacts, Precondition, ProbeHost,
+    ProfileDiagnostic, RepairFacts, StartupCell, StartupNegativeControl, StartupObservation,
+    TriggerKind, DIAGNOSTIC_ALLOWANCES, ROOT_TOKEN, STARTUP_DENIAL_CONTROLS,
+    STARTUP_NEGATIVE_ALLOWANCES,
 };
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -44,6 +45,10 @@ const MKFIFO: &str = "/usr/bin/mkfifo";
 const HELPER: &str = env!("CARGO_BIN_EXE_seatbelt-probe-helper");
 const TEARDOWN: Duration = Duration::from_secs(5);
 const QUIET: Duration = Duration::from_secs(1);
+/// The bounded number of distinct raw `launchctl print` samples a launchd
+/// startup cell retains. A refusal must name what launchd said; the cap keeps
+/// the durable report bounded when launchd churns.
+const MAX_LAUNCHD_SAMPLES: usize = 8;
 const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
 
 /// Gate A native test: the four-cell startup matrix on a committed revision.
@@ -157,6 +162,22 @@ fn render_startup(report: &super::StartupReport) -> String {
                 denial.denied,
                 denial.detail,
             ));
+        }
+        for control in &cell.negative_controls {
+            out.push_str(&format!(
+                "    negative-control {} ({} for {}): observed={} blocked={} exit={} stdout={} stderr={}\n",
+                control.name,
+                control.removed_rule,
+                control.consumer,
+                control.observed,
+                control.blocked,
+                control.exit.describe(),
+                control.stdout,
+                control.stderr,
+            ));
+        }
+        for (index, sample) in cell.launchd_samples.iter().enumerate() {
+            out.push_str(&format!("    launchd-sample[{index}]: {sample}\n"));
         }
     }
     out
@@ -301,13 +322,19 @@ impl NativeProbeHost {
             return StartupObservation::skipped(cell, &format!("startup inputs: {error}"));
         }
 
+        let nonce = self.startup_nonce.clone();
+        let root_text = root.to_string_lossy().to_string();
+
+        // The profile embeds the per-cell private root, so a raw byte digest
+        // differs across isolated cells even when the structural profile is
+        // identical. Digest the profile with the typed root replaced by
+        // [`ROOT_TOKEN`] so the cross-cell comparison tests the policy rather
+        // than the cell's private path.
         let profile = root.join("inputs/policy.sb");
         let profile_digest = if cell.seatbelt() {
-            match fs::write(
-                &profile,
-                self.candidate_profile(&root, &root.join("payload")),
-            ) {
-                Ok(()) => Some(digest(&profile)),
+            let profile_text = self.candidate_profile(&root, &root.join("payload"));
+            match fs::write(&profile, &profile_text) {
+                Ok(()) => Some(structural_profile_digest(&profile_text, &root_text)),
                 Err(error) => {
                     return StartupObservation::skipped(cell, &format!("profile: {error}"))
                 }
@@ -316,8 +343,6 @@ impl NativeProbeHost {
             None
         };
 
-        let nonce = self.startup_nonce.clone();
-        let root_text = root.to_string_lossy().to_string();
         // The structural argv keeps the root abstract so the four cells can
         // use isolated roots without being read as drift.
         let structural_argv = vec![
@@ -376,9 +401,18 @@ impl NativeProbeHost {
         // labelled with a diagnostic, so they can never be admission.
         let mut diagnostics = Vec::new();
         let mut denials = Vec::new();
+        let mut negative_controls = Vec::new();
         if let Ok(observation) = &prepared {
             if cell.seatbelt() {
                 denials = self.run_denial_controls(&root, &STARTUP_DENIAL_CONTROLS);
+                // A cell that reached READY must prove the candidate rule that
+                // let it start was load-bearing: strip it and require the same
+                // payload to fail closed. The removal is replayed on every
+                // passing Seatbelt cell, never folded into the candidate.
+                if observation.ready {
+                    negative_controls =
+                        self.run_startup_negative_controls(&root, &helper_argv, &nonce);
+                }
                 if !observation.ready {
                     diagnostics = self.run_profile_diagnostics(&root, &helper_argv, &nonce);
                 }
@@ -410,6 +444,7 @@ impl NativeProbeHost {
         observation.helper_root = root_text;
         observation.diagnostics = diagnostics;
         observation.denials = denials;
+        observation.negative_controls = negative_controls;
         if let Some(reason) = post_bootout_failure {
             observation.ran = false;
             observation.skip = Some(reason);
@@ -458,6 +493,8 @@ impl NativeProbeHost {
             diagnostic: None,
             diagnostics: Vec::new(),
             denials: Vec::new(),
+            negative_controls: Vec::new(),
+            launchd_samples: Vec::new(),
             stdout: bound(&String::from_utf8_lossy(&output.stdout)),
             stderr: bound(&String::from_utf8_lossy(&output.stderr)),
         })
@@ -502,29 +539,68 @@ impl NativeProbeHost {
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        // Require a parsed terminal state. A missing or unparsable field is a
-        // failed measurement, never a synthesized exit code.
+        // Require a parsed terminal state, and retain every distinct raw
+        // `launchctl print` sample so a refusal names what launchd actually
+        // said rather than inferring. A missing or unparsable field is a failed
+        // measurement, never a synthesized exit code.
+        let mut samples: Vec<String> = Vec::new();
         let mut facts = None;
+        let mut last_parseable: Option<LaunchdFacts> = None;
         let terminal_started = Instant::now();
         while terminal_started.elapsed() < TEARDOWN {
-            if let Some(text) = launchctl_print(&target) {
-                if let Ok(parsed) = parse_launchd_print(&text) {
-                    if parsed.state == "not running" {
-                        facts = Some(parsed);
-                        break;
-                    }
-                }
+            let sample = launchctl_sample(&target);
+            let parsed = parse_launchd_print(&sample.stdout).ok();
+            if let Some(parsed) = &parsed {
+                last_parseable = Some(parsed.clone());
+            }
+            let rendered = sample.render();
+            if samples.last() != Some(&rendered) && samples.len() < MAX_LAUNCHD_SAMPLES {
+                samples.push(rendered);
+            }
+            if parsed
+                .as_ref()
+                .is_some_and(|facts| facts.state == "not running")
+            {
+                facts = parsed;
+                break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        let facts = facts.ok_or_else(|| {
-            format!("launchd label {label} never produced a parseable not-running state")
-        })?;
-        let exit = classify_launchd_exit(&facts);
+        // A terminal-observation refusal is itself an observed fact, not a
+        // lost one: keep the cell observation (and every raw sample) so the
+        // report can distinguish "launchd never reached a terminal state" from
+        // "the payload never ran".
+        let (exit, launchd_state, launchd_runs, launchd_crashes, terminal_refusal) = match facts {
+            Some(facts) => (
+                classify_launchd_exit(&facts),
+                Some(facts.state),
+                Some(facts.runs),
+                Some(facts.crashes),
+                None,
+            ),
+            None => {
+                let observed = last_parseable
+                    .map(|facts| format!("; last parseable state {:?}", facts.state))
+                    .unwrap_or_default();
+                let detail = samples
+                    .last()
+                    .map(|sample| format!("; last sample: {sample}"))
+                    .unwrap_or_default();
+                (
+                    HelperExit::NotRun,
+                    None,
+                    None,
+                    None,
+                    Some(format!(
+                        "launchd label {label} never produced a parseable not-running state{observed}{detail}"
+                    )),
+                )
+            }
+        };
         Ok(StartupObservation {
             cell,
             ran: true,
-            skip: None,
+            skip: terminal_refusal,
             helper_executable: String::new(),
             helper_mode: 0,
             helper_digest: String::new(),
@@ -535,12 +611,14 @@ impl NativeProbeHost {
             stages: read_stages(&root.join("payload/stages")),
             ordinary_child,
             exit,
-            launchd_state: Some(facts.state),
-            launchd_runs: Some(facts.runs),
-            launchd_crashes: Some(facts.crashes),
+            launchd_state,
+            launchd_runs,
+            launchd_crashes,
             diagnostic: None,
             diagnostics: Vec::new(),
             denials: Vec::new(),
+            negative_controls: Vec::new(),
+            launchd_samples: samples,
             stdout: read_bounded(&root.join("startup.out")),
             stderr: read_bounded(&root.join("startup.err")),
         })
@@ -1057,6 +1135,92 @@ impl NativeProbeHost {
         }
     }
 
+    /// Replay the exact candidate profile with each load-bearing startup rule
+    /// removed, one rule at a time. The same payload must fail closed under the
+    /// stripped profile; a stripped profile that still starts cleanly names a
+    /// rule that was not load-bearing and fails the cell. These runs are a
+    /// removal proof, never a candidate: the stripped profile never enters the
+    /// candidate and can never satisfy a cell on its own.
+    fn run_startup_negative_controls(
+        &self,
+        root: &Path,
+        helper_argv: &[String],
+        nonce: &str,
+    ) -> Vec<StartupNegativeControl> {
+        let candidate = fs::read_to_string(root.join("inputs/policy.sb")).unwrap_or_default();
+        let mut controls = Vec::new();
+        for allowance in STARTUP_NEGATIVE_ALLOWANCES {
+            let stripped = candidate.replace(allowance.removed_rule, "");
+            if stripped == candidate {
+                // The rule was absent, so the removal proves nothing. Record it
+                // as unobserved rather than as a pass.
+                controls.push(StartupNegativeControl {
+                    name: allowance.name.to_string(),
+                    removed_rule: allowance.removed_rule.to_string(),
+                    consumer: allowance.consumer.to_string(),
+                    observed: false,
+                    blocked: false,
+                    exit: HelperExit::NotRun,
+                    stdout: String::new(),
+                    stderr: "candidate profile did not carry the rule to remove".to_string(),
+                });
+                continue;
+            }
+            let path = root.join(format!("inputs/negative-{}.sb", allowance.name));
+            let text = format!(
+                ";; NEGATIVE CONTROL ({}): candidate profile with this rule removed\n{stripped}\n",
+                allowance.name
+            );
+            if fs::write(&path, text).is_err() {
+                continue;
+            }
+            // Fresh state: the candidate's READY must never be mistaken for the
+            // stripped profile's outcome.
+            let _ = fs::remove_file(root.join("payload/ready"));
+            let _ = fs::remove_file(root.join("payload/identities"));
+            let _ = fs::remove_file(root.join("payload/stages"));
+            let output = Command::new(SANDBOX_EXEC)
+                .arg("-f")
+                .arg(&path)
+                .arg(HELPER)
+                .args(helper_argv)
+                .output();
+            match output {
+                Ok(output) => {
+                    let (ready, _) = read_ready(root, nonce);
+                    let exit = exit_of(&output.status);
+                    controls.push(StartupNegativeControl {
+                        name: allowance.name.to_string(),
+                        removed_rule: allowance.removed_rule.to_string(),
+                        consumer: allowance.consumer.to_string(),
+                        observed: true,
+                        // Blocked unless the stripped payload failed to reach
+                        // an authenticated READY at all. A removal that still
+                        // admits READY is not a removal proof and fails the
+                        // cell even if the payload exits nonzero later.
+                        blocked: !ready,
+                        exit,
+                        stdout: bound(&String::from_utf8_lossy(&output.stdout)),
+                        stderr: bound(&String::from_utf8_lossy(&output.stderr)),
+                    });
+                }
+                Err(error) => {
+                    controls.push(StartupNegativeControl {
+                        name: allowance.name.to_string(),
+                        removed_rule: allowance.removed_rule.to_string(),
+                        consumer: allowance.consumer.to_string(),
+                        observed: false,
+                        blocked: false,
+                        exit: HelperExit::NotRun,
+                        stdout: String::new(),
+                        stderr: bound(&error.to_string()),
+                    });
+                }
+            }
+        }
+        controls
+    }
+
     /// Rerun the named denial controls under the unchanged candidate profile.
     /// A control is satisfied only when the helper durably recorded a denial; a
     /// payload that never started records an unobserved control, never a pass.
@@ -1292,12 +1456,44 @@ fn job_loaded(domain_target: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn launchctl_print(domain_target: &str) -> Option<String> {
-    Command::new(LAUNCHCTL)
+/// One raw `launchctl print` observation. The exit status is retained because
+/// launchd returns a parseable block only while it considers the job part of
+/// the domain; a non-zero status with a diagnostic means the job was reaped,
+/// which is a different fact from a parseable state and must never be inferred
+/// into one.
+struct LaunchctlSample {
+    status: String,
+    stdout: String,
+    stderr: String,
+}
+
+impl LaunchctlSample {
+    fn render(&self) -> String {
+        format!(
+            "status={} stdout={} stderr={}",
+            self.status,
+            bound(&self.stdout),
+            bound(&self.stderr)
+        )
+    }
+}
+
+fn launchctl_sample(domain_target: &str) -> LaunchctlSample {
+    match Command::new(LAUNCHCTL)
         .args(["print", domain_target])
         .output()
-        .ok()
-        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+    {
+        Ok(out) => LaunchctlSample {
+            status: out.status.to_string(),
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        },
+        Err(error) => LaunchctlSample {
+            status: format!("spawn-failed: {error}"),
+            stdout: String::new(),
+            stderr: String::new(),
+        },
+    }
 }
 
 /// Prove a label is absent before a cell bootstraps it: an already-loaded
@@ -1598,16 +1794,33 @@ fn read_bounded(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn digest(path: &Path) -> String {
-    // A non-cryptographic identity digest is enough to prove the four startup
-    // cells and the lifetime matrix used identical helper/profile bytes.
-    let bytes = fs::read(path).unwrap_or_default();
+fn fnv1a(bytes: &[u8]) -> u64 {
+    // A non-cryptographic identity digest is enough to prove the startup cells
+    // and the lifetime matrix used identical helper/profile structure.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
-        hash ^= u64::from(byte);
+        hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("{hash:016x}")
+    hash
+}
+
+fn digest(path: &Path) -> String {
+    format!("{:016x}", fnv1a(&fs::read(path).unwrap_or_default()))
+}
+
+/// Digest the profile with the per-cell private root replaced by
+/// [`ROOT_TOKEN`], so two isolated cells compare the policy rather than their
+/// private path. The root appears both directly (read subpath, write subpath)
+/// and its removal is the load-bearing negative control, so a raw byte digest
+/// would report the typed root as drift and mask a real profile difference.
+fn structural_profile_digest(profile: &str, cell_root: &str) -> String {
+    let structural = if cell_root.is_empty() {
+        profile.to_string()
+    } else {
+        profile.replace(cell_root, ROOT_TOKEN)
+    };
+    format!("{:016x}", fnv1a(structural.as_bytes()))
 }
 
 fn write_plist(
@@ -1651,6 +1864,15 @@ fn xml_escape(text: &str) -> String {
 /// policy: the helper bytes are executable, the whole case root is readable,
 /// and only `payload/` is writable. There is deliberately no `mach-lookup`
 /// grant, so a payload cannot reach the guard's launchd authority.
+///
+/// `(literal "/")` is a measured startup requirement, not a widening: it grants
+/// a read of the filesystem-root **inode** only, never the recursive
+/// `(subpath "/")` access. macOS `dyld` reads that inode while initialising a
+/// dynamically linked process; with it withheld, Seatbelt fails closed with a
+/// pre-stage `SIGABRT` (native CI `34449331270`, and the same defect reported
+/// publicly for other Seatbelt profiles), so no payload could ever start and
+/// no lifetime result could be trusted. `STARTUP_NEGATIVE_ALLOWANCES` proves
+/// this rule is load-bearing by stripping exactly this line.
 fn sandbox_profile(root: &Path, payload_dir: &Path) -> String {
     let root = root.to_string_lossy();
     let payload = payload_dir.to_string_lossy();
@@ -1659,6 +1881,7 @@ fn sandbox_profile(root: &Path, payload_dir: &Path) -> String {
          (deny default)\n\
          (allow process*)\n\
          (allow signal (target self))\n\
+         (allow file-read* (literal \"/\"))\n\
          (allow file-read* (subpath \"/usr\") (subpath \"/bin\") (subpath \"/sbin\") \
          (subpath \"/System\") (subpath \"/Library\") (subpath \"/private/tmp\") \
          (subpath \"/private/var/tmp\") (subpath \"{root}\") (literal \"{helper}\") \
@@ -1727,6 +1950,75 @@ mod tests {
         assert!(profile.contains("(deny default)"));
         assert!(profile.contains("(subpath \"/private/var/folders/probe/payload\")"));
         assert!(!profile.contains("(allow default)"));
+    }
+
+    #[test]
+    fn the_candidate_profile_grants_the_root_inode_without_recursive_root_read() {
+        // The dynamic loader reads the filesystem-root inode during process
+        // init. `(literal "/")` grants exactly that inode; `(subpath "/")`
+        // would grant the whole filesystem and must never appear.
+        let profile = sandbox_profile(
+            Path::new("/private/var/folders/probe"),
+            Path::new("/private/var/folders/probe/payload"),
+        );
+        assert!(profile.contains("(allow file-read* (literal \"/\"))"));
+        assert!(!profile.contains("(subpath \"/\")"));
+        assert!(!profile.contains("(allow default)"));
+        assert!(
+            STARTUP_NEGATIVE_ALLOWANCES
+                .iter()
+                .all(|allowance| allowance.removed_rule != "(subpath \"/\")"),
+            "the removal control must strip the literal root grace, not a recursive grant"
+        );
+    }
+
+    #[test]
+    fn the_root_inode_negative_control_removes_exactly_the_load_bearing_rule() {
+        let root = Path::new("/private/var/folders/probe");
+        let profile = sandbox_profile(root, Path::new("/private/var/folders/probe/payload"));
+        let allowance = STARTUP_NEGATIVE_ALLOWANCES[0];
+        assert_eq!(allowance.name, "root-inode-read");
+        let stripped = profile.replace(allowance.removed_rule, "");
+        assert!(
+            !stripped.contains(allowance.removed_rule),
+            "the removal must drop the rule"
+        );
+        assert_ne!(
+            stripped, profile,
+            "the rule must have been present to remove"
+        );
+        // Every other startup authority survives the removal, so the control
+        // isolates exactly one rule.
+        assert!(stripped.contains("(deny default)"));
+        assert!(stripped.contains("(allow process*)"));
+        assert!(stripped.contains("(allow sysctl-read)"));
+        assert!(stripped.contains("(subpath \"/usr\")"));
+        assert!(stripped.contains("(subpath \"/private/var/folders/probe/payload\")"));
+        // And re-removing is a no-op, which the adapter treats as unobserved.
+        assert_eq!(stripped.replace(allowance.removed_rule, ""), stripped);
+    }
+
+    #[test]
+    fn structural_profile_digest_ignores_the_typed_cell_root() {
+        let first = sandbox_profile(
+            Path::new("/private/var/folders/cell-one"),
+            Path::new("/private/var/folders/cell-one/payload"),
+        );
+        let second = sandbox_profile(
+            Path::new("/private/var/folders/cell-two"),
+            Path::new("/private/var/folders/cell-two/payload"),
+        );
+        assert_ne!(first, second, "raw profiles embed distinct typed roots");
+        assert_eq!(
+            structural_profile_digest(&first, "/private/var/folders/cell-one"),
+            structural_profile_digest(&second, "/private/var/folders/cell-two"),
+        );
+        // A real policy difference still changes the structural digest.
+        let broken = first.replace("(allow sysctl-read)", "(deny sysctl-read)");
+        assert_ne!(
+            structural_profile_digest(&first, "/private/var/folders/cell-one"),
+            structural_profile_digest(&broken, "/private/var/folders/cell-one"),
+        );
     }
 
     #[test]

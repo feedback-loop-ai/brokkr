@@ -354,6 +354,11 @@ negative controls over guard/peer authority, credentials, host writes and
 undeclared network access. Broadening an operation class merely until startup
 succeeds is forbidden, and a passing broad combination SHALL NOT be copied into
 the candidate without independent operation/target evidence for every member.
+A predicate the candidate requires SHALL additionally be proven by removal:
+replaying the exact candidate with that one predicate stripped SHALL fail the
+payload closed before the startup verdict can pass, and a removal that still
+starts or cannot be observed SHALL fail the cell. The stripped profile is
+evidence only and SHALL NOT enter the candidate.
 A separately labelled `allow default` run MAY diagnose that the restrictive
 profile is the differing
 layer, but it SHALL never be a candidate observation or authorize an allowance.
@@ -406,12 +411,14 @@ all seven single-class differentials also failed, while only the labelled
 `allow default` diagnostic started. S2 produced no parseable not-running state
 and is an observation refusal, not proof of execution or nonexecution. S3
 produced no `READY` or stages and reported not-running, one run and one crash.
-Denial controls were unobserved and Gate B was not run. The operation denied at
-startup is still unidentified. The report's S1/S3 raw profile-digest mismatch
-is also not authority drift: unique private roots require different literal
-paths. The measurement adapter must compare the normalized template and typed
-substitutions and preserve independent launchd facts before the next native
-candidate.
+Denial controls were unobserved and Gate B was not run. The pre-stage abort is
+attributed to the missing root-inode read: the profile granted subpath reads but
+not `(literal "/")`, which `dyld` needs while initialising a dynamically linked
+process, and the labelled `allow default` control is the positive contrast for
+exactly that layer. The report's S1/S3 raw profile-digest mismatch is also not
+authority drift: unique private roots require different literal paths, so the
+adapter compares structural profile identity and strips the required predicate
+to prove it is load-bearing before the next native candidate.
 
 #### Scenario: Probe startup is established before lifetime triggers
 - **GIVEN** the exact helper, argv and experimental profile intended for the lifetime matrix
@@ -445,6 +452,15 @@ candidate.
 #### Scenario: Startup repair preserves least authority
 - **WHEN** a staged control identifies a startup dependency
 - **THEN** only the named dependency is added, all denial controls rerun, and a success caused only by broad file, Mach/IPC, service or network authority is rejected
+
+#### Scenario: A required startup predicate is proven by removal
+- **WHEN** the candidate grants a minimal predicate such as the root-inode read `(literal "/")` that lets a dynamically linked payload initialise
+- **THEN** the exact candidate with exactly that predicate stripped fails the identical payload closed before `READY`, the removal observation is recorded as blocking, and a removal that still starts the payload fails the cell
+
+
+#### Scenario: The dynamic-loader root read is the named pre-stage predicate
+- **WHEN** a dynamically linked payload aborts with `SIGABRT` before its first stage under a deny-default profile whose subpath reads do not cover the filesystem root
+- **THEN** evidence names the root-inode `file-read-data` as the required predicate, grants only `(allow file-read* (literal "/"))` and never recursive `(subpath "/")`, and keeps `allow default` a non-admitting diagnostic
 
 ### Requirement: Native lifetime feasibility precedes full implementation
 

@@ -504,6 +504,70 @@ fn a_labelled_default_allow_diagnostic_can_never_pass() {
 }
 
 #[test]
+fn a_seatbelt_cell_that_reached_ready_must_prove_the_root_read_was_load_bearing() {
+    let cell = StartupCell::S1DirectSeatbelt;
+
+    // A passing cell with no removal evidence cannot show the root-inode rule
+    // did any work.
+    let mut observation = passing_startup(cell);
+    observation.negative_controls.clear();
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("load-bearing negative control")));
+
+    // A removal that still started the payload names a non-load-bearing rule.
+    let mut observation = passing_startup(cell);
+    observation.negative_controls[0].blocked = false;
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("load-bearing negative control")));
+
+    // A removal that never ran proves nothing either.
+    let mut observation = passing_startup(cell);
+    observation.negative_controls[0].observed = false;
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("load-bearing negative control")));
+
+    // The satisfied control is the only shape that passes.
+    let observation = passing_startup(cell);
+    assert!(observation.negative_controls[0].satisfied());
+}
+
+#[test]
+fn an_unboxed_cell_does_not_require_the_root_read_negative_control() {
+    let cell = StartupCell::S0DirectUnboxed;
+    let observation = passing_startup(cell);
+    assert!(observation.negative_controls.is_empty());
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(verdict.is_pass(), "{}", verdict.render());
+}
+
+#[test]
+fn a_ready_seatbelt_cell_without_a_clean_denial_record_can_never_pass() {
+    // The removal control is an additional obligation, never a replacement:
+    // denial controls are still required alongside it.
+    let cell = StartupCell::S3LaunchdSeatbelt;
+    let mut observation = passing_startup(cell);
+    observation.denials.clear();
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("denial control credential-read")));
+}
+
+#[test]
 fn startup_cells_may_use_isolated_roots_but_not_drift() {
     let mut cells: Vec<StartupObservation> = StartupCell::ALL
         .iter()

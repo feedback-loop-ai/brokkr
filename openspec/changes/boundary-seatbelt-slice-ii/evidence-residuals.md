@@ -154,7 +154,87 @@ does not replace or rewrite the historical audit below.
   `SEATBELT-R3-STARTUP` failure evidence; it closes no residual.
 
 
-## Validation audit — 2026-09-09
+## Native startup measurement — candidate `9f4c2c9` (CI `34449331270`)
+
+Recorded on the Linux controller from the controller-supplied native CI log.
+This is a native observation of a failed startup, not a lifetime result. It
+does not replace or rewrite the historical audit below or the earlier rows.
+
+- **Candidate:** `9f4c2c944cac217ccb8dc055971cc62614313ed4`, native CI run
+  `34449331270`, GitHub `macos-latest` arm64. The generic workspace job passed
+  on macOS, Linux and Windows, and Gate A failed. Windows no longer shows the
+  unresolved `getuid`/`getpgid` link.
+- **S0 direct unboxed — PASS:** the helper reached the exact bounded stages
+  `["entry", "payload-dir", "executable", "child", "ready", "return-clean"]`,
+  spawned and identified an ordinary child and exited `0`.
+- **S1 direct exact profile — FAIL:** the identical helper and argv aborted with
+  signal 6 before the first stage. All seven one-authority-at-a-time
+  differentials (resolved temp read, global read-metadata, `/Users`+`/opt`
+  read, `mach-lookup`, `network*`, `system-socket`, `iokit-open`) also aborted
+  before the first stage. The labelled `allow default` control reached `READY`,
+  but it is diagnostic only and cannot authorize a profile.
+- **S2 launchd unboxed — OBSERVATION REFUSAL:** the job was bootstrapped, then
+  the cell failed with "never produced a parseable not-running state". No raw
+  `launchctl print` sample was preserved, so this is an observation defect, not
+  a payload-execution result; it is not treated as either a pass or a proof
+  that the payload did not run.
+- **S3 launchd exact profile — FAIL:** parsed `state = "not running"` with
+  `runs = 1`, `successive crashes = 1`; no `READY` or stage. Its profile digest
+  differed from S1 only because each cell's profile embeds its own private root,
+  which the model wrongly compared as authority drift.
+- **Denial controls — UNOBSERVED:** credential-read, host-write and network-bind
+  were not observed and denied because the payload never started, so no
+  boundary proof exists.
+- **Gate B lifetime — NOT RUN.** Startup did not pass; SEATBELT-R1–R4 remain
+  open. No non-starting payload was counted as an enforcement result.
+- **Next action:** the repaired probe in tasks 1.13–1.17. This row is
+  `SEATBELT-R3-STARTUP` failure evidence; it closes no residual.
+
+## Named startup cause and probe repair — 2026-09-10
+
+Recorded on the Linux controller as preparation, not native evidence. The
+native rerun on the exact repaired head remains pending.
+
+- **Named cause of the pre-stage `SIGABRT`.** The exact candidate profile
+  granted `file-read*` on `/usr`, `/bin`, `/sbin`, `/System`, `/Library`, the
+  temp areas, the case root and specific `/dev` literals, but never the
+  filesystem-root inode `/`. macOS `dyld` reads that inode while initialising a
+  dynamically linked process; Seatbelt denies the read and fails closed with
+  `SIGABRT` before the payload can record its first stage. The same defect is
+  documented publicly for other Seatbelt profiles — a profile missing
+  `(allow file-read* (literal "/"))` aborts a dynamically linked binary at
+  `dyld` init, while the broad `allow default` control starts it (the
+  `allow default` control in CI `34449331270` is exactly that contrast; public
+  corroboration: `astrid-runtime` commit `6ba24cf`, "stop silently disabling the
+  macOS sandbox on macOS 15+"). The seven one-class diagnostics did not restore
+  startup because none of them supplied a `file-read-data` grant on the root
+  inode: `file-read-metadata` covers only metadata, not the root directory
+  read.
+- **Repair, minimal aperture.** The candidate profile now carries
+  `(allow file-read* (literal "/"))`. `(literal "/")` grants a read of the root
+  inode only and never the recursive `(subpath "/")` access; the profile still
+  denies `default`, still grants no `mach-lookup`, and still writes only the
+  payload directory.
+- **Removal proof, not an assumption.** `STARTUP_NEGATIVE_ALLOWANCES` replays
+  the exact candidate with that one rule stripped and requires the same payload
+  to fail closed. A passing Seatbelt startup cell now must show the removal
+  observed and blocking; a stripped profile that still starts fails the cell.
+  This is what makes the rule load-bearing rather than a widening that rides
+  along, and it keeps the broad `allow default` control non-admitting.
+- **Lossless launchd observation.** Every launchd startup cell now retains a
+  bounded sequence of distinct raw `launchctl print` samples with exit status,
+  stdout and stderr, reports the last parseable state when no terminal state is
+  reached, and includes the last raw sample in the refusal. A reaped label is
+  reported as a reaped label; a missing field is never synthesized into an exit
+  code.
+- **Structured profile identity.** The cross-cell profile digest now replaces
+  the typed private cell root with the structural `ROOT_TOKEN` before hashing,
+  so isolated cells compare their policy rather than their private path, while
+  a real rule difference still changes the digest.
+- **Fence: unchanged.** Seatbelt stays unbuilt (slice ii) and container
+  unbuilt (slice iii). This section records a diagnosis and a bounded probe
+  repair; it does not claim native enforcement, and Gate B remains not run.
+
 
 Candidate inspected: `c966ef3a948f823e74b8dd63e34ff8de985562f1`. Host: Linux. This audit validates current
 refusal behavior and specification structure, not native Seatbelt enforcement.

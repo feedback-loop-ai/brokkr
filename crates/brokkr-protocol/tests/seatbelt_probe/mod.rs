@@ -785,6 +785,81 @@ pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 7] = [
     },
 ];
 
+/// A load-bearing startup rule proved by *removal*: the exact candidate profile
+/// with this one rule stripped must fail closed. It is the inverse of a
+/// diagnostic allowance and is the only way to show a rule the candidate needs
+/// is doing work rather than riding along.
+///
+/// `(literal "/")` grants a read of the filesystem-root inode only; unlike
+/// `(subpath "/")` it does not widen recursive access. The dynamic loader reads
+/// that inode during process initialisation, so a candidate that denies it
+/// aborts a dynamically linked payload before it can record any stage. Native
+/// CI `34449331270` measured that pre-stage `SIGABRT`; the rule was the one
+/// authority no one-at-a-time allowance supplied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartupNegativeAllowance {
+    pub name: &'static str,
+    /// The exact SBPL fragment removed from the candidate for this control.
+    pub removed_rule: &'static str,
+    pub consumer: &'static str,
+}
+
+/// The complete bounded removal set. Every entry must be observed blocking the
+/// exact payload before a Seatbelt startup cell may pass.
+pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 1] = [StartupNegativeAllowance {
+    name: "root-inode-read",
+    removed_rule: "(allow file-read* (literal \"/\"))",
+    consumer: "dynamic-loader initialisation read of the filesystem root inode",
+}];
+
+/// One labelled removal control: the exact candidate profile with a single
+/// load-bearing rule stripped. It is recorded, never admitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartupNegativeControl {
+    pub name: String,
+    pub removed_rule: String,
+    pub consumer: String,
+    /// The helper actually ran under the stripped profile.
+    pub observed: bool,
+    /// The stripped profile failed closed: no authenticated READY or no clean
+    /// exit. A stripped profile that still starts names a rule that is not
+    /// load-bearing and fails the cell.
+    pub blocked: bool,
+    pub exit: HelperExit,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl StartupNegativeControl {
+    /// A control is satisfied only when it was observed and the removal
+    /// blocked the payload.
+    pub fn satisfied(&self) -> bool {
+        self.observed && self.blocked
+    }
+}
+
+/// Construct a satisfied removal control for a named rule, so tests vary
+/// exactly one fact.
+pub fn satisfied_startup_negative_control(name: &str) -> StartupNegativeControl {
+    let allowance = STARTUP_NEGATIVE_ALLOWANCES
+        .iter()
+        .find(|allowance| allowance.name == name);
+    StartupNegativeControl {
+        name: name.to_string(),
+        removed_rule: allowance
+            .map(|allowance| allowance.removed_rule.to_string())
+            .unwrap_or_default(),
+        consumer: allowance
+            .map(|allowance| allowance.consumer.to_string())
+            .unwrap_or_default(),
+        observed: true,
+        blocked: true,
+        exit: HelperExit::Signal(6),
+        stdout: String::new(),
+        stderr: "test: stripped profile blocked the payload".to_string(),
+    }
+}
+
 /// One labelled diagnostic run of the exact helper under the candidate profile
 /// plus a single named allowance. It is recorded, never admitted.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -966,6 +1041,13 @@ pub struct StartupObservation {
     /// The credential, host-write, network, guard and peer denial controls
     /// rerun under the unchanged candidate profile.
     pub denials: Vec<DenialControl>,
+    /// The load-bearing-rule removals rerun against the exact candidate. A
+    /// passing Seatbelt cell must show the root-inode read was necessary.
+    pub negative_controls: Vec<StartupNegativeControl>,
+    /// Bounded raw `launchctl print` samples for launchd-owned cells. A failed
+    /// terminal observation records what launchd actually said rather than an
+    /// inferred state.
+    pub launchd_samples: Vec<String>,
     /// Bounded stdout captured for this cell.
     pub stdout: String,
     /// Bounded stderr captured for this cell.
@@ -995,6 +1077,8 @@ impl StartupObservation {
             diagnostic: None,
             diagnostics: Vec::new(),
             denials: Vec::new(),
+            negative_controls: Vec::new(),
+            launchd_samples: Vec::new(),
             stdout: String::new(),
             stderr: String::new(),
         }
@@ -1180,6 +1264,22 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
                 ));
             }
         }
+        // A cell that reached READY must prove the rule that let it start was
+        // load-bearing: strip it and the same payload fails closed.
+        if observation.ready {
+            for required in STARTUP_NEGATIVE_ALLOWANCES {
+                let satisfied = observation
+                    .negative_controls
+                    .iter()
+                    .any(|control| control.name == required.name && control.satisfied());
+                if !satisfied {
+                    reasons.push(format!(
+                        "{name}: load-bearing negative control {} was not observed blocking the payload",
+                        required.name
+                    ));
+                }
+            }
+        }
     }
     if observation.cell.launchd() {
         if observation.launchd_state.is_none() {
@@ -1324,6 +1424,15 @@ pub fn passing_startup(cell: StartupCell) -> StartupObservation {
         } else {
             Vec::new()
         },
+        negative_controls: if cell.seatbelt() {
+            STARTUP_NEGATIVE_ALLOWANCES
+                .iter()
+                .map(|allowance| satisfied_startup_negative_control(allowance.name))
+                .collect()
+        } else {
+            Vec::new()
+        },
+        launchd_samples: Vec::new(),
         stdout: String::new(),
         stderr: String::new(),
     }
