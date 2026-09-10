@@ -41,6 +41,42 @@ const SANDBOX_HOME: &str = "/runtime/home";
 pub const SANDBOX_BUNDLE: &str = "/runtime/bundle";
 /// Set by the engine in every namespace so box-building tests do not recurse.
 pub const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
+/// Set on a host that must PRODUCE the boundary evidence, not merely be
+/// allowed to. A boundary proof that cannot build a real namespace — no
+/// `bwrap`, an environment that is already a box, no fixture root — is
+/// worth logging as a skip on a developer's laptop and is worth failing
+/// on the host whose whole job is to run it. Without this, a skipped
+/// proof prints `... ok` and is indistinguishable in CI output from a
+/// pass, which is how a red behavioral test once reached a commit
+/// (decision 0054).
+pub const BOUNDARY_EVIDENCE_ENV: &str = "BROKKR_REQUIRE_BOUNDARY_EVIDENCE";
+
+/// Whether this host has declared that boundary proofs must really run.
+pub fn boundary_evidence_required() -> bool {
+    boundary_evidence_declared(std::env::var_os(BOUNDARY_EVIDENCE_ENV))
+}
+
+/// The declaration, read from a value rather than from the process, so a
+/// test can ask all three answers without changing the environment every
+/// other test in the binary shares. An empty value is not a declaration:
+/// a workflow that expands an unset variable must not silently arm the
+/// gate for a matrix leg that has no namespace to open.
+fn boundary_evidence_declared(value: Option<std::ffi::OsString>) -> bool {
+    value.is_some_and(|value| !value.is_empty())
+}
+
+/// Log a boundary proof's skip, or fail the test when this host declared
+/// that it must produce the evidence. `required` is passed in rather than
+/// read here so both answers are reachable from one process.
+#[track_caller]
+pub fn skip_boundary_proof(required: bool, reason: &str) {
+    assert!(
+        !required,
+        "{BOUNDARY_EVIDENCE_ENV} is set, so this host must produce real boundary evidence, \
+         but a proof skipped: {reason}"
+    );
+    eprintln!("skipped: {reason}");
+}
 /// Where the boundary lives (decision 0046 ruling 1), said once for
 /// every site that tries to write it into a bundle or an agent file.
 pub const BOUNDARY_IS_THE_REALMS: &str = "the boundary is declared by the realm \
@@ -230,13 +266,24 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
 
 /// What the host knows about the worktree's git that the box must be
 /// told, gathered OUTSIDE the box before it is built (decision 0043
-/// ruling 6): where the git directory is, and who the seat commits as.
+/// ruling 6): where the two git directories are, and who the seat
+/// commits as.
+///
+/// A repository has two identities, and a linked `git worktree` makes
+/// the difference load-bearing: `--git-dir` names the per-worktree
+/// directory (the one holding this worktree's `index` and `HEAD`), while
+/// `--git-common-dir` names the shared one (the main checkout's `.git`,
+/// holding `objects`, `refs` and `config`). A primary checkout has one
+/// path for both.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitFacts {
-    /// The git directory's absolute path — inside the worktree for a
-    /// primary checkout, elsewhere for a `git worktree`. `None` when the
-    /// workdir is not a git repository.
+    /// The per-worktree git directory, absolute. Inside the worktree for
+    /// a primary checkout; under the shared `.git/worktrees/<name>` for
+    /// a linked worktree. `None` when the workdir is not a repository.
     pub git_dir: Option<PathBuf>,
+    /// The shared git directory, absolute — the main checkout's `.git`
+    /// for a linked worktree. `None` when the workdir is not a repository.
+    pub common_dir: Option<PathBuf>,
     /// `user.name` and `user.email` as the host resolves them, as the
     /// environment entries git reads them from.
     pub identity: Vec<(String, String)>,
@@ -257,8 +304,19 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .filter(|text| !text.is_empty())
     };
-    let git_dir =
-        git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).map(PathBuf::from);
+    let (git_dir, common_dir) = match Command::new("git")
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ])
+        .current_dir(workdir)
+        .output()
+    {
+        Ok(out) if out.status.success() => parse_git_dirs(&String::from_utf8_lossy(&out.stdout)),
+        _ => (None, None),
+    };
     let mut identity = Vec::new();
     for (env, key) in [("NAME", "user.name"), ("EMAIL", "user.email")] {
         if let Some(value) = git(&["config", key]) {
@@ -266,7 +324,31 @@ pub fn git_facts(workdir: &Path) -> GitFacts {
             identity.push((format!("GIT_COMMITTER_{env}"), value));
         }
     }
-    GitFacts { git_dir, identity }
+    GitFacts {
+        git_dir,
+        common_dir,
+        identity,
+    }
+}
+
+/// The two git directories `git rev-parse --git-dir --git-common-dir`
+/// printed: one path per line, in the order asked, and no trim — a path
+/// may end in a space. A path that itself spans a line makes the output
+/// ambiguous, and an ambiguous git directory is no git directory: both
+/// stay `None` and the box has no git to bind.
+fn parse_git_dirs(reported: &str) -> (Option<PathBuf>, Option<PathBuf>) {
+    let mut lines = reported.lines();
+    match (lines.next(), lines.next(), lines.next()) {
+        (Some(git_dir), Some(common_dir), None)
+            if !git_dir.is_empty() && !common_dir.is_empty() =>
+        {
+            (
+                Some(PathBuf::from(git_dir)),
+                Some(PathBuf::from(common_dir)),
+            )
+        }
+        _ => (None, None),
+    }
 }
 
 /// Render a host path as a path inside the box. Paths inside the namespace
@@ -377,6 +459,16 @@ pub fn box_argv(
         "/usr/bin",
         "/usr/lib",
         "/usr/lib64",
+        // The libc headers belong to the toolchain as much as `cc` does.
+        // Without them a boxed gate holds only as long as something else
+        // already compiled the C in the dependency tree: `cargo test`
+        // against a warm target directory passes, and a gate that builds
+        // into a fresh one dies on `libsqlite3-sys` with "stdio.h: No such
+        // file or directory" — a C compiler failure in a seat that reads
+        // as the branch's fault. Headers are read-only declarations, so
+        // binding them grants no capability the bound `/usr/lib` beside
+        // them does not already imply.
+        "/usr/include",
         "/usr/share",
         "/usr/local",
         "/usr/libexec",
@@ -426,16 +518,40 @@ pub fn box_argv(
     // worktree and is bound so git works at all; either way its `hooks`
     // are hidden behind an empty tmpfs and its `config` is read-only, so
     // nothing a boxed command writes can become a program the host runs
-    // on its next git invocation.
-    if let Some(git_dir) = &git.git_dir {
-        if !git_dir.starts_with(workdir) {
-            argv.extend([s("--bind"), host_path(git_dir), namespace_path(git_dir)]);
+    // on its next git invocation. The per-worktree directory lies under
+    // the shared one for a linked worktree, so binding the common
+    // directory covers both.
+    //
+    // KNOWN OPEN, and much wider than the harness runner beside it.
+    // Binding the whole common directory read-write leaves four things
+    // open that the dsh runner closes:
+    //
+    //   * every worktree's `config.worktree`, `commondir` and `gitdir`,
+    //     so in a repository carrying `extensions.worktreeConfig` a boxed
+    //     command can write `<common>/worktrees/<name>/config.worktree`
+    //     and the host's next `git` there honours a `core.hooksPath` the
+    //     box chose;
+    //   * the shared REF store — `refs`, `packed-refs`, `logs` — so a
+    //     boxed command can move a branch a sibling worktree has checked
+    //     out, at every spelling git uses;
+    //   * the shared OBJECT store, which a boxed command can destroy or
+    //     corrupt, and `objects/info/alternates`, which it can repoint;
+    //   * every sibling worktree's administrative directory.
+    //
+    // The dsh runner answers all four by giving the seat a PRIVATE common
+    // directory and promoting one ref afterwards (`dsh_sandbox`, decision
+    // 0054). Narrowing THIS write set the same way is a change under
+    // decision 0043 and takes its own number — see 0054's consequences,
+    // which record it rather than fixing it silently.
+    if let Some(common) = &git.common_dir {
+        if !common.starts_with(workdir) {
+            argv.extend([s("--bind"), host_path(common), namespace_path(common)]);
         }
         argv.extend([
             s("--tmpfs"),
-            namespace_join(&namespace_path(git_dir), Path::new("hooks")),
+            namespace_join(&namespace_path(common), Path::new("hooks")),
         ]);
-        let config = git_dir.join("config");
+        let config = common.join("config");
         argv.extend([
             s("--ro-bind-try"),
             host_path(&config),

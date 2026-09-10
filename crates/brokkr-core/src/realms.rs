@@ -31,11 +31,22 @@
 //! crate that pins, records or renders the word reads the same five. A
 //! realm that names none stands under `namespace`, which is what every
 //! bundle meant before the word existed.
+//!
+//! v5 (decision 0057) adds the crossing, on exactly those terms again:
+//! a realm may say what it `publishes` — a named, repository-relative
+//! FILE it owns — and what it `consumes` — a crossing another realm
+//! publishes, pinned by a sha256 over that file's raw bytes. Both are
+//! optional, both are refused under an older label, and a v5 map that
+//! names neither reads exactly as a v4 map does: a world that never
+//! drew a crossing notices nothing. This module holds the whole of the
+//! shape and its refusals; reading a published file, or checking a pin
+//! against the bytes on disk, is a later slice's work in
+//! `brokkr-runtime` — this crate performs no I/O.
 
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -54,6 +65,14 @@ pub const SCHEMA_V3: &str = "forge.realms/v3";
 /// The boundary a realm's boxed hands stand behind (decision 0046 ruling
 /// 1): v3 plus one optional per-realm `boundary`, and nothing else.
 pub const SCHEMA_V4: &str = "forge.realms/v4";
+
+/// The crossing (decision 0057): v4 plus two optional per-realm lists,
+/// `publishes` and `consumes`, and nothing else.
+pub const SCHEMA_V5: &str = "forge.realms/v5";
+
+/// Every label this build reads, oldest first — the one list a refusal
+/// spells out and the version gates are written against.
+pub const SCHEMAS: [&str; 5] = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
 
 /// What stands between a box's hands and the machine (decision 0046
 /// ruling 1). A closed vocabulary that names the MECHANISM and never the
@@ -204,6 +223,98 @@ pub enum RealmsError {
     Invalid { path: String, problem: String },
 }
 
+/// A crossing this realm publishes (decision 0057 ruling 1): a name, and
+/// the repository-relative FILE the realm owns and offers. The bytes are
+/// the contract — it is not a package and not a registry entry, and
+/// nothing here fetches anything.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublishedCrossing {
+    /// The crossing's name, in the realm-name grammar, unique within the
+    /// realm that publishes it.
+    pub name: String,
+    /// Repository-relative path to the published file, named on exactly
+    /// the terms `house` and `dialect` are named.
+    pub path: String,
+}
+
+/// A crossing this realm consumes (decision 0057 ruling 2): the name, the
+/// realm that publishes it, and the digest this realm is built against.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsumedCrossing {
+    /// The crossing's name, as the publishing realm publishes it.
+    pub name: String,
+    /// The realm that publishes it — never the consuming realm itself.
+    pub realm: String,
+    /// Lowercase hex sha256 over the published file's RAW bytes, never
+    /// over a canonical form: a crossing may be a schema, a `.proto` or
+    /// Markdown, and only the publisher's own format knows what
+    /// canonicalising would mean. Judged here as a SHAPE only; comparing
+    /// it against bytes on disk is a later slice's work, in the crate
+    /// that may read a file.
+    pub sha256: String,
+}
+
+/// A crossing list as the map WROTE it: never named, named as `null`, or
+/// named as an array.
+///
+/// Serde reads a missing property and an explicit `null` alike into
+/// `None`, which would make "this realm never said the word" and "this
+/// realm said the word and named nothing" the same fact. They are not
+/// the same fact. The first is every realm that ever loaded; the second
+/// is a map saying something no version of the contract admits — v1
+/// through v4 have no such property at all, and `realms.v5` types both
+/// lists `array`. Held apart here, so the version gate sees a written
+/// `null` as written (decision 0057 ruling 3.5) and the map cannot be
+/// accepted where its own contract file would refuse it (ruling 3.7).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum CrossingList<T> {
+    /// The property was not written: a realm that drew no crossing,
+    /// which is what every realm did before the word existed.
+    #[default]
+    Absent,
+    /// The property was written as `null`, which is neither a list nor an
+    /// absence. Carried this far only so the refusal can name it.
+    Null,
+    /// The property was written as an array, read back exactly as given.
+    List(Vec<T>),
+}
+
+impl<T> CrossingList<T> {
+    /// Whether the map wrote the word at all. A written `null` counts,
+    /// which is the whole point: the version gate judges presence.
+    pub fn is_written(&self) -> bool {
+        !matches!(self, Self::Absent)
+    }
+
+    /// Whether the map wrote the word as `null`.
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+
+    /// The crossings written, or none at all — the one place absence is
+    /// read, so every reader spells "no crossings" the same way.
+    pub fn entries(&self) -> &[T] {
+        match self {
+            Self::List(entries) => entries,
+            Self::Absent | Self::Null => &[],
+        }
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for CrossingList<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Reached only when the property IS written; `serde(default)`
+        // answers for the absent case, and is the only way to reach
+        // `Absent` at all.
+        Ok(match Option::<Vec<T>>::deserialize(deserializer)? {
+            Some(entries) => Self::List(entries),
+            None => Self::Null,
+        })
+    }
+}
+
 /// One repository in the world.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -234,6 +345,17 @@ pub struct Realm {
     /// one place that absence is resolved.
     #[serde(default)]
     pub boundary: Option<Boundary>,
+    /// The crossings this realm publishes — `forge.realms/v5` vocabulary
+    /// (decision 0057 ruling 1), absent in every older map and refused in
+    /// one. Absent means this realm publishes nothing, which is what
+    /// every realm did before the word existed.
+    #[serde(default)]
+    pub publishes: CrossingList<PublishedCrossing>,
+    /// The crossings this realm consumes, each pinned by digest —
+    /// `forge.realms/v5` vocabulary (decision 0057 ruling 2), absent in
+    /// every older map and refused in one.
+    #[serde(default)]
+    pub consumes: CrossingList<ConsumedCrossing>,
 }
 
 impl Realm {
@@ -243,6 +365,18 @@ impl Realm {
     /// what an absent word meant.
     pub fn boundary(&self) -> Boundary {
         self.boundary.unwrap_or(Boundary::Namespace)
+    }
+
+    /// The crossings this realm publishes: its own list, or none at all.
+    /// The one place that absence is read, so every reader spells "this
+    /// realm publishes nothing" the same way.
+    pub fn published(&self) -> &[PublishedCrossing] {
+        self.publishes.entries()
+    }
+
+    /// The crossings this realm consumes: its own list, or none at all.
+    pub fn consumed(&self) -> &[ConsumedCrossing] {
+        self.consumes.entries()
     }
 }
 
@@ -264,6 +398,18 @@ fn is_name(value: &str) -> bool {
         .next()
         .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c))
+}
+
+/// Is this label older than the version that introduced a word? A
+/// version is a promise about what a file may say, so a word is refused
+/// under every label that predates it and legal under its own and every
+/// later one. One function, so the fifth version's gate reads exactly
+/// like the second's.
+fn older_than(schema: &str, introduced: &str) -> bool {
+    SCHEMAS
+        .iter()
+        .take_while(|label| **label != introduced)
+        .any(|label| *label == schema)
 }
 
 /// House and dialect files are facts inside their realm, never an escape
@@ -324,10 +470,10 @@ impl RealmMap {
                 path: path.to_string(),
                 detail: error.to_string(),
             })?;
-        if ![SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4].contains(&map.schema.as_str()) {
+        if !SCHEMAS.contains(&map.schema.as_str()) {
             return Err(invalid(format!(
-                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3} \
-                 and {SCHEMA_V4}",
+                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3}, \
+                 {SCHEMA_V4} and {SCHEMA_V5}",
                 map.schema
             )));
         }
@@ -363,7 +509,7 @@ impl RealmMap {
             // written out, and it names the version that would admit it
             // rather than merely saying no.
             match &realm.journal {
-                Some(_) if map.schema == SCHEMA_V1 => {
+                Some(_) if older_than(&map.schema, SCHEMA_V2) => {
                     return Err(invalid(format!(
                         "realm '{}' names its own journal, which is {SCHEMA_V2} vocabulary \
                          in a map calling itself {SCHEMA_V1}",
@@ -380,7 +526,7 @@ impl RealmMap {
             }
             // The v4 word, held to its version exactly as the v2 and v3
             // words are held to theirs (decision 0046 ruling 1).
-            if realm.boundary.is_some() && map.schema != SCHEMA_V4 {
+            if realm.boundary.is_some() && older_than(&map.schema, SCHEMA_V4) {
                 return Err(invalid(format!(
                     "realm '{}' names its boundary, which is {SCHEMA_V4} vocabulary in a map \
                      calling itself {}",
@@ -389,7 +535,7 @@ impl RealmMap {
             }
             for (field, value) in [("house", &realm.house), ("dialect", &realm.dialect)] {
                 match value {
-                    Some(_) if map.schema != SCHEMA_V3 && map.schema != SCHEMA_V4 => {
+                    Some(_) if older_than(&map.schema, SCHEMA_V3) => {
                         return Err(invalid(format!(
                             "realm '{}' names its {field}, which is {SCHEMA_V3} vocabulary in a map calling itself {}",
                             realm.name, map.schema
@@ -407,6 +553,125 @@ impl RealmMap {
                         )))
                     }
                     _ => {}
+                }
+            }
+            // The two v5 lists, held to their version exactly as every
+            // word before them is held to its own (decision 0057 ruling
+            // 3). Presence is what is judged: a realm that draws no
+            // crossing is a realm as it was before the word existed —
+            // and a realm that WROTE the word as `null` wrote it, which
+            // is why [`CrossingList`] keeps the two apart. A written
+            // `null` is refused on its own terms after the version gate
+            // has had its say, because under an older label the deeper
+            // fault is the word itself.
+            for (field, written, null) in [
+                (
+                    "publishes",
+                    realm.publishes.is_written(),
+                    realm.publishes.is_null(),
+                ),
+                (
+                    "consumes",
+                    realm.consumes.is_written(),
+                    realm.consumes.is_null(),
+                ),
+            ] {
+                if written && older_than(&map.schema, SCHEMA_V5) {
+                    return Err(invalid(format!(
+                        "realm '{}' names what it {field}, which is {SCHEMA_V5} vocabulary in a \
+                         map calling itself {}",
+                        realm.name, map.schema
+                    )));
+                }
+                if null {
+                    return Err(invalid(format!(
+                        "realm '{}' writes {field} as null; a crossing list is an array, and a \
+                         realm that draws no crossing leaves the word out",
+                        realm.name
+                    )));
+                }
+            }
+            // What a realm publishes is judged on its own terms: a name
+            // that can be read back out of evidence, a file inside the
+            // realm that owns it, and no name used twice.
+            let published = realm.published();
+            for (index, crossing) in published.iter().enumerate() {
+                if !is_name(&crossing.name) {
+                    return Err(invalid(format!(
+                        "realm '{}' publishes a crossing named '{}'; a crossing name is \
+                         lowercase letters, digits, '.', '_' and '-', starting with a letter \
+                         or digit",
+                        realm.name, crossing.name
+                    )));
+                }
+                if crossing.path.trim().is_empty() {
+                    return Err(invalid(format!(
+                        "realm '{}' publishes crossing '{}' with no path",
+                        realm.name, crossing.name
+                    )));
+                }
+                if !is_repository_relative(&crossing.path) {
+                    return Err(invalid(format!(
+                        "realm '{}' publishes crossing '{}' from a non-repository-relative path",
+                        realm.name, crossing.name
+                    )));
+                }
+                if published[..index].iter().any(|e| e.name == crossing.name) {
+                    return Err(invalid(format!(
+                        "realm '{}' publishes a crossing named '{}' twice",
+                        realm.name, crossing.name
+                    )));
+                }
+            }
+            // What a realm consumes is judged on its own terms here —
+            // the pin's shape, the crossing being between realms, and
+            // one name meaning one file — and against the rest of the
+            // world below, once every realm's own shape is known.
+            let consumed = realm.consumed();
+            for (index, crossing) in consumed.iter().enumerate() {
+                if !crate::canonical::is_sha256_hex(&crossing.sha256) {
+                    return Err(invalid(format!(
+                        "realm '{}' pins crossing '{}' at '{}', which is not a sha256: a pin is \
+                         64 lowercase hex characters over the published file's raw bytes",
+                        realm.name, crossing.name, crossing.sha256
+                    )));
+                }
+                if crossing.realm == realm.name {
+                    return Err(invalid(format!(
+                        "realm '{}' consumes crossing '{}' from itself; a crossing is between \
+                         realms, and a realm reads its own file as a file",
+                        realm.name, crossing.name
+                    )));
+                }
+                if consumed[..index].iter().any(|e| e.name == crossing.name) {
+                    return Err(invalid(format!(
+                        "realm '{}' consumes a crossing named '{}' twice",
+                        realm.name, crossing.name
+                    )));
+                }
+            }
+        }
+        // Every crossing consumed is a crossing published, by a realm
+        // this world holds. Judged after the loop above, so a name is
+        // resolved only against realms whose own shape already stands.
+        for realm in &map.realms {
+            for crossing in realm.consumed() {
+                let Some(publisher) = map.realms.iter().find(|e| e.name == crossing.realm) else {
+                    return Err(invalid(format!(
+                        "realm '{}' consumes crossing '{}' from realm '{}', which this world \
+                         does not hold",
+                        realm.name, crossing.name, crossing.realm
+                    )));
+                };
+                if !publisher
+                    .published()
+                    .iter()
+                    .any(|e| e.name == crossing.name)
+                {
+                    return Err(invalid(format!(
+                        "realm '{}' consumes crossing '{}', which realm '{}' does not publish",
+                        realm.name, crossing.name, crossing.realm
+                    )));
                 }
             }
         }

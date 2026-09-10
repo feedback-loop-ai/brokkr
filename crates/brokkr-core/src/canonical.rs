@@ -27,6 +27,17 @@ pub fn sha256_bytes(bytes: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Is this text the shape a sha256 is written in — exactly 64 lowercase
+/// hex characters? One spelling of "malformed digest" for every reader,
+/// so a dispatch envelope's pins and a realm's crossing pins (decision
+/// 0057 ruling 2) cannot drift apart on what a digest may look like.
+pub fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
 pub const ZERO_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[cfg(test)]
