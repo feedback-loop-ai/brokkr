@@ -130,6 +130,24 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
       - run: cargo test --workspace --all-features --locked --no-fail-fast
+      # Decision 0046 slice II: the bounded R3 lifetime feasibility probe
+      # executes real /usr/bin/sandbox-exec and real per-user launchctl. It is
+      # a required native test: a missing tool, an outer box, zero selected
+      # cases or any unmet guarantee fails the job; it never skips into
+      # success. A failure is a recorded SEATBELT-R3 residual, not a pass and
+      # not a reason to weaken the probe.
+      - name: R3 native lifetime feasibility probe
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          test -x /usr/bin/sandbox-exec
+          cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
+            -- --exact --nocapture \
+            seatbelt_probe::native::native_lifetime_feasibility_probe \
+            2>&1 | tee target/r3-probe.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-probe.log
       - name: self and verify bundles compile under the constitutional lint
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle bundles/self

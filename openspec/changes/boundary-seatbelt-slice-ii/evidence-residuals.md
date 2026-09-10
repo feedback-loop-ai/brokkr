@@ -27,13 +27,38 @@ additional obligations, not substitutes for native enforcement. Preserve the
 remaining slice requirements and their evidence. Recorded journal findings
 must be closed through the existing 0047 lifecycle; this file does not close them.
 
-## Preparation still required
+## Preparation record — 2026-09-10
 
-- Reconcile the five capability deltas with the accepted 0046 addendum; the
-  earlier readable-empty/same-path requirements and unruled hooks language
-  record the previous upstream return, not the current operator ruling.
-- Supply native lifetime feasibility evidence before full implementation.
-- Keep the existing unbuilt refusal until all activation requirements pass.
+Recorded on the Linux controller. This is implementation and preparation
+status, not native enforcement evidence. It does not modify the historical
+audit above, whose inspected revision predates this record.
+
+- **Capability reconciliation: DONE.** The five capability deltas were
+  reconciled to the accepted 2026-09-09 addendum at `7e79b43` and verified
+  again for this record. They require private replacement-locator overlay
+  snapshots, denied-read masks and conditional full-peer hooks; the earlier
+  readable-empty/same-path/unruled text is gone. `openspec validate
+  boundary-seatbelt-slice-ii --strict --no-interactive` passes. This closes
+  the old SEATBELT-SPEC-RECONCILIATION preparation item; it closes no
+  enforcement residual.
+- **Design and tasks: DONE.** `design.md` and `tasks.md` exist and encode the
+  pre-implementation R3 native-proof gate (design D1–D14, tasks 1.1–1.5).
+- **Bounded R3 probe: IMPLEMENTED, NATIVE RUN PENDING.** The probe lives in
+  `crates/brokkr-protocol/tests/seatbelt_lifetime_probe.rs` and its
+  `seatbelt_probe` module. The shared case/obligation/lifecycle model is
+  compiled and exercised on Linux through injected host facts, and the macOS
+  launchd lease-pair adapter is type-checked on Linux while its required test
+  runs only on macOS. The required macOS CI step executes real
+  `/usr/bin/sandbox-exec` and real per-user `launchctl`, fails on a missing
+  tool or zero selected cases, and never skips into success.
+- **Native lifetime feasibility evidence: STILL REQUIRED.** No macOS host was
+  available to this controller, so SEATBELT-R3 has no adversarial
+  measurement. The native probe run, with the candidate commit, macOS
+  version/architecture, both job labels, descendant identities, triggers and
+  durable log, remains the concrete missing prerequisite.
+- **Fence: unchanged.** Seatbelt stays unbuilt (slice ii) and container
+  unbuilt (slice iii). The existing start refusal is untouched and no
+  dependent production Seatbelt implementation was added.
 
 
 ## Validation audit — 2026-09-09
