@@ -116,13 +116,13 @@ unprivileged per-user bootstrap domain:
 The guard belongs to the per-invocation launchd mechanism and the same user
 bootstrap domain, but not to the payload job it must boot out. A guard killed
 with that payload could neither handle supervisor death nor establish
-quiescence. The current `seatbelt-execution` delta instead says one transient
-job is the lifetime domain and places the guard inside it. That earlier
-topology is internally inconsistent with cleanup after `bootout`; treating
-the shared bootstrap domain as the same domain only here would conceal the
-owning-spec fault. **SEATBELT-SPEC-LIFETIME-TOPOLOGY** is therefore returned
-upstream: amend that delta to the two-job pair (or another mechanism that keeps
-the guard alive through teardown) before this design is adopted.
+quiescence. The `seatbelt-execution` delta now says the same: commit `02082a4`
+replaced its earlier one-job/inside-guard wording with the separately owned
+two-job pair and added scenarios for guard survival and payload interference.
+That answers **SEATBELT-SPEC-LIFETIME-TOPOLOGY** at the specification layer,
+so this design adopts the repaired topology. It does not establish that public
+launchd can contain detached descendants; only D3's real unboxed macOS probe
+can supply that feasibility evidence.
 
 The proposed guard inherits neither payload stdio nor payload-writable state.
 Unique labels, owner-only roots/endpoints, and the experimental profile must
@@ -490,16 +490,14 @@ controller-owned and pending until their real results exist.
 | Simplicity: accept copy cost and mechanism risk rather than silently weaken guarantees. Robustness: quarantine uncertain state and return infeasibility upstream. | **Adopt.** | D2, D3 and the risks below stop on unproved quiescence. A failed native mechanism becomes a focused residual/proposed decision, never a reduced boundary. |
 
 R1, R2, and conditional R4 are settled, and R3's no-survivor outcome remains
-mandatory. However, **SEATBELT-SPEC-LIFETIME-TOPOLOGY** is an upstream design
-finding owned by `specs/seatbelt-execution/spec.md`: its one-job/inside-guard
-wording cannot supply a guard that survives payload `bootout` to prove
-quiescence and clean state. The owning delta must adopt D2's separately owned
-guard (or another coherent mechanism) before dependent artifacts can be called
-coherent. This design phase therefore returns `upstream`. That correction
-does not reopen the accepted R1–R4 policy or provide native proof. After the
-delta is corrected, D3 remains the empirical feasibility gate; a native
-failure then requires the exact residual and any focused `proposed` decision,
-never a downstream relaxation.
+mandatory. **SEATBELT-SPEC-LIFETIME-TOPOLOGY** is resolved by the repaired
+`specs/seatbelt-execution/spec.md`: it assigns containment to the payload
+job/process coalition and keeps the separately launchd-owned guard alive
+through payload `bootout`, quiescence and cleanup. This design adopts that
+topology and no longer returns the finding upstream. The repair does not reopen
+the accepted R1–R4 policy or provide native proof. D3 remains the empirical
+feasibility gate; a native failure requires the exact residual and any focused
+`proposed` decision, never a downstream relaxation.
 
 ## Risks / Trade-offs
 
@@ -536,23 +534,20 @@ never a downstream relaxation.
 
 ## Migration Plan
 
-1. Return **SEATBELT-SPEC-LIFETIME-TOPOLOGY** to the owning
-   `seatbelt-execution` delta and amend its one-job/inside-guard wording to the
-   coherent lifetime pair, keeping every accepted observable unchanged.
-2. Revalidate the five deltas, then land the reconciled design and dependent
-   tasks without changing production availability. Existing Seatbelt realm
-   declarations continue to compile and pin the word but refuse before journal
-   writes.
-3. Land the standalone native lifetime probe and obtain D3 evidence on the
+1. Keep the repaired two-job topology in the proposal, `seatbelt-execution`
+   delta and this design coherent, and revalidate the five deltas. Existing
+   Seatbelt realm declarations continue to compile and pin the word but refuse
+   before journal writes.
+2. Land the standalone native lifetime probe and obtain D3 evidence on the
    concrete macOS prerequisite. On failure, record the residual and stop; the
    safe rollback is already-active `unbuilt: ii`.
-4. After a pass, land the sealed planner/executor, engine-owned attempt state,
+3. After a pass, land the sealed planner/executor, engine-owned attempt state,
    native matrix, both hands paths, guides, and host-independent tests while
    the production activation fence remains closed.
-5. Close all native residuals on that candidate. Only then flip the single
+4. Close all native residuals on that candidate. Only then flip the single
    activation state and rerun the complete evidence matrix and repository
    validation on the exact activation revision.
-6. Refresh witness/compose pins only where measured identity changed. Add a
+5. Refresh witness/compose pins only where measured identity changed. Add a
    contract version only if implementation measured a wire need. Do not edit
    frozen versions.
 
