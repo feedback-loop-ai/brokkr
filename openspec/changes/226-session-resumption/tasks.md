@@ -1,6 +1,6 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Groups are the design's landing order (Migration Plan 1–5): the proposed
+Groups are the design's landing order (Migration Plan 1–6): the proposed
 ruling before any production semantic edit, the record version before
 anything emits its fields, the site identity before the query that keys
 on it, the query before the wire that carries it, the wire before the
@@ -8,8 +8,9 @@ adapters that receive it, the shared launch lifecycle before the four
 provider planners, accounting after the planners that feed it, the
 charter after the engine work it describes, then the prose, then the
 re-pins, then the local gates, final tracked reconciliation while the change
-is active, the final re-archive artifact operation, the delivery commit action
-and controller-owned evidence outside the tracked task state.
+is active, pre-archive readiness as the last tracked task, the normal archive
+operation as a non-checkbox artifact effect, the delivery commit action and
+controller-owned evidence outside the tracked task state.
 
 Execution order is that order with one declared exception, because two
 groups consume what group 10 produces. Group 10 is split at its own
@@ -93,7 +94,7 @@ saved for the phase commit.
       operator acceptance. Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043,
       0046 and shipped 0053 where each ruling stands on them, and quote
       no accepted decision into a different meaning. Check the ruling against
-      design D10/D12 and the modified requirement — safety / AS1, progress /
+      design D9/D10/D12 and the modified requirement — safety / AS1, progress /
       PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 - [x] 1.2 Append the registry row to `docs/decisions/README.md` in number
@@ -930,7 +931,7 @@ itself (`safety / AS1`).
       The successful pre-return compiles do not cover later planner or
       declaration edits — safety / AS1.
 
-## 15. Gates, final artifact operation, commit and controller evidence
+## 15. Gates, pre-archive readiness, archive effect, commit and controller evidence
 
 The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
@@ -966,28 +967,39 @@ into capability truth (`progress / PM4`). Run them with
       while the change is still active; at that point 15.7 must be the only
       unchecked tracked task and no ordinary artifact edit remains — progress /
       PM1, progress / PM4.
-- [ ] 15.7 Perform the **final re-archive only** required by proposal answer I
-      as one recoverable final artifact transaction. While the change is still
-      active and after 15.6 passes, make the last manual tracked edit: tick 15.7
-      and set `## Progress` to the completed repository-local task truth. Then,
-      with no intervening artifact edit, run
-      `openspec archive 226-session-resumption --yes` as the normal dialect
-      archive operation; do not substitute a manual move or `--skip-specs`.
-      Require it to apply only the repaired PM4 `MODIFIED` requirement, treat
-      every identical delta as a no-op, retain each existing change provenance
-      pointer exactly once and retain `boundary-record`'s earlier provenance
-      and historical examples. Validate the archived change strictly, run
-      `crates/brokkr-cli/tests/provenance.rs`, assert those conditions
-      bidirectionally and inspect the complete staged diff, all read-only with
-      respect to the archived artifact. If the archive is partial or any
-      archived check fails, restore the same active change, return 15.7 to
-      pending and repair before another artifact operation; never edit the
-      archived task file in place —
+- [ ] 15.7 Establish **pre-archive readiness** while the change is active, as
+      proposal answer I and design D9 require. After 15.6 passes, confirm every
+      other tracked obligation and its evidence is complete, the active strict
+      validation still passes, and the intended delivery paths and exact
+      `openspec archive 226-session-resumption --yes` postconditions below are
+      selected and reviewed. Make the last tracked edit: tick 15.7 and set
+      `## Progress` to the completed repository-local task truth while stating
+      that archive and commit are still pending; stage and inspect that final
+      active diff. Once ticked, make no further tracked write before the archive
+      effect. This tick attests readiness, not that archive already ran. If a
+      readiness premise fails, reopen its owning task and remain active —
       progress / PM1, progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 
-**Post-task phase action — delivery commit.** Once 15.7 is checked and the
-archived tree is staged and its read-only checks pass, commit that exact tree
+**Post-task phase action — final archive effect and read-only verification.**
+Once every tracked task is checked, run
+`openspec archive 226-session-resumption --yes` as the normal dialect archive
+operation; do not substitute a manual move or `--skip-specs`. Require it to
+apply only the repaired PM4 `MODIFIED` requirement, treat every identical delta
+as a no-op, retain each existing change provenance pointer exactly once and
+retain `boundary-record`'s earlier provenance and historical examples. Validate
+the archived change strictly, run `crates/brokkr-cli/tests/provenance.rs`,
+assert those conditions bidirectionally and inspect the complete staged diff,
+all read-only with respect to the archived artifact. If archive completion is
+uncertain, classify the active/archive namespaces, living truth, provenance,
+index and `HEAD` before retrying. If the archive is partial or an archived
+check fails, restore the same active authoritative change and invalidate 15.7
+when its premises changed before repairing; never edit the archived task file
+in place (`progress / PM1`, `progress / PM4`, boundary / The seat record carries
+the boundary as seat-record/v4).
+
+**Post-archive phase action — delivery commit.** Once the all-ticked change is
+archived, staged and its read-only checks pass, commit that exact tree
 unsigned in the repository's message style, with no push or merge. Verify that
 `HEAD` contains the checked archived task artifact and final progress state and
 that `git status --short` is empty. If the commit fails, the phase action is not
@@ -1528,3 +1540,43 @@ find 101 unique identifiers with the stated 82/19 split. All 20 requirements and
 125 scenarios retain task coverage, and every changed task names the requirement
 it serves. No Rust or provider check is claimed for this task-artifact repair;
 those checks remain dependency-ordered delivery work.
+
+## Current tasks return — F11 pre-archive readiness, 2026-09-10
+
+This returned visit adopts the current design reconciliation at `1f00910` and
+repairs its only downstream inconsistency. The prior F10 repair correctly
+removed exact-head host coverage and remote delivery evidence from tracked
+checkboxes, but current task 15.7 still combined a readiness tick with the
+archive operation and its archived checks. This supersedes only the prior
+return records' current-tense description of 15.7; those records remain
+historical evidence of their visits. Under `progress / PM1`, that tick
+would be false until the operation completed; under decision 0042, no tracked
+edit may then repair the archived artifact.
+
+Task 15.7 is now only the attainable active-state readiness task specified by
+design D9: all earlier repository-local work and active validation complete,
+the final progress truth and tick written while active, and the intended archive
+transaction reviewed. The normal `openspec archive` operation is the final
+non-checkbox artifact effect, followed only by read-only archived validation
+and provenance checks, the delivery commit, and controller evidence external to
+the exact head it judges. The recovery text distinguishes a lost acknowledgement
+from a partial fold and requires reopening the same authoritative change before
+any repair. No F1–F10 answer, delivery minimum, provider proof, host gate or
+controller obligation is narrowed or waived.
+
+The identifiers and completion truth remain **101 tasks in 15 groups, 82
+complete / 19 pending**. The changed task continues to serve `progress / PM1`,
+`progress / PM4` and the modified boundary-record requirement; the archive
+effect names the same requirements outside the checkbox count. All 20
+requirements and 125 scenarios retain their existing implementation and
+verification coverage.
+
+Validation on this visit passed: `openspec validate
+226-session-resumption --strict --no-interactive` accepts the active change,
+`openspec status --change 226-session-resumption --json` reports planning
+complete, and structural checks find 101 unique identifiers at the stated
+82/19 split with no tracked 15.8–15.9. The five deltas contain the stated
+20 requirements / 125 scenarios, and `git diff --check` passes. No Rust or
+provider check is claimed for this task-artifact-only repair; those checks
+remain dependency-ordered delivery work, and host coverage remains mandatory
+controller evidence.
