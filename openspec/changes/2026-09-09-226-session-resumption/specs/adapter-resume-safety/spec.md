@@ -268,9 +268,10 @@ read as history, not as a current claim.
 - **THEN** the adapter recomputes that executable's and home's composite identity before provider work, and takes the offer through `--session <owned-root>` on the `headless` profile only when it matches the `wrapper_digest` the declaration's measured identity pins
 - **AND** Brokkr installs, composes, updates and removes no DSH package, plugin or profile, and stages only its per-seat overlay
 - **AND** the qualification and the end-to-end proof reach the task-owned installation through these same seams, while snapshots show the global DSH installation, profiles and credentials byte-unchanged
+- **AND** the end-to-end proof is a recorded exchange with the built DSH driver over that installation, while the committed test suite proves the same decisions over synthetic homes and reads no provider installation
 
 #### Scenario: The resolved DSH home lacks the qualified composite
-- **GIVEN** the resolved executable and home are the global 0.1.2-rc.1 installation with its plugin-free `headless` profile, or any composite whose core, Node, dependency, plugin, patch or profile identity differs from the qualified one
+- **GIVEN** the resolved executable and home are the global 0.1.2-rc.1 installation with its plugin-free `headless` profile, or any composite whose core, Node, dependency, plugin, patch or profile identity differs from the qualified one, including a profile bundle added, dropped or reordered, a different patch-reload mode, a home-level patch layer the qualified composite lacked, or a listed bundle that resolves outside the core installation and the profile
 - **WHEN** an eligible DSH offer arrives or a cold DSH seat starts
 - **THEN** any offer is declined as `unverified-harness`, the shipped cold invocation runs unchanged and no offerable root is recorded
 - **AND** nothing is installed into that home, and whether the operator deploys the pair there is recorded as an operator ruling rather than assumed

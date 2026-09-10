@@ -124,7 +124,10 @@ saved for the phase commit.
       `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, pinned by the declared
       `wrapper_digest` written at enablement, no older core, selected but
       disabled pending its exact-root, restriction and multi-message
-      accounting proof, with session integration held separate from hands (5),
+      accounting proof, with session integration held separate from hands, and
+      recording the admission of that repository-owned plugin (answer M) as
+      extension-boundary source Brokkr never builds, loads or executes,
+      conditional on 10.7 and 11.3 (5),
       re-imposed
       current restrictions (6), one confirmed launch in the v5 vocabulary,
       manifest dispatch from 0.10.0 under the amended boundary-record
@@ -143,9 +146,12 @@ saved for the phase commit.
       ruling, the reversed 0.1.0-rc.6 pin and the superseded
       `dsh-pair-qualification-010rc6.json` record as history, without
       rewriting that record's own bytes.
-      Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043, 0046 and shipped
-      0053 where each ruling stands on them, and quote no accepted decision into
-      a different meaning. Verify the decision remains `proposed`, its ten
+      Cite decisions 0006, 0009, 0016, 0030, 0034, 0041, 0042, 0043, 0046 and
+      shipped 0053 where each ruling stands on them — 0009 for ruling 5's
+      admission of six committed non-Rust files under `extensions/`, which
+      rests on its statement that Rust-only describes this repository, not the
+      extension boundary — and quote no accepted decision into a different
+      meaning. Verify the decision remains `proposed`, cites 0009, its ten
       rulings and consequences agree with design D9/D10/D12/D13 and AS1's DSH
       scenarios, and `cargo test -p brokkr-cli --test decisions_index` passes —
       safety / AS1, progress / PM4, boundary /
@@ -511,7 +517,12 @@ saved for the phase commit.
       `extensions/dsh/plugin-cli-session/`, their supported `--session`
       extension route, and 10.7's still missing exact-root, restriction and
       current-accounting proof, with no `wrapper_digest` set until 11.3
-      writes it. Append one dated 2026-09-10 `limitations` entry naming the
+      writes it. Repoint DSH's `evidence.interface` to
+      `.forge/tasks/dsh-pair-qualification-015rc1.json`, or, while that record
+      does not exist, to `.forge/tasks/controller-dsh-upstream-discovery.json`
+      and `.forge/tasks/dsh-pair-incompatibility.json` with the qualification
+      named pending, so no evidence member cites the superseded 0.1.0-rc.6
+      record as current. Append one dated 2026-09-10 `limitations` entry naming the
       operator's ruling, the reversed 0.1.0-rc.6 pin and the superseded
       `dsh-pair-qualification-010rc6.json` record as history, keeping every
       earlier entry's bytes and order unchanged. Preserve the installed
@@ -526,9 +537,11 @@ saved for the phase commit.
       `adapters/exec.json` gains no assessment. Verify the four shipped files
       load through the existing runtime assessment tests, DSH resolves disabled
       with its measured version identity (`version` and `applies_to` equal to
-      the resolved core) and no `wrapper_digest`, and no declaration claims a
-      global DSH
-      limitation or still names 0.1.0-rc.6 as the selected route — safety / AS1.
+      the resolved core) and no `wrapper_digest`, its `evidence.interface`
+      names the 015rc1 record or the discovery and incompatibility records with
+      the qualification pending and never `dsh-pair-qualification-010rc6.json`,
+      and no declaration claims a global DSH limitation or still names
+      0.1.0-rc.6 as the selected route — safety / AS1.
 - [x] 6.5 Update the scaffolded adapter text in
       `crates/brokkr-cli/src/init.rs` and its expectations in
       `crates/brokkr-cli/tests/init_stacks.rs` and
@@ -714,27 +727,45 @@ saved for the phase commit.
       member travels with the selected assessment into the private start
       context. (b) Implement one Rust function in `brokkr-protocol`, beside
       the DSH planner, that computes the plugin component as the SHA-256 of
-      the six `<relative path>\0<file SHA-256>\n` lines in path order over a
-      plugin directory — a missing file, or an extra entry other than a
+      the six `<relative path>\0<file SHA-256>\n` lines in bytewise path order
+      over a plugin directory — a missing file, or an extra entry other than a
       nested `node_modules/` the dependency identity already covers, is
       unreadable and names the drifted file — and the canonical composite as
       the SHA-256 of design D6's fixed `<component>\0<value>\n` lines: `core`
       (name, version, registry integrity), `node`, one deduplicated,
       bytewise-sorted `dependency` line per lock-metadata
-      `name version integrity` triple normalized from npm `package-lock.json`
-      and pnpm `pnpm-lock.yaml` (the core's and the plugin's own entries
-      excluded), `plugin`, `plugin-patch`, `profile-patch` and, only if D6's
-      conditional extension exists, `extension`. Another entry without a
-      registry integrity, a value holding a NUL or newline, or an unreadable
-      component makes the identity unreadable. This function is the only
-      producer of either value. (c) Extend `brokkr doctor`'s existing `dsh`
+      `name version integrity` triple normalized from npm's hidden
+      `node_modules/.package-lock.json` and pnpm `pnpm-lock.yaml` (the core's and the plugin's own entries
+      excluded), `plugin`, `plugin-patch`, `profile-patch`, one
+      `profile-bundle` line per `dsh.profile.bundles` entry in declared order,
+      `profile-patch-reload`, `home-patch` (the home-level
+      `$DSH_HOME/cordis.patch.yml` SHA-256 or `absent`) and, only if D6's
+      conditional extension exists, `extension`. It reaches its inputs only
+      through D6's locators: the canonical executable must be the core
+      package's `bin.dsh` script with the `#!/usr/bin/env node` first line;
+      the core lock is `<core root>/node_modules/.package-lock.json`, whose
+      core entry carries the package's own version; `node` is the first on the
+      child environment's `PATH`, read by `node --version`; the profile
+      manifest yields only `bundles` (a non-empty string array) and
+      `patchReload` (`live` or `startup`); each listed bundle resolves by the
+      loader's order (the core package's lookup paths, Node's global folders,
+      then the profile's) to a canonical directory inside the core root or the
+      profile, the plugin inside the profile; the pnpm lock is read by D6's
+      bounded, fail-closed line reader with no YAML crate; and the plugin
+      lines are in bytewise path order. `cordis.yml`, the raw `package.json`,
+      `pnpm-workspace.yaml`, `.env` layers, persisted state and the per-seat
+      overlay never enter it. Another entry without a registry integrity, a
+      value holding a NUL or newline, a layout outside those locators, or an
+      unreadable component makes the identity unreadable. This function is
+      the only producer of either value. (c) Extend `brokkr doctor`'s existing `dsh`
       line in `crates/brokkr-cli/src/doctor.rs` to report, through the
       adapter's own seam resolution, the composite's digest or its
       unreadable component and whether it equals, differs from or has no
       declared `wrapper_digest`. It is informational until a `supported`
       shape declares one, then a warning on difference or unreadability. It
       reads no credential or settings file, and the guide's doctor sample
-      follows it. (d) Then build the planner. Record the observed core
+      follows it; it spawns only the `dsh` and `node` version probes. (d) Then
+      build the planner. Record the observed core
       version in `harness_version` and the composite in `wrapper_digest` and
       the assessment/instance identity. The engine passes the offered root's
       `root_session.wrapper_digest` as the private
@@ -811,10 +842,22 @@ saved for the phase commit.
       way even when the declaration matches the recompute; an `unmeasured`
       shape on a home holding the qualified pair spawns no version probe, no
       recompute and no `--new` or `--session`. Pin the canonical composite's
-      byte form with one worked vector per lock dialect (npm lockfile 3 and
-      pnpm lockfile 9.0), the exclusion of the plugin's own tarball entry, and
-      an equal composite for the same pair staged in two homes at different
-      absolute paths and under different per-seat overlays. Cover bounded locator round-trip and refusal of truncation,
+      byte form with one worked vector per lock dialect (the npm lockfile-3
+      hidden lock and pnpm lockfile 9.0, as committed synthetic excerpts in the
+      measured grammar), one vector for the plugin component's bytewise path
+      order, the exclusion of the plugin's own tarball entry, and an equal
+      composite for the same pair staged in two homes at different absolute
+      paths and under different per-seat overlays. A profile bundle added,
+      dropped or reordered, a changed `patchReload` and an added home-level
+      `cordis.patch.yml` each move the composite, and a rewritten `cordis.yml`
+      does not. A listed bundle resolving outside the core root and the
+      profile (a same-named package in an ancestor `node_modules` or a global
+      folder), an executable that is not the core's `env node` script, a
+      missing or malformed `bundles` or `patchReload`, and each unrecognized
+      pnpm construct (tab, comment, document marker, block-form, missing or
+      repeated resolution, key without a version separator) make the identity
+      unreadable. Every case builds its homes in temporary directories; no
+      test reads `.forge/` or needs an installed provider. Cover bounded locator round-trip and refusal of truncation,
       ambiguity, traversal and symlink escape; a retained directory is never a
       handle. Beside these drift shims, keep 8.8's committed-bytes test pinning
       the repository-owned adaptation's exact six-file set against its
@@ -886,6 +929,7 @@ saved for the phase commit.
       generic ten-old/two-new stream case, LaneTally capture-only ledger,
       historical no-launch compatibility, unrewritten legacy Codex resume and
       cold migration of legacy composites and DSH-directory-only history.
+      Build every fixture in temporary directories; none reads `.forge/`.
       Verify the focused adapter/runtime accounting suites and label fixtures as
       shim/store evidence, not proof of the upstream pair — evidence / LE4,
       evidence / LE5, site / SR3, site / SR5, safety / AS1.
@@ -1027,13 +1071,19 @@ itself (`safety / AS1`).
       `dsh-plugin-cli-session` 0.2.0 at
       `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under
       `extensions/dsh/plugin-cli-session/` with its provenance note and the
-      `docs/guides/repository-layout.md` row, check the six installed files
-      against the provenance block with `sha256sum -c` before any model call,
-      and record the composite's raw inputs — the core package's name, version
-      and registry integrity, the Node runtime version, each lock file by
-      home-relative path and SHA-256, the six installed files' SHA-256 and the
-      plugin's and profile's Cordis patch SHA-256 — with the composed profile
-      and extension protocol, but no plugin-component or composite digest,
+      `docs/guides/repository-layout.md` row, install the pair into the
+      task-owned home's `headless` profile, the one the adapter launches,
+      check the six installed files against the provenance block with
+      `sha256sum -c` before any model call, and record the composite's raw
+      inputs as design D6 lists them — the core package's name, version and registry integrity,
+      the executable's real path relative to the core package with its first
+      line, the Node runtime version, each lock file by home-relative path and
+      SHA-256, the six installed files' SHA-256, the plugin's and profile's
+      Cordis patch SHA-256, the profile manifest's `bundles` and
+      `patchReload`, each listed bundle's resolved directory relative to the
+      core root or the profile, and the home-level patch's SHA-256 or its
+      absence — with the composed profile and extension protocol, but no
+      plugin-component or composite digest,
       while proving the live global DSH pin, profiles, credentials and other
       runs are unchanged. Keep the task-owned home in place.
       Write the result to `.forge/tasks/dsh-pair-qualification-015rc1.json`
@@ -1109,11 +1159,23 @@ itself (`safety / AS1`).
       the provider ID, persistence-locator and composite-digest limits in
       proposed 0056 and `docs/guides/provider-adapters.md`, including the
       digest a deployed home must reproduce and the doctor line that reports
-      it. Land an end-to-end adapter case, with the seams pointed at the
-      task-owned home so the planner's recompute equals the written digest,
-      proving eligible rejoin through `--session`,
-      current-only evidence and cold refusal on composite drift or unsafe
-      storage. Keep 0.1.2-rc.1 one-shot, the superseded 0.1.0-rc.6 pin,
+      it. Before that edit, record design D6's end-to-end proof: drive the
+      built `brokkr driver dsh` over driver-protocol v1 with `BROKKR_DSH_BIN`
+      and `DSH_HOME` pointed at the retained task-owned home and the candidate
+      `supported` assessment, carrying the appended composite, in the private
+      start context. The exchange covers a cold `--new` that confirms a root, a
+      `resume` offer for it that rejoins through `--session` with
+      current-only evidence, and the same offer declined to the shipped cold
+      invocation after a reversible composite drift (a home-level
+      `cordis.patch.yml` added, then removed with the raw inputs
+      re-measured) and with an unsafe locator. Append its input lines,
+      emitted messages, the binary's SHA-256 and the Git head to the 015rc1
+      record as a dated entry. The driver exchange starts no Brokkr run. The
+      committed suite's stand-ins stay 8.10's and 9.6's hermetic shims; add
+      no cargo test that reads `.forge/` and no ignored or environment-gated
+      live test. Tick only when the recorded exchange and those hermetic cases
+      both pass and doctor over the same home reports the written digest as
+      equal. Keep 0.1.2-rc.1 one-shot, the superseded 0.1.0-rc.6 pin,
       SDK/TUI, global profiles, new trust/boundary and DSH hands disabled and
       named only as dated history. If 10.7 fails an admission condition,
       leave this task unchecked and report that exact AS1 gap upstream
@@ -2292,3 +2354,26 @@ DSH pin, profiles and credentials were not touched.
 ready for the next implement visit in the order this file states: 10.7's
 live half, then 1.1 → 6.4 → 11.5 → 13.1, then 8.8, then 10.7's recording
 step, then 8.10, 9.6 and 11.3.
+
+## Design return — analyze drift B1–B5, 2026-09-11
+
+The design seat of run `current-successor-operator-rulin-b83add73` answered
+the second analyze return at `6829e57` and revised this file with design D6
+and D10, because the findings sat in the design and in five tasks here:
+
+- **B1**: 8.8(b) adds the `profile-bundle`, `profile-patch-reload` and
+  `home-patch` lines and the bundle-resolution rule. 8.10 adds the
+  composition drift and shadowing cases. 10.7 installs into the `headless`
+  profile and records the added raw inputs.
+- **B2**: 8.8(b) names D6's locators: the canonical `env node` executable, the
+  hidden core lock, `node` on the child `PATH`, the two manifest members, the
+  bounded pnpm reader with no YAML crate, and bytewise path order. 8.10 pins
+  the path-order vector and the reader's refusals.
+- **B3**: 11.3 records D6's end-to-end driver exchange against the retained
+  home and ticks only beside the hermetic shims. 8.10 and 9.6 state that no
+  test reads `.forge/`.
+- **B4**: 6.4 repoints `evidence.interface` and verifies it.
+- **B5**: 1.1 cites 0009 and records answer M's conditional admission.
+
+No identifier was added, removed or renumbered. The record still reads 78
+complete / 23 pending across 101 tasks. No task was ticked and none reopened.

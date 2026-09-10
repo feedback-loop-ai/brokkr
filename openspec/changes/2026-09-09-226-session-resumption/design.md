@@ -53,6 +53,16 @@ standing. D5 now assigns the loader amendment to pending 8.8, D6 makes 8.8's
 function the only producer of every composite value, fixes its byte form and
 names `brokkr doctor` as its one entry point outside a seat, and D10 reorders
 the qualification's recording step after that function exists.
+The second analyze return of 2026-09-11 (B1–B5) found that the composite
+could not see how the headless profile is composed, that the function's input
+locators were unstated, and that the end-to-end proof's form was ambiguous.
+It also found two task-level omissions: 6.4 left `evidence.interface`
+unrepointed, and 1.1 did not cite 0009. Both current positions answer them.
+This visit read the installed loader and found two more composition inputs
+that neither position named: the home-level patch layer, and the bundle lookup
+that searches beyond the core root before the profile. D6 adds them together
+with the bundle list and patch-reload mode, names every locator, and records
+the end-to-end proof as a recorded exchange with the built driver.
 
 The implementation at this head already contains the reusable architecture:
 `engine/resume.rs::{eligible_offer, SiteContext, InstanceKey,
@@ -558,14 +568,14 @@ test below catches any divergence.
 **One Rust function produces every composite value.** One Rust function in
 `brokkr-protocol`, beside the DSH planner, computes the plugin component over a
 directory: the SHA-256 of the six `<relative path>\0<file SHA-256>\n` lines in
-path order. A missing file, or an extra entry other than a nested
+bytewise path order. A missing file, or an extra entry other than a nested
 `node_modules/` that the dependency identity below already covers, makes the
 component unreadable, and the per-file lines name the file that drifted. The
 same code computes the canonical composite defined below. It is the only
 producer of either value. No provenance note, probe script or evidence file
 computes one by hand, so no second implementation of the format exists to
 disagree with it (analyze A2). The run-time composite applies it to the
-installed plugin directory. One test beside 8.10's drift shims applies it to
+plugin directory the loader's bundle lookup resolves (below). One test beside 8.10's drift shims applies it to
 the committed set, reading the files at test time rather than through
 `include_str!`, which would break `cargo package`. The test asserts that the
 directory holds exactly the six files and that the function's per-file lines
@@ -587,10 +597,15 @@ committed values, not a computation of the plugin component, which only 8.8's
 function produces. An install tool that rewrites any byte fails that check and
 is recorded. It is never waved through or cured by a symlink into the worktree.
 The live qualification records the composite's raw inputs, not its digest:
-the core package's name, version and registry integrity, the Node runtime
+the core package's name, version and registry integrity, the executable's real
+path relative to the core package with its first line, the Node runtime
 version, each lock file it reads by path relative to the task-owned home and
-SHA-256, the six installed files' SHA-256, and the SHA-256 of the plugin's and
-the profile's Cordis patch bytes. It keeps the task-owned home in place after
+SHA-256, the six installed files' SHA-256, the SHA-256 of the plugin's and
+the profile's Cordis patch bytes, the profile manifest's `bundles` and
+`patchReload`, each listed bundle's resolved directory relative to the core
+root or the profile, and the home-level patch's SHA-256 or its absence. The
+pair is installed into the task-owned home's `headless` profile, the one the
+adapter launches and the function reads. It keeps the task-owned home in place after
 the model calls, so the recording step below measures the same bytes. The probe snapshots the global DSH installation, its volta
 manifests and the default profile tree by SHA-256 before and after, as the
 existing probe does, and exits nonzero on any difference. It compares the
@@ -635,9 +650,17 @@ so the whole value has a byte-exact form (analyze A2):
    `name version integrity` from the lock metadata the installation wrote,
    deduplicated and sorted bytewise;
 4. `plugin`: the plugin component's hexadecimal digest;
-5. `plugin-patch`, then `profile-patch`: the hexadecimal SHA-256 of each Cordis
-   patch file's bytes;
-6. `extension`, only when D6's conditional extension exists: computed over its
+5. `plugin-patch`, then `profile-patch`: the hexadecimal SHA-256 of the
+   plugin's and the profile's `cordis.patch.yml` bytes;
+6. `profile-bundle`, once per entry of the profile manifest's
+   `dsh.profile.bundles`, in declared order and not sorted, because the loader
+   applies bundle layers in that order (analyze B1);
+7. `profile-patch-reload`: the manifest's `dsh.profile.patchReload`, `live` or
+   `startup`;
+8. `home-patch`: the hexadecimal SHA-256 of the home-level
+   `$DSH_HOME/cordis.patch.yml`, or the literal `absent` when no such file
+   exists;
+9. `extension`, only when D6's conditional extension exists: computed over its
    committed files as the plugin component is.
 
 The core's own lock entry supplies the `core` line and is not repeated among
@@ -648,11 +671,11 @@ entry without a registry integrity, a value containing a NUL or newline, and a
 component that cannot be read each make the identity unreadable, which declines
 as `unverified-harness`. Both lock dialects normalize to the same
 `name version integrity` triple before sorting. This visit measured both in the
-task-owned 0.1.5-rc.1 install. The core's npm `package-lock.json` (lockfile
-version 3) keys 581 `packages` entries by `node_modules/` path, each with
-`version` and `integrity`. The profile's pnpm `pnpm-lock.yaml` (lockfile version
-9.0) keys `packages` as `name@version`, with `resolution.integrity`. Names come
-from those keys, never from a resolved URL or importer specifier: the pnpm
+task-owned 0.1.5-rc.1 install. The core's hidden npm lock
+`node_modules/.package-lock.json` (lockfile version 3) keys 521 `packages`
+entries by `node_modules/` path, each with `version` and `integrity`. The
+profile's pnpm `pnpm-lock.yaml` (lockfile version 9.0) keys `packages` as
+`name@version`, with `resolution.integrity`. Names come from those keys, never from a resolved URL or importer specifier: the pnpm
 importer's `specifier` records the plugin tarball's absolute path and is not
 read. 8.10 carries one worked vector per dialect, so tests pin the
 normalization rather than two authors' readings of it.
@@ -663,8 +686,123 @@ per-invocation deadline is not viable. The adaptation is hashed as bytes
 because it has no registry integrity and its bytes are its identity. The lines
 exclude absolute executable and home paths, install-source specifiers and the
 per-seat overlay, so the same composite deployed in another home digests the
-same. 8.8 reads each component through an interface the qualified composite
-measures.
+same.
+
+**What composes the profile (analyze B1).** The composite names what the
+loader composes, not only what is installed. This visit read the loader in the
+task-owned 0.1.5-rc.1 core. `composeProfile` in `@deepseek-ai/dsh`
+`lib/profile-boot-Dk-7KqJc.js` (SHA-256
+`8b79b5c70281f23153ecc1828ba9b6e7b48364cc71409c90f12bde4cc4d7cde0`, `:232`)
+applies the bundle layers in `dsh.profile.bundles` order, then the profile's
+`cordis.patch.yml`, then the home-level `$DSH_HOME/cordis.patch.yml`
+(`homePatchPath`, `:116`), which its comment says applies to every profile and
+outranks the profile's own layer, then the `--patch` overlays and the telemetry
+switch. `loadProfileDirectory` in `@deepseek-ai/dsh-app-boot` 0.1.5-rc.1
+`lib/index.js` (SHA-256
+`d8fdfe41996a4fefcff63af4982787924b0ae651f24bb1402f775b70202529bb`, `:843`)
+reads exactly two manifest members, `bundles` and `patchReload`, and refuses a
+`patchReload` other than `live` or `startup`; under `live`, boot watches the
+profile and home patch files and reapplies them to the running tree
+(`profile-boot-Dk-7KqJc.js:321`). The task-owned profile lists
+`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless` and
+`dsh-plugin-cli-session` with `patchReload` `startup`. Its pnpm lock holds no
+bundle entry, and the core install ships dozens of selectable bundles
+(`dsh-tool-web`, `dsh-mcp-client`, `dsh-tool-subagent` and others). Adding,
+dropping or reordering a bundle, switching to `live`, or adding a home patch
+therefore moved no line of the earlier list. Lines 6–8 close that fail-open.
+The loader rewrites a manifest only for the two shipped plugin-free `headless`
+tuples (`normalizeShippedProfile`, `:776`), which a list naming the plugin
+never matches, so the manifest read before launch is the one boot composes.
+
+`cordis.yml` joins no line. `prepareProfile` (`profile-boot-Dk-7KqJc.js:206`)
+rewrites it before every boot with the core's constant `PROFILE_ROOT_CONFIG`,
+which the `core` line's integrity already covers, and its comment says the
+Loader's tree write-back can bake composed rows into that file between boots.
+Its on-disk bytes would move the composite after an ordinary run while
+describing nothing that loads. The task-owned copy was rewritten minutes after
+the profile's other files were written, as that code predicts.
+
+**How the function finds its inputs (analyze B2).** 8.8's function reaches
+every input from the two seams and nothing else:
+
+- *Executable and core.* It canonicalizes the resolved executable. The core
+  package is the nearest ancestor directory whose `package.json` names
+  `@deepseek-ai/dsh`. The canonical executable must be that package's `bin.dsh`
+  target, and its first line must be exactly `#!/usr/bin/env node`. The
+  package must sit at `<core root>/node_modules/@deepseek-ai/dsh`, and the core
+  lock is `<core root>/node_modules/.package-lock.json`, lockfile version 3,
+  whose `node_modules/@deepseek-ai/dsh` entry supplies the `core` line and must
+  carry the package's own `version`. The measured install holds both npm
+  locks. The root `package-lock.json` has 582 entries: the hidden lock's 521,
+  the root entry and 60 optional packages constrained to other operating
+  systems or architectures, which were never installed. Every shared entry
+  has the same version and integrity in both. The hidden lock therefore names
+  exactly what can load and loses nothing, and one source leaves no fallback
+  that would give one install two digests.
+- *Node runtime.* The shebang is a `PATH` lookup, so the runtime is the first
+  executable `node` on the `PATH` of the environment the DSH child is spawned
+  with. The adapter passes its own environment through, so doctor measures its
+  own. The `node` value is the single line `node --version` prints. No
+  version-manager directory is inspected.
+- *Profile manifest.* The function reads `<home>/profiles/headless/package.json`
+  as JSON and takes only `dsh.profile.bundles`, which must be a non-empty array
+  of strings, and `dsh.profile.patchReload`, which must be `live` or `startup`.
+  The loader defaults an absent `patchReload` to `live`, but shipped
+  initialization and normalization always write it, so absence declines rather
+  than being guessed. `dependencies`, which carries the plugin tarball's
+  absolute `file:` specifier, is never read.
+- *Bundle resolution.* Each listed bundle resolves as `resolveBundleDir`
+  resolves it (`dsh-app-boot` `lib/index.js:807–832`): Node's lookup from the
+  core package's `package.json` — every ancestor `node_modules` directory, then
+  Node's global folders (`NODE_PATH` entries of the child environment,
+  `$HOME/.node_modules`, `$HOME/.node_libraries` and `lib/node` under the
+  runtime's prefix) — then the same lookup from the profile's `package.json`.
+  The first candidate holding a `package.json`, canonicalized, must lie inside
+  the core root or the profile directory. The plugin component is computed over
+  the directory `dsh-plugin-cli-session` resolves to, which must lie inside the
+  profile directory. A candidate anywhere else makes the identity unreadable.
+  Because the installation anchor is searched first, a same-named package above
+  the core root or in a global folder would otherwise load in place of the
+  adaptation the composite hashed. The function emulates this one documented
+  lookup over the file system; it spawns no resolver.
+- *Profile lock.* `<home>/profiles/headless/pnpm-lock.yaml` is read by a bounded
+  line reader; no YAML crate is added, so deny, audit, licence and MSRV stay
+  unchanged. The recognized grammar is the measured one. The first non-blank
+  line is `lockfileVersion: '9.0'`, and unindented `key:` lines delimit
+  top-level sections, of which only `packages:` is read. Inside it the reader
+  accepts blank lines, entry keys at a two-space indent (`'<name>@<version>':`
+  quoted or bare) and child lines at four or more spaces. Each entry carries
+  exactly one four-space `resolution: {integrity: <value>}` or
+  `resolution: {integrity: <value>, tarball: <value>}`; its other children
+  (`engines`, `version`, `peerDependencies` and their nested lines) are
+  skipped. A tab, a comment or document marker, a block-form resolution, a
+  missing or repeated resolution, or a key with no `@` after its first
+  character makes the lock unreadable, so an unrecognized construct is never
+  read as an empty result. The key is the text between the indent and the
+  line's final colon, without its single quotes; the name is the key up to the
+  first `@` after its first character. The plugin's own entry is the one named
+  `dsh-plugin-cli-session` with a `file:` version, excluded as above.
+- *Path order.* The plugin component's six lines are in bytewise ascending
+  order of their UTF-8 relative paths: `LICENSE`, `README.md`,
+  `cordis.patch.yml`, `lib/index.js`, `lib/startup.js`, `package.json`.
+
+A layout these rules do not reach declines as `unverified-harness`: a
+version-manager shim, a packaged executable or a command-script shim whose real
+path is not the core's `lib/bin.js` or whose first line is not the `env node`
+shebang. The qualified layout is the task-owned project install, and nothing in
+the function searches for an alternative.
+
+**Inputs the composite excludes.** Beside `cordis.yml`, the raw `package.json`
+carries an absolute specifier, and `pnpm-workspace.yaml` holds install
+settings whose resolutions the lock records. The invoking directory's and the
+home's `.env` layers (`loadLayeredEnv`) can carry credentials, so they are
+neither read nor hashed (decision 0012). Persisted `sessions/` and `storages/`
+state, the per-seat `--patch` overlay and the `DSH_TELEMETRY_DISABLED`
+telemetry switch are excluded too. What the env layers and persisted state do
+to every current axis is what 10.7's restriction-precedence proof measures. A
+`dump-config` of the composed tree is rejected: it spawns the tool under
+measurement inside D5's deadline and prints absolute paths, while the lines
+above determine the same composition from files.
 
 The reference is the declaration's `identity.wrapper_digest` (answer O). While
 the shape is `unmeasured`, the gate closes before any probe: every DSH seat
@@ -697,9 +835,9 @@ version. It also reports the composite that the adapter's own seam resolution
 finds (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or PATH, and `$DSH_HOME` or
 `$HOME/.dsh`): its digest, or the component that made it unreadable, and
 whether it equals the declared `wrapper_digest`, differs from it, or has none
-to meet. It reads package metadata, lock, plugin and patch files, spawns only
-the version probes the computation needs, never reads a credential or settings
-file, and opens no seat's gate. The detail stays informational while no
+to meet. It reads package metadata, the profile manifest, lock, plugin and
+patch files, spawns only the `dsh` and `node` version probes, never reads a
+credential or settings file, and opens no seat's gate. The detail stays informational while no
 `supported` DSH shape declares a digest. It becomes a warning when a supported
 shape's composite differs or is unreadable, because every offer on that home
 would then decline. This also meets answer O's guide obligation. An operator who
@@ -712,11 +850,33 @@ reported plugin component and canonical composite to
 `.forge/tasks/dsh-pair-qualification-015rc1.json` as a dated entry beside the
 live record, never editing it. Only 11.3 copies that value into
 `adapters/dsh.json` and its packaged or scaffolded equivalents, together with
-`supported`. Its end-to-end case recomputes the value through the planner over
-the same home. A later re-qualification is one declaration edit of
-`version`, `applies_to`, `wrapper_digest` and `evidence`, with no code change.
-This is one provider-specific check, not a generic plugin manager or evidence
-database.
+`supported`, after it records the end-to-end proof described next. A later
+re-qualification is one declaration edit of `version`, `applies_to`,
+`wrapper_digest` and `evidence`, with no code change. This is one
+provider-specific check, not a generic plugin manager or evidence database.
+
+**The end-to-end proof (analyze B3).** AS1's end-to-end proof is a recorded
+live exchange with the built driver, not a cargo test. After 8.8, 8.10, 9.6 and
+10.7, and before its declaration edit, 11.3 drives the built
+`brokkr driver dsh` over driver-protocol v1 lines, as `driver_conformance.rs`
+drives a built-in adapter. `BROKKR_DSH_BIN` and `DSH_HOME` point at the
+retained task-owned home, and the private start context carries the candidate
+`supported` assessment with the recorded composite. A cold start builds
+`--new` and confirms a root. A `resume` offer for that root, carrying the
+originating version and digest the cold launch recorded, rejoins through
+`--session` with current-only evidence. The same offer declines to the shipped
+cold invocation after a reversible composite drift (a home-level
+`cordis.patch.yml` added, then removed and the raw inputs re-measured) and
+again with an unsafe locator. A driver process is not a Brokkr run: it starts
+no engine, journal, recipe or seat. The exchange's input lines, emitted
+messages, the binary's SHA-256 and the Git head are appended to
+`dsh-pair-qualification-015rc1.json` as a dated entry. In the committed suite,
+8.10's and 9.6's hermetic shims over synthetic homes in temporary directories
+stand in for it. No cargo target reads `.forge/`, no ignored or
+environment-gated live test is added, and neither three-OS CI nor the
+exact-coverage gate depends on an installed provider. 11.3 needs both halves:
+the shims prove the function and planner in every gate, and the exchange proves
+the provider through the adapter's real resolution and argv.
 
 Cold DSH work explicitly selects the plugin's `--new`; resumed work selects
 exactly `--session <owned-id>`; both use `--output-format stream-json`, the
@@ -1005,7 +1165,9 @@ ruling 5's old unsupported-route premise and the consequences paragraph that
 left a supported headless route deliberately unknown. Task 1.1 must therefore
 be reopened until the proposed record selects the latest core with the
 repository-owned adaptation, records the admission of a repository-owned plugin
-(answer M) and keeps its admission conditional and status `proposed`. Context/alternatives cite this
+(answer M) on decision 0009's extension boundary, cites 0009 beside the other
+decisions its rulings stand on, and keeps its admission conditional and status
+`proposed`. Context/alternatives cite this
 design and preserve historical accepted decision text. The required numbered
 rulings and enforcement bindings are:
 
@@ -1025,15 +1187,16 @@ rulings and enforcement bindings are:
 The current sitting's sources are the two run-local positions named in Context,
 recorded here so the reasoning survives their replacement on a future visit:
 
-- Robustness SHA-256: `9a7f0e93a2d97678eed3ec446cc4315f7e2b9bc874f0e1112f936e7084edc873`.
-- Simplicity SHA-256: `21e74165e51ea026d3d62cf324f20492dd2ea43ee1be785fb3ba9be35913497d`.
+- Robustness SHA-256: `3747137128c7333d8d8dce72e161c2cc5079a2788129974b1e4ae401ee5e7b0d`.
+- Simplicity SHA-256: `b9f30ae7f5bab0be001afb7a998d6c4cc7e58360eae8ff3b657123066219eb02`.
 
-These replace the forward-pin sitting's pins (`0df9c79c…`, `9776a8e6…`), which
-had replaced `78a39c1e…` and `0bb9b650…`. Both current positions answer the
-analyze return's findings A1–A5 and leave the forward-pin sitting's
-dispositions standing. The rows that predate the DSH forward pin, and those
-under *Forward-pin sitting*, keep their dispositions. The rows under *Current
-sitting* dispose of this sitting's claims.
+These replace the A1–A5 sitting's pins (`9a7f0e93…`, `21e74165…`), which had
+replaced the forward-pin sitting's (`0df9c79c…`, `9776a8e6…`), themselves
+replacing `78a39c1e…` and `0bb9b650…`. Both current positions answer the
+analyze return's findings B1–B5 and leave the earlier sittings' dispositions
+standing. The rows that predate the DSH forward pin, and those under the
+*Forward-pin* and *A1–A5* sittings, keep their dispositions. The rows under
+*Current sitting* dispose of this sitting's claims.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -1091,7 +1254,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Simplicity: one optional `wrapper_digest` and one Rust canonicalization; no schema, tree walker or database. | Adopt with one measured refinement: dependencies enter by lock metadata, not bytes (25,416 files, 305 MB), and an unreadable component declines. |
 | Simplicity: no doc-linting enforcement of the single-source rule. | Adopt. `adapters/dsh.json` is the single source; the guide and 0056 cite it, and 11.5/13.1's line-by-line audit is the check. |
 
-*Current sitting — analyze return A1–A5, 2026-09-11:*
+*A1–A5 sitting — analyze return, 2026-09-11:*
 
 | Current position / claim | Disposition and evidence |
 |---|---|
@@ -1102,6 +1265,21 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Robustness §4 / simplicity A4: name in 8.8 the declared-digest comparison, the originating-root comparison of version and digest, and a supported shape without the member reading `unverified-harness`. Name in 8.10 the missing, malformed and mismatched declared digest, the originating-root mismatch, the closed unmeasured gate and location/overlay independence. | Adopt in D6/D11 and the tasks return. D6 names how the originating root's digest reaches the planner (`originating_wrapper_digest`, beside the existing `originating_harness_version`) and that a root without one declines. Each case maps to an existing AS1 scenario, so this is clause text in 8.8/8.10, not a new task. |
 | Robustness §5 / simplicity A5: tasks.md's conventions line calls the 2026-09-10 controller evidence core 0.1.0-rc.6. Sweep every occurrence. | Adopt. `controller-dsh-upstream-discovery.json` records official 0.1.5-rc.1 at `183f08e9`. This visit repeated the sweep over proposal, design and tasks at `095dd21`: 46 matching lines. The conventions line is the only present-tense claim that the reversed pin is current evidence. Every other hit is dated history, the superseded record's name, the reversal wording, or a rule that no current text may name that pin as the route. D6's lock-dialect aside cited the 0.1.0-rc.6 profile, and the measured 0.1.5-rc.1 lock facts replace it. |
 | Simplicity: refresh D10's simplicity pin; no second probe, typed history field, mapping table or doc-linting. | Adopt the refreshed pins above. The other cuts were settled last sitting and stand. |
+
+*Current sitting — analyze return B1–B5, 2026-09-11:*
+
+| Current position / claim | Disposition and evidence |
+|---|---|
+| Both: the earlier dispositions stand; B1–B5 are edits inside D6, D10 and existing task identifiers. | Adopt. No identifier, capability, dependency, contract, store or decision is added. 0056 stays `proposed`, and the ledger stays 78 complete / 23 pending across 101 tasks. |
+| Robustness §1: a `profile-bundles` component with the bundles in declared order and a boolean `patchReload`, without `cordis.yml`. Simplicity §1: one `profile-composition` inner digest over the bundles, `patchReload` and the `cordis.yml` digest. | Combine, correcting both from the loader's bytes. Adopt the declared order and `patchReload`, which both positions ask for. Reject the boolean: `DshProfileManifest.patchReload` is `'live' \| 'startup'`, and the profile carries `"startup"`. Reject `cordis.yml`: `prepareProfile` rewrites it from a core constant before every boot, and the Loader's write-back can alter it between boots. Add what neither position found. First, the home-level `$DSH_HOME/cordis.patch.yml` layer, which `composeProfile` applies to every profile above the profile's own patch. Second, the bundle-resolution rule: the loader searches the installation anchor's ancestors and Node's global folders before the profile, so a shadowing package would load in place of the hashed plugin. The values enter as top-level lines of the existing list, not as an inner digest. That is the same safety with no second nesting, and the record can state each value directly. |
+| Robustness §2a: the as-built `node_modules/.package-lock.json`, reached from the executable's real path. Simplicity §2.1: the root `package-lock.json`, falling back to the hidden lock. | Adopt robustness on measurement. The root lock adds the root entry and 60 uninstalled optional platform packages to the hidden lock's 521, and every shared entry agrees. There is one source and no fallback, and the lock's core entry must match the package version. |
+| Robustness §2b: resolve `node` through the adapter's own environment and read its version there. Simplicity §2.2: the first `node` on `PATH`, `node --version`. | Combine; both describe the same lookup. Use the first `node` on the child environment's `PATH`, read with `node --version`, and require the canonical executable to be the core's `env node` script, so this is the lookup the kernel makes. The record states the executable's first line and relative real path. |
+| Robustness §2c / simplicity §2.3: a bounded, fail-closed pnpm reader and no YAML crate. Robustness adds vectors built from the measured bytes. | Adopt the reader, whose grammar D6 states. Adopt the vectors, but as committed synthetic excerpts in the measured grammar. The measured lock's importer carries a host-absolute specifier and sits under the gitignored `.forge/`, so it is neither committed nor read by a test. |
+| Both §2d: bytewise path order. | Adopt, with robustness's worked order stated in D6. |
+| Robustness §3 / simplicity §3: the end-to-end proof is recorded live evidence, the suite keeps hermetic shims, and no live test is committed. Robustness: 11.3 ticks only when both exist. | Adopt in D6, and state the exchange's form: the built driver over protocol v1 against the retained home, appended to the 015rc1 record. That is not a Brokkr run. |
+| Both, B4: 6.4 repoints `evidence.interface`, and its verify clause checks it. | Adopt in task 6.4. |
+| Both, B5: 1.1 cites 0009 and states answer M's admission obligation. | Adopt in task 1.1 and in this section's opening obligation. |
+| Simplicity: refresh the pins; no YAML crate, `dump-config` walker, raw `package.json` hash, committed live test or second implementation. | Adopt the refreshed pins and every cut. The resolution rule emulates one documented lookup over the file system; it is not a tree walker and spawns no resolver. |
 
 **Forward-pin reconciliation.** The tasks return reconciles the artifacts
 `a86eca1` pointed at 0.1.0-rc.6, in this order, and adds no identifier:
@@ -1114,20 +1292,24 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
    recall, per-message usage, exact-root confirmation, restriction precedence
    and the multi-message/retry accounting boundary. Before any model call it
    checks the installed files against the provenance block with
-   `sha256sum -c`. It records the composite's raw inputs, not its digest, and
-   keeps the task-owned home for step 6.
+   `sha256sum -c`. It installs the pair into the task-owned home's `headless`
+   profile, records the composite's raw inputs as D6 lists them (analyze B1,
+   B2), not its digest, and keeps the task-owned home for steps 6 and 7.
 2. Reopen 1.1, 6.4, 11.5 and 13.1 (82/19 becomes 78/23) and complete them
    before 8.8. `adapters/dsh.json` sets `version`/`applies_to` to the resolved
    core with no `wrapper_digest`; `evidence.interface` names the 015rc1 record,
    or, if it does not exist yet, the discovery and incompatibility records
-   with the qualification named pending; `reason` names the adapted pair and
-   the still-unmeasured axes. One `limitations` string beginning `2026-09-10`
-   is appended, naming the ruling, the reversed 0.1.0-rc.6 pin and the
+   with the qualification named pending, and 6.4's verify clause checks that
+   member (analyze B4); `reason` names the adapted pair and the
+   still-unmeasured axes. One `limitations` string beginning `2026-09-10` is
+   appended, naming the ruling, the reversed 0.1.0-rc.6 pin and the
    superseded `dsh-pair-qualification-010rc6.json`; existing entries keep
    their bytes and order, and `hands.unsupported` is unchanged. Packaged and
    scaffolded equivalents agree, and the witness and compose-manifest digests
    are re-measured because the declaration is bundle data. Proposed 0056
-   ruling 5 and Consequences, and the guide's DSH row, follow the same facts.
+   ruling 5 and Consequences, and the guide's DSH row, follow the same facts;
+   0056 cites 0009 for the adaptation's extension-boundary admission (analyze
+   B5).
 3. Amend checked 10.3 in place: its source discovery is complete, now
    including the accessor, its hashes and the index-equals-sequence reading;
    the 0.1.0-rc.6 re-pin sentence becomes dated history with its reversal.
@@ -1146,8 +1328,10 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
    pointed at the retained task-owned home, and appends the reported plugin
    component and canonical composite. 10.7 ticks only after that entry and
    Brokkr's matching adapter assertions agree.
-7. 11.3 runs after 8.8, 8.10, 9.6 and 10.7 and writes the appended composite as
-   `wrapper_digest` in the same edit that sets `supported`.
+7. 11.3 runs after 8.8, 8.10, 9.6 and 10.7. It records D6's end-to-end driver
+   exchange against the retained home and appends it to the same record
+   (analyze B3), then writes the appended composite as `wrapper_digest` in the
+   same edit that sets `supported`.
 
 Codex 10.5, Claude 10.6 and LaneTally 10.8 keep their recorded state. The
 proposal and specification already carry answers M–O and are not edited.
@@ -1204,7 +1388,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has one worked vector per lock dialect, excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has one worked vector per lock dialect, as committed synthetic excerpts in the measured grammar, and one for the plugin component's bytewise path order. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -1336,13 +1520,31 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 - [A typo in the declared digest silently disables DSH] → The loader refuses a
   malformed member naming the field, and doctor warns when a supported shape's
   composite differs from the declared value.
-- [Doctor's report reads an ordinary DSH home] → It reads package, lock, plugin
-  and patch files only, never credentials or settings. It spawns only version
-  probes, opens no gate and changes nothing.
+- [Doctor's report reads an ordinary DSH home] → It reads package, profile
+  manifest, lock, plugin and patch files only, never credentials, `.env` layers
+  or settings. It spawns only the `dsh` and `node` version probes, opens no gate
+  and changes nothing.
 - [Lock metadata misses an in-place edit of an installed registry package] →
   Accepted under the existing undetectable same-host change risk. The composite
   targets drift, which changes versions and integrities; the adaptation, which
   has no integrity, is hashed as bytes.
+- [The profile composes more authority without moving a version or patch
+  byte: an added bundle, `live` patch reload, a home-level patch or a
+  shadowing package] → The bundle list, `patchReload` and home patch are
+  composite lines, and every listed bundle must resolve inside the core root
+  or the profile by the loader's own lookup order (analyze B1).
+- [The bounded pnpm reader meets a lock construct it does not know] → It
+  declines as `unverified-harness`, so the failure is a false decline and
+  never an admission. Synthetic vectors pin the recognized grammar, and a pnpm
+  that changes its lock format is a re-qualification.
+- [`node` on `PATH` differs between doctor and a seat, or an install uses a
+  version-manager, packaged or command-script shim] → The value follows the
+  child environment the seat actually receives, so a difference declines
+  rather than admits. Layouts outside D6's locators decline, including every
+  layout on a platform where the `env node` script is not what runs.
+- [The end-to-end proof is not re-run by CI] → The hermetic shims pin the
+  function and planner in every gate, and the recorded exchange names the
+  binary digest and Git head it ran. A re-qualification repeats it.
 - [DSH opens the requested ID under the wrong or a fresh persistence root] →
   Bind ID, complete safe locator and composite runner identity on one stamped
   launch row; reuse only that root and reject truncation, ambiguity or escape.
@@ -1415,7 +1617,8 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    the composite function, the doctor line and the fail-closed route. Append
    the doctor-reported composite to the qualification record, complete 10.7's
    root/storage/restriction/current-sequence protocol and Brokkr assertions,
-   and enable only after every admission axis passes, writing that value as
+   record D6's end-to-end driver exchange against the retained home, and
+   enable only after every admission axis passes, writing that value as
    `wrapper_digest` in the same edit. If the adapted plugin demonstrably needs
    a policy or pre-work observation hook, compose the narrow documented Cordis
    extension and include it in the same identity; otherwise add none. A failed qualification returns
@@ -1453,8 +1656,10 @@ facts are not current references to replace.
 No open design question remains. D13 establishes the supported dated
 same-change path from decision 0042 and installed OpenSpec behavior. D6 selects
 the latest DSH core with the repository-owned adaptation, names its location,
-its composite's byte form, sole producer and doctor entry point, the run-time
-and originating-root comparisons, and its qualification/return conditions. Which release `latest` names at qualification is resolved by 10.7
+its composite's byte form, sole producer and doctor entry point, the locators
+that find each input, the composed-profile lines, the run-time and
+originating-root comparisons, the form of the end-to-end proof, and its
+qualification/return conditions. Which release `latest` names at qualification is resolved by 10.7
 under N1, not left open;
 compatibility, restriction and accounting results are required evidence tasks,
 not optional design choices. Missing Claude/Codex/LaneTally observations are
@@ -1820,3 +2025,65 @@ the workspace hands; no workflow runner was invoked. No production code,
 declaration, decision, guide, frozen contract, fixture, policy, reference or
 provider setting changes. No Rust gate or live provider observation is
 claimed; those belong to the tasks that own them.
+
+## Current design return — analyze drift B1–B5, 2026-09-11
+
+Run `current-successor-operator-rulin-b83add73` returned from analyze a second
+time with `ANALYZE-DRIFT-DESIGN` at HEAD `6829e57`. This visit read both
+current council positions in full, pinned in D10 by their digests, then
+checked every claim against the task-owned 0.1.5-rc.1 install rather than the
+analyze summary. The loader's own bytes decided three disputed points and
+surfaced two inputs neither position named:
+
+- `DshProfileManifest.patchReload` is `'live' | 'startup'`
+  (`@deepseek-ai/dsh-package-manifest` `lib/types/types.d.ts`, SHA-256
+  `5d9bdce33121eb6831d2981f3e91f5a932f7db58cea96f722a913b3be26cef93`), not a
+  boolean.
+- `prepareProfile` rewrites `cordis.yml` before every boot, so its on-disk
+  bytes are not identity.
+- `composeProfile` layers a home-level `$DSH_HOME/cordis.patch.yml` over every
+  profile.
+- `resolveBundleDir` searches the installation anchor's ancestors and Node's
+  global folders before the profile.
+- The root npm lock carries 60 uninstalled optional packages beyond the hidden
+  lock's 521, with every shared entry equal.
+
+Each finding is answered in its owning artifact:
+
+- **B1.** D6's composite gains `profile-bundle` lines in declared order,
+  `profile-patch-reload` and `home-patch`, and a bundle-resolution rule that
+  makes any listed bundle resolving outside the core root or the profile
+  unreadable. `cordis.yml` is excluded with its reason. 8.8(b), 8.10 and
+  10.7's raw inputs follow.
+- **B2.** D6 names the locators. The core package is found from the canonical
+  `env node` executable, and the core lock is the hidden
+  `node_modules/.package-lock.json`. `node` is the first on the child
+  environment's `PATH`. The profile manifest yields only `bundles` and
+  `patchReload`. The pnpm lock is read by a bounded, fail-closed line reader
+  whose grammar is stated, and no YAML crate is added. The plugin lines are in
+  bytewise path order. Unreached layouts decline.
+- **B3.** D6 states that AS1's end-to-end proof is a recorded exchange with
+  the built `brokkr driver dsh` against the retained home. It is appended to
+  the 015rc1 record and is not a Brokkr run. The committed suite keeps
+  hermetic synthetic-home shims, and no cargo target reads `.forge/`.
+- **B4.** Task 6.4 repoints `evidence.interface` and verifies it.
+- **B5.** Task 1.1 cites 0009 and states answer M's admission obligation, and
+  so does D10's opening.
+
+The design is `drafted`, not `upstream`. AS1 already requires the recompute to
+cover the composed `headless` profile and the end-to-end proof to use the
+adapter's seams; the fault was the design's incomplete component list,
+unstated locators and unstated proof form. Following the dialect's return
+rule, the answered ambiguities are encoded in place in two existing AS1
+scenarios, "The resolved DSH home lacks the qualified composite" and "An
+enabled DSH shape at ordinary run time", so the delta still holds 20
+requirements / 139 scenarios. Because tasks.md depends on this design and
+carried B4 and B5, this visit also revises tasks 1.1, 6.4, 8.8, 8.10, 9.6,
+10.7 and 11.3 in place. It adds, removes, renumbers, ticks and reopens no
+identifier, and the ledger stays 78 complete / 23 pending across 101 tasks.
+`openspec instructions design` rendered this artifact's instructions through
+the workspace hands; no workflow runner was invoked. No production code,
+declaration, decision, guide, frozen contract, fixture, policy, reference or
+provider setting changes, and the task-owned install was only read. No Rust
+gate or live provider observation is claimed; those belong to the tasks that
+own them.
