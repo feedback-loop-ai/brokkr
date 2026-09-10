@@ -1,0 +1,2 @@
+6f9ae1fa1691a6a3407c5878238eb634ba3be1a37c52a2f7c1959eac57478a0a  experiments/seatbelt-lifetime/main.rs
+edc69c076ad45f1293b8864d30c0573e09da5dbe926175b20296c52015f167ca  scripts/validate-seatbelt-macos.sh

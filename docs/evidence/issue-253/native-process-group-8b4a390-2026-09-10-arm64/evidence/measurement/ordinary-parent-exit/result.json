@@ -1,0 +1,1 @@
+{"topology":"ordinary","trigger":"parent-exit","control":false,"native":true,"root_pid":94130,"leaf_pid":94131,"root_group":94130,"leaf_group":94130,"root_survived":false,"leaf_survived":false,"heartbeat_changed":false,"observed_ms":1184,"no_survivor_observed":true,"candidate_signal_attempted":true,"candidate_signal_errno":null,"residual":null}

@@ -1,0 +1,1 @@
+{"topology":"setsid","trigger":"timeout","control":false,"native":true,"root_pid":94259,"leaf_pid":94260,"root_group":94259,"leaf_group":94260,"root_survived":false,"leaf_survived":true,"heartbeat_changed":true,"observed_ms":6571,"no_survivor_observed":false,"candidate_signal_attempted":true,"candidate_signal_errno":null,"residual":"SEATBELT-R3"}

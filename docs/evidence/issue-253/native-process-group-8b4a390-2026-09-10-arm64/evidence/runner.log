@@ -1,0 +1,16 @@
+Running 1 negative control and 12 candidate cases; allow roughly two minutes.
+Exit 1 means valid feasibility measurements with R3 still OPEN; exit 2 means invalid/incomplete evidence.
+No filesystem/network containment or Brokkr hands integration is claimed.
+ordinary-timeout: no survivor observed in this case
+ordinary-cancel: no survivor observed in this case
+ordinary-parent-exit: no survivor observed in this case
+ordinary-supervisor-death: RESIDUAL: payload survived or candidate signal failed
+setsid-timeout: RESIDUAL: payload survived or candidate signal failed
+setsid-cancel: RESIDUAL: payload survived or candidate signal failed
+setsid-parent-exit: RESIDUAL: payload survived or candidate signal failed
+setsid-supervisor-death: RESIDUAL: payload survived or candidate signal failed
+double-fork-timeout: RESIDUAL: payload survived or candidate signal failed
+double-fork-cancel: RESIDUAL: payload survived or candidate signal failed
+double-fork-parent-exit: RESIDUAL: payload survived or candidate signal failed
+double-fork-supervisor-death: RESIDUAL: payload survived or candidate signal failed
+{"schema":"brokkr.seatbelt-lifetime-experiment/v1","native":true,"candidate":"original-process-group","cases":12,"negative_control_detected":true,"valid_measurement":true,"residual_cases":9,"errors":[],"seatbelt_activation_authorized":false,"r3_closed":false}
