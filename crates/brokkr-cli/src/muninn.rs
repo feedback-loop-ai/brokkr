@@ -241,7 +241,12 @@ pub struct Source<'a> {
 /// row and each finding carrying the realm it came from. Nothing folds
 /// across a journal boundary and nothing is written (ruling 5): the
 /// stores arrive already opened read-only.
-pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
+///
+/// `crossings` is the world's already-computed crossing report
+/// ([`world_crossings`] over `World::crossings_report`), passed in rather
+/// than resolved here: a second resolution would hash the publisher's
+/// bytes again and could disagree with the one `World::load` stands on.
+pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -> Result<Dossier> {
     let mut rows: Vec<Value> = Vec::new();
     let mut findings: Vec<Value> = Vec::new();
     let mut facts: Vec<(Option<String>, String, u64)> = Vec::new();
@@ -394,16 +399,76 @@ pub fn dossier_of(sources: &[Source], now: &str) -> Result<Dossier> {
     if !realms.is_empty() {
         fleet["realms"] = json!(realms);
     }
-    let value = json!({
+    // Decision 0054 read into the dossier: what each mapped realm
+    // publishes and consumes, and — when a consumed pin no longer matches
+    // — a FINDING charged to the CONSUMING realm, because that is the
+    // realm whose next run `World::load` would refuse. A matching pin is
+    // stated in the per-realm summary and is not a finding; an unchecked
+    // pin is counted beside it and is nobody's fault here (the publisher's
+    // line carries it, `ca0c765`).
+    let mut crossing_reports: Vec<Value> = Vec::new();
+    let mut cited_crossings: Vec<CitedCrossing> = Vec::new();
+    for realm_crossings in crossings {
+        if realm_crossings.published == 0 && realm_crossings.consumed == 0 {
+            continue;
+        }
+        let mut report = json!({
+            "realm": realm_crossings.realm,
+            "published": realm_crossings.published,
+            "consumed": realm_crossings.consumed,
+        });
+        if realm_crossings.unchecked > 0 {
+            report["unchecked"] = json!(realm_crossings.unchecked);
+        }
+        if !realm_crossings.moved.is_empty() {
+            report["moved"] = json!(realm_crossings
+                .moved
+                .iter()
+                .map(|moved| json!({
+                    "crossing": moved.crossing,
+                    "publisher": moved.publisher,
+                    "detail": moved.detail,
+                }))
+                .collect::<Vec<Value>>());
+        }
+        crossing_reports.push(report);
+        for moved in &realm_crossings.moved {
+            cited_crossings.push((realm_crossings.realm.clone(), moved.crossing.clone()));
+            findings.push(keyed(
+                &Some(realm_crossings.realm.clone()),
+                json!({
+                    "crossing": moved.crossing,
+                    "publisher": moved.publisher,
+                    // A crossing is not a run: it has no run id and no
+                    // sequence, so the finding says what it is instead of
+                    // borrowing a run's citation. The marker is how a
+                    // reader tells it from a run finding.
+                    "input": "crossing_pins",
+                    "value": "moved",
+                    // The refusal `run` would give, verbatim, so the
+                    // readout and the loader cannot word one contract
+                    // twice.
+                    "line": moved.detail,
+                }),
+            ));
+        }
+    }
+    let mut value = json!({
         "dossier_version": DOSSIER_VERSION,
         "generated_at": now,
         "fleet": fleet,
         "runs": rows,
         "residual_findings": findings,
     });
+    // Written only by a world that draws one, so a world that never did
+    // hands the seat the exact dossier it always handed it.
+    if !crossing_reports.is_empty() {
+        value["crossings"] = json!(crossing_reports);
+    }
     Ok(Dossier {
         value,
         facts,
+        crossings: cited_crossings,
         commands,
     })
 }
@@ -488,6 +553,10 @@ pub struct Report {
     pub parked_runs: Vec<Value>,
     pub work_queue: Vec<Value>,
     pub citations: Vec<Cited>,
+    /// The `(consuming realm, crossing)` pairs a report cited — the
+    /// crossing half of [`Report::citations`], kept apart because a
+    /// crossing is not a run and carries no run id or sequence to cite.
+    pub crossing_citations: Vec<CitedCrossing>,
 }
 
 fn string_field(what: &str, object: &Value, key: &str) -> Result<String, String> {
@@ -540,6 +609,30 @@ fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<Cited, Strin
     Ok((realm.map(str::to_string), run_id, seq))
 }
 
+/// A crossing citation: a proposal about a contract names the realm that
+/// CONSUMES the crossing and the crossing itself. Both are required, and
+/// the pair must be one the dossier actually states as a finding — a
+/// crossing that is matching, or a realm the dossier did not charge, is
+/// not a fact a reader could follow back (decision 0054; decision 0007's
+/// provenance discipline). A crossing finding has no run id and no
+/// sequence, so this is its own citation shape and never a borrowed run
+/// citation (decision 0026 ruling 3's realm key, unchanged).
+fn crossing_citation(
+    what: &str,
+    dossier: &Dossier,
+    entry: &Value,
+) -> Result<CitedCrossing, String> {
+    let realm = string_field(what, entry, "realm")?;
+    let crossing = string_field(what, entry, "crossing")?;
+    if !dossier.states_crossing(&realm, &crossing) {
+        return Err(format!(
+            "{what} cites crossing '{crossing}' in realm '{realm}', which the dossier \
+             does not state as a finding"
+        ));
+    }
+    Ok((realm, crossing))
+}
+
 /// One citation's fields, realm first when there is one. Absent for a
 /// one-hearth world, so its record keeps exactly the shape it had.
 fn cite(realm: &Option<String>, run_id: &str, seq: u64) -> serde_json::Map<String, Value> {
@@ -587,8 +680,27 @@ pub fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
         parked_runs.push(Value::Object(fields));
     }
     let mut work_queue = Vec::new();
+    let mut crossing_citations: Vec<CitedCrossing> = Vec::new();
     for entry in array_field(inputs, "work_queue")? {
         let what = "a work-queue entry";
+        // A crossing finding is cited by realm and crossing; every other
+        // entry is a run fact cited by run id and sequence. The presence
+        // of `crossing` is the discriminator, so a report that names both
+        // a crossing and a run is read as a crossing and never silently
+        // as a run.
+        if entry.get("crossing").is_some() {
+            let (realm, crossing) = crossing_citation(what, dossier, entry)?;
+            let finding = string_field(what, entry, "finding")?;
+            let reasoning = string_field(what, entry, "reasoning")?;
+            let mut fields = serde_json::Map::new();
+            fields.insert("realm".to_string(), json!(realm));
+            fields.insert("crossing".to_string(), json!(crossing));
+            fields.insert("finding".to_string(), json!(finding));
+            fields.insert("reasoning".to_string(), json!(reasoning));
+            crossing_citations.push((realm, crossing));
+            work_queue.push(Value::Object(fields));
+            continue;
+        }
         let (realm, run_id, seq) = citation(what, dossier, entry)?;
         let finding = string_field(what, entry, "finding")?;
         let reasoning = string_field(what, entry, "reasoning")?;
@@ -600,11 +712,14 @@ pub fn validate(dossier: &Dossier, result: &Value) -> Result<Report, String> {
     }
     citations.sort();
     citations.dedup();
+    crossing_citations.sort();
+    crossing_citations.dedup();
     Ok(Report {
         fleet_summary,
         parked_runs,
         work_queue,
         citations,
+        crossing_citations,
     })
 }
 
@@ -631,7 +746,7 @@ fn usage(checkpoints: &[Value]) -> Value {
 /// One line of the record: what was proposed, what it was derived from,
 /// when, and what the seat cost.
 fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Value) -> Value {
-    json!({
+    let mut entry = json!({
         "record_version": RECORD_VERSION,
         "recorded_at": now,
         "agent": {
@@ -652,7 +767,18 @@ fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Valu
             .map(|(realm, run_id, seq)| Value::Object(cite(realm, run_id, *seq)))
             .collect::<Vec<Value>>(),
         "usage": usage,
-    })
+    });
+    // Written only by a report that cited one, so a run-only record keeps
+    // exactly the shape it always had. A crossing citation carries no run
+    // id and no sequence; its realm is always stated.
+    if !report.crossing_citations.is_empty() {
+        entry["crossing_citations"] = json!(report
+            .crossing_citations
+            .iter()
+            .map(|(realm, crossing)| json!({"realm": realm, "crossing": crossing}))
+            .collect::<Vec<Value>>());
+    }
+    entry
 }
 
 // ------------------------------------------------------- rendering
@@ -691,6 +817,22 @@ fn cited_run(value: &Value) -> String {
     }
 }
 
+/// A cited crossing, named the way the record cites it: `realm/crossing`
+/// where the realm is the one that CONSUMES it. `None` for a value that
+/// carries no crossing, which is every run fact — the one discriminator
+/// the renderer and the validator share.
+fn cited_crossing(value: &Value) -> Option<String> {
+    let crossing = value.get("crossing").and_then(Value::as_str)?;
+    match value.get("realm").and_then(Value::as_str) {
+        Some(realm) => Some(format!(
+            "{}/{}",
+            Safe::new(realm).as_str(),
+            Safe::new(crossing).as_str()
+        )),
+        None => Some(Safe::new(crossing).as_str().to_string()),
+    }
+}
+
 fn rows<'a>(value: &'a Value, key: &str) -> &'a [Value] {
     value
         .get(key)
@@ -721,18 +863,31 @@ fn render(entry: &Value) -> String {
         ));
     }
     for item in queued {
-        out.push_str(&format!(
-            "  queue {} seq {} · {} · {}\n",
-            cited_run(item),
-            number(item, "seq"),
-            text(item, "finding"),
-            text(item, "reasoning")
-        ));
+        match cited_crossing(item) {
+            Some(crossing) => out.push_str(&format!(
+                "  queue {} · {} · {}\n",
+                crossing,
+                text(item, "finding"),
+                text(item, "reasoning")
+            )),
+            None => out.push_str(&format!(
+                "  queue {} seq {} · {} · {}\n",
+                cited_run(item),
+                number(item, "seq"),
+                text(item, "finding"),
+                text(item, "reasoning")
+            )),
+        }
     }
-    let cited: Vec<String> = rows(entry, "citations")
+    let mut cited: Vec<String> = rows(entry, "citations")
         .iter()
         .map(|fact| format!("{} seq {}", cited_run(fact), number(fact, "seq")))
         .collect();
+    cited.extend(
+        rows(entry, "crossing_citations")
+            .iter()
+            .filter_map(cited_crossing),
+    );
     out.push_str(&format!("  cites: {}\n", cited.join(", ")));
     out
 }
@@ -744,6 +899,7 @@ fn render(entry: &Value) -> String {
 /// evidence, and evidence nobody can check is not evidence.
 pub fn run(
     hearths: &[Hearth],
+    world: Option<&World>,
     agents_dir: &Path,
     adapters_dir: &Path,
     record_path: &Path,
@@ -803,7 +959,12 @@ pub fn run(
             store,
         })
         .collect();
-    let dossier = dossier_of(&sources, now)?;
+    // The world's crossings, read off the SAME report `brokkr realms` and
+    // `brokkr doctor` read (decision 0054): nothing is resolved, hashed or
+    // compared again here, and a moved pin becomes a finding rather than
+    // the end of the flight. A world with no map draws none.
+    let crossings = world_crossings(world);
+    let dossier = dossier_of(&sources, &crossings, now)?;
     let seat = seat(agents_dir, adapters_dir)?;
     let outcome = oneshot::run_once(&seat.command, SEAT, seat.deadline, |scratch| {
         seat_input(&seat, &dossier, scratch)

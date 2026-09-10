@@ -11,6 +11,8 @@ fn hearth_row(name: &str, path: &str, branch: &str, head: &str, journal: &str) -
         branch: branch.to_string(),
         head: head.to_string(),
         journal: journal.to_string(),
+        publishes: Vec::new(),
+        consumes: Vec::new(),
     }
 }
 
@@ -256,4 +258,248 @@ fn the_json_view_is_the_same_world_as_the_frame() {
     // which is reading bytes and not painting them.
     let odd = view("m.json", "j.db", &[row("a\u{202e}b", ".", "main", NO_HEAD)]);
     assert_eq!(odd["realms"][0]["name"], json!("a\u{202e}b"));
+}
+
+// -------------------- crossings, read out (decision 0054, slice vi)
+
+/// A row carrying crossings, built the way [`rows`] builds one.
+fn crossing_row(
+    name: &str,
+    path: &str,
+    head: &str,
+    publishes: Vec<Published>,
+    consumes: Vec<Consumed>,
+) -> Row {
+    Row {
+        name: name.to_string(),
+        path: path.to_string(),
+        branch: "main".to_string(),
+        head: head.to_string(),
+        journal: "j.db".to_string(),
+        publishes,
+        consumes,
+    }
+}
+
+fn published(name: &str, path: &str) -> Published {
+    Published {
+        name: name.to_string(),
+        path: path.to_string(),
+    }
+}
+
+fn consumed(name: &str, publisher: &str, pin: Pin) -> Consumed {
+    Consumed {
+        name: name.to_string(),
+        publisher: publisher.to_string(),
+        pin,
+    }
+}
+
+/// The three states a consumed pin can be in are three distinct words,
+/// and the two that have a why carry it — the refusal's own words, never
+/// composed here. A realm that draws no crossing adds nothing at all.
+#[test]
+fn the_three_pin_states_render_distinctly_under_their_realm() {
+    let rows = vec![
+        crossing_row(
+            "brokkr",
+            ".",
+            "aaa",
+            vec![published("orders.api", "contracts/orders.v1.schema.json")],
+            Vec::new(),
+        ),
+        crossing_row(
+            "client",
+            "client",
+            "bbb",
+            Vec::new(),
+            vec![
+                consumed("orders.api", "brokkr", Pin::Matching),
+                consumed(
+                    "billing.api",
+                    "brokkr",
+                    Pin::Moved(
+                        "realm 'client' consumes crossing 'billing.api' from realm \
+                         'brokkr' pinned at aaa, but x hashes to bbb"
+                            .to_string(),
+                    ),
+                ),
+                consumed(
+                    "audit.api",
+                    "ledger",
+                    Pin::Unchecked(
+                        "realm 'ledger' publishes it and its file could not be read".to_string(),
+                    ),
+                ),
+            ],
+        ),
+    ];
+    let out = render("m.json", "j.db", &rows, false);
+    // Published under the publishing realm, with the path.
+    assert!(
+        out.contains("  publishes  orders.api   contracts/orders.v1.schema.json\n"),
+        "{out}"
+    );
+    // Three consumed lines, three words, and the publisher spelled.
+    assert!(
+        out.contains("  consumes   orders.api   brokkr  matching\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("  consumes   billing.api  brokkr  moved · realm 'client'"),
+        "{out}"
+    );
+    assert!(
+        out.contains("  consumes   audit.api    ledger  unchecked · realm 'ledger'"),
+        "{out}"
+    );
+    // The two have different publishers, so the word alone is not the
+    // whole answer: the publishing realm is attributed per line.
+    assert!(out.contains("brokkr  moved"), "{out}");
+    assert!(out.contains("ledger  unchecked"), "{out}");
+
+    // The same three states as values a script branches on, with the
+    // prose beside only where the word leaves something unsaid.
+    let seen = view("m.json", "j.db", &rows);
+    assert_eq!(
+        seen["realms"][0]["publishes"],
+        json!([{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}])
+    );
+    assert_eq!(
+        seen["realms"][1]["consumes"],
+        json!([
+            {"name": "orders.api", "realm": "brokkr", "pin": "matching", "detail": null},
+            {"name": "billing.api", "realm": "brokkr", "pin": "moved",
+             "detail": "realm 'client' consumes crossing 'billing.api' from realm \
+                        'brokkr' pinned at aaa, but x hashes to bbb"},
+            {"name": "audit.api", "realm": "ledger", "pin": "unchecked",
+             "detail": "realm 'ledger' publishes it and its file could not be read"},
+        ])
+    );
+    // A realm that draws none does not appear: no key, not an empty one.
+    let none = view("m.json", "j.db", &[row("solo", ".", "main", "abc")]);
+    assert!(none["realms"][0].get("publishes").is_none(), "{none}");
+    assert!(none["realms"][0].get("consumes").is_none(), "{none}");
+}
+
+/// A world with no crossing renders exactly the bytes it rendered before
+/// this slice: the crossings section is silent, not empty headings.
+#[test]
+fn a_world_that_draws_no_crossing_reads_out_as_it_always_did() {
+    let rows = [row("brokkr", ".", "main", "5a4bf4a")];
+    assert_eq!(
+        render("m.json", "j.db", &rows, false),
+        "map      m.json\n\
+         journal  j.db\n\
+         realm    brokkr  .  main  5a4bf4a\n"
+    );
+}
+
+/// The map and the published path both reach a terminal through the same
+/// sanitizer every journal string does, so a crossing name cannot forge
+/// the line below it.
+#[test]
+fn a_crossing_cannot_smuggle_a_control_sequence_into_the_frame() {
+    let rows = [crossing_row(
+        "r\u{1b}[2J",
+        ".",
+        "abc",
+        vec![published("orders\u{202e}.api", "p\u{1b}[31m")],
+        vec![consumed(
+            "b\u{1b}.api",
+            "r\u{202e}",
+            Pin::Moved("safe\rforged: every pin matches".to_string()),
+        )],
+    )];
+    let out = render("m.json", "j.db", &rows, false);
+    assert!(!out.contains('\u{1b}'), "{out:?}");
+    assert!(!out.contains('\r'), "{out:?}");
+    assert!(!out.contains('\u{202e}'), "{out:?}");
+}
+
+/// [`rows`] reads every pin's state off the ONE report `World::load`
+/// already built: matching while the bytes hold, moved once they do not,
+/// and unchecked when the publisher's own file cannot be read — never
+/// counted as matching. A moved or unchecked crossing is a line, not a
+/// refusal, because this is a read surface.
+#[test]
+fn rows_derive_each_pin_state_from_the_one_loaded_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let contracts = dir.path().join("contracts");
+    std::fs::create_dir_all(&contracts).unwrap();
+    std::fs::create_dir_all(dir.path().join("client")).unwrap();
+    let file = contracts.join("orders.v1.schema.json");
+    let bytes = "{\"title\": \"orders\"}\n";
+    std::fs::write(&file, bytes).unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "brokkr", "path": ".", "default_branch": "main",
+                 "publishes": [{"name": "orders.api",
+                                "path": "contracts/orders.v1.schema.json"}]},
+                {"name": "client", "path": "client", "default_branch": "main",
+                 "consumes": [{"name": "orders.api", "realm": "brokkr", "sha256": pin}]},
+            ],
+            "journal": "j.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    // Sound: the pin is the publisher's bytes.
+    let world = World::inspect(dir.path(), Some(&map)).unwrap().unwrap();
+    let seen = rows(&world);
+    let publisher = seen.iter().find(|row| row.name == "brokkr").unwrap();
+    assert_eq!(publisher.publishes.len(), 1);
+    assert_eq!(publisher.publishes[0].name, "orders.api");
+    assert_eq!(
+        publisher.publishes[0].path,
+        "contracts/orders.v1.schema.json"
+    );
+    let consumer = seen.iter().find(|row| row.name == "client").unwrap();
+    assert_eq!(consumer.consumes.len(), 1);
+    assert_eq!(consumer.consumes[0].publisher, "brokkr");
+    assert_eq!(consumer.consumes[0].pin.word(), "matching");
+    assert_eq!(consumer.consumes[0].pin.detail(), None);
+
+    // Moved: one byte in the publisher's tree, and the consumer's pin is
+    // the refusal `run` would give, read out of the error itself.
+    std::fs::write(&file, "{\"title\": \"Orders\"}\n").unwrap();
+    let observed = brokkr_core::canonical::sha256_bytes(&std::fs::read(&file).unwrap());
+    let world = World::inspect(dir.path(), Some(&map)).unwrap().unwrap();
+    let seen = rows(&world);
+    let consumer = seen.iter().find(|row| row.name == "client").unwrap();
+    assert_eq!(consumer.consumes[0].pin.word(), "moved");
+    let detail = consumer.consumes[0].pin.detail().unwrap();
+    assert!(
+        detail.contains("realm 'client' consumes crossing 'orders.api'"),
+        "{detail}"
+    );
+    assert!(detail.contains(&pin), "the pinned digest: {detail}");
+    assert!(detail.contains(&observed), "the observed digest: {detail}");
+
+    // Unchecked: the publisher's file is gone, so nothing was compared.
+    // The publisher still declares its crossing; the consumer's pin is
+    // never called matching.
+    std::fs::remove_file(&file).unwrap();
+    let world = World::inspect(dir.path(), Some(&map)).unwrap().unwrap();
+    let seen = rows(&world);
+    let publisher = seen.iter().find(|row| row.name == "brokkr").unwrap();
+    assert_eq!(publisher.publishes.len(), 1);
+    let consumer = seen.iter().find(|row| row.name == "client").unwrap();
+    assert_eq!(consumer.consumes[0].pin.word(), "unchecked");
+    let detail = consumer.consumes[0].pin.detail().unwrap();
+    assert!(
+        detail.contains("realm 'brokkr' publishes it and its file could not be read"),
+        "{detail}"
+    );
+
+    // And the readout itself never refuses: the world loads as a line.
+    let out = render("realms.json", "j.db", &seen, per_realm(&world, &seen));
+    assert!(out.contains("unchecked"), "{out}");
 }

@@ -965,6 +965,74 @@ fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
     assert!(!readout.contains("crossings"), "{readout}");
 }
 
+/// Phase 2 slice (vi): `brokkr realms` reads out each realm's crossings —
+/// what it publishes, what it consumes, and each pin's state — and does
+/// so without refusing and without writing, because it is a read surface
+/// (decision 0023 ruling 6). A moved pin is a line, not the end of the
+/// readout; an unreadable publisher leaves its consumer unchecked and
+/// never matching.
+#[test]
+fn the_realms_verb_reads_out_the_crossings_each_realm_draws() {
+    let ws = Workspace::new(None);
+    let (published, pin) = crossing_map(&ws);
+
+    // Sound: the publisher's file and the consumer's matching pin, in
+    // text and as values a script branches on.
+    let (code, out, stderr) = ws.run(&["realms"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let out = out.replace('\\', "/");
+    assert!(out.contains("  publishes  orders.api"), "{out}");
+    assert!(out.contains("contracts/orders.v1.schema.json"), "{out}");
+    assert!(out.contains("  consumes   orders.api"), "{out}");
+    assert!(out.contains("brokkr  matching"), "{out}");
+
+    let (code, listed, stderr) = ws.run(&["realms", "--json"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&listed).unwrap();
+    assert_eq!(view["realms"][0]["publishes"][0]["name"], "orders.api");
+    assert_eq!(
+        view["realms"][0]["publishes"][0]["path"],
+        "contracts/orders.v1.schema.json"
+    );
+    assert_eq!(
+        view["realms"][1]["consumes"][0],
+        json!({"name": "orders.api", "realm": "brokkr",
+               "pin": "matching", "detail": null})
+    );
+
+    // Moved: one byte in the publishing tree, and the readout REPORTS it
+    // rather than refusing or writing a journal.
+    let observed = move_the_crossing(&published);
+    let (code, moved, stderr) = ws.run(&["realms"]);
+    assert_eq!(code, Some(0), "a read surface refuses nothing: {stderr}");
+    let moved = moved.replace('\\', "/");
+    assert!(moved.contains("brokkr  moved"), "{moved}");
+    assert!(moved.contains(&pin), "the pinned digest: {moved}");
+    assert!(moved.contains(&observed), "the observed digest: {moved}");
+
+    // Unchecked: the publisher's file is gone. The publisher still
+    // declares its crossing, the consumer's pin is never called matching,
+    // and the read still exits clean.
+    std::fs::remove_file(&published).unwrap();
+    let (code, gone, stderr) = ws.run(&["realms"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let gone = gone.replace('\\', "/");
+    assert!(gone.contains("brokkr  unchecked"), "{gone}");
+    assert!(
+        gone.contains("realm 'brokkr' publishes it and its file could not be read"),
+        "{gone}"
+    );
+    assert!(
+        !gone.contains("  matching"),
+        "unchecked is not matching: {gone}"
+    );
+
+    // A read wrote nothing to the world it read.
+    for journal in ["state/world.db", "state/alpha.db", "state/beta.db"] {
+        assert!(!ws.path().join(journal).exists(), "{journal} was created");
+    }
+}
+
 /// A world that never drew a map notices nothing: same default journal,
 /// same manifest, no realm key anywhere in the journal.
 #[test]
@@ -1053,4 +1121,28 @@ fn the_repository_carries_the_bootstrap_map() {
     let world = brokkr_runtime::World::load(&root.join("realms.json")).unwrap();
     assert_eq!(world.journal(), root.join(".forge/forge.db"));
     assert_eq!(world.realm_for(&root).unwrap().name, "brokkr");
+}
+
+/// Phase 2 slice (vi): both crossing readouts consume the ONE report
+/// slices (ii)-(v) already produced. They open no crossing file, hash no
+/// bytes and compare no pin themselves — a second computation is a second
+/// answer waiting to disagree with the loader's. Proved structurally, the
+/// way decision 0012's single-egress rule is.
+#[test]
+fn no_crossing_readout_resolves_or_hashes_a_crossing_itself() {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    for file in ["realms.rs", "muninn.rs"] {
+        let text = std::fs::read_to_string(src.join(file)).unwrap();
+        for needle in [
+            "sha256",
+            "resolve_crossings",
+            "std::fs::read",
+            "read_to_string",
+        ] {
+            assert!(
+                !text.contains(needle),
+                "{file} would compute a crossing a second time: {needle}"
+            );
+        }
+    }
 }

@@ -513,6 +513,159 @@ fn the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm() {
     assert_eq!(bytes_before, std::fs::read(ws.db()).unwrap());
 }
 
+// ---------------------- crossings (decision 0054, slice vi)
+
+/// The bytes the crossing world publishes while its pin is true.
+const CROSSING_BYTES: &str = "{\"title\": \"orders\"}\n";
+
+/// A map that draws a crossing across two realms of the staged world:
+/// `alpha` publishes `orders.api` in the shared tree, `beta` pins its
+/// bytes. Written against the already-staged journal, so the run half of
+/// the dossier is unchanged.
+fn crossing_world(ws: &Workspace) -> (PathBuf, String) {
+    let contract = ws.path().join("repo/orders.v1.schema.json");
+    std::fs::write(&contract, CROSSING_BYTES).unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(CROSSING_BYTES.as_bytes());
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main",
+                 "publishes": [{"name": "orders.api",
+                                "path": "orders.v1.schema.json"}]},
+                {"name": "beta", "path": "repo", "default_branch": "main",
+                 "consumes": [{"name": "orders.api", "realm": "alpha", "sha256": pin}]},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    (contract, pin)
+}
+
+/// Phase 2 slice (vi): the raven carries the world's crossings into the
+/// dossier. A matching pin is stated per realm and is not a finding; a
+/// pin that moved becomes a finding under the CONSUMING realm — the one
+/// whose run would refuse — and a proposal may cite it. Reading a world
+/// writes to none of its journals.
+#[test]
+fn the_overseer_reads_crossings_and_a_moved_pin_is_the_consumers_finding() {
+    let (ws, _, _) = staged();
+    let (contract, pin) = crossing_world(&ws);
+
+    // Sound: the crossing is stated per realm, and no finding is raised.
+    ws.proposes(json!({
+        "fleet_summary": "one run and one matching contract",
+        "parked_runs": [],
+        "work_queue": [],
+    }));
+    let before = std::fs::read(ws.db()).unwrap();
+    let sound = ws.muninn_over_world();
+    assert!(
+        sound.status.success(),
+        "{}",
+        String::from_utf8_lossy(&sound.stderr)
+    );
+    let context = ws.start_input()["context"].clone();
+    let stated = context["crossings"].as_array().unwrap();
+    assert_eq!(stated[0]["realm"], "alpha");
+    assert_eq!(stated[0]["published"], 1);
+    assert_eq!(stated[0]["consumed"], 0);
+    assert_eq!(stated[1]["realm"], "beta");
+    assert_eq!(stated[1]["consumed"], 1);
+    assert!(
+        stated[1].get("moved").is_none(),
+        "a matching pin is not a finding: {stated:?}"
+    );
+    assert!(
+        context["residual_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|finding| finding.get("crossing").is_none()),
+        "no crossing finding while the pin matches"
+    );
+
+    // Moved: the same readout, now with the finding charged to beta.
+    std::fs::write(&contract, "{\"title\": \"Orders\"}\n").unwrap();
+    let observed = brokkr_core::canonical::sha256_bytes(&std::fs::read(&contract).unwrap());
+    assert_ne!(observed, pin);
+    ws.proposes(json!({
+        "fleet_summary": "one contract moved under beta",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "beta",
+            "crossing": "orders.api",
+            "finding": "the contract beta consumed moved",
+            "reasoning": "beta's next run would refuse at load",
+        }],
+    }));
+    let moved = ws.muninn_over_world();
+    assert!(
+        moved.status.success(),
+        "{}",
+        String::from_utf8_lossy(&moved.stderr)
+    );
+    let context = ws.start_input()["context"].clone();
+    let beta = &context["crossings"][1];
+    assert_eq!(beta["moved"][0]["crossing"], "orders.api");
+    assert_eq!(beta["moved"][0]["publisher"], "alpha");
+    assert!(beta["moved"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .contains(&observed));
+    let finding = context["residual_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|finding| finding["crossing"] == json!("orders.api"))
+        .expect("the moved crossing is a finding");
+    assert_eq!(finding["realm"], "beta", "charged to the consumer");
+    assert_eq!(finding["publisher"], "alpha");
+    assert_eq!(finding["input"], "crossing_pins");
+    assert_eq!(finding["value"], "moved");
+
+    // The record follows the citation back, and the operator reads it.
+    let entry = ws.records().last().unwrap().clone();
+    assert_eq!(
+        entry["crossing_citations"],
+        json!([{"realm": "beta", "crossing": "orders.api"}])
+    );
+    assert_eq!(entry["citations"], json!([]));
+    let printed = String::from_utf8_lossy(&moved.stdout);
+    assert!(printed.contains("queue beta/orders.api"), "{printed}");
+    assert!(printed.contains("cites: beta/orders.api"), "{printed}");
+
+    // Ruling 5: the flight wrote to no journal it read.
+    assert_eq!(before, std::fs::read(ws.db()).unwrap());
+}
+
+/// A proposal may not invent a contract problem: a crossing the dossier
+/// does not state as a finding is refused and nothing is recorded.
+#[test]
+fn an_invented_crossing_citation_is_refused_and_not_recorded() {
+    let (ws, _, _) = staged();
+    crossing_world(&ws);
+    ws.proposes(json!({
+        "fleet_summary": "an invented contract",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "beta",
+            "crossing": "ghost.api",
+            "finding": "invented",
+            "reasoning": "invented",
+        }],
+    }));
+    let output = ws.muninn_over_world();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does not state as a finding"),
+        "the refusal names what is wrong: {stderr}"
+    );
+    assert!(ws.records().is_empty());
+}
+
 // ---------------------- two DISTINCT repositories (phase 2 slice (i))
 
 /// A repository with one commit of its own: the file it adds, that

@@ -66,6 +66,31 @@ journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
 ```
 
+A world whose realms draw crossings (`forge.realms/v5`, decision 0054)
+says so under each realm: what that realm publishes, then what it
+consumes — naming the publishing realm and whether the pin still
+matches. The readout opens no crossing file and hashes nothing: every
+state comes off the one report the loader already built, so it and the
+run-time refusal can never disagree. A pin that moved is a line, not the
+end of the reading; `realms` reports, it does not refuse.
+
+```
+$ brokkr realms
+map      ./realms.json
+journal  ./.forge/forge.db
+realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
+  publishes  orders.api  contracts/orders.v1.schema.json
+realm    client  ../client  main  0f0f0f0a1b2c3d4e5f60718293a4b5c6d7e8f901
+  consumes   orders.api  brokkr  matching
+```
+
+A consumed pin reads `matching`, `moved` — with the refusal the run
+would give, in the loader's own words — or `unchecked`, when the
+publishing realm's file could not be read at all: not this realm's
+fault, but never a pin that matched. `--json` carries the same three
+words beside each consuming realm, so a script branches on a value
+rather than on prose.
+
 ### `brokkr runs` — the fleet
 
 One clamped line per run, newest first.
@@ -309,7 +334,10 @@ One invocation opens the workspace database **read-only**, derives a
 dossier from the same `brokkr-view` models every other readout uses (runs
 with status, phase, age and cost; park reasons and the operator commands
 each parked run admits; consecutive failures; the residual findings the
-verify and review rulings recorded), and hands it to one bounded seat
+verify and review rulings recorded; and the crossings the world's map
+draws — what each realm publishes and consumes, with a moved pin raised
+as a finding under the realm that consumes it, because that is the realm
+whose run would refuse), and hands it to one bounded seat
 under the driver fleet — a deadline, one attempt, no retry ladder. What
 comes back is a fleet summary, a suggested operator command per parked
 run with its reasoning, and the residual findings as a work queue.
@@ -319,9 +347,10 @@ issues no operator command, starts no run, is given no repository tree
 and no secrets, and writes to no run journal — proposals go to its own
 append-only file, `.forge/muninn.ndjson`, beside the journal and inside
 none of it. Every proposal names the run ids and sequence numbers it was
-derived from; a report that cites a fact the dossier does not carry is
-refused and recorded nowhere. Acting on any of it stays the operator's
-own `brokkr operator` command (decision 0020).
+derived from, and a proposal about a contract names the consuming realm
+and the crossing instead; a report that cites a fact the dossier does not
+carry is refused and recorded nowhere. Acting on any of it stays the
+operator's own `brokkr operator` command (decision 0020).
 
 A finding the operator has superseded (below) is still derived, still
 listed and still cited — it carries the mark, and the fleet summary says

@@ -280,7 +280,9 @@ fn pin_of(reports: &[CrossingReport], realm: &str, name: &str, publisher: &str) 
     let mine = || reports.iter().filter(|report| report.realm == realm);
     let moved = mine()
         .flat_map(|report| &report.failures)
-        .find(|failure| failure.crossing() == name && failure.moved())
+        .find(|failure| {
+            failure.moved() && failure.crossing() == name && failure.publisher() == Some(publisher)
+        })
         .map(|failure| Pin::Moved(failure.error().to_string()));
     let unchecked = || {
         mine()
@@ -295,7 +297,16 @@ fn pin_of(reports: &[CrossingReport], realm: &str, name: &str, publisher: &str) 
 /// MAP — what the realm declared — and only the pin's state comes from
 /// the report, so a realm's declarations are shown whole even where one
 /// of them could not be checked.
-fn crossings_of(reports: &[CrossingReport], realm: &Realm) -> (Vec<Published>, Vec<Consumed>) {
+///
+/// Shared with `brokkr muninn run`'s dossier (`crate::muninn`), so the
+/// two read surfaces render one derivation of the crossings and cannot
+/// word a pin two ways. Computing a second answer here — hashing a file,
+/// re-running the comparison — would be exactly the disagreement slice
+/// (v) removed.
+pub(crate) fn crossings_of(
+    reports: &[CrossingReport],
+    realm: &Realm,
+) -> (Vec<Published>, Vec<Consumed>) {
     let publishes = realm
         .published()
         .iter()

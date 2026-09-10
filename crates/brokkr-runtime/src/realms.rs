@@ -206,6 +206,18 @@ impl CrossingFailure {
     pub fn moved(&self) -> bool {
         matches!(self.fault, CrossingFault::Moved { .. })
     }
+
+    /// The realm that published the crossing, for a MOVED fault: the
+    /// second half of the pair a consumed entry is matched against, so
+    /// two consumers of the same name from two publishers are not
+    /// conflated. `None` for an unreadable publication, which is the
+    /// publisher's own fault and is never a consumed pin's answer.
+    pub fn publisher(&self) -> Option<&str> {
+        match &self.fault {
+            CrossingFault::Moved { publisher, .. } => Some(publisher),
+            CrossingFault::Unpublished { .. } => None,
+        }
+    }
 }
 
 /// A consumed pin that was never compared to anything, because the realm

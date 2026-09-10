@@ -191,3 +191,79 @@ a mechanism in the schema before there is a ruling behind it.
   v1–v4; v4's bytes join the pinned frozen set in the same change, so
   "beside, never inside" is machine-checked for this version too. The
   production table, the corpus and `reference/` are untouched.
+
+## Addendum: Phase 2 close-out, 2026-09-10
+
+This addendum records what building the Decision taught. It changes no
+ruling above; 0054 stays `proposed`, because only the operator accepts a
+decision.
+
+### What Phase 2 built
+
+The vocabulary landed first (`c02d97d`), then the loader that resolves
+every publication against the publishing realm's own tree and holds each
+consumer's pin to the raw bytes it finds (`07ed4ab`). A crossing that
+moved refuses `run`, `rerun`, `resume` and `compile` before a seat spawns
+(`b9b2ee6`, `ca0c765`), in one wording every surface reads from the one
+`WorldError`. A run records the digests it stood on beside the map in
+`run-manifest/v10` (`9111ee2`) — declaration and observation deliberately
+kept apart. `brokkr doctor` reports every crossing and refuses nothing;
+an unreadable publication is the publisher's line, and its consumers'
+pins are `unchecked`, never matching (`ca0c765`). `brokkr realms` reads
+each realm's publications and consumptions out under its own line, and
+`brokkr muninn run` carries the same report into the world's dossier,
+where a moved pin is a finding under the consuming realm. Both read that
+one already-computed report; neither opens a crossing file, hashes a byte
+or compares a pin a second time.
+
+### Ratatoskr, sharpened
+
+The readouts already separate two reasons a consumer's pin cannot be
+confirmed. A **moved** pin is the consumer's own fault — the publisher's
+bytes are not the bytes it declared — and the consumer's run refuses. An
+**unchecked** pin is the publisher's fault: the published file could not
+be read at all, the publisher's own line carries that, and the consumer is
+warned without being charged. A world whose realms are not co-located
+adds a THIRD reason that file cannot be read: it has not been fetched yet.
+From inside `resolve_crossings` today that is indistinguishable from
+"never published", and Phase 2 could not tell them apart because it never
+fetched anything.
+
+Whatever Ratatoskr becomes, it must give that third state its own word.
+This slice's readouts and doctor's line already promise a reader that
+`unchecked` means "the publisher's file is unreadable", and "not fetched
+yet" is nobody's fault at all. Folding it into `unchecked` would blame a
+publisher that did nothing wrong; folding it into `moved` would refuse a
+run over bytes that may be perfectly current. Neither is acceptable, so
+the messenger has to be able to say "not here yet" before it may say
+either.
+
+### 0028's gap, sharpened
+
+The fault-direction split above is itself evidence for the gap 0028
+leaves. Attribution followed WHO the run-time consequence falls on: a
+moved pin refuses the CONSUMER's run, so it is the consumer's finding,
+even though the bytes physically belong to the publisher. If a keep-ref is
+ever allowed to plant across realms — the question 0028's Consequences
+leave open, where an object "this repository does not hold" is a reported
+gap — the same rule likely wants to govern it: the realm whose run would
+break is the realm whose journal should carry the finding. This is offered
+as a steer for whoever rules that widening, not a ruling made here.
+
+### What Phase 3 inherits
+
+Decision 0023 ruling 7 names what follows: "multi-realm runs (one feature,
+per-realm implement and gates, a join before done — the recorded heritage
+shape)". Phase 2 leaves that shape's inputs in place — a map of distinct
+repositories, each realm's own tree, journal, boundary, house and dialect,
+and crossings between them resolved and refused at load — and does not
+build the shape itself.
+
+Two things are said honestly rather than implied. Nothing in Phase 2
+exercised a SECOND realm consuming a crossing under load: every crossing
+fixture is two realms in one workspace, and the consuming realm never
+executed, so the refusal is proved at load and not yet under a running
+consumer. And no crossing was tested whose publishing realm declares no
+`boundary`, `house` or `dialect` of its own, so how 0046 and 0041 compose
+with 0054 at a publisher that is only a publisher is unproven. Both are
+work Phase 3 should carry, not facts Phase 2 established.

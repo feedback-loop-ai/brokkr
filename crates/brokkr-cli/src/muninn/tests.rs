@@ -6,7 +6,7 @@ use brokkr_core::EventType;
 /// always handed the seat, and the shape every test below that predates
 /// many hearths (decision 0026) still asserts.
 fn dossier(store: &Store, now: &str) -> Result<Dossier> {
-    dossier_of(&[Source { realm: None, store }], now)
+    dossier_of(&[Source { realm: None, store }], &[], now)
 }
 
 /// One hearth, named by the journal it reads.
@@ -654,6 +654,7 @@ fn a_database_that_cannot_be_opened_is_named_before_anything_is_asked_of_it() {
     let dir = tempfile::tempdir().unwrap();
     let error = run(
         &[hearth("solo", &dir.path().join("absent.db"))],
+        None,
         &dir.path().join("agents"),
         &dir.path().join("adapters"),
         &dir.path().join("muninn.ndjson"),
@@ -682,6 +683,7 @@ fn many_hearth_dossier(alpha: &Fleet, beta: &Fleet) -> Dossier {
                 store: &beta_store,
             },
         ],
+        &[],
         NOW,
     )
     .unwrap()
@@ -847,6 +849,252 @@ fn two_hearths_holding_one_run_id_stay_two_runs() {
         Some(Some("alpha"))
     );
     assert_eq!(derived.commands["shared-id"], Vec::<String>::new());
+}
+
+// ---------------------- crossings (decision 0054, slice vi)
+
+fn realm_crossings(
+    realm: &str,
+    published: usize,
+    consumed: usize,
+    moved: Vec<MovedPin>,
+    unchecked: usize,
+) -> RealmCrossings {
+    RealmCrossings {
+        realm: realm.to_string(),
+        published,
+        consumed,
+        moved,
+        unchecked,
+    }
+}
+
+fn moved_pin(crossing: &str, publisher: &str, detail: &str) -> MovedPin {
+    MovedPin {
+        crossing: crossing.to_string(),
+        publisher: publisher.to_string(),
+        detail: detail.to_string(),
+    }
+}
+
+/// A dossier over the given crossing reports, with an empty journal per
+/// realm so the run half states nothing and the crossing half stands
+/// alone.
+fn crossing_dossier(crossings: &[RealmCrossings]) -> Dossier {
+    let fleet = Fleet::new();
+    drop(fleet.store());
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    dossier_of(
+        &[
+            Source {
+                realm: Some("alpha"),
+                store: &store,
+            },
+            Source {
+                realm: Some("beta"),
+                store: &store,
+            },
+        ],
+        crossings,
+        NOW,
+    )
+    .unwrap()
+}
+
+/// The raven states what every mapped realm publishes and consumes, and a
+/// pin that moved becomes a FINDING under the CONSUMING realm — the realm
+/// whose run would refuse — never under the publisher's. A matching pin
+/// and a pin nobody could check are not findings.
+#[test]
+fn a_moved_crossing_is_a_finding_under_the_consuming_realm() {
+    let crossings = vec![
+        realm_crossings("alpha", 1, 0, Vec::new(), 0),
+        realm_crossings(
+            "beta",
+            0,
+            2,
+            vec![moved_pin(
+                "orders.api",
+                "alpha",
+                "realm 'beta' consumes crossing 'orders.api' from realm 'alpha' \
+                 pinned at aaa, but x hashes to bbb",
+            )],
+            1,
+        ),
+    ];
+    let derived = crossing_dossier(&crossings);
+
+    let stated = derived.value["crossings"].as_array().unwrap();
+    assert_eq!(stated.len(), 2, "{stated:?}");
+    assert_eq!(stated[0]["realm"], "alpha");
+    assert_eq!(stated[0]["published"], 1);
+    assert_eq!(stated[0]["consumed"], 0);
+    assert_eq!(stated[1]["realm"], "beta");
+    assert_eq!(stated[1]["consumed"], 2);
+    assert_eq!(stated[1]["unchecked"], 1);
+    assert_eq!(stated[1]["moved"][0]["crossing"], "orders.api");
+    assert_eq!(stated[1]["moved"][0]["publisher"], "alpha");
+
+    let findings = derived.value["residual_findings"].as_array().unwrap();
+    let moved = findings
+        .iter()
+        .find(|finding| finding.get("crossing").is_some())
+        .expect("the moved pin is a finding");
+    assert_eq!(moved["realm"], "beta", "charged to the consumer");
+    assert_eq!(moved["publisher"], "alpha");
+    assert_eq!(moved["input"], "crossing_pins");
+    assert_eq!(moved["value"], "moved");
+    assert!(moved["line"].as_str().unwrap().contains("hashes to bbb"));
+    assert!(
+        findings
+            .iter()
+            .filter(|finding| finding.get("crossing").is_some())
+            .count()
+            == 1,
+        "one moved pin, one finding — the matching and unchecked pins are not: {findings:?}"
+    );
+
+    // The closed set a report may cite for a contract: the moved pin's
+    // consuming realm and name, and nothing else.
+    assert_eq!(
+        derived.crossings,
+        vec![("beta".to_string(), "orders.api".to_string())]
+    );
+    assert!(derived.states_crossing("beta", "orders.api"));
+    assert!(!derived.states_crossing("alpha", "orders.api"));
+    assert!(!derived.states_crossing("beta", "ghost.api"));
+    assert!(!derived.states_crossing("alpha", "ghost.api"));
+}
+
+/// A report may propose about a crossing, and it must cite one the
+/// dossier actually states as a finding, in the realm the dossier
+/// charged: an invented crossing or a mismatched realm is refused, never
+/// quietly corrected (decision 0001).
+#[test]
+fn a_crossing_citation_is_checked_against_the_consuming_realm() {
+    let crossings = vec![realm_crossings(
+        "beta",
+        0,
+        1,
+        vec![moved_pin("orders.api", "alpha", "the refusal's own words")],
+        0,
+    )];
+    let derived = crossing_dossier(&crossings);
+
+    let report = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one contract moved",
+            "parked_runs": [],
+            "work_queue": [{
+                "realm": "beta",
+                "crossing": "orders.api",
+                "finding": "the contract moved under beta",
+                "reasoning": "beta's next run would refuse at load",
+            }],
+        })),
+    )
+    .unwrap();
+    assert_eq!(
+        report.crossing_citations,
+        vec![("beta".to_string(), "orders.api".to_string())]
+    );
+    assert!(report.citations.is_empty(), "a crossing is not a run fact");
+
+    let invented = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "s",
+            "parked_runs": [],
+            "work_queue": [{
+                "realm": "beta", "crossing": "ghost.api",
+                "finding": "invented", "reasoning": "invented",
+            }],
+        })),
+    )
+    .err()
+    .expect("an invented crossing is refused");
+    assert!(
+        invented.contains("does not state as a finding"),
+        "{invented}"
+    );
+    assert!(invented.contains("ghost.api"), "{invented}");
+
+    let mismatched = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "s",
+            "parked_runs": [],
+            "work_queue": [{
+                "realm": "alpha", "crossing": "orders.api",
+                "finding": "in the wrong realm", "reasoning": "wrong",
+            }],
+        })),
+    )
+    .err()
+    .expect("a crossing charged to the wrong realm is refused");
+    assert!(
+        mismatched.contains("does not state as a finding"),
+        "{mismatched}"
+    );
+}
+
+/// The crossing citation reaches the record and the printed line: the
+/// record says which contract a proposal stood on, and the operator
+/// reads `realm/crossing` rather than a run citation the dossier never
+/// gave.
+#[test]
+fn a_crossing_citation_is_recorded_and_rendered() {
+    let staged = Staged::new(json!({"max_attempts": 1, "timeout_seconds": 900}));
+    let seat = staged.seat().unwrap();
+    let crossings = vec![realm_crossings(
+        "beta",
+        0,
+        1,
+        vec![moved_pin("orders.api", "alpha", "the refusal's own words")],
+        0,
+    )];
+    let derived = crossing_dossier(&crossings);
+    let report = validate(
+        &derived,
+        &reported(json!({
+            "fleet_summary": "one contract moved",
+            "parked_runs": [],
+            "work_queue": [{
+                "realm": "beta", "crossing": "orders.api",
+                "finding": "the contract moved",
+                "reasoning": "beta would refuse",
+            }],
+        })),
+    )
+    .unwrap();
+    let line = entry(NOW, &seat, &derived, &report, Value::Null);
+    assert_eq!(line["citations"], json!([]));
+    assert_eq!(
+        line["crossing_citations"],
+        json!([{"realm": "beta", "crossing": "orders.api"}])
+    );
+    let rendered = render(&line);
+    assert!(
+        rendered.contains("queue beta/orders.api · the contract moved · beta would refuse"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("cites: beta/orders.api"), "{rendered}");
+}
+
+/// A world that draws no crossing hands the seat the exact dossier it
+/// always handed it: no `crossings` key, no crossing citation set, and
+/// the fleet shape unchanged.
+#[test]
+fn a_world_that_draws_no_crossing_states_none() {
+    let derived = crossing_dossier(&[]);
+    assert!(derived.value.get("crossings").is_none(), "{derived:?}");
+    assert!(derived.crossings.is_empty());
+    assert!(derived.value["residual_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|finding| finding.get("crossing").is_none()));
 }
 
 // ------------------------------------------------------------ the seat

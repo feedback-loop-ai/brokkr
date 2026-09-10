@@ -1229,7 +1229,8 @@ fn same_journal(left: &std::path::Path, right: &std::path::Path) -> bool {
 
 /// How an invocation opens the map it found: refusing a moved crossing
 /// ([`World::discover`]) or reporting one ([`World::inspect`]).
-type OpenWorld = fn(&std::path::Path, Option<&std::path::Path>) -> Result<Option<World>, WorldError>;
+type OpenWorld =
+    fn(&std::path::Path, Option<&std::path::Path>) -> Result<Option<World>, WorldError>;
 
 impl Invocation {
     /// The world as every verb that STARTS or CONTINUES a run reads it: a
@@ -2433,9 +2434,14 @@ fn run_with(
                 adapters_dir,
                 record,
             } => {
-                let hearths = hearths_of(workspace, realms, db)?;
+                // `world_and_hearths`, not `hearths_of`: the raven reports
+                // a moved crossing as a finding, so it reads the world
+                // with `inspect` and keeps the resolved map beside the
+                // journals it names (decision 0054).
+                let (world, hearths) = world_and_hearths(workspace, realms, db)?;
                 muninn::run(
                     &hearths,
+                    world.as_ref(),
                     &agents_dir,
                     &adapters_dir,
                     &record,
