@@ -114,6 +114,22 @@ check reads the binds from `box_argv` itself. The process authority is listed
 as seven units rather than called "exact-target". The narrowing changes the
 candidate again, and its startup stays pending native Gate A.
 
+The clarify visit on `d63cddf` found that the same visit had made the ledger
+contradict itself. A toolchain unit had to target exactly its `--ro-bind-try`
+source, while a widened correction clause let denial evidence replace a
+toolchain unit with another resolved spelling. Keeping both kills the clause.
+Relabelling the respelled unit as another hands element escapes the
+`box_argv` check, which is fail-open. This visit rules that toolchain units
+never respell. A toolchain denial under another spelling stays the named
+startup residual `SEATBELT-R3-STARTUP-toolchain-respelling`, and changing it
+needs a focused proposed decision. The relabelling escape is closed
+mechanically. Every hands-element entry names one element of a closed set and
+is tested against that element's anchor. No unit except a toolchain unit may
+cover a bind source. No unit may target a bind's data-volume spelling or
+contain `/System/Volumes/Data`. Only the system-library element keeps a
+correction, now typed and bounded. The candidate's rule units do not change,
+so its startup stays pending the same native Gate A.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -190,8 +206,14 @@ measured, as accepted decision 0046 requires.
   the unfiltered process family to `process-fork` and six `process-exec`
   units (the helper and the `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin`
   and `/sbin` binds). It narrows `/usr` to one subpath per `hands.rs` bind,
-  checked against `box_argv`, and narrows `/System` and the cell root. It
-  withdraws the self-signal, `/Library`, host tmp,
+  checked against `box_argv`, and narrows `/System` and the cell root.
+  Toolchain units never respell: a toolchain denial under another spelling is
+  the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling`. Each
+  hands-element entry names one element of a closed set and is tested against
+  its anchor. Only a toolchain unit may cover a bind source, and no unit may
+  target a bind's data-volume spelling. Only the system-library element keeps
+  a typed, bounded correction. The ledger withdraws the self-signal,
+  `/Library`, host tmp,
   `/dev/dtracehelper`, `sysctl-read` and `ipc-posix-shm` rules. A withdrawn
   rule returns only as a non-admitting restoration diagnostic followed by
   single-object attribution and a removal control.
@@ -295,6 +317,7 @@ authored in this specify phase. No workflow runner is invoked.
 | The four `8c53dce` additions | **Dispose explicitly.** The helper literal is justified baseline as an execution input, and `/dev/random` as a hands element (the box's `--dev /dev` device set). `/private/var/tmp` contradicts the private per-call tmp and is withdrawn. `/dev/dtracehelper` is in no hands element and has no measurement behind it, because `8c53dce` still aborted on the root inode, so it is withdrawn. | `seatbelt-execution`: The four 8c53dce additions keep their disposition |
 | Ledger normalization closure (clarify, `353818d`) | **Adopt a closed grammar.** A unit was defined only for single-operation forms, so a form with several operations, a `(with ...)` modifier, a `require-*` compound filter or a `trace`, `define`, `if` or `debug` form was neither a unit nor refused. A first-operation or skip-unknown parser would satisfy the text and pass an unlisted rule. After the frame, every top-level form must be `(allow OPERATION FILTER...)`, with exactly one operation and simple one-argument filters. A multi-filter form still normalizes to one unit per filter, because it grants wherever any filter matches. The check refuses and names a multi-operation form, which is not split into N×M units, so a grouping renderer cannot hide an operation. It also refuses and names any modifier, compound filter, other top-level form, comment, escape or duplicate unit. Splitting multi-operation forms was refuted: it would admit a rendering nobody writes and make a removal rewrite a form. An unknown simple filter needs no vocabulary, because the equality already refuses it as unlisted. | `seatbelt-execution`: A multi-operation form cannot hide an operation; A top-level form other than the frame and allow forms fails; Modifiers, compound filters and unparseable text fail |
 | `/usr` baseline wider than its element (clarify, `353818d`) | **Narrow; the whole tree is refuted.** `hands.rs` creates an empty `/usr` and binds only `/usr/bin`, `/usr/lib`, `/usr/lib64`, `/usr/include`, `/usr/share`, `/usr/local` and `/usr/libexec`. `(subpath "/usr")` also covers `/usr/sbin`, `/usr/standalone` and the other unbound children, and no hands element names them. The same reasoning already narrowed `/System` and the cell root. Reads become one subpath per bind: `/usr/bin`, `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`. Execs cover the program binds only: `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin`, `/sbin`. `/usr/include` has no unit, because nothing in the profile compiles C. `/usr/lib64`, `/lib` and `/lib64` have none either, because their macOS image is the system-library element. A hands-element unit may carry less than its element, never more. The check confirms each toolchain unit against the `--ro-bind-try` sources that `box_argv` renders. "Exact-target process-exec units" was wrong for four subpath units. It is replaced by the explicit seven process units that the child-spawn prohibition reads against. The narrowing changes the candidate, and its startup is pending native Gate A. | `seatbelt-execution`: The toolchain baseline is no wider than the binds it names; The candidate's process authority is seven named units |
+| Toolchain respelling vs the exact bind check (clarify, `d63cddf`) | **Adopt option 1: toolchain units never respell.** `d63cddf` required a toolchain unit to target exactly its `--ro-bind-try` source and also let a correction replace it with another resolved spelling. Both cannot hold. Keeping the exact check alone left the clause dead. Relabelling the unit as a non-toolchain element escaped the `box_argv` check, and "no wider than the element" had no mechanical test, which is fail-open. A toolchain denial under another spelling now keeps the unit's bind target, fails the cell and records the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling`. Changing it needs a focused proposed decision. Option 2, a typed same-object spelling per toolchain entry, is refuted. The check cannot prove two spellings name one object without the host, so it would have to trust a recorded path. The probe also names no consumer for `/usr/local`, the bind current macOS firmlinks into the data volume, so the residual costs this probe no named need. The relabelling escape is closed by rules the check can decide. Each hands-element entry names one element of a closed set: toolchain, system library, writable worktree, device set or shell. Each is tested against its anchor. Only a toolchain unit may cover a `box_argv` bind source. No unit of either half may target `/System/Volumes/Data`, a bind's data-volume spelling or a path under one, and no `subpath` may contain it. Filtered baseline units use `literal` or `subpath`. The system-library element alone keeps a correction. The correction is typed with the unit it replaces, the resolved spelling and the evidence, and it may not equal or contain a withdrawn or narrowed fa7 target. The candidate's units are unchanged. | `seatbelt-execution`: A respelled toolchain unit fails however it is recorded; A bind's image cannot be relabelled out of the box_argv check; A system-library correction is typed and bounded |
 | Historical template authority | **Withdraw or narrow; never grandfather.** No 0043 element justifies the unfiltered process family, self-signal, `/Library`, host `/private/tmp`, the whole cell root, `sysctl-read` or `ipc-posix-shm`. `/System` also contains `/System/Volumes/Data`. Each is narrowed to a justified unit or withdrawn, and a withdrawn unit re-enters only through a labelled restoration diagnostic, native single-object attribution and its own removal control. A `/System/Volumes/Data` credential-read denial control is added. | `seatbelt-execution`: A withdrawn unit returns only through the bounded experiment; The data-volume spelling of a credential stays denied |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
@@ -427,8 +450,12 @@ exactly one unit. The grammar is closed. After the frame, every form is a
 single-operation `allow` form of simple filters, and the check refuses and
 names anything else. Baseline units trace to a 0043 hands element as `hands.rs`
 realizes it, an execution input or a named probe-harness need. A hands-element
-unit is never wider than its element. The toolchain units are one subpath per
-`hands.rs` bind, checked against `box_argv`. Reads cover `/usr/bin`,
+unit is never wider than its element, and names one element of a closed set
+whose anchor the check tests. The toolchain units are one subpath per
+`hands.rs` bind, checked against `box_argv`, and they never respell. Only a
+toolchain unit may cover a bind source, and no unit may target a bind's
+data-volume spelling. A toolchain denial under another spelling is a named
+startup residual that needs a proposed decision. Reads cover `/usr/bin`,
 `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`, `/bin` and `/sbin`,
 and execs cover the program binds among them. `/System/Library` and the OS
 cryptex, the helper, the typed inputs and payload roots, and the box's device

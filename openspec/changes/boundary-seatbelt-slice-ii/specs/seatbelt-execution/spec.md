@@ -708,15 +708,37 @@ Every rule unit SHALL carry exactly one class.
   diagnosis-admitted.
 
 A hands-element entry SHALL be no wider than the image it names. It MAY carry
-less than the whole element, never more. A **toolchain unit** images a
-toolchain bind at the same path. It SHALL name that one bind and target exactly
-that path. The check SHALL confirm that each named bind is a `--ro-bind-try`
-source in the argv that `hands.rs` `box_argv` renders, read from that function
-rather than from a copied list. A parent directory of several binds is not the
-image of those binds, because it also covers every child the box does not
-bind. The system-library units image the Linux library binds at macOS paths.
-They are recorded as that one element with their own targets, not as
-toolchain units.
+less than the whole element, never more. Every filtered baseline unit uses a
+`literal` or `subpath` filter. A hands-element entry SHALL name exactly one
+element of this closed set, and the check SHALL test its target against that
+element's anchor:
+
+- A **toolchain unit** images one toolchain bind at the same path. It SHALL
+  name that one bind and target exactly that path. The check SHALL confirm
+  that each named bind is a `--ro-bind-try` source in the argv that `hands.rs`
+  `box_argv` renders, read from that function rather than from a copied list.
+  A parent directory of several binds is not the image of those binds, because
+  it also covers every child the box does not bind.
+- A **system-library unit** images the Linux library binds at macOS paths. Its
+  target SHALL be one of the element's committed targets, `/System/Library`
+  and `/System/Volumes/Preboot/Cryptexes/OS`, or a recorded correction of one.
+  It is recorded as that one element, not as a toolchain unit.
+- The **writable worktree** unit targets exactly `<payload-root>`.
+- A **device-set** unit targets exactly one of the literals `/dev/null`,
+  `/dev/urandom` and `/dev/random`, device nodes of the box's `--dev /dev`.
+- The **shell** element is `(allow process-fork)` alone.
+
+A bind's image cannot leave the `box_argv` check by being recorded as
+something else, and its data-volume spelling cannot enter under any class. Two
+rules hold for every unit of either half:
+
+- A unit that is not a toolchain unit SHALL NOT cover a `--ro-bind-try` source
+  that `box_argv` renders. Covering means a `literal` or `subpath` equal to
+  that source, or a `subpath` that contains it.
+- No unit SHALL target `/System/Volumes/Data` itself, the data-volume spelling
+  of a bind source (`/System/Volumes/Data` joined with that source), or a path
+  under such a spelling. No `subpath` unit SHALL contain
+  `/System/Volumes/Data`.
 
 The **justified baseline** is the baseline half of this ledger and nothing
 else. The candidate's rule units SHALL equal the disjoint union of the baseline
@@ -830,10 +852,25 @@ diagnosis-admitted entry with its own removal control enters the ledger, and
 every denial control SHALL rerun. The unfiltered process family, unfiltered
 `sysctl-read`, unfiltered `ipc-posix-shm`, host tmp reads, `(subpath
 "/System")`, `(subpath "/usr")` and the whole `<cell-root>` SHALL NOT re-enter
-in their historical form. Denial evidence may show a toolchain bind or the
-system-library element under another resolved spelling. That
-spelling, no wider than the element, then replaces its baseline unit, recorded
-with its evidence as a correction of the same justification.
+in their historical form.
+
+Toolchain units never respell. Native denial evidence may show an operation on
+a toolchain bind refused under another resolved spelling. The toolchain unit
+then keeps the target its bind names, no entry of either half, element or
+kind absorbs that spelling, and the cell fails on its own startup facts. The
+cell records the named startup residual
+`SEATBELT-R3-STARTUP-toolchain-respelling` with that evidence. A toolchain unit
+carries no field for another spelling. Changing its target, or admitting
+anything under a bind's other spelling, requires a focused proposed decision.
+
+The system-library element alone MAY be corrected. When native denial evidence
+shows one of its reads refused under another resolved spelling, a correction
+replaces the committed unit. The correction records the unit it replaces, the
+resolved spelling and that evidence, and it keeps the same justification.
+Like every unit, its target covers no `box_argv` bind source and no
+data-volume spelling of one, and it does not contain `/System/Volumes/Data`.
+It SHALL NOT equal or contain the target of a withdrawn or narrowed fa7 unit
+in that unit's historical form.
 
 Each Seatbelt startup cell, removal replay and diagnostic SHALL keep the
 bounded native Sandbox denial events that the unprivileged observer can read
@@ -853,9 +890,21 @@ trust whatever renders it. It SHALL refuse each of these:
 - any form, filter or text outside the closed normalization above, or a unit
   rendered twice;
 - an unfiltered unit other than `process-fork`;
-- a baseline entry without a justification of a named kind;
+- a baseline entry without a justification of a named kind, or a filtered
+  baseline unit whose filter is not `literal` or `subpath`;
+- a hands-element entry that names no element of the closed set, or whose
+  target fails that element's anchor;
 - a toolchain unit whose target is not exactly the one `--ro-bind-try` source
-  it names in the argv that `box_argv` renders;
+  it names in the argv that `box_argv` renders. A target respelled under
+  another resolved path fails, with or without recorded evidence;
+- a unit that is not a toolchain unit but covers a `box_argv` bind source;
+- a unit that targets `/System/Volumes/Data`, the data-volume spelling of a
+  bind source or a path under one, or a `subpath` unit that contains
+  `/System/Volumes/Data`;
+- a system-library unit whose target is neither a committed target nor a
+  correction that records the unit it replaces, the resolved spelling and its
+  evidence, or a correction that equals or contains a withdrawn or narrowed fa7
+  unit's historical target;
 - a diagnosis-admitted entry that lacks its operation, target, process,
   consumer, evidence or removal entry, or that uses a filter wider than a
   single object;
@@ -895,6 +944,19 @@ candidate.
 - **GIVEN** the `--ro-bind-try` sources that `hands.rs` `box_argv` renders
 - **WHEN** the check reads the ledger's toolchain units
 - **THEN** each unit names one of those binds and targets exactly it; `(subpath "/usr")` for read or exec is an unlisted unit and fails; `/usr/include`, `/usr/lib64`, `/lib` and `/lib64` carry no unit; and a unit whose named bind `box_argv` no longer renders fails
+
+#### Scenario: A respelled toolchain unit fails however it is recorded
+- **GIVEN** native denial evidence that shows an operation under the `/usr/local` toolchain bind refused as `/System/Volumes/Data/usr/local`
+- **WHEN** the ledger replaces the `/usr/local` toolchain unit with a unit on that spelling, with or without the evidence recorded, or adds such a unit beside it, or records that spelling or a path under it as a system-library unit, another hands element, an execution input, a probe-harness need or a diagnosis-admitted literal
+- **THEN** the check fails and names the unit; the toolchain unit keeps its `box_argv` target, the cell fails on its own startup facts and records the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling` with that evidence, and a change to the toolchain unit's target waits for a focused proposed decision
+
+#### Scenario: A bind's image cannot be relabelled out of the box_argv check
+- **WHEN** a unit that the ledger records as a system-library unit, device-set unit, execution input, probe-harness need or diagnosis-admitted entry is `(subpath "/usr/local")`, `(subpath "/usr")`, `(subpath "/System")`, `(subpath "/System/Volumes")` or `(literal "/bin")`
+- **THEN** the check fails and names the unit, because it covers a `box_argv` bind source or contains `/System/Volumes/Data`; only a toolchain unit that names the bind may target a bind source
+
+#### Scenario: A system-library correction is typed and bounded
+- **WHEN** a system-library unit targets something other than `/System/Library` or `/System/Volumes/Preboot/Cryptexes/OS`
+- **THEN** the check accepts it only as a correction that records the committed unit it replaces, the resolved spelling and the native denial evidence; it fails by name if that record is missing, if the target covers a `box_argv` bind source, targets a data-volume spelling or contains `/System/Volumes/Data`, or if it equals or contains the historical target of a withdrawn or narrowed fa7 unit such as `/System`, `/Library` or `/private/tmp`
 
 #### Scenario: The candidate's process authority is seven named units
 - **WHEN** the check reads the candidate's process units
