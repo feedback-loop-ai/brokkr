@@ -236,6 +236,68 @@ native rerun on the exact repaired head remains pending.
   repair; it does not claim native enforcement, and Gate B remains not run.
 
 
+## Native startup measurement — candidate `fa7ece5` (CI `34457208029`)
+
+Recorded on the Linux controller from the controller-supplied native CI log
+(`controller-native-fa7-findings.json`, `controller-native-fa7-report.txt`,
+`controller-native-fa7-startup.log`). This is a native observation of a
+failed startup with measured progress, not a lifetime result. It does not
+replace or rewrite the historical audit below or the earlier rows.
+
+- **Candidate:** `fa7ece587178a46baa66a7310e0546bfb87a0857`, native CI run
+  `34457208029`, GitHub `macos-latest` arm64 runner. As with `8c53dce`, the
+  supplied log carries no `sw_vers` output, so no macOS version or build is
+  recorded here; only the runner label and architecture are facts.
+- **S0 direct unboxed — PASS:** the helper (digest `10d37a1aa412dc7a`) reached
+  the exact bounded stages `["entry", "payload-dir", "executable", "child",
+  "ready", "return-clean"]`, identified an ordinary child and exited `0`.
+- **S1 direct exact profile — FAIL, past the prior pre-stage abort:** with the
+  root-inode read granted, the identical helper and argv (profile digest
+  `8deef6241f098ca4`) now reached `entry`, `payload-dir` and `executable`,
+  then the ordinary-child spawn failed with `EPERM` (`os error 1`) and the
+  helper exited `2` without `READY` or an identified child. Every one-class
+  diagnostic (`tmp-realpath-read`, `ancestor-read-metadata`,
+  `helper-parent-read`, `mach-lookup`, `network`, `system-socket`,
+  `iokit-open`) failed identically at the same child-spawn point; none of
+  them granted any `file-write*`. The labelled `allow-default` diagnostic
+  reached `READY` and exited `0`; it authorizes nothing and identifies no
+  operation or target.
+- **Denial controls — OBSERVED DENIED on this candidate:** credential-read
+  (`/etc/passwd`, `EACCES`/`EPERM`), host-write
+  (`/private/tmp/brokkr-probe-denial-write`, `EPERM`) and network-bind
+  (loopback `127.0.0.1:0`, `EPERM`) were each observed and denied. These
+  describe only this failing candidate and close none of SEATBELT-R1–R4.
+- **S2 launchd unboxed — READY, ordinary child observed:** the launchd-owned
+  job reached the same stages, `READY` and an identified ordinary child. The
+  raw `launchctl print` sample shows `state = not running`, `runs = 1`,
+  `last exit code = 0`, with no `successive crashes` line. The committed
+  parser rejected the whole print on that absent field and the report erased
+  the printed facts instead of keeping them as independently parsed and
+  unknown; that is a measurement defect in the parser, not a launchd verdict,
+  and task 1.26 owns its repair.
+- **S3 launchd exact profile — FAIL, matches S1:** the job reached `entry`,
+  `payload-dir` and `executable`, then the same `EPERM` child-spawn failure
+  as S1, exiting `2` without `READY`. The raw print shows `runs = 1`,
+  `last exit code = 2`, again with no `successive crashes` line and the same
+  parser defect.
+- **Gate B lifetime — NOT RUN.** No Seatbelt cell reached `READY`, so no
+  removal control was due, the root-inode read is not yet proven
+  load-bearing by removal on this candidate, and SEATBELT-R1–R4 remain open.
+- **Not the failure:** the already-repaired Git-metadata and `/usr/include`
+  runner prerequisites; the S0 pass and the S2 launchd `READY` are not
+  Seatbelt enforcement evidence; the `EPERM` operation and target are not yet
+  named.
+- **Next action:** the audited rule ledger repair in tasks 1.18–1.27 —
+  `HOST_TOOLCHAIN_BINDS`, the typed ledger and pure check, the repaired
+  observer, the child-spawn sub-stages and four discriminating replay cells
+  that localize this `EPERM`, the withdrawal/narrowing restoration
+  diagnostics, the bounded `log show` denial events and the top-level
+  launchd brace-depth scanner — followed by a controller-dispatched Gate A
+  run on that exact head (task 1.28). This row is `SEATBELT-R3-STARTUP`
+  failure evidence with measured progress; it closes no residual and no fa7
+  stage progress, denial result or removal verdict carries over to the
+  ledger candidate.
+
 Candidate inspected: `c966ef3a948f823e74b8dd63e34ff8de985562f1`. Host: Linux. This audit validates current
 refusal behavior and specification structure, not native Seatbelt enforcement.
 

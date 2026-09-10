@@ -1287,9 +1287,15 @@ None of the D3 ledger candidate is implemented yet:
 - the ledger, check, sub-stages, discriminating and restoration cells,
   denial events, top-level scanner and four-way removal record are absent.
 
-`tasks.md` and `evidence-residuals.md` still lack the fa7 residual and row.
-That is the next unit of work. No production planner, lifetime executor,
-overlay, mask, Git, runtime transport, activation edit or full-peer claim is
-authorized until Gate A and the complete B1 feasibility matrix pass. Exact
-coverage, native dispatch, final remote CI, publication, integration and
-closure remain controller-owned.
+`tasks.md` now carries the fa7ece5 residual as its own row in
+`evidence-residuals.md` and the ledger candidate's task breakdown (1.18–1.28:
+the `HOST_TOOLCHAIN_BINDS` constant, `controls.rs`, the typed ledger, the pure
+check, the observer repair, the child-spawn sub-stages and restoration
+diagnostics, the denial events and the launchd scanner, then validation,
+commit and the native Gate A run) ahead of the existing B0/B1 tasks
+(renumbered 1.29–1.33). Implementing tasks 1.18–1.27 and dispatching task
+1.28's controller-run Gate A on that exact head is the next unit of work. No
+production planner, lifetime executor, overlay, mask, Git, runtime transport,
+activation edit or full-peer claim is authorized until Gate A and the
+complete B1 feasibility matrix pass. Exact coverage, native dispatch, final
+remote CI, publication, integration and closure remain controller-owned.
