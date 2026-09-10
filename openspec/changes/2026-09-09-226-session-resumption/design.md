@@ -44,18 +44,26 @@ location, derived-digest, re-read-discovery, disabled-path and isolation
 demands with simplicity's one-expression delta, one optional identity member
 and refusal of new machinery; D10 records each disposition. It adds no SDK
 runner, generic plugin lifecycle, history field or new capability.
+The analyze return of 2026-09-11 (A1–A5) found that the declared composite
+digest had no producer ordered before the record that had to hold it, no
+byte-exact serialization, no task owning its loader amendment, and two
+contradictory identity forms for DSH's pre-enablement shape. Both current
+positions address those findings and leave the forward-pin dispositions
+standing. D5 now assigns the loader amendment to pending 8.8, D6 makes 8.8's
+function the only producer of every composite value, fixes its byte form and
+names `brokkr doctor` as its one entry point outside a seat, and D10 reorders
+the qualification's recording step after that function exists.
 
 The implementation at this head already contains the reusable architecture:
 `engine/resume.rs::{eligible_offer, SiteContext, InstanceKey,
 ConfirmedSession}`, `Store::started_here`, negotiated `Body::Resume` with a
 correlated `PendingOffer`, provider-specific planners, `LaunchHold`, and
 `SeatRecordVersion::of_engine`. Its task record at this design input shows
-**82 of 101** tracked tasks complete. The 19 pending tasks are 8.8, 8.10, 9.6,
-10.5–10.8, 11.1–11.4, 14.1–14.2, 15.1–15.4 and 15.6–15.7. Four checked
-records—1.1, 6.4, 11.5 and 13.1—were completed by `a86eca1` for the 0.1.0-rc.6
-pin the operator has since reversed, so their decision, declaration, packaged
-and guide claims are false again. The tasks return must reopen them, moving the
-truthful ledger to **78 complete / 23 pending**, and repair all four before DSH
+**78 of 101** tracked tasks complete. Four records—1.1, 6.4, 11.5 and 13.1—were
+completed by `a86eca1` for the 0.1.0-rc.6 pin the operator has since reversed,
+and the forward-pin tasks return (`095dd21`) reopened them. The 23 pending
+tasks are 1.1, 6.4, 8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.5, 13.1, 14.1–14.2,
+15.1–15.4 and 15.6–15.7. The four reopened records must be repaired before DSH
 production semantics proceed. Host exact coverage and
 controller integration, CI, publication, merge and closure are mandatory
 post-commit handoff evidence, deliberately outside that checkbox count. Codex
@@ -381,7 +389,21 @@ by one optional member: the measured identity form may carry `wrapper_digest`,
 unknown form refuses it, a shape without it still loads, and the loader stays
 adapter-neutral. It is the gate's compared fact for a composite that a version
 string cannot express, not stored evidence; the shape gains no history field
-(answer N4). Carry the selected assessment
+(answer N4). Checked 6.1, 6.2 and 6.6 built the closed shape before answer O
+and stay checked. Today's measured branch in
+`crates/brokkr-runtime/src/agents/load.rs` admits only `version` and
+`applies_to`, so a declaration carrying the member is a loader refusal until
+the amendment lands. Pending 8.8 owns the amendment as its first step, before
+any code reads the member and before 11.3 writes it (analyze A3).
+`ResumeIdentity::Measured` gains the optional member, and the measured branch's
+closed key list admits it. The member's grammar is checked at load, so an
+authoring typo is refused naming the field instead of loading as a digest that
+can never match and silently disables the shape. The unknown branch's key list
+stays `unknown` alone. Its `agents/tests.rs` cases prove that a measured
+identity without the member loads (DSH's shape until 11.3) and one with a
+well-formed member loads and carries it. A malformed member and a member beside
+`unknown` are each refused naming the field, and the adapter content digest
+moves when the member moves. Carry the selected assessment
 through `Candidate`/`SiteSpawn` into private driver context in `Start.input`, separate
 from rendered `context`, phase inputs and the resume handle. Missing assessment
 for inline/standalone invocation means unmeasured, not implicit support. The
@@ -511,9 +533,9 @@ source, lockfile, test, build configuration or CI file is vendored (answer N3).
 The provenance note is the sibling `extensions/dsh/PROVENANCE.md`, outside the
 set. It records the upstream repository and commit, the source counterpart
 `src/index.ts:252`, the one-line delta, the upstream and adapted per-file
-SHA-256 values as a `sha256sum`-format block, the delta digest, the plugin
-component digest defined below, and the upstream MIT licence that the set's
-own `LICENSE` carries. The delta digest is the SHA-256 of a canonical text
+SHA-256 values as a `sha256sum`-format block, the delta digest, and the
+upstream MIT licence that the set's own `LICENSE` carries. It records no plugin
+component or composite value, because 8.8's function is their only producer. The delta digest is the SHA-256 of a canonical text
 independent of any diff tool: the path and line number, then the upstream line
 prefixed `-` and the adapted line prefixed `+`, each newline-terminated.
 
@@ -533,33 +555,43 @@ checks them out unchanged on every operating system, including the two built
 modules that end without a newline. No new attribute rule is needed, and the
 test below catches any divergence.
 
-**Digests are derived from committed bytes by the run-time computation.** One
-Rust function in `brokkr-protocol`, beside the DSH planner, computes the
-plugin component over a directory: the SHA-256 of the six
-`<relative path>\0<file SHA-256>\n` lines in path order. A missing file, or an
-extra entry other than a nested `node_modules/` that the dependency identity
-below already covers, makes the component unreadable, and the per-file lines
-name the file that drifted. The run-time composite applies it to the installed
-plugin directory.
-One test beside 8.10's drift shims applies it to the committed set, reading the
-files at test time rather than through `include_str!`, which would break
-`cargo package`. The test asserts that the directory holds exactly the six
-files and that each file's SHA-256 equals the provenance block. It asserts that
-the adapted expression occurs exactly once in `lib/index.js`, and that
-substituting the upstream expression back reproduces upstream `lib/index.js`
-SHA-256 `a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b`,
-which proves the delta is that expression without vendoring upstream. It also
-asserts that the delta digest and the function's result equal the provenance
-note's values. Committed, installed and qualified bytes are thus compared by one
-computation, never by two hand-typed values.
+**One Rust function produces every composite value.** One Rust function in
+`brokkr-protocol`, beside the DSH planner, computes the plugin component over a
+directory: the SHA-256 of the six `<relative path>\0<file SHA-256>\n` lines in
+path order. A missing file, or an extra entry other than a nested
+`node_modules/` that the dependency identity below already covers, makes the
+component unreadable, and the per-file lines name the file that drifted. The
+same code computes the canonical composite defined below. It is the only
+producer of either value. No provenance note, probe script or evidence file
+computes one by hand, so no second implementation of the format exists to
+disagree with it (analyze A2). The run-time composite applies it to the
+installed plugin directory. One test beside 8.10's drift shims applies it to
+the committed set, reading the files at test time rather than through
+`include_str!`, which would break `cargo package`. The test asserts that the
+directory holds exactly the six files and that the function's per-file lines
+carry the same path and SHA-256 pairs as the provenance block. It asserts that the adapted expression occurs
+exactly once in `lib/index.js`, and that substituting the upstream expression
+back reproduces upstream `lib/index.js` SHA-256
+`a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b`, which
+proves the delta is that expression without vendoring upstream. It also asserts
+that the recomputed delta digest equals the provenance note's value. Committed,
+installed and qualified bytes are thus compared through one computation, never
+through two hand-typed values.
 
 **Qualification installs only a task-owned copy.** The qualifying seat installs
 the committed set only into a task-owned home under `.forge/`, never `/tmp`,
 from a tarball whose `package/` entries are exactly those six files. Before any
-model call it verifies the installed files against the provenance digests with
-the same function. An install tool that rewrites any byte fails the plugin
-component and is recorded; it is never waved through or cured by a symlink
-into the worktree. The probe snapshots the global DSH installation, its volta
+model call it checks the six installed files against the provenance note's
+per-file block with `sha256sum -c`. That is a file-by-file comparison with
+committed values, not a computation of the plugin component, which only 8.8's
+function produces. An install tool that rewrites any byte fails that check and
+is recorded. It is never waved through or cured by a symlink into the worktree.
+The live qualification records the composite's raw inputs, not its digest:
+the core package's name, version and registry integrity, the Node runtime
+version, each lock file it reads by path relative to the task-owned home and
+SHA-256, the six installed files' SHA-256, and the SHA-256 of the plugin's and
+the profile's Cordis patch bytes. It keeps the task-owned home in place after
+the model calls, so the recording step below measures the same bytes. The probe snapshots the global DSH installation, its volta
 manifests and the default profile tree by SHA-256 before and after, as the
 existing probe does, and exits nonzero on any difference. It compares the
 credential files before and after without recording their digests, because a
@@ -592,21 +624,47 @@ verifies a composite; it never installs one. The adapter resolves the
 executable through `BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH,
 and the home as `$DSH_HOME` when set and non-empty, otherwise `$HOME/.dsh`. It
 launches that home's admitted `headless` profile. The canonical composite is
-one SHA-256 over a fixed ordered list: the core package's name, version and
-registry integrity; the Node runtime version the executable runs under; every
-resolved dependency of the core and of the profile as name, version and
-integrity, read from the lock metadata the installation wrote; the plugin
-component above; and the plugin's and the profile's Cordis patch bytes.
+the SHA-256, as 64 lowercase hexadecimal characters, of `<component>\0<value>\n`
+lines in a fixed order. This lifts the plugin component's line format one level,
+so the whole value has a byte-exact form (analyze A2):
+
+1. `core`: the core package's name, version and registry integrity, separated
+   by single spaces;
+2. `node`: the version string of the Node runtime the executable runs under;
+3. `dependency`, once per resolved dependency of the core and of the profile:
+   `name version integrity` from the lock metadata the installation wrote,
+   deduplicated and sorted bytewise;
+4. `plugin`: the plugin component's hexadecimal digest;
+5. `plugin-patch`, then `profile-patch`: the hexadecimal SHA-256 of each Cordis
+   patch file's bytes;
+6. `extension`, only when D6's conditional extension exists: computed over its
+   committed files as the plugin component is.
+
+The core's own lock entry supplies the `core` line and is not repeated among
+the dependencies. The plugin's own lock entry is excluded: its integrity
+describes the local tarball it was installed from and its key carries that
+tarball's relative path, while its bytes already enter as `plugin`. Any other
+entry without a registry integrity, a value containing a NUL or newline, and a
+component that cannot be read each make the identity unreadable, which declines
+as `unverified-harness`. Both lock dialects normalize to the same
+`name version integrity` triple before sorting. This visit measured both in the
+task-owned 0.1.5-rc.1 install. The core's npm `package-lock.json` (lockfile
+version 3) keys 581 `packages` entries by `node_modules/` path, each with
+`version` and `integrity`. The profile's pnpm `pnpm-lock.yaml` (lockfile version
+9.0) keys `packages` as `name@version`, with `resolution.integrity`. Names come
+from those keys, never from a resolved URL or importer specifier: the pnpm
+importer's `specifier` records the plugin tarball's absolute path and is not
+read. 8.10 carries one worked vector per dialect, so tests pin the
+normalization rather than two authors' readings of it.
+
 Dependencies enter by lock metadata rather than as hashed bytes: the measured
-core install holds 25,416 files in 305 MB under 521 lock entries, and hashing
-that tree inside D5's per-invocation deadline is not viable. The adaptation is
-hashed as bytes because it has no registry integrity and its bytes are its
-identity. The list excludes absolute executable and home paths,
-install-source specifiers and the per-seat overlay, so the same composite
-deployed in another home digests the same. 8.8 reads each component through
-an interface the qualified composite measures (the 0.1.0-rc.6 profile used a
-pnpm lock and the core install an npm lock). A component it cannot read makes
-the identity unreadable, which declines as `unverified-harness`.
+core install holds 25,418 files in 305 MB, and hashing that tree inside D5's
+per-invocation deadline is not viable. The adaptation is hashed as bytes
+because it has no registry integrity and its bytes are its identity. The lines
+exclude absolute executable and home paths, install-source specifiers and the
+per-seat overlay, so the same composite deployed in another home digests the
+same. 8.8 reads each component through an interface the qualified composite
+measures.
 
 The reference is the declaration's `identity.wrapper_digest` (answer O). While
 the shape is `unmeasured`, the gate closes before any probe: every DSH seat
@@ -616,17 +674,46 @@ shape without the member, or a private start context carrying one outside the
 grammar, reads `unverified-harness`. Where the gate is open the planner
 compares the probed version with `applies_to` and the recomputed composite
 with `wrapper_digest`. On an offer it also compares both with the values the
-originating root recorded. Only agreement on every comparison builds `--new`
-or `--session`. A confirmed root records the observed core version in
+originating root recorded. The engine already passes the offered root's
+`root_session.harness_version` in the private resume context as
+`originating_harness_version`. Beside it, from the same confirmed checkpoint and
+never from the offer body, it passes the root's `root_session.wrapper_digest`
+as `originating_wrapper_digest`. An offered DSH root with no recorded digest, or
+one outside the grammar, declines as `unverified-harness`. Only a root confirmed
+under a verified composite can be compared, and a composite re-qualified since
+it was opened no longer matches (analyze A4). Only agreement on every
+comparison builds `--new` or `--session`. A confirmed root records the observed core version in
 `root_session.harness_version` and the observed digest in
 `root_session.wrapper_digest`; its declaration participates in
 `instance_ref`. Any drift is `unverified-harness`/owner drift: the shipped
 cold invocation runs unchanged, no offerable root is recorded and nothing
-searches behind the newest root. The value is computed by 8.8's function over
-the qualified task-owned composite, recorded in
-`.forge/tasks/dsh-pair-qualification-015rc1.json`, and written into
-`adapters/dsh.json` and its packaged or scaffolded equivalents only by 11.3,
-together with `supported`. A later re-qualification is one declaration edit of
+searches behind the newest root.
+
+**How the reference is produced and read.** `brokkr doctor` is the function's
+one entry point outside a seat, so the value AS1 requires from the delivered
+Rust canonicalization reaches the qualification without a new subcommand or
+test harness. Doctor's existing `dsh` provider line already reports the probed
+version. It also reports the composite that the adapter's own seam resolution
+finds (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or PATH, and `$DSH_HOME` or
+`$HOME/.dsh`): its digest, or the component that made it unreadable, and
+whether it equals the declared `wrapper_digest`, differs from it, or has none
+to meet. It reads package metadata, lock, plugin and patch files, spawns only
+the version probes the computation needs, never reads a credential or settings
+file, and opens no seat's gate. The detail stays informational while no
+`supported` DSH shape declares a digest. It becomes a warning when a supported
+shape's composite differs or is unreadable, because every offer on that home
+would then decline. This also meets answer O's guide obligation. An operator who
+deploys the pair can check which digest the home must reproduce instead of
+reading unexplained `unverified-harness` declines. After 8.8's function and
+the doctor line land, 10.7's recording step re-measures the raw inputs the
+live half recorded and requires them unchanged. It then runs `brokkr doctor`
+with the seams pointed at the retained task-owned home, and appends the
+reported plugin component and canonical composite to
+`.forge/tasks/dsh-pair-qualification-015rc1.json` as a dated entry beside the
+live record, never editing it. Only 11.3 copies that value into
+`adapters/dsh.json` and its packaged or scaffolded equivalents, together with
+`supported`. Its end-to-end case recomputes the value through the planner over
+the same home. A later re-qualification is one declaration edit of
 `version`, `applies_to`, `wrapper_digest` and `evidence`, with no code change.
 This is one provider-specific check, not a generic plugin manager or evidence
 database.
@@ -938,12 +1025,15 @@ rulings and enforcement bindings are:
 The current sitting's sources are the two run-local positions named in Context,
 recorded here so the reasoning survives their replacement on a future visit:
 
-- Robustness SHA-256: `0df9c79c1f3bf7f647f53bc9839ad2e1d67c92c461e24d4dd58c6ab924f582bc`.
-- Simplicity SHA-256: `9776a8e6341f8a41256dafc5607dadf9223faee9c6fde03b74868c917d301b70`.
+- Robustness SHA-256: `9a7f0e93a2d97678eed3ec446cc4315f7e2b9bc874f0e1112f936e7084edc873`.
+- Simplicity SHA-256: `21e74165e51ea026d3d62cf324f20492dd2ea43ee1be785fb3ba9be35913497d`.
 
-These replace the prior sitting's pins (`78a39c1e…`, `0bb9b650…`). The rows
-below that predate the DSH forward pin keep their dispositions; the rows under
-*Current sitting* dispose of this sitting's claims.
+These replace the forward-pin sitting's pins (`0df9c79c…`, `9776a8e6…`), which
+had replaced `78a39c1e…` and `0bb9b650…`. Both current positions answer the
+analyze return's findings A1–A5 and leave the forward-pin sitting's
+dispositions standing. The rows that predate the DSH forward pin, and those
+under *Forward-pin sitting*, keep their dispositions. The rows under *Current
+sitting* dispose of this sitting's claims.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -985,7 +1075,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Both: local origin is not account authentication, LaneTally can remain unmeasured/cold, and unsupported required shapes block delivery. | Adopt D5/D6/D8 and Risks. Detectable owner rejection fails closed; do not inspect credentials to invent a stronger guarantee. LaneTally's truthful evidence is still required. |
 | Both: keep scope within #226; simplicity rejects production/release expansion, #222 readers, provider patches and new hands/boundaries. | Adopt the existing Non-Goals for versioning, packaging, publication and integration. The exact release-profile build is local validation expressly required by answer J, not authorization for release management. No sibling tree or assumed PR250 integration; controller evidence and later integration remain the only coordination path. |
 
-*Current sitting — DSH forward pin, 2026-09-10:*
+*Forward-pin sitting — DSH forward pin, 2026-09-10:*
 
 | Current position / claim | Disposition and evidence |
 |---|---|
@@ -1001,6 +1091,18 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Simplicity: one optional `wrapper_digest` and one Rust canonicalization; no schema, tree walker or database. | Adopt with one measured refinement: dependencies enter by lock metadata, not bytes (25,416 files, 305 MB), and an unreadable component declines. |
 | Simplicity: no doc-linting enforcement of the single-source rule. | Adopt. `adapters/dsh.json` is the single source; the guide and 0056 cite it, and 11.5/13.1's line-by-line audit is the check. |
 
+*Current sitting — analyze return A1–A5, 2026-09-11:*
+
+| Current position / claim | Disposition and evidence |
+|---|---|
+| Both: the forward-pin dispositions stand; this sitting answers A1–A5 only. | Adopt. Every fix below stays inside the existing identifiers, the D5/D6 machinery and the 101-task ledger. |
+| Robustness §1 / simplicity A3: `load.rs` admits only `version`/`applies_to` in the measured form, so 11.3's edit is refused today. Robustness wants an owned amendment with load-time grammar, an unchanged unknown branch and the digest-moves case; simplicity wants it in pending 8.8/8.10 with no new task. | Combine in D5. Reading `resume_identity` confirms the refusal. Pending 8.8 owns the amendment as its first step, before any reader and before 11.3. The grammar is checked at load, so a typo is a named refusal, not a permanent silent `unverified-harness`. The unknown branch stays closed. `agents/tests.rs` covers absence, presence, a malformed member, a member beside `unknown` and the moved content digest. Checked 6.1/6.2/6.6 are not reopened: they completed the shape answer O later amended, so the amendment is new work, not a false tick. |
+| Robustness §2: the composite has no serialization, and two implementations (probe script, then Rust) must agree. Order a standalone build of 8.8's function and a thin CLI entry point before 10.7's live half. Simplicity A2/A2b: record raw inputs live, make 8.8's function the sole producer, record its value after 8.8 and fix a byte-exact line format. | Combine in D6/D10. Adopt the single producer and the byte-exact format with a worked vector per lock dialect, which is also robustness's stated fallback. Adopt simplicity's split: the live half records raw inputs, checks installed files against the provenance block with `sha256sum -c` and computes no composite. Adopt robustness's entry point as the existing `brokkr doctor` DSH line, not a new subcommand. Doctor uses the adapter's real seam resolution, which answer N2 requires of the qualification, and it meets answer O's operator-guide obligation. Reject ordering the function before the live half: the live half needs no composite, and the recording step re-measures the raw inputs before it asks doctor, so the value provably describes the qualified bytes. |
+| Robustness §3 / simplicity A1: the Migration Plan and 6.4's verify clause say unknown, while D10, 11.5 and proposal O say measured. Move DSH into 6.6's measured case and give its optional-member variant its own loader assertion. | Adopt the measured form, because proposal O keeps `applies_to` at `0.1.5-rc.1`. Migration Plan step 2 now says measured version identity with no `wrapper_digest`. The tasks return corrects 6.4's verify clause and amends checked 6.6's text in place, so the unknown case names LaneTally alone and the measured-but-unqualified case names Codex, Claude and DSH. That tick stays true because the existing measured-identity case already loads DSH's pre-11.3 form. The with-member and without-member assertions are 8.8's loader cases above. |
+| Robustness §4 / simplicity A4: name in 8.8 the declared-digest comparison, the originating-root comparison of version and digest, and a supported shape without the member reading `unverified-harness`. Name in 8.10 the missing, malformed and mismatched declared digest, the originating-root mismatch, the closed unmeasured gate and location/overlay independence. | Adopt in D6/D11 and the tasks return. D6 names how the originating root's digest reaches the planner (`originating_wrapper_digest`, beside the existing `originating_harness_version`) and that a root without one declines. Each case maps to an existing AS1 scenario, so this is clause text in 8.8/8.10, not a new task. |
+| Robustness §5 / simplicity A5: tasks.md's conventions line calls the 2026-09-10 controller evidence core 0.1.0-rc.6. Sweep every occurrence. | Adopt. `controller-dsh-upstream-discovery.json` records official 0.1.5-rc.1 at `183f08e9`. This visit repeated the sweep over proposal, design and tasks at `095dd21`: 46 matching lines. The conventions line is the only present-tense claim that the reversed pin is current evidence. Every other hit is dated history, the superseded record's name, the reversal wording, or a rule that no current text may name that pin as the route. D6's lock-dialect aside cited the 0.1.0-rc.6 profile, and the measured 0.1.5-rc.1 lock facts replace it. |
+| Simplicity: refresh D10's simplicity pin; no second probe, typed history field, mapping table or doc-linting. | Adopt the refreshed pins above. The other cuts were settled last sitting and stand. |
+
 **Forward-pin reconciliation.** The tasks return reconciles the artifacts
 `a86eca1` pointed at 0.1.0-rc.6, in this order, and adds no identifier:
 
@@ -1010,9 +1112,10 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
    record by that record's method: isolated root, live cold `--new` and warm
    `--session`, `stream-json` result envelopes, same session root, nonce
    recall, per-message usage, exact-root confirmation, restriction precedence
-   and the multi-message/retry accounting boundary. 10.7 stays pending until
-   8.8's digest and Brokkr's matching assertions agree, as it did for the
-   earlier record.
+   and the multi-message/retry accounting boundary. Before any model call it
+   checks the installed files against the provenance block with
+   `sha256sum -c`. It records the composite's raw inputs, not its digest, and
+   keeps the task-owned home for step 6.
 2. Reopen 1.1, 6.4, 11.5 and 13.1 (82/19 becomes 78/23) and complete them
    before 8.8. `adapters/dsh.json` sets `version`/`applies_to` to the resolved
    core with no `wrapper_digest`; `evidence.interface` names the 015rc1 record,
@@ -1030,7 +1133,21 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
    the 0.1.0-rc.6 re-pin sentence becomes dated history with its reversal.
 4. Amend pending 8.8, 8.10, 9.6, 10.7 and 11.3 for the forward pin, the
    adaptation, the committed-bytes test, the canonical composite and the
-   declared digest that only 11.3 writes, together with `supported`.
+   declared digest that only 11.3 writes, together with `supported`. Correct
+   6.4's verify clause, checked 6.6's text in place and the conventions line
+   (A1, A5).
+5. 8.8 lands in this order: the optional-member loader amendment; the
+   plugin-component and canonical-composite function with the committed-bytes
+   test and the per-dialect vectors; the doctor line; then the planner, private
+   target, originating-root comparison and locator. 8.10 and 9.6 follow.
+6. 10.7's recording step runs once 8.8's function and doctor line exist, even
+   while 8.8's planner half is pending. It re-measures the live half's raw
+   inputs and requires them unchanged, runs `brokkr doctor` with the seams
+   pointed at the retained task-owned home, and appends the reported plugin
+   component and canonical composite. 10.7 ticks only after that entry and
+   Brokkr's matching adapter assertions agree.
+7. 11.3 runs after 8.8, 8.10, 9.6 and 10.7 and writes the appended composite as
+   `wrapper_digest` in the same edit that sets `supported`.
 
 Codex 10.5, Claude 10.6 and LaneTally 10.8 keep their recorded state. The
 proposal and specification already carry answers M–O and are not edited.
@@ -1087,7 +1204,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file digests, reverse-substituted upstream digest, plugin component); the optional `wrapper_digest` grammar and its refusal beside `unknown`; the closed gate running the shipped cold invocation with no probe while `unmeasured`; `unverified-harness` for a `supported` shape without the member and for every component drift or unreadable component; location independence of the canonical composite; explicit new/session spelling; originating persistence root; and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has one worked vector per lock dialect, excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -1212,6 +1329,16 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
   `extensions/`, never built, loaded or executed by Brokkr, joining no crate or
   archive; their MIT licence travels with them, and the committed-bytes test
   fails CI on any edit made without re-qualification.
+- [Two computations of the composite disagree, or a hand-typed value is
+  trusted] → 8.8's function is the only producer. The live record holds raw
+  inputs, the recording step re-measures them before doctor reports the value,
+  and per-dialect vectors pin the lock normalization.
+- [A typo in the declared digest silently disables DSH] → The loader refuses a
+  malformed member naming the field, and doctor warns when a supported shape's
+  composite differs from the declared value.
+- [Doctor's report reads an ordinary DSH home] → It reads package, lock, plugin
+  and patch files only, never credentials or settings. It spawns only version
+  probes, opens no gate and changes nothing.
 - [Lock metadata misses an in-place edit of an installed registry package] →
   Accepted under the existing undetectable same-host change risk. The composite
   targets drift, which changes versions and integrities; the adaptation, which
@@ -1269,9 +1396,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 2. Retain proposed 0056/registry, v5 contract/embedding/dispatch and their tests.
    Before new DSH production semantics, complete reopened 1.1, 6.4, 11.5 and
    13.1: proposed 0056 selects the exact route without claiming acceptance, and
-   the declaration, every packaged equivalent and the guide mark its unknown
-   composite identity `unmeasured`, disabled and awaiting 10.7. Accepted
-   decisions and existing frozen bytes do not move.
+   the declaration, every packaged equivalent and the guide mark it
+   `unmeasured`, disabled and awaiting 10.7. Its identity is the measured form,
+   `version` and `applies_to` set to the resolved core, with no
+   `wrapper_digest` until 11.3 (analyze A1). Accepted decisions and existing
+   frozen bytes do not move.
 3. Add or complete structural contexts/stamps, correlated offers and provider
    planning/confirmation, including D6's private DSH target carrying the
    provider ID and originating persistence locator. Enable measured shapes only;
@@ -1280,11 +1409,13 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 4. Obtain the pre-archive live provider evidence and deliver measured Claude
    and preserved Codex support. Resolve the latest DSH core under N1, commit
    the six-file adaptation with its provenance, install both only in
-   task-owned storage and record the live qualification in
-   `dsh-pair-qualification-015rc1.json`. Correct 1.1/6.4/11.5/13.1, implement
-   the fail-closed route and its canonical composite, complete 10.7's
+   task-owned storage and record the live qualification with the composite's
+   raw inputs in `dsh-pair-qualification-015rc1.json`. Correct
+   1.1/6.4/11.5/13.1, then implement 8.8 in D10's order: the loader amendment,
+   the composite function, the doctor line and the fail-closed route. Append
+   the doctor-reported composite to the qualification record, complete 10.7's
    root/storage/restriction/current-sequence protocol and Brokkr assertions,
-   and enable only after every admission axis passes, writing
+   and enable only after every admission axis passes, writing that value as
    `wrapper_digest` in the same edit. If the adapted plugin demonstrably needs
    a policy or pre-work observation hook, compose the narrow documented Cordis
    extension and include it in the same identity; otherwise add none. A failed qualification returns
@@ -1322,8 +1453,8 @@ facts are not current references to replace.
 No open design question remains. D13 establishes the supported dated
 same-change path from decision 0042 and installed OpenSpec behavior. D6 selects
 the latest DSH core with the repository-owned adaptation, names its location,
-digest inputs and run-time comparison, and defines its qualification/return
-conditions. Which release `latest` names at qualification is resolved by 10.7
+its composite's byte form, sole producer and doctor entry point, the run-time
+and originating-root comparisons, and its qualification/return conditions. Which release `latest` names at qualification is resolved by 10.7
 under N1, not left open;
 compatibility, restriction and accounting results are required evidence tasks,
 not optional design choices. Missing Claude/Codex/LaneTally observations are
@@ -1640,3 +1771,52 @@ Validation at this visit:
 - Only `design.md` changes. No production code, declaration, decision, guide,
   task, frozen contract, fixture, policy, reference or provider setting is
   modified. Nothing is archived, pushed or merged.
+
+## Current design return — analyze drift A1–A5, 2026-09-11
+
+Run `current-successor-operator-rulin-b83add73` returned from analyze with
+`ANALYZE-DRIFT-DESIGN` at HEAD `095dd21`. This visit read both current council
+positions in full, pinned in D10 by their digests, and checked each finding
+against the bytes. `resume_identity` in
+`crates/brokkr-runtime/src/agents/load.rs` closes the measured form to
+`version` and `applies_to`. The task-owned 0.1.5-rc.1 install holds an npm
+lockfile-3 `package-lock.json` with 581 entries and a pnpm lockfile-9.0 profile
+lock whose importer specifier carries the plugin tarball's absolute path.
+`brokkr doctor` already reports the `dsh` version through the runtime
+`Adapters`, which carry the resume assessment.
+
+Each finding is answered in its owning artifact, not only acknowledged:
+
+- **A1.** The Migration Plan now gives DSH's pre-enablement shape the measured
+  version identity with no `wrapper_digest`, as D10, proposal O and 11.5 do.
+  The tasks return corrects 6.4's verify clause and 6.6's grouping.
+- **A2.** D6 makes 8.8's function the only producer of the plugin component
+  and canonical composite, and fixes the composite's byte form with per-dialect
+  lock normalization. It names `brokkr doctor` as the function's one entry
+  point outside a seat. The live half records raw inputs and checks installed
+  files with `sha256sum -c`. The provenance note carries no component value.
+  D10 orders a recording step after the function lands, which re-measures the
+  raw inputs before appending the value, so nothing is reconciled after the
+  fact.
+- **A3.** D5 assigns the loader amendment, with its load-time grammar and
+  tests, to pending 8.8 as its first step. Checked 6.1/6.2/6.6 are not
+  reopened.
+- **A4.** D6 names the originating-root comparison's input
+  (`originating_wrapper_digest`) and the missing-digest decline. D11 and tasks
+  8.8/8.10 name every comparison and case.
+- **A5.** The tasks conventions line now names 0.1.5-rc.1 at `183f08e9`. The
+  full sweep's classification is recorded in D10.
+
+The design is `drafted`, not `upstream`. Proposal O and AS1 already require one
+Rust canonicalization computed over the qualified home, recorded with the
+qualification and written only by 11.3. The faults were the design's missing
+producer order and byte form and the task text that followed from them.
+Because tasks.md depends on this design and carried three of the findings,
+this visit also revises tasks.md (preamble order, conventions line, 6.4, 6.6
+text, 8.8, 8.10, 10.7 and 11.3). It adds, removes and renumbers no identifier,
+and the ledger stays at 78 complete / 23 pending across 101 tasks.
+`openspec instructions design` rendered this artifact's instructions through
+the workspace hands; no workflow runner was invoked. No production code,
+declaration, decision, guide, frozen contract, fixture, policy, reference or
+provider setting changes. No Rust gate or live provider observation is
+claimed; those belong to the tasks that own them.
