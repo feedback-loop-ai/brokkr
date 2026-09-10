@@ -6,7 +6,8 @@ This design adopts the existing `boundary-seatbelt-slice-ii` change. The
 evidence inventory first committed at `225d2c7` records the absence of native
 proof, but that commit is historical rather than the recovery base. The
 predecessor's work was preserved at `da12b3c`, the controller probe repairs
-continue through `40e2ab8`, `6a19a6f`, and `8c53dce`, and this visit uses the
+continue through `40e2ab8`, `6a19a6f`, `8c53dce`, `9f4c2c9` and `fa7ece5`, the
+specification visits continue through `98984dd`, and this visit uses the
 preserved current HEAD rather than reconstructing any of them. Historical
 `225d2c7` is evidence ancestry, not a recovery target. The accepted decision
 0046 addendum at `c966ef3` settles R1–R4's semantics, and `7e79b43`
@@ -67,9 +68,32 @@ profile digest differs from S1 because isolated cells have different private
 roots; that is a profile-comparison defect, not evidence of authority drift.
 The denial controls did not execute and Gate B correctly did not run.
 
-The next executable work is therefore one bounded, materially changed Gate A
-candidate that attributes pre-entry startup and preserves lossless launchd
-facts, followed by a new exact-head startup run—not lifetime or production
+Native CI `34457208029` then measured candidate `fa7ece5`, which carried the
+root-inode read. S1 and S3 moved past the pre-stage abort to `entry`,
+`payload-dir` and `executable`, then the ordinary-child spawn failed with
+`EPERM` and the helper exited 2 without `READY`. The credential-read,
+host-write and loopback-bind denial controls were observed denied for that
+candidate. S2 reached `READY`, the exact stages and an ordinary child. Its raw
+terminal print read `state = not running`, `runs = 1` and
+`last exit code = 0`; S3's read `runs = 1` and `last exit code = 2`. Neither
+print carried `successive crashes`, and the parser refused both whole prints
+on that absent counter, erasing the printed facts. No Seatbelt cell reached
+`READY`, so no removal control was due, and Gate B correctly did not run.
+
+The specification visits after that run (`098914c` through `98984dd`) settle
+how the next candidate is built and judged:
+
+- launchd facts come only from a print's top-level dictionary, and the crash
+  counter is optional;
+- removal controls are due only on cells that reach `READY`;
+- the child spawn is split into sub-stages with four discriminating cells;
+- every template rule is a rule unit in one typed startup-rule ledger.
+
+A host-independent function checks that ledger over fixed inputs: the
+`HOST_TOOLCHAIN_BINDS` item in `hands.rs`, and the observer's validated cell
+root, payload root, inputs directory, helper and denial-control targets. The
+next executable work is therefore that ledger candidate and its probe repairs,
+followed by a new exact-head Gate A run—not lifetime or production
 implementation. GitHub macOS CI is available through the controller, so absence
 of a local Mac is not a host prerequisite. Production remains Rust under
 `crates/`. Frozen contracts, policy, reference material, and evaluator
@@ -286,12 +310,12 @@ of the filesystem-root inode `/`; macOS `dyld` reads that inode while
 initialising a dynamically linked process, so Seatbelt failed closed with
 `SIGABRT` before the helper could record its first stage. The seven one-class
 diagnostics did not restore startup because none supplied a root-inode
-`file-read-data` grant: `(subpath "/usr")`, `(subpath "/bin")` and the other
-subpaths do not cover `/`, and `(allow file-read-metadata)` covers only
+`file-read-data` grant: that profile's `(subpath "/usr")`, `(subpath "/bin")`
+and other subpaths do not cover `/`, and `(allow file-read-metadata)` covers only
 metadata. The labelled `allow default` control started, which is the positive
 contrast for exactly this layer and authorizes nothing.
 
-The repaired Gate A candidate therefore:
+The `fa7ece5` candidate therefore:
 
 - grants `(allow file-read* (literal "/"))` in the candidate profile as the
   minimal-aperture root read — the root inode only, never `(subpath "/")` — and
@@ -309,20 +333,37 @@ The repaired Gate A candidate therefore:
   terminal state is reached, and refuses with the last raw sample. A reaped label
   is recorded as reaped and a missing field is never synthesized into an exit.
 
-If the next native Gate A still fails, the following remain contingency
-hardening, not a precondition for this bounded retry: a versioned structured
-template with typed `cell_root`, `payload_root` and `helper_path` substitutions
-serialized by the same path that supplies `sandbox-exec`; a bounded native
-Seatbelt denial window keyed by timestamp, process, executable and nonce;
-`/usr/bin/true` and `/bin/echo` system-binary brackets; committed
-pre-main/first-instruction diagnostic helper modes; monotonic-combination search
-for any still-unattributed predicate; a full append-only field-wise launchd
-observation with independent loaded, PID/start identity, run, crash, last-exit,
-stage, `READY`, child, return-intent, bootout and absence facts; nonce-bearing
-observer-created denial sentinels; and sealed quarantine on uncertain bootstrap,
-terminal or bootout state. Any such predicate must still be shown necessary and
-sufficient with a named operation, narrow target, responsible process and
-consumer before it can enter the candidate.
+Native CI `34457208029` for `fa7ece5` is the fourth failed Gate A result and
+the first with measured progress. With the root-inode read granted, S1 and S3
+reached `entry`, `payload-dir` and `executable`; the ordinary-child spawn then
+failed with `EPERM` and the helper exited 2 without `READY`. Every one-class
+diagnostic failed identically at the child spawn, none of them granted any
+`file-write*`, and only the labelled `allow default` control started. The
+credential-read, host-write and loopback-bind denial controls were observed
+denied; they describe that candidate only and close none of R1–R4. S2 reached
+`READY`, the exact stages and an ordinary child. The raw terminal prints show
+S2 at `state = not running`, `runs = 1`, `last exit code = 0` and S3 at
+`runs = 1`, `last exit code = 2`, neither with a `successive crashes` line.
+The parser refused each whole print on that absent counter and the report
+erased the printed facts; that is a measurement defect, not a launchd verdict.
+No Seatbelt cell reached `READY`, so no removal control was due and the
+root-inode read is not yet proven load-bearing. Gate B correctly did not run.
+
+The contingency list this design carried for the `fa7ece5` retry is now
+disposed of. The structured template with typed substitutions is realized by
+the ledger renderer below, the bounded denial window by per-cell denial events,
+and field-wise launchd observation by the top-level parser. An uncertain
+bootstrap, terminal or bootout state fails its Gate A cell as a measurement
+failure, and the next cell takes a new label and root; sealed quarantine for a
+production reaper stays with D2. System-binary brackets, first-instruction
+helper modes, monotonic combination search and observer-created denial
+sentinels are not built for the next candidate: fa7 shows the helper executes
+its own code through `executable` under a deny-default profile, the existing
+stage ladder plus the child sub-stages brackets loader, first write, executable
+lookup, child spawn and clean exit, and the restoration cells below
+discriminate a regression that the narrower ledger might introduce. They return
+only if denial events and restoration cells both fail to attribute a refusal,
+and then only through the specification's bounded rules.
 
 Each cell and repeated invocation continues to own a never-reused label, private
 root, plist, streams and report. The destructive launchd adapter has one
@@ -330,8 +371,220 @@ explicit CI selection, and Unix ABI calls remain target-gated so the shared
 model continues to build on Linux and Windows. The identical-helper/argv
 comparison remains structural: immutable executable, mode, architecture, nonce
 protocol and arguments must match, while typed private-root substitutions may
-differ. No unchanged retry of `9f4c2c9`, broad grant, diagnostic result,
-missing denial log or parser refusal can pass Gate A.
+differ. No unchanged retry of `9f4c2c9` or `fa7ece5`, broad grant, diagnostic
+result, missing denial log or parser refusal can pass Gate A.
+
+#### The next Gate A candidate is an audited rule ledger over fixed inputs
+
+The specification now fixes what the next candidate carries and how a
+host-independent check judges it (`seatbelt-execution`, "The experimental
+startup template is an audited rule ledger"). This design adds no policy to
+it. It decides the implementation shape, which is probe-only apart from one
+constant in `hands.rs`.
+
+**One host-toolchain list.** `hands.rs` gains
+`pub const HOST_TOOLCHAIN_BINDS: &[&str]`, holding the seventeen literals of
+the inline array `box_argv` iterates today, in the same order, with the
+`/usr/include` comment beside its entry. `box_argv` iterates the constant and
+the inline array is deleted, so there is one list rather than two kept equal
+by a test. This is the only production-file edit before native proof. It adds
+no function, branch or error path, so the exact-coverage denominator does not
+grow, and the namespace argv stays byte-identical. The declared-bind loop and
+the git common `config` bind are untouched. A host-independent test renders
+`box_argv` over the scenario's varied `HandsSpec`, home and `GitFacts` values
+and requires its `--ro-bind-try` sources to be exactly the constant, the
+home-expanded declared `ro` binds and `<common>/config`. The existing namespace
+argv tests pin the byte identity.
+
+- *Rejected: a parallel constant pinned to the inline array by a test.* It
+  fails only when that test runs, after the drift exists.
+- *Rejected: a named minimal `box_argv` invocation.* The proposal refutes it:
+  the check would still read an argv, depend on scratch paths and home-derived
+  defaults, and admit a future default bind silently.
+
+**The ledger is the renderer's only input.** A typed `STARTUP_RULE_LEDGER`
+constant sits in the probe's shared model (`tests/seatbelt_probe/mod.rs`)
+beside the removal set. Each entry is one normalized rule unit (one operation
+and at most one simple filter, over the placeholders `<cell-root>`,
+`<payload-root>` and `<helper>`) plus exactly one class:
+
+- `Baseline { kind, justification }`, where `kind` is a hands element (toolchain
+  naming its bind, system library with an optional typed correction, writable
+  worktree, device set or shell), an execution input or a probe-harness need;
+- `DiagnosisAdmitted { operation, target, process, consumer, evidence,
+  removal }`, where `removal` names one entry of the removal set.
+
+The removal set stays the existing `STARTUP_NEGATIVE_ALLOWANCES`, now one
+normalized unit per entry, so a replay strips exactly one unit. The fa7
+dispositions are a third typed table that maps every fa7 unit to "carried" or
+to its withdrawal or narrowing reason; the fa7 template stays verbatim in the
+probe's test data.
+
+The candidate template is rendered from the ledger: the frame, then one
+`allow` form per unit in ledger order. The concrete profile substitutes the
+observer's validated values. A removal replay renders the ledger without its
+one unit, a restoration diagnostic renders it plus one fa7-form unit, and the
+all-restored cell renders it plus every such unit. The fa7 literal
+`sandbox_profile` leaves the native path. The check always parses the
+concrete text the renderer produced, so a renderer that groups, escapes, drops
+or duplicates a unit is caught by the parse rather than trusted. Cross-cell
+identity is the digest of the normalized template over all three placeholders,
+which supersedes fa7's cell-root-only token.
+
+- *Rejected: keep a hand-written profile literal and assert it parses to the
+  ledger.* It is a smaller diff, but it keeps two authority sources pinned by
+  a test, the drift class this change removes from the toolchain list, and
+  the specification names the ledger the only source of the candidate's
+  authority. Reviewers still see the candidate's bytes, because every report
+  retains the normalized template and each concrete profile.
+- *Rejected: a data-file ledger or a general SBPL parser.* A data file's drift
+  is invisible to the compiler, and the grammar is closed, so a hand-written
+  tokenizer for exactly the admitted forms refuses everything else by
+  construction.
+
+**The check is pure and reports every refusal in a fixed order.** The check
+is a function in the shared model over the concrete profile text, the ledger,
+the removal set, `HOST_TOOLCHAIN_BINDS` (read directly, with no parameter for
+it, so no caller can hand it a copy) and a typed
+`CheckInputs { cell_root, payload_root, inputs_dir, helper }`. The
+denial-control targets are derived from the shared control constants below
+through the same spelling map. It performs only string and path-component
+work and never touches the file system. It runs in three stages:
+
+1. validate the concrete inputs against every input rule, in the order the
+   specification lists them, and stop before any rewrite if one fails;
+2. parse the closed grammar and normalize, longest validated path first;
+3. judge each unit's class and anchor, apply the cover, data-volume and
+   control-target rules to its normalized and concrete forms, and compare the
+   units with the disjoint union of the baseline and the removal set.
+
+It returns the checked template or a `Vec<CheckRefusal>`. `CheckRefusal` is
+an enum with one variant for each refusal the specification lists, carrying
+the input or unit and what it found (for example the source `/etc/ssl` and the
+spelling `/private/etc/ssl` a cell root lies under). A stage that refuses
+ends the check, so no unit is judged from unvalidated inputs or unparsed text.
+Stage 1 reports input refusals in the specification's rule order, stage 2
+reports grammar refusals in text order, and stage 3 reports unit refusals in
+template order and then missing ledger or removal entries in ledger order. The
+same inputs therefore always produce the same report. One `spellings(path)` map yields
+the direct spelling plus the `/private` spelling for a first component of
+`etc`, `var` or `tmp`. Validation, the cover rule and the control-target
+list all use it; the toolchain anchor reads only the direct spelling.
+
+- *Rejected: `bool` or formatted-string refusals.* A later edit can soften a
+  message until it no longer names the input, and nothing makes a new refusal
+  case testable. The enum makes each variant a named test.
+- *Rejected: a first-refusal priority order.* A cell root that is both
+  non-canonical and on the data volume should report both. Reporting every
+  refusal in a fixed order is as deterministic and loses nothing.
+- *Rejected: canonicalizing inside the check.* It would make the
+  host-independent verdict depend on the host, and it would erase the split
+  between what the string check proves and what the observer proves.
+- *Rejected: reusing the unbuilt production D6 normalizer.* It would tie a
+  probe precondition to semantics nobody has measured.
+
+Falsification tests exercise the anchor with ledger entries that name binds
+the constant lacks, such as the home-expanded `~/.rustup`, `<common>/config`
+and `/opt/homebrew`. A new constant entry adds no unit and grants nothing,
+because the ledger is explicit and a bind without a unit only narrows. It
+only tightens the cover rule and cell-root validation. The fail-closed
+direction is the anchor: a toolchain unit that names a bind the constant does
+not list fails.
+
+**Denial-control targets share one source with the helper.** The helper is a
+separate binary target (`[[bin]] seatbelt-probe-helper`) and cannot import the
+shared model. Today it hard-codes `/etc/passwd`, `/etc/hosts` and
+`/private/tmp/brokkr-probe-denial-write` inside its attack functions. A small
+`tests/seatbelt_probe/controls.rs` holds the paths the credential-read,
+data-volume credential-read (`/System/Volumes/Data/private/etc/passwd`) and
+host-write controls open. The helper includes it through `#[path]`, the shared
+model declares it as a module, and the check derives its control-target input
+from the same constants. That is the one new file.
+
+- *Rejected: copying the literals into the check.* A control could then
+  change its target while the check still refuses the old path, which is the
+  same drift class one file over.
+- *Rejected: passing targets through the helper's argv.* It would change the
+  argv structure the cells compare and add protocol for a fixed fact.
+
+**Observer duties are native, ordered and without fallback.** In `native.rs`
+the observer:
+
+1. canonicalizes the host temporary base once;
+2. creates the per-run probe root under it, then each cell root, with an
+   exclusive owner-only create (`DirBuilder` with mode `0o700`, never
+   `create_dir_all`);
+3. creates `payload` and `inputs` inside the cell root;
+4. confirms each is a directory owned by the invoking user;
+5. canonicalizes the cell root and the helper and requires exactly the input
+   spelling;
+6. confirms the helper is a regular file and records its digest.
+
+Creation always precedes canonicalization, which compares and never
+substitutes. The silent `unwrap_or(raw)` fallback at `native.rs:252` is
+deleted. Only then does the observer build `CheckInputs`, run the check over
+the cell's concrete candidate profile and invoke `sandbox-exec`. A failed
+duty or refusal fails the cell before any payload runs, and the report names
+it. Removal replays and diagnostics run only from a cell whose inputs passed.
+
+- *Rejected: canonicalize, then create.* A path planted between the two steps
+  would redirect every later bind.
+
+**The child spawn becomes observable.** The helper pre-opens each ordinary
+child stream itself (stdin read-only, stdout and stderr write-only on
+`/dev/null`) and records `child-stdin`, `child-stdout` and `child-stderr`. It
+then spawns with those handles (`child-spawn`) and observes the child
+(`child-observed`), recording the sub-stage reached and the raw OS error on
+failure. Today `Stdio::null()` hides the opens inside `Command::spawn`, so the
+`EPERM` could come from either the open or the exec. When a Seatbelt cell
+fails at a child sub-stage while S0 spawns, four labelled cells run as direct
+replays from that cell's root under the exact candidate:
+
+- open `/dev/null` write-only with no spawn;
+- spawn with inherited stdio;
+- spawn with null stdio;
+- the ordinary mode plus exactly
+  `(allow file-write-data (literal "/dev/null"))`.
+
+None passes startup. An attribution enters the ledger only as the
+specification's diagnosis-admitted literal with its own removal entry.
+
+**Withdrawal regressions are discriminated, not assumed.** When a Seatbelt
+cell of the ledger candidate fails before `READY`, each withdrawn or narrowed
+fa7 unit runs alone, in its fa7 form, as a labelled restoration diagnostic,
+and one more cell restores all of them. Every diagnostic, the seven retained
+one-class differentials and `allow default` included, is a direct
+`sandbox-exec` replay from the failing cell's validated root. No launchd
+label is bootstrapped for one, because launchd adds no Seatbelt authority. The
+seven differentials are kept unchanged and authorize nothing.
+
+**Each Seatbelt cell keeps its denial events.** After each Seatbelt cell,
+replay or diagnostic, one bounded `/usr/bin/log show` invocation over the
+cell's time window, filtered to Sandbox events for its responsible process
+IDs and executable, keeps at most a fixed count and size of raw events. Its
+exit status is kept too. If the host refuses or returns nothing, that is
+recorded as unavailable or empty, never as proof that an operation was
+allowed. No resident collector or `log stream` supervisor is added.
+
+**Launchd facts and removal verdicts follow the settled answers.** A
+brace-depth scanner over the single outermost block replaces the
+all-or-nothing `parse_launchd_print`. It gives each field an independent
+parsed or unknown value, raw evidence for nested entries under their block
+path, and unknown for duplicated top-level keys. `state`, `runs` and
+`last exit code` are required; `successive crashes`, a terminating signal and
+`active count` are optional, and a present nonzero crash counter or a present
+terminating signal fails the cell. The launchd exit classifier no longer infers
+"clean" from a zero crash counter, which may be absent. The three fa7 raw
+samples become verbatim regression data in the probe's test data, not in
+`fixtures/`. `StartupNegativeControl` records each removal as not due (the
+cell reached no `READY`), observed blocking, observed not blocking, or
+missing. Only a `READY` cell owes observed-blocking controls, and blocking
+means the stripped replay reached no nonce-authenticated `READY` from fresh
+payload state.
+
+The ledger candidate's startup, denial controls and removal controls are
+unmeasured until the controller's exact-head Gate A run. No fa7 stage
+progress, denial or not-due removal carries over.
 
 #### Gate B — measure the transient launchd lease pair
 
@@ -416,8 +669,8 @@ guarantee.
 
 The existing GitHub macOS runner is the native execution route. The helper is
 already committed and works unboxed; the concrete next prerequisite is the
-bounded Gate A discriminator and lossless-observation repair above, followed by
-a controller-dispatched Gate A run on that materially changed exact head. Its
+ledger candidate and the probe repairs above, followed by a
+controller-dispatched Gate A run on that materially changed exact head. Its
 durable report is preserved even when the test fails. The native probe remains
 explicitly selected once, separately from host-independent model tests, so a
 generic workspace failure cannot prevent report preservation or accidentally
@@ -454,6 +707,15 @@ ordering, `/dev/null` masks, and namespace process/network semantics. Common
 policy facts are deliberately extracted before two distinct renderers and
 lifecycle adapters. Namespace rendering stays byte-identical. Seatbelt never
 inherits a claim merely because namespace happens to implement it.
+
+The first such extracted fact is `HOST_TOOLCHAIN_BINDS` (D3). `box_argv`
+iterates it, and the probe's startup-rule check reads the item itself, never
+an argv. This keeps the rule above: the check takes the shared list, not
+`box_argv`'s mount semantics, and no `HandsSpec`, home or `GitFacts` value
+reaches its verdict. A binding test keeps the argv honest: its
+`--ro-bind-try` sources are exactly the item, the home-expanded declared `ro`
+binds and `<common>/config`. Declared binds and the common `config` are never
+toolchain binds.
 
 ### D5 — The engine owns seat-attempt state
 
@@ -497,6 +759,12 @@ resolver, SDK, certificate, or other system exception has a named consumer,
 a native positive control, and a negative test showing it cannot proxy an
 undeclared file, credential, host write, or network operation. Broad home,
 developer, temporary, or system-tree grants are not compatibility fallbacks.
+
+When this normalizer is built, it takes its controlled host-toolchain paths
+from the same `HOST_TOOLCHAIN_BINDS` item, so the namespace box, the probe and
+production read one list. It does not reuse the probe's startup-rule check,
+which is a string-level probe precondition over a fixed experimental
+template, not production authority analysis.
 
 ### D7 — R1 uses defensive private copies and a generic locator ABI
 
@@ -690,10 +958,12 @@ The dependency order is fixed:
 1. keep proposal/specs/design/tasks/evidence coherent and prepare
    host-independent refusal and evidence-model tests while the activation fence
    stays closed;
-2. implement only the bounded Gate A discriminator: structured
-   template/substitution identity, native denial capture, system-binary
-   brackets, a first-instruction marker, append-only field-wise launchd
-   evidence, synthetic denial positives and quarantine-on-unknown;
+2. implement only the bounded Gate A candidate D3 names: the
+   `HOST_TOOLCHAIN_BINDS` item, the typed startup-rule ledger and its
+   renderer, the pure check over validated inputs, shared control targets,
+   ordered observer duties, child-spawn sub-stages and discriminating cells,
+   restoration diagnostics, per-cell denial events, the top-level launchd
+   scanner and the READY-only removal record;
 3. commit that materially changed candidate and have the controller run Gate A
    alone on the exact head. Any red or unknown S0–S3 cell records the precise
    residual and returns to step 2 without running lifetime or broadening policy;
@@ -729,12 +999,33 @@ their real results exist.
 
 ### Council reconciliation
 
-Both current positions use HEAD `70bdb1b` and native CI `34449331270` at
-candidate `9f4c2c9`. The older table below remains historical reconciliation
-where it does not conflict with the current evidence. Every current claim is
-disposed here before those retained rows:
+The current positions use HEAD `98984dd`, native CI `34457208029` at
+candidate `fa7ece5`, and the ledger and anchor-input answers the specification
+settled from `353818d` through `98984dd`. Both accept the accepted boundary
+and every settled answer. They differ only on the implementation structure
+around those fixed inputs. Every current claim is disposed of here. The
+`70bdb1b` table and the older table below remain historical reconciliation
+where they do not conflict.
 
 | Current council claim | Disposition | Evidence and resulting design |
+| --- | --- | --- |
+| Simplicity: the clarify gap is already closed by `48b6f9d` and `98984dd`; ratify it without re-elaboration and add no policy. | **Adopt.** | The specification fixes the source set, the typed inputs, validation before normalization and the adversarial scenarios. D3's ledger subsection decides only structure. No toolchain-source type system, new crate or vocabulary is added. |
+| Robustness: `HOST_TOOLCHAIN_BINDS` must be the only list, iterated by `box_argv` directly, not a parallel array pinned by a test. Simplicity: a pure const extraction with a byte-identical argv is the whole production change. | **Adopt both; they agree.** | D3 deletes the inline array. The one production edit adds no branch, and the binding test plus the existing namespace argv tests prove the item and the byte identity. |
+| Robustness: the denial-control targets need the same single source; the helper hard-codes them today. Simplicity: no new file or module. | **Adopt robustness; simplicity yields on one file.** | `helper.rs` is a separate `[[bin]]` target and cannot import the shared model, so one `controls.rs` included by both is the smallest single source. Copying literals repeats the drift class the clarify record closed. |
+| Robustness: validation is a pure, file-system-free function with a typed refusal enum and a specified priority order. Simplicity: `validate(...) -> Result<(), CheckRefusal>` over path components. | **Combine.** | Pure function and typed `CheckRefusal` enum are adopted. A first-only priority is rejected in favour of every refusal in a fixed order, which is as deterministic and reports a doubly broken input completely. |
+| Robustness: exclusive create before canonicalize, never the reverse. | **Adopt.** | The observer canonicalizes only the pre-existing temporary base, creates the probe and cell roots exclusively and owner-only, then canonicalizes to compare, with no fallback. The `unwrap_or(raw)` fallback is deleted. |
+| Robustness: a test must prove that adding an unaccounted `HOST_TOOLCHAIN_BINDS` entry fails the ledger equality. Simplicity risk 3 says the same equality fails closed on a new bind. | **Reject as contrary to the specification.** | The equality compares the rendered template with the ledger, not with the constant. The specification names binds that carry no unit (`/usr/include`, `/usr/lib64`, `/lib`, `/lib64`, the `/etc` binds) and says that only narrows authority. A new entry therefore grants nothing and only tightens the cover rule and validation. The fail-closed direction the tests prove is the anchor: a toolchain unit that names a bind the constant lacks fails. |
+| Robustness: the pure check and the observer's file-system duties are two functions with two test strategies. Simplicity: keep observer duties in `native.rs`, apart from the check. | **Adopt.** | The check lives in the shared model and is tested on Linux with synthetic paths that do not exist. The duties are native-only and are named in the cell report. |
+| Simplicity: keep the fa7 literal and assert it parses to the ledger, or render from the ledger; either is acceptable. | **Render from the ledger.** | One authority source, like the toolchain list. Removal, restoration and all-restored profiles become ledger operations, and the parse still judges the rendered text. |
+| Simplicity: a typed const ledger in the shared model, a hand-written closed-grammar tokenizer, no data file or general SBPL parser, no reuse of D6. | **Adopt.** | The closed grammar refuses everything outside it, and D6 stays unbuilt. |
+| Simplicity: one bounded `log show` or `log stream` invocation for denial capture, not a collector daemon. | **Adopt, choosing `log show`.** | A post-cell `log show` over the cell's window needs no process kept alive across the cell. Unavailability is recorded and never read as permission. |
+| Simplicity: the launchd parser is field-wise over the top-level dictionary, the exit classifier stops inferring clean from an absent counter, and `blocked` counts only no-`READY`. | **Adopt.** | These are the settled answers. D3 names the scanner, the optional fields and the four-way removal record. |
+| Simplicity: no Gate B apparatus before Gate A and B0, B0 before B1, no production D5–D13 before native proof, one architecture for Gate A. | **Adopt; already in D3 and D14.** | No change to the existing gate order or to the both-architectures activation requirement. |
+| Simplicity: `design.md`, `tasks.md` and `evidence-residuals.md` lag the fa7 run and the ledger. | **Adopt for this artifact; the rest is downstream.** | This design records fa7 and the ledger candidate. The tasks visit must record fa7 as task 1.18's residual and add the bounded ledger-candidate task before the next dispatch. The evidence visit must append the `34457208029` row without rewriting earlier rows. |
+
+The `70bdb1b` positions below were reconciled at native CI `34449331270`.
+
+| `70bdb1b` council claim | Disposition | Evidence and resulting design |
 | --- | --- | --- |
 | Both: generic macOS/Windows and S0 pass; S1 aborts before stages; all seven single-class diagnostics fail; only forbidden `allow default` starts; S2 is an observation refusal; S3 is one non-ready crash; denials and Gate B are unobserved. | **Adopt.** | The controller findings and durable report state exactly those facts. Context and D3 retain them without inferring the denied operation, nonexecution, containment or a lifetime verdict. |
 | Robustness: compare structured template identity and retain concrete profiles. Simplicity: normalized-template comparison is the smallest repair because private roots necessarily differ. | **Combine.** | D3 uses one serializer, typed substitution roles, normalized rule identity, concrete bytes/digests and a round-trip check. It rejects both raw-digest equality and dropping profile identity. |
@@ -789,17 +1080,44 @@ feasibility gate; a native failure requires the exact residual and any focused
 
 ## Risks / Trade-offs
 
+- **[The narrower ledger candidate regresses below fa7's stages]** → The
+  withdrawn and narrowed fa7 units run as single restoration cells plus one
+  all-restored cell, and denial events name the operation. A restored unit
+  never re-enters in its historical form; only a single-object
+  diagnosis-admitted entry with its own removal control may.
+- **[The child spawn stays unattributed]** → The sub-stages and four
+  discriminating cells either name the refused open or exec or record a
+  precise residual. Seatbelt stays `unbuilt: ii` and no `/dev` subpath, broad
+  write or wider process grant is tried.
+- **[A toolchain bind is refused under another resolved spelling]** → The
+  cell fails and records `SEATBELT-R3-STARTUP-toolchain-respelling`. Changing
+  a toolchain unit's target waits for a focused proposed decision.
+- **[The fixed spelling map misses a future macOS alias]** → The data-volume
+  rule and the canonical-spelling rule still bound it. A newly observed alias
+  becomes a named residual, never a host lookup that would make the verdict
+  host-dependent.
+- **[The string check refuses a profile that would behave correctly]** →
+  Fail-closed is the intended direction. The defect this change fixes is the
+  opposite one, a declared bind or `/Users/runner` passing as an anchor.
+- **[A same-user host process swaps an ancestor after the observer's
+  checks]** → The probe root is fresh, exclusive and owner-only, and the
+  observer's canonicalization compares rather than substitutes. The probe
+  claims no defence against a concurrent host process running as the same
+  user outside the payload, which shares the observer's own trust.
+- **[The `hands.rs` extraction moves exact coverage or the namespace
+  argv]** → It is a loop-source substitution with no new branch, pinned by the
+  existing byte-exact argv tests and the new binding test. The controller's
+  external exact-coverage run measures it.
 - **[The exact payload cannot start under the bounded profile]** → Run D3
   Gate A first, require operation/target attribution and necessity/sufficiency
   evidence before changing one narrow predicate, preserve all denial controls,
   and keep lifetime marked not run on failure.
-- **[Native denial logs are unavailable or incomplete]** → Preserve collector
-  status and raw bounded output, then use system-binary and first-instruction
-  brackets; absence of a denial record stays unknown and never authorizes a
+- **[Native denial logs are unavailable or incomplete]** → Preserve the
+  `log show` status and raw bounded output, then rely on the stage ladder,
+  the child sub-stages and the restoration cells. System-binary and
+  first-instruction brackets return only if those also fail to attribute a
+  refusal. An absent denial record stays unknown and never authorizes a
   guessed allowance.
-- **[System controls start while the Rust helper does not]** → Localize the
-  defect to helper/runtime startup with committed staged modes; a passing
-  `true` or `echo` remains diagnostic rather than admission evidence.
 - **[A launchd parser change erases a real fact]** → Store command results and
   job fields append-only, fail unknown fields independently, and retain raw
   text; never infer execution, nonexecution or exit from a missing shape.
@@ -853,19 +1171,30 @@ feasibility gate; a native failure requires the exact residual and any focused
 1. Keep the accepted two-job topology, the five reconciled deltas and this
    design coherent. Existing Seatbelt realm declarations continue to compile
    and pin the word but refuse before journal writes.
-2. Preserve native CI `34449331270` at `9f4c2c9` as the third failed Gate A
-   observation. Update the dependent task and residual inventory without
-   rewriting the older `6a19a6f` and `8c53dce` evidence or treating S2 as
-   execution.
-3. Implement one bounded Gate A discriminator with structured profile identity,
-   native denial capture, system-binary brackets, first-instruction/staged
-   helper modes, append-only launchd observations, synthetic denial controls
-   and quarantine-on-unknown. Validate and commit that materially changed probe
-   while Seatbelt remains `unbuilt: ii`.
-4. Have the controller dispatch Gate A alone on that exact head and preserve the
-   complete report. A failed or unknown cell appends the precise startup
-   residual and returns to step 3; it never runs lifetime or broadens the
-   admitted profile.
+2. Preserve native CI `34457208029` at `fa7ece5` as the fourth failed Gate A
+   observation. The tasks and evidence visits record it as task 1.18's
+   residual and append its evidence row, without rewriting the `6a19a6f`,
+   `8c53dce` and `9f4c2c9` evidence or reading S2's and S3's erased prints as
+   launchd verdicts.
+3. Implement the ledger candidate from D3 while Seatbelt remains
+   `unbuilt: ii`:
+   - the `HOST_TOOLCHAIN_BINDS` extraction;
+   - the typed ledger, the fa7 dispositions and the renderer;
+   - the pure check with its typed inputs and refusals;
+   - the shared control constants;
+   - the ordered observer duties and the `<cell-root>/{inputs,payload}`
+     layout;
+   - the child sub-stages and discriminating cells;
+   - the restoration diagnostics and per-cell denial events;
+   - the top-level launchd scanner and the four-way removal record.
+
+   Add the host-independent tests the specification's scenarios name, pass
+   every local gate, and commit that materially changed probe.
+4. Have the controller dispatch Gate A alone on that exact head and preserve
+   the complete report. A failed or unknown cell appends the precise startup
+   residual and returns to step 3 with the attribution it produced. It never
+   runs lifetime, reruns an unchanged candidate or broadens the admitted
+   profile.
 5. After Gate A passes, run B0 only as an early mechanism-rejection screen, then
    repair all remaining assigned-success paths and run the complete B1 lifetime
    matrix. Only a truthful B1 pass permits the sealed planner/executor,
@@ -894,61 +1223,72 @@ uninstallation. Container remains the separately commissioned slice III.
 ## Open Questions
 
 There are no unanswered Seatbelt policy questions. The accepted 0046 addendum
-settles R1, R2, R3's mandatory outcome and conditional R4; none may be reopened
-to explain away a failed probe.
+settles R1, R2, R3's mandatory outcome and conditional R4. The specification
+visits through `98984dd` settle the startup-rule ledger, its closed grammar,
+the per-bind `/usr` narrowing, the no-respelling rule, the fixed toolchain
+source set and the validated check inputs. None may be reopened to explain
+away a failed probe.
 
-Three empirical questions remain in strict order:
+Four empirical questions remain, in strict order:
 
-1. (Answered by the retained matrix and the public Seatbelt record.) The
-   withheld operation is the root-inode read the dynamic loader performs at
-   process init; the least-authority predicate is
-   `(allow file-read* (literal "/"))` and it is proven by removal. Whether that
-   predicate alone restores native startup is still measured by the next Gate A
-   run, not asserted here.
-2. Can the launchd observer preserve a truthful field-wise S2/S3 lifecycle on
-   the current macOS format, including command status, partial fields, clean
-   terminal evidence and quarantine after uncertainty?
-3. Only after both startup questions pass, does the public unprivileged
-   per-user launchd payload-job domain causally end all `setsid`/double-fork
-   descendants after timeout, cancellation and supervisor death while the
-   separately owned guard and protected peers survive?
+1. Does the ledger candidate start at all? It is narrower than fa7's
+   template, so it may stop before fa7's `executable` stage. The restoration
+   cells and denial events are what attribute such a regression.
+2. Which operation and target does the child spawn need? Leading hypothesis:
+   the null-stdio write open of `/dev/null`, which no fa7 profile or
+   diagnostic granted. The sub-stages and four discriminating cells decide it
+   or move attribution to the exec. The answer is the diagnosis-admitted
+   literal the specification names or a precise residual.
+3. With a candidate that reaches `READY`, is each diagnosis-admitted
+   predicate, the root-inode read included, load-bearing by removal? Does the
+   top-level launchd parse give S2 and S3 their truthful terminal facts?
+4. Only after Gate A passes: does the public unprivileged per-user launchd
+   payload-job domain end every `setsid` and double-fork descendant after
+   timeout, cancellation and supervisor death, while the separately owned
+   guard and protected peers survive?
 
-CI `34449331270` answers none of those positively. It proves the helper works
-unboxed, the exact profile still prevents startup, S2 is unparseable and S3 is a
-non-ready crashed run. The available arm64 CI route can run the next bounded
-candidate; no local Mac is missing. An unavailable denial stream or a Gate A
-failure is recorded precisely and leaves lifetime not run. A B0 or B1 failure
-rejects the D2 candidate and keeps SEATBELT-R3 open. Any request to weaken
-accepted semantics or decision 0049 platform scope returns as a focused
-`proposed` decision rather than a downstream workaround.
+CI `34457208029` answers none of those positively. It shows the root-inode read
+advances the fa7 template to `executable`, three denial controls deny on that
+candidate, S2 starts under launchd, and the parser defect erased real facts.
+The available arm64 CI route can run the next candidate, so no local Mac is
+missing. A Gate A failure is recorded precisely and leaves lifetime not run. A
+B0 or B1 failure rejects the D2 candidate and keeps SEATBELT-R3 open. Any
+request to weaken accepted semantics, respell a toolchain unit or narrow
+decision 0049's platform scope returns as a focused `proposed` decision
+rather than a downstream workaround.
 
 ## Implementation status
 
-Current HEAD `70bdb1b` preserves the probe work through `9f4c2c9` and the
-third native report, but contains no production Seatbelt implementation.
-Seatbelt remains `unbuilt: ii`; container remains `unbuilt: iii`.
+Current HEAD `98984dd` preserves the probe work through `fa7ece5`, the fourth
+native report and the specification visits that settle the ledger candidate.
+It contains no production Seatbelt implementation. Seatbelt remains
+`unbuilt: ii`; container remains `unbuilt: iii`.
 
-The committed probe has valuable, demonstrated preparation: one portable Rust
-helper, a fail-closed four-cell model, exact authenticated S0 stages, isolated
-roots and labels, target-gated Unix ABI, a single explicitly selected native
-test, and host-independent evaluator tests. Native CI `34449331270` confirms
-the Windows portability repair and the generic macOS suite.
+The committed probe has demonstrated preparation:
 
-The same run invalidated the prior claim that Gate A merely awaited dispatch.
-S1 aborted on signal 6 before any file-backed stage; seven one-class
-diagnostics did not discriminate it; only non-admitting `allow default`
-started. S2's all-or-nothing parse lost its terminal observation, S3 was one
-non-ready crashed run, raw profile-digest equality was invalid for distinct
-private roots, denial controls never executed and Gate B remained not run.
-Neither R3 feasibility nor any R1–R4 enforcement residual is closed.
+- one portable Rust helper with authenticated stages;
+- a fail-closed four-cell model with isolated roots and labels;
+- target-gated Unix ABI and a single explicitly selected native test;
+- the root-inode read, which moved S1 and S3 to `executable`;
+- bounded raw `launchctl print` retention;
+- host-independent evaluator tests.
 
-The diagnosis and bounded repair are now committed: the missing root-inode read
-is named and granted with minimal aperture, its necessity is proven by a
-removal control that must fail closed, cross-cell profile identity is compared
-structurally with the typed private root abstracted, and launchd startup cells
-retain a bounded sequence of raw `launchctl print` samples with the last
-parseable state and last raw sample on refusal. The concrete next unit is the
-controller's exact-head Gate A rerun. No production planner, lifetime executor,
+Native CI `34457208029` confirmed that progress and three denial controls on
+that candidate. It also showed that the committed parser erases printed
+terminal facts when the crash counter is absent, and that the ordinary-child
+spawn is refused.
+
+None of the D3 ledger candidate is implemented yet:
+
+- `hands.rs` still inlines the toolchain array;
+- `native.rs` still renders the fa7 literal, including `(allow sysctl-read)`,
+  and keeps the uncanonical fallback;
+- the helper still hard-codes its control targets and uses `Stdio::null()`;
+- the ledger, check, sub-stages, discriminating and restoration cells,
+  denial events, top-level scanner and four-way removal record are absent.
+
+`tasks.md` and `evidence-residuals.md` still lack the fa7 residual and row.
+That is the next unit of work. No production planner, lifetime executor,
 overlay, mask, Git, runtime transport, activation edit or full-peer claim is
 authorized until Gate A and the complete B1 feasibility matrix pass. Exact
 coverage, native dispatch, final remote CI, publication, integration and
