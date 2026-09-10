@@ -699,26 +699,260 @@ impl HelperExit {
     }
 }
 
-/// One startup cell's observation. `helper_digest`, `profile_digest` and
-/// `helper_argv` are immutable launch inputs; `ready`, `ordinary_child` and
-/// `exit` are the external observations.
+/// The structural placeholder for the controller-generated startup cell root.
+/// The four startup cells must share helper bytes, executable, mode and argv
+/// structure but are allowed distinct private roots; the evaluator treats the
+/// root as an explicit typed variable rather than drift.
+pub const ROOT_TOKEN: &str = "<cell-root>";
+
+/// The exact bounded startup stage sequence the helper records between entry
+/// and clean return. A passing cell must show all of them in order; an abort
+/// localizes to the last stage reached rather than an opaque signal.
+pub const STARTUP_STAGES: [&str; 6] = [
+    "entry",
+    "payload-dir",
+    "executable",
+    "child",
+    "ready",
+    "return-clean",
+];
+
+/// A bounded, named diagnostic allowance appended one at a time to the exact
+/// candidate profile. A diagnostic can never satisfy a startup cell; it exists
+/// only to name the authority the restrictive profile withheld, and it never
+/// enters the candidate profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticAllowance {
+    pub name: &'static str,
+    pub operation: &'static str,
+    pub target: &'static str,
+    pub consumer: &'static str,
+    pub sbpl: &'static str,
+}
+
+/// The complete bounded diagnostic set. Each entry is applied alone, on top of
+/// the unchanged candidate profile, and is recorded as a labelled non-passing
+/// diagnostic.
+pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 7] = [
+    DiagnosticAllowance {
+        name: "tmp-realpath-read",
+        operation: "file-read*",
+        target: "/private/var/folders",
+        consumer: "probe root through its resolved path",
+        sbpl: "(allow file-read* (subpath \"/private/var/folders\"))",
+    },
+    DiagnosticAllowance {
+        name: "ancestor-read-metadata",
+        operation: "file-read-metadata",
+        target: "entire filesystem",
+        consumer: "path traversal to the helper executable",
+        sbpl: "(allow file-read-metadata)",
+    },
+    DiagnosticAllowance {
+        name: "helper-parent-read",
+        operation: "file-read*",
+        target: "/Users and /opt",
+        consumer: "helper executable and its parent directories",
+        sbpl: "(allow file-read* (subpath \"/Users\") (subpath \"/opt\"))",
+    },
+    DiagnosticAllowance {
+        name: "mach-lookup",
+        operation: "mach-lookup",
+        target: "all services",
+        consumer: "system services the runtime may contact",
+        sbpl: "(allow mach-lookup)",
+    },
+    DiagnosticAllowance {
+        name: "network",
+        operation: "network*",
+        target: "all network",
+        consumer: "socket setup if any (denial control expects this unnecessary)",
+        sbpl: "(allow network*)",
+    },
+    DiagnosticAllowance {
+        name: "system-socket",
+        operation: "system-socket",
+        target: "kernel sockets",
+        consumer: "kernel control sockets",
+        sbpl: "(allow system-socket)",
+    },
+    DiagnosticAllowance {
+        name: "iokit-open",
+        operation: "iokit-open",
+        target: "all IOKit",
+        consumer: "IOKit user clients",
+        sbpl: "(allow iokit-open)",
+    },
+];
+
+/// One labelled diagnostic run of the exact helper under the candidate profile
+/// plus a single named allowance. It is recorded, never admitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileDiagnostic {
+    pub name: String,
+    pub operation: String,
+    pub target: String,
+    pub consumer: String,
+    pub allowance: String,
+    pub ready: bool,
+    pub ordinary_child: bool,
+    pub exit: HelperExit,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl ProfileDiagnostic {
+    /// A diagnostic that reached READY and exited cleanly narrows the missing
+    /// authority, but it still cannot pass a startup cell or enter a profile.
+    pub fn reached_ready(&self) -> bool {
+        self.ready && self.exit.is_clean()
+    }
+}
+
+/// One denial control: the helper attempts a named operation the candidate
+/// profile must refuse and the observer records whether the attempt was
+/// denied. It corroborates that diagnosis did not widen the boundary; like the
+/// allowances it is recorded, never admitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DenialControl {
+    pub name: String,
+    pub operation: String,
+    pub target: String,
+    pub consumer: String,
+    /// The helper recorded the attempt as denied (no bytes, no write, no bind,
+    /// no launchd effect).
+    pub denied: bool,
+    /// The helper actually produced a denial record (a non-starting payload or
+    /// an unreadable record is not a denial).
+    pub observed: bool,
+    pub detail: String,
+}
+
+impl DenialControl {
+    /// A control is satisfied only when it was observed and denied.
+    pub fn satisfied(&self) -> bool {
+        self.observed && self.denied
+    }
+}
+
+/// The denial controls a passing Seatbelt startup cell must have rerun: host
+/// credential bytes unreadable, host writes refused, and loopback binding
+/// refused, with the payload still reaching READY.
+pub const STARTUP_DENIAL_CONTROLS: [&str; 3] = ["credential-read", "host-write", "network-bind"];
+
+/// Construct a satisfied startup denial control for a named control, so tests
+/// vary exactly one fact.
+pub fn satisfied_startup_denial(name: &str) -> DenialControl {
+    let (operation, target, consumer) = match name {
+        "credential-read" => ("file-read*", "/etc/passwd", "host credential bytes"),
+        "host-write" => (
+            "file-write*",
+            "/private/tmp",
+            "host filesystem outside the payload",
+        ),
+        _ => ("network-bind", "127.0.0.1:0", "loopback listener"),
+    };
+    DenialControl {
+        name: name.to_string(),
+        operation: operation.to_string(),
+        target: target.to_string(),
+        consumer: consumer.to_string(),
+        denied: true,
+        observed: true,
+        detail: "test".to_string(),
+    }
+}
+
+/// Parsed `launchctl print` facts. Missing fields are errors, never defaults.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchdFacts {
+    pub state: String,
+    pub runs: u32,
+    pub crashes: u32,
+    pub last_exit_code: Option<i32>,
+    pub last_exit_reason: Option<String>,
+}
+
+/// Parse the launchd state block. Every field a cell relies on must be present
+/// and parseable; a missing or unparsable field is an error, never a
+/// synthesized default.
+pub fn parse_launchd_print(text: &str) -> Result<LaunchdFacts, String> {
+    let field = |key: &str| -> Option<String> {
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix(key))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let state =
+        field("state = ").ok_or_else(|| "launchctl print had no state field".to_string())?;
+    let runs = field("runs = ")
+        .and_then(|value| value.parse::<u32>().ok())
+        .ok_or_else(|| "launchctl print had no parseable runs field".to_string())?;
+    let crashes = field("successive crashes = ")
+        .and_then(|value| value.parse::<u32>().ok())
+        .ok_or_else(|| "launchctl print had no parseable successive crashes field".to_string())?;
+    let last_exit_code = field("last exit code = ").and_then(|value| value.parse::<i32>().ok());
+    let last_exit_reason = field("last exit reason = ");
+    Ok(LaunchdFacts {
+        state,
+        runs,
+        crashes,
+        last_exit_code,
+        last_exit_reason,
+    })
+}
+
+/// Classify a launchd-owned run's terminal state from parsed facts. An absent
+/// terminal observation yields [`HelperExit::NotRun`]; launchd's own
+/// `successive crashes = 0` with `state = not running` is a real terminal
+/// observation, never a missing counter defaulted into an exit code.
+pub fn classify_launchd_exit(facts: &LaunchdFacts) -> HelperExit {
+    if let Some(code) = facts.last_exit_code {
+        return if code == 0 {
+            HelperExit::Clean
+        } else {
+            HelperExit::NonZero(code)
+        };
+    }
+    if facts.runs >= 1 && facts.crashes == 0 && facts.state == "not running" {
+        HelperExit::Clean
+    } else {
+        HelperExit::NotRun
+    }
+}
+
+/// One startup cell's observation. `helper_executable`, `helper_mode`,
+/// `helper_digest`, `helper_argv` (with the root abstracted to [`ROOT_TOKEN`])
+/// and `profile_digest` are immutable launch inputs; `ready`, `ordinary_child`
+/// and `exit` are the external observations. `helper_root` is the typed,
+/// controller-generated private root and may differ per cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartupObservation {
     pub cell: StartupCell,
     pub ran: bool,
     pub skip: Option<String>,
+    /// Absolute path of the helper executable actually executed.
+    pub helper_executable: String,
+    /// Permission mode of the helper executable actually executed.
+    pub helper_mode: u32,
     /// Digest of the helper bytes actually executed.
     pub helper_digest: String,
     /// Digest of the exact candidate profile when this cell applies it.
     pub profile_digest: Option<String>,
-    /// The argv handed to the helper itself (without any launcher prefix).
+    /// The structural helper argv with the cell root replaced by [`ROOT_TOKEN`].
     pub helper_argv: Vec<String>,
+    /// The controller-generated private root for this cell (a typed variable).
+    pub helper_root: String,
     /// A READY nonce matching the externally chosen nonce was observed.
     pub ready: bool,
+    /// The bounded startup stages the helper recorded, in order.
+    pub stages: Vec<String>,
     /// A real ordinary child was spawned and identified.
     pub ordinary_child: bool,
     /// The observed helper exit.
     pub exit: HelperExit,
+    /// launchd's raw `state = ` field for launchd-owned cells.
+    pub launchd_state: Option<String>,
     /// launchd's `runs` counter for launchd-owned cells.
     pub launchd_runs: Option<u32>,
     /// launchd's `successive crashes` counter for launchd-owned cells.
@@ -726,6 +960,12 @@ pub struct StartupObservation {
     /// A labelled diagnostic (for example an `allow default` profile). It is
     /// recorded for diagnosis and can never make the cell pass.
     pub diagnostic: Option<String>,
+    /// The one-authority-at-a-time differentials run for this cell. They are
+    /// recorded and can never satisfy the cell.
+    pub diagnostics: Vec<ProfileDiagnostic>,
+    /// The credential, host-write, network, guard and peer denial controls
+    /// rerun under the unchanged candidate profile.
+    pub denials: Vec<DenialControl>,
     /// Bounded stdout captured for this cell.
     pub stdout: String,
     /// Bounded stderr captured for this cell.
@@ -739,15 +979,22 @@ impl StartupObservation {
             cell,
             ran: false,
             skip: Some(reason.to_string()),
+            helper_executable: String::new(),
+            helper_mode: 0,
             helper_digest: String::new(),
             profile_digest: None,
             helper_argv: Vec::new(),
+            helper_root: String::new(),
             ready: false,
+            stages: Vec::new(),
             ordinary_child: false,
             exit: HelperExit::NotRun,
+            launchd_state: None,
             launchd_runs: None,
             launchd_crashes: None,
             diagnostic: None,
+            diagnostics: Vec::new(),
+            denials: Vec::new(),
             stdout: String::new(),
             stderr: String::new(),
         }
@@ -770,15 +1017,18 @@ pub struct StartupReport {
 
 /// Evaluate the startup matrix. Every selected cell must reach an
 /// authenticated READY, identify an ordinary child and exit cleanly, and all
-/// selected cells must have used identical helper bytes and helper argv (and
-/// identical profile bytes where the profile applies). Any single cell's
-/// failure is named separately.
+/// selected cells must have used the same immutable helper executable, mode,
+/// bytes and structural argv (the controller-generated cell root is an
+/// explicit typed variable, not drift) and the same profile bytes where the
+/// profile applies. Any single cell's failure is named separately.
 pub fn evaluate_startup(selected: &[StartupCell], cells: &[StartupObservation]) -> Verdict {
     let mut reasons = Vec::new();
     if selected.is_empty() {
         reasons.push("zero startup cells selected: admission cannot be proven".to_string());
         return Verdict::Fail(reasons);
     }
+    let mut helper_executable: Option<&str> = None;
+    let mut helper_mode: Option<u32> = None;
     let mut helper_digest: Option<&str> = None;
     let mut helper_argv: Option<&[String]> = None;
     let mut profile_digest: Option<&str> = None;
@@ -793,6 +1043,22 @@ pub fn evaluate_startup(selected: &[StartupCell], cells: &[StartupObservation]) 
         evaluate_startup_cell(observation, &mut reasons);
         if !observation.ran {
             continue;
+        }
+        match helper_executable {
+            None => helper_executable = Some(&observation.helper_executable),
+            Some(first) if first != observation.helper_executable => reasons.push(format!(
+                "{}: helper executable differs from the first selected cell",
+                cell.name()
+            )),
+            Some(_) => {}
+        }
+        match helper_mode {
+            None => helper_mode = Some(observation.helper_mode),
+            Some(first) if first != observation.helper_mode => reasons.push(format!(
+                "{}: helper permission mode differs from the first selected cell",
+                cell.name()
+            )),
+            Some(_) => {}
         }
         match helper_digest {
             None => helper_digest = Some(&observation.helper_digest),
@@ -828,6 +1094,24 @@ pub fn evaluate_startup(selected: &[StartupCell], cells: &[StartupObservation]) 
     }
 }
 
+/// The structural helper argv must name the typed root exactly once and carry
+/// a non-empty `--nonce`, so the nonce protocol is compared rather than
+/// assumed.
+fn argv_is_structural(name: &str, argv: &[String], reasons: &mut Vec<String>) {
+    let roots = argv.iter().filter(|arg| arg.as_str() == ROOT_TOKEN).count();
+    if roots != 1 {
+        reasons.push(format!(
+            "{name}: helper argv must carry the typed cell root exactly once, found {roots}"
+        ));
+    }
+    match argv.iter().position(|arg| arg == "--nonce") {
+        Some(index) if argv.get(index + 1).is_some_and(|value| !value.is_empty()) => {}
+        _ => reasons.push(format!(
+            "{name}: helper argv carries no non-empty nonce protocol token"
+        )),
+    }
+}
+
 fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<String>) {
     let name = observation.cell.name();
     if let Some(label) = &observation.diagnostic {
@@ -847,15 +1131,32 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
         reasons.push(format!("{name}: startup cell did not run: {why}"));
         return;
     }
+    if observation.helper_executable.is_empty() {
+        reasons.push(format!("{name}: no helper executable was recorded"));
+    }
+    if observation.helper_mode == 0 {
+        reasons.push(format!("{name}: no helper permission mode was recorded"));
+    }
     if observation.helper_digest.is_empty() {
         reasons.push(format!("{name}: no helper digest was recorded"));
     }
+    if observation.helper_root.is_empty() {
+        reasons.push(format!("{name}: no typed cell root was recorded"));
+    }
+    argv_is_structural(name, &observation.helper_argv, reasons);
     if observation.cell.seatbelt() && observation.profile_digest.is_none() {
         reasons.push(format!("{name}: Seatbelt cell recorded no profile digest"));
     }
     if !observation.ready {
         reasons.push(format!(
             "{name}: the helper never reached a nonce-authenticated READY"
+        ));
+    }
+    let recorded: Vec<&str> = observation.stages.iter().map(String::as_str).collect();
+    if recorded != STARTUP_STAGES {
+        reasons.push(format!(
+            "{name}: bounded startup stages {:?} are not the exact required {:?}",
+            observation.stages, STARTUP_STAGES
         ));
     }
     if !observation.ordinary_child {
@@ -867,7 +1168,25 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
             observation.exit.describe()
         ));
     }
+    if observation.cell.seatbelt() {
+        for required in STARTUP_DENIAL_CONTROLS {
+            let satisfied = observation
+                .denials
+                .iter()
+                .any(|control| control.name == required && control.satisfied());
+            if !satisfied {
+                reasons.push(format!(
+                    "{name}: denial control {required} was not observed and denied"
+                ));
+            }
+        }
+    }
     if observation.cell.launchd() {
+        if observation.launchd_state.is_none() {
+            reasons.push(format!(
+                "{name}: launchd recorded no parseable terminal state"
+            ));
+        }
         match (observation.launchd_runs, observation.launchd_crashes) {
             (Some(runs), Some(0)) if runs >= 1 => {}
             (runs, crashes) => reasons.push(format!(
@@ -971,19 +1290,40 @@ pub fn passing_startup(cell: StartupCell) -> StartupObservation {
         cell,
         ran: true,
         skip: None,
+        helper_executable: "/opt/probe/seatbelt-probe-helper".to_string(),
+        helper_mode: 0o755,
         helper_digest: "00ff".to_string(),
         profile_digest: cell.seatbelt().then(|| "aa55".to_string()),
         helper_argv: vec![
             "startup".to_string(),
+            "--root".to_string(),
+            ROOT_TOKEN.to_string(),
+            "--nonce".to_string(),
+            "nonce-1".to_string(),
             "--exit".to_string(),
             "clean".to_string(),
         ],
+        helper_root: format!("/private/tmp/cell-{}", cell.name()),
         ready: true,
+        stages: STARTUP_STAGES
+            .iter()
+            .map(|stage| stage.to_string())
+            .collect(),
         ordinary_child: true,
         exit: HelperExit::Clean,
+        launchd_state: cell.launchd().then(|| "not running".to_string()),
         launchd_runs: cell.launchd().then_some(1),
         launchd_crashes: cell.launchd().then_some(0),
         diagnostic: None,
+        diagnostics: Vec::new(),
+        denials: if cell.seatbelt() {
+            STARTUP_DENIAL_CONTROLS
+                .iter()
+                .map(|name| satisfied_startup_denial(name))
+                .collect()
+        } else {
+            Vec::new()
+        },
         stdout: String::new(),
         stderr: String::new(),
     }

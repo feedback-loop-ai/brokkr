@@ -146,6 +146,11 @@ jobs:
       # /usr/bin/sandbox-exec and real per-user launchctl; a missing tool, an
       # outer box, zero selected cells or any unmet observation fails the job
       # and never skips into success.
+      #
+      # The destructive launchd adapter is `#[ignore]`d so the generic parallel
+      # workspace suite runs only the host-independent model; these steps select
+      # it explicitly with `--ignored --exact`. The report-content checks make a
+      # mis-selection or an empty report a failure rather than a silent pass.
       - name: R3 native startup gate
         if: runner.os == 'macOS'
         run: |
@@ -154,19 +159,21 @@ jobs:
           uname -m
           test -x /usr/bin/sandbox-exec
           cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
-            -- --exact --nocapture \
+            -- --ignored --exact --nocapture \
             seatbelt_probe::native::native_startup_feasibility_probe \
             2>&1 | tee target/r3-startup.log
           grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
+          grep -q 'Gate A startup verdict' target/r3-startup-report.txt
       - name: R3 native lifetime feasibility probe
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
           cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
-            -- --exact --nocapture \
+            -- --ignored --exact --nocapture \
             seatbelt_probe::native::native_lifetime_feasibility_probe \
             2>&1 | tee target/r3-lifetime.log
           grep -Eq 'test result: ok\. 1 passed' target/r3-lifetime.log
+          grep -q 'Gate A startup verdict' target/r3-lifetime-report.txt
       - name: R3 native diagnostics
         if: always() && runner.os == 'macOS'
         uses: actions/upload-artifact@v4

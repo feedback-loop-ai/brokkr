@@ -43,22 +43,34 @@ audit above, whose inspected revision predates this record.
   enforcement residual.
 - **Design and tasks: DONE.** `design.md` and `tasks.md` exist and encode the
   pre-implementation R3 native-proof gate (design D1–D14, tasks 1.1–1.5).
-- **Bounded R3 probe: REPAIRED, NATIVE RUN PENDING.** The probe lives in
+- **Bounded R3 probe: REPAIRED AGAIN, NATIVE RUN PENDING.** The probe lives in
   `crates/brokkr-protocol/tests/seatbelt_lifetime_probe.rs` and its
   `seatbelt_probe` module. The interpreted payload has been replaced by one
   committed Rust test-support executable
   (`tests/seatbelt_probe/helper.rs`, the `seatbelt-probe-helper` bin) serving
   payload, descendant, guard, supervisor and startup roles. The shared model
-  now implements the four-cell S0–S3 startup matrix and gates the lifetime
-  matrix on a passing startup verdict; the measurement findings (real
-  per-case triggers, attack-before-observation, guard liveness before
-  unregister, a real original-process-group `SIGKILL`, public start
-  identities, preserved failure reports, role-separated state and the
-  forged-marker/harness-cleanup bans) are encoded and injected tests fail each
-  forged fact. The macOS launchd lease-pair adapter is type-checked on Linux
-  while its required tests run only on macOS. CI selects the startup gate
-  first, uploads the durable startup and lifetime reports even on failure, and
-  runs the lifetime gate only after startup succeeds.
+  implements the four-cell S0–S3 startup matrix and gates the lifetime matrix
+  on a passing startup verdict; the measurement findings (real per-case
+  triggers, attack-before-observation, guard liveness before unregister, a real
+  original-process-group `SIGKILL`, public start identities, preserved failure
+  reports, role-separated state and the forged-marker/harness-cleanup bans) are
+  encoded and injected tests fail each forged fact. After native CI
+  `34441725835` the adapter was repaired again: the helper's Unix ABI calls are
+  target-gated so the Windows workspace test links; the two destructive native
+  tests are `#[ignore]`d and selected only by the macOS step (`--ignored
+  --exact`) so the generic parallel suite runs only the host-independent model;
+  every launchd label and private root is unique per host instance and
+  invocation, with absence proven before bootstrap and after bounded bootout;
+  the private root is canonicalized after creation so the profile matches the
+  resolved `/private/var` path; `launchctl print` facts are parsed or the cell
+  fails, and no missing counter is synthesized into an exit code; the
+  structural helper/argv comparison treats the cell root as a typed variable;
+  and a bounded one-authority-at-a-time differential plus the labelled `allow
+  default` control is recorded as non-passing diagnosis on an exact-profile
+  failure. The macOS launchd lease-pair adapter is type-checked on Linux while
+  its required tests run only on macOS. CI selects the startup gate first,
+  uploads the durable startup and lifetime reports even on failure, and runs
+  the lifetime gate only after startup succeeds.
 - **Native lifetime feasibility evidence: STILL REQUIRED.** No macOS host was
   available to this controller, so SEATBELT-R3 has no adversarial
   measurement. The controller-dispatched native probe run, with the candidate
@@ -91,6 +103,55 @@ does not replace or rewrite the historical audit below.
 - **Next action:** dispatch the committed four-cell S0–S3 startup matrix on
   the existing macOS CI host. This row is `SEATBELT-R3-STARTUP` failure
   evidence; it closes no residual.
+
+
+## Native startup measurement — candidate `8c53dce` (CI `34441725835`)
+
+Recorded on the Linux controller from the controller-supplied native CI log.
+This is a native observation of a failed startup, not a lifetime result. It
+does not replace or rewrite the historical audit below.
+
+- **Candidate:** `8c53dcecaef414938b3abfb8911a77d9ec958f23`, native CI run
+  `34441725835`, GitHub `macos-latest` arm64 runner. The supplied log does not
+  contain `sw_vers` output, so no macOS version or build is recorded here; only
+  the runner label and architecture are facts.
+- **S0 direct unboxed — PASS:** the committed Rust helper digest
+  `e925083d55a9c8b0` reached nonce-authenticated `READY`, identified an
+  ordinary child and exited `0`.
+- **S1 direct exact profile — FAIL:** the identical helper and argv aborted
+  with signal 6 (`SIGABRT`) before `READY`, with empty stdout and stderr.
+- **`allow default` diagnostic — NON-PASSING:** the same helper and argv under
+  a labelled broad diagnostic exited `0`. This localizes the refusal to
+  authority withheld by the exact profile; it identifies no missing authority
+  and authorizes no allowance. It cannot satisfy a cell.
+- **S2/S3 launchd cells — NO COHERENT CONTROL:** across the two Gate A
+  executions the cells alternated. Once S2 reached `READY` and an ordinary
+  child but reported `runs=None`, `crashes=None` and a synthesized `exit 1`;
+  once S2 failed `Bootstrap failed: 5: Input/output error`. S3 likewise
+  alternated between bootstrap error 5 and a non-ready `exit 1` with no
+  run/crash facts. Registration, a run count or a missing field is not
+  startup evidence.
+- **Gate B lifetime — NOT RUN.** Startup did not pass, so no lifetime,
+  survivor or quiescence fact exists. SEATBELT-R1–R4 remain open.
+- **Windows — link FAIL:** the workspace test binary failed to link with
+  unresolved external symbols `getuid` and `getpgid` from the helper. That is
+  a portability defect, not native security evidence.
+- **Measurement defects isolated:** (1) both native tests ran in parallel in
+  one process and generated the *same* launchd labels, so one test could
+  bootstrap or bootout the other's job and produce order-dependent
+  `Bootstrap failed: 5`; (2) a missing `launchctl print` counter was
+  converted into a synthesized `exit 1`; (3) the probe root failed to
+  canonicalize because it did not exist yet, so the profile granted the
+  `.../var/...` spelling while the kernel resolved `.../private/var/...`.
+- **Not the failure:** the already-repaired Git-metadata and `/usr/include`
+  runner prerequisites; registration plus one crashed run is not quiescence;
+  the `SIGABRT` cause is not established.
+- **Next action:** dispatch the repaired exact-head probe. The destructive
+  adapter is now explicitly selected, labels/roots are never reused, the root
+  is canonicalized, launchd facts are parsed or the cell fails without a
+  synthesized exit, and a bounded one-authority-at-a-time diagnostic records
+  which named allowance (if any) restores `READY`. This row is
+  `SEATBELT-R3-STARTUP` failure evidence; it closes no residual.
 
 
 ## Validation audit — 2026-09-09

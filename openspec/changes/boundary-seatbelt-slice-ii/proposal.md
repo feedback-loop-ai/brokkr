@@ -38,7 +38,11 @@ reached `READY` but had no parseable run/crash facts and once failed bootstrap
 with error 5, while the sandboxed job alternated between bootstrap failure and
 a non-ready exit with no valid run/crash facts. Gate B was correctly not run.
 The run therefore proves neither launchd startup nor lifetime containment; it
-requires isolated launchd measurements and bounded profile diagnosis.
+requires isolated launchd measurements and bounded profile diagnosis. The
+successor repair commits the portability, label/root isolation, canonical-path,
+parsed-terminal-state, staged-startup and one-authority diagnostic changes and
+leaves the controller-dispatched exact-head Gate A run as the next prerequisite;
+no production Seatbelt path is authorized by that repair.
 
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 

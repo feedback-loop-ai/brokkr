@@ -48,6 +48,7 @@ fn dispatch(args: &[String]) -> Result<i32, String> {
         Some("guard") => run_guard(args),
         Some("holder") => run_holder(args),
         Some("child") => run_ordinary_child(),
+        Some("denial") => run_denial(args),
         _ => Err("unknown mode".to_string()),
     }
 }
@@ -99,8 +100,15 @@ fn run_startup(args: &[String]) -> Result<i32, String> {
     let directed = flag(args, "--exit").unwrap_or_else(|| "clean".to_string());
     let payload = root.join("payload");
     fs::create_dir_all(&payload).map_err(|error| format!("payload dir: {error}"))?;
+    // Bounded, ordered startup stages. The adapter requires the exact sequence
+    // before a cell can pass, so an abort localizes to the stage it reached
+    // instead of being reported as an opaque signal. READY carries the nonce.
+    let stages = payload.join("stages");
+    append_at(&stages, "entry\n")?;
+    append_at(&stages, "payload-dir\n")?;
 
     let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+    append_at(&stages, "executable\n")?;
     let mut child = Command::new(&exe)
         .arg("child")
         .stdin(Stdio::null())
@@ -109,16 +117,20 @@ fn run_startup(args: &[String]) -> Result<i32, String> {
         .spawn()
         .map_err(|error| format!("ordinary child: {error}"))?;
     let child_pid = child.id();
+    append_at(&stages, "child\n")?;
     append_at(
         &payload.join("identities"),
         &format!("ordinary {child_pid} {child_pid}\n"),
     )?;
     write_at(&payload.join("ready"), &format!("{nonce} {child_pid}\n"))?;
+    append_at(&stages, "ready\n")?;
 
     let _ = child.wait();
     if directed == "nonzero" {
+        append_at(&stages, "return-nonzero\n")?;
         return Ok(3);
     }
+    append_at(&stages, "return-clean\n")?;
     Ok(0)
 }
 
@@ -126,6 +138,92 @@ fn run_startup(args: &[String]) -> Result<i32, String> {
 fn run_ordinary_child() -> Result<i32, String> {
     sleep_ms(1_500);
     Ok(0)
+}
+
+/// `denial --root DIR --kind credential|host-write|network|guard|peer`
+///
+/// Attempt one operation the candidate profile must refuse and record whether
+/// it was denied. The observer reads `payload/denials`; the exit code always
+/// reports that the helper itself completed, never whether the operation was
+/// allowed.
+fn run_denial(args: &[String]) -> Result<i32, String> {
+    let root = root_of(args)?;
+    let kind = required(args, "--kind")?;
+    let payload = root.join("payload");
+    fs::create_dir_all(&payload).map_err(|error| format!("payload dir: {error}"))?;
+    let (denied, detail) = match kind.as_str() {
+        "credential" => attempt_credential_read(),
+        "host-write" => attempt_host_write(),
+        "network" => attempt_network(),
+        "guard" => {
+            let label = read_trimmed(&root.join("inputs/guard-label")).unwrap_or_default();
+            attempt_launchctl(&["kill", "SIGTERM", target(&label).as_str()])
+        }
+        "peer" => {
+            let label = read_trimmed(&root.join("inputs/peer-label")).unwrap_or_default();
+            attempt_launchctl(&["bootout", target(&label).as_str()])
+        }
+        other => return Err(format!("unknown denial kind {other}")),
+    };
+    append_at(
+        &payload.join("denials"),
+        &format!(
+            "{kind} {} {detail}\n",
+            if denied { "denied" } else { "allowed" }
+        ),
+    )?;
+    Ok(0)
+}
+
+/// A read of a host credential file must not return bytes; any failure or
+/// permission denial counts as denied.
+fn attempt_credential_read() -> (bool, String) {
+    for path in ["/etc/passwd", "/etc/hosts"] {
+        match fs::read(path) {
+            Ok(_) => return (false, format!("{path} read succeeded")),
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    return (true, format!("{path} denied EACCES/EPERM"));
+                }
+            }
+        }
+    }
+    (true, "no readable credential file".to_string())
+}
+
+/// A write outside the payload must not create a host file.
+fn attempt_host_write() -> (bool, String) {
+    let path = "/private/tmp/brokkr-probe-denial-write";
+    match OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(_) => {
+            let _ = fs::remove_file(path);
+            (false, format!("{path} write succeeded"))
+        }
+        Err(error) => (true, format!("{path} denied: {error}")),
+    }
+}
+
+/// Binding a loopback listener must fail without network authority.
+fn attempt_network() -> (bool, String) {
+    match std::net::TcpListener::bind("127.0.0.1:0") {
+        Ok(listener) => {
+            drop(listener);
+            (false, "loopback bind succeeded".to_string())
+        }
+        Err(error) => (true, format!("loopback bind denied: {error}")),
+    }
+}
+
+fn attempt_launchctl(args: &[&str]) -> (bool, String) {
+    match attack_launchctl(args) {
+        Ok(()) => (false, "launchctl succeeded".to_string()),
+        Err(error) => (true, error),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +429,11 @@ fn target(label: &str) -> String {
     format!("{}/{label}", domain())
 }
 
+// The helper is only ever selected on macOS, but it is compiled and linked on
+// every workspace host so a non-Darwin build cannot hide drift. The Unix ABI
+// calls are therefore target-gated: the Windows binary must link without a
+// `getuid`/`getpgid` reference (native CI run `34441725835` proved it did not).
+#[cfg(unix)]
 fn current_uid() -> u32 {
     extern "C" {
         fn getuid() -> u32;
@@ -339,6 +442,14 @@ fn current_uid() -> u32 {
     unsafe { getuid() }
 }
 
+#[cfg(not(unix))]
+fn current_uid() -> u32 {
+    // Off Unix the launchd domain and its targets are never constructed; the
+    // stub keeps the shared code compiled and linked without the symbol.
+    0
+}
+
+#[cfg(unix)]
 fn process_group() -> u32 {
     extern "C" {
         fn getpgid(pid: i32) -> i32;
@@ -352,6 +463,11 @@ fn process_group() -> u32 {
             pgid as u32
         }
     }
+}
+
+#[cfg(not(unix))]
+fn process_group() -> u32 {
+    0
 }
 
 fn heartbeat(payload: &Path) {

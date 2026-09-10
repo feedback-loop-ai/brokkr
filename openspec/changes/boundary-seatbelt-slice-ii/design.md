@@ -822,12 +822,28 @@ proposed decision.
 The committed `seatbelt-probe-helper` bin and fail-closed S0–S3 evaluator are
 useful preparation, and native CI `34441725835` proved S0. That same run
 invalidated the earlier “measurement repaired/native pending” status: S1 still
-aborts, S2/S3 reuse state and yield order-dependent or unknown launchd facts,
-the adapter synthesizes terminal results, two native selections can race, and
-the helper fails Windows linkage. Gate B correctly remained not run. The
-downstream task and evidence artifacts must therefore reopen or split their
-affected checked claims rather than treating checkmarks as stronger evidence.
-No production Seatbelt work is authorized. SEATBELT-R1–R4 remain open and
-Seatbelt stays `unbuilt: ii` until a repaired exact-head Gate A passes, a
-truthful Gate B passes, and the later integrated obligations pass through both
-hands entry points.
+aborts, S2/S3 reused state and yielded order-dependent or unknown launchd facts,
+the adapter synthesized terminal results, two native selections could race, and
+the helper failed Windows linkage. Gate B correctly remained not run.
+
+The bounded Gate A repair in tasks 1.8–1.11 is now committed: the helper's Unix
+ABI calls are target-gated, the destructive native tests are `#[ignore]`d and
+selected only by the macOS step, launchd labels/roots/streams are never reused
+and their absence is proven before bootstrap and after bounded bootout, the
+private root is canonicalized after creation, `launchctl print` facts are parsed
+or the cell fails without a synthesized exit, the structural helper/argv
+comparison treats the cell root as a typed variable, bounded startup stages
+localize an abort, the exact profile is diagnosed one named allowance at a time
+with credential/host-write/network denial controls rerun, and no diagnostic can
+enter the candidate or satisfy a cell. Host-independent tests falsify each new
+fact on Linux.
+
+This does not close any enforcement residual. The concrete next prerequisite is
+the controller-dispatched exact-head native Gate A run on this commit; its
+durable report must be preserved even when the test fails. If S1 still aborts,
+the report now names the last startup stage reached and which single allowance
+restored READY, so the next iteration is a measured repair rather than a blind
+policy widening. No production Seatbelt work is authorized. SEATBELT-R1–R4
+remain open and Seatbelt stays `unbuilt: ii` until a repaired exact-head Gate A
+passes, a truthful Gate B passes, and the later integrated obligations pass
+through both hands entry points.

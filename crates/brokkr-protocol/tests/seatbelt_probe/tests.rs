@@ -503,6 +503,215 @@ fn a_labelled_default_allow_diagnostic_can_never_pass() {
     assert!(verdict.reasons()[0].contains("labelled non-passing diagnostic"));
 }
 
+#[test]
+fn startup_cells_may_use_isolated_roots_but_not_drift() {
+    let mut cells: Vec<StartupObservation> = StartupCell::ALL
+        .iter()
+        .copied()
+        .map(passing_startup)
+        .collect();
+    for (index, cell) in cells.iter_mut().enumerate() {
+        // The controller-generated root is a typed variable: distinct,
+        // isolated roots are accepted.
+        cell.helper_root = format!("/private/tmp/isolated-cell-{index}");
+    }
+    let verdict = evaluate_startup(&StartupCell::ALL, &cells);
+    assert!(verdict.is_pass(), "{}", verdict.render());
+
+    // Any other immutable launch input still drifts into failure.
+    let mut executable = cells.clone();
+    executable[2].helper_executable = "/tmp/lookalike-helper".to_string();
+    let verdict = evaluate_startup(&StartupCell::ALL, &executable);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("executable differs")));
+
+    let mut mode = cells.clone();
+    mode[2].helper_mode = 0o644;
+    let verdict = evaluate_startup(&StartupCell::ALL, &mode);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("permission mode differs")));
+
+    let mut argv = cells;
+    argv[2].helper_argv.push("--extra".to_string());
+    let verdict = evaluate_startup(&StartupCell::ALL, &argv);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("argv differs")));
+}
+
+#[test]
+fn startup_argv_must_carry_the_typed_root_and_a_nonce() {
+    let mut missing_root = passing_startup(StartupCell::S0DirectUnboxed);
+    missing_root.helper_argv.retain(|arg| arg != ROOT_TOKEN);
+    let verdict = evaluate_startup(&[StartupCell::S0DirectUnboxed], &[missing_root]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("typed cell root")));
+
+    let mut empty_nonce = passing_startup(StartupCell::S0DirectUnboxed);
+    let index = empty_nonce
+        .helper_argv
+        .iter()
+        .position(|arg| arg == "--nonce")
+        .expect("passing argv has a nonce");
+    empty_nonce.helper_argv[index + 1].clear();
+    let verdict = evaluate_startup(&[StartupCell::S0DirectUnboxed], &[empty_nonce]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("nonce")));
+}
+
+#[test]
+fn launchd_cells_require_a_parsed_terminal_state() {
+    for cell in [
+        StartupCell::S2LaunchdUnboxed,
+        StartupCell::S3LaunchdSeatbelt,
+    ] {
+        let mut observation = passing_startup(cell);
+        observation.launchd_state = None;
+        let verdict = evaluate_startup(&[cell], &[observation]);
+        assert!(!verdict.is_pass());
+        assert!(
+            verdict
+                .reasons()
+                .iter()
+                .any(|reason| reason.contains("terminal state")),
+            "{}: {}",
+            cell.name(),
+            verdict.render()
+        );
+    }
+}
+
+#[test]
+fn startup_cells_require_the_exact_bounded_stage_sequence() {
+    let mut missing = passing_startup(StartupCell::S0DirectUnboxed);
+    missing.stages.pop();
+    let verdict = evaluate_startup(&[StartupCell::S0DirectUnboxed], &[missing]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("startup stages")));
+
+    let mut reordered = passing_startup(StartupCell::S0DirectUnboxed);
+    reordered.stages.swap(0, 1);
+    let verdict = evaluate_startup(&[StartupCell::S0DirectUnboxed], &[reordered]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("startup stages")));
+
+    // The exact sequence passes.
+    let complete = passing_startup(StartupCell::S0DirectUnboxed);
+    assert_eq!(complete.stages, STARTUP_STAGES);
+    assert!(evaluate_startup(&[StartupCell::S0DirectUnboxed], &[complete]).is_pass());
+}
+
+#[test]
+fn launchd_print_parsing_never_synthesizes_missing_fields() {
+    let complete = "state = not running\nruns = 1\nsuccessive crashes = 0\n";
+    let facts = parse_launchd_print(complete).expect("complete launchd state");
+    assert_eq!(facts.state, "not running");
+    assert_eq!(facts.runs, 1);
+    assert_eq!(facts.crashes, 0);
+    assert_eq!(classify_launchd_exit(&facts), HelperExit::Clean);
+
+    // A missing or unparsable field is an error, not a default.
+    assert!(parse_launchd_print("state = not running\nsuccessive crashes = 0\n").is_err());
+    assert!(parse_launchd_print("runs = 1\nsuccessive crashes = 0\n").is_err());
+    assert!(
+        parse_launchd_print("state = not running\nruns = one\nsuccessive crashes = 0\n").is_err()
+    );
+
+    // No terminal observation never becomes a synthetic nonzero exit.
+    let running = "state = running\nruns = 0\nsuccessive crashes = 0\n";
+    let facts = parse_launchd_print(running).expect("parseable running state");
+    assert_eq!(classify_launchd_exit(&facts), HelperExit::NotRun);
+}
+
+#[test]
+fn a_ready_diagnostic_can_never_pass_its_cell() {
+    let mut observation = passing_startup(StartupCell::S1DirectSeatbelt);
+    observation.ready = false;
+    observation.ordinary_child = false;
+    observation.diagnostics = vec![ProfileDiagnostic {
+        name: "helper-parent-read".to_string(),
+        operation: "file-read*".to_string(),
+        target: "/Users".to_string(),
+        consumer: "helper executable".to_string(),
+        allowance: "(allow file-read* (subpath \"/Users\"))".to_string(),
+        ready: true,
+        ordinary_child: true,
+        exit: HelperExit::Clean,
+        stdout: String::new(),
+        stderr: String::new(),
+    }];
+    assert!(observation.diagnostics[0].reached_ready());
+    let verdict = evaluate_startup(&[StartupCell::S1DirectSeatbelt], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("never reached")));
+}
+
+#[test]
+fn a_passing_seatbelt_cell_requires_its_denial_controls() {
+    let complete = passing_startup(StartupCell::S1DirectSeatbelt);
+    assert_eq!(
+        complete
+            .denials
+            .iter()
+            .filter(|control| control.satisfied())
+            .count(),
+        STARTUP_DENIAL_CONTROLS.len()
+    );
+    assert!(evaluate_startup(
+        &[StartupCell::S1DirectSeatbelt],
+        std::slice::from_ref(&complete)
+    )
+    .is_pass());
+
+    // A missing control fails.
+    let mut missing = complete.clone();
+    missing.denials.pop();
+    let verdict = evaluate_startup(&[StartupCell::S1DirectSeatbelt], &[missing]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("denial control")));
+
+    // An observed-but-allowed control fails.
+    let mut allowed = complete.clone();
+    allowed.denials[0].denied = false;
+    let verdict = evaluate_startup(&[StartupCell::S1DirectSeatbelt], &[allowed]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("not observed and denied")));
+
+    // Unboxed cells carry and require no Seatbelt denial controls.
+    let unboxed = passing_startup(StartupCell::S0DirectUnboxed);
+    assert!(unboxed.denials.is_empty());
+    assert!(evaluate_startup(&[StartupCell::S0DirectUnboxed], &[unboxed]).is_pass());
+}
+
 // ---------------------------------------------------------------------------
 // The two-gate order
 // ---------------------------------------------------------------------------

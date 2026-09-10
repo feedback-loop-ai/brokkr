@@ -25,11 +25,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{
-    run_gated_probe, run_startup, Case, CaseResult, Event, GatedReport, HelperExit, Precondition,
-    ProbeHost, RepairFacts, StartupCell, StartupObservation, TriggerKind,
+    classify_launchd_exit, parse_launchd_print, run_gated_probe, run_startup, Case, CaseResult,
+    DenialControl, Event, GatedReport, HelperExit, Precondition, ProbeHost, ProfileDiagnostic,
+    RepairFacts, StartupCell, StartupObservation, TriggerKind, DIAGNOSTIC_ALLOWANCES, ROOT_TOKEN,
+    STARTUP_DENIAL_CONTROLS,
 };
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -46,7 +49,14 @@ const HANDS_BOX_ENV: &str = "BROKKR_HANDS_BOX";
 /// Gate A native test: the four-cell startup matrix on a committed revision.
 /// It fails on a missing prerequisite, a skipped cell, or any unmet startup
 /// observation, and never reports a pass from Linux.
+///
+/// It is `#[ignore]`d so the generic parallel workspace suite runs only the
+/// host-independent model: the destructive launchd adapter is selected
+/// explicitly by the macOS CI step (`--ignored --exact`). Ignoring is a
+/// selection mechanism, not a skip: when selected, a missing tool or outer box
+/// is a named failure.
 #[test]
+#[ignore = "native macOS launchd probe: select explicitly with --ignored on macOS CI"]
 fn native_startup_feasibility_probe() {
     if !cfg!(target_os = "macos") {
         return;
@@ -66,6 +76,7 @@ fn native_startup_feasibility_probe() {
 /// Gate B native test: the startup gate is re-run inside the same process and
 /// the lifetime matrix is not run unless it passes.
 #[test]
+#[ignore = "native macOS launchd probe: select explicitly with --ignored on macOS CI"]
 fn native_lifetime_feasibility_probe() {
     if !cfg!(target_os = "macos") {
         return;
@@ -97,25 +108,55 @@ fn render_startup(report: &super::StartupReport) -> String {
     let mut out = format!("Gate A startup verdict: {}\n", report.verdict.render());
     for cell in &report.cells {
         out.push_str(&format!(
-            "  {}: ran={} ready={} ordinary_child={} exit={} runs={:?} crashes={:?} skip={:?}\n\
-             \x20   helper={} profile={:?} argv={:?}\n",
+            "  {}: ran={} ready={} ordinary_child={} exit={} state={:?} runs={:?} crashes={:?} skip={:?}\n\
+             \x20   root={} executable={} mode={:#o} helper={} profile={:?} argv={:?}\n\
+             \x20   stages={:?}\n",
             cell.cell.name(),
             cell.ran,
             cell.ready,
             cell.ordinary_child,
             cell.exit.describe(),
+            cell.launchd_state,
             cell.launchd_runs,
             cell.launchd_crashes,
             cell.skip,
+            cell.helper_root,
+            cell.helper_executable,
+            cell.helper_mode,
             cell.helper_digest,
             cell.profile_digest,
             cell.helper_argv,
+            cell.stages,
         ));
         if !cell.stdout.is_empty() {
             out.push_str(&format!("    stdout: {}\n", cell.stdout));
         }
         if !cell.stderr.is_empty() {
             out.push_str(&format!("    stderr: {}\n", cell.stderr));
+        }
+        for diagnostic in &cell.diagnostics {
+            out.push_str(&format!(
+                "    diagnostic {} ({} {}): reached_ready={} exit={} stdout={} stderr={}\n",
+                diagnostic.name,
+                diagnostic.operation,
+                diagnostic.target,
+                diagnostic.reached_ready(),
+                diagnostic.exit.describe(),
+                diagnostic.stdout,
+                diagnostic.stderr,
+            ));
+        }
+        for denial in &cell.denials {
+            out.push_str(&format!(
+                "    denial {} ({} {} for {}): observed={} denied={} detail={}\n",
+                denial.name,
+                denial.operation,
+                denial.target,
+                denial.consumer,
+                denial.observed,
+                denial.denied,
+                denial.detail,
+            ));
         }
     }
     out
@@ -156,21 +197,45 @@ pub struct NativeProbeHost {
     root: PathBuf,
     uid: u32,
     precondition: Option<Precondition>,
-    /// One nonce for all four startup cells, so their helper argv is identical
-    /// and only the launch owner / profile differ between cells.
+    /// A sanitized tag unique to this host instance. It is embedded in every
+    /// launchd label and private root so a parallel or repeated invocation can
+    /// never reuse a label (native CI `34441725835` saw two parallel tests
+    /// bootstrap the same label, producing order-dependent `Bootstrap failed:
+    /// 5` and missing run/crash facts).
+    run_tag: String,
+    /// One nonce for all four startup cells, so their helper argv differs only
+    /// by the typed cell root.
     startup_nonce: String,
+    /// Monotonic per-host sequence: a label is never reused within an instance.
+    sequence: AtomicU64,
 }
+
+/// A process-global salt so two hosts constructed with the same `run_id` in
+/// one process (the two native tests) still receive disjoint label prefixes.
+static HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 impl NativeProbeHost {
     pub fn new(run_id: String) -> NativeProbeHost {
-        let raw = std::env::temp_dir().join(format!("brokkr-seatbelt-probe-{run_id}"));
-        let root = raw.canonicalize().unwrap_or(raw);
+        let run_tag = format!(
+            "{}.{}",
+            sanitize_tag(&run_id),
+            HOST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
+        let raw = std::env::temp_dir().join(format!("brokkr-seatbelt-probe-{run_tag}"));
+        // Create the private root, then canonicalize it: macOS `/var` is a
+        // symlink to `/private/var`, and a profile that grants the unresolved
+        // spelling does not match the resolved vnode. Canonicalizing a
+        // non-existent path silently kept the `/var` spelling in native CI
+        // `34441725835`.
+        let _ = fs::create_dir_all(&raw);
+        let root = fs::canonicalize(&raw).unwrap_or(raw);
         let uid = current_uid();
         let precondition = check_precondition();
         NativeProbeHost {
             root,
             uid,
             precondition,
+            run_tag,
             startup_nonce: format!(
                 "{}-{}",
                 std::process::id(),
@@ -179,14 +244,31 @@ impl NativeProbeHost {
                     .map(|elapsed| elapsed.as_nanos())
                     .unwrap_or_default()
             ),
+            sequence: AtomicU64::new(1),
         }
+    }
+
+    fn next_sequence(&self) -> u64 {
+        self.sequence.fetch_add(1, Ordering::Relaxed)
     }
 
     fn label(&self, case: Case, role: &str) -> String {
         format!(
-            "org.brokkr.seatbelt.probe.{}.{}.{role}",
+            "org.brokkr.seatbelt.probe.{}.{}.{}.{}",
+            self.run_tag,
             std::process::id(),
-            case.name().replace('-', ".")
+            self.next_sequence(),
+            role_atom(&format!("{}-{role}", case.name())),
+        )
+    }
+
+    fn startup_label(&self, cell: StartupCell) -> String {
+        format!(
+            "org.brokkr.seatbelt.probe.{}.{}.startup.{}.{}",
+            self.run_tag,
+            std::process::id(),
+            self.next_sequence(),
+            role_atom(cell.name()),
         )
     }
 
@@ -203,10 +285,14 @@ impl NativeProbeHost {
     // -----------------------------------------------------------------------
 
     fn startup_cell(&mut self, cell: StartupCell) -> StartupObservation {
-        // One shared root and nonce for every cell: the helper bytes and the
-        // helper argv (excluding the launcher prefix) must be identical across
-        // the four cells, which is what makes the matrix a differential.
-        let root = self.root.join("startup/cell");
+        // A unique private root per cell. The four cells share the helper
+        // bytes, executable, mode, nonce protocol and argv structure; the root
+        // is an explicit typed variable rather than drift.
+        let root = self.root.join(format!(
+            "startup-{}-{}",
+            std::process::id(),
+            role_atom(cell.name())
+        ));
         let _ = fs::remove_dir_all(&root);
         if let Err(error) = fs::create_dir_all(root.join("payload")) {
             return StartupObservation::skipped(cell, &format!("startup root: {error}"));
@@ -231,10 +317,22 @@ impl NativeProbeHost {
         };
 
         let nonce = self.startup_nonce.clone();
+        let root_text = root.to_string_lossy().to_string();
+        // The structural argv keeps the root abstract so the four cells can
+        // use isolated roots without being read as drift.
+        let structural_argv = vec![
+            "startup".to_string(),
+            "--root".to_string(),
+            ROOT_TOKEN.to_string(),
+            "--nonce".to_string(),
+            nonce.clone(),
+            "--exit".to_string(),
+            "clean".to_string(),
+        ];
         let helper_argv = vec![
             "startup".to_string(),
             "--root".to_string(),
-            root.to_string_lossy().to_string(),
+            root_text.clone(),
             "--nonce".to_string(),
             nonce.clone(),
             "--exit".to_string(),
@@ -247,43 +345,76 @@ impl NativeProbeHost {
             launcher.push(profile.to_string_lossy().to_string());
         }
 
+        let label = if cell.launchd() {
+            Some(self.startup_label(cell))
+        } else {
+            None
+        };
+        if let Some(label) = &label {
+            if let Err(error) = ensure_label_absent(&self.service_target(label)) {
+                return StartupObservation::skipped(cell, &error);
+            }
+        }
+
         let prepared = if cell.launchd() {
-            self.run_startup_launchd(cell, &root, &launcher, &helper_argv)
+            self.run_startup_launchd(
+                cell,
+                &root,
+                &launcher,
+                &helper_argv,
+                label.as_deref().unwrap_or_default(),
+            )
         } else {
             self.run_startup_direct(cell, &root, &launcher, &helper_argv)
         };
 
-        // On an exact-profile failure, run the labelled `allow default`
-        // diagnostic so the report names the layer that refuses the payload.
-        // It is diagnostic output only; the shared model refuses any
-        // observation labelled with it, so it can never be admission.
+        // On an exact-profile failure, run the bounded one-authority-at-a-time
+        // differentials, the labelled `allow default` diagnostic, and the
+        // credential/host-write/network/guard/peer denial controls so the
+        // report names each layer that might refuse the payload. They are
+        // diagnostic output only; the shared model refuses any observation
+        // labelled with a diagnostic, so they can never be admission.
+        let mut diagnostics = Vec::new();
+        let mut denials = Vec::new();
         if let Ok(observation) = &prepared {
-            if cell.seatbelt() && !observation.ready {
-                self.log_default_allow_diagnostic(&root, &helper_argv);
+            if cell.seatbelt() {
+                denials = self.run_denial_controls(&root, &STARTUP_DENIAL_CONTROLS);
+                if !observation.ready {
+                    diagnostics = self.run_profile_diagnostics(&root, &helper_argv, &nonce);
+                }
             }
         }
 
-        let _ = bootout(&self.service_target(&format!(
-            "org.brokkr.seatbelt.probe.startup.{}.{}",
-            std::process::id(),
-            cell.name().replace('-', ".")
-        )));
-        let _ = fs::remove_dir_all(&root);
-        match prepared {
-            Ok(mut observation) => {
-                observation.helper_digest = digest(Path::new(HELPER));
-                observation.profile_digest = profile_digest;
-                observation.helper_argv = helper_argv;
-                observation
-            }
-            Err(error) => {
-                let mut observation = StartupObservation::skipped(cell, &error);
-                observation.helper_digest = digest(Path::new(HELPER));
-                observation.profile_digest = profile_digest;
-                observation.helper_argv = helper_argv;
-                observation
+        // Prove the label is absent after a bounded bootout: a stale label
+        // fails the cell and can never leak into the next one.
+        let mut post_bootout_failure = None;
+        if let Some(label) = &label {
+            let target = self.service_target(label);
+            let _ = bootout(&target);
+            if wait_for_job(&target, false, TEARDOWN).is_err() {
+                post_bootout_failure = Some(format!("launchd label {label} survived bootout"));
             }
         }
+
+        let (helper_executable, helper_mode) = helper_identity();
+        let _ = fs::remove_dir_all(&root);
+        let mut observation = match prepared {
+            Ok(observation) => observation,
+            Err(error) => StartupObservation::skipped(cell, &error),
+        };
+        observation.helper_executable = helper_executable;
+        observation.helper_mode = helper_mode;
+        observation.helper_digest = digest(Path::new(HELPER));
+        observation.profile_digest = profile_digest;
+        observation.helper_argv = structural_argv;
+        observation.helper_root = root_text;
+        observation.diagnostics = diagnostics;
+        observation.denials = denials;
+        if let Some(reason) = post_bootout_failure {
+            observation.ran = false;
+            observation.skip = Some(reason);
+        }
+        observation
     }
 
     fn startup_program(&self, launcher: &[String], helper_argv: &[String]) -> Vec<String> {
@@ -306,20 +437,27 @@ impl NativeProbeHost {
             .output()
             .map_err(|error| format!("startup launch: {error}"))?;
         let exit = exit_of(&output.status);
-        let (ready, ordinary_child) = read_ready(root, &helper_argv[4]);
+        let (ready, ordinary_child) = read_ready(root, nonce_of(helper_argv).unwrap_or_default());
         Ok(StartupObservation {
             cell,
             ran: true,
             skip: None,
+            helper_executable: String::new(),
+            helper_mode: 0,
             helper_digest: String::new(),
             profile_digest: None,
             helper_argv: Vec::new(),
+            helper_root: String::new(),
             ready,
+            stages: read_stages(&root.join("payload/stages")),
             ordinary_child,
             exit,
+            launchd_state: None,
             launchd_runs: None,
             launchd_crashes: None,
             diagnostic: None,
+            diagnostics: Vec::new(),
+            denials: Vec::new(),
             stdout: bound(&String::from_utf8_lossy(&output.stdout)),
             stderr: bound(&String::from_utf8_lossy(&output.stderr)),
         })
@@ -331,66 +469,78 @@ impl NativeProbeHost {
         root: &Path,
         launcher: &[String],
         helper_argv: &[String],
+        label: &str,
     ) -> Result<StartupObservation, String> {
-        let label = format!(
-            "org.brokkr.seatbelt.probe.startup.{}.{}",
-            std::process::id(),
-            cell.name().replace('-', ".")
-        );
+        if label.is_empty() {
+            return Err("launchd startup cell had no label".to_string());
+        }
         let program = self.startup_program(launcher, helper_argv);
         let program_refs: Vec<&str> = program.iter().map(String::as_str).collect();
         let plist = root.join("startup.plist");
         write_plist(
             &plist,
-            &label,
+            label,
             &program_refs,
             &root.join("startup.out"),
             &root.join("startup.err"),
         )?;
-        bootstrap(&format!("gui/{}", self.uid), &plist)?;
-        let target = self.service_target(&label);
+        bootstrap(&format!("gui/{}", self.uid), &plist)
+            .map_err(|error| format!("bootstrap {label}: {error}"))?;
+        let target = self.service_target(label);
+
+        let nonce = nonce_of(helper_argv).unwrap_or_default().to_string();
         let started = Instant::now();
         let mut ready = false;
         let mut ordinary_child = false;
         while started.elapsed() < TEARDOWN {
             if root.join("payload/ready").is_file() {
-                let (observed_ready, observed_child) = read_ready(root, &helper_argv[4]);
+                let (observed_ready, observed_child) = read_ready(root, &nonce);
                 ready = observed_ready;
                 ordinary_child = observed_child;
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        // Let the job reach a terminal state before reading its run facts.
-        let _ = wait_for_job(&target, false, TEARDOWN);
-        let state = launchctl_print(&target).unwrap_or_default();
-        let runs = parse_counter(&state, "runs = ");
-        let crashes = parse_counter(&state, "successive crashes = ");
-        let exit = match parse_counter(&state, "last exit code = ") {
-            Some(0) => HelperExit::Clean,
-            Some(code) => HelperExit::NonZero(code as i32),
-            None => {
-                if crashes == Some(0) {
-                    HelperExit::Clean
-                } else {
-                    HelperExit::NonZero(crashes.unwrap_or(1) as i32)
+
+        // Require a parsed terminal state. A missing or unparsable field is a
+        // failed measurement, never a synthesized exit code.
+        let mut facts = None;
+        let terminal_started = Instant::now();
+        while terminal_started.elapsed() < TEARDOWN {
+            if let Some(text) = launchctl_print(&target) {
+                if let Ok(parsed) = parse_launchd_print(&text) {
+                    if parsed.state == "not running" {
+                        facts = Some(parsed);
+                        break;
+                    }
                 }
             }
-        };
-        let _ = bootout(&target);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let facts = facts.ok_or_else(|| {
+            format!("launchd label {label} never produced a parseable not-running state")
+        })?;
+        let exit = classify_launchd_exit(&facts);
         Ok(StartupObservation {
             cell,
             ran: true,
             skip: None,
+            helper_executable: String::new(),
+            helper_mode: 0,
             helper_digest: String::new(),
             profile_digest: None,
             helper_argv: Vec::new(),
+            helper_root: String::new(),
             ready,
+            stages: read_stages(&root.join("payload/stages")),
             ordinary_child,
             exit,
-            launchd_runs: runs,
-            launchd_crashes: crashes,
+            launchd_state: Some(facts.state),
+            launchd_runs: Some(facts.runs),
+            launchd_crashes: Some(facts.crashes),
             diagnostic: None,
+            diagnostics: Vec::new(),
+            denials: Vec::new(),
             stdout: read_bounded(&root.join("startup.out")),
             stderr: read_bounded(&root.join("startup.err")),
         })
@@ -411,7 +561,9 @@ impl NativeProbeHost {
     }
 
     fn run_case_inner(&mut self, case: Case) -> Result<CaseResult, String> {
-        let root = self.root.join("lifetime").join(case.name());
+        let root = self
+            .root
+            .join(format!("lifetime-{}-{}", self.run_tag, case.name()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("inputs")).map_err(|e| format!("probe root: {e}"))?;
         fs::create_dir_all(root.join("payload")).map_err(|e| format!("probe root: {e}"))?;
@@ -421,7 +573,11 @@ impl NativeProbeHost {
         let payload_label = self.label(case, "payload");
         let guard_label = self.label(case, "guard");
         let peer_label = self.label(case, "peer");
-        let escape_label = format!("org.brokkr.seatbelt.probe.escape.{}", std::process::id());
+        let escape_label = format!(
+            "org.brokkr.seatbelt.probe.{}.escape.{}",
+            self.run_tag,
+            std::process::id()
+        );
         let liveness = root.join("liveness");
         run(MKFIFO, &[&liveness.to_string_lossy()], None)?;
 
@@ -786,34 +942,236 @@ impl NativeProbeHost {
         }
     }
 
-    /// Run the helper once under a labelled `allow default` diagnostic profile
-    /// and print the outcome. This is diagnosis, never admission: the model
-    /// refuses any observation labelled as a diagnostic.
-    fn log_default_allow_diagnostic(&self, root: &Path, helper_argv: &[String]) {
-        let diagnostic = root.join("inputs/diagnostic.sb");
-        if fs::write(
-            &diagnostic,
-            default_allow_profile(root, &root.join("payload")),
-        )
-        .is_err()
-        {
-            return;
+    /// Run the unchanged candidate profile plus exactly one named allowance at
+    /// a time, then the labelled `allow default` profile, and return the
+    /// bounded differential collection. These runs are diagnosis, never
+    /// admission: the shared model refuses any observation labelled as a
+    /// diagnostic, and none of these allowances is ever part of the candidate.
+    fn run_profile_diagnostics(
+        &self,
+        root: &Path,
+        helper_argv: &[String],
+        nonce: &str,
+    ) -> Vec<ProfileDiagnostic> {
+        let candidate = fs::read_to_string(root.join("inputs/policy.sb")).unwrap_or_default();
+        if candidate.is_empty() {
+            return Vec::new();
         }
-        let mut command = Command::new(SANDBOX_EXEC);
-        command
-            .arg("-f")
-            .arg(&diagnostic)
-            .arg(HELPER)
-            .args(helper_argv);
-        if let Ok(output) = command.output() {
-            eprintln!(
-                "DIAGNOSTIC ONLY (allow default, non-passing): status={}; stdout={}; stderr={}",
-                output.status,
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
+        let mut out = Vec::new();
+        for allowance in DIAGNOSTIC_ALLOWANCES {
+            // Never let a diagnostic's authority drift into the candidate.
+            debug_assert!(!candidate.contains(allowance.sbpl));
+            let path = root.join(format!("inputs/diagnostic-{}.sb", allowance.name));
+            let text = format!(
+                ";; DIAGNOSTIC ONLY ({}): never a passing candidate\n{candidate}\n{}\n",
+                allowance.name, allowance.sbpl
             );
+            if fs::write(&path, text).is_err() {
+                continue;
+            }
+            out.push(self.run_one_diagnostic(
+                allowance.name,
+                allowance.operation,
+                allowance.target,
+                allowance.consumer,
+                allowance.sbpl,
+                &path,
+                root,
+                helper_argv,
+                nonce,
+            ));
+        }
+
+        // The broad `allow default` control names the layer that withholds the
+        // payload. It is recorded alongside the single-authority differentials
+        // and can never be a candidate.
+        let broad = root.join("inputs/diagnostic-allow-default.sb");
+        if fs::write(&broad, default_allow_profile(root, &root.join("payload"))).is_ok() {
+            out.push(self.run_one_diagnostic(
+                "allow-default",
+                "default",
+                "all operations",
+                "broad non-passing control",
+                "(allow default)",
+                &broad,
+                root,
+                helper_argv,
+                nonce,
+            ));
+        }
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_one_diagnostic(
+        &self,
+        name: &str,
+        operation: &str,
+        target: &str,
+        consumer: &str,
+        allowance: &str,
+        profile: &Path,
+        root: &Path,
+        helper_argv: &[String],
+        nonce: &str,
+    ) -> ProfileDiagnostic {
+        // Fresh state per diagnostic so READY from a prior allowance is never
+        // mistaken for this allowance's outcome.
+        let _ = fs::remove_file(root.join("payload/ready"));
+        let _ = fs::remove_file(root.join("payload/identities"));
+        let _ = fs::remove_file(root.join("payload/stages"));
+        let output = Command::new(SANDBOX_EXEC)
+            .arg("-f")
+            .arg(profile)
+            .arg(HELPER)
+            .args(helper_argv)
+            .output();
+        match output {
+            Ok(output) => {
+                let (ready, ordinary_child) = read_ready(root, nonce);
+                ProfileDiagnostic {
+                    name: name.to_string(),
+                    operation: operation.to_string(),
+                    target: target.to_string(),
+                    consumer: consumer.to_string(),
+                    allowance: allowance.to_string(),
+                    ready,
+                    ordinary_child,
+                    exit: exit_of(&output.status),
+                    stdout: bound(&String::from_utf8_lossy(&output.stdout)),
+                    stderr: bound(&String::from_utf8_lossy(&output.stderr)),
+                }
+            }
+            Err(error) => ProfileDiagnostic {
+                name: name.to_string(),
+                operation: operation.to_string(),
+                target: target.to_string(),
+                consumer: consumer.to_string(),
+                allowance: allowance.to_string(),
+                ready: false,
+                ordinary_child: false,
+                exit: HelperExit::NotRun,
+                stdout: String::new(),
+                stderr: bound(&error.to_string()),
+            },
         }
     }
+
+    /// Rerun the named denial controls under the unchanged candidate profile.
+    /// A control is satisfied only when the helper durably recorded a denial; a
+    /// payload that never started records an unobserved control, never a pass.
+    /// The full five-control set spans startup and lifetime; the startup cell
+    /// runs the credential, host-write and network subset.
+    fn run_denial_controls(&self, root: &Path, names: &[&str]) -> Vec<DenialControl> {
+        const CONTROLS: [(&str, &str, &str, &str); 5] = [
+            (
+                "credential-read",
+                "file-read*",
+                "/etc/passwd",
+                "host credential bytes",
+            ),
+            (
+                "host-write",
+                "file-write*",
+                "/private/tmp",
+                "host filesystem outside the payload",
+            ),
+            (
+                "network-bind",
+                "network-bind",
+                "127.0.0.1:0",
+                "loopback listener",
+            ),
+            (
+                "guard-kill",
+                "launchctl kill",
+                "guard job",
+                "the separately owned guard",
+            ),
+            (
+                "peer-bootout",
+                "launchctl bootout",
+                "peer job",
+                "a peer probe invocation",
+            ),
+        ];
+        let profile = root.join("inputs/policy.sb");
+        let mut controls = Vec::new();
+        for (name, operation, target, consumer) in CONTROLS {
+            if !names.contains(&name) {
+                continue;
+            }
+            let _ = fs::remove_file(root.join("payload/denials"));
+            let denial_argv = vec![
+                "denial".to_string(),
+                "--root".to_string(),
+                root.to_string_lossy().to_string(),
+                "--kind".to_string(),
+                denial_kind(name),
+            ];
+            let output = Command::new(SANDBOX_EXEC)
+                .arg("-f")
+                .arg(&profile)
+                .arg(HELPER)
+                .args(&denial_argv)
+                .output();
+            let (observed, denied, detail) = match output {
+                Ok(output) => match read_denial(root, &denial_kind(name)) {
+                    Some((denied, detail)) => (true, denied, detail),
+                    None => (
+                        false,
+                        false,
+                        format!(
+                            "no denial record (exit {} stderr {})",
+                            output.status,
+                            bound(&String::from_utf8_lossy(&output.stderr))
+                        ),
+                    ),
+                },
+                Err(error) => (false, false, format!("denial run failed: {error}")),
+            };
+            controls.push(DenialControl {
+                name: name.to_string(),
+                operation: operation.to_string(),
+                target: target.to_string(),
+                consumer: consumer.to_string(),
+                denied,
+                observed,
+                detail,
+            });
+        }
+        // Never leave the helper's denial attempts to be read as another
+        // cell's evidence.
+        let _ = fs::remove_file(root.join("payload/denials"));
+        controls
+    }
+}
+
+/// The helper `--kind` for a named denial control.
+fn denial_kind(name: &str) -> String {
+    match name {
+        "credential-read" => "credential",
+        "host-write" => "host-write",
+        "network-bind" => "network",
+        "guard-kill" => "guard",
+        "peer-bootout" => "peer",
+        other => other,
+    }
+    .to_string()
+}
+
+/// Read the helper's denial record for `kind`, if it wrote one.
+fn read_denial(root: &Path, kind: &str) -> Option<(bool, String)> {
+    fs::read_to_string(root.join("payload/denials"))
+        .ok()?
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.splitn(3, ' ');
+            let recorded = fields.next()?;
+            let verdict = fields.next()?;
+            let detail = fields.next().unwrap_or_default();
+            (recorded == kind).then(|| (verdict == "denied", detail.to_string()))
+        })
 }
 
 impl ProbeHost for NativeProbeHost {
@@ -942,10 +1300,68 @@ fn launchctl_print(domain_target: &str) -> Option<String> {
         .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-fn parse_counter(text: &str, key: &str) -> Option<u32> {
-    text.lines()
-        .find_map(|line| line.trim().strip_prefix(key))
-        .and_then(|value| value.trim().parse().ok())
+/// Prove a label is absent before a cell bootstraps it: an already-loaded
+/// label is booted out and rechecked, and a label that survives fails the cell
+/// rather than racing a stale registration.
+fn ensure_label_absent(domain_target: &str) -> Result<(), String> {
+    if job_loaded(domain_target) {
+        let _ = bootout(domain_target);
+        let _ = wait_for_job(domain_target, false, TEARDOWN);
+    }
+    if job_loaded(domain_target) {
+        return Err(format!(
+            "launchd label {domain_target} was already registered before bootstrap"
+        ));
+    }
+    Ok(())
+}
+
+/// The value following `--nonce` in a helper argv.
+fn nonce_of(argv: &[String]) -> Option<&str> {
+    argv.iter()
+        .position(|arg| arg == "--nonce")
+        .and_then(|index| argv.get(index + 1))
+        .map(String::as_str)
+}
+
+/// The helper executable path and mode actually executed.
+fn helper_identity() -> (String, u32) {
+    let executable = HELPER.to_string();
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(HELPER)
+            .map(|metadata| metadata.permissions().mode() & 0o777)
+            .unwrap_or(0)
+    };
+    #[cfg(not(unix))]
+    let mode = 0u32;
+    (executable, mode)
+}
+
+/// A launchd-label-safe atom: no path separators or quoting surprises.
+fn sanitize_tag(raw: &str) -> String {
+    raw.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '.' || character == '-' {
+                character
+            } else {
+                '.'
+            }
+        })
+        .collect()
+}
+
+fn role_atom(raw: &str) -> String {
+    raw.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '.'
+            }
+        })
+        .collect()
 }
 
 fn wait_for_job(domain_target: &str, wanted: bool, timeout: Duration) -> Result<(), String> {
@@ -970,18 +1386,42 @@ fn wait_for_job(domain_target: &str, wanted: bool, timeout: Duration) -> Result<
     }
 }
 
+/// Open the liveness FIFO's write end without ever leaving a blocked thread.
+/// The guard opens the read end early; until it does, a non-blocking write
+/// open returns `ENXIO` (6), so this polls in bounded fashion and fails rather
+/// than leaking a thread that blocks on a reader that never appears.
+#[cfg(unix)]
 fn open_writer(liveness: &Path) -> Result<fs::File, String> {
-    let path = liveness.to_path_buf();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let opened = fs::OpenOptions::new().write(true).open(&path);
-        let _ = tx.send(opened.map_err(|e| e.to_string()));
-    });
-    match rx.recv_timeout(TEARDOWN) {
-        Ok(Ok(file)) => Ok(file),
-        Ok(Err(error)) => Err(format!("liveness channel: {error}")),
-        Err(_) => Err("timed out opening the liveness channel".to_string()),
+    use std::os::unix::fs::OpenOptionsExt;
+    // O_NONBLOCK: 0x0004 on Darwin, 0x800 on Linux. The native adapter only
+    // executes on Darwin; the Linux value keeps the type-checked build honest.
+    #[cfg(target_os = "macos")]
+    const O_NONBLOCK: i32 = 0x0004;
+    #[cfg(not(target_os = "macos"))]
+    const O_NONBLOCK: i32 = 0x800;
+    const ENXIO: i32 = 6;
+    let started = Instant::now();
+    loop {
+        match fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(O_NONBLOCK)
+            .open(liveness)
+        {
+            Ok(file) => return Ok(file),
+            Err(error) if error.raw_os_error() == Some(ENXIO) => {
+                if started.elapsed() >= TEARDOWN {
+                    return Err("timed out opening the liveness channel".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(format!("liveness channel: {error}")),
+        }
     }
+}
+
+#[cfg(not(unix))]
+fn open_writer(_liveness: &Path) -> Result<fs::File, String> {
+    Err("the liveness channel is Unix-only".to_string())
 }
 
 /// Owns the supervisor holder child and guarantees it is killed and waited on
@@ -1115,6 +1555,17 @@ fn read_ready(root: &Path, nonce: &str) -> (bool, bool) {
         }
         Err(_) => (false, false),
     }
+}
+
+/// The bounded startup stages the helper recorded, in order.
+fn read_stages(path: &Path) -> Vec<String> {
+    fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(unix)]
@@ -1292,5 +1743,63 @@ mod tests {
         observation.diagnostic = Some("allow-default profile".to_string());
         let verdict = evaluate_startup(&[cell], &[observation]);
         assert!(!verdict.is_pass());
+    }
+
+    #[test]
+    fn no_named_diagnostic_authority_enters_the_candidate_profile() {
+        let profile = sandbox_profile(
+            Path::new("/private/var/folders/probe"),
+            Path::new("/private/var/folders/probe/payload"),
+        );
+        assert!(!profile.contains("(allow default)"));
+        assert!(!profile.contains("(allow mach-lookup)"));
+        assert!(!profile.contains("(allow network"));
+        let mut names = std::collections::BTreeSet::new();
+        for allowance in DIAGNOSTIC_ALLOWANCES {
+            assert!(!profile.contains(allowance.sbpl), "{}", allowance.name);
+            assert!(!allowance.name.is_empty());
+            assert!(!allowance.operation.is_empty());
+            assert!(!allowance.target.is_empty());
+            assert!(!allowance.consumer.is_empty());
+            assert!(
+                names.insert(allowance.name),
+                "diagnostic name {} is duplicated",
+                allowance.name
+            );
+        }
+        assert_eq!(names.len(), DIAGNOSTIC_ALLOWANCES.len());
+    }
+
+    #[test]
+    fn launchd_labels_are_unique_across_host_instances() {
+        // Two hosts created in the same process share a PID; their labels must
+        // still differ so a stale registration can never race another test.
+        let first = NativeProbeHost::new("startup-shared".to_string());
+        let second = NativeProbeHost::new("startup-shared".to_string());
+        let first_labels = [
+            first.startup_label(StartupCell::S0DirectUnboxed),
+            first.startup_label(StartupCell::S3LaunchdSeatbelt),
+        ];
+        let second_labels = [
+            second.startup_label(StartupCell::S0DirectUnboxed),
+            second.startup_label(StartupCell::S3LaunchdSeatbelt),
+        ];
+        let mut labels = std::collections::BTreeSet::new();
+        for label in first_labels.iter().chain(second_labels.iter()) {
+            assert!(labels.insert(label.clone()), "reused label {label}");
+            assert!(label.starts_with("org.brokkr.seatbelt.probe."));
+        }
+        assert_eq!(labels.len(), 4);
+        assert_ne!(first.run_tag, second.run_tag);
+        for label in &first_labels {
+            assert!(label.contains(&first.run_tag));
+        }
+    }
+
+    #[test]
+    fn tag_sanitizing_keeps_labels_path_and_quote_safe() {
+        assert_eq!(sanitize_tag("startup-1/2 3"), "startup-1.2.3");
+        assert_eq!(role_atom("S1-direct-seatbelt"), "S1.direct.seatbelt");
+        assert_eq!(role_atom(".."), "..");
     }
 }
