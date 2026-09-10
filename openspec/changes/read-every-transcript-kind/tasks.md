@@ -43,7 +43,7 @@ task:
 
 ## 1. The proposed decision, filed before any semantic edit (D10)
 
-- [ ] 1.1 Write `docs/decisions/0055-read-every-transcript-kind.md` from
+- [x] 1.1 Write `docs/decisions/0055-read-every-transcript-kind.md` from
       the chief-authored text between the `proposed-decision-0055`
       markers in `design.md`, copied without changing a ruling: the
       decision heading becomes level one and Context/Rulings/
@@ -51,20 +51,20 @@ task:
       `Status: proposed` and `Date: 2026-09-09` unchanged — every
       requirement of this change (the commission's proposed-decision
       prerequisite).
-- [ ] 1.2 Insert the registry row exactly as `design.md` D10 spells it
+- [x] 1.2 Insert the registry row exactly as `design.md` D10 spells it
       into `docs/decisions/README.md`, in number order after 0053, with
       0054 and 0056 left unwritten — every requirement of this change.
-- [ ] 1.3 Run `cargo test -p brokkr-cli --test decisions_index` and leave
+- [x] 1.3 Run `cargo test -p brokkr-cli --test decisions_index` and leave
       it green: the numbered file and its row exist and agree — every
       requirement of this change.
-- [ ] 1.4 Land 1.1–1.3 in the tree before the first production edit of
+- [x] 1.4 Land 1.1–1.3 in the tree before the first production edit of
       group 2 and after none of them; a later group may not re-open the
       decision's rulings to match an implementation that drifted — every
       requirement of this change.
 
 ## 2. The pure result model, the reference and the hint (D2, D3, D7)
 
-- [ ] 2.1 Add `crates/brokkr-view/src/transcript.rs` as the only new
+- [x] 2.1 Add `crates/brokkr-view/src/transcript.rs` as the only new
       production source file, declared from
       `crates/brokkr-view/src/lib.rs`, and move the serializable
       `Turn { role, ts, blocks }` / `Block { kind, text }` shape there
@@ -74,7 +74,7 @@ task:
       surfaces can be compared against one another —
       transcript-reading / One transcript derivation serves the local
       readers.
-- [ ] 2.2 Add `TranscriptKind`, `Unavailable` over exactly the command
+- [x] 2.2 Add `TranscriptKind`, `Unavailable` over exactly the command
       delta's thirteen reason tokens, and `TranscriptRead` with pure
       constructors for a readable and for each refused result, carrying
       selected reference, `legacy`, confirmed path, turns, source and
@@ -84,7 +84,7 @@ task:
       transcript-reading / One transcript derivation serves the local
       readers; transcript-command / Text output and errors report the
       same bounded result.
-- [ ] 2.3 Implement reference selection before validation: the latest
+- [x] 2.3 Implement reference selection before validation: the latest
       common reference wins even when its locator is empty, a present
       common reference suppresses every legacy fallback, and the three
       recorded strings survive every refusal with `legacy: false`.
@@ -94,7 +94,7 @@ task:
       legacy id is `no-reference` while a present nonempty invalid one is
       `invalid-reference` with a null transcript — transcript-reading /
       The recorded reference selects the harness home.
-- [ ] 2.4 Implement one accepted language per kind, over the whole
+- [x] 2.4 Implement one accepted language per kind, over the whole
       recorded string with no trimming, case folding, truncation or
       suffix inference: Claude `[0-9a-fA-F][0-9a-fA-F-]{0,63}`, Codex
       `[A-Za-z0-9][A-Za-z0-9-]{0,127}`, DSH a relative forward-slashed
@@ -103,7 +103,7 @@ task:
       refused, and decision 0032's 80-character recording clamp is not
       re-imposed as a reader guard — transcript-reading / Local lookup
       rejects paths that escape ownership.
-- [ ] 2.5 Implement the `full_session` table and its shared quoting
+- [x] 2.5 Implement the `full_session` table and its shared quoting
       helper: Claude's `full session: claude --resume <id>` with or
       without a path, Codex's confirmed-rollout and `rollout unavailable`
       forms with `codex exec resume <id>` and the recorded home, DSH's
@@ -111,7 +111,7 @@ task:
       or absent reference; paths and homes are double-quoted JSON string
       literals with no added shell or slash escaping — transcript-reading /
       Full-session information belongs to the shared local read result.
-- [ ] 2.6 Generate notices once, in the order truncation, malformed
+- [x] 2.6 Generate notices once, in the order truncation, malformed
       lines, unrecognized records, with the exact strings
       `transcript truncated (size cap)`,
       `malformed transcript lines skipped: <n>` and
@@ -123,7 +123,7 @@ task:
       the exact shared notice —
       transcript-reading / Every kind obeys the same source and display
       caps; transcript-tui / Notices survive every reading surface.
-- [ ] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
+- [x] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
       driven: each of the five reference refusals keeps its three
       recorded strings, `legacy: false`, null path and null hint; a
       stale valid legacy id beside each of them supplies nothing; the
@@ -139,7 +139,7 @@ task:
 
 ## 3. The bounded snapshot, its diagnostics and both caps (D4)
 
-- [ ] 3.1 Add the pure snapshot admission: the caller supplies at most
+- [x] 3.1 Add the pure snapshot admission: the caller supplies at most
       33,554,432 bytes plus the one-byte overflow probe fact, and the
       reader validates consumed UTF-8 before any semantic admission,
       treats a code point cut solely by the source cap as a boundary
@@ -147,25 +147,25 @@ task:
       no replacement-character prose — transcript-reading / Partial
       records and read failures remain distinguishable; Every kind obeys
       the same source and display caps.
-- [ ] 3.2 Iterate complete physical rows only: a final valid JSON value
+- [x] 3.2 Iterate complete physical rows only: a final valid JSON value
       at true EOF is complete without a newline, an invalid final
       non-newline append is provisional and uncounted, and above the
       source cap only newline-terminated rows in the prefix participate —
       transcript-reading / Partial records and read failures remain
       distinguishable.
-- [ ] 3.3 Count `skipped_lines` for complete malformed JSON rows and
+- [x] 3.3 Count `skipped_lines` for complete malformed JSON rows and
       `unrecognized_records` at most once per complete valid row with an
       unsupported type, envelope or content variant, over the whole
       usable prefix, before display capping and before `--turn`; both
       start at zero when no usable snapshot was acquired — transcript-reading /
       Partial records and read failures remain distinguishable.
-- [ ] 3.4 Apply the 4,000,000-byte sum-of-block-texts budget after
+- [x] 3.4 Apply the 4,000,000-byte sum-of-block-texts budget after
       association and after all classification: retain whole turns in
       source order, stop before the first turn that would exceed it,
       never skip forward to a smaller turn, let equality fit, and set
       `truncated` with its notice for either budget — transcript-reading /
       Every kind obeys the same source and display caps.
-- [ ] 3.5 Implement D7's failure-stage matrix in the constructors so a
+- [x] 3.5 Implement D7's failure-stage matrix in the constructors so a
       stage cannot invent a path, a count or a truncation flag it did not
       establish: rejected reference, discovery refusal, source I/O or
       UTF-8 failure, DSH header refusal, DSH event/storage refusal,
@@ -173,7 +173,7 @@ task:
       projection — transcript-reading / Partial records and read failures
       remain distinguishable; transcript-command / Text output and errors
       report the same bounded result.
-- [ ] 3.6 Tests in the same file: a first turn of exactly 4,000,000 and
+- [x] 3.6 Tests in the same file: a first turn of exactly 4,000,000 and
       of 4,000,001 bytes; a multibyte turn that fits by characters and
       not by bytes; a file ending exactly at a limit reporting no
       truncation; a growing final line that becomes a turn on the later
@@ -185,7 +185,7 @@ task:
 
 ## 4. Claude content, moved and unchanged (D7)
 
-- [ ] 4.1 Move the projection of `ui.rs:239-316` into the pure reader and
+- [x] 4.1 Move the projection of `ui.rs:239-316` into the pure reader and
       implement the closed classification table exactly: the five omitted
       top-level record types, the five omitted block kinds, string
       content kept including empty and whitespace, array `text` blocks
@@ -194,13 +194,13 @@ task:
       shape, content shape or block type counted once as unrecognized
       while supported siblings survive — transcript-reading / Claude
       content preserves the existing projection.
-- [ ] 4.2 Make `crates/brokkr-cli/src/ui.rs`'s `session_transcript` build
+- [x] 4.2 Make `crates/brokkr-cli/src/ui.rs`'s `session_transcript` build
       its body from that shared projection, keeping exactly its
       `session_id`, `turns` and `truncated` fields and adding none of the
       new diagnostic members to that compatibility response —
       transcript-reading / Claude content preserves the existing
       projection; Browser participant drills obey shared eligibility.
-- [ ] 4.3 Tests in `crates/brokkr-view/src/transcript/tests.rs` and
+- [x] 4.3 Tests in `crates/brokkr-view/src/transcript/tests.rs` and
       `crates/brokkr-cli/src/ui/tests.rs`: the shipped transcript literal
       at `crates/brokkr-cli/src/ui/tests.rs:628-648` yields the same two
       turns and three user blocks with `skipped_lines: 1`,
@@ -215,7 +215,7 @@ task:
 
 ## 5. Codex rollout content and its association (D5)
 
-- [ ] 5.1 Decode the retained `{timestamp, type, payload}` envelope and
+- [x] 5.1 Decode the retained `{timestamp, type, payload}` envelope and
       the canonical `response_item` families: ordered `message.content`
       `input_text`/`output_text`, `reasoning` `summary[].text` only,
       function/custom calls with `name`, `call_id` and raw
@@ -226,7 +226,7 @@ task:
       `omitted` markers for image and audio, and the recognized quiet
       response-context types — transcript-reading / Codex rollouts expose
       ordered retained content once.
-- [ ] 5.2 Decode the content-bearing `event_msg` families exactly as
+- [x] 5.2 Decode the content-bearing `event_msg` families exactly as
       D5's table spells them, with their case-sensitive PascalCase item
       discriminants and camelCase/snake_case field split: completed user,
       agent, reasoning, function output, command execution, dynamic tool,
@@ -236,13 +236,13 @@ task:
       then formatted output, and an all-empty result stays recorded and
       empty — transcript-reading / Codex rollouts expose ordered retained
       content once.
-- [ ] 5.3 Enumerate the quiet top-level and event names D5 lists and
+- [x] 5.3 Enumerate the quiet top-level and event names D5 lists and
       count every other complete valid record once as unrecognized; no
       prefix match, lifecycle label or familiar nested field extends
       either list, and encrypted or raw reasoning is never projected —
       transcript-reading / Codex rollouts expose ordered retained content
       once; Partial records and read failures remain distinguishable.
-- [ ] 5.4 Implement association as a separate pass over the complete
+- [x] 5.4 Implement association as a separate pass over the complete
       bounded prefix, on recorded identity plus direction and compatible
       family only: a proved canonical counterpart occupies its own
       source position and timestamp and removes only the blocks it
@@ -250,7 +250,7 @@ task:
       canonical records never deduplicate each other; and no positional,
       textual, timestamp or recency matcher is added — transcript-reading /
       Codex rollouts expose ordered retained content once.
-- [ ] 5.5 Tests: a five-record ruling read in order; canonical records
+- [x] 5.5 Tests: a five-record ruling read in order; canonical records
       beside their matching event notifications shown once; an
       event-only snapshot with all five kinds readable; a later snapshot
       where the canonical message replaces its fallback and unrelated
@@ -265,7 +265,7 @@ task:
 
 ## 6. DSH storage, format admission and assembly (D6)
 
-- [ ] 6.1 Admit content only under an opening first-record `session`
+- [x] 6.1 Admit content only under an opening first-record `session`
       object whose top-level `version` is a JSON number equal to zero,
       accepting `0`, `0.0`, `0e0` and `-0` and coercing no string,
       boolean or null; a missing, mistyped or foreign version returns
@@ -274,7 +274,7 @@ task:
       zero counts and only source-cap truncation, and no later `session`
       row can repair or switch it — transcript-reading / Discovery
       identifies one owned local file.
-- [ ] 6.2 Project the ordinary version-zero events: `user/message` from
+- [x] 6.2 Project the ordinary version-zero events: `user/message` from
       `data`, `assistant/message` from `data.message`, `tool/call` from
       `data.name`/`callId`/`arguments`/`turn`/`step`, `tool/result` from
       its nested message under the `tool` role, ordered `text.text` and
@@ -285,7 +285,7 @@ task:
       recognized quiet event vocabulary are enumerated from that captured
       catalog and count in neither diagnostic — transcript-reading / DSH
       sessions expose assembled or provisional content once.
-- [ ] 6.3 Decode `text-chunks`, `reasoning-chunks` and `tool-call-chunks`
+- [x] 6.3 Decode `text-chunks`, `reasoning-chunks` and `tool-call-chunks`
       rows under R15's exact-key tables: validate the whole physical row
       before any member is yielded, reconstruct `seq0 + k` and the
       cumulative `dt` time in checked safe-integer arithmetic preserving
@@ -295,7 +295,7 @@ task:
       `unsupported-format` with one unrecognized physical row and no
       malformed-line increment — transcript-reading / DSH sessions expose
       assembled or provisional content once.
-- [ ] 6.4 Implement `sourceEventSeqs` admission and suppression: a
+- [x] 6.4 Implement `sourceEventSeqs` admission and suppression: a
       bounded index over observed logical events, inclusive two-integer
       ranges matched by set membership without expanding the interval or
       allocating by its width, entries validated whole on each surface
@@ -316,7 +316,7 @@ task:
       citations and `surfaceOp` rewrite no history; and an invalid field
       refuses the read with one unrecognized row — transcript-reading /
       DSH sessions expose assembled or provisional content once.
-- [ ] 6.5 Associate dedicated DSH `tool/call` and `tool/result` events
+- [x] 6.5 Associate dedicated DSH `tool/call` and `tool/result` events
       with the tool blocks embedded in assembled messages, at block level
       and on recorded evidence only: a dedicated event owns an embedded
       `tool-call` or `tool-result` block solely when the dedicated
@@ -336,7 +336,7 @@ task:
       once-only projection that the citation rule of 6.4 does not cover —
       transcript-reading / DSH sessions expose assembled or provisional
       content once.
-- [ ] 6.6 Implement the required-unknown rule after header admission: a
+- [x] 6.6 Implement the required-unknown rule after header admission: a
       valid JSON row with an unrecognized event envelope is a counted
       omission only when it is an object carrying top-level `ignorable`
       exactly boolean `true`; otherwise the whole read returns
@@ -345,7 +345,7 @@ task:
       truncation, while source I/O and UTF-8 failure outrank it and
       header refusal precedes it — transcript-reading / Partial records
       and read failures remain distinguishable.
-- [ ] 6.7 Tests, table driven over both ordinary and packed encodings:
+- [x] 6.7 Tests, table driven over both ordinary and packed encodings:
       version `0`, `0.0`, `0e0`, `-0`, absent, null, false, `"0"`, array,
       object, `1`, `-1` and `0.5`; depth zero, omitted, positive,
       negative, string and floating; a header-only file at EOF without a
@@ -390,7 +390,7 @@ task:
 
 ## 7. Safe discovery and the bounded read (D3, D4)
 
-- [ ] 7.1 Add the small `cfg(unix)`/`cfg(windows)` handle helper nested
+- [x] 7.1 Add the small `cfg(unix)`/`cfg(windows)` handle helper nested
       in `crates/brokkr-cli/src/ui.rs`: canonicalize the recorded home
       once, open it as the traversal root, then open each descendant
       component relative to a held directory handle without following
@@ -401,7 +401,7 @@ task:
       target-specific direct dependencies without upgrading a registry
       version; a pathname-only fallback is not admitted — transcript-reading /
       Local lookup rejects paths that escape ownership.
-- [ ] 7.2 Implement the three closed discovery scopes: Claude's exact
+- [x] 7.2 Implement the three closed discovery scopes: Claude's exact
       `<id>.jsonl` in immediate project directories of the recorded
       projects home; Codex's `rollout-*.jsonl` under `<home>/sessions`
       through depth six, matching the entire case-sensitive id as a whole
@@ -412,7 +412,7 @@ task:
       omitted `delegationDepth`, the `version` field neither qualifying
       nor vetoing ownership — transcript-reading / Discovery identifies
       one owned local file.
-- [ ] 7.3 Bound and resolve the lookup from collected facts rather than
+- [x] 7.3 Bound and resolve the lookup from collected facts rather than
       enumeration order: at most 10,000 examined entries per lookup and
       65,536 first-record bytes per DSH candidate detected without
       allocating a longer header, no transcript content read for Claude
@@ -425,7 +425,7 @@ task:
       or delegated DSH headers remain — transcript-reading / Discovery
       identifies one owned local file; Local lookup rejects paths that
       escape ownership.
-- [ ] 7.4 Read the selected source through the retained handle: at most
+- [x] 7.4 Read the selected source through the retained handle: at most
       33,554,432 bytes plus one probe byte, no whole-file allocation,
       ancestry and candidate identity rechecked at the read boundary with
       a bounded fail-closed acquisition rather than an unbounded retry,
@@ -433,7 +433,7 @@ task:
       confirmed rather than lossily spelled — transcript-reading / Every
       kind obeys the same source and display caps; Local lookup rejects
       paths that escape ownership.
-- [ ] 7.5 Retire `valid_session_id`, `transcript_path`, `transcript_len`,
+- [x] 7.5 Retire `valid_session_id`, `transcript_path`, `transcript_len`,
       `transcript_grew` and `session_turns` as the shipped first-match,
       unbounded, symlink-following lookup, and route every remaining
       caller — the HTTP routes, the TUI and the new command — through
@@ -456,25 +456,25 @@ task:
 
 ## 8. `brokkr transcript` (D7)
 
-- [ ] 8.1 Add `TranscriptArgs` in `crates/brokkr-cli/src/cli_args.rs`
+- [x] 8.1 Add `TranscriptArgs` in `crates/brokkr-cli/src/cli_args.rs`
       beside `InspectArgs` — required `--run` and `--seat`, optional
       `--turn`, `--json`, `--realms` and `--db` — and its `Cmd::Transcript`
       arm, keeping the one-verb-per-builder shape the module exists for —
       transcript-command / The transcript command selects one run and
       participant.
-- [ ] 8.2 Dispatch in `crates/brokkr-cli/src/lib.rs` through the same
+- [x] 8.2 Dispatch in `crates/brokkr-cli/src/lib.rs` through the same
       read-only world resolution `Cmd::Inspect` uses — `journal_of` then
       `selector::resolve_run` — refusing a missing journal without
       creating one, and never launching, retrying or resuming anything —
       transcript-command / The transcript command selects one run and
       participant.
-- [ ] 8.3 Select the participant within the resolved run: an exact
+- [x] 8.3 Select the participant within the resolved run: an exact
       participant key wins, otherwise an exact label only when unique,
       with no prefix or fuzzy matching; an ambiguous label fails naming
       every matching key; a panel or sequence parent reads only its own
       common reference and borrows no member's — transcript-command / The
       transcript command selects one run and participant.
-- [ ] 8.4 Parse `--turn` as a positive unsigned 64-bit integer, making
+- [x] 8.4 Parse `--turn` as a positive unsigned 64-bit integer, making
       zero, negative, non-integer and overflowing arguments usage errors
       that write nothing, and apply the index to the shared projection
       only after both caps, all diagnostics and every DSH refusal, with a
@@ -482,12 +482,12 @@ task:
       truncated projection saying the bounded read does not establish
       whether that turn exists later — transcript-command / Turn selection
       addresses the displayed sequence.
-- [ ] 8.5 Emit the `brokkr.transcript/v1` document with exactly the
+- [x] 8.5 Emit the `brokkr.transcript/v1` document with exactly the
       delta's members, each present even when null or empty, serialized
       directly from the shared result and adding no field to
       `RunView`, inspect or seats JSON — transcript-command / JSON exposes
       a distinct local transcript document.
-- [ ] 8.6 Render default text through `crates/brokkr-cli/src/render.rs`:
+- [x] 8.6 Render default text through `crates/brokkr-cli/src/render.rs`:
       run, participant, kind and confirmed source, then one-based turn
       numbers, roles, stamps and every retained block, with the shared
       hint and notices, `no readable turns` for a valid empty projection
@@ -495,7 +495,7 @@ task:
       content, references, paths, roles, stamps, hints and explanations
       while JSON keeps its escaped originals — transcript-command / Text
       output and errors report the same bounded result.
-- [ ] 8.7 Fix the exit and stream rules: a readable result including
+- [x] 8.7 Fix the exit and stream rules: a readable result including
       empty, skipped-line, counted-omission and truncated results exits
       zero; the thirteen unavailable reasons exit one with a sanitized
       stderr explanation, no turns and — under `--json` only — the
@@ -535,14 +535,14 @@ task:
 
 ## 9. The terminal pane and both doors (D8)
 
-- [ ] 9.1 Replace `tui::Ask.session` with the selected subject — realm
+- [x] 9.1 Replace `tui::Ask.session` with the selected subject — realm
       and journal identity, full run id, participant key and the complete
       effective reference — and `tui::Views.transcript`'s
       `Option<(Vec<Turn>, bool)>` with the shared `TranscriptRead`,
       deleting `claude_session` (`crates/brokkr-cli/src/tui.rs:420-431`)
       so no surface gates the pane on one kind — transcript-tui / Every
       readable kind reaches the pane and both doors.
-- [ ] 9.2 Replace `transcript_moved`
+- [x] 9.2 Replace `transcript_moved`
       (`crates/brokkr-cli/src/lib.rs:734-755`) and the file-length gate
       of `tui_views` with a re-resolution at every existing refresh
       opportunity while the participant works, keeping an in-memory
@@ -550,7 +550,7 @@ task:
       identities rather than mtime or length; the read is bounded, the
       journal read-only, and no new clock, watcher or cache is added —
       transcript-tui / Live refresh follows the selected reference.
-- [ ] 9.3 Publish each refreshed result atomically and invalidate on
+- [x] 9.3 Publish each refreshed result atomically and invalidate on
       change: removal, replacement, reorder, shrink, changed authority,
       ambiguity, ownership loss or format refusal clears the turn cursor
       and closes an open overlay before new indices are shown, while a
@@ -559,7 +559,7 @@ task:
       happens when the participant concludes, automatic polling then
       stops and an explicit refresh still re-resolves the reference —
       transcript-tui / Live refresh follows the selected reference.
-- [ ] 9.4 Render the pane and both doors from the shared result: turns
+- [x] 9.4 Render the pane and both doors from the shared result: turns
       numbered from one in the command's sequence including each packed
       member, preview clipping that removes nothing from either door, the
       shared notices in the pane and both overlays, the `full_session`
@@ -573,7 +573,7 @@ task:
       transcript-tui / Every readable kind reaches the pane and both
       doors; transcript-tui / Full-session information is truthful for its
       kind; transcript-tui / Notices survive every reading surface.
-- [ ] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
+- [x] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
       and DSH turns browsed and opened with the existing keys; a turn
       taller than the pane opened whole and scrolled; the highlighted
       index agreeing with `--turn`; moving from a readable Claude seat to
@@ -588,7 +588,7 @@ task:
       transcript-tui / Every readable kind reaches the pane and both
       doors; transcript-tui / Full-session information is truthful for its
       kind; transcript-tui / Notices survive every reading surface.
-- [ ] 9.6 Refresh tests in the same file: a late Codex rollout appearing
+- [x] 9.6 Refresh tests in the same file: a late Codex rollout appearing
       without a journal event or navigation round trip; a DSH assembled
       message appended between checkpoints; chunks replaced by their
       citing assembly with the selection cleared and the overlay closed;
@@ -605,7 +605,7 @@ task:
 
 ## 10. The browser's participant presentation and its Claude routes (D9)
 
-- [ ] 10.1 Route `/api/session/<id>` and `/sse/session/<id>` through the
+- [x] 10.1 Route `/api/session/<id>` and `/sse/session/<id>` through the
       shared identifier guard, safe discovery and Claude projection,
       keeping them journal-independent lookups under the server's local
       projects home: every reference, discovery or read failure returns
@@ -624,7 +624,7 @@ task:
       closes on loss without reporting another size — transcript-reading /
       Discovery identifies one owned local file; Browser participant
       drills obey shared eligibility.
-- [ ] 10.2 Add one GET participant-presentation route in
+- [x] 10.2 Add one GET participant-presentation route in
       `crates/brokkr-cli/src/ui.rs`, keyed by full run id and an encoded
       participant key, decoding each path component exactly once and
       rejecting malformed or extra components, resolving that exact
@@ -642,7 +642,7 @@ task:
       no-store` —
       transcript-reading / Browser participant drills obey shared
       eligibility.
-- [ ] 10.3 Rewrite the page's participant block in
+- [x] 10.3 Rewrite the page's participant block in
       `crates/brokkr-cli/src/ui.html`: consume that result instead of
       `part.session_id`, delete the
       `full session: <id> · held by <holder>, no resume verb yet`
@@ -700,7 +700,7 @@ task:
       fetch fresh no-store presentation before any new callback can paint —
       transcript-reading / Browser participant drills obey shared
       eligibility; Local lookup rejects paths that escape ownership.
-- [ ] 10.4 Add `boa_engine = "=0.21.1"` to `brokkr-cli`'s
+- [x] 10.4 Add `boa_engine = "=0.21.1"` to `brokkr-cli`'s
       dev-dependencies with default features disabled and update
       `Cargo.lock` without upgrading unrelated registry dependencies. Add a
       Rust harness in `crates/brokkr-cli/src/ui/tests.rs` that extracts the
@@ -714,7 +714,7 @@ task:
       the extracted served bytes and the release dependency tree excludes Boa
       — transcript-reading / Browser participant drills obey shared
       eligibility.
-- [ ] 10.5 HTTP and thin-adapter tests in
+- [x] 10.5 HTTP and thin-adapter tests in
       `crates/brokkr-cli/src/ui/tests.rs`: a legacy Codex
       participant ineligible on the page while `/api/session/abcd-1234`
       still answers 200 or 404 on its own; a common reference defeating a
@@ -741,7 +741,7 @@ task:
       untrusted values only through `textContent` — transcript-reading /
       Browser participant drills obey shared eligibility; Every kind obeys
       the same source and display caps.
-- [ ] 10.6 Execute controller transition traces through the 10.4 harness,
+- [x] 10.6 Execute controller transition traces through the 10.4 harness,
       driven by controlled presentation/body promises, fake `EventSource`
       open/error callbacks and recurring timer ticks rather than
       source-string containment alone:
@@ -774,7 +774,7 @@ task:
 
 ## 11. Inertness and one result across the surfaces (D11)
 
-- [ ] 11.1 Prove locality and inertness in
+- [x] 11.1 Prove locality and inertness in
       `crates/brokkr-cli/tests/transcript_privacy.rs`: the journal is
       opened read-only and gains no event or checkpoint; sentinel prompt,
       reasoning, tool-argument and output strings appear in no
@@ -809,7 +809,7 @@ task:
 
 ## 12. The guide
 
-- [ ] 12.1 Add a third-level `brokkr transcript` section to
+- [x] 12.1 Add a third-level `brokkr transcript` section to
       `docs/guides/read-surfaces.md`, in the heading style of the verb
       sections beside it: the selectors and their `inspect` precedence, the
       one-based snapshot indices and that they are not durable message
@@ -819,7 +819,7 @@ task:
       nothing — transcript-command / Text output and errors report the
       same bounded result; JSON exposes a distinct local transcript
       document.
-- [ ] 12.2 State the Claude compatibility costs in that guide's
+- [x] 12.2 State the Claude compatibility costs in that guide's
       transcript and `brokkr ui` sections — leading-hyphen ids now
       invalid everywhere, duplicate candidates, the discovery bound and
       below-home symlinks now refused, and the 32 MiB source limit — with
@@ -828,7 +828,7 @@ task:
       transcript-reading / Local lookup rejects paths that escape
       ownership; Discovery identifies one owned local file; Browser
       participant drills obey shared eligibility.
-- [ ] 12.3 Keep `cargo test -p brokkr-cli --test contributing` green: the
+- [x] 12.3 Keep `cargo test -p brokkr-cli --test contributing` green: the
       guide keeps every section
       `crates/brokkr-cli/tests/contributing.rs:362-369` pins and gains
       the new one — transcript-command / Text output and errors report the
@@ -836,15 +836,15 @@ task:
 
 ## 13. Gates, the fold and the commit
 
-- [ ] 13.1 `cargo fmt --all -- --check` clean — every requirement of this
+- [x] 13.1 `cargo fmt --all -- --check` clean — every requirement of this
       change (the house rule that gates the work).
-- [ ] 13.2 `cargo clippy --workspace --all-targets --all-features
+- [x] 13.2 `cargo clippy --workspace --all-targets --all-features
       --locked -- -D warnings` clean — every requirement of this change.
-- [ ] 13.3 `cargo test --workspace --all-features --locked` green as one
+- [x] 13.3 `cargo test --workspace --all-features --locked` green as one
       whole-workspace run with `RUST_TEST_THREADS=2`; a crate-scoped run
       may precede it while iterating and never stands in for it — every
       requirement of this change.
-- [ ] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
+- [x] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
       bundles/self` and the same for `bundles/verify` both compile —
       every requirement of this change.
 - [ ] 13.5 `scripts/coverage-exact.sh`, unchanged and never lowered, at
@@ -864,7 +864,7 @@ task:
       admission gate rejects Boa, return upstream to design instead of
       weakening the exact-served-code proof — every requirement
       of this change.
-- [ ] 13.7 Confirm the frozen set is untouched — `contracts/`,
+- [x] 13.7 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
       `fixtures/` — and that the only decision file added is proposed
       0055 with its single registry row — every requirement of this
