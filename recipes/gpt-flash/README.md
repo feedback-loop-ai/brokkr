@@ -18,7 +18,9 @@ Implementation retains each strategy's existing charter. Flash uses the
 `flash-experiment` adapter alias, currently
 `deepseek-v4.1-flash-expires-on-0910`. This is an expiring experimental endpoint;
 refresh the adapter mapping when a replacement is available. No fallback to
-Flash 4.0 is configured.
+Flash 4.0 is configured. The scoped `gpt-flash-*` offices are proposed by
+decision 0058: each reuses a library charter and pins exactly one model, so the
+mandated crew is forced and no fallback is hired.
 
 DSH is an untrusted work provider: it cannot judge gates. Its adapter does not
 support workspace hands or named tool filtering; the Flash agents therefore

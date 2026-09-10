@@ -3758,15 +3758,16 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 /// claude's two `hands.harness` members planted as fragments — the
 /// shipped files once the operator's measurement lands — every shipped
 /// bundle without a dialect step compiles under `harness` in a realm
-/// declaring the openspec dialect, fourteen of the sixteen, each hands
-/// site's manifest `boundary` entry reading `harness`; `recipes/triage`
-/// and `recipes/night-shift` refuse naming their dialect step and ruling 4.
+/// declaring the openspec dialect, fourteen of the seventeen, each hands
+/// site's manifest `boundary` entry reading `harness`; `recipes/gpt-flash`,
+/// `recipes/night-shift` and `recipes/triage` refuse naming their dialect
+/// step and ruling 4.
 ///
 /// Second half: against the shipped adapters as they stand, claude
-/// declaring no member, exactly five refuse, each naming the ground the
+/// declaring no member, exactly six refuse, each naming the ground the
 /// compiler reaches first — `bundles/self` at `review` and
 /// `recipes/panel-review` at `review:correctness` naming `claude`,
-/// `hands.harness.gate` and the site; the two dialect bundles at
+/// `hands.harness.gate` and the site; the three dialect bundles at
 /// `analyze:check` — and every other compiles. This half is a pin that
 /// moves for a known reason: the measurement landing, or a decision
 /// admitting the dialect step.

@@ -16,6 +16,11 @@
 //! them: the compiled GPT/Flash recipe itself. It would stay green only
 //! if the strategy assignments, panel composition, chief gate, scoped
 //! roster and inherited gates all survive an edit.
+//!
+//! Decision 0058 rules the scoped roster this file checks: the fifteen
+//! `gpt-flash-*` offices are ordinary library agents that reuse their
+//! charters and pin exactly one model, so the mandated crew is forced and
+//! no fallback can silently hire another vendor or an older Flash.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

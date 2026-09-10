@@ -163,6 +163,8 @@ fn workspace() -> PathBuf {
 /// `recipes/gpt-flash` joins as the tenth witness: it is a descendant of
 /// `recipes/triage` whose scoped `gpt-flash-*` roster, four-strategy
 /// Sol/Flash/Astra seats and inherited deterministic gates are its identity.
+/// Decision 0058's citation in the recipe README moves its manifest digest
+/// once more, because the README bytes are part of the recipe's identity.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -198,7 +200,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "49e0a2f63b8f34f933e649dc65d962ef0b97db050d9f5eab9bba52176ed40225",
+        "b1469d14d1965e39d3a9e8962fb69f225c8ba76365eec7000cadc8c36b4182ae",
     ),
     (
         "bundles/verify",
