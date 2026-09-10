@@ -69,7 +69,10 @@ pub enum WorldError {
 /// was pinned against. Every name a reader needs to act is here — which
 /// realm is refusing, which crossing, whose file, what was pinned and
 /// what is there now — so the contract that moved can be identified
-/// without opening either repository.
+/// without opening either repository. `path` is the publisher's declared
+/// repository-relative path, never the host location it resolved to: a
+/// refusal reaches run journals and readouts that must not carry the
+/// operator's filesystem layout.
 #[derive(Debug)]
 pub struct MovedCrossing {
     pub realm: String,
@@ -106,6 +109,12 @@ pub struct ResolvedCrossing {
     /// The path the bytes were read from, resolved against the publishing
     /// realm's own worktree.
     pub source: String,
+    /// The repository-relative path the MAP declared, beside the resolved
+    /// `source`. A refusal names the contract at this level — the
+    /// publisher's realm and its own path — rather than the host location
+    /// the bytes happened to be read from, so no readout or seat input
+    /// carries the operator's filesystem layout (decision 0020 ruling 1).
+    pub declared: String,
     /// sha256 over the file's RAW bytes, never a canonical form: a
     /// crossing may be a schema, a `.proto` or Markdown, and only the
     /// publisher's own format knows what canonicalising would mean.
@@ -195,6 +204,29 @@ impl CrossingFailure {
     fn is_unpublished(&self) -> bool {
         matches!(self.fault, CrossingFault::Unpublished { .. })
     }
+
+    /// Whether this is a CONSUMER's pin that no longer matches, rather
+    /// than a PUBLISHER's unreadable file. A readout that lists a realm's
+    /// consumed crossings asks this rather than matching on the crossing's
+    /// name alone: a realm may publish `x` and consume another realm's `x`
+    /// (only consuming its OWN `x` is refused, ruling 3.6), so both faults
+    /// can sit on one report under one name, and the name alone would say
+    /// the wrong one moved.
+    pub fn moved(&self) -> bool {
+        matches!(self.fault, CrossingFault::Moved { .. })
+    }
+
+    /// The realm that published the crossing, for a MOVED fault: the
+    /// second half of the pair a consumed entry is matched against, so
+    /// two consumers of the same name from two publishers are not
+    /// conflated. `None` for an unreadable publication, which is the
+    /// publisher's own fault and is never a consumed pin's answer.
+    pub fn publisher(&self) -> Option<&str> {
+        match &self.fault {
+            CrossingFault::Moved { publisher, .. } => Some(publisher),
+            CrossingFault::Unpublished { .. } => None,
+        }
+    }
 }
 
 /// A consumed pin that was never compared to anything, because the realm
@@ -209,6 +241,21 @@ pub struct UncheckedPin {
     /// The realm that publishes the crossing, whose line carries why.
     pub publisher: String,
     pub crossing: String,
+}
+
+/// Why the pin was never compared, worded ONCE for every surface that
+/// reports one — `brokkr doctor`'s warn line and `brokkr realms`' pin
+/// state — exactly as a moved pin is worded once by
+/// [`CrossingFailure::error`]. Each surface frames it in its own words
+/// ("pin not checked: …", "unchecked · …"); neither owns the reason.
+impl std::fmt::Display for UncheckedPin {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "realm '{}' publishes it and its file could not be read",
+            self.publisher
+        )
+    }
 }
 
 /// One realm's crossings, as `brokkr doctor` reports them: how many files
@@ -361,15 +408,20 @@ impl World {
         World::found(dir, named, World::load)
     }
 
-    /// The same world `brokkr doctor` reads, and nothing else does: a
-    /// crossing that has moved is a LINE, not the end of the readout.
+    /// The world the READ surfaces read — `brokkr doctor`, `brokkr realms`
+    /// and `brokkr muninn run`, and nothing else: a crossing that has
+    /// moved is a LINE, not the end of the readout.
     ///
     /// A doctor line reports and never refuses (decision 0046's Addendum),
     /// and folding a moved crossing into `World::discover`'s `Err` would
     /// throw away every house, dialect and boundary line under it — a
-    /// broken world where one contract moved. So doctor loads the world
-    /// and reads [`World::crossings_report`] beside it, while every verb
-    /// that starts or continues a run keeps [`World::load`]'s refusal.
+    /// broken world where one contract moved. The same argument reaches
+    /// every surface that only looks: a readout that refuses to describe
+    /// the world is at its least useful in exactly the world it was asked
+    /// about, and it protects nothing, because it starts nothing. So the
+    /// read surfaces load the world and read [`World::crossings_report`]
+    /// beside it, while every verb that starts or continues a run keeps
+    /// [`World::load`]'s refusal.
     ///
     /// Never used to pin a run: a world read this way may hold fewer
     /// resolved crossings than its map declares.
@@ -821,6 +873,7 @@ fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<Cross
                         (realm.name.clone(), crossing.name.clone()),
                         ResolvedCrossing {
                             source: path.display().to_string(),
+                            declared: crossing.path.clone(),
                             sha256: canonical::sha256_bytes(&bytes),
                         },
                     );
@@ -865,7 +918,12 @@ fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<Cross
                     crossing: crossing.name.clone(),
                     fault: CrossingFault::Moved {
                         publisher: crossing.realm.clone(),
-                        path: published.source.clone(),
+                        // The publisher's OWN declared path, never the
+                        // resolved `source`: the refusal names the
+                        // contract at the level the map declares it, and
+                        // no run journal or seat input learns where the
+                        // operator's checkout lives.
+                        path: published.declared.clone(),
                         pinned: crossing.sha256.clone(),
                         observed: published.sha256.clone(),
                     },
