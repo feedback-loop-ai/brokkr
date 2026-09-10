@@ -15,7 +15,8 @@ use std::io;
 /// Stable device/inode identity of an opened handle.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Identity {
-    pub device: u64,
+    // Unix device IDs may be signed (macOS) or unsigned (Linux).
+    pub device: i128,
     pub inode: u64,
 }
 
@@ -111,7 +112,7 @@ mod imp {
     fn identity_of(fd: &impl std::os::fd::AsFd) -> io::Result<Identity> {
         let stat = fstat(fd)?;
         Ok(Identity {
-            device: stat.st_dev,
+            device: i128::from(stat.st_dev),
             inode: stat.st_ino,
         })
     }
@@ -245,7 +246,7 @@ mod imp {
     fn identity_of(metadata: &std::fs::Metadata) -> Identity {
         use std::os::windows::fs::MetadataExt;
         Identity {
-            device: metadata.volume_serial_number().unwrap_or(0) as u64,
+            device: i128::from(metadata.volume_serial_number().unwrap_or(0)),
             inode: metadata.file_index().unwrap_or(0),
         }
     }
