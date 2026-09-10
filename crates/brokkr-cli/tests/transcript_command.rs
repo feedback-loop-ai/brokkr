@@ -265,3 +265,141 @@ fn turn_zero_is_a_usage_error() {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
 }
+
+fn write_codex(world: &World, id: &str, body: &str) -> String {
+    let sessions = world.home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let file = sessions.join(format!("rollout-{id}.jsonl"));
+    std::fs::write(&file, body).unwrap();
+    file.to_str().unwrap().to_string()
+}
+
+fn write_dsh(world: &World, locator: &str, header: &str) -> String {
+    let session = world.home.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let file = session.join("session.jsonl");
+    std::fs::write(&file, format!("{header}\n")).unwrap();
+    file.to_str().unwrap().to_string()
+}
+
+/// A Codex rollout needs no header: a `turn_context`-only file is a
+/// readable zero-turn result with its confirmed path and shared hint.
+#[test]
+fn a_headerless_codex_rollout_is_readable() {
+    let world = world();
+    let path = write_codex(&world, "0199mine", "{\"type\":\"turn_context\"}\n");
+    record(
+        &world,
+        json!({"kind": "codex-thread", "locator": "0199mine",
+               "home": world.home.to_str().unwrap()}),
+    );
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["unavailable"], Value::Null);
+    assert_eq!(document["path"], path);
+    assert!(document["turns"].as_array().unwrap().is_empty());
+    assert_eq!(
+        document["full_session"],
+        format!(
+            "full session: \"{path}\"; codex exec resume 0199mine; home: \"{}\"",
+            world.home.to_str().unwrap()
+        )
+    );
+}
+
+/// A missing Codex rollout carries the fixed `rollout unavailable` hint.
+#[test]
+fn a_missing_codex_rollout_has_its_fixed_hint() {
+    let world = world();
+    record(
+        &world,
+        json!({"kind": "codex-thread", "locator": "019c-222a",
+               "home": "/retained/codex"}),
+    );
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(!output.status.success());
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["unavailable"], "not-found");
+    assert!(document["path"].is_null());
+    assert_eq!(
+        document["full_session"],
+        "full session: rollout unavailable; codex exec resume 019c-222a; home: \"/retained/codex\""
+    );
+}
+
+/// DSH file lookups have a null hint; an invalid depth has the fixed
+/// explanation and never borrows a later header.
+#[test]
+fn dsh_lookup_failures_have_their_fixed_words() {
+    let world = world();
+    record(
+        &world,
+        json!({"kind": "dsh-session", "locator": "sessions/one",
+               "home": world.home.to_str().unwrap()}),
+    );
+    let missing = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(!missing.status.success());
+    let document: Value = serde_json::from_slice(&missing.stdout).unwrap();
+    assert_eq!(document["unavailable"], "not-found");
+    assert!(document["full_session"].is_null());
+
+    write_dsh(
+        &world,
+        "sessions/one",
+        "{\"type\":\"session\",\"delegationDepth\":\"zero\",\"version\":0}",
+    );
+    let invalid = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&invalid.stderr).contains("no valid depth-zero DSH session header"),
+        "{}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+}
+
+/// An owned DSH file with a foreign version refuses as `unsupported-format`
+/// with the confirmed path, zero counts and the DSH path hint.
+#[test]
+fn a_foreign_dsh_version_refuses_with_its_document() {
+    let world = world();
+    let path = write_dsh(
+        &world,
+        "sessions/one",
+        "{\"type\":\"session\",\"version\":1}\n{\"type\":\"user/message\"}",
+    );
+    record(
+        &world,
+        json!({"kind": "dsh-session", "locator": "sessions/one",
+               "home": world.home.to_str().unwrap()}),
+    );
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(!output.status.success());
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["unavailable"], "unsupported-format");
+    assert_eq!(document["path"], path);
+    assert!(document["turns"].as_array().unwrap().is_empty());
+    assert_eq!(document["skipped_lines"], 0);
+    assert_eq!(document["unrecognized_records"], 0);
+    assert_eq!(
+        document["full_session"],
+        format!("full session: \"{path}\"")
+    );
+}

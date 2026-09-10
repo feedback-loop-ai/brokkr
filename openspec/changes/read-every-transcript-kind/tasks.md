@@ -853,7 +853,7 @@ task:
       refuses the boundary tests, record the host proof as pending for
       the controller and never report a skipped boundary test as evidence —
       every requirement of this change.
-- [ ] 13.6 Before the commit, validate the changed dependency graph with Rust
+- [x] 13.6 Before the commit, validate the changed dependency graph with Rust
       1.88 using
       `cargo check --workspace --all-targets --all-features --locked`, so the
       CLI test target and its dev-only Boa harness are compiled, plus
