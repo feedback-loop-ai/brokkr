@@ -86,7 +86,7 @@ saved for the phase commit.
 
 ## 1. The proposed ruling (design D10)
 
-- [ ] 1.1 Amend the existing proposed
+- [x] 1.1 Amend the existing proposed
       `docs/decisions/0056-same-instance-session-resumption.md`
       with `Status: proposed`, in the register of the neighbouring
       decisions: context from #226 and the measured cold/resumed table,
@@ -462,7 +462,7 @@ saved for the phase commit.
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
       handle. No new wire type is added — safety / AS1, site / SR4.
-- [ ] 6.4 Write the assessments into `adapters/codex.json`,
+- [x] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
       change, each one loadable now under one of 6.1's two identity
@@ -941,7 +941,7 @@ itself (`safety / AS1`).
 - [ ] 11.4 Enable or leave declared-unsupported LaneTally on 10.4's
       interface and 10.8's proof, with its measured reason. Never mark it
       supported by analogy — safety / AS1.
-- [ ] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
+- [x] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
       support representation with 6.4's corrected preparatory truth. DSH's
       selected official core 0.1.5-rc.1/plugin 0.2.0 route is `unmeasured`,
       disabled and waiting on 10.7; its exact commits and unknown
@@ -1003,7 +1003,7 @@ itself (`safety / AS1`).
 
 ## 13. Prose
 
-- [ ] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
+- [x] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
       preserving its offer, assessment and held-window guidance. The current
       adapter table must call the exact official DSH core 0.1.5-rc.1/plugin
       0.2.0 route `unmeasured` and disabled pending 10.7's compatibility,

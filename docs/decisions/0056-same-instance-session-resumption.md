@@ -212,11 +212,30 @@ Alternatives weighed, each rejected on evidence rather than taste:
    missing, changed or unreadable identity disables resume with
    `unverified-harness`. Historical acceptance of an earlier version is
    history and regression scope, not a grant for a later one: 0030's
-   0.148.0 codex measurement does not enable installed 0.153.4. DSH's
-   session integration through its supported settings and extension
-   interfaces is part of this decision and stays separate from the
-   hands/tools plugin its adapter defers; a measured impossibility is
-   reported as the exact unmet requirement, never as a narrowed minimum.
+   0.148.0 codex measurement does not enable installed 0.153.4.
+
+   DSH's session integration is selected as one exact pair: official core
+   **0.1.5-rc.1** at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` together
+   with community plugin `dsh-plugin-cli-session` **0.2.0** at
+   `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, installed and exercised
+   only in worktree- or task-owned storage through the documented
+   extension and `agents.resume` APIs. The pair is selected but
+   **unmeasured**: the declaration stays disabled until the isolated
+   resolved-composite identity, the provider-confirmed exact root,
+   current headless model/effort and restriction precedence, and
+   noncumulative current-sequence output and usage are all established.
+   The request-derived `session_id` echo and the post-`firstSeq` usage
+   selection are interface evidence only: they neither confirm the root
+   nor attribute the total. The installed 0.1.2-rc.1 headless runner
+   remains bounded history — its one-shot entry mints a fresh root and
+   cannot forward the launcher's TUI example — and is never restated as a
+   global DSH or extension limitation. This session-selection work stays
+   separate from the hands/tools plugin the adapter defers, preserves
+   Rust-only Brokkr production and the admitted headless profile, and
+   admits no second runner. No different core or plugin revision inherits
+   this evidence, and a measured incompatibility of this exact pair is
+   reported as the exact unmet requirement rather than a narrowed minimum
+   or a permitted TUI, SDK or package-patch substitution.
 
    **Enforcement binding:** the typed `resume` assessment and its loader
    in `crates/brokkr-runtime/src/agents.rs`, pinned by the existing
@@ -409,9 +428,16 @@ Alternatives weighed, each rejected on evidence rather than taste:
   dialects' smiths are told, and that an interrupted exercise recovers
   from what is on disk. Whether a live model obeys is judgment's to
   check, and the guides say so.
-- **Deliberately unruled.** Whether a future dsh release exposes a
-  supported route from its headless caller to an owned root; if it does,
-  ruling 5's declaration for that shape gains a measured identity and the
-  status flips on its own proof. Whether a harness other than these four
-  is ever admitted, and on what evidence, stays the question ruling 5
-  already answers for any adapter.
+- **The selected DSH route and its bound.** Ruling 5 selects official
+  core 0.1.5-rc.1 at
+  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
+  `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` as the supported extension
+  route from the headless caller to an owned root, and keeps its
+  declaration disabled until that exact pair's resolved identity,
+  exact-root rejoin, restriction precedence and current-sequence
+  accounting are measured. The installed 0.1.2-rc.1 one-shot result is
+  bounded history for that entry only and is never restated as a global
+  DSH limitation. Whether a harness other than these four is ever
+  admitted, and on what evidence, stays the question ruling 5 already
+  answers for any adapter.

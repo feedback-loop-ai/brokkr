@@ -49,10 +49,9 @@
   },
   "resume": {
     "headless-work": {
-      "status": "unsupported",
+      "status": "unmeasured",
       "identity": {
-        "version": "0.1.2-rc.1",
-        "applies_to": "0.1.2-rc.1"
+        "unknown": "no resolved-install measurement exists yet for the selected composite: official core 0.1.5-rc.1 at 183f08e9c6dde7e36cd2318eaee70b0da08fb35e plus dsh-plugin-cli-session 0.2.0 at 0f487e74c81ed102c6899440d9f5d65e8e9eabda on the task-owned Node runtime"
       },
       "classes": [
         "work"
@@ -62,14 +61,14 @@
       ],
       "hands": "none",
       "evidence": {
-        "interface": ".forge/controller-dsh-resume-source-interface.json (2026-09-09): 40 hashed installed source files"
+        "interface": ".forge/tasks/controller-dsh-upstream-discovery.json (2026-09-10): official core resume API and the plugin's explicit --session route; inspected checkouts /var/tmp/226-dsh-upstream-015rc1 and /var/tmp/226-dsh-plugin-cli-session"
       },
-      "reason": "the headless runner mints its own agent: lib/index.js calls agents.create with session-${randomUUID()} and applies its followup to that agent, and its whole config schema is {task}",
+      "reason": "official core 0.1.5-rc.1 at 183f08e9c6dde7e36cd2318eaee70b0da08fb35e plus dsh-plugin-cli-session 0.2.0 at 0f487e74c81ed102c6899440d9f5d65e8e9eabda is the selected documented extension route, but its resolved-composite compatibility, exact-root rejoin, restriction precedence and current-sequence accounting are unmeasured, so the shape stays disabled",
       "limitations": [
-        "the launcher's --resume <session> appears only in a TUI-profile example and reaches the app verbatim; headless startup parses one positional, the task, and --help",
-        "dsh-agent-loop admits Config.agents[].resumeSessionId and dsh-agent exposes agents.resume, but they restore a CONFIGURED agent and the headless caller does not run its admitted task on that agent",
-        "closing that gap needs a mechanism this change is not authorized to use: replacing the installed runner plugin, monkey-patching agents.create, overriding UUID generation, editing the installed package or substituting the TUI",
-        "the retained per-invocation transcript directory is a locator, not a provider handle; no measured equivalence exists",
+        "the plugin's declared peer range admits 0.1.5-rc.1 but its own development matrix pins 0.1.0-rc.6; the resolved pair has no measured compatibility yet",
+        "the plugin's emitted session_id is request-derived and is not independent root confirmation; the post-resume init event, same-root nonce continuity and absence of a fresh sibling root must be observed",
+        "the plugin's latest in-range assistant usage is not proven noncumulative; a numeric total that cannot be attributed must stay absent",
+        "the installed 0.1.2-rc.1 headless runner's one-shot entry mints a fresh root and cannot forward the launcher's TUI example; that is bounded history for that entry only, never a global DSH or extension limitation",
         "the separate hands/tools plugin deferral above is a different matter and is not what blocks this shape"
       ]
     }
