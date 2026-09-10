@@ -164,8 +164,15 @@ impl NativeProbeHost {
                 }
             }
         }
-        // Descriptor-rooted cleanup of the disposable harness root. The
-        // recorded lifecycle already removed the payload's private state.
+        // Harness cleanup is separate from the observed lifecycle. Always
+        // remove registered jobs, including on an early measurement failure;
+        // these cleanup actions are never counted as containment evidence.
+        for label in [&payload_label, &guard_label, &peer_label, &escape_label] {
+            bootout(&self.service_target(label));
+        }
+        for pid in live_identities(&root) {
+            let _ = Command::new(KILL).args(["-9", &pid.to_string()]).output();
+        }
         let _ = fs::remove_dir_all(&root);
         let mut result = outcome?;
         result.events = events;
@@ -208,6 +215,11 @@ impl NativeProbeHost {
         bootstrap(&format!("gui/{}", self.uid), payload_plist)?;
         events.push(Event::PayloadStarted);
         let positive = wait_for_heartbeat(root, TEARDOWN)?;
+        if !positive {
+            // Preserve launch diagnostics before the guard can remove the
+            // private payload state. A dead payload is not quiescence proof.
+            return Err("payload heartbeat did not advance before the trigger".into());
+        }
 
         if matches!(case, Case::PeerBootout | Case::GuardInterference) {
             let peer = root.join("peer.plist");
