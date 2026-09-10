@@ -101,6 +101,19 @@ root-inode read. It withdraws or narrows every other fa7 rule. The candidate
 therefore changes, and its startup is unmeasured until the controller's next
 exact-head native Gate A.
 
+The clarify visit on `353818d` accepted that ledger and found two gaps in it.
+First, the normalization was not closed. A multi-operation `allow` form, an
+action modifier, a compound filter or a non-`allow` top-level form was neither
+a rule unit nor refused, so a parser could let an unlisted rule past the
+equality. The delta now states a closed grammar. After the frame, every form
+is a single-operation `allow` form of simple filters. Anything else fails and
+is named. Second, the `/usr` read and exec units were baseline hands elements
+wider than the `hands.rs` binds they cited. The box binds only listed `/usr`
+children, not `/usr` itself. They are narrowed to one subpath per bind. The
+check reads the binds from `box_argv` itself. The process authority is listed
+as seven units rather than called "exact-target". The narrowing changes the
+candidate again, and its startup stays pending native Gate A.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -170,9 +183,15 @@ measured, as accepted decision 0046 requires.
   operation, single-object target, process, consumer and evidence, and has a
   removal entry. The justified baseline is exactly the baseline half. A
   host-independent check proves the rendered template's rule units equal the
-  disjoint union of the baseline and the removal set. The ledger narrows the
-  unfiltered process family to fork and exact-target exec, narrows `/System`
-  and the cell root, and withdraws the self-signal, `/Library`, host tmp,
+  disjoint union of the baseline and the removal set. The check's grammar is
+  closed: after the frame, every form is a single-operation `allow` form of
+  simple filters, and a multi-operation form, modifier, compound filter,
+  other top-level form or unparseable text fails by name. The ledger narrows
+  the unfiltered process family to `process-fork` and six `process-exec`
+  units (the helper and the `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin`
+  and `/sbin` binds). It narrows `/usr` to one subpath per `hands.rs` bind,
+  checked against `box_argv`, and narrows `/System` and the cell root. It
+  withdraws the self-signal, `/Library`, host tmp,
   `/dev/dtracehelper`, `sysctl-read` and `ipc-posix-shm` rules. A withdrawn
   rule returns only as a non-admitting restoration diagnostic followed by
   single-object attribution and a removal control.
@@ -274,6 +293,8 @@ authored in this specify phase. No workflow runner is invoked.
 | Removal-control scope (clarify, fa7) | **Adopt READY-only.** Removal controls are due on exactly the Seatbelt startup cells that reach a nonce-authenticated `READY`. Blocking means the stripped replay, from fresh payload state, reaches no `READY`. A non-`READY` cell records each removal as not due and fails on its own facts. The set is exactly the diagnosis-admitted predicates, verbatim as the template carries them; a host-independent test checks that set against the template. Each removal is a direct `/usr/bin/sandbox-exec` replay of the cell's own profile, S3 included, because launchd adds no Seatbelt authority; a launchd-only predicate is not admitted. Every-cell removal with a stage-relative "blocked" is refuted. Necessity is proven only against a candidate that starts, and a later predicate can change it. An earlier failure of a stripped non-starting run only shows that the predicate advances the stages, so recording it as load-bearing would fabricate proof. Cross-candidate stage progress stays diagnosis evidence. | `seatbelt-execution`: A non-starting Seatbelt cell owes no removal verdict; A launchd cell's removal replays the profile directly; The removal set is exactly the diagnosis-admitted predicates |
 | Startup-rule ledger (clarify, `5dca1d0`) | **Adopt.** The removal-set completeness test had no classification source. Every template rule is now a normalized rule unit (one operation, at most one filter) with exactly one class in a typed ledger. The justified baseline is defined as the baseline half. The check parses the rendered template and requires its units to equal baseline ⊎ removal set, so an unlisted, doubly classified or missing unit fails. The subset-only check it replaces could not detect a missing diagnosis-admitted rule. | `seatbelt-execution`: The experimental startup template is an audited rule ledger; The template is exactly the ledger's disjoint union |
 | The four `8c53dce` additions | **Dispose explicitly.** The helper literal is justified baseline as an execution input, and `/dev/random` as a hands element (the box's `--dev /dev` device set). `/private/var/tmp` contradicts the private per-call tmp and is withdrawn. `/dev/dtracehelper` is in no hands element and has no measurement behind it, because `8c53dce` still aborted on the root inode, so it is withdrawn. | `seatbelt-execution`: The four 8c53dce additions keep their disposition |
+| Ledger normalization closure (clarify, `353818d`) | **Adopt a closed grammar.** A unit was defined only for single-operation forms, so a form with several operations, a `(with ...)` modifier, a `require-*` compound filter or a `trace`, `define`, `if` or `debug` form was neither a unit nor refused. A first-operation or skip-unknown parser would satisfy the text and pass an unlisted rule. After the frame, every top-level form must be `(allow OPERATION FILTER...)`, with exactly one operation and simple one-argument filters. A multi-filter form still normalizes to one unit per filter, because it grants wherever any filter matches. The check refuses and names a multi-operation form, which is not split into N×M units, so a grouping renderer cannot hide an operation. It also refuses and names any modifier, compound filter, other top-level form, comment, escape or duplicate unit. Splitting multi-operation forms was refuted: it would admit a rendering nobody writes and make a removal rewrite a form. An unknown simple filter needs no vocabulary, because the equality already refuses it as unlisted. | `seatbelt-execution`: A multi-operation form cannot hide an operation; A top-level form other than the frame and allow forms fails; Modifiers, compound filters and unparseable text fail |
+| `/usr` baseline wider than its element (clarify, `353818d`) | **Narrow; the whole tree is refuted.** `hands.rs` creates an empty `/usr` and binds only `/usr/bin`, `/usr/lib`, `/usr/lib64`, `/usr/include`, `/usr/share`, `/usr/local` and `/usr/libexec`. `(subpath "/usr")` also covers `/usr/sbin`, `/usr/standalone` and the other unbound children, and no hands element names them. The same reasoning already narrowed `/System` and the cell root. Reads become one subpath per bind: `/usr/bin`, `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`. Execs cover the program binds only: `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin`, `/sbin`. `/usr/include` has no unit, because nothing in the profile compiles C. `/usr/lib64`, `/lib` and `/lib64` have none either, because their macOS image is the system-library element. A hands-element unit may carry less than its element, never more. The check confirms each toolchain unit against the `--ro-bind-try` sources that `box_argv` renders. "Exact-target process-exec units" was wrong for four subpath units. It is replaced by the explicit seven process units that the child-spawn prohibition reads against. The narrowing changes the candidate, and its startup is pending native Gate A. | `seatbelt-execution`: The toolchain baseline is no wider than the binds it names; The candidate's process authority is seven named units |
 | Historical template authority | **Withdraw or narrow; never grandfather.** No 0043 element justifies the unfiltered process family, self-signal, `/Library`, host `/private/tmp`, the whole cell root, `sysctl-read` or `ipc-posix-shm`. `/System` also contains `/System/Volumes/Data`. Each is narrowed to a justified unit or withdrawn, and a withdrawn unit re-enters only through a labelled restoration diagnostic, native single-object attribution and its own removal control. A `/System/Volumes/Data` credential-read denial control is added. | `seatbelt-execution`: A withdrawn unit returns only through the bounded experiment; The data-volume spelling of a credential stays denied |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
@@ -402,11 +423,17 @@ The justified baseline is the baseline half of one typed startup-rule ledger,
 which accounts for every rule of the template. The ledger's unit is one `allow`
 form with one operation and at most one filter. The template's grouped
 `file-read*` form therefore counts as one unit per filter, and a removal strips
-exactly one unit. Baseline units trace to a 0043 hands element as `hands.rs`
-realizes it, an execution input or a named probe-harness need. The toolchain
-reads and execs, `/System/Library` and the OS cryptex, the helper, the typed
-inputs and payload roots, and the box's device reads are baseline. So is
-`process-fork`, the only unfiltered unit. The root-inode read is the one
+exactly one unit. The grammar is closed. After the frame, every form is a
+single-operation `allow` form of simple filters, and the check refuses and
+names anything else. Baseline units trace to a 0043 hands element as `hands.rs`
+realizes it, an execution input or a named probe-harness need. A hands-element
+unit is never wider than its element. The toolchain units are one subpath per
+`hands.rs` bind, checked against `box_argv`. Reads cover `/usr/bin`,
+`/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`, `/bin` and `/sbin`,
+and execs cover the program binds among them. `/System/Library` and the OS
+cryptex, the helper, the typed inputs and payload roots, and the box's device
+reads are baseline too. So is `process-fork`, the only unfiltered unit, and
+with the six `process-exec` units it is the whole process authority. The root-inode read is the one
 diagnosis-admitted unit, with removal entry `root-inode-read`. An attributed
 `/dev/null` write-data literal joins that half with its own removal entry.
 Every other fa7 unit is withdrawn or narrowed with a recorded reason. When the

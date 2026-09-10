@@ -413,9 +413,9 @@ admitting a new grant. A child-spawn predicate enters the candidate only when
 this evidence attributes the refusal to it, only in literal-scoped form and
 only as a diagnosis-admitted ledger entry with its own removal control; every
 denial control SHALL rerun on the resulting candidate. The spawn SHALL NOT be
-cured by a `/dev` subpath, a broad `file-write*`, any process operation other
-than the ledger's `process-fork` and exact-target `process-exec` units, or any
-Mach/IPC, service or network grant.
+cured by a `/dev` subpath, a broad `file-write*`, any process unit other than
+the seven the ledger lists (`process-fork` and six `process-exec` units), or
+any Mach/IPC, service or network grant.
 A separately labelled `allow default` run MAY diagnose that the restrictive
 profile is the differing
 layer, but it SHALL never be a candidate observation or authorize an allowance.
@@ -649,14 +649,43 @@ candidate's authority.
 The ledger's unit of account is the **rule unit**: one `allow` form with one
 operation and at most one filter. Units are written in the normalized template,
 where the typed placeholders `<cell-root>`, `<payload-root>` and `<helper>`
-replace the concrete cell root, payload root and helper path. A form carrying
-several filters normalizes into one unit per filter. An unfiltered form is one
-unit. The removal set uses the same unit, so a removal strips exactly one unit
-even when the rendered template groups units in one form. The profile frame is
-not a unit. The template SHALL open with exactly `(version 1)` and
-`(deny default)`, and SHALL carry no other `deny` form, `allow default`,
-import or parameter. `<helper>` SHALL be instantiated with the helper's
-canonical path, because Seatbelt matches resolved paths.
+replace the concrete cell root, payload root and helper path. A string equal to
+one of those concrete paths, or beginning with it and then `/`, takes its
+placeholder, longest path first. No other string is rewritten. `<helper>` SHALL
+be instantiated with the helper's canonical path, because Seatbelt matches
+resolved paths.
+
+The normalization is closed. The template SHALL open with exactly
+`(version 1)` and `(deny default)`. That frame is not a unit. After it, every
+top-level form SHALL be an `allow` form written `(allow OPERATION FILTER...)`:
+exactly one operation, a bare symbol in the first position, then zero or more
+filters. A filter SHALL be simple: one filter name and exactly one argument,
+which is a string literal, or the symbol `self` in `(target self)`. A form
+with several filters normalizes into one unit per filter, because the form
+grants its operation wherever any one of its filters matches. An unfiltered
+form is one unit. The removal set uses the same unit, so a removal strips
+exactly one unit even when the rendered template groups units in one form.
+Nothing else normalizes. The check SHALL fail, and name what it found, for
+each of these:
+
+- an `allow` form with more than one operation, naming each operation after
+  the first. Such a form is refused rather than split, and the template writes
+  one operation per form;
+- an action modifier such as `(with report)` anywhere in a form, naming the
+  modifier;
+- a compound filter (`require-any`, `require-all` or `require-not`), or any
+  filter whose argument is not one string or `self`, naming the filter;
+- any top-level form other than the frame and `allow` forms, naming the form.
+  This covers `deny`, `allow default`, a second `version`, `import`, `param`,
+  `define`, `if`, `debug`, `trace` and a bare atom;
+- text the parser cannot normalize: an unbalanced parenthesis, a comment, a
+  string that needs an escape sequence, or any token outside this grammar;
+- the same unit rendered twice.
+
+A parser that keeps only a form's first operation, skips a form or filter it
+does not recognize, or unescapes a string does not satisfy this check. Filter
+names outside the ledger need no separate vocabulary: a simple filter the
+ledger does not list is an unlisted unit and fails the equality.
 
 Every rule unit SHALL carry exactly one class.
 
@@ -673,13 +702,33 @@ Every rule unit SHALL carry exactly one class.
 - A **diagnosis-admitted** entry records its operation, narrow target,
   responsible process, consumer and the native evidence that admitted it. It
   names exactly one removal-set entry. Its filter SHALL name a single object: a
-  `literal`, or one named sysctl, IPC object or service. An unfiltered unit, or
-  a `subpath`, `prefix` or `regex` filter, SHALL NOT be diagnosis-admitted.
+  `literal`; one named sysctl, IPC object or service (`sysctl-name`,
+  `ipc-posix-name` or `global-name`); or `(target self)` for `signal`. An
+  unfiltered unit, or a `subpath`, `prefix` or `regex` filter, SHALL NOT be
+  diagnosis-admitted.
+
+A hands-element entry SHALL be no wider than the image it names. It MAY carry
+less than the whole element, never more. A **toolchain unit** images a
+toolchain bind at the same path. It SHALL name that one bind and target exactly
+that path. The check SHALL confirm that each named bind is a `--ro-bind-try`
+source in the argv that `hands.rs` `box_argv` renders, read from that function
+rather than from a copied list. A parent directory of several binds is not the
+image of those binds, because it also covers every child the box does not
+bind. The system-library units image the Linux library binds at macOS paths.
+They are recorded as that one element with their own targets, not as
+toolchain units.
 
 The **justified baseline** is the baseline half of this ledger and nothing
 else. The candidate's rule units SHALL equal the disjoint union of the baseline
 entries and the removal set. `(allow process-fork)` is the only unfiltered
 unit, because fork has no target. Any other unfiltered `allow` fails the check.
+
+The candidate's process authority is exactly `(allow process-fork)` and six
+`process-exec` units: the `<helper>` literal and one subpath each for
+`/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`. No other
+`process-*` operation, and no `process-exec` unit on another target, is in the
+candidate. Wherever this delta forbids process authority wider than the
+candidate names, it reads against these seven units.
 
 The candidate this change prepares carries these baseline entries:
 
@@ -687,10 +736,16 @@ The candidate this change prepares carries these baseline entries:
 |---|---|---|
 | `(allow process-fork)` | hands element | 0043 ruling 1 runs each call as `bash -lc`, whose commands fork children. The probe's consumers are the ordinary child and the `setsid` and double-fork descendants. |
 | `(allow process-exec (literal "<helper>"))` | execution input | `sandbox-exec` executes the exact helper under the profile. The helper re-executes itself for its child and descendant roles. |
-| `(allow process-exec (subpath "/usr"))` | hands element | The host toolchain that 0043 ruling 1 lets `bash -lc` run. |
-| `(allow process-exec (subpath "/bin"))` | hands element | The same toolchain. Gate B's escape, guard and peer adversaries run the real `/bin/launchctl`, so their denials measure launchd authority rather than a refused exec. |
-| `(allow process-exec (subpath "/sbin"))` | hands element | The same toolchain. |
-| `(allow file-read* (subpath "/usr"))` | hands element | The toolchain bound read-only (`hands.rs`: `/usr/bin`, `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`, `/usr/include`). |
+| `(allow process-exec (subpath "/usr/bin"))` | hands element | The `/usr/bin` toolchain bind, whose programs 0043 ruling 1 lets `bash -lc` run. |
+| `(allow process-exec (subpath "/usr/libexec"))` | hands element | The `/usr/libexec` toolchain bind, which holds helper programs the toolchain runs. |
+| `(allow process-exec (subpath "/usr/local"))` | hands element | The `/usr/local` toolchain bind, where host-installed programs live. |
+| `(allow process-exec (subpath "/bin"))` | hands element | The `/bin` toolchain bind. Gate B's escape, guard and peer adversaries run the real `/bin/launchctl`, so their denials measure launchd authority rather than a refused exec. |
+| `(allow process-exec (subpath "/sbin"))` | hands element | The `/sbin` toolchain bind. |
+| `(allow file-read* (subpath "/usr/bin"))` | hands element | The `/usr/bin` toolchain bind, read-only. |
+| `(allow file-read* (subpath "/usr/lib"))` | hands element | The `/usr/lib` toolchain bind, read-only. It holds `dyld`. |
+| `(allow file-read* (subpath "/usr/libexec"))` | hands element | The `/usr/libexec` toolchain bind, read-only. |
+| `(allow file-read* (subpath "/usr/share"))` | hands element | The `/usr/share` toolchain bind, read-only. |
+| `(allow file-read* (subpath "/usr/local"))` | hands element | The `/usr/local` toolchain bind, read-only. |
 | `(allow file-read* (subpath "/bin"))` | hands element | The `/bin` toolchain bind. |
 | `(allow file-read* (subpath "/sbin"))` | hands element | The `/sbin` toolchain bind. |
 | `(allow file-read* (subpath "/System/Library"))` | hands element | macOS system libraries and frameworks, the image of the `/lib`, `/lib64` and `/usr/lib` binds. |
@@ -702,6 +757,22 @@ The candidate this change prepares carries these baseline entries:
 | `(allow file-read* (literal "/dev/null"))` | hands element | The box's private device set (`hands.rs` `--dev /dev`). It is also the ordinary child's null stdin. |
 | `(allow file-read* (literal "/dev/urandom"))` | hands element | The same device set. |
 | `(allow file-read* (literal "/dev/random"))` | hands element | The same device set. |
+
+The toolchain units are one subpath per `hands.rs` bind, never the parent
+`/usr`. The box creates an empty `/usr` and binds only its listed children, so
+`(subpath "/usr")` would also cover `/usr/sbin`, `/usr/standalone` and every
+other child the box leaves out. The library and data binds, `/usr/lib` and
+`/usr/share`, carry read units and no exec unit, because the probe runs no
+program from them. These `hands.rs` binds carry no unit, which only narrows
+authority:
+
+- `/usr/include`, because nothing inside the profile compiles C. A C
+  toolchain on macOS reads its headers from the SDK that a production profile
+  declares.
+- `/usr/lib64`, `/lib` and `/lib64`, the Linux library paths. Their macOS
+  image is the system-library element above.
+- the `/etc` binds and the `passwd`, `group`, `hosts` and `nsswitch.conf`
+  files, because the probe reads none of them.
 
 It carries one diagnosis-admitted entry:
 
@@ -718,12 +789,13 @@ then the candidate carries no `/dev/null` write.
 
 Every unit of the measured fa7 template, `fa7ece5` `sandbox_profile`, SHALL
 keep a recorded disposition. The units kept unchanged are the root-inode
-read, the `/usr`, `/bin` and `/sbin` reads, the helper read, the three device
-reads and the payload write. The units withdrawn or narrowed are:
+read, the `/bin` and `/sbin` reads, the helper read, the three device reads and
+the payload write. The units withdrawn or narrowed are:
 
 | fa7 unit | Disposition | Reason |
 |---|---|---|
-| `(allow process*)` | Narrowed to `process-fork` and the exact-target `process-exec` units. | The family also carries process-information and code-signing operations on other processes. The hands box unshares pid, and no consumer needs them. |
+| `(allow process*)` | Narrowed to `process-fork` and the six `process-exec` units listed above. | The family also carries process-information and code-signing operations on other processes. The hands box unshares pid, and no consumer needs them. |
+| `(allow file-read* (subpath "/usr"))` | Narrowed to one subpath per `hands.rs` `/usr` bind: `/usr/bin`, `/usr/lib`, `/usr/libexec`, `/usr/share` and `/usr/local`. | The parent also covers `/usr/sbin`, `/usr/standalone` and every other child the box does not bind. |
 | `(allow signal (target self))` | Withdrawn. | No consumer is named, and no measurement shows it is needed. |
 | `(allow file-read* (subpath "/System"))` | Narrowed to `/System/Library` and the OS cryptex. | `/System` also holds `/System/Volumes/Data`, the data volume that also spells `/Users` and `/private`. No hands element grants it. |
 | `(allow file-read* (subpath "/Library"))` | Withdrawn. | Host-wide preferences and keychain directories are not a hands element, and the probe names no consumer. Production toolchain paths come from the production profile's declarations, not from this template. |
@@ -744,20 +816,22 @@ needed:
 - `(literal "/dev/random")` is justified baseline, as a hands element.
 - `(literal "/dev/dtracehelper")` is withdrawn.
 
-A withdrawn unit carries no authority. It returns only through the bounded
-native experiment. When a Seatbelt startup cell of the candidate fails before
-`READY`, each withdrawn unit SHALL run as its own labelled restoration
-diagnostic, meaning the exact candidate plus that one historical unit. One
-further labelled cell SHALL restore every withdrawn unit at once. It reproduces
+A withdrawn unit, and the part of a narrowed unit that its narrowing dropped,
+carries no authority. It returns only through the bounded native experiment.
+When a Seatbelt startup cell of the candidate fails before `READY`, each
+withdrawn or narrowed fa7 unit SHALL run as its own labelled restoration
+diagnostic, meaning the exact candidate plus that one unit in its fa7 form. One
+further labelled cell SHALL restore every such unit at once. It reproduces
 fa7's authority, which separates a regression caused by the withdrawal from the
 measured child-spawn refusal. These cells are diagnostics. They never pass
 startup and never admit authority. If one advances the stages, native denial
 evidence SHALL name the operation and a single-object target before a
 diagnosis-admitted entry with its own removal control enters the ledger, and
 every denial control SHALL rerun. The unfiltered process family, unfiltered
-`sysctl-read`, unfiltered `ipc-posix-shm`, host tmp reads and `(subpath
-"/System")` SHALL NOT re-enter in their historical form. Denial evidence may
-show the system-library element under another resolved spelling. That
+`sysctl-read`, unfiltered `ipc-posix-shm`, host tmp reads, `(subpath
+"/System")`, `(subpath "/usr")` and the whole `<cell-root>` SHALL NOT re-enter
+in their historical form. Denial evidence may show a toolchain bind or the
+system-library element under another resolved spelling. That
 spelling, no wider than the element, then replaces its baseline unit, recorded
 with its evidence as a correction of the same justification.
 
@@ -776,8 +850,12 @@ trust whatever renders it. It SHALL refuse each of these:
 - a unit in neither half, or a unit in both halves;
 - a ledger or removal entry the template lacks;
 - a missing or altered frame, an extra `deny` or an `allow default`;
+- any form, filter or text outside the closed normalization above, or a unit
+  rendered twice;
 - an unfiltered unit other than `process-fork`;
 - a baseline entry without a justification of a named kind;
+- a toolchain unit whose target is not exactly the one `--ro-bind-try` source
+  it names in the argv that `box_argv` renders;
 - a diagnosis-admitted entry that lacks its operation, target, process,
   consumer, evidence or removal entry, or that uses a filter wider than a
   single object;
@@ -788,7 +866,8 @@ prove that each of its units is carried by the ledger or has a withdrawal
 record with its reason, and that each of the four `8c53dce` units keeps the
 disposition above.
 
-The ledger changes the candidate. Its startup is unmeasured until the
+The ledger changes the candidate, and so does its per-bind `/usr` narrowing.
+The candidate's startup is unmeasured until the
 controller's native Gate A runs on the exact head that carries it. fa7's
 progress to `executable` describes the fa7 template, not this one. No stage
 progress, denial result or removal verdict carries over from fa7 to the new
@@ -797,7 +876,29 @@ candidate.
 #### Scenario: The template is exactly the ledger's disjoint union
 - **GIVEN** the rendered candidate template, the startup-rule ledger and the removal set
 - **WHEN** the host-independent check parses the template into normalized rule units
-- **THEN** the units equal the baseline entries plus the removal set with no overlap, the frame is exactly `(version 1)` then `(deny default)`, and `(allow process-fork)` is the only unfiltered unit
+- **THEN** every form after the frame is a single-operation `allow` form of simple filters, the units equal the baseline entries plus the removal set with no overlap, the frame is exactly `(version 1)` then `(deny default)`, and `(allow process-fork)` is the only unfiltered unit
+
+#### Scenario: A multi-operation form cannot hide an operation
+- **GIVEN** a template whose listed payload write is rendered as `(allow file-write* process-exec (subpath "<payload-root>"))`
+- **WHEN** the check parses it
+- **THEN** the check fails and names `process-exec` as the hidden operation; it neither keeps the first operation nor splits the form into units, so the extra operation never reaches the equality as a listed unit
+
+#### Scenario: A top-level form other than the frame and allow forms fails
+- **WHEN** the template carries, after the frame, a `(trace ...)`, `(define ...)`, `(if ...)`, `(debug ...)`, `(import ...)` or `(param ...)` form, a `deny` form, `(allow default)`, a second `(version 1)` or a bare atom
+- **THEN** the check fails and names that form; no top-level form is skipped as not a rule
+
+#### Scenario: Modifiers, compound filters and unparseable text fail
+- **WHEN** a form carries an action modifier such as `(with report)`, a `require-any`, `require-all` or `require-not` filter, or a filter with no argument, two arguments or a list argument, or when the text holds a comment, an unbalanced parenthesis, a string needing an escape sequence, or one unit rendered twice
+- **THEN** the check fails and names the modifier, filter, text or duplicated unit, and no unit is taken from the unparsed remainder
+
+#### Scenario: The toolchain baseline is no wider than the binds it names
+- **GIVEN** the `--ro-bind-try` sources that `hands.rs` `box_argv` renders
+- **WHEN** the check reads the ledger's toolchain units
+- **THEN** each unit names one of those binds and targets exactly it; `(subpath "/usr")` for read or exec is an unlisted unit and fails; `/usr/include`, `/usr/lib64`, `/lib` and `/lib64` carry no unit; and a unit whose named bind `box_argv` no longer renders fails
+
+#### Scenario: The candidate's process authority is seven named units
+- **WHEN** the check reads the candidate's process units
+- **THEN** they are exactly `(allow process-fork)` and the `process-exec` units for `<helper>`, `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`; any other `process-*` unit, including `process-exec` on `/usr`, `/usr/lib` or `/usr/share`, fails as unlisted; and the child-spawn prohibition on wider process authority reads against these seven
 
 #### Scenario: An unlisted or doubly classified unit fails
 - **WHEN** the check receives a template carrying one extra unit that is in neither half, such as `(allow sysctl-read)` or `(allow file-write-data (literal "/dev/null"))` without its ledger entry, or a ledger that lists one unit both as baseline and in the removal set
@@ -820,8 +921,8 @@ candidate.
 - **THEN** `(literal "<helper>")` and `(literal "/dev/random")` are baseline with their recorded kinds, `(subpath "/private/var/tmp")` and `(literal "/dev/dtracehelper")` are absent from the candidate with withdrawal records, and every other fa7 unit is carried by the ledger or has a withdrawal record
 
 #### Scenario: A withdrawn unit returns only through the bounded experiment
-- **WHEN** a Seatbelt startup cell of the ledger candidate fails before `READY` and the restoration diagnostic for one withdrawn unit, or the all-restored fa7-authority cell, advances the stages
-- **THEN** those cells stay non-passing and admit nothing, native denial evidence must name an operation and single-object target before a diagnosis-admitted entry with its own removal control enters, every denial control reruns, and no withdrawn unfiltered family, host tmp read or `(subpath "/System")` returns
+- **WHEN** a Seatbelt startup cell of the ledger candidate fails before `READY` and the restoration diagnostic for one withdrawn or narrowed fa7 unit, or the all-restored fa7-authority cell, advances the stages
+- **THEN** those cells stay non-passing and admit nothing, native denial evidence must name an operation and single-object target before a diagnosis-admitted entry with its own removal control enters, every denial control reruns, and no withdrawn unfiltered family, host tmp read, `(subpath "/System")`, `(subpath "/usr")` or whole-cell-root read returns
 
 #### Scenario: An attributed /dev/null write is diagnosis-admitted
 - **WHEN** the child-spawn cells attribute the refusal to the null-stdio write open of `/dev/null`
