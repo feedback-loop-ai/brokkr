@@ -1,0 +1,1 @@
+{"topology":"double-fork","trigger":"timeout","control":false,"native":true,"root_pid":86801,"leaf_pid":86803,"root_group":86801,"leaf_group":86802,"root_survived":false,"leaf_survived":true,"heartbeat_changed":true,"observed_ms":6535,"no_survivor_observed":false,"residual":"SEATBELT-R3"}

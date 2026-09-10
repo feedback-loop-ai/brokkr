@@ -1,0 +1,1 @@
+{"topology":"ordinary","trigger":"supervisor-death","control":false,"native":true,"root_pid":86337,"leaf_pid":86338,"root_group":86337,"leaf_group":86337,"root_survived":true,"leaf_survived":true,"heartbeat_changed":true,"observed_ms":6175,"no_survivor_observed":false,"residual":"SEATBELT-R3"}

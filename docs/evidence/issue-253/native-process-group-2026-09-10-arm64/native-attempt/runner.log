@@ -1,0 +1,16 @@
+Running 1 negative control and 12 candidate cases; allow roughly two minutes.
+Exit 1 means valid feasibility measurements with R3 still OPEN; exit 2 means invalid/incomplete evidence.
+No filesystem/network containment or Brokkr hands integration is claimed.
+ordinary-timeout: no survivor observed in this case
+ordinary-cancel: no survivor observed in this case
+ordinary-parent-exit: no survivor observed in this case
+ordinary-supervisor-death: RESIDUAL: payload survived
+setsid-timeout: RESIDUAL: payload survived
+setsid-cancel: RESIDUAL: payload survived
+setsid-parent-exit: ERROR: readiness timeout: /private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt-lifetime.ZmXVt5/measurement/setsid-parent-exit/action
+setsid-supervisor-death: RESIDUAL: payload survived
+double-fork-timeout: RESIDUAL: payload survived
+double-fork-cancel: RESIDUAL: payload survived
+double-fork-parent-exit: ERROR: readiness timeout: /private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt-lifetime.ZmXVt5/measurement/double-fork-parent-exit/action
+double-fork-supervisor-death: RESIDUAL: payload survived
+{"schema":"brokkr.seatbelt-lifetime-experiment/v1","native":true,"candidate":"original-process-group","cases":12,"negative_control_detected":true,"valid_measurement":false,"residual_cases":7,"errors":["setsid-parent-exit: readiness timeout: /private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt-lifetime.ZmXVt5/measurement/setsid-parent-exit/action","double-fork-parent-exit: readiness timeout: /private/var/folders/m0/05x97cn554q6c_5n7_c1pl_r0000gn/T/brokkr-seatbelt-lifetime.ZmXVt5/measurement/double-fork-parent-exit/action","unexpected process-group outcome; investigate fixture failure or external interference before interpreting containment"],"seatbelt_activation_authorized":false,"r3_closed":false}

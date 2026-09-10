@@ -1,0 +1,19 @@
+Thu Sep 10 07:00:07 UTC 2026
+Darwin
+arm64
+7822fdccb044d11e8a0e3c1a6431feeb669262d6
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+/Library/Developer/CommandLineTools
+Apple clang version 17.0.0 (clang-1700.6.4.2)
+Target: arm64-apple-darwin25.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+rustc 1.92.0 (ded5c06cf 2025-12-08) (Homebrew)
+binary: rustc
+commit-hash: ded5c06cf21d2b93bffd5d884aa6e96934ee4234
+commit-date: 2025-12-08
+host: aarch64-apple-darwin
+release: 1.92.0
+LLVM version: 21.1.7
