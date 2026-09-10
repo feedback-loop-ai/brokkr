@@ -1309,6 +1309,430 @@ fn dsh_discovery_accepts_a_header_at_eof_without_newline() {
     assert!(read.turns.is_empty());
 }
 
+/// Every file below `root`, relative path -> bytes, with symlinks
+/// recorded as their link text. Used to prove a read changes no
+/// retained byte (7.6).
+#[cfg(unix)]
+fn snapshot_tree(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    use std::os::unix::ffi::OsStringExt;
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap())
+            .collect();
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            let path = entry.path();
+            let meta = std::fs::symlink_metadata(&path).unwrap();
+            let key = path.strip_prefix(base).unwrap().to_path_buf();
+            if meta.file_type().is_symlink() {
+                out.push((
+                    key,
+                    std::fs::read_link(&path)
+                        .unwrap()
+                        .into_os_string()
+                        .into_vec(),
+                ));
+            } else if meta.is_dir() {
+                walk(base, &path, out);
+            } else if meta.is_file() {
+                out.push((key, std::fs::read(&path).unwrap()));
+            } else {
+                // A FIFO or device is recorded by type, never opened.
+                out.push((key, b"<non-regular>".to_vec()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out
+}
+
+#[cfg(unix)]
+fn assert_retained(root: &Path, before: &[(PathBuf, Vec<u8>)]) {
+    assert_eq!(
+        snapshot_tree(root),
+        before,
+        "the read must not change retained bytes"
+    );
+}
+
+/// 7.6 — each kind searches only its own declared scope, and a read
+/// leaves the retained tree byte-for-byte unchanged.
+#[cfg(unix)]
+#[test]
+fn kind_scopes_are_closed_and_reads_retain_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // Claude: only an immediate project directory, never a nested one.
+    let projects = home.join(".claude/projects");
+    std::fs::create_dir_all(projects.join("one/nested")).unwrap();
+    let claude = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    std::fs::write(
+        projects.join("one/nested/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"deep\"}}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert_eq!(
+        read_common(&claude).unavailable,
+        Some(Unavailable::NotFound),
+        "a nested project directory is outside the immediate scope"
+    );
+    assert_retained(&home, &before);
+    std::fs::write(
+        projects.join("one/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert!(read_common(&claude).is_readable());
+    assert_retained(&home, &before);
+
+    // Codex: only below `sessions`, never beside the recorded home.
+    let codex = common("codex-thread", "0199mine", home.to_str().unwrap());
+    std::fs::write(home.join("rollout-0199mine.jsonl"), "{}\n").unwrap();
+    let before = snapshot_tree(&home);
+    assert_eq!(
+        read_common(&codex).unavailable,
+        Some(Unavailable::NotFound),
+        "a rollout beside the home is outside `<home>/sessions`"
+    );
+    assert_retained(&home, &before);
+    std::fs::create_dir_all(home.join("sessions")).unwrap();
+    std::fs::write(home.join("sessions/rollout-0199mine.jsonl"), "{}\n").unwrap();
+    let before = snapshot_tree(&home);
+    assert!(read_common(&codex).is_readable());
+    assert_retained(&home, &before);
+
+    // DSH: only below `<home>/<locator>`.
+    let dsh = common(
+        "dsh-session",
+        "sessions/brokkr/seat-222",
+        home.to_str().unwrap(),
+    );
+    let sibling = home.join("sessions/brokkr/other/project/seat");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(
+        sibling.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert_eq!(
+        read_common(&dsh).unavailable,
+        Some(Unavailable::NotFound),
+        "a sibling locator is outside the recorded seat root"
+    );
+    assert_retained(&home, &before);
+    let owned = home.join("sessions/brokkr/seat-222/project/root");
+    std::fs::create_dir_all(&owned).unwrap();
+    std::fs::write(
+        owned.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert!(read_common(&dsh).is_readable());
+    assert_retained(&home, &before);
+}
+
+/// 7.6 — the whole-token Codex predicate over the variant filenames and
+/// the 80/81-character length boundary, with the recorded home winning
+/// over a different ambient one.
+#[test]
+fn codex_whole_token_variants_and_length_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let recorded = dir.path().join("recorded");
+    let ambient = dir.path().join("ambient");
+    std::fs::create_dir_all(recorded.join("sessions")).unwrap();
+    std::fs::create_dir_all(ambient.join("sessions")).unwrap();
+    let reference = common("codex-thread", "0199mine", recorded.to_str().unwrap());
+
+    for name in ["rollout-0199other.jsonl", "rollout-0199mineX.jsonl"] {
+        std::fs::write(recorded.join("sessions").join(name), "{}\n").unwrap();
+    }
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound),
+        "only `rollout-0199mine` is a whole-token match"
+    );
+    std::fs::write(
+        recorded.join("sessions/rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(read
+        .path
+        .as_deref()
+        .unwrap()
+        .ends_with("rollout-0199mine.jsonl"));
+
+    // The recorded home, not an ambient one, decides the lookup.
+    let ambient_only = common("codex-thread", "0199mine", ambient.to_str().unwrap());
+    std::fs::write(
+        ambient.join("sessions/rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let ambient_read = read_with_home(
+        Some(&reference),
+        LegacyProvenance::Absent,
+        None,
+        Some(ambient.to_str().unwrap()),
+    );
+    assert!(ambient_read
+        .path
+        .as_deref()
+        .unwrap()
+        .starts_with(recorded.to_str().unwrap()));
+    assert_eq!(
+        read_with_home(
+            Some(&ambient_only),
+            LegacyProvenance::Absent,
+            None,
+            Some(recorded.to_str().unwrap()),
+        )
+        .path
+        .as_deref()
+        .unwrap(),
+        ambient
+            .join("sessions/rollout-0199mine.jsonl")
+            .to_str()
+            .unwrap()
+    );
+
+    // An 80-character id never matches an 81-character filename token.
+    let id80 = "a".repeat(80);
+    let boundary = common("codex-thread", &id80, recorded.to_str().unwrap());
+    std::fs::write(
+        recorded
+            .join("sessions")
+            .join(format!("rollout-{id80}a.jsonl")),
+        "{}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&boundary).unavailable,
+        Some(Unavailable::NotFound)
+    );
+    std::fs::write(
+        recorded
+            .join("sessions")
+            .join(format!("rollout-{id80}.jsonl")),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    assert!(read_common(&boundary).is_readable());
+}
+
+/// 7.6 — DSH depth ownership beyond version, and ambiguity resolved the
+/// same way in either creation order.
+#[test]
+fn dsh_depth_versions_and_both_enumeration_orders() {
+    let build = |order: [(&str, &str); 2]| {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("dsh");
+        let locator = "sessions/brokkr/seat-222";
+        let reference = common("dsh-session", locator, root.to_str().unwrap());
+        for (project, version) in order {
+            let session = root.join(locator).join(project).join("seat");
+            std::fs::create_dir_all(&session).unwrap();
+            std::fs::write(
+                session.join("session.jsonl"),
+                format!("{{\"type\":\"session\",\"delegationDepth\":0,\"version\":{version}}}\n"),
+            )
+            .unwrap();
+        }
+        let read = read_common(&reference);
+        assert_eq!(read.unavailable, Some(Unavailable::AmbiguousSource));
+        (dir, root)
+    };
+    let (dir, _) = build([("zero-first", "0"), ("one-second", "1")]);
+    drop(dir);
+    let (dir, _) = build([("one-first", "1"), ("zero-second", "0")]);
+    drop(dir);
+
+    // A version-zero root alone is eligible; a version-one root with a
+    // delegated or mistyped-depth sibling does not outrank it.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/brokkr/seat-222";
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    let write = |project: &str, header: &str| {
+        let session = root.join(locator).join(project).join("seat");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("session.jsonl"), format!("{header}\n")).unwrap();
+    };
+    write(
+        "root",
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}",
+    );
+    write(
+        "delegated",
+        "{\"type\":\"session\",\"delegationDepth\":1,\"version\":1}",
+    );
+    write(
+        "stringy",
+        "{\"type\":\"session\",\"delegationDepth\":\"zero\",\"version\":1}",
+    );
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "the version-zero root remains unique: {read:?}"
+    );
+    assert!(read.path.as_deref().unwrap().contains("/root/"));
+}
+
+/// 7.6 — a spent discovery bound outranks a provisional match, and an
+/// oversized DSH opening record is refused without allocating it.
+#[test]
+fn discovery_limit_outranks_a_provisional_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("winning")).unwrap();
+    std::fs::write(
+        projects.join("winning/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"late\"}}\n",
+    )
+    .unwrap();
+    for index in 0..10_001 {
+        std::fs::write(projects.join(format!("filler-{index:05}")), b"x").unwrap();
+    }
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::DiscoveryLimit),
+        "the bound outranks the one provisional candidate"
+    );
+}
+
+/// 7.6 — symlinks and a FIFO supply no content, a non-Unicode path is
+/// unreadable rather than lossily spelled, and every refusal retains bytes.
+#[cfg(unix)]
+#[test]
+fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(root.join("one")).unwrap();
+    let reference = common("claude-session", "abcd-1234", root.to_str().unwrap());
+    let body =
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"real\"}}\n";
+    std::fs::write(root.join("one/abcd-1234.jsonl"), body).unwrap();
+
+    // A symlink inside the recognised scope, pointing within the root.
+    std::fs::create_dir_all(root.join("two")).unwrap();
+    std::os::unix::fs::symlink(
+        root.join("one/abcd-1234.jsonl"),
+        root.join("two/abcd-1234.jsonl"),
+    )
+    .unwrap();
+    let before = snapshot_tree(&root);
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "the safe regular file still wins");
+    assert!(read.path.as_deref().unwrap().contains("/one/"));
+    assert_retained(&root, &before);
+
+    // With only the symlink left, the lookup is unsafe and supplies no
+    // content, and a symlink escaping the root is the same refusal.
+    let outside = dir.path().join("outside.jsonl");
+    std::fs::write(&outside, body).unwrap();
+    std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
+    std::fs::remove_file(root.join("two/abcd-1234.jsonl")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("one/abcd-1234.jsonl")).unwrap();
+    let before = snapshot_tree(&root);
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::UnsafePath), "{read:?}");
+    assert_retained(&root, &before);
+
+    // A FIFO is not a transcript file and cannot block the read.
+    std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
+    let fifo = std::ffi::CString::new(root.join("one/abcd-1234.jsonl").to_str().unwrap()).unwrap();
+    let fifo_rc = unsafe { libc_mkfifo(fifo.as_ptr()) };
+    assert_eq!(fifo_rc, 0, "the test can create a FIFO");
+    let before = snapshot_tree(&root);
+    let read = read_common(&reference);
+    assert!(
+        read.unavailable.is_some() && !read.is_readable(),
+        "a FIFO supplies no transcript content: {read:?}"
+    );
+    assert_retained(&root, &before);
+
+    // A non-Unicode directory name makes uniqueness unknowable.
+    std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
+    let bad = root.join(std::ffi::OsString::from_vec(vec![b'b', 0xff, b'd']));
+    std::fs::create_dir_all(&bad).unwrap();
+    std::fs::write(bad.join("abcd-1234.jsonl"), body).unwrap();
+    let before = snapshot_tree(&root);
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    assert_retained(&root, &before);
+}
+
+// Read a FIFO creation through libc without adding a crate: `libc` is
+// already an indirect dependency, so the symbol is declared here.
+#[cfg(unix)]
+unsafe extern "C" {
+    #[link_name = "mkfifo"]
+    fn libc_mkfifo(path: *const std::os::raw::c_char) -> std::os::raw::c_int;
+}
+
+/// 7.6 — a held handle keeps the verified bytes when the leaf or an
+/// ancestor path is replaced between discovery and read.
+#[cfg(unix)]
+#[test]
+fn held_handles_survive_ancestor_and_leaf_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("session.jsonl"), "original\n").unwrap();
+
+    let root_handle = safe_fs::Dir::open_root(root.to_str().unwrap()).unwrap();
+    let project_handle = match root_handle.child(std::ffi::OsStr::new("project")).unwrap() {
+        safe_fs::Child::Dir(dir) => dir,
+        _ => panic!("the project opens as a directory"),
+    };
+    let held = match project_handle
+        .child(std::ffi::OsStr::new("session.jsonl"))
+        .unwrap()
+    {
+        safe_fs::Child::File(file) => file,
+        _ => panic!("the transcript opens as a regular file"),
+    };
+
+    // Replace the leaf path: the held file handle keeps the original
+    // inode and bytes.
+    std::fs::remove_file(project.join("session.jsonl")).unwrap();
+    std::fs::write(project.join("session.jsonl"), "replacement\n").unwrap();
+    let (bytes, _, _) = held.read_bounded(1024).unwrap();
+    assert_eq!(std::str::from_utf8(&bytes).unwrap(), "original\n");
+
+    // Replace the ancestor path: the held directory handle still reaches
+    // the original directory, now renamed, and never the impostor.
+    std::fs::rename(&project, root.join("moved")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("session.jsonl"), "impostor\n").unwrap();
+    match project_handle
+        .child(std::ffi::OsStr::new("session.jsonl"))
+        .unwrap()
+    {
+        safe_fs::Child::File(after) => {
+            let (bytes, _, _) = after.read_bounded(1024).unwrap();
+            assert_eq!(std::str::from_utf8(&bytes).unwrap(), "replacement\n");
+        }
+        _ => panic!("the held directory still opens the retained file"),
+    }
+}
+
 // =========================================================================
 // The browser participant controller (D9/D11). The exact marker-delimited
 // controller bytes served from `PAGE` are extracted and evaluated with the

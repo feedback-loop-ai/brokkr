@@ -18,6 +18,15 @@ mod selector;
 mod tui;
 mod ui;
 
+// Test seams for the 11.2 cross-surface proof: the same local reader,
+// HTTP handler and TUI renderers the binary serves, reachable from the
+// integration test. Hidden from documentation and not part of the CLI's
+// supported surface.
+#[doc(hidden)]
+pub use tui::transcript_surfaces_for_test;
+#[doc(hidden)]
+pub use ui::{handle, read_local, Response};
+
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;

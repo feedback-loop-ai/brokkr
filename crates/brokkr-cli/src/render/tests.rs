@@ -1170,3 +1170,35 @@ fn the_transcript_text_names_turns_and_sanitizes_content() {
     let text = transcript("run-7", "review:chief", &empty, None, &Style::plain(80));
     assert!(text.contains("no readable turns — transcript truncated (size cap)"));
 }
+
+/// A readable zero-turn Codex projection keeps its own kind hint and the
+/// shared unknown-record notice in the text face (8.8).
+#[test]
+fn a_readable_zero_turn_codex_keeps_its_hint_and_notice() {
+    let reference = brokkr_view::Transcript {
+        kind: "codex-thread".to_string(),
+        locator: "0199mine".to_string(),
+        home: "/retained/codex".to_string(),
+    };
+    let read = brokkr_view::transcript::TranscriptRead::readable(
+        Some(reference),
+        false,
+        brokkr_view::transcript::TranscriptKind::CodexThread,
+        Some("/retained/codex/sessions/rollout-0199mine.jsonl".to_string()),
+        Vec::new(),
+        false,
+        0,
+        1,
+    );
+    let text = transcript("run-7", "review:chief", &read, None, &Style::plain(80));
+    assert!(text.contains("kind  codex-thread"), "{text}");
+    assert!(text.contains("no readable turns"), "{text}");
+    assert!(
+        text.contains("notice unrecognized transcript records: 1"),
+        "{text}"
+    );
+    assert!(
+        text.contains("full session: \"/retained/codex/sessions/rollout-0199mine.jsonl\""),
+        "{text}"
+    );
+}

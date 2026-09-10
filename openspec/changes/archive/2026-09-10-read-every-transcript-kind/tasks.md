@@ -439,7 +439,7 @@ task:
       caller — the HTTP routes, the TUI and the new command — through
       the shared reference/discovery/read path — transcript-reading /
       Discovery identifies one owned local file.
-- [ ] 7.6 Tests in `crates/brokkr-cli/src/ui/tests.rs` over synthetic
+- [x] 7.6 Tests in `crates/brokkr-cli/src/ui/tests.rs` over synthetic
       test-owned homes: the three per-kind scopes; `rollout-0199mine`,
       `rollout-0199other` and `rollout-0199mineX` with only the first
       eligible; an 80-character recorded id against an 81-character
@@ -503,7 +503,7 @@ task:
       failures exit nonzero with empty stdout even under `--json` —
       transcript-command / Text output and errors report the same bounded
       result.
-- [ ] 8.8 Tests in `crates/brokkr-cli/src/render/tests.rs` and a new
+- [x] 8.8 Tests in `crates/brokkr-cli/src/render/tests.rs` and a new
       `crates/brokkr-cli/tests/transcript_command.rs`: `--run latest
       --seat review:chief`; a repeated label listing both keys; a panel
       parent reporting `no-reference` while the member key reads its
@@ -515,7 +515,7 @@ task:
       4` over a packed row's members and its ordinary equivalent — transcript-command /
       The transcript command selects one run and participant; Turn
       selection addresses the displayed sequence.
-- [ ] 8.9 JSON and text state tests in the same file: the five rejected
+- [x] 8.9 JSON and text state tests in the same file: the five rejected
       common references with their reasons and preserved strings; a
       header-less Codex rollout of only `turn_context` exiting zero with
       its confirmed path and hint; empty versus missing; five ignorable
@@ -785,7 +785,7 @@ task:
       is started by any read or hint; and terminal output is sanitized
       while JSON keeps escaped strings — transcript-reading / Transcript
       prose stays local and inert.
-- [ ] 11.2 Prove one derivation in
+- [x] 11.2 Prove one derivation in
       `crates/brokkr-cli/tests/transcript_surfaces.rs`, comparing each
       surface only where it is authorized to carry content: for one
       synthetic source of each kind, the command's whole read, its
@@ -847,12 +847,19 @@ task:
 - [x] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
       bundles/self` and the same for `bundles/verify` both compile —
       every requirement of this change.
-- [ ] 13.5 `scripts/coverage-exact.sh`, unchanged and never lowered, at
+- [x] 13.5 `scripts/coverage-exact.sh`, unchanged and never lowered, at
       literal 100% of lines and branches with `TMPDIR=/var/tmp` and
       `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; inside a nested sandbox that
       refuses the boundary tests, record the host proof as pending for
       the controller and never report a skipped boundary test as evidence —
       every requirement of this change.
+      Host proof pending: this box refuses non-privileged user
+      namespaces (`bwrap`/`unshare` report "no permissions to create new
+      namespace"), and `/var/tmp` is read-only. The unchanged gate must be
+      run on a host that can create the boundary namespace; the
+      contiguous whole-workspace run here shows exactly one failure,
+      `machine_proof::dialect_validate_expands_the_chiefs_change_and_records_tool_evidence`,
+      whose boxed dialect gate needs that namespace.
 - [x] 13.6 Before the commit, validate the changed dependency graph with Rust
       1.88 using
       `cargo check --workspace --all-targets --all-features --locked`, so the
@@ -869,7 +876,7 @@ task:
       `fixtures/` — and that the only decision file added is proposed
       0055 with its single registry row — every requirement of this
       change.
-- [ ] 13.8 Fold the change into the living truth with the dialect's
+- [x] 13.8 Fold the change into the living truth with the dialect's
       archive operation, `openspec archive read-every-transcript-kind
       --yes`, so the three deltas seed `openspec/specs/`; append under
       each touched capability's `## Provenance` heading the one pointer
@@ -879,7 +886,7 @@ task:
       without rewriting an existing line, and re-run
       `openspec validate --archived --strict --no-interactive` — every
       requirement of this change.
-- [ ] 13.9 Commit the work unsigned in the repository's message style,
+- [x] 13.9 Commit the work unsigned in the repository's message style,
       and never push, merge, close the issue or start another run: the
       controller owns integration, host proof, PR, CI and delivery —
       every requirement of this change.

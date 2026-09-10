@@ -686,7 +686,13 @@ fn stream_len(tui: &Tui, views: &Views) -> usize {
 /// APPENDS turns, so an index is a stable key, and the cursor survives an
 /// appending refresh by the same absence of code as every other list.
 fn turn_keys(views: &Views) -> Vec<String> {
-    let count = views.transcript.as_ref().map_or(0, |read| read.turns.len());
+    turn_keys_of(views.transcript.as_ref())
+}
+
+/// The pane's turn keys for one read; the pane and the 11.2 cross-surface
+/// comparison share this exact enumeration.
+fn turn_keys_of(read: Option<&TranscriptRead>) -> Vec<String> {
+    let count = read.map_or(0, |read| read.turns.len());
     (0..count).map(|index| index.to_string()).collect()
 }
 
@@ -764,6 +770,22 @@ fn transcript_text(read: &TranscriptRead) -> String {
         parts.push(safe(hint));
     }
     parts.join("\n\n")
+}
+
+/// The exact pane keys, one selected-turn door and the whole-transcript
+/// door for one shared read, through the same renderers the TUI paints.
+/// The 11.2 cross-surface proof compares these against the command and
+/// the HTTP body without a second renderer.
+#[doc(hidden)]
+pub fn transcript_surfaces_for_test(
+    read: &TranscriptRead,
+    selected: Option<usize>,
+) -> (Vec<String>, String, String) {
+    let selected = selected
+        .filter(|index| *index < read.turns.len())
+        .map(|index| turn_overlay_text(index + 1, &read.turns[index], read))
+        .unwrap_or_default();
+    (turn_keys_of(Some(read)), selected, transcript_text(read))
 }
 
 fn step(tui: &mut Tui, views: &Views, step: Step) {
