@@ -1138,7 +1138,12 @@ fn claude_discovery_is_scoped_and_refuses_symlinks() {
     assert!(read.is_readable(), "the safe regular file wins: {read:?}");
     assert_eq!(
         read.path.as_deref().unwrap(),
-        projects.join("one/abcd-1234.jsonl").to_str().unwrap()
+        projects
+            .join("one/abcd-1234.jsonl")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
     );
 
     // A symlink-only lookup that also hides the real file is unsafe-path.
@@ -1540,7 +1545,7 @@ fn codex_whole_token_variants_and_length_boundary() {
         .path
         .as_deref()
         .unwrap()
-        .starts_with(recorded.to_str().unwrap()));
+        .starts_with(recorded.canonicalize().unwrap().to_str().unwrap()));
     assert_eq!(
         read_with_home(
             Some(&ambient_only),
@@ -3276,7 +3281,7 @@ fn a_symlinked_home_is_canonicalized_and_readable() {
         read.path
             .as_deref()
             .unwrap()
-            .starts_with(real.to_str().unwrap()),
+            .starts_with(real.canonicalize().unwrap().to_str().unwrap()),
         "the confirmed path is canonical: {read:?}"
     );
 }

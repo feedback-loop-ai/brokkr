@@ -159,7 +159,7 @@ fn write_dsh_body(world: &World, locator: &str, body: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, body).unwrap();
-    file.to_str().unwrap().to_string()
+    file.canonicalize().unwrap().to_str().unwrap().to_string()
 }
 
 fn claude_reference(world: &World, id: &str) -> Value {
@@ -209,7 +209,7 @@ fn write_claude(world: &World, id: &str, body: &str) -> String {
     std::fs::create_dir_all(&project).unwrap();
     let file = project.join(format!("{id}.jsonl"));
     std::fs::write(&file, body).unwrap();
-    file.to_str().unwrap().to_string()
+    file.canonicalize().unwrap().to_str().unwrap().to_string()
 }
 
 /// The id guard rejects a leading hyphen before any path is formed.
@@ -386,7 +386,7 @@ fn write_codex(world: &World, id: &str, body: &str) -> String {
     std::fs::create_dir_all(&sessions).unwrap();
     let file = sessions.join(format!("rollout-{id}.jsonl"));
     std::fs::write(&file, body).unwrap();
-    file.to_str().unwrap().to_string()
+    file.canonicalize().unwrap().to_str().unwrap().to_string()
 }
 
 fn write_dsh(world: &World, locator: &str, header: &str) -> String {
@@ -394,7 +394,7 @@ fn write_dsh(world: &World, locator: &str, header: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, format!("{header}\n")).unwrap();
-    file.to_str().unwrap().to_string()
+    file.canonicalize().unwrap().to_str().unwrap().to_string()
 }
 
 /// A Codex rollout needs no header: a `turn_context`-only file is a
