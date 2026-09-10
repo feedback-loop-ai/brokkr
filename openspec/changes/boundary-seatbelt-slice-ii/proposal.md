@@ -185,6 +185,27 @@ data-volume spelling: `/etc/passwd` alone, through one control. The
 candidate's rule units do not change, so its startup stays pending the same
 native Gate A.
 
+The specify visit on `d1d714d` found one clause from `353818d` that the later
+visits had left unsatisfiable. It said an exec-side refusal of the helper
+under another spelling "corrects that input's canonical spelling rather than
+admitting a new grant". Since `48b6f9d`, the observer must canonicalize the
+helper to exactly its input with no fallback. The data-volume rule refuses any
+unit on the volume, and `d1d714d` refuses any exec outside the seven process
+units in either half. So no rule could admit the promised correction, and the
+clause named no residual. This visit makes it fail closed. Such a refusal fails
+the cell on its own startup facts. It admits nothing, it changes neither
+`<helper>` nor the ledger, and it records the named startup residual
+`SEATBELT-R3-STARTUP-helper-respelling`. Changing the helper's spelling needs
+a focused proposed decision. The helper re-executes itself only through the
+validated `<helper>` spelling, which the observer passes as a launch argument,
+and never through `current_exe`. The observer stages `<helper>` as a
+single-link copy of the committed build. Every other spelling of the helper's
+file is then a symlink spelling, which Seatbelt never matches, or a
+data-volume spelling, which every class already refuses. The staged file has
+no second hard-link name, the one respelling no string rule could tie to the
+helper. The candidate's rule units do not change, so its startup stays pending
+the same native Gate A.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -248,6 +269,11 @@ measured, as accepted decision 0046 requires.
   cell that reaches `READY` before that cell can pass. Each removal is a direct
   `sandbox-exec` replay of the cell's own profile, S3 included. A cell without
   `READY` records its removals as not due and fails on its own startup facts.
+  The helper re-executes itself only through its validated `<helper>`
+  spelling, passed as a launch argument, from a single-link staged copy of the
+  committed build. An exec-side refusal of the helper under another spelling
+  fails the cell, admits nothing and records the startup residual
+  `SEATBELT-R3-STARTUP-helper-respelling`.
 - Account for every rule of the experimental template in one typed
   startup-rule ledger. A baseline entry names a hands element, an execution
   input or a probe-harness need. A diagnosis-admitted entry names its
@@ -351,9 +377,10 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved starting HEAD `a66b559`, which is measured candidate `fa7ece5` plus
+preserved starting HEAD `d1d714d`, which is measured candidate `fa7ece5` plus
 its specification reconciliations `098914c`, `c84502d`, `5dca1d0`, `353818d`,
-`d63cddf` and `a66b559`; `225d2c7`, `8c53dce`, `9f4c2c9` and their
+`d63cddf`, `a66b559`, `48b6f9d`, `98984dd` and `d1d714d`, with design
+`80d9736` and tasks `a633f13` between them; `225d2c7`, `8c53dce`, `9f4c2c9` and their
 native measurements remain historical evidence, not checkout targets. It answers the
 current findings in dependency order. The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
@@ -391,6 +418,7 @@ authored in this specify phase. No workflow runner is invoked.
 | Host-toolchain `/private` spelling (clarify, `48b6f9d`) | **Adopt a fixed spelling set per source and a whole-volume data rule.** `48b6f9d` required the cell root and helper in their `/private` spelling and listed control targets in both spellings. It compared host-toolchain sources only directly. For the six `/etc` sources in `HOST_TOOLCHAIN_BINDS` that is fail-open. The cell root `/private/etc/ssl/brokkr-cell` passed validation and received the payload write, and a non-toolchain `(subpath "/private/etc/ssl")` or `(literal "/private/etc/ld.so.cache")` passed the cover rule. That contradicted the no-respelling ruling and the requirement that protections hold through macOS path aliases. Each source now has a spelling set from one fixed, host-independent map: the direct spelling, plus the `/private`-prefixed spelling when the first component is `etc`, `var` or `tmp`. The canonical-spelling rule and the control-target list use the same map. Cell-root validation and the cover rule, in normalized and concrete form, compare with every spelling, and a refusal names the source and the spelling it matched. The toolchain anchor still reads only the direct spelling, so no grant widens and no toolchain unit changes. An `/etc` toolchain unit would match nothing on macOS, and admitting its `/private` spelling waits for the focused decision under `SEATBELT-R3-STARTUP-toolchain-respelling`. The data-volume rule had two readings: "`/System/Volumes/Data` joined with that source" gave `/System/Volumes/Data/etc/ssl`, not the real `/System/Volumes/Data/private/etc/ssl`, while the refusal list read as any path under the volume. It now refuses every unit on or under `/System/Volumes/Data` and every `subpath` that contains it, in both places. That subsumes each source's data-volume spelling, matches the cell-root clause and makes the helper scenario hold on its only reading. Excluding the `/etc` sources from the comparison is refuted: no reason permits a cell root or a non-toolchain grant under a toolchain bind's resolved image. Extending helper validation to toolchain and control targets is not adopted either. It would contradict the settled scenario in which such a helper passes validation and the concrete cover rule refuses its units. The candidate's rule units, the settled answers and the namespace argv are unchanged. | `seatbelt-execution`: A host-toolchain source is compared in its /private spelling; A toolchain source's /private spelling cannot enter under another class; Nothing on or under the data volume enters under any class |
 | Hands-element anchors ignore the operation (analyze, `a633f13`) | **Adopt a two-part anchor for every baseline entry.** Every anchor tested only a unit's target, and only the shell anchor carried an operation. A baseline device-set `(allow file-write-data (literal "/dev/null"))` therefore passed with no removal entry. It is a literal on exactly `/dev/null`, off the data volume and clear of every toolchain source and control target. That contradicted the scenario in which the equality passes only with the diagnosis-admitted entry and its removal, and it bypassed the discipline for the very predicate the child-spawn cells may attribute. A toolchain `(allow file-write* (subpath "/usr/local"))` or a system-library `(allow file-write* (subpath "/System/Library"))` also passed, granting writes the box binds read-only. Each anchor now has an operation part and a target part, and operations match by exact name. A toolchain unit admits `file-read*`, and `process-exec` only on the five program binds `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`. System-library and device-set units admit `file-read*`. The writable worktree is `file-write*` on `<payload-root>`, the baseline's only write. The shell is `process-fork` alone. The execution-input kind is `file-read*` or `process-exec` on the `<helper>` literal. The probe-harness kind is `file-read*` on `<cell-root>/inputs` or `<payload-root>`. Anchoring only the five elements is refuted, because the bypass would move into the other two kinds. The check also refuses a `process-*` unit outside the seven in either half. That makes checkable what the delta already stated, that no other process operation is in the candidate. A process attribution outside the seven stays evidence. Family-prefix matching is refuted, because it would read `file-write-data` as covered by `file-write*`. The diagnosis-admitted half keeps its single-object filter, evidence and `READY`-observed removal as its bound, with no element anchor. Every candidate unit passes, so no unit changes. | `seatbelt-execution`: Every candidate baseline entry passes its two-part anchor; A baseline /dev/null write fails the operation anchor; A write on a read-only bind fails its element's operation anchor; Exec and fork are anchored to named targets; The execution-input and probe-harness kinds are anchored; An operation matches its anchor by exact name; The candidate's process authority is seven named units |
 | Data-volume credential targets (analyze, `a633f13`) | **`/etc/passwd` alone.** The delta said "the credential targets" had a data-volume spelling, but it named a single data-volume control. The design and the task give one control, on `/etc/passwd`. `/etc/passwd` is the only credential target with a data-volume spelling and control. Its path `/System/Volumes/Data/private/etc/passwd` is its own entry in the check's control-target list. `/etc/hosts` keeps its direct and `/private` spellings only. A data-volume member for every credential target is refuted, because the whole-volume rule already refuses every unit there and no verdict would change. | `seatbelt-execution`: The data-volume spelling of a credential stays denied |
+| Helper respelling vs the canonical helper input (specify, `d1d714d`) | **Fail closed with a named residual.** The child-spawn clause from `353818d` said an exec-side refusal of the helper under another spelling "corrects that input's canonical spelling rather than admitting a new grant". Since `48b6f9d` the observer must canonicalize the helper to exactly its input, with no fallback. The data-volume rule refuses any unit on the volume, and since `d1d714d` the check refuses any exec outside the seven process units in either half. No rule admitted the promised correction, and the clause named no residual. Such a refusal now fails the cell on its own startup facts. It admits nothing in either half and changes neither `<helper>` nor the ledger. It records `SEATBELT-R3-STARTUP-helper-respelling` with its evidence, and changing the helper's spelling needs a focused proposed decision. The helper re-executes itself only through the validated `<helper>` spelling, which the observer passes as a launch argument. Re-executing through `current_exe` is refuted: its spelling is whatever the kernel reports, which is not the input the check validated. The claim that the argv spelling does not matter is refuted too. A symlink spelling resolves to the same path, but a second hard-link name does not, and cargo normally hard-links the binary it uplifts, so the probe's built helper has one. So the observer stages `<helper>` as a single-link copy of the committed build, with equal digests, under the per-run probe root and outside every cell root. Every other spelling of the helper's file is then a symlink spelling, which Seatbelt never matches, or a firmlink spelling on the data volume, which every class refuses. An observer refusal of each diagnosis-admitted literal by file identity is refuted. It could not reach a system-library correction's `subpath`, which may contain a second link name, without an unbounded walk. A typed alternative helper spelling is refuted for the reasons that refuted a respelled toolchain unit. The candidate's rule units do not change. | `seatbelt-execution`: An exec-side refusal of the helper under another spelling admits nothing; The helper re-executes through its validated spelling; The observer establishes what the string check cannot |
 | Historical template authority | **Withdraw or narrow; never grandfather.** No 0043 element justifies the unfiltered process family, self-signal, `/Library`, host `/private/tmp`, the whole cell root, `sysctl-read` or `ipc-posix-shm`. `/System` also contains `/System/Volumes/Data`. Each is narrowed to a justified unit or withdrawn, and a withdrawn unit re-enters only through a labelled restoration diagnostic, native single-object attribution and its own removal control. A `/System/Volumes/Data` credential-read denial control is added. | `seatbelt-execution`: A withdrawn unit returns only through the bounded experiment; The data-volume spelling of a credential stays denied |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
@@ -494,6 +522,13 @@ with inherited or pre-opened stdio, a spawn with null stdio, and one literal
 `(allow file-write-data (literal "/dev/null"))` diagnostic. None of these cells
 passes startup. If none attributes the refusal, sub-stage and denial evidence
 must name the exec-side operation and target before any predicate is proposed.
+The helper re-executes itself only through its validated `<helper>` spelling,
+which the observer passes as a launch argument, never through `current_exe`.
+The observer stages `<helper>` as a single-link copy of the committed build.
+An exec-side refusal of the helper under another resolved spelling fails the
+cell, admits nothing in either half and changes neither `<helper>` nor the
+ledger. It records the startup residual `SEATBELT-R3-STARTUP-helper-respelling`,
+and changing the helper's spelling needs a focused proposed decision.
 An admitted child-spawn predicate is literal-scoped and has its own removal
 control, and every denial control reruns on the resulting candidate. Each
 Seatbelt cell that reaches `READY` carries an observed blocking removal
@@ -536,7 +571,8 @@ inputs, validated before normalization. A toolchain unit targets its bind
 source in the direct spelling only. No other unit may cover the source in its
 direct or its `/private` spelling, and no unit may target anything on or under
 `/System/Volumes/Data`. A toolchain denial under another spelling is a named
-startup residual that needs a proposed decision. Reads cover `/usr/bin`,
+startup residual that needs a proposed decision, and so is an exec-side
+refusal of the helper under another spelling. Reads cover `/usr/bin`,
 `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`, `/bin` and `/sbin`,
 and execs cover the program binds among them. `/System/Library` and the OS
 cryptex, the helper, the typed inputs and payload roots, and the box's device

@@ -406,13 +406,47 @@ plus exactly one named literal-scoped diagnostic
 SHALL NOT pass a startup verdict. If none of them attributes the refusal, the
 spawn/exec sub-stage error and native denial evidence SHALL name the exec-side
 operation and target, such as a `process-exec` or file read of the resolved
-helper path, before any predicate is proposed. The ledger's baseline already
-names the helper as an execution input, so an exec-side refusal of the helper
-under another spelling corrects that input's canonical spelling rather than
-admitting a new grant. A child-spawn predicate enters the candidate only when
+helper path, before any predicate is proposed.
+The ledger's baseline already names the helper as an execution input, on
+exactly the validated `<helper>` spelling. Every stage starts the helper at
+that spelling: as the program `sandbox-exec` runs in a Seatbelt cell, in the
+job's program arguments under launchd, and by direct exec in the unboxed
+control. The observer also passes that spelling to the helper as an explicit
+launch argument. The helper re-executes itself for its ordinary child and
+for every descendant role through exactly that argument. It never re-executes through `current_exe`,
+`argv[0]` or any path it resolves itself. The only exec path it names is
+therefore the one the check validated and the observer canonicalized.
+An exec-side refusal of the helper under another resolved spelling fails the
+cell on its own startup facts. It admits nothing in either half, and it
+changes neither `<helper>` nor the ledger. The cell records the named startup
+residual `SEATBELT-R3-STARTUP-helper-respelling` with that evidence. Changing
+the helper's spelling, or admitting anything under another spelling of it,
+requires a focused proposed decision.
+The observer stages `<helper>` as a single-link file, as an observer duty of
+the ledger requirement below. So the helper's file has no second hard-link
+name, and every other spelling of it is one of two kinds. A unit on a symlink
+spelling grants nothing on the helper's file, because Seatbelt matches
+resolved paths.
+Every firmlink macOS resolves maps into `/System/Volumes/Data`, and the
+unprivileged probe mounts nothing. So any other resolved spelling lies on or
+under the data volume. The check refuses each way such a spelling could
+enter:
+
+- an exec of it, in either half, fails the rule that refuses a `process-*`
+  unit outside the seven process units;
+- a unit of either half on or under `/System/Volumes/Data`, whatever its
+  class, fails the data-volume rule. A `<helper>` input replaced by a
+  data-volume spelling fails the same rule through the concrete form of its
+  `<helper>` units.
+
+The observer derives `<helper>` only from the committed helper build, never
+from denial evidence or an earlier cell.
+A child-spawn predicate enters the candidate only when
 this evidence attributes the refusal to it, only in literal-scoped form and
 only as a diagnosis-admitted ledger entry with its own removal control; every
-denial control SHALL rerun on the resulting candidate. The spawn SHALL NOT be
+denial control SHALL rerun on the resulting candidate. An attribution to a
+`process-*` operation outside the seven process units stays evidence and does
+not enter. The spawn SHALL NOT be
 cured by a `/dev` subpath, a broad `file-write*`, any process unit other than
 the seven the ledger lists (`process-fork` and six `process-exec` units), or
 any Mach/IPC, service or network grant.
@@ -637,7 +671,7 @@ verdict. Gate B was correctly not run.
 
 #### Scenario: A named child-spawn predicate is literal-scoped and removable
 - **WHEN** the discriminating cells attribute the child-spawn refusal to one operation and target
-- **THEN** only that literal-scoped predicate enters the candidate, its own removal control strips exactly it and observes the identical payload fail closed, every denial control reruns, and no `/dev` subpath, broad `file-write*` or wider process, Mach/IPC, service or network grant is admitted
+- **THEN** only that literal-scoped predicate enters the candidate, its own removal control strips exactly it and observes the identical payload fail closed, every denial control reruns, and no `/dev` subpath, broad `file-write*` or wider process, Mach/IPC, service or network grant is admitted; an attribution to a `process-*` operation outside the seven process units, or to the helper under another spelling, stays evidence and enters neither half
 
 ### Requirement: The experimental startup template is an audited rule ledger
 
@@ -767,7 +801,13 @@ and record them in the cell's report:
   the invoking user;
 - canonicalizing the cell root and the helper returns exactly the input
   spelling;
-- the helper is a regular file, and the report records its digest.
+- the helper is the observer's staged copy of the committed helper build. The
+  observer copies the build's bytes into a file it creates exclusively under
+  the per-run probe root and outside every cell root. The staged file is a
+  regular file owned by the invoking user with exactly one link. Its digest
+  equals the build's digest, and the report records both. A build file with a
+  second hard link, such as the name a build tool keeps under another
+  directory, is never itself `<helper>`.
 
 A canonicalization that fails or returns another spelling fails the cell
 before `sandbox-exec` runs. The uncanonical spelling is never kept as a
@@ -927,7 +967,7 @@ The candidate this change prepares carries these baseline entries:
 | Rule unit | Kind | Justification |
 |---|---|---|
 | `(allow process-fork)` | hands element | 0043 ruling 1 runs each call as `bash -lc`, whose commands fork children. The probe's consumers are the ordinary child and the `setsid` and double-fork descendants. |
-| `(allow process-exec (literal "<helper>"))` | execution input | `sandbox-exec` executes the exact helper under the profile. The helper re-executes itself for its child and descendant roles. |
+| `(allow process-exec (literal "<helper>"))` | execution input | `sandbox-exec` executes the exact helper under the profile, at the validated `<helper>` spelling. The helper re-executes itself for its child and descendant roles through that same spelling, which it receives as a launch argument. |
 | `(allow process-exec (subpath "/usr/bin"))` | hands element | The `/usr/bin` toolchain bind, whose programs 0043 ruling 1 lets `bash -lc` run. |
 | `(allow process-exec (subpath "/usr/libexec"))` | hands element | The `/usr/libexec` toolchain bind, which holds helper programs the toolchain runs. |
 | `(allow process-exec (subpath "/usr/local"))` | hands element | The `/usr/local` toolchain bind, where host-installed programs live. |
@@ -1167,7 +1207,7 @@ candidate.
 - **THEN** the check takes none of those values and returns the same verdict on the candidate every time; each rendered argv's `--ro-bind-try` sources are exactly the host-toolchain set, the home-expanded declared `ro` binds and, when a common directory is present, `<common>/config`, and nothing else; and the namespace argv is byte-identical to its form before the item was named
 
 #### Scenario: A mis-instantiated cell root fails before normalization
-- **WHEN** the concrete cell root is `/`; `/usr`, which contains host-toolchain sources; `/private/etc`, a parent of the credential target; `/private/tmp`, a parent of the host-write target; `/Users/runner` while the helper is `/Users/runner/work/brokkr/brokkr/target/debug/seatbelt-probe-helper`; or `/System/Volumes/Data/private/var/folders/xy/T/brokkr-seatbelt-probe-1/startup-1-s1`, a data-volume spelling
+- **WHEN** the concrete cell root is `/`; `/usr`, which contains host-toolchain sources; `/private/etc`, a parent of the credential target; `/private/tmp`, a parent of the host-write target; `/Users/runner` while the helper is `/Users/runner/brokkr-seatbelt-probe-1/bin/seatbelt-probe-helper`; or `/System/Volumes/Data/private/var/folders/xy/T/brokkr-seatbelt-probe-1/startup-1-s1`, a data-volume spelling
 - **THEN** the check fails before it rewrites any string, names the offending input and a rule it breaks, and no unit reaches the equality
 
 #### Scenario: The payload and inputs layout is fixed
@@ -1200,8 +1240,17 @@ candidate.
 - **THEN** the check fails and names the unit and `/System/Volumes/Data`, whatever class, element or kind the ledger records for it; the committed system-library targets `/System/Library` and `/System/Volumes/Preboot/Cryptexes/OS` are neither under nor containing `/System/Volumes/Data` and still pass
 
 #### Scenario: The observer establishes what the string check cannot
-- **WHEN** a native Seatbelt cell's root already exists before the observer creates it, is not owned by the invoking user, or canonicalizes to a spelling other than its input, or the helper is not a regular file or canonicalizes to another spelling
-- **THEN** the cell fails before `sandbox-exec` runs, the report names the observer duty that failed, the uncanonical spelling is not kept as a fallback, and the host-independent check is recorded as proving none of these facts
+- **WHEN** a native Seatbelt cell's root already exists before the observer creates it, is not owned by the invoking user, or canonicalizes to a spelling other than its input, or the helper is not a regular file, canonicalizes to another spelling, has more than one link, is not the observer's exclusively created staged copy or has a digest other than the committed build's
+- **THEN** the cell fails before `sandbox-exec` runs, the report names the observer duty that failed, the uncanonical spelling is not kept as a fallback, the build's own hard-linked file is never used as `<helper>`, and the host-independent check is recorded as proving none of these facts
+
+#### Scenario: An exec-side refusal of the helper under another spelling admits nothing
+- **GIVEN** a Seatbelt cell whose validated `<helper>` is the staged `/private/var/folders/xy/T/brokkr-seatbelt-probe-1/bin/seatbelt-probe-helper`
+- **WHEN** its spawn/exec sub-stage fails and native denial evidence names `process-exec` or a file read of the helper as `/System/Volumes/Data/private/var/folders/xy/T/brokkr-seatbelt-probe-1/bin/seatbelt-probe-helper`
+- **THEN** the cell fails on its own startup facts and records the startup residual `SEATBELT-R3-STARTUP-helper-respelling` with that evidence; a diagnosis-admitted `(allow process-exec (literal ...))` of that spelling fails the process rule and the data-volume rule, a diagnosis-admitted `(allow file-read* (literal ...))` of it or a system-library correction to it fails the data-volume rule, and a `<helper>` input replaced by that spelling fails the data-volume rule through the concrete form of its `<helper>` units; `<helper>` and the ledger stay unchanged, and changing the helper's spelling waits for a focused proposed decision
+
+#### Scenario: The helper re-executes through its validated spelling
+- **WHEN** the helper spawns its ordinary child, or a `setsid`, double-fork or other descendant role, under any cell
+- **THEN** each exec names exactly the `<helper>` spelling the observer passed as its launch argument, the same path the observer gave `sandbox-exec`; no exec path is taken from `current_exe`, `argv[0]` or the helper's own resolution of its path, and a helper started without that argument fails before its first stage
 
 #### Scenario: A system-library correction is typed and bounded
 - **WHEN** a system-library unit targets something other than `/System/Library` or `/System/Volumes/Preboot/Cryptexes/OS`
