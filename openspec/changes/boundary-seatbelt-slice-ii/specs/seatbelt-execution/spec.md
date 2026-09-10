@@ -358,7 +358,30 @@ A predicate the candidate requires SHALL additionally be proven by removal:
 replaying the exact candidate with that one predicate stripped SHALL fail the
 payload closed before the startup verdict can pass, and a removal that still
 starts or cannot be observed SHALL fail the cell. The stripped profile is
-evidence only and SHALL NOT enter the candidate.
+evidence only and SHALL NOT enter the candidate. Every Seatbelt startup cell
+SHALL carry the observed removal control for each candidate predicate it relies
+on; an empty or missing removal-control record SHALL fail the cell regardless of
+its positive result.
+The helper's ordinary-child stage SHALL be split into bounded, ordered sub-
+stages: standard-stream setup for each of stdin, stdout and stderr, then the
+spawn/exec call, then the child observed. A failure SHALL record the sub-stage it
+reached and its OS error, so a refused step is named rather than inferred from
+the stage that follows. When a Seatbelt cell fails at child spawn while the
+unboxed control spawns the identical child, the discriminating evidence SHALL
+include, under the exact candidate and identical helper, a cell that opens
+`/dev/null` write-only without spawning, a cell that spawns with inherited or
+pre-opened stdio, a cell that spawns with null stdio, and the exact candidate
+plus exactly one named literal-scoped diagnostic
+`(allow file-write-data (literal "/dev/null"))`. These cells are evidence and
+SHALL NOT pass a startup verdict. If none of them attributes the refusal, the
+spawn/exec sub-stage error and native denial evidence SHALL name the exec-side
+operation and target, such as a `process-exec` or file read of the resolved
+helper path, before any predicate is proposed. A child-spawn predicate enters
+the candidate only when this evidence attributes the refusal to it, only in
+literal-scoped form and only with its own removal control; every denial control
+SHALL rerun on the resulting candidate. A `/dev` subpath, broad `file-write*`,
+or any process, Mach/IPC, service or network authority wider than the candidate
+already names SHALL NOT cure the spawn.
 A separately labelled `allow default` run MAY diagnose that the restrictive
 profile is the differing
 layer, but it SHALL never be a candidate observation or authorize an allowance.
@@ -376,9 +399,24 @@ bootstrap, any explicit kickstart, `print`, payload exit and `bootout`, and
 prove the label absent again before another cell runs. Loaded state, `READY`,
 ordered stages, ordinary-child identity, terminal state, each available
 run/crash/exit field and cleanup are distinct observations. Parsing SHALL be
-field-wise and version-tolerant: a missing or unparsable field SHALL remain
-unknown and fail the cell, but SHALL NOT erase independently observed facts or
-be converted into a synthesized nonzero or clean exit. The evidence SHALL keep
+field-wise and version-tolerant, and each field SHALL be parsed independently of
+every other. The launchd terminal facts a startup cell requires are exactly
+`state = not running`, a numeric `runs` and a numeric `last exit code`; the value
+`last exit code = (never exited)` is a non-terminal observation, never an exit.
+Measured `launchctl print` output on macOS arm64 omits `successive crashes` from
+a terminal job that exited 0 or 2, so the crash counter is an optional fact.
+When absent it SHALL be recorded as unknown with the raw sample that omitted it,
+SHALL NOT be synthesized as zero and SHALL NOT by itself fail the cell. When
+present it SHALL be recorded, and any nonzero value SHALL fail the cell. A
+printed terminating-signal field is likewise recorded when present and fails
+the cell. A missing or unparsable required field SHALL remain unknown and fail
+the cell, but SHALL NOT erase independently observed facts or be converted into
+a synthesized nonzero or clean exit. A launchd cell's exit fact SHALL be the
+observed `last exit code`, never the helper's intent. A launchd cell passes
+startup only when `runs = 1`, that exit equals the directed exit and the helper
+independently supplies the nonce-authenticated `READY`, exact stages and
+ordinary child; no launchd field substitutes for those helper facts. The
+evidence SHALL keep
 the raw `launchctl` text that caused each parsed or unknown value. An order-
 dependent result, stale registration or failed bootstrap is a measurement
 failure, not a payload or lifetime verdict.
@@ -420,6 +458,26 @@ authority drift: unique private roots require different literal paths, so the
 adapter compares structural profile identity and strips the required predicate
 to prove it is load-bearing before the next native candidate.
 
+Native CI `34457208029` at candidate
+`fa7ece587178a46baa66a7310e0546bfb87a0857` is retained as a fourth failed
+Gate A measurement on the GitHub `macos-latest` arm64 runner. With the root-inode
+read granted, S1 and S3 reach `entry`, `payload-dir` and `executable`; the
+ordinary-child spawn then fails with `EPERM` and the helper exits 2 without
+`READY`. This is progress past the pre-stage abort, not a startup pass. Every
+one-class diagnostic fails identically at child spawn, and none of them grants
+any `file-write*`; only the non-admitting `allow default` control starts. The
+credential-read, host-write and loopback-bind denial controls were observed
+denied. They establish those three denials for this candidate only and close
+none of R1–R4. The root-inode removal control was not recorded: every cell
+reports an empty `negative_controls` list, so the predicate is not yet proven
+load-bearing. S2 reached `READY`, the exact stages and an ordinary child. Its
+raw terminal print shows `state = not running`, `runs = 1`, `last exit code = 0`
+and no `successive crashes` line. S3's raw print shows `runs = 1` and
+`last exit code = 2`, also with no crash line. The parser refused each whole
+print on the absent counter, and the report erased those printed facts as
+`runs=None` and `did not run`. That is a measurement defect, not a launchd
+verdict. Gate B was correctly not run.
+
 #### Scenario: Probe startup is established before lifetime triggers
 - **GIVEN** the exact helper, argv and experimental profile intended for the lifetime matrix
 - **WHEN** the outside-box, direct-sandbox and launchd-owned controls run in order
@@ -446,8 +504,20 @@ to prove it is load-bearing before the next native candidate.
 - **THEN** every launchd cell uses a never-reused label/root, proves absence before bootstrap and after cleanup, preserves each command's raw bounded status/output and reports missing job fields as unknown; a bootstrap error, stale label, inferred exit or result that changes with cell order fails Gate A
 
 #### Scenario: An unknown launchd field does not erase other facts
-- **WHEN** a launchd cell reaches `READY`, writes some ordered stages or produces bounded output but its terminal print omits or changes a run, crash, state or exit field
+- **WHEN** a launchd cell reaches `READY`, writes some ordered stages or produces bounded output but its terminal print omits or changes a required state, run or exit field
 - **THEN** that field stays unknown and the cell fails, while every independently observed fact and the raw lifecycle command evidence remain present in the report
+
+#### Scenario: An omitted crash counter stays unknown
+- **WHEN** a terminal `launchctl print` shows `state = not running`, `runs = 1` and `last exit code = 0` with no `successive crashes` line, as the fa7 S2 print did
+- **THEN** the cell records the state, one run and exit 0 as parsed facts and the crash count as unknown with its raw sample; no zero is synthesized, the absent counter alone does not fail the cell, and the same print with `last exit code = 2`, as in fa7 S3, records exit 2 and fails a clean-directed cell
+
+#### Scenario: Required launchd terminal facts still fail closed
+- **WHEN** a terminal print omits or cannot parse `state`, `runs` or `last exit code`, shows `last exit code = (never exited)`, shows a nonzero crash count or a terminating signal, or shows a run count other than one
+- **THEN** that fact stays unknown or failing and the launchd cell fails, while every other parsed field, helper stage and raw sample remains in the report
+
+#### Scenario: A launchd print never substitutes for helper facts
+- **WHEN** a launchd print shows a clean terminal run but the helper's nonce-authenticated `READY`, exact stages or ordinary child is absent
+- **THEN** the cell fails startup, and its exit fact comes only from the observed `last exit code`, never from the helper's directed intent
 
 #### Scenario: Startup repair preserves least authority
 - **WHEN** a staged control identifies a startup dependency
@@ -461,6 +531,18 @@ to prove it is load-bearing before the next native candidate.
 #### Scenario: The dynamic-loader root read is the named pre-stage predicate
 - **WHEN** a dynamically linked payload aborts with `SIGABRT` before its first stage under a deny-default profile whose subpath reads do not cover the filesystem root
 - **THEN** evidence names the root-inode `file-read-data` as the required predicate, grants only `(allow file-read* (literal "/"))` and never recursive `(subpath "/")`, and keeps `allow default` a non-admitting diagnostic
+
+#### Scenario: A Seatbelt cell without an observed removal control fails
+- **WHEN** a Seatbelt startup cell reaches `READY` but carries no observed removal control for a candidate predicate it relies on, as every fa7 cell's empty `negative_controls` list did
+- **THEN** the cell fails as unproven, whatever its positive result
+
+#### Scenario: Child-spawn refusal is localized to its sub-stage
+- **WHEN** a Seatbelt cell reaches `executable` and the ordinary-child spawn fails while the unboxed control spawns the identical child
+- **THEN** evidence names the failing sub-stage (stream setup for a named stream, spawn/exec or child observation) with its OS error, and the no-spawn `/dev/null` write, inherited-stdio, null-stdio and single literal `/dev/null` write-data cells separate the stdio hypothesis from an exec-side refusal without any of them passing a startup verdict
+
+#### Scenario: A named child-spawn predicate is literal-scoped and removable
+- **WHEN** the discriminating cells attribute the child-spawn refusal to one operation and target
+- **THEN** only that literal-scoped predicate enters the candidate, its own removal control strips exactly it and observes the identical payload fail closed, every denial control reruns, and no `/dev` subpath, broad `file-write*` or wider process, Mach/IPC, service or network grant is admitted
 
 ### Requirement: Native lifetime feasibility precedes full implementation
 
@@ -818,3 +900,19 @@ relevant change SHALL not be attributed to the final candidate.
   `allow default` still authorizes none. The successor must retain independent
   launchd facts, compare normalized authority and name the denied operation,
   target and consumer before changing the profile. Lifetime remains not run.
+- **SEATBELT-R3-STARTUP at `fa7ece5`: name the child-spawn step and parse what
+  launchd prints.** Adopt S1 and S3 reaching `executable` as evidence that the
+  root-inode read cleared the pre-stage abort, and adopt the three observed
+  denials as facts about that candidate only. Reject every one-class diagnostic
+  and `allow default` as admission. Treat `/dev/null` write access for null
+  stdio as the leading, unproven hypothesis. Every failing cell withheld all
+  `file-write*` outside the payload, while Rust's null stdio opens `/dev/null`
+  for writing in the parent before exec. Sub-stage evidence discriminates the
+  hypothesis; nothing assumes it. Adopt `state`, `runs` and `last exit code` as
+  the required launchd terminal facts and the crash counter as optional,
+  because the measured print omits it for exit 0 and for exit 2. Refute
+  requiring the counter, because then no launchd cell could ever pass. Refute
+  synthesizing zero, because that fabricates a fact. This is probe observation
+  semantics, not an accepted-addendum guarantee: a pass still depends on the
+  helper's authenticated facts, so no proposed decision is needed. The
+  root-inode removal control remains unmeasured and blocks every passing cell.

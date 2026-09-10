@@ -193,6 +193,23 @@ normalized profile-template comparison, field-wise lossless launchd evidence
 and native operation/target attribution; it SHALL NOT request an unchanged
 retry or present concrete private-root profile digests as authority drift.
 
+It SHALL preserve native CI `34457208029` for candidate
+`fa7ece587178a46baa66a7310e0546bfb87a0857` as a fourth failed Gate A
+measurement. It SHALL record that the root-inode read moved S1 and S3 past the
+pre-stage abort to `executable`, and that the ordinary-child spawn then failed
+with `EPERM` and exit 2 without `READY`. It SHALL record that every one-class
+diagnostic failed the same way and only the non-admitting `allow default`
+control started. It SHALL record that the credential-read, host-write and
+loopback-bind denial controls were observed denied, without closing any R1–R4
+residual. It SHALL describe S2's `READY`, stages and ordinary child together
+with its printed `not running`, one run and exit 0, and S3's printed exit 2. It
+SHALL report the omitted crash counter as unknown, never as zero; the report's
+erasure of those printed facts is a parser defect, not a launchd verdict. It
+SHALL state that the root-inode removal control was not observed and that Gate
+B did not run. The next action SHALL name child-spawn sub-stage attribution and
+field-wise launchd parsing. It SHALL NOT request an unchanged retry or present
+a broad diagnostic as the cure.
+
 While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
 labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.
 Refusing shipped overlays is an unmet deliverable, not an optional limitation.
@@ -225,6 +242,10 @@ and historical examples and channel versions retain their meaning.
 #### Scenario: The third startup run names measurement defects
 - **WHEN** the guide reports native CI `34449331270`
 - **THEN** it separates S0 and workspace controls from S1's signal 6, the non-admitting diagnostics, S2's parsing refusal and S3's non-ready crash; it says denial controls and lifetime were not observed and directs the next candidate to normalized-policy, lossless-launchd and operation-level diagnosis
+
+#### Scenario: The fourth startup run separates progress from proof
+- **WHEN** the guide reports native CI `34457208029`
+- **THEN** it names the progress to `executable`, the child-spawn `EPERM`, the three observed denials, S2's printed clean terminal facts with an unknown crash counter, S3's printed exit 2, the unobserved removal control and Gate B not run, and calls none of startup, launchd containment or any R1–R4 residual proven
 
 #### Scenario: Accepted observables and proof status stay adjacent
 - **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view

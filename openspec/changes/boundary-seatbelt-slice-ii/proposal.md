@@ -42,8 +42,8 @@ requires isolated launchd measurements and bounded profile diagnosis. The
 successor repair commits the portability, label/root isolation, canonical-path,
 parsed-terminal-state, staged-startup and one-authority diagnostic changes and
 left the controller-dispatched exact-head Gate A run as its next prerequisite;
-that completed run is reconciled below.
-no production Seatbelt path is authorized by that repair.
+that completed run is reconciled below. No production Seatbelt path is
+authorized by that repair.
 
 Candidate `9f4c2c944cac217ccb8dc055971cc62614313ed4` was measured by native
 CI `34449331270` on the GitHub `macos-latest` arm64 runner. The generic macOS
@@ -64,6 +64,27 @@ currently erases separately observable readiness, stages and output. The next
 candidate must compare a normalized profile template, preserve every launchd
 fact independently, and identify the denied operation/target from native denial
 evidence or a minimal staged syscall probe before changing the candidate.
+
+Candidate `fa7ece587178a46baa66a7310e0546bfb87a0857` was measured by native
+CI `34457208029` on the GitHub `macos-latest` arm64 runner. The root-inode read
+`(allow file-read* (literal "/"))` moved S1 and S3 past the pre-stage abort:
+both now reach `entry`, `payload-dir` and `executable`. The ordinary-child spawn
+then fails with `EPERM`, and the helper exits 2 without `READY`. Every
+one-class diagnostic fails the same way, and none of them grants any
+`file-write*`. Only the forbidden `allow default` control starts. Credential
+read, host write and loopback bind were observed denied; those are facts about
+this candidate, not proof of R1–R4. The root-inode removal control was not
+recorded, because every cell reports an empty `negative_controls` list. S2
+reached `READY`, the exact stages and an ordinary child. Its raw terminal print
+shows `state = not running`, `runs = 1` and `last exit code = 0`, and S3's shows
+`last exit code = 2`. Neither prints a `successive crashes` line. The parser
+refused both whole prints on that absent counter and erased the printed facts.
+This exposes a specification inconsistency, not only a code defect: the
+seatbelt-execution delta failed any omitted crash field, so as written no
+launchd cell could ever pass. This visit reconciles the delta around the facts
+launchd actually prints and names the discriminating child-spawn evidence the
+next probe must collect. Gate B was correctly not run and SEATBELT-R3 remains
+open.
 
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
@@ -110,8 +131,18 @@ measured, as accepted decision 0046 requires.
 - Give every launchd startup cell and repeated Gate A invocation unique job
   labels and private paths; prove the label absent before bootstrap and after
   bootout, and preserve raw bootstrap, print, exit and cleanup outcomes.
-  Reused-label races, missing counters or inferred exits fail the startup
-  measurement. Diagnostic broad profiles never become candidates.
+  Reused-label races, a missing required terminal fact (`state`, `runs` or
+  `last exit code`) or inferred exits fail the startup measurement. An
+  omitted `successive crashes` counter is recorded unknown with its raw
+  sample, never synthesized as zero; a present nonzero counter fails.
+  Diagnostic broad profiles never become candidates.
+- Split the helper's ordinary-child stage into stream-setup, spawn/exec and
+  child-observed sub-stages with per-step OS errors. Discriminate a child-spawn
+  refusal with a no-spawn `/dev/null` write cell, an inherited-stdio spawn, a
+  null-stdio spawn and one literal `/dev/null` write-data diagnostic before any
+  predicate is admitted. An admitted predicate is literal-scoped and has its own
+  removal control. Every removal control must be observed before a Seatbelt
+  startup cell can pass.
 - Compare the two Seatbelt startup profiles as one normalized authority
   template with typed substitutions for each private cell root and payload
   root. Record the concrete bytes and digest per cell, but do not mistake those
@@ -139,8 +170,9 @@ retired. The repository's default boundary, accepted decision statuses,
 frozen contracts, production policy, reference material and evaluator
 corpus are not rewritten. Any required wire change is an additive version.
 No provider roster or global agent configuration change belongs here; the
-controller already selected the Codex-led control library. Delivery and
-all remote actions remain the controller's; no nested Brokkr run is needed.
+controller selects the control library, which the 2026-09-10 operator override
+set to the compiled `claude-flash` recipe. Delivery and all remote actions
+remain the controller's; no nested Brokkr run is needed.
 
 ## Capabilities
 
@@ -177,8 +209,8 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved starting HEAD `9f4c2c9`; `225d2c7`, `8c53dce` and their native
-measurements remain historical evidence, not checkout targets. It answers the
+preserved starting HEAD `fa7ece5`; `225d2c7`, `8c53dce`, `9f4c2c9` and their
+native measurements remain historical evidence, not checkout targets. It answers the
 current findings in dependency order. The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
 not manufacture evidence. Only the proposal and five capability deltas are
@@ -199,7 +231,11 @@ authored in this specify phase. No workflow runner is invoked.
 | Native CI `34449331270` at `9f4c2c9` | **Adopt as a third failed startup prerequisite.** S0 and both generic workspaces pass; S1 aborts before stages, every one-class diagnostic fails, and only forbidden `allow default` starts. S2 is an observation refusal and S3 is one non-ready crash. No denial or lifetime fact is established. | `seatbelt-execution`: The third startup run still identifies no admissible authority |
 | Cell-private profile comparison | **Adopt as a measurement defect.** Unique roots are required isolation, so their concrete profile literals and digests must differ. Compare a normalized policy template and typed root substitutions for equal authority while retaining each concrete profile as evidence. | `seatbelt-execution`: Cell-private roots are not profile drift |
 | Lossless launchd observation | **Adopt as a measurement defect.** Failure to parse one terminal field must fail the cell but cannot erase separately observed `READY`, stages, child identity, raw lifecycle output or individual parsed fields. | `seatbelt-execution`: An unknown launchd field does not erase other facts |
-| Exact startup operation | **Retain as unresolved.** Seven single broad-class additions did not start the helper. A next candidate needs native deny-report attribution or staged minimal syscall/combination evidence naming each required operation, target and consumer; broad combination success alone authorizes nothing. | `seatbelt-execution`: Startup diagnosis names operations and targets |
+| Exact startup operation | **Partly answered.** The pre-stage abort is named as the root-inode read and fa7 moved past it. The child-spawn refusal that follows is still unattributed. Broad combination success alone authorizes nothing. | `seatbelt-execution`: Startup diagnosis names operations and targets |
+| Native CI `34457208029` at `fa7ece5` | **Adopt as a fourth failed Gate A prerequisite with measured progress.** S1 and S3 reach `executable`, then the child spawn fails with `EPERM` and exit 2. Three denial controls are observed denied. S2 reached `READY`, stages and a child. The report erased S2's and S3's printed terminal facts. Gate B was not run. | `seatbelt-execution`: Probe payload startup is established separately |
+| Launchd crash counter omitted by macOS | **Adopt as a specification inconsistency.** The measured terminal print omits `successive crashes` for exit 0 and exit 2, so failing an omitted counter makes every launchd cell unpassable. `state`, `runs` and `last exit code` are required. An absent counter stays unknown with its raw sample and is never zero; a present nonzero counter fails. The pass still needs the helper's authenticated facts. | `seatbelt-execution`: An omitted crash counter stays unknown; Required launchd terminal facts still fail closed |
+| Child-spawn authority | **Adopt as the next discriminating measurement.** Every failing cell withheld `file-write*` outside the payload, while null stdio opens `/dev/null` for writing before exec. That is the leading hypothesis, not a conclusion. Per-sub-stage errors plus no-spawn, inherited-stdio, null-stdio and single literal diagnostic cells decide it or move attribution to the exec. | `seatbelt-execution`: Child-spawn refusal is localized to its sub-stage |
+| Root-inode removal control unobserved | **Adopt as a blocking evidence gap.** Every fa7 cell reports `negative_controls: []`, so the admitted predicate is not proven load-bearing. An empty removal-control record fails a Seatbelt cell. | `seatbelt-execution`: A Seatbelt cell without an observed removal control fails |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
 | R5 — system launcher | **Retain.** Only the literal trusted `/usr/bin/sandbox-exec` and a bounded real allow/deny probe establish launcher readiness; lookalikes never execute. | `boundary-availability`: The system pin ignores an earlier lookalike |
@@ -279,9 +315,27 @@ bootstrap, kickstart, print, payload exit and bootout. It observes the exact job
 loaded, `READY`, ordered stages, ordinary child, terminal state, each available
 run/crash/exit field and label absence as distinct facts. A missing field is
 unknown, not a synthesized exit and not permission to discard the other facts;
-a label must be absent after cleanup before the next cell starts.
-registration collision fail Gate A and are diagnosed before another native
-candidate is dispatched.
+a label must be absent after cleanup before the next cell starts. A stale label
+or registration collision fails Gate A and is diagnosed before another native
+candidate is dispatched. The required terminal facts are `state = not running`,
+`runs` and a numeric `last exit code`, and the cell's exit is that printed code.
+`successive crashes` is optional because macOS omits it from terminal jobs that
+exited 0 and 2. When absent it stays unknown with its raw sample and is never
+treated as zero; when present, a nonzero count fails. No launchd fact replaces
+the helper's nonce-authenticated `READY`, stages and ordinary child.
+
+The helper records its ordinary-child stage as stream setup for each standard
+stream, spawn/exec and child observed, each with its OS error. A Seatbelt child
+spawn that fails while the unboxed control succeeds is discriminated under the
+exact candidate by four cells: a no-spawn write-only `/dev/null` open, a spawn
+with inherited or pre-opened stdio, a spawn with null stdio, and one literal
+`(allow file-write-data (literal "/dev/null"))` diagnostic. None of these cells
+passes startup. If none attributes the refusal, sub-stage and denial evidence
+must name the exec-side operation and target before any predicate is proposed.
+An admitted child-spawn predicate is literal-scoped and has its own removal
+control, and every denial control reruns on the resulting candidate. Each
+Seatbelt cell carries an observed removal control for every candidate predicate
+it relies on, and an empty record fails the cell.
 
 The experimental policy is one normalized template. Its cell root and payload
 root are typed placeholders, instantiated separately for the isolated S1 and
@@ -383,6 +437,21 @@ private path literals differ. The next candidate must preserve per-fact
 launchd observations, compare normalized policy authority, and obtain native
 operation/target attribution before altering the exact profile or attempting
 lifetime. No unchanged retry and no diagnostic default admission is allowed.
+
+Native CI `34457208029` is retained as a fourth failed Gate A measurement for
+candidate `fa7ece587178a46baa66a7310e0546bfb87a0857` on the GitHub
+`macos-latest` arm64 runner. It records progress, not a pass. S1 and S3 reach
+`executable` under the root-inode candidate. The ordinary-child spawn then fails
+with `EPERM`, and the helper exits 2 without `READY`. All one-class diagnostics
+fail at the same step, and `allow default` remains non-admitting. Credential
+read, host write and loopback bind are observed denied for this candidate only.
+The root-inode removal control is unobserved. S2's printed terminal facts
+(`not running`, one run, exit 0) and S3's (exit 2) are real observations that
+the parser erased because `successive crashes` was absent. The successor keeps
+the candidate's authority and helper otherwise unchanged. It splits and
+discriminates the child-spawn step, parses the required launchd facts field by
+field with the counter optional, and observes the removal control. Gate B stays
+not run until Gate A passes.
 
 Changing an accepted semantic needs a focused decision document with status
 `proposed`; only the operator can accept it. Frozen contracts, policy,
