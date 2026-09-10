@@ -387,3 +387,44 @@ fn one_derivation_reaches_every_surface() {
     assert_eq!(document["unavailable"], "not-found");
     assert_eq!(document["turns"], json!([]));
 }
+
+/// Distinct recorded tool ids and the measured MCP/dynamic context reach
+/// every surface in the one centralized block text (design D5/D11).
+#[test]
+fn recorded_tool_identity_and_context_reach_every_surface() {
+    let body = concat!(
+        "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
+        "{\"timestamp\":\"t3\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
+        "{\"timestamp\":\"t4\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
+    );
+    let world = make_world("codex-thread", "0199mine", body);
+    // The recorded common reference needs no ambient HOME, so this test
+    // never mutates the process environment another test may be reading.
+    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    assert!(read.is_readable(), "{read:?}");
+    let texts: Vec<String> = read
+        .turns
+        .iter()
+        .flat_map(|turn| turn.blocks.iter().map(|block| block.text.clone()))
+        .collect();
+    for needle in ["[c1]", "[c2]", "[m1]", "[d1]"] {
+        assert!(
+            texts.iter().any(|text| text.contains(needle)),
+            "the recorded id {needle} is missing: {texts:?}"
+        );
+    }
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("srv") && text.contains("search")),
+        "the MCP context is missing: {texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("done") && text.contains("boom")),
+        "the dynamic response context is missing: {texts:?}"
+    );
+    compare(&world, &read, None);
+}

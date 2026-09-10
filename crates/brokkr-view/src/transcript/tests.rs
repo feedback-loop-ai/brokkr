@@ -330,8 +330,14 @@ fn codex_projects_ordered_content() {
     assert_eq!(projection.turns.len(), 4);
     assert_eq!(projection.turns[0].role, "user");
     assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
-    assert_eq!(projection.turns[2].blocks, vec![Block::tool("Read {}")]);
-    assert_eq!(projection.turns[3].blocks, vec![Block::tool_result("ok")]);
+    assert_eq!(
+        projection.turns[2].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
+    assert_eq!(
+        projection.turns[3].blocks,
+        vec![Block::tool_result("ok [c1]")]
+    );
 }
 
 #[test]
@@ -624,11 +630,11 @@ fn codex_five_record_ruling_reads_in_order() {
     );
     assert_eq!(
         projection.turns[2].blocks,
-        vec![Block::tool("Read {\"path\":\"a\"}")]
+        vec![Block::tool("Read {\"path\":\"a\"} [c1]")]
     );
     assert_eq!(
         projection.turns[3].blocks,
-        vec![Block::tool_result("contents")]
+        vec![Block::tool_result("contents [c1]")]
     );
     assert_eq!(projection.turns[4].blocks, vec![Block::text("ruling")]);
     assert_eq!(projection.turns[4].ts, "t5");
@@ -654,8 +660,14 @@ fn codex_canonical_records_beside_matching_events_show_once() {
     assert_eq!(projection.turns[0].blocks, vec![Block::text("canonical")]);
     assert_eq!(projection.turns[0].ts, "t1");
     assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
-    assert_eq!(projection.turns[2].blocks, vec![Block::tool("Read {}")]);
-    assert_eq!(projection.turns[3].blocks, vec![Block::tool_result("ok")]);
+    assert_eq!(
+        projection.turns[2].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
+    assert_eq!(
+        projection.turns[3].blocks,
+        vec![Block::tool_result("ok [c1]")]
+    );
 }
 
 #[test]
@@ -675,10 +687,13 @@ fn codex_event_only_snapshot_reads_all_five_kinds() {
     assert_eq!(projection.turns[0].blocks, vec![Block::text("q")]);
     assert_eq!(projection.turns[1].blocks, vec![Block::reasoning("think")]);
     assert_eq!(projection.turns[2].role, "tool");
-    assert_eq!(projection.turns[2].blocks, vec![Block::tool_result("ok")]);
+    assert_eq!(
+        projection.turns[2].blocks,
+        vec![Block::tool_result("ok [c1]")]
+    );
     assert_eq!(
         projection.turns[3].blocks,
-        vec![Block::tool("ls"), Block::tool_result("files")]
+        vec![Block::tool("ls [c2]"), Block::tool_result("files [c2]")]
     );
     assert_eq!(projection.turns[4].blocks, vec![Block::text("ruling")]);
 }
@@ -761,8 +776,8 @@ fn codex_two_calls_with_equal_arguments_keep_distinct_ids() {
     .concat();
     let projection = codex(&text);
     assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("F {}")]);
-    assert_eq!(projection.turns[1].blocks, vec![Block::tool("F {}")]);
+    assert_eq!(projection.turns[0].blocks, vec![Block::tool("F {} [c1]")]);
+    assert_eq!(projection.turns[1].blocks, vec![Block::tool("F {} [c2]")]);
 }
 
 #[test]
@@ -778,7 +793,7 @@ fn codex_orphan_output_and_encrypted_reasoning_are_honest() {
     assert_eq!(projection.turns.len(), 1);
     assert_eq!(
         projection.turns[0].blocks,
-        vec![Block::tool_result("orphan")]
+        vec![Block::tool_result("orphan [c9]")]
     );
     assert_eq!(projection.turns[0].ts, "t1");
 }
@@ -811,12 +826,52 @@ fn codex_command_output_prefers_streams_then_aggregate_then_formatted() {
     assert_eq!(
         blocks,
         vec![
-            vec![Block::tool_result("outerr")],
-            vec![Block::tool_result("agg")],
-            vec![Block::tool_result("fmt")],
-            vec![Block::tool_result("")],
+            vec![Block::tool_result("outerr [a]")],
+            vec![Block::tool_result("agg [b]")],
+            vec![Block::tool_result("fmt [c]")],
+            vec![Block::tool_result("[d]")],
         ]
     );
+}
+
+#[test]
+fn codex_mcp_and_dynamic_records_keep_their_measured_context() {
+    // The displayed text retains the recorded id and the measured
+    // provider context: MCP server/tool/arguments, and a dynamic
+    // response's own content items and error rather than its request.
+    let text = [
+        row(json!({"type":"event_msg","payload":{"type":"mcp_tool_call_begin","call_id":"m1","invocation":{"server":"srv","tool":"search","arguments":"{\"q\":\"x\"}"}}})),
+        row(json!({"type":"event_msg","payload":{"type":"dynamic_tool_call_response","call_id":"d1","content_items":[{"type":"inputText","text":"done"}],"error":"boom"}})),
+        row(json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"m2","server":"srv2","tool":"read","arguments":"{}","result":{"content":"body"},"error":{"message":"nope"}}}})),
+    ]
+    .concat();
+    let projection = codex(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 3);
+    let call0 = &projection.turns[0].blocks[0].text;
+    assert!(
+        call0.contains("srv") && call0.contains("search") && call0.contains("\"q\""),
+        "the MCP begin keeps server, tool and arguments: {call0}"
+    );
+    assert!(call0.contains("[m1]"), "the id is visible: {call0}");
+    let result1 = &projection.turns[1].blocks[0].text;
+    assert!(
+        result1.contains("done") && result1.contains("boom"),
+        "the dynamic response keeps its own content and error: {result1}"
+    );
+    assert!(result1.contains("[d1]"), "the id is visible: {result1}");
+    let call2 = &projection.turns[2].blocks[0].text;
+    assert!(
+        call2.contains("srv2") && call2.contains("read"),
+        "the completed MCP item keeps server and tool: {call2}"
+    );
+    assert!(call2.contains("[m2]"), "the id is visible: {call2}");
+    let result2 = &projection.turns[2].blocks[1].text;
+    assert!(
+        result2.contains("body") && result2.contains("nope"),
+        "the completed MCP result keeps content and error: {result2}"
+    );
+    assert!(result2.contains("[m2]"), "the id is visible: {result2}");
 }
 
 #[test]
@@ -828,8 +883,11 @@ fn codex_direction_separates_calls_from_results() {
     .concat();
     let projection = codex(&text);
     assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("F {}")]);
-    assert_eq!(projection.turns[1].blocks, vec![Block::tool_result("ok")]);
+    assert_eq!(projection.turns[0].blocks, vec![Block::tool("F {} [c1]")]);
+    assert_eq!(
+        projection.turns[1].blocks,
+        vec![Block::tool_result("ok [c1]")]
+    );
 }
 
 #[test]
@@ -866,11 +924,11 @@ fn codex_composite_event_keeps_its_uncovered_output() {
     .concat();
     let projection = codex(&text);
     assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("ls {}")]);
+    assert_eq!(projection.turns[0].blocks, vec![Block::tool("ls {} [c2]")]);
     assert_eq!(projection.turns[1].role, "assistant");
     assert_eq!(
         projection.turns[1].blocks,
-        vec![Block::tool_result("files")]
+        vec![Block::tool_result("files [c2]")]
     );
 }
 
@@ -957,6 +1015,27 @@ fn dsh_opening_row_cannot_borrow_a_later_header() {
     }
     let projection = dsh("not json\n");
     assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+}
+
+#[test]
+fn dsh_refused_opening_header_never_decodes_later_rows() {
+    // A foreign version followed by malformed JSON, an unknown
+    // non-ignorable event and an allocation-heavy packed row: the header
+    // refusal returns before any later row is decoded or counted.
+    let text = format!(
+        "{}{}{}{}",
+        row(json!({"type":"session","version":1})),
+        "not json\n",
+        row(json!({"type":"future/event"})),
+        row(json!({"type":"text-chunks","seq0":0,"time0":0,
+                   "data":{"turn":1,"step":1,"index":0,"dt":[],"texts":["a"]}})),
+    );
+    let projection = dsh(&text);
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.skipped_lines, 0);
+    assert_eq!(projection.unrecognized_records, 0);
+    assert!(projection.turns.is_empty());
+    assert!(!projection.truncated);
 }
 
 #[test]
@@ -1244,7 +1323,7 @@ fn dsh_citation_scope_and_ambiguity_do_not_invent_association() {
         assert_eq!(projection.turns[0].blocks, vec![Block::text("cross-step")]);
         assert_eq!(projection.turns[1].blocks, vec![Block::text("shared-a")]);
         assert_eq!(projection.turns[2].blocks, vec![Block::text("shared-b")]);
-        assert_eq!(projection.turns[3].blocks, vec![Block::tool("F {}")]);
+        assert_eq!(projection.turns[3].blocks, vec![Block::tool("F {} [c9]")]);
         assert_eq!(projection.turns[4].blocks, vec![Block::text("assembled")]);
     }
 }
@@ -1452,7 +1531,10 @@ fn dsh_dedicated_call_owns_only_its_matching_embedded_block() {
         vec![Block::text("answer"), Block::reasoning("think")]
     );
     assert_eq!(projection.turns[0].ts, "100");
-    assert_eq!(projection.turns[1].blocks, vec![Block::tool("Read {}")]);
+    assert_eq!(
+        projection.turns[1].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
     assert_eq!(projection.turns[1].ts, "101");
 }
 
@@ -1475,7 +1557,10 @@ fn dsh_dedicated_call_before_its_message_still_suppresses_once() {
     .concat();
     let projection = dsh(&text);
     assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("Read {}")]);
+    assert_eq!(
+        projection.turns[0].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
     assert_eq!(projection.turns[1].blocks, vec![Block::text("answer")]);
 }
 
@@ -1504,7 +1589,10 @@ fn dsh_dedicated_call_mismatch_keeps_both_copies() {
             "call_id={call_id} turn/step={turn}/{step}"
         );
         assert_eq!(projection.turns[0].blocks.len(), 2);
-        assert_eq!(projection.turns[1].blocks, vec![Block::tool("Read {}")]);
+        assert_eq!(
+            projection.turns[1].blocks,
+            vec![Block::tool(format!("Read {{}} [{call_id}]"))]
+        );
     }
 }
 
@@ -1528,7 +1616,7 @@ fn dsh_embedded_call_without_a_dedicated_record_stays_once() {
     assert_eq!(projection.turns.len(), 1);
     assert_eq!(
         projection.turns[0].blocks,
-        vec![Block::text("answer"), Block::tool("Read {}")]
+        vec![Block::text("answer"), Block::tool("Read {} [c1]")]
     );
 }
 
@@ -1553,8 +1641,14 @@ fn dsh_two_dedicated_calls_colliding_keep_every_record() {
     let projection = dsh(&text);
     assert_eq!(projection.turns.len(), 3);
     assert_eq!(projection.turns[0].blocks.len(), 2);
-    assert_eq!(projection.turns[1].blocks, vec![Block::tool("Read {}")]);
-    assert_eq!(projection.turns[2].blocks, vec![Block::tool("Read {}")]);
+    assert_eq!(
+        projection.turns[1].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
+    assert_eq!(
+        projection.turns[2].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
 }
 
 #[test]
@@ -1589,11 +1683,17 @@ fn dsh_dedicated_result_matches_embedded_result_in_either_order() {
         let projection = dsh(&text);
         assert_eq!(projection.turns.len(), 2, "result_first={result_first}");
         if result_first {
-            assert_eq!(projection.turns[0].blocks, vec![Block::tool_result("ok")]);
+            assert_eq!(
+                projection.turns[0].blocks,
+                vec![Block::tool_result("ok [c1]")]
+            );
             assert_eq!(projection.turns[1].blocks, vec![Block::text("answer")]);
         } else {
             assert_eq!(projection.turns[0].blocks, vec![Block::text("answer")]);
-            assert_eq!(projection.turns[1].blocks, vec![Block::tool_result("ok")]);
+            assert_eq!(
+                projection.turns[1].blocks,
+                vec![Block::tool_result("ok [c1]")]
+            );
         }
     }
 }
@@ -1617,7 +1717,10 @@ fn dsh_suppressed_only_block_emits_no_empty_turn() {
     let projection = dsh(&text);
     assert!(projection.unavailable.is_none());
     assert_eq!(projection.turns.len(), 1);
-    assert_eq!(projection.turns[0].blocks, vec![Block::tool("Read {}")]);
+    assert_eq!(
+        projection.turns[0].blocks,
+        vec![Block::tool("Read {} [c1]")]
+    );
 }
 
 // --------------------------------------- offline evidence for the

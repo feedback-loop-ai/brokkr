@@ -983,6 +983,30 @@ fn payload_text(value: Option<&Value>) -> Option<String> {
     }
 }
 
+/// The deterministic displayed text for a call or result. The recorded
+/// context keeps its recorded bytes; a nonempty recorded identifier is
+/// appended so two facts with different ids remain distinguishable in
+/// `Block.text` without widening the public schema (design D5/D6).
+fn tool_text(id: Option<&str>, context: impl Into<String>) -> String {
+    let context = context.into();
+    match id.filter(|id| !id.is_empty()) {
+        Some(id) if context.is_empty() => format!("[{id}]"),
+        Some(id) => format!("{context} [{id}]"),
+        None => context,
+    }
+}
+
+/// Join the nonempty recorded context parts with single spaces, keeping
+/// each part's own bytes and yielding empty when every part is empty.
+fn compose(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut records: Vec<CodexRecord> = Vec::new();
     projection.skipped_lines = for_each_parsed_row(admitted, |_, value| {
@@ -1182,14 +1206,14 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
         "function_call" | "custom_tool_call" => {
             let name = payload.get("name").and_then(Value::as_str).unwrap_or("?");
             let arguments = payload_text(payload.get("arguments").or_else(|| payload.get("input")));
-            let text = match arguments {
+            let context = match arguments {
                 Some(arguments) => format!("{name} {arguments}"),
                 None => name.to_string(),
             };
             let id = payload.get("call_id").and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
-                    Block::tool(text),
+                    Block::tool(tool_text(id, context)),
                     CodexFact::Call,
                     id,
                 )],
@@ -1202,7 +1226,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             let id = payload.get("call_id").and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
-                    Block::tool_result(output),
+                    Block::tool_result(tool_text(id, output)),
                     CodexFact::Result,
                     id,
                 )],
@@ -1218,7 +1242,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 .and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
-                    Block::tool(action),
+                    Block::tool(tool_text(id, action)),
                     CodexFact::Call,
                     id,
                 )],
@@ -1234,7 +1258,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 .and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
-                    Block::tool(format!("tool_search {arguments}")),
+                    Block::tool(tool_text(id, format!("tool_search {arguments}"))),
                     CodexFact::Call,
                     id,
                 )],
@@ -1250,7 +1274,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 .and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
-                    Block::tool_result(tools),
+                    Block::tool_result(tool_text(id, tools)),
                     CodexFact::Result,
                     id,
                 )],
@@ -1324,7 +1348,7 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             if kind == "exec_command_begin" {
                 (
                     vec![CodexBlock::identified(
-                        Block::tool(command),
+                        Block::tool(tool_text(id, command)),
                         CodexFact::Call,
                         id,
                     )],
@@ -1334,7 +1358,7 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             } else {
                 (
                     vec![CodexBlock::identified(
-                        Block::tool_result(codex_command_output(payload)),
+                        Block::tool_result(tool_text(id, codex_command_output(payload))),
                         CodexFact::Result,
                         id,
                     )],
@@ -1344,74 +1368,65 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             }
         }
         "mcp_tool_call_begin" | "mcp_tool_call_end" => {
-            let text = if kind == "mcp_tool_call_begin" {
-                format!(
-                    "{} {}",
-                    payload
-                        .pointer("/invocation/server")
-                        .and_then(Value::as_str)
-                        .unwrap_or("mcp"),
-                    payload
-                        .pointer("/invocation/tool")
-                        .and_then(Value::as_str)
-                        .unwrap_or("?")
-                )
-            } else {
-                payload_text(payload.pointer("/result/Ok/content"))
-                    .or_else(|| payload_text(payload.pointer("/result/Err")))
-                    .unwrap_or_default()
-            };
             let id = payload.get("call_id").and_then(Value::as_str);
-            if kind == "mcp_tool_call_begin" {
+            let (context, role, fact) = if kind == "mcp_tool_call_begin" {
+                let server = payload
+                    .pointer("/invocation/server")
+                    .and_then(Value::as_str)
+                    .unwrap_or("mcp");
+                let tool = payload
+                    .pointer("/invocation/tool")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let arguments =
+                    payload_text(payload.pointer("/invocation/arguments")).unwrap_or_default();
                 (
-                    vec![CodexBlock::identified(
-                        Block::tool(text),
-                        CodexFact::Call,
-                        id,
-                    )],
-                    "assistant".to_string(),
-                    false,
+                    format!("{server} {tool} {arguments}"),
+                    "assistant",
+                    CodexFact::Call,
                 )
             } else {
-                (
-                    vec![CodexBlock::identified(
-                        Block::tool_result(text),
-                        CodexFact::Result,
-                        id,
-                    )],
-                    "tool".to_string(),
-                    false,
-                )
-            }
+                let result = payload_text(payload.pointer("/result/Ok/content"))
+                    .or_else(|| payload_text(payload.pointer("/result/Err")))
+                    .unwrap_or_default();
+                (result, "tool", CodexFact::Result)
+            };
+            let block = if kind == "mcp_tool_call_begin" {
+                Block::tool(tool_text(id, context))
+            } else {
+                Block::tool_result(tool_text(id, context))
+            };
+            (
+                vec![CodexBlock::identified(block, fact, id)],
+                role.to_string(),
+                false,
+            )
         }
         "dynamic_tool_call_request" | "dynamic_tool_call_response" => {
-            let text = payload_text(payload.get("arguments")).unwrap_or_default();
             let id = if kind == "dynamic_tool_call_request" {
                 payload.get("callId").and_then(Value::as_str)
             } else {
                 payload.get("call_id").and_then(Value::as_str)
             };
-            if kind == "dynamic_tool_call_request" {
-                (
-                    vec![CodexBlock::identified(
-                        Block::tool(text),
-                        CodexFact::Call,
-                        id,
-                    )],
-                    "assistant".to_string(),
-                    false,
-                )
+            let (context, role, fact) = if kind == "dynamic_tool_call_request" {
+                let tool = payload.get("tool").and_then(Value::as_str).unwrap_or("?");
+                let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
+                (format!("{tool} {arguments}"), "assistant", CodexFact::Call)
             } else {
-                (
-                    vec![CodexBlock::identified(
-                        Block::tool_result(text),
-                        CodexFact::Result,
-                        id,
-                    )],
-                    "tool".to_string(),
-                    false,
-                )
-            }
+                let content = payload_text(payload.get("content_items")).unwrap_or_default();
+                let error = payload_text(payload.get("error")).unwrap_or_default();
+                (format!("{content} {error}"), "tool", CodexFact::Result)
+            };
+            let block = if kind == "dynamic_tool_call_request" {
+                Block::tool(tool_text(id, context))
+            } else {
+                Block::tool_result(tool_text(id, context))
+            };
+            (
+                vec![CodexBlock::identified(block, fact, id)],
+                role.to_string(),
+                false,
+            )
         }
         _ if codex_quiet_event(kind) => (Vec::new(), String::new(), false),
         _ => (Vec::new(), String::new(), true),
@@ -1512,7 +1527,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
             let id = item.get("call_id").and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
-                    Block::tool_result(output),
+                    Block::tool_result(tool_text(id, output)),
                     CodexFact::Result,
                     id,
                 )],
@@ -1526,33 +1541,51 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
             let id = item.get("id").and_then(Value::as_str);
             (
                 vec![
-                    CodexBlock::identified(Block::tool(command), CodexFact::Call, id),
-                    CodexBlock::identified(Block::tool_result(output), CodexFact::Result, id),
+                    CodexBlock::identified(
+                        Block::tool(tool_text(id, command)),
+                        CodexFact::Call,
+                        id,
+                    ),
+                    CodexBlock::identified(
+                        Block::tool_result(tool_text(id, output)),
+                        CodexFact::Result,
+                        id,
+                    ),
                 ],
                 "assistant".to_string(),
                 false,
             )
         }
         "DynamicToolCall" | "McpToolCall" => {
-            let name = item
-                .get("tool")
-                .and_then(Value::as_str)
-                .unwrap_or("?")
-                .to_string();
+            let mcp = kind == "McpToolCall";
+            let prefix = if mcp {
+                item.get("server").and_then(Value::as_str).unwrap_or("mcp")
+            } else {
+                ""
+            };
+            let tool = item.get("tool").and_then(Value::as_str).unwrap_or("?");
             let arguments = payload_text(item.get("arguments")).unwrap_or_default();
-            let output = payload_text(item.get("content_items"))
-                .or_else(|| payload_text(item.pointer("/result/content")))
-                .or_else(|| payload_text(item.pointer("/error/message")))
-                .unwrap_or_default();
+            let call = compose(&[prefix, tool, &arguments]);
+            let output = if mcp {
+                compose(&[
+                    &payload_text(item.pointer("/result/content")).unwrap_or_default(),
+                    &payload_text(item.pointer("/error/message")).unwrap_or_default(),
+                ])
+            } else {
+                compose(&[
+                    &payload_text(item.get("content_items")).unwrap_or_default(),
+                    &payload_text(item.get("error")).unwrap_or_default(),
+                ])
+            };
             let id = item.get("id").and_then(Value::as_str);
             (
                 vec![
+                    CodexBlock::identified(Block::tool(tool_text(id, call)), CodexFact::Call, id),
                     CodexBlock::identified(
-                        Block::tool(format!("{name} {arguments}")),
-                        CodexFact::Call,
+                        Block::tool_result(tool_text(id, output)),
+                        CodexFact::Result,
                         id,
                     ),
-                    CodexBlock::identified(Block::tool_result(output), CodexFact::Result, id),
                 ],
                 "assistant".to_string(),
                 false,
@@ -1658,9 +1691,54 @@ fn dsh_header(value: &Value) -> bool {
     object.get("version").is_some_and(dsh_numeric_zero)
 }
 
+/// The first participating physical row of a DSH snapshot, before any
+/// format admission decision.
+enum FirstRow {
+    /// No participating row at all (empty source, or a cap-only prefix
+    /// with no newline-terminated row).
+    Absent,
+    /// The first participating row did not parse as JSON.
+    Malformed,
+    /// The first participating row parsed.
+    Value(Value),
+}
+
+/// Parse only the opening participating physical row. A header refusal
+/// must return before any later row is decoded, counted or retained.
+fn first_physical_row(admitted: &Admitted<'_>) -> FirstRow {
+    let text = admitted.text;
+    let bytes = text.as_bytes();
+    match bytes.iter().position(|byte| *byte == b'\n') {
+        Some(end) => match serde_json::from_str::<Value>(&text[..end]) {
+            Ok(value) => FirstRow::Value(value),
+            Err(_) => FirstRow::Malformed,
+        },
+        None => {
+            if admitted.overflow || text.is_empty() {
+                FirstRow::Absent
+            } else {
+                match serde_json::from_str::<Value>(text) {
+                    Ok(value) => FirstRow::Value(value),
+                    Err(_) => FirstRow::Malformed,
+                }
+            }
+        }
+    }
+}
+
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let mut header: Option<Value> = None;
-    let mut opening_is_header = false;
+    // Format admission precedes every projection allocation: a refused
+    // opening header returns before any later physical row is decoded,
+    // counted or retained (design D4).
+    match first_physical_row(admitted) {
+        FirstRow::Value(header) if dsh_header(&header) => {}
+        FirstRow::Value(_) | FirstRow::Malformed | FirstRow::Absent => {
+            projection.skipped_lines = 0;
+            projection.unrecognized_records = 0;
+            projection.unavailable = Some(Unavailable::UnsupportedFormat);
+            return;
+        }
+    }
     let mut events: Vec<DshEvent> = Vec::new();
     // Every observed logical identity counts once, including quiet
     // omissions, so a duplicate sequence stays ambiguous for citation
@@ -1669,11 +1747,8 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut refused = false;
     let mut unrecognized = 0u64;
     let skipped = for_each_parsed_row(admitted, |index, value| {
-        // The opening physical row must itself be the admitted session
-        // header: a malformed or absent first row cannot borrow a later one.
+        // The admitted opening header is quiet.
         if index == 0 {
-            opening_is_header = true;
-            header = Some(value);
             return;
         }
         match dsh_row(&value) {
@@ -1716,20 +1791,6 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
             }
         }
     });
-    if !opening_is_header {
-        // No usable opening row: the discovery stage owns this refusal.
-        projection.skipped_lines = skipped;
-        projection.unavailable = Some(Unavailable::UnsupportedFormat);
-        return;
-    }
-    let header = header.expect("a first parsed row stored the header");
-    if !dsh_header(&header) {
-        // Rejected version or depth: zero counts, no event classification.
-        projection.skipped_lines = 0;
-        projection.unrecognized_records = 0;
-        projection.unavailable = Some(Unavailable::UnsupportedFormat);
-        return;
-    }
     projection.skipped_lines = skipped;
     projection.unrecognized_records = unrecognized;
     if refused {
@@ -1738,50 +1799,42 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
         return;
     }
     let mut seq_counts: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
-    for seq in observed {
+    for &seq in &observed {
         *seq_counts.entry(seq).or_default() += 1;
     }
     // Citation suppression: an assembly with readable projected blocks
     // suppresses uniquely identified, earlier readable chunks it cites in
-    // its own recorded turn/step. The chunk index by `(turn, step)` bounds
-    // the work by the actual retained members instead of rescanning every
-    // event for every assembly.
-    let mut chunk_index: std::collections::HashMap<(i64, i64), Vec<usize>> =
-        std::collections::HashMap::new();
-    for (index, event) in events.iter().enumerate() {
-        if !event.chunk {
-            continue;
-        }
-        if let (Some(turn), Some(step)) = (event.turn, event.step) {
-            chunk_index.entry((turn, step)).or_default().push(index);
-        }
-    }
+    // its own recorded turn/step. One interval-searchable index keyed by
+    // `(turn, step, seq)` is swept in source order, so each observed
+    // chunk and each citation range costs one logarithmic lookup and no
+    // integer range is ever expanded.
+    let mut chunk_index: std::collections::BTreeMap<(i64, i64, i64), usize> =
+        std::collections::BTreeMap::new();
     let mut suppressed = std::collections::HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        if !event.assembly || event.cited.is_empty() || event.blocks.is_empty() {
-            continue;
+        if event.assembly && !event.cited.is_empty() && !event.blocks.is_empty() {
+            if let (Some(turn), Some(step)) = (event.turn, event.step) {
+                for (start, end) in &event.cited {
+                    if start > end {
+                        continue;
+                    }
+                    let keys: Vec<(i64, i64, i64)> = chunk_index
+                        .range((turn, step, *start)..=(turn, step, *end))
+                        .map(|(key, _)| *key)
+                        .collect();
+                    for key in keys {
+                        if let Some(candidate_index) = chunk_index.remove(&key) {
+                            suppressed.insert(candidate_index);
+                        }
+                    }
+                }
+            }
         }
-        let (Some(turn), Some(step)) = (event.turn, event.step) else {
-            continue;
-        };
-        let Some(candidates) = chunk_index.get(&(turn, step)) else {
-            continue;
-        };
-        for &candidate_index in candidates {
-            if candidate_index >= index {
-                continue;
-            }
-            let candidate = &events[candidate_index];
-            let Some(seq) = candidate.seq else { continue };
-            if seq_counts.get(&seq) != Some(&1) {
-                continue;
-            }
-            if event
-                .cited
-                .iter()
-                .any(|(start, end)| seq >= *start && seq <= *end)
-            {
-                suppressed.insert(candidate_index);
+        if event.chunk {
+            if let (Some(turn), Some(step), Some(seq)) = (event.turn, event.step, event.seq) {
+                if seq_counts.get(&seq) == Some(&1) {
+                    chunk_index.insert((turn, step, seq), index);
+                }
             }
         }
     }
@@ -1950,7 +2003,7 @@ fn dsh_message_blocks(data: &Value) -> (Vec<DshBlock>, bool) {
                             .and_then(Value::as_str)
                             .filter(|id| !id.is_empty());
                         blocks.push(DshBlock {
-                            block: Block::tool(format!("{name} {arguments}")),
+                            block: Block::tool(tool_text(id, compose(&[name, &arguments]))),
                             tool: id.map(|id| DshTool {
                                 id: id.to_string(),
                                 direction: DshDirection::Call,
@@ -1966,7 +2019,7 @@ fn dsh_message_blocks(data: &Value) -> (Vec<DshBlock>, bool) {
                             .and_then(Value::as_str)
                             .filter(|id| !id.is_empty());
                         blocks.push(DshBlock {
-                            block: Block::tool_result(output),
+                            block: Block::tool_result(tool_text(id, output)),
                             tool: id.map(|id| DshTool {
                                 id: id.to_string(),
                                 direction: DshDirection::Result,
@@ -2096,7 +2149,7 @@ fn dsh_row(value: &Value) -> DshRow {
             DshRow::Events(
                 vec![DshEvent {
                     blocks: vec![DshBlock {
-                        block: Block::tool(format!("{name} {arguments}")),
+                        block: Block::tool(tool_text(id, compose(&[name, &arguments]))),
                         tool: id.map(|id| DshTool {
                             id: id.to_string(),
                             direction: DshDirection::Call,

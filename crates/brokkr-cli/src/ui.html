@@ -597,6 +597,7 @@ function renderLoops(detail, view, id) {
             g.onclick = () => {
               activeParticipant = n.key;
               selectedPhase = null;
+              explicitSelectKey = n.key;
               renderDetail(id, view);
             };
           }
@@ -985,7 +986,7 @@ function createTranscriptController(effects) {
     if (bodyState === 'refused') bodyState = 'missing';
     requestPresentation(generation);
   }
-  function select(subject) {
+  function operator_select(subject) {
     beginInterval(subject);
   }
   function sync(subject) {
@@ -1042,7 +1043,7 @@ function createTranscriptController(effects) {
       sessionId: drillId(),
     };
   }
-  return { select, sync, repaint, clear, snapshot };
+  return { operator_select, sync, repaint, clear, snapshot };
 }
 /* transcript-controller:end */
 
@@ -1104,6 +1105,13 @@ function participantSubject(runId, part) {
 function renderTranscriptView(view) {
   if (!transcriptBox) return;
   transcriptBox.replaceChildren();
+  // The authoritative selected reference is its own local fact, painted
+  // separately from the derived hint and the body state.
+  if (view.reference) {
+    const ref = view.reference;
+    transcriptBox.appendChild(el('p', 'cause',
+      'local reference · ' + ref.kind + ' · ' + ref.locator + ' · ' + ref.home));
+  }
   if (view.sessionId !== null) {
     transcriptBox.appendChild(el('p', 'cause', '· session ' + view.sessionId));
   }
@@ -1338,7 +1346,7 @@ function renderDetail(id, view) {
     const subject = participantSubject(id, part);
     if (explicitSelectKey === part.key) {
       explicitSelectKey = null;
-      transcriptController.select(subject);
+      transcriptController.operator_select(subject);
     } else {
       transcriptController.sync(subject);
     }

@@ -1197,6 +1197,21 @@ fn newest_answer(answered: Vec<(usize, String, String)>) -> Option<(usize, Strin
 /// the single-run path is untouched, down to the sidecars it leaves
 /// behind.
 fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
+    resolve_in_hearths_with(hearths, run, false)
+}
+
+/// Resolve one run across the hearths without ever opening a journal
+/// read-write: the read-only resolution `brokkr transcript` uses so a
+/// look must not create a WAL sidecar, migrate or repair a journal.
+fn resolve_in_hearths_read_only(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
+    resolve_in_hearths_with(hearths, run, true)
+}
+
+fn resolve_in_hearths_with(
+    hearths: &[Hearth],
+    run: String,
+    read_only: bool,
+) -> Result<(usize, String)> {
     let sole = hearths.len() < 2;
     let mut refusal: Option<anyhow::Error> = None;
     // The hearths that answered: index, the id it resolved to, and when
@@ -1206,7 +1221,7 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
         if !hearth.journal.is_file() {
             continue;
         }
-        let opened = match sole {
+        let opened = match sole && !read_only {
             true => Store::open(&hearth.journal),
             false => Store::open_read_only(&hearth.journal),
         };
@@ -1439,9 +1454,12 @@ fn transcript_command(
     turn: Option<u64>,
     json: bool,
 ) -> Result<ExitCode> {
-    let db = journal_of(workspace, realms, db)?;
-    let store = Store::open_read_only(&db)?;
-    let run = selector::resolve_run(&store, &run)?;
+    let hearths = hearths_of(workspace, realms, db)?;
+    // Consult every distinct existing hearth read-only and apply the one
+    // established exact/prefix/`latest` rule; a read never opens a journal
+    // read-write, even when `--db` names a sole hearth.
+    let (hearth, run) = resolve_in_hearths_read_only(&hearths, run)?;
+    let store = Store::open_read_only(&hearths[hearth].journal)?;
     let events = store.load(&run)?;
     let state = fold(&events)?;
     let view = brokkr_view::run_view(&events, Some(&state));

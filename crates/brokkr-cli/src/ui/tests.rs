@@ -1207,6 +1207,51 @@ fn codex_discovery_matches_the_whole_token() {
     );
 }
 
+/// A directory whose own name resembles a rollout is still traversed, so
+/// an eligible descendant beneath it is discovered (design D3).
+#[test]
+fn codex_rollout_shaped_directories_are_still_traversed() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    let shaped = sessions.join("rollout-0199mine.jsonl");
+    std::fs::create_dir_all(&shaped).unwrap();
+    std::fs::write(
+        shaped.join("rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "the rollout-shaped directory is traversed: {read:?}"
+    );
+    assert!(
+        read.path
+            .as_deref()
+            .unwrap()
+            .ends_with("rollout-0199mine.jsonl/rollout-0199mine.jsonl"),
+        "the descendant is the confirmed source: {read:?}"
+    );
+}
+
+/// A home spelled in another platform's absolute syntax is refused as an
+/// invalid reference before any filesystem call, and its bytes are echoed.
+#[cfg(unix)]
+#[test]
+fn a_foreign_absolute_home_is_refused_before_native_io() {
+    let recorded = r"C:\Users\operator\.claude\projects";
+    let reference = common("claude-session", "abcd-1234", recorded);
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::InvalidReference));
+    assert_eq!(read.path, None, "no path is confirmed for a refused home");
+    assert_eq!(
+        read.reference.as_ref().unwrap().home,
+        recorded,
+        "the recorded bytes are echoed unchanged"
+    );
+}
+
 /// DSH: the recorded root's project/session layout, depth zero only, and
 /// version cannot choose between two owned roots.
 #[test]
@@ -1880,7 +1925,7 @@ function __newController() {
   });
   return true;
 }
-function __select(subject) { __controller.select(subject); }
+function __operatorSelect(subject) { __controller.operator_select(subject); }
 function __sync(subject) { __controller.sync(subject); }
 function __repaint() { __controller.repaint(); }
 function __clearController() { __controller.clear(); }
@@ -1928,7 +1973,7 @@ impl Boa {
     }
 
     fn select(&mut self, subject: &Value) {
-        self.call(&format!("__select({subject})"));
+        self.call(&format!("__operatorSelect({subject})"));
     }
     fn sync(&mut self, subject: &Value) {
         self.call(&format!("__sync({subject})"));
@@ -2073,6 +2118,26 @@ fn the_controller_is_isolated_and_the_adapter_is_thin() {
     }
     let block = controller_block();
     assert!(block.contains("function createTranscriptController(effects)"));
+    assert!(
+        block.contains("function operator_select(subject)"),
+        "the controller exposes the explicit edge-triggered selection"
+    );
+    assert!(
+        PAGE.contains("transcriptController.operator_select(subject)"),
+        "the adapter routes explicit selection through operator_select"
+    );
+    assert!(
+        PAGE.contains("explicitSelectKey = part.key;"),
+        "the seat row marks an explicit selection"
+    );
+    assert!(
+        PAGE.contains("explicitSelectKey = n.key;"),
+        "the graph node marks an explicit selection instead of background sync"
+    );
+    assert!(
+        PAGE.contains("'local reference · '"),
+        "the page paints the authoritative common reference as its own fact"
+    );
     for banned in [
         "document",
         "window",
