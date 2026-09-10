@@ -104,7 +104,33 @@ plugin bytes, the Cordis patch and the composed `headless` profile, and compare
 it with the qualified composite. Only a match SHALL take an eligible offer or
 construct the plugin's `--new` and `--session` launches. A mismatch or an
 unreadable identity SHALL decline any offer as `unverified-harness`, run the
-shipped cold invocation unchanged and record no offerable root. Brokkr SHALL
+shipped cold invocation unchanged and record no offerable root.
+
+The qualified composite SHALL be the value of an optional `wrapper_digest`
+member of the declaration's measured identity form, beside `version` and
+`applies_to`. It SHALL use seat record v5's `root_session.wrapper_digest`
+grammar, 64 lowercase hexadecimal characters. The loader SHALL admit the member
+only in the measured form and SHALL refuse it beside `unknown`, and a shape
+without it SHALL remain loadable. `applies_to` SHALL remain the version the
+`--version` probe compares. The DSH planner SHALL treat a `supported` shape
+without the member as `unverified-harness`. The composite recompute SHALL run
+only where the gate is already open, like the version probe. Where it runs,
+the planner SHALL compare the probed version with `applies_to` and the
+recomputed composite with the declared `wrapper_digest`. On an offer it SHALL
+also compare both with the values the originating root recorded. A confirmed
+root SHALL record the observed digest in `root_session.wrapper_digest`. The
+canonical composite SHALL NOT depend on the absolute locations of the
+executable or home, or on the per-seat overlay Brokkr stages. The reference
+SHALL be computed by the delivered Rust canonicalization over the qualified
+composite, recorded with the qualification evidence and written into the
+declaration and its packaged or scaffolded equivalents in the same edit that
+enables the shape. Before that edit the shape stays unenabled and its gate
+closes before any probe. Every DSH seat then runs the shipped cold invocation
+unchanged, whatever its home holds. Re-qualifying a different composite SHALL
+change `version`, `applies_to`, `wrapper_digest` and `evidence` together in the
+declaration, and SHALL NOT require a code change. A constant compiled into
+Brokkr, an originating root's recorded digest, or a qualification file read at
+run time SHALL NOT serve as the reference. Brokkr SHALL
 NOT install, compose, update or remove a DSH package, plugin or profile, and
 SHALL add no configuration surface for doing so; the per-seat model, effort and
 persistence overlay stays the only file it stages for DSH. Deploying the
@@ -239,7 +265,7 @@ read as history, not as a current claim.
 #### Scenario: An enabled DSH shape at ordinary run time
 - **GIVEN** the DSH `headless-work` shape is enabled on the qualified composite
 - **WHEN** an eligible DSH site launches through `BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on PATH, with its DSH home resolved from `$DSH_HOME` or `$HOME/.dsh`
-- **THEN** the adapter recomputes that executable's and home's composite identity before provider work, and takes the offer through `--session <owned-root>` on the `headless` profile only when it matches the qualified composite
+- **THEN** the adapter recomputes that executable's and home's composite identity before provider work, and takes the offer through `--session <owned-root>` on the `headless` profile only when it matches the `wrapper_digest` the declaration's measured identity pins
 - **AND** Brokkr installs, composes, updates and removes no DSH package, plugin or profile, and stages only its per-seat overlay
 - **AND** the qualification and the end-to-end proof reach the task-owned installation through these same seams, while snapshots show the global DSH installation, profiles and credentials byte-unchanged
 
@@ -248,6 +274,31 @@ read as history, not as a current claim.
 - **WHEN** an eligible DSH offer arrives or a cold DSH seat starts
 - **THEN** any offer is declined as `unverified-harness`, the shipped cold invocation runs unchanged and no offerable root is recorded
 - **AND** nothing is installed into that home, and whether the operator deploys the pair there is recorded as an operator ruling rather than assumed
+
+#### Scenario: The declaration pins the qualified composite
+- **GIVEN** 10.7's qualification of the adapted pair on core 0.1.5-rc.1 passes and the delivered Rust canonicalization computes the qualified composite's digest over the task-owned home
+- **WHEN** 11.3 enables the DSH `headless-work` shape
+- **THEN** the same declaration edit that sets `supported` writes that digest as `identity.wrapper_digest` beside `version` and `applies_to` `0.1.5-rc.1`, in `adapters/dsh.json` and its packaged or scaffolded equivalents
+- **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
+- **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
+
+#### Scenario: Before enablement a home holding the pair still runs cold
+- **GIVEN** the DSH shape is still `unmeasured`, its identity carries no `wrapper_digest`, and the resolved home holds the qualified pair
+- **WHEN** a DSH seat starts cold or an eligible DSH offer arrives
+- **THEN** any offer is declined as `unsupported-resume` and the shipped cold invocation runs unchanged
+- **AND** no version probe or composite recompute runs, no `--new` or `--session` is built and no offerable root is recorded
+
+#### Scenario: A supported DSH identity lacks a valid composite digest
+- **GIVEN** a DSH assessment marks the shape `supported` but its measured identity has no `wrapper_digest`, or the private start context carries one that does not fit the grammar
+- **WHEN** a DSH seat starts cold or with an offer
+- **THEN** the gate reads `unverified-harness`, any offer is declined and the shipped cold invocation runs unchanged
+- **AND** a declaration that places `wrapper_digest` beside `unknown`, or gives it outside the 64-lowercase-hex grammar, is refused by the loader
+
+#### Scenario: A different DSH composite is re-qualified
+- **GIVEN** a newer core, another plugin revision or adaptation, or a different Node runtime, dependency graph or profile is qualified in place of the enabled composite
+- **WHEN** its evidence is adopted
+- **THEN** one declaration edit changes `version`, `applies_to`, `wrapper_digest` and `evidence` together, with no code change, and the adapter content digest and `instance_ref` move
+- **AND** no root opened under the earlier composite is offered, and any that reaches the planner is declined as `unverified-harness` by the per-root comparison
 
 #### Scenario: A superseded DSH pin is reversed in the declaration
 - **GIVEN** `adapters/dsh.json` records the 0.1.0-rc.6 pin in its `headless-work` shape, whose closed resume shape has no history field
@@ -329,7 +380,7 @@ an unsupported hands shape or change which adapters can hold a gate.
 #### Scenario: DSH remains in its declared headless shape
 - **WHEN** an eligible DSH site resumes under a measured supported path
 - **THEN** headless operation, the pinned model/effort overlay and the owned session/transcript relationship remain effective, without falling into an interactive or ambient profile
-- **AND** the resolved home's `headless` profile verifies as the qualified composite before this invocation; a different core, plugin, profile or selector, or plugin bytes that differ from the pinned repository-owned adaptation, declines the offer instead of being inherited
+- **AND** the resolved home's `headless` profile verifies as the qualified composite, the declared `wrapper_digest`, before this invocation; a different core, plugin, profile or selector, or plugin bytes that differ from the pinned repository-owned adaptation, declines the offer instead of being inherited
 
 #### Scenario: Unsupported hands still refuse
 - **WHEN** a DSH or LaneTally site requests a hands shape its declaration does not support

@@ -30,7 +30,8 @@ completed work needs a truthful task marker before the phase's final commit.
   the plugin's post-turn fold onto that core's public session-event accessor;
   it runs through the documented extension and `agents.resume` APIs and is
   pinned by digest. At run time Brokkr verifies that composite in the DSH home
-  it already resolves and never installs it. No older core is selected. The deferred hands/tools plugin
+  it already resolves, against the digest its declaration pins once the shape
+  is enabled, and never installs it. No older core is selected. The deferred hands/tools plugin
   remains separate. Implement every measured safe shape; declare unsupported or
   unmeasured shapes honestly. Cold-only, declaration-gated preparation does not
   close #226. Re-impose current restrictions, hands and model/effort settings on
@@ -276,7 +277,8 @@ above and to the repository-owned plugin adaptation's upstream commit and byte
 digests, with its resolved dependency identity recorded. Qualifying and
 implementing seats do not alter the live global DSH pin, profiles, credentials
 or other runs. At run time Brokkr verifies the composite in the DSH home it
-already resolves, and never installs, composes or updates one. Deploying the
+already resolves against the `wrapper_digest` its declaration pins (answer O),
+and never installs, composes or updates one. Deploying the
 pair into an ordinary home is an operator ruling (answer N2). Brokkr's production
 integration remains Rust under `crates/`; loading a provider plugin through
 DSH's documented extension API does not authorize a second Brokkr runner, a
@@ -295,8 +297,8 @@ These specification answers were recorded across the returns on 2026-09-09
 and 2026-09-10. Answers A–K remain settled; L corrects the delta operation for
 their new semantics without reopening them, and M applies the operator's
 2026-09-10 ruling to K's pinned core without reopening K's route. N settles
-four rules M left open. Their
-observable answers are scenarios in the owning deltas. The council must carry
+four rules M left open, and O settles where N2's qualified composite lives.
+Their observable answers are scenarios in the owning deltas. The council must carry
 these choices into `design.md` Decisions and the numbered rulings of proposed
 0056; this is not a claim of operator acceptance.
 
@@ -643,6 +645,82 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
     old entry into the past tense, which rewrites measured history; and relying
     on `evidence.interface` alone, which names current evidence and must move to
     the 015rc1 file.
+
+- **O — Clarify return 2026-09-10, second visit: the qualified composite is a
+  digest the declaration pins, and 11.3 writes it.** The clarifier's Q5 is
+  adopted as a real ambiguity. N2 requires a comparison with "the qualified
+  composite" before `--new` or `--session`, and no artifact said where that
+  reference lives. The run-time gate, `resume_gate` in
+  `crates/brokkr-protocol/src/adapters.rs`, reads only `identity/applies_to`
+  and compares it with the probed `dsh --version`. The closed loader in
+  `crates/brokkr-runtime/src/agents/load.rs` admits only `version` and
+  `applies_to` in the measured form. The qualification file under `.forge/`
+  is not shipped. The answer combines the clarifier's readings A and C: A says
+  where the reference lives, and C says when it is written.
+
+  - **Where.** The measured identity form gains one optional member,
+    `wrapper_digest`, beside `version` and `applies_to`. Its grammar is seat
+    record v5's `root_session.wrapper_digest`, 64 lowercase hexadecimal
+    characters. Its value is D6's canonical digest of the qualified composite.
+    `applies_to` stays the version string that the `--version` probe compares,
+    `0.1.5-rc.1`. The unknown identity form refuses the member. The loader
+    stays adapter-neutral. Codex and Claude carry no digest and behave as
+    before. The DSH planner treats a `supported` shape whose identity lacks the
+    member as `unverified-harness`, checking at the point of use as the gate
+    already rechecks accounting evidence.
+  - **How it is compared.** The composite recompute runs only where the gate
+    is already open, like the version probe. The DSH planner compares the probed
+    version with `applies_to` and the recomputed composite with
+    `identity.wrapper_digest`. On an offer it also compares both with the values the
+    originating root recorded. Only agreement on every comparison builds
+    `--new` or `--session`. A confirmed root records the observed digest in
+    `root_session.wrapper_digest` and the observed version in `harness_version`.
+    D6's canonical form is location-independent: it excludes the absolute
+    executable and home paths and the per-seat overlay Brokkr stages. Otherwise
+    no home but the qualifying one could ever match, and no two seats could
+    agree. Component order and hashing stay D6's.
+  - **When.** The digest is Brokkr's own Rust computation from 8.8. The
+    reference is therefore produced by that code over the qualified task-owned
+    composite, recorded in `dsh-pair-qualification-015rc1.json`, and written
+    into `adapters/dsh.json` and its packaged or scaffolded equivalents only by
+    11.3, together with `supported`. Until then the shape is `unmeasured`. The
+    gate closes before any probe, and every DSH seat runs the shipped cold
+    invocation unchanged, even where the home holds the pair. It spawns neither
+    a version probe nor a composite recompute, and it builds no `--new`. This
+    keeps D5's rule that a cold invocation of an unmeasured shape spawns what it
+    spawned before. Tasks 6.4 and 11.5 therefore write no digest. The
+    deterministic 8.10 and 9.6 cases supply `supported` assessments with shim
+    digests through the private start context, as the adapter tests already
+    do. 11.3's end-to-end case uses the flipped declaration, with the seams
+    pointed at the task-owned home.
+  - **Re-qualification.** A different core, plugin revision, adaptation, Node
+    runtime, dependency graph or profile needs a new qualification (G, N1). One
+    declaration edit then changes `version`, `applies_to`, `wrapper_digest` and
+    `evidence` together. The edit moves the adapter content digest and
+    `instance_ref`, so SR2 offers no root opened under the old instance. The
+    per-root comparison refuses any root that survives. No code changes.
+
+  This is not the field N4 rejected. N4 rejected a `history` member because it
+  would store evidence. D5's closed shape holds admission-relevant facts and
+  nothing behind them. The digest is the fact the gate compares, the
+  composite's counterpart of `applies_to`. A version string cannot express
+  it, because the plugin, adaptation, dependency and profile bytes carry no
+  version that the probe reports. D5 needs a one-sentence amendment; its
+  loader, tests and adapter content digest follow from it.
+  Rejected alternatives:
+  - Reading B, a Rust constant in the DSH planner, would move the enforced
+    identity out of the reviewable declaration. Declarations, packaged
+    equivalents, guides and 0056 could then not agree on version
+    qualification, as AS1 requires. Every re-qualification would become a
+    code release, and the adapter content digest would not move with the
+    composite.
+  - C on its own names no reference for the enabled gate.
+  - Taking the expected value from an originating root's recorded digest makes
+    the first launch self-certifying, because that value exists only after
+    the launch the check must gate.
+  - Reading the qualification file at run time consults evidence that is
+    unshipped and untracked. It would also make that file an evidence
+    database.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -1230,3 +1308,53 @@ provenance pointer for this change, and strict validation of the twelve living
 specs passed. `git diff --check` is clean. Cargo is
 not on this box's PATH, so this return claims no Rust, bundle or release-binary
 result.
+
+## Current successor specify return — DSH clarify Q5, 2026-09-10
+
+This visit belongs to run `current-successor-operator-rulin-b83add73`. It
+adopts HEAD `46b4d14` and the dated change `2026-09-09-226-session-resumption`,
+and answers the one question the second clarify visit returned as answer O.
+The qualified composite is D6's canonical digest. It is carried by an optional
+`wrapper_digest` member of the measured identity form, and 11.3 writes it
+together with `supported`. Until then every DSH seat runs the shipped cold
+invocation. What Changes and Impact now name that reference. AS1 states
+where the digest lives, when it is written and how re-qualification changes it,
+and gains four scenarios. Its ordinary run-time scenario and AS2's DSH
+scenario now compare against the declared digest. Answers A–N and the delta
+operations of L are not reopened.
+
+This visit read the gate and qualification code in
+`crates/brokkr-protocol/src/adapters.rs`, the closed identity loader in
+`crates/brokkr-runtime/src/agents/load.rs`, seat record v5's `wrapper_digest`
+grammar and the declaration. It executed no DSH, model, probe or workflow
+runner, and it did not read or touch the global DSH installation, profiles or
+credentials.
+
+Answer O adds these downstream obligations to the ones the previous return
+listed, and they stay outside this office's commit:
+
+- design D5: one sentence admitting the optional measured `wrapper_digest`;
+  the loader in `agents/load.rs` and its `agents/tests.rs` cases (measured
+  form only, v5 grammar, refused beside `unknown`, absence admitted);
+- design D6: the canonical form's exclusion of absolute locations and the
+  per-seat overlay, and the digest as the declaration's reference;
+- proposed decision 0056 ruling 5, still `proposed`;
+- tasks 6.4 and 11.5, which write no digest; 8.8, whose gate reads the
+  declared digest and the originating root's digest; 8.10, which covers a
+  missing, malformed and mismatched digest and a mismatch with the
+  originating root; and 11.3, which writes the digest with `supported` and
+  moves the witness digests the adapter bytes pin;
+- `docs/guides/provider-adapters.md`: which digest an operator's deployed home
+  must reproduce.
+
+Task 11.3 is still enabled only on measured
+`.forge/tasks/dsh-pair-qualification-015rc1.json` evidence. Codex 10.5, Claude
+10.6 and LaneTally 10.8 keep their recorded state.
+
+Strict active validation passes. The deltas parse as **20 requirements / 139
+scenarios**, still **15 ADDED and five MODIFIED**. In a scratch copy with tasks
+ticked only there, the normal dated archive modified exactly AS1–AS3 and PM4
+and changed only those two living files. Each capability kept exactly one
+provenance pointer for this change, and strict validation of the twelve living
+specs passed. `git diff --check` is clean. Cargo is not on this box's PATH, so
+this return claims no Rust, bundle or release-binary result.
