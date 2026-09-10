@@ -8,9 +8,10 @@ projections stand on, then Claude, Codex and DSH content, then the safe
 filesystem acquisition that feeds them, then the command, then the TUI,
 then the browser, then the cross-surface and privacy proofs, then the
 guide, then one closing group of gates, the archive fold and the commit.
-The stale living-spec copies from the premature archive are removed after
-the filed-decision check and before implementation resumes; the final fold
-then runs exactly once from the repaired active deltas.
+The living specifications produced by the premature archive are preserved as
+the accumulated base for the active `MODIFIED` deltas. After implementation
+and review, the final fold reconciles those deltas into that existing truth
+exactly once without rewriting or duplicating its provenance pointers.
 
 Every task names the requirement it serves as `<capability> /
 <Requirement>`. Group 1 and group 13 serve every requirement of the
@@ -70,14 +71,15 @@ task:
       group 2 and after none of them; a later group may not re-open the
       decision's rulings to match an implementation that drifted — every
       requirement of this change.
-- [ ] 1.5 Remove the three stale premature folds at
+- [x] 1.5 Preserve the three accumulated living specifications at
       `openspec/specs/transcript-reading`,
       `openspec/specs/transcript-command` and
-      `openspec/specs/transcript-tui` before production repair begins,
-      leaving the active deltas under this change as the only specification
-      source until task 13.8; verify those stale paths are absent and
-      `openspec validate read-every-transcript-kind --strict
-      --no-interactive` remains green — every requirement of this change.
+      `openspec/specs/transcript-tui` as the base for this change's active
+      `MODIFIED` deltas; verify all three paths remain present, each keeps its
+      existing `2026-09-10-read-every-transcript-kind` provenance pointer
+      exactly once, and `openspec validate read-every-transcript-kind --strict
+      --no-interactive` remains green before production repair resumes — every
+      requirement of this change.
 
 ## 2. The pure result model, the reference and the hint (D2, D3, D7)
 
@@ -144,8 +146,10 @@ task:
       transcript-reading / Every kind obeys the same source and display
       caps; transcript-tui / Notices survive every reading surface.
 - [x] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
-      driven: each of the five reference refusals keeps its three
-      recorded strings, `legacy: false`, null path and null hint; a
+      driven: each of the five pure-view reference refusals keeps its three
+      recorded strings, `legacy: false`, null path and null hint, including a
+      directly supplied `future-session` returning `unsupported-kind`
+      without lookup and independently of the journal-fence proof in 8.10; a
       stale valid legacy id beside each of them supplies nothing; the
       legacy-synthesis and legacy-invalid-id rows; Claude ids of 1, 64
       and 65 characters, `-abc` and `a-bC09`; Codex ids of 1, 64, 80, 81,
@@ -575,9 +579,24 @@ task:
       4` over a packed row's members and its ordinary equivalent — transcript-command /
       The transcript command selects one run and participant; Turn
       selection addresses the displayed sequence.
-- [x] 8.9 JSON and text state tests in the same file: the five rejected
-      common references with their reasons and preserved strings; a
-      header-less Codex rollout of only `turn_context` exiting zero with
+- [ ] 8.9 Command tests exercise each of the four rejected common references
+      admitted by the frozen seat-record vocabulary — `none`, `unannounced`,
+      `missing-home` and `invalid-reference` — under `--json` and text mode;
+      verify every JSON refusal document preserves all three recorded strings,
+      `legacy: false`, its exact reason, null path and hint, empty turns and
+      zero diagnostics, while text keeps stdout empty and the matching
+      sanitized stderr explanation — transcript-command / JSON exposes a
+      distinct local transcript document; Text output and errors report the
+      same bounded result.
+- [ ] 8.10 Add a journal-boundary test for a frozen seat-record carrying
+      `future-session`: verify append or verification refuses the row before
+      participant selection and that no transcript command path can emit
+      stdout or construct a `brokkr.transcript/v1` document from it; do not
+      widen a frozen contract to manufacture command reachability —
+      transcript-command / JSON exposes a distinct local transcript document;
+      The transcript command selects one run and participant.
+- [x] 8.11 JSON and text state tests in the same file: a header-less Codex
+      rollout of only `turn_context` exiting zero with
       its confirmed path and hint; empty versus missing; five ignorable
       unknown records with `unrecognized_records: 5`; the shipped Claude
       fixture's `(1, 0)` counts in whole and selected reads; the three
@@ -943,34 +962,39 @@ task:
       admission gate rejects Boa, return upstream to design instead of
       weakening the exact-served-code proof — every requirement
       of this change.
-- [ ] 13.7 Confirm the frozen set is untouched — `contracts/`,
+- [ ] 13.7 Build the distinct locked release-profile artifact with
+      `cargo build --release --locked -p brokkr-cli` under
+      `CARGO_BUILD_JOBS=2`, and verify the command exits zero and produces the
+      release CLI target; neither the production-graph inspection nor the
+      Rust 1.88 all-targets compilation in 13.6 substitutes for this build —
+      every requirement of this change.
+- [ ] 13.8 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
       `fixtures/` — and that the only decision file added is proposed
       0055 with its single registry row — every requirement of this
       change.
-- [ ] 13.8 After 1.5 removed the stale premature fold and every repaired
+- [ ] 13.9 After 1.5 preserved the living base and every repaired
       implementation, proof and local gate above is complete, fold the active
-      final change into the living truth exactly once with the dialect's
-      archive operation, `openspec archive read-every-transcript-kind
-      --yes`, so the three final deltas seed `openspec/specs/`; append under
-      each touched capability's `## Provenance` heading the one pointer
-      line the dialect's archive instructions spell — the archived
-      directory name and the day it was folded — for
-      `transcript-reading`, `transcript-command` and `transcript-tui`,
-      without rewriting an existing line, and re-run
-      `openspec validate --archived --strict --no-interactive` — every
+      final `MODIFIED` deltas into that existing truth exactly once with the
+      dialect's archive operation, `openspec archive
+      read-every-transcript-kind --yes`, under the already-recorded destination
+      `2026-09-10-read-every-transcript-kind`; verify the three living
+      capabilities are reconciled rather than seeded, each existing provenance
+      pointer remains present exactly once without rewrite or duplication, the
+      active change has moved to that archive directory, and both the living
+      specifications and archived change pass strict validation — every
       requirement of this change.
-- [ ] 13.9 Commit the work unsigned in the repository's message style,
+- [ ] 13.10 Commit the work unsigned in the repository's message style,
       and never push, merge, close the issue or start another run: the
       controller owns integration, host proof, PR, CI and delivery —
       every requirement of this change.
 
 Post-commit controller evidence is deliberately outside the tracked
-checkboxes above. After 13.9 fixes the candidate head, the controller records
+checkboxes above. After 13.10 fixes the candidate head, the controller records
 the final CI evidence for workspace tests on Linux, macOS and Windows and for
 the MSRV, license and audit jobs, with host exact-coverage proof and the remote MSRV job using the same
 `--all-targets --all-features` arguments as 13.6. Those results remain pending
-until they exist; they validate the unchanged commit produced by 13.9 and do
+until they exist; they validate the unchanged commit produced by 13.10 and do
 not cause another tracked edit. If any remote platform or admission gate
 rejects Boa, the controller returns the change upstream to design instead of
 weakening the exact-served-code proof.
