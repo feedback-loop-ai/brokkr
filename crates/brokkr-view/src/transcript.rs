@@ -391,12 +391,28 @@ pub fn select_reference(
     }
 }
 
-/// A JSON double-quoted string literal, exactly: quotation marks and
-/// reverse solidus escaped, ASCII controls as the usual short escapes
-/// where available and lowercase `\u00xx` otherwise, other Unicode
-/// literal. No shell escaping is added.
-pub fn json_string(text: &str) -> String {
-    serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string())
+/// One reversible portable display literal for an agent-controlled path
+/// or home: a valid double-quoted JSON string literal that emits only
+/// ASCII letters, digits, `/`, `.`, `_`, `-` and `:` directly. Every
+/// other Unicode scalar uses a lowercase four-digit `\uXXXX` escape, with
+/// a surrogate pair for a non-BMP scalar, and no JSON short escape is
+/// used. Decoding it as JSON recovers the exact input string. The result
+/// is inert display data, never shell syntax or a pasteable command.
+pub fn portable_display_literal(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | ':') {
+            out.push(ch);
+        } else {
+            let mut buf = [0u16; 2];
+            for unit in ch.encode_utf16(&mut buf) {
+                out.push_str(&format!("\\u{unit:04x}"));
+            }
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// The informational `full_session` value for one validated reference
@@ -407,21 +423,19 @@ pub fn full_session(reference: &ValidReference, path: Option<&str>) -> Option<St
             "full session: claude --resume {}",
             reference.locator
         )),
-        TranscriptKind::CodexThread => Some(match path {
-            Some(path) => format!(
-                "full session: {}; codex exec resume {}; home: {}",
-                json_string(path),
-                reference.locator,
-                json_string(&reference.home)
-            ),
-            None => format!(
-                "full session: rollout unavailable; codex exec resume {}; home: {}",
-                reference.locator,
-                json_string(&reference.home)
-            ),
-        }),
+        TranscriptKind::CodexThread => {
+            let home = portable_display_literal(&reference.home);
+            let body = match path {
+                Some(path) => format!("path {}", portable_display_literal(path)),
+                None => "rollout unavailable".to_string(),
+            };
+            Some(format!(
+                "full session: {body}, codex exec resume {}, home {home}",
+                reference.locator
+            ))
+        }
         TranscriptKind::DshSession => {
-            path.map(|path| format!("full session: {}", json_string(path)))
+            path.map(|path| format!("full session: path {}", portable_display_literal(path)))
         }
         TranscriptKind::None => None,
     }

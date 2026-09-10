@@ -436,9 +436,9 @@ fn a_headerless_codex_rollout_is_readable() {
     assert_eq!(
         document["full_session"],
         format!(
-            "full session: {}; codex exec resume 0199mine; home: {}",
-            serde_json::to_string(&path).unwrap(),
-            serde_json::to_string(world.home.to_str().unwrap()).unwrap()
+            "full session: path {}, codex exec resume 0199mine, home {}",
+            brokkr_view::transcript::portable_display_literal(&path),
+            brokkr_view::transcript::portable_display_literal(world.home.to_str().unwrap())
         )
     );
 }
@@ -464,8 +464,8 @@ fn a_missing_codex_rollout_has_its_fixed_hint() {
     assert_eq!(
         document["full_session"],
         format!(
-            "full session: rollout unavailable; codex exec resume 019c-222a; home: {}",
-            serde_json::to_string(missing_home.to_str().unwrap()).unwrap()
+            "full session: rollout unavailable, codex exec resume 019c-222a, home {}",
+            brokkr_view::transcript::portable_display_literal(missing_home.to_str().unwrap())
         )
     );
 }
@@ -532,7 +532,10 @@ fn a_foreign_dsh_version_refuses_with_its_document() {
     assert_eq!(document["unrecognized_records"], 0);
     assert_eq!(
         document["full_session"],
-        format!("full session: {}", serde_json::to_string(&path).unwrap())
+        format!(
+            "full session: path {}",
+            brokkr_view::transcript::portable_display_literal(&path)
+        )
     );
 }
 
@@ -1430,7 +1433,10 @@ fn dsh_event_refusal_carries_all_three_notices() {
     assert_eq!(document["path"], path);
     assert_eq!(
         document["full_session"],
-        format!("full session: {}", serde_json::to_string(&path).unwrap())
+        format!(
+            "full session: path {}",
+            brokkr_view::transcript::portable_display_literal(&path)
+        )
     );
     assert_eq!(document["truncated"], true);
     assert_eq!(document["skipped_lines"], 2);
@@ -1493,7 +1499,10 @@ fn a_rejected_dsh_header_version_has_fixed_documents() {
         assert_eq!(document["path"], path);
         assert_eq!(
             document["full_session"],
-            format!("full session: {}", serde_json::to_string(&path).unwrap())
+            format!(
+                "full session: path {}",
+                brokkr_view::transcript::portable_display_literal(&path)
+            )
         );
         assert_eq!(document["truncated"], false);
         assert_eq!(document["skipped_lines"], 0);
@@ -1585,7 +1594,10 @@ fn one_invalid_packed_row_counts_once() {
     assert_eq!(document["path"], path);
     assert_eq!(
         document["full_session"],
-        format!("full session: {}", serde_json::to_string(&path).unwrap())
+        format!(
+            "full session: path {}",
+            brokkr_view::transcript::portable_display_literal(&path)
+        )
     );
     assert_eq!(document["skipped_lines"], 0);
     assert_eq!(document["unrecognized_records"], 1);
@@ -1735,5 +1747,98 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
     assert!(
         !String::from_utf8_lossy(&json.stdout).contains("future-session"),
         "the fenced kind cannot reach the versioned document"
+    );
+}
+
+/// R25: an agent-controlled confirmed path/home reaches text and JSON only
+/// as a reversible portable display literal, never as a raw shell fragment,
+/// and the raw JSON document keeps its separate outer escaping layer.
+#[test]
+fn hostile_confirmed_paths_stay_portable_display_data() {
+    let mut world = world();
+    let hostile_home = world
+        .path()
+        .join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    std::fs::create_dir_all(&hostile_home).unwrap();
+    world.home = hostile_home;
+    let home_text = world.home.to_str().unwrap().to_string();
+
+    // A confirmed Codex rollout below the hostile home.
+    let codex_path = write_codex(&world, "0199mine", "{\"type\":\"turn_context\"}\n");
+    record(
+        &world,
+        json!({"kind": "codex-thread", "locator": "0199mine", "home": home_text}),
+    );
+    let expected_codex = format!(
+        "full session: path {}, codex exec resume 0199mine, home {}",
+        brokkr_view::transcript::portable_display_literal(&codex_path),
+        brokkr_view::transcript::portable_display_literal(&home_text),
+    );
+
+    let json_output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(
+        json_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&json_output.stderr)
+    );
+    let document = read_document(&json_output);
+    let hint = document["full_session"].as_str().unwrap();
+    assert_eq!(hint, expected_codex);
+    for raw in ["$(", "`", ";", "&", "|", "<", ">", "%", "!", "é", "😀"] {
+        assert!(!hint.contains(raw), "{raw:?} survived raw in {hint:?}");
+    }
+    assert!(hint.contains("\\u0020"), "{hint:?}");
+    assert!(hint.contains("\\u00e9"), "{hint:?}");
+    assert!(hint.contains("\\ud83d\\ude00"), "{hint:?}");
+    // The raw document escapes the shared literal's own reverse solidus.
+    let raw_stdout = String::from_utf8_lossy(&json_output.stdout);
+    assert!(raw_stdout.contains("\\\\u0020"), "{raw_stdout}");
+    assert!(raw_stdout.contains("\\\\ud83d\\\\ude00"), "{raw_stdout}");
+
+    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(text.status.success());
+    let text = String::from_utf8_lossy(&text.stdout);
+    let hint_line = text
+        .lines()
+        .find(|line| line.starts_with("hint  "))
+        .expect("the text face carries the hint line");
+    assert_eq!(hint_line, format!("hint  {expected_codex}"));
+    for raw in ["$(", "`", ";", "&", "|", "<", ">", "%", "!", "é", "😀"] {
+        assert!(
+            !hint_line.contains(raw),
+            "{raw:?} survived raw in {hint_line:?}"
+        );
+    }
+
+    // The same proof for a confirmed DSH file: path-only comma framing.
+    let dsh_path = write_dsh(
+        &world,
+        "sessions/one",
+        "{\"type\":\"session\",\"version\":0}",
+    );
+    record(
+        &world,
+        json!({"kind": "dsh-session", "locator": "sessions/one", "home": home_text}),
+    );
+    let expected_dsh = format!(
+        "full session: path {}",
+        brokkr_view::transcript::portable_display_literal(&dsh_path),
+    );
+    let json_output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(json_output.status.success());
+    let document = read_document(&json_output);
+    assert_eq!(document["full_session"], expected_dsh);
+    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(text.status.success());
+    assert!(
+        String::from_utf8_lossy(&text.stdout).contains(&expected_dsh),
+        "{}",
+        String::from_utf8_lossy(&text.stdout)
     );
 }

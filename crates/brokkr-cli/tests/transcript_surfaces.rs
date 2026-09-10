@@ -87,9 +87,14 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
 
 /// A one-participant run whose checkpoint carries the reference.
 fn make_world(kind: &str, locator: &str, body: &str) -> World {
+    make_world_named(kind, locator, body, "home")
+}
+
+/// The same world under a chosen (possibly hostile) home directory name.
+fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> World {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
-    let home = dir.path().join("home");
+    let home = dir.path().join(home_name);
     std::fs::create_dir_all(&home).unwrap();
     let (reference, path) = source(&home, kind, locator, body);
     let mut store = Store::open(&db).unwrap();
@@ -436,4 +441,70 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
         "the dynamic response context is missing: {texts:?}"
     );
     compare(&world, &read, None);
+}
+
+/// R25: one completed portable-display hint is byte-identical across the
+/// view result, the command's text and decoded JSON, the TUI pane and whole
+/// door, the presentation response and the served page's text node — with no
+/// surface reconstructing a fragment.
+#[test]
+fn r25_portable_hint_is_identical_across_every_surface() {
+    let hostile = "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀";
+    for (kind, locator, body) in [
+        ("codex-thread", "0199mine", "{\"type\":\"turn_context\"}\n"),
+        (
+            "dsh-session",
+            "sessions/one",
+            "{\"type\":\"session\",\"version\":0}\n",
+        ),
+    ] {
+        let world = make_world_named(kind, locator, body, hostile);
+        // The recorded common reference needs no ambient HOME, so this test
+        // never mutates the process environment another test may be reading.
+        let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+        assert!(read.is_readable(), "{kind}: {read:?}");
+        let hint = read
+            .full_session
+            .clone()
+            .expect("a confirmed path has a hint");
+        for raw in ["$(", "`", ";", "&", "|", "<", ">", "%", "!", "é", "😀"] {
+            assert!(
+                !hint.contains(raw),
+                "{kind}: {raw:?} survived raw in {hint:?}"
+            );
+        }
+        assert!(hint.contains("\\u0020"), "{kind}: {hint}");
+        assert!(hint.contains("\\ud83d\\ude00"), "{kind}: {hint}");
+
+        // The presentation transports the exact decoded hint with no prose.
+        let response = brokkr_cli::handle(&world.db, "/api/presentation/r222/eff1");
+        assert_eq!(response.status, "200 OK");
+        let presentation: Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(presentation["hint"], json!(read.full_session), "{kind}");
+        assert!(presentation.get("turns").is_none(), "{presentation}");
+
+        // The TUI pane and whole door carry the same completed value; the
+        // command's text face does too; its decoded JSON recovers it exactly
+        // while the raw document carries the doubled outer escaping.
+        let (_, _, whole) = brokkr_cli::transcript_surfaces_for_test(&read, None);
+        assert!(whole.contains(&hint), "{kind}: {whole}");
+        let text = command(&world, &[]);
+        assert!(text.status.success());
+        let text = String::from_utf8_lossy(&text.stdout);
+        assert!(text.contains(&hint), "{kind}: {text}");
+        let json_output = command(&world, &["--json"]);
+        let document = parse(&json_output);
+        assert_eq!(document["full_session"], json!(read.full_session), "{kind}");
+        let raw = String::from_utf8_lossy(&json_output.stdout);
+        assert!(raw.contains("\\\\u0020"), "{kind}: {raw}");
+        assert!(raw.contains("\\\\ud83d\\\\ude00"), "{kind}: {raw}");
+
+        // The served page paints the transported hint through `el`'s
+        // textContent; no route or page quotes a path/home fragment.
+        let page = brokkr_cli::handle(&world.db, "/");
+        assert!(
+            page.body.contains("el('p', 'cause', view.hint)"),
+            "the page paints the shared hint verbatim"
+        );
+    }
 }

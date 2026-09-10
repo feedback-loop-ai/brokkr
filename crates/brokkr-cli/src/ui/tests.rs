@@ -2771,6 +2771,65 @@ fn the_presentation_route_decodes_each_component_exactly_once() {
     }
 }
 
+/// R25: the participant route carries an agent-controlled confirmed
+/// path/home only as the shared reversible portable display literal, and
+/// the served page paints that exact value through a text node without
+/// reconstructing a fragment.
+#[test]
+fn a_hostile_recorded_home_reaches_the_page_only_as_portable_display_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let hostile_home = dir.path().join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    std::fs::create_dir_all(hostile_home.join("sessions")).unwrap();
+    std::fs::write(
+        hostile_home.join("sessions/rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let home_text = hostile_home.to_str().unwrap().to_string();
+    let (_dir, db, key) = participant_fixture(
+        Some(json!({"kind": "codex-thread", "locator": "0199mine", "home": home_text})),
+        None,
+        None,
+    );
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], true, "{}", response.body);
+    assert_eq!(parsed["drill_eligible"], false, "{}", response.body);
+    let path = parsed["path"].as_str().expect("a confirmed rollout");
+    let expected = format!(
+        "full session: path {}, codex exec resume 0199mine, home {}",
+        brokkr_view::transcript::portable_display_literal(path),
+        brokkr_view::transcript::portable_display_literal(&home_text),
+    );
+    let hint = parsed["hint"].as_str().expect("the shared hint");
+    assert_eq!(hint, expected);
+    for raw in ["$(", "`", ";", "&", "|", "<", ">", "%", "!", "é", "😀"] {
+        assert!(!hint.contains(raw), "{raw:?} survived raw in {hint:?}");
+    }
+    assert!(hint.contains("\\u0020"), "{hint:?}");
+    assert!(hint.contains("\\ud83d\\ude00"), "{hint:?}");
+    // The response's decoded JSON value equals the shared string; the raw
+    // document carries the separate outer escaping layer only. The echo of
+    // the recorded reference keeps its own raw bytes; only the completed
+    // hint must be portable.
+    assert!(response.body.contains("\\\\u0020"), "{}", response.body);
+
+    // The served page consumes `view.hint` verbatim through `el`'s
+    // textContent and never derives or reconstructs a path/home fragment.
+    let page = handle(&db, "/");
+    assert_eq!(page.status, "200 OK");
+    assert!(
+        page.body.contains("el('p', 'cause', view.hint)"),
+        "the participant block paints the shared hint verbatim"
+    );
+    assert!(!page.body.contains("full session: <id>"));
+}
+
 #[test]
 fn an_eligible_claude_participant_shares_the_hint_and_turns() {
     let _home = crate::tests::HOME

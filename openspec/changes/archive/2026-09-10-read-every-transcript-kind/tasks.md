@@ -82,7 +82,7 @@ task:
       exactly once, and `openspec validate read-every-transcript-kind --strict
       --no-interactive` remains green before production repair resumes — every
       requirement of this change.
-- [ ] 1.6 Before any reopened production task, replace only proposed decision
+- [x] 1.6 Before any reopened production task, replace only proposed decision
       0055 ruling 4's superseded ordinary-JSON path/home sentence with the
       exact D10 portable-display rule: the restricted direct alphabet,
       lowercase four-digit `\u` escapes and surrogate pairs, exact JSON
@@ -138,7 +138,7 @@ task:
       refused, and decision 0032's 80-character recording clamp is not
       re-imposed as a reader guard — transcript-reading / Local lookup
       rejects paths that escape ownership.
-- [ ] 2.5 Implement the `full_session` table and one pure
+- [x] 2.5 Implement the `full_session` table and one pure
       `portable_display_literal` helper in `brokkr-view`: inside a valid
       double-quoted JSON string literal emit only ASCII letters, digits,
       `/`, `.`, `_`, `-` and `:` directly, encode every other Unicode scalar
@@ -166,7 +166,7 @@ task:
       the exact shared notice —
       transcript-reading / Every kind obeys the same source and display
       caps; transcript-tui / Notices survive every reading surface.
-- [ ] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
+- [x] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
       driven: each of the five pure-view reference refusals keeps its three
       recorded strings, `legacy: false`, null path and null hint, including a
       directly supplied `future-session` returning `unsupported-kind`
@@ -572,7 +572,7 @@ task:
       truncated projection saying the bounded read does not establish
       whether that turn exists later — transcript-command / Turn selection
       addresses the displayed sequence.
-- [ ] 8.5 Emit the `brokkr.transcript/v1` document with exactly the
+- [x] 8.5 Emit the `brokkr.transcript/v1` document with exactly the
       delta's members, each present even when null or empty, serialized
       directly from the shared result and adding no field to `RunView`,
       inspect or seats JSON. Preserve the completed `full_session` string
@@ -580,7 +580,7 @@ task:
       escaping layer, and decoding that member recovers the exact shared
       value — transcript-command / JSON exposes a distinct local transcript
       document.
-- [ ] 8.6 Render default text through `crates/brokkr-cli/src/render.rs`:
+- [x] 8.6 Render default text through `crates/brokkr-cli/src/render.rs`:
       run, participant, kind and confirmed source, then one-based turn
       numbers, roles, stamps and every retained block, with the shared
       hint and notices, `no readable turns` for a valid empty projection
@@ -599,7 +599,7 @@ task:
       failures exit nonzero with empty stdout even under `--json` —
       transcript-command / Text output and errors report the same bounded
       result.
-- [ ] 8.8 Tests in `crates/brokkr-cli/src/render/tests.rs` and a new
+- [x] 8.8 Tests in `crates/brokkr-cli/src/render/tests.rs` and a new
       `crates/brokkr-cli/tests/transcript_command.rs`: `--run latest
       --seat review:chief`; a repeated label listing both keys; a panel
       parent reporting `no-reference` while the member key reads its
@@ -635,7 +635,7 @@ task:
       widen a frozen contract to manufacture command reachability —
       transcript-command / JSON exposes a distinct local transcript document;
       The transcript command selects one run and participant.
-- [ ] 8.11 JSON and text state tests in the same file: a header-less Codex
+- [x] 8.11 JSON and text state tests in the same file: a header-less Codex
       rollout of only `turn_context` exiting zero with
       its confirmed path and hint; empty versus missing; five ignorable
       unknown records with `unrecognized_records: 5`; the shipped Claude
@@ -681,7 +681,7 @@ task:
       happens when the participant concludes, automatic polling then
       stops and an explicit refresh still re-resolves the reference —
       transcript-tui / Live refresh follows the selected reference.
-- [ ] 9.4 Render the pane and both doors from the shared result: turns
+- [x] 9.4 Render the pane and both doors from the shared result: turns
       numbered from one in the command's sequence including each packed
       member, preview clipping that removes nothing from either door, the
       shared notices in the pane and both overlays, the `full_session`
@@ -697,7 +697,7 @@ task:
       transcript-tui / Every readable kind reaches the pane and both
       doors; transcript-tui / Full-session information is truthful for its
       kind; transcript-tui / Notices survive every reading surface.
-- [ ] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
+- [x] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
       and DSH turns browsed and opened with the existing keys; a turn
       taller than the pane opened whole and scrolled; the highlighted
       index agreeing with `--turn`; moving from a readable Claude seat to
@@ -752,7 +752,7 @@ task:
       closes on loss without reporting another size — transcript-reading /
       Discovery identifies one owned local file; Browser participant
       drills obey shared eligibility.
-- [ ] 10.2 Add one GET participant-presentation route in
+- [x] 10.2 Add one GET participant-presentation route in
       `crates/brokkr-cli/src/ui.rs`, keyed by full run id and an encoded
       participant key, decoding each path component exactly once and
       rejecting malformed or extra components, resolving that exact
@@ -773,7 +773,7 @@ task:
       no-store` —
       transcript-reading / Browser participant drills obey shared
       eligibility.
-- [ ] 10.3 Rewrite the page's participant block in
+- [x] 10.3 Rewrite the page's participant block in
       `crates/brokkr-cli/src/ui.html`: consume that result instead of
       `part.session_id`, delete the
       `full session: <id> · held by <holder>, no resume verb yet`
@@ -852,7 +852,7 @@ task:
       the extracted served bytes and the release dependency tree excludes Boa
       — transcript-reading / Browser participant drills obey shared
       eligibility.
-- [ ] 10.5 HTTP and thin-adapter tests in
+- [x] 10.5 HTTP and thin-adapter tests in
       `crates/brokkr-cli/src/ui/tests.rs`: a legacy Codex
       participant ineligible on the page while `/api/session/abcd-1234`
       still answers 200 or 404 on its own; a common reference defeating a
@@ -922,7 +922,7 @@ task:
 
 ## 11. Inertness and one result across the surfaces (D11)
 
-- [ ] 11.1 Prove locality and inertness in
+- [x] 11.1 Prove locality and inertness in
       `crates/brokkr-cli/tests/transcript_privacy.rs`: every hearth consulted
       by transcript run selection is opened read-only and gains no event,
       checkpoint, migration, WAL sidecar, byte change or existence change;
@@ -942,7 +942,7 @@ task:
       transcript-reading / Transcript
       prose stays local and inert; transcript-command / The transcript command
       selects one run and participant.
-- [ ] 11.2 Prove one derivation in
+- [x] 11.2 Prove one derivation in
       `crates/brokkr-cli/tests/transcript_surfaces.rs`, comparing each
       surface only where it is authorized to carry content: for one
       synthetic source of each kind, the command's whole read, its
@@ -976,7 +976,7 @@ task:
 
 ## 12. The guide
 
-- [ ] 12.1 Add a third-level `brokkr transcript` section to
+- [x] 12.1 Add a third-level `brokkr transcript` section to
       `docs/guides/read-surfaces.md`, in the heading style of the verb
       sections beside it: the selectors and their `inspect` precedence, the
       one-based snapshot indices and that they are not durable message
@@ -991,7 +991,7 @@ task:
       transcript-command / Text output and errors report the
       same bounded result; JSON exposes a distinct local transcript
       document.
-- [ ] 12.2 State the Claude compatibility costs in that guide's
+- [x] 12.2 State the Claude compatibility costs in that guide's
       transcript and `brokkr ui` sections — leading-hyphen ids now
       invalid everywhere, duplicate candidates, the discovery bound and
       below-home symlinks now refused, and the 32 MiB source limit — with
@@ -1002,7 +1002,7 @@ task:
       transcript-reading / Local lookup rejects paths that escape
       ownership; Discovery identifies one owned local file; Browser
       participant drills obey shared eligibility.
-- [ ] 12.3 Keep `cargo test -p brokkr-cli --test contributing` green: the
+- [x] 12.3 Keep `cargo test -p brokkr-cli --test contributing` green: the
       guide keeps every section
       `crates/brokkr-cli/tests/contributing.rs:362-369` pins and gains
       the new one — transcript-command / Text output and errors report the
@@ -1010,18 +1010,18 @@ task:
 
 ## 13. Gates, the fold and the commit
 
-- [ ] 13.1 `cargo fmt --all -- --check` clean — every requirement of this
+- [x] 13.1 `cargo fmt --all -- --check` clean — every requirement of this
       change (the house rule that gates the work).
-- [ ] 13.2 `cargo clippy --workspace --all-targets --all-features
+- [x] 13.2 `cargo clippy --workspace --all-targets --all-features
       --locked -- -D warnings` clean — every requirement of this change.
-- [ ] 13.3 `cargo test --workspace --all-features --locked` green as one
+- [x] 13.3 `cargo test --workspace --all-features --locked` green as one
       whole-workspace run with `RUST_TEST_THREADS=2`; a crate-scoped run
       may precede it while iterating and never stands in for it — every
       requirement of this change.
-- [ ] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
+- [x] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
       bundles/self` and the same for `bundles/verify` both compile —
       every requirement of this change.
-- [ ] 13.5 Run `scripts/coverage-exact.sh` unchanged and never lowered,
+- [x] 13.5 Run `scripts/coverage-exact.sh` unchanged and never lowered,
       with `TMPDIR=/var/tmp` and
       `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`. Require literal 100% lines and
       branches when this execution boundary can create the namespace; inside a
@@ -1029,7 +1029,7 @@ task:
       record host exact-coverage proof as pending in the controller handoff,
       outside tracked checkboxes. Never treat skipped boundary tests as green
       evidence — every requirement of this change.
-- [ ] 13.6 Before the commit, validate the changed dependency graph with Rust
+- [x] 13.6 Before the commit, validate the changed dependency graph with Rust
       1.88 using
       `cargo check --workspace --all-targets --all-features --locked`, so the
       CLI test target and its dev-only Boa harness are compiled, plus
@@ -1044,18 +1044,18 @@ task:
       admission gate rejects Boa, return upstream to design instead of
       weakening the exact-served-code proof — every requirement
       of this change.
-- [ ] 13.7 Build the distinct locked release-profile artifact with
+- [x] 13.7 Build the distinct locked release-profile artifact with
       `cargo build --release --locked -p brokkr-cli` under
       `CARGO_BUILD_JOBS=2`, and verify the command exits zero and produces the
       release CLI target; neither the production-graph inspection nor the
       Rust 1.88 all-targets compilation in 13.6 substitutes for this build —
       every requirement of this change.
-- [ ] 13.8 Confirm the frozen set is untouched — `contracts/`,
+- [x] 13.8 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
       `fixtures/` — and that the only decision file added is proposed
       0055 with its single registry row — every requirement of this
       change.
-- [ ] 13.9 After 1.6 repaired proposed 0055, 1.5 preserved the living base
+- [x] 13.9 After 1.6 repaired proposed 0055, 1.5 preserved the living base
       and every repaired
       implementation, proof and local gate above is complete, fold the active
       final `MODIFIED` deltas into that existing truth exactly once with the
@@ -1067,7 +1067,7 @@ task:
       active change has moved to that archive directory, and both the living
       specifications and archived change pass strict validation — every
       requirement of this change.
-- [ ] 13.10 Commit the work unsigned in the repository's message style,
+- [x] 13.10 Commit the work unsigned in the repository's message style,
       and never push, merge, close the issue or start another run: the
       controller owns integration, host proof, PR, CI and delivery —
       every requirement of this change.

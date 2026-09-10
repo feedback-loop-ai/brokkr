@@ -5509,7 +5509,7 @@ fn each_kind_names_only_its_own_full_session_and_unresolved_codex_says_so() {
         (
             brokkr_view::transcript::TranscriptKind::DshSession,
             "seat/a",
-            "full session: \"",
+            "full session: path \"",
         ),
     ];
     for (kind, locator, needle) in cases {

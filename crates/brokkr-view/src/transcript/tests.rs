@@ -144,11 +144,11 @@ fn full_session_follows_the_kind_table() {
     };
     assert_eq!(
         full_session(&codex, None).unwrap(),
-        "full session: rollout unavailable; codex exec resume 019c-222a; home: \"/retained/codex\""
+        "full session: rollout unavailable, codex exec resume 019c-222a, home \"/retained/codex\""
     );
     assert_eq!(
         full_session(&codex, Some("/retained/codex/sessions/rollout-019c-222a.jsonl")).unwrap(),
-        "full session: \"/retained/codex/sessions/rollout-019c-222a.jsonl\"; codex exec resume 019c-222a; home: \"/retained/codex\""
+        "full session: path \"/retained/codex/sessions/rollout-019c-222a.jsonl\", codex exec resume 019c-222a, home \"/retained/codex\""
     );
     let dsh = ValidReference {
         kind: TranscriptKind::DshSession,
@@ -158,17 +158,98 @@ fn full_session_follows_the_kind_table() {
     assert_eq!(full_session(&dsh, None), None);
     assert_eq!(
         full_session(&dsh, Some("/retained/dsh/s.jsonl")).unwrap(),
-        "full session: \"/retained/dsh/s.jsonl\""
+        "full session: path \"/retained/dsh/s.jsonl\""
     );
 }
 
 #[test]
-fn json_string_quoting_matches_the_delta() {
-    assert_eq!(json_string("/a/b"), "\"/a/b\"");
-    assert_eq!(json_string("a\"b"), "\"a\\\"b\"");
-    assert_eq!(json_string("a\\b"), "\"a\\\\b\"");
-    assert_eq!(json_string("a\u{1}b"), "\"a\\u0001b\"");
-    assert_eq!(json_string("é"), "\"é\"");
+fn portable_display_literal_is_reversible_and_restricted() {
+    // The restricted direct alphabet is emitted verbatim.
+    assert_eq!(portable_display_literal("aZ09/._-:"), "\"aZ09/._-:\"");
+    assert_eq!(
+        portable_display_literal("sessions/seat-222/s.jsonl"),
+        "\"sessions/seat-222/s.jsonl\""
+    );
+    // Every other scalar is a lowercase four-digit escape; no short escapes.
+    assert_eq!(portable_display_literal(" "), "\"\\u0020\"");
+    assert_eq!(portable_display_literal("\""), "\"\\u0022\"");
+    assert_eq!(portable_display_literal("\\"), "\"\\u005c\"");
+    assert_eq!(portable_display_literal("\n"), "\"\\u000a\"");
+    assert_eq!(portable_display_literal("\t"), "\"\\u0009\"");
+    assert_eq!(portable_display_literal("$"), "\"\\u0024\"");
+    assert_eq!(portable_display_literal("`"), "\"\\u0060\"");
+    assert_eq!(portable_display_literal(";"), "\"\\u003b\"");
+    assert_eq!(portable_display_literal("&"), "\"\\u0026\"");
+    assert_eq!(portable_display_literal("|"), "\"\\u007c\"");
+    assert_eq!(portable_display_literal("<"), "\"\\u003c\"");
+    assert_eq!(portable_display_literal(">"), "\"\\u003e\"");
+    assert_eq!(portable_display_literal("%"), "\"\\u0025\"");
+    assert_eq!(portable_display_literal("!"), "\"\\u0021\"");
+    // BMP and non-BMP scalars: one escape, and a JSON surrogate pair.
+    assert_eq!(portable_display_literal("é"), "\"\\u00e9\"");
+    assert_eq!(portable_display_literal("\u{20ac}"), "\"\\u20ac\"");
+    assert_eq!(portable_display_literal("😀"), "\"\\ud83d\\ude00\"");
+    // Exact JSON round-trip for the R25 hostile matrix.
+    let hostile = " /a b/\"q\"\\x\u{1}$(cmd)`tick`;a&b|c<d>e%f!g é😀\n";
+    let literal = portable_display_literal(hostile);
+    let decoded: String = serde_json::from_str(&literal).unwrap();
+    assert_eq!(decoded, hostile);
+    // No raw hostile fragment and no short escape survives inside the quotes.
+    let body = &literal[1..literal.len() - 1];
+    assert!(!body.contains(' '));
+    assert!(!body.contains('"'));
+    assert!(!body.contains(';'));
+    assert!(!body.contains('&'));
+    assert!(!body.contains('|'));
+    assert!(!body.contains('<'));
+    assert!(!body.contains('>'));
+    assert!(!body.contains('`'));
+    assert!(!body.contains('$'));
+    assert!(!body.contains('%'));
+    assert!(!body.contains('!'));
+    assert!(!body.contains('é'));
+    assert!(!body.contains("\\n") && !body.contains("\\t") && !body.contains("\\r"));
+    for byte in body.bytes() {
+        let direct =
+            byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b':');
+        assert!(direct || byte == b'\\' || byte == b'u' || byte.is_ascii_hexdigit());
+    }
+}
+
+#[test]
+fn full_session_hint_is_portable_and_hostile_inert() {
+    // A hostile confirmed Codex path/home round-trips through the literal and
+    // leaves the fixed comma framing with no shell operator raw.
+    let codex = ValidReference {
+        kind: TranscriptKind::CodexThread,
+        locator: "019c-222a".to_string(),
+        home: "/retained/codex $(x)".to_string(),
+    };
+    let path = "/retained/codex/rollout \"q\" `c`;a&b.jsonl";
+    let hint = full_session(&codex, Some(path)).unwrap();
+    let display_path = portable_display_literal(path);
+    let display_home = portable_display_literal(&codex.home);
+    assert_eq!(
+        hint,
+        format!(
+            "full session: path {display_path}, codex exec resume 019c-222a, home {display_home}"
+        )
+    );
+    assert!(!hint.contains(';'));
+    assert!(!hint.contains('&'));
+    assert!(!hint.contains('`'));
+    assert!(!hint.contains("$("));
+    // Each display literal round-trips to the exact path/home.
+    let path_literal_start = "full session: path ".len();
+    let path_literal_end = path_literal_start + display_path.len();
+    let decoded_path: String =
+        serde_json::from_str(&hint[path_literal_start..path_literal_end]).unwrap();
+    assert_eq!(decoded_path, path);
+    let home_literal_end = hint.len();
+    let home_literal_start = home_literal_end - display_home.len();
+    let decoded_home: String =
+        serde_json::from_str(&hint[home_literal_start..home_literal_end]).unwrap();
+    assert_eq!(decoded_home, codex.home);
 }
 
 #[test]

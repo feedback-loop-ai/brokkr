@@ -108,9 +108,18 @@ separate #226 work; hints execute nothing.
    kind. Claude names `claude --resume <id>`; Codex names the confirmed rollout
    or explicit rollout unavailability, `codex exec resume <id>` and recorded
    home; DSH names only a confirmed session file. Rejected references have no
-   hint. Path/home fragments use the reading delta's JSON-string-literal
-   quoting. TUI, CLI and browser participant presentation consume the exact
-   shared value; no other kind borrows a command and no display executes it.
+   hint. One pure shared portable-display encoder produces every
+   `<display-path>` and `<display-home>` as a valid double-quoted JSON string
+   literal. It emits only ASCII letters, digits, `/`, `.`, `_`, `-` and `:`
+   directly; every other Unicode scalar uses lowercase, four-digit JSON `\u`
+   escapes, including a surrogate pair for a non-BMP scalar, with no short
+   escapes. JSON decoding recovers the exact string. The comma framing
+   contributes no semicolon, pipe, ampersand or redirection operator. The
+   complete line is portable display data, not shell syntax or a pasteable
+   command, and outer JSON serialization escapes that shared line a second
+   time. TUI, CLI and browser participant presentation consume the exact
+   shared value without fragment reconstruction; no other kind borrows a
+   command and no display executes it.
    Browser presentation stays separate from body/journal models and performs
    selection, validation and discovery but no body projection. Its
    kind-agnostic source admission and the browser's Claude-kind/local-home
