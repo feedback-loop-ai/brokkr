@@ -1108,3 +1108,65 @@ fn the_pair_helper_has_a_text_face_and_a_json_face() {
         json!({"model": brokkr_view::ABSENT, "boundary": brokkr_view::ABSENT})
     );
 }
+
+/// The transcript text face: identity, source, notices, one-based turn
+/// numbers and every retained block, with terminal controls stripped.
+#[test]
+fn the_transcript_text_names_turns_and_sanitizes_content() {
+    let reference = brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: "abcd-1234".to_string(),
+        home: "/home/operator/.claude/projects".to_string(),
+    };
+    let turns = vec![
+        brokkr_view::transcript::Turn {
+            role: "assistant".to_string(),
+            ts: T0.to_string(),
+            blocks: vec![brokkr_view::transcript::Block::text("hello\u{1b}[2J")],
+        },
+        brokkr_view::transcript::Turn {
+            role: "user".to_string(),
+            ts: String::new(),
+            blocks: vec![brokkr_view::transcript::Block::tool("Read · src/lib.rs")],
+        },
+    ];
+    let read = brokkr_view::transcript::TranscriptRead::readable(
+        Some(reference),
+        false,
+        brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        Some("/home/operator/.claude/projects/p/abcd-1234.jsonl".to_string()),
+        turns,
+        true,
+        1,
+        0,
+    );
+    let text = transcript("run-7", "review:chief", &read, None, &Style::plain(80));
+    assert!(text.contains("run   run-7"));
+    assert!(text.contains("seat  review:chief"));
+    assert!(text.contains("kind  claude-session"));
+    assert!(text.contains("turn 1 · assistant · 2026-01-01T00:00:00Z"));
+    assert!(text.contains("turn 2 · user"));
+    assert!(text.contains("  tool: Read · src/lib.rs"));
+    assert!(!text.contains('\u{1b}'), "no escape survives the text face");
+    assert!(text.contains("notice transcript truncated (size cap)"));
+    assert!(text.contains("notice malformed transcript lines skipped: 1"));
+    assert!(text.contains("hint  full session: claude --resume abcd-1234"));
+
+    // A requested turn keeps its original number, and an empty truncated
+    // projection says so rather than pretending the session was empty.
+    let selected = transcript("run-7", "review:chief", &read, Some(2), &Style::plain(80));
+    assert!(selected.contains("turn 2 · user"));
+    assert!(!selected.contains("turn 1 · assistant"));
+    let empty = brokkr_view::transcript::TranscriptRead::readable(
+        None,
+        false,
+        brokkr_view::transcript::TranscriptKind::CodexThread,
+        None,
+        Vec::new(),
+        true,
+        0,
+        0,
+    );
+    let text = transcript("run-7", "review:chief", &empty, None, &Style::plain(80));
+    assert!(text.contains("no readable turns — transcript truncated (size cap)"));
+}

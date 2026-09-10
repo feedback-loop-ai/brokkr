@@ -1601,7 +1601,7 @@ fn dsh_header(value: &Value) -> bool {
         return false;
     }
     match object.get("delegationDepth") {
-        None | Some(Value::Null) => {}
+        None => {}
         Some(depth) => {
             if depth.as_u64() != Some(0) {
                 return false;
