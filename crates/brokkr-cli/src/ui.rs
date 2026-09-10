@@ -741,53 +741,21 @@ fn read_with_home(
             // swapped name, changed opening header or new ambiguity fails
             // closed rather than reading the old handle's bytes.
             if !acquisition_is_current(&valid, &source) {
-                return TranscriptRead::refused(
-                    selection.reference.clone(),
-                    selection.legacy,
-                    Unavailable::Unreadable,
-                    brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
-                    Some(source.path),
-                    false,
-                    0,
-                    0,
-                    hint,
-                );
+                return refused_source(&selection, source.path, hint);
             }
             // Recheck the held leaf's checked lossless identity at the read
             // boundary. The handle is already the verified source, so this
             // never reopens a display path; a widening failure or a
             // mismatch is a bounded fail-closed `unreadable`.
             if source.file.identity().ok() != Some(source.identity) {
-                return TranscriptRead::refused(
-                    selection.reference.clone(),
-                    selection.legacy,
-                    Unavailable::Unreadable,
-                    brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
-                    Some(source.path),
-                    false,
-                    0,
-                    0,
-                    hint,
-                );
+                return refused_source(&selection, source.path, hint);
             }
             let (bytes, overflow, eof) = match source
                 .file
                 .read_bounded(brokkr_view::transcript::SOURCE_CAP)
             {
                 Ok(read) => read,
-                Err(_) => {
-                    return TranscriptRead::refused(
-                        selection.reference.clone(),
-                        selection.legacy,
-                        Unavailable::Unreadable,
-                        brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
-                        Some(source.path),
-                        false,
-                        0,
-                        0,
-                        hint,
-                    )
-                }
+                Err(_) => return refused_source(&selection, source.path, hint),
             };
             let snapshot = Snapshot {
                 bytes: &bytes,
@@ -827,6 +795,28 @@ fn read_with_home(
             read
         }
     }
+}
+
+/// The fail-closed read-boundary refusal: a fresh acquisition that no
+/// longer matches the admitted source, a held-handle identity that cannot
+/// be rechecked, or a bounded read that failed all present the same
+/// `unreadable` result with the recorded path and hint.
+fn refused_source(
+    selection: &brokkr_view::transcript::Selection,
+    path: String,
+    hint: Option<String>,
+) -> TranscriptRead {
+    TranscriptRead::refused(
+        selection.reference.clone(),
+        selection.legacy,
+        Unavailable::Unreadable,
+        brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
+        Some(path),
+        false,
+        0,
+        0,
+        hint,
+    )
 }
 
 /// One safely discovered Claude source by flat id: the journal-independent

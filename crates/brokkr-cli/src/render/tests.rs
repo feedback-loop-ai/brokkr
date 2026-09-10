@@ -1204,3 +1204,22 @@ fn a_readable_zero_turn_codex_keeps_its_hint_and_notice() {
         "{text}"
     );
 }
+
+#[test]
+fn a_refused_transcript_omits_the_kind_and_hint_lines() {
+    let read = brokkr_view::transcript::TranscriptRead::refused(
+        None,
+        false,
+        brokkr_view::transcript::Unavailable::NotFound,
+        "no retained transcript file was found",
+        None,
+        false,
+        0,
+        0,
+        None,
+    );
+    let text = transcript("run-7", "review:chief", &read, None, &Style::plain(80));
+    assert!(!text.contains("kind  "), "{text}");
+    assert!(!text.contains("hint  "), "{text}");
+    assert!(text.contains("source -"), "{text}");
+}

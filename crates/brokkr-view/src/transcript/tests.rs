@@ -2367,3 +2367,713 @@ fn codex_remaining_declared_variants_project_or_stay_quiet() {
     assert!(rendered[4].contains("apply") && rendered[4].contains("[s4]"));
     assert!(rendered[5].contains("done") && rendered[5].contains("[s4]"));
 }
+
+// ------------------------------------- closed tables and defensive edges
+
+/// A borrowed admitted snapshot for the pure reader functions.
+fn admitted(text: &str, overflow: bool) -> Admitted<'_> {
+    Admitted { text, overflow }
+}
+
+#[test]
+fn closed_vocabulary_accessors_cover_every_variant() {
+    assert_eq!(TranscriptKind::None.as_str(), "none");
+    assert_eq!(BlockKind::Reasoning.as_str(), "reasoning");
+    assert_eq!(BlockKind::Omitted.as_str(), "omitted");
+    assert_eq!(Unavailable::Unreadable.as_str(), "unreadable");
+    let none = ValidReference {
+        kind: TranscriptKind::None,
+        locator: "x".to_string(),
+        home: "/h".to_string(),
+    };
+    assert_eq!(full_session(&none, Some("/p")), None);
+    assert_eq!(
+        explanation_for(Unavailable::TurnNotRetained),
+        "the requested turn is outside the retained projection"
+    );
+}
+
+#[test]
+fn selection_helpers_echo_the_reference_and_the_refusal() {
+    let accepted = Selection {
+        reference: Some(reference("claude-session", "abcd", "/h")),
+        legacy: false,
+        outcome: Ok(ValidReference {
+            kind: TranscriptKind::ClaudeSession,
+            locator: "abcd".to_string(),
+            home: "/h".to_string(),
+        }),
+    };
+    assert_eq!(accepted.kind(), Some(TranscriptKind::ClaudeSession));
+    let read = TranscriptRead::from_selection(&accepted);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(read.full_session.is_some());
+    assert_eq!(
+        read.reference,
+        Some(reference("claude-session", "abcd", "/h"))
+    );
+
+    let refused = Selection {
+        reference: Some(reference("none", "", "")),
+        legacy: false,
+        outcome: Err(Unavailable::None),
+    };
+    assert_eq!(refused.kind(), None);
+    let read = TranscriptRead::from_selection(&refused);
+    assert_eq!(read.unavailable, Some(Unavailable::None));
+    assert_eq!(read.full_session, None);
+}
+
+#[test]
+fn home_and_locator_validation_covers_each_spelling() {
+    assert!(!valid_home(""));
+    assert!(!valid_home("a\u{7}b"));
+    assert!(valid_home("/srv/home"));
+    assert!(valid_home("C:\\Users\\op"));
+    assert!(valid_home("C:/Users/op"));
+    assert!(valid_home("\\\\server\\share"));
+    assert!(valid_home("//server/share"));
+    assert!(!valid_home("relative/path"));
+    assert!(!valid_home("\\\\"));
+    assert!(!clean_path("x\u{7}y"));
+    assert!(clean_path("plain/path"));
+
+    assert!(!valid_dsh_locator("a/./b"));
+    assert!(!valid_dsh_locator("a/b\u{7}"));
+
+    assert_eq!(
+        validate_common(&reference("claude-session", "abcd", "relative")),
+        Err(Unavailable::InvalidReference)
+    );
+    assert_eq!(
+        validate_common(&reference("claude-session", "ab\u{7}cd", "/h")),
+        Err(Unavailable::InvalidReference)
+    );
+    assert!(!locator_matches_kind(TranscriptKind::None, "abcd"));
+    assert!(locator_matches_kind(TranscriptKind::DshSession, "a/b"));
+}
+
+#[test]
+fn rows_drop_an_overflow_tail_and_admit_a_true_eof_fragment() {
+    let overflowed = admitted("a\nb", true);
+    let parsed = rows(&overflowed);
+    assert_eq!(parsed.len(), 1);
+    assert!(parsed[0].newline_terminated);
+
+    let fragment = admitted("a\nb", false);
+    let parsed = rows(&fragment);
+    assert_eq!(parsed.len(), 2);
+    assert!(!parsed[1].newline_terminated);
+    assert!(parsed[1].final_fragment);
+    assert_eq!(parsed[1].text, "b");
+
+    let terminated = admitted("a\n", false);
+    assert_eq!(rows(&terminated).len(), 1);
+}
+
+#[test]
+fn claude_row_classifies_malformed_and_wrong_typed_shapes() {
+    assert_eq!(
+        claude_row(&json!("nope")),
+        (Vec::new(), String::new(), String::new(), true)
+    );
+    assert_eq!(
+        claude_row(&json!({"message": {}})),
+        (Vec::new(), String::new(), String::new(), true)
+    );
+
+    let (blocks, _, _, unrecognized) =
+        claude_row(&json!({"type":"assistant","message":{"role":"assistant","content":null}}));
+    assert!(blocks.is_empty());
+    assert!(!unrecognized);
+
+    let (blocks, _, _, unrecognized) = claude_row(&json!({
+        "type":"assistant","message":{"role":"assistant","content":[
+            {"type":"text","text":7},{"type":"bogus"}]}}));
+    assert!(blocks.is_empty());
+    assert!(unrecognized);
+
+    assert!(claude_row(&json!({"type":"assistant","message":7})).3);
+    assert!(claude_row(&json!({"type":"assistant","message":{"role":"assistant","content":7}})).3);
+    assert!(
+        claude_row(&json!({"type":"assistant","message":{"role":"assistant","content":["x"]}})).3
+    );
+}
+
+#[test]
+fn payload_and_content_helpers_keep_fallbacks_lossless() {
+    assert_eq!(payload_text(None), None);
+    assert_eq!(payload_text(Some(&Value::Null)), None);
+    assert_eq!(payload_text(Some(&json!("x"))), Some("x".to_string()));
+    assert_eq!(
+        payload_text(Some(&json!({"a":1}))),
+        Some("{\"a\":1}".to_string())
+    );
+
+    assert_eq!(content_text(&Value::Null), "");
+    assert_eq!(content_text(&json!("x")), "x");
+    assert_eq!(content_text(&json!({"a":1})), "{\"a\":1}");
+    assert_eq!(content_text(&json!([null, "x", 5])), "x 5");
+
+    assert_eq!(content_member(&Value::Null), "");
+    assert_eq!(content_member(&json!("x")), "x");
+    assert_eq!(content_member(&json!(5)), "5");
+    assert_eq!(content_member(&json!({"a":1})), "{\"a\":1}");
+    assert_eq!(
+        content_member(&json!({"type":"weird"})),
+        "{\"type\":\"weird\"}"
+    );
+
+    assert_eq!(tool_text(None, "ctx"), "ctx");
+    assert_eq!(tool_text(Some(""), "ctx"), "ctx");
+    assert_eq!(tool_text(Some("id"), ""), "[id]");
+}
+
+#[test]
+fn codex_row_edges_and_duplicate_identity() {
+    assert!(codex_row(&json!("nope")).unrecognized);
+    assert!(codex_row(&json!({"type":"response_item"})).unrecognized);
+    assert!(codex_row(&json!({"type":"event_msg"})).unrecognized);
+    assert!(codex_row(&json!({"type":"totally_unknown"})).unrecognized);
+    assert!(codex_row(&json!({"type":"session_meta"})).blocks.is_empty());
+    assert!(codex_response_item(&json!({})).2);
+
+    let mut records = vec![CodexRecord {
+        blocks: vec![
+            CodexBlock::identified(Block::tool("a"), CodexFact::Call, Some("dup")),
+            CodexBlock::identified(Block::tool("b"), CodexFact::Call, Some("dup")),
+        ],
+        role: String::new(),
+        ts: String::new(),
+        unrecognized: false,
+        canonical: false,
+    }];
+    associate_codex(&mut records);
+    assert_eq!(
+        records[0].blocks.len(),
+        2,
+        "no canonical counterpart removes nothing"
+    );
+}
+
+#[test]
+fn codex_response_item_classifies_wrong_typed_members() {
+    assert!(codex_response_item(&json!({"type":"message","content":[{"type":"nope"}]})).2);
+    assert!(!codex_response_item(&json!({"type":"message","content":null})).2);
+    assert!(codex_response_item(&json!({"type":"message","content":5})).2);
+
+    assert!(codex_response_item(&json!({"type":"reasoning","summary":[{"type":"nope"}]})).2);
+    assert!(!codex_response_item(&json!({"type":"reasoning","summary":null})).2);
+    assert!(codex_response_item(&json!({"type":"reasoning","summary":5})).2);
+
+    let (blocks, _, unrecognized) =
+        codex_response_item(&json!({"type":"function_call","name":"f"}));
+    assert!(!unrecognized);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].block.text, "f");
+
+    assert!(codex_response_item(&json!({"type":"future_item"})).2);
+}
+
+#[test]
+fn codex_event_and_completed_items_cover_declared_variants() {
+    assert!(codex_event_msg(&json!({})).2);
+    let (blocks, role, unrecognized) =
+        codex_event_msg(&json!({"type":"agent_reasoning","text":"deliberation"}));
+    assert_eq!(role, "assistant");
+    assert!(!unrecognized);
+    assert_eq!(blocks[0].block.text, "deliberation");
+
+    let (blocks, _, _) = codex_event_msg(&json!({
+        "type":"dynamic_tool_call_request","callId":"c1","tool":"f","arguments":{"a":1}
+    }));
+    assert_eq!(blocks.len(), 1);
+    assert!(blocks[0].block.text.contains("f"));
+    assert!(blocks[0].block.text.contains("[c1]"));
+
+    assert!(codex_completed_item(&json!({})).2);
+    assert!(codex_completed_item(&json!({"type":"FutureItem"})).2);
+
+    let (blocks, role, _) = codex_completed_item(
+        &json!({"type":"UserMessage","content":[{"type":"text","text":"hi"}]}),
+    );
+    assert_eq!(role, "user");
+    assert!(blocks[0].block.text.contains("hi"));
+
+    let (blocks, _, unrecognized) = codex_completed_item(
+        &json!({"type":"AgentMessage","content":[{"type":"image"},{"type":"audio"}]}),
+    );
+    assert!(!unrecognized);
+    assert_eq!(blocks[0].block.text, "[image omitted]");
+    assert_eq!(blocks[1].block.text, "[audio omitted]");
+    assert!(codex_completed_item(&json!({"type":"AgentMessage","content":[{"type":"nope"}]})).2);
+    assert!(!codex_completed_item(&json!({"type":"AgentMessage","content":null})).2);
+    assert!(codex_completed_item(&json!({"type":"AgentMessage","content":5})).2);
+
+    assert!(codex_completed_item(&json!({"type":"Reasoning","summary_text":[5]})).2);
+    assert!(!codex_completed_item(&json!({"type":"Reasoning","summary_text":null})).2);
+    assert!(codex_completed_item(&json!({"type":"Reasoning","summary_text":5})).2);
+
+    assert!(codex_completed_item(&json!({"type":"Plan"})).0.is_empty());
+    let (blocks, _, _) = codex_completed_item(&json!({"type":"Plan","text":"steps"}));
+    assert_eq!(blocks[0].block.text, "steps");
+
+    assert_eq!(codex_command_output(&json!({})), "");
+}
+
+#[test]
+fn raw_top_level_token_and_zero_number_edges() {
+    assert!(dsh_quiet_event("command/run"));
+    assert!(!dsh_quiet_event("mystery"));
+
+    assert_eq!(raw_top_level_token("{\"a", "a"), None);
+    assert_eq!(raw_top_level_token("{\"version\":0}", "version"), Some("0"));
+    assert_eq!(
+        raw_top_level_token("{\"version\" : 1e-400 }", "version"),
+        Some("1e-400")
+    );
+    assert_eq!(
+        raw_top_level_token("{\"x\":{\"version\":0}}", "version"),
+        None
+    );
+    assert_eq!(
+        raw_top_level_token("{\"a\":\"b\",\"version\":0}", "version"),
+        Some("0")
+    );
+    assert_eq!(raw_top_level_token("{\"version\":}", "version"), None);
+    assert_eq!(raw_top_level_token("{\"version\":0}", "other"), None);
+
+    assert!(zero_number_token("0"));
+    assert!(zero_number_token("0.0"));
+    assert!(zero_number_token("-0"));
+    assert!(zero_number_token("0e-400"));
+    assert!(!zero_number_token("1e-400"));
+    assert!(!zero_number_token("123"));
+    assert!(!zero_number_token("e5"));
+    assert!(!zero_number_token("0e"));
+    assert!(!zero_number_token("0ex"));
+}
+
+#[test]
+fn numeric_positions_and_millis_cover_their_ranges() {
+    assert_eq!(
+        Position::parse(&json!(u64::MAX)),
+        Some(Position::UInt(u64::MAX))
+    );
+    assert_eq!(Position::parse(&json!(-3)), Some(Position::Int(-3)));
+    assert_eq!(
+        Position::parse(&json!(1.5)),
+        Some(Position::Float(1.5f64.to_bits()))
+    );
+    assert_eq!(Position::parse(&json!(0.0)), Some(Position::Int(0)));
+    assert_eq!(
+        Position::parse(&json!(1.8446744073709552e19)),
+        Some(Position::UInt(u64::MAX))
+    );
+    assert_eq!(
+        Position::parse(&json!(1e30)),
+        Some(Position::Float(1e30f64.to_bits()))
+    );
+    assert_eq!(Position::parse(&json!(true)), None);
+    assert_eq!(Position::parse(&json!("x")), None);
+
+    assert_eq!(dsh_millis(&json!(5)), Some(5));
+    assert_eq!(dsh_millis(&json!(1000.0)), Some(1000));
+    assert_eq!(dsh_millis(&json!(0.5)), None);
+    assert_eq!(dsh_millis(&json!(1e30)), None);
+    assert_eq!(dsh_millis(&json!(true)), None);
+}
+
+#[test]
+fn first_physical_row_reports_absent_and_malformed() {
+    let absent = admitted("", false);
+    assert!(matches!(first_physical_row(&absent), FirstRow::Absent));
+    let overflowed = admitted("no-newline", true);
+    assert!(matches!(first_physical_row(&overflowed), FirstRow::Absent));
+    let malformed = admitted("not json", false);
+    assert!(matches!(
+        first_physical_row(&malformed),
+        FirstRow::Malformed
+    ));
+    let value = admitted("{\"type\":\"session\",\"version\":0}", false);
+    assert!(matches!(first_physical_row(&value), FirstRow::Value(_, _)));
+}
+
+#[test]
+fn dsh_quiet_and_ignorable_rows_are_observed_without_refusal() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"command/run\",\"seq\":1,\"data\":{}}\n",
+        "{\"type\":\"mystery/event\",\"seq\":2,\"ignorable\":true,\"data\":{}}\n",
+        "{\"type\":\"tool/call\",\"seq\":3,\"data\":{\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":4,\"time\":5,\"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"x\"}}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 2);
+}
+
+#[test]
+fn dsh_citation_suppression_runs_the_interval_index() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":1,\"time\":1,\"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"chunk\"}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":2,\"time\":2,\"sourceEventSeqs\":[1],\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"assembled\"}]}}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("assembled")]);
+}
+
+#[test]
+fn dsh_message_blocks_count_wrong_typed_members() {
+    let reasoning = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"reasoning\",\"text\":7}]}}}\n",
+    );
+    assert_eq!(
+        project_text(TranscriptKind::DshSession, reasoning).unrecognized_records,
+        1
+    );
+
+    let wrong_content = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":7}}}\n",
+    );
+    assert_eq!(
+        project_text(TranscriptKind::DshSession, wrong_content).unrecognized_records,
+        1
+    );
+
+    let mixed = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\"text\":7},{\"type\":\"nope\"}]}}}\n",
+    );
+    assert_eq!(
+        project_text(TranscriptKind::DshSession, mixed).unrecognized_records,
+        1
+    );
+}
+
+#[test]
+fn dsh_row_refuses_out_of_contract_rows_and_quiet_empty_chunks() {
+    assert!(matches!(
+        dsh_row(&json!("nope"), "\"nope\""),
+        DshRow::Unrecognized
+    ));
+    assert!(matches!(dsh_row(&json!({}), "{}"), DshRow::Unrecognized));
+    assert!(matches!(
+        dsh_row(
+            &json!({"type":"tool/result","seq":5,"sourceEventSeqs":5,"data":{}}),
+            "{}"
+        ),
+        DshRow::Refused
+    ));
+    assert!(matches!(
+        dsh_row(
+            &json!({"type":"assistant/chunk","data":{"chunk":{"type":"text-delta","text":""}}}),
+            "{}"
+        ),
+        DshRow::Quiet
+    ));
+    assert!(matches!(
+        dsh_row(
+            &json!({"type":"assistant/chunk","data":{"chunk":{"type":"reasoning-delta","text":""}}}),
+            "{}"
+        ),
+        DshRow::Quiet
+    ));
+    assert!(matches!(
+        dsh_row(&json!({"type":"command/run","data":{}}), "{}"),
+        DshRow::Quiet
+    ));
+}
+
+#[test]
+fn dsh_citation_validation_refuses_out_of_contract_ranges() {
+    assert_eq!(dsh_citations(&json!({}), None), Ok(Vec::new()));
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":5}), Some(1)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[]}), Some(1)),
+        Ok(Vec::new())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[1]}), None),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[1]}), Some(1)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[[3,2]]}), Some(10)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[[-1,2]]}), Some(10)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[["x"]]}), Some(10)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[[1,2,3]]}), Some(10)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[[1,9]]}), Some(10)),
+        Ok(vec![(1, 9)])
+    );
+}
+
+#[test]
+fn packed_rows_refuse_every_structural_violation() {
+    let header = "{\"type\":\"session\",\"version\":0}\n";
+    let cases = [
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":5}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":{\"turn\":\"x\",\"step\":0,\"index\":0,\"dt\":[],\"texts\":[\"a\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":{\"turn\":0,\"step\":\"x\",\"index\":0,\"dt\":[],\"texts\":[\"a\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":{\"turn\":0,\"step\":0,\"index\":\"x\",\"dt\":[],\"texts\":[\"a\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":-1,\"time0\":0,\"data\":{\"turn\":0,\"step\":0,\"index\":0,\"dt\":[],\"texts\":[\"a\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":{\"turn\":0,\"step\":0,\"index\":0,\"dt\":5,\"texts\":[\"a\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":{\"turn\":0,\"step\":0,\"index\":0,\"dt\":[],\"texts\":[]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":0,\"data\":{\"turn\":0,\"step\":0,\"index\":0,\"dt\":[0.5],\"texts\":[\"a\",\"b\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":0,\"time0\":9007199254740991,\"data\":{\"turn\":0,\"step\":0,\"index\":0,\"dt\":[9007199254740991],\"texts\":[\"a\",\"b\"]}}\n",
+    ];
+    for case in cases {
+        let text = format!("{header}{case}");
+        let projection = project_text(TranscriptKind::DshSession, &text);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "case refused: {case}"
+        );
+    }
+}
+
+#[test]
+fn packed_reasoning_chunks_project_reasoning() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"reasoning-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[5],\"texts\":[\"a\",\"b\"]}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert_eq!(projection.turns.len(), 2);
+    assert_eq!(projection.turns[0].blocks, vec![Block::reasoning("a")]);
+}
+
+#[test]
+fn none_kind_projects_an_empty_admitted_snapshot() {
+    let projection = project_text(TranscriptKind::None, "{\"x\":1}\n");
+    assert!(projection.unavailable.is_none());
+    assert!(projection.turns.is_empty());
+}
+
+#[test]
+fn codex_call_ids_fall_back_to_the_id_member() {
+    let (blocks, _, unrecognized) = codex_response_item(
+        &json!({"type":"local_shell_call","id":"l1","action":{"command":"ls"}}),
+    );
+    assert!(!unrecognized);
+    assert!(blocks[0].block.text.contains("[l1]"));
+
+    let (blocks, _, unrecognized) =
+        codex_response_item(&json!({"type":"tool_search_call","id":"s1","arguments":{"q":"x"}}));
+    assert!(!unrecognized);
+    assert!(blocks[0].block.text.contains("[s1]"));
+
+    let (blocks, _, unrecognized) =
+        codex_response_item(&json!({"type":"tool_search_output","id":"s1","tools":[{"name":"r"}]}));
+    assert!(!unrecognized);
+    assert!(blocks[0].block.text.contains("[s1]"));
+}
+
+#[test]
+fn codex_mcp_end_reads_the_err_pointer() {
+    let (blocks, _, unrecognized) = codex_event_msg(
+        &json!({"type":"mcp_tool_call_end","call_id":"m1","result":{"Err":"boom"}}),
+    );
+    assert!(!unrecognized);
+    assert!(blocks[0].block.text.contains("boom"));
+}
+
+#[test]
+fn dsh_tool_result_falls_back_to_the_text_member() {
+    let (blocks, unrecognized) = dsh_message_blocks(
+        &json!({"content":[{"type":"tool-result","toolCallId":"t1","text":"out"}]}),
+    );
+    assert!(!unrecognized);
+    assert!(blocks[0].block.text.contains("out"));
+}
+
+#[test]
+fn citation_and_chunk_indexes_skip_events_without_positions() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":1,\"data\":{\"chunk\":{\"type\":\"text-delta\",\"text\":\"x\"}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":2,\"sourceEventSeqs\":[1],\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"}]}}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 2);
+}
+
+#[test]
+fn unrecognized_and_omission_rows_without_a_sequence_are_counted() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"mystery/event\",\"ignorable\":true,\"data\":{}}\n",
+        "{\"type\":\"assistant/chunk\",\"data\":{\"chunk\":{\"type\":\"future-variant\"}}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 2);
+}
+
+#[test]
+fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
+    fn tool(id: &str) -> DshBlock {
+        DshBlock {
+            block: Block::tool("f"),
+            tool: Some(DshTool {
+                id: id.to_string(),
+                direction: DshDirection::Call,
+            }),
+        }
+    }
+    let mut events = vec![DshEvent {
+        blocks: vec![tool("t"), tool("t")],
+        role: "assistant".to_string(),
+        ts: String::new(),
+        seq: Some(1),
+        turn: Some(Position::Int(1)),
+        step: Some(Position::Int(1)),
+        chunk: false,
+        assembly: false,
+        cited: Vec::new(),
+        dedicated: true,
+    }];
+    associate_dsh_tools(&mut events);
+    assert_eq!(events[0].blocks.len(), 2);
+}
+
+#[test]
+fn position_and_time_cover_the_float_edges() {
+    assert_eq!(
+        Position::parse(&json!(-1.8446744073709552e19)),
+        Some(Position::Float((-1.8446744073709552e19f64).to_bits()))
+    );
+
+    assert_eq!(dsh_time(Some(&json!(5)), None), "5");
+    assert_eq!(dsh_time(Some(&json!(-5)), None), "-5");
+    assert_eq!(dsh_time(None, None), "");
+    assert_eq!(dsh_time(Some(&json!(9.3e18)), None), "");
+    assert_eq!(dsh_time(Some(&json!(0.5)), None), "");
+}
+
+#[test]
+fn citation_ranges_cover_each_contract_boundary() {
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[9007199254740992i64]}), Some(10)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(
+            &json!({"sourceEventSeqs":[[1, 9007199254740992i64]]}),
+            Some(10)
+        ),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[[1, 10]]}), Some(10)),
+        Err(())
+    );
+    assert_eq!(
+        dsh_citations(&json!({"sourceEventSeqs":[[1, 9]]}), Some(10)),
+        Ok(vec![(1, 9)])
+    );
+}
+
+#[test]
+fn exact_keys_rejects_missing_required_and_extra_members() {
+    let object: serde_json::Map<String, Value> = serde_json::from_str("{\"a\":1}").unwrap();
+    assert!(exact_keys(&object, &["a"], &[]));
+    assert!(exact_keys(&object, &["a"], &["b"]));
+    assert!(!exact_keys(&object, &["a", "b"], &[]));
+
+    let extra: serde_json::Map<String, Value> = serde_json::from_str("{\"a\":1,\"c\":2}").unwrap();
+    assert!(!exact_keys(&extra, &["a"], &[]));
+}
+
+#[test]
+fn packed_reasoning_with_an_empty_member_allocates_nothing() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"reasoning-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[5],\"texts\":[\"a\",\"\"]}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::reasoning("a")]);
+}
+
+#[test]
+fn command_output_falls_back_when_only_stderr_is_recorded() {
+    assert_eq!(codex_command_output(&json!({"stderr":"e"})), "e");
+    assert_eq!(codex_command_output(&json!({"stdout":"o"})), "o");
+}
+
+#[test]
+fn home_spellings_cover_the_short_forms() {
+    assert!(valid_home("C:/x"));
+    assert!(valid_home("//s"));
+    assert!(!valid_home("C"));
+    assert!(!valid_home("ab:"));
+}
+
+#[test]
+fn raw_token_scans_whitespace_and_nonmatching_keys() {
+    assert_eq!(
+        raw_top_level_token("{\"version\":   0 }", "version"),
+        Some("0")
+    );
+    assert_eq!(raw_top_level_token("{\"version\" 0}", "version"), None);
+    assert_eq!(
+        raw_top_level_token("{\"version\":0,\"a\":1}", "a"),
+        Some("1")
+    );
+    assert_eq!(raw_top_level_token("{\"version\":", "version"), None);
+    assert!(!zero_number_token("0x"));
+    assert!(!zero_number_token("-e5"));
+}
+
+#[test]
+fn home_time_and_key_scans_cover_their_false_branches() {
+    assert!(!valid_home("C:x"));
+    assert!(valid_home("\\\\s"));
+    assert_eq!(
+        raw_top_level_token("{\"version\": \t0}", "version"),
+        Some("0")
+    );
+    assert_eq!(dsh_time(Some(&json!(9007199254740992i64)), None), "");
+    assert_eq!(raw_top_level_token("\"version\"", "version"), None);
+    assert_eq!(dsh_millis(&json!(-1e30)), None);
+
+    let object: serde_json::Map<String, Value> = serde_json::from_str("{\"a\":1}").unwrap();
+    assert!(!exact_keys(&object, &["b"], &[]));
+}
+#[test]
+fn dsh_omission_with_a_sequence_is_observed() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":7,\"data\":{\"chunk\":{\"type\":\"future-variant\"}}}\n",
+    );
+    let projection = project_text(TranscriptKind::DshSession, text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 1);
+}

@@ -4020,3 +4020,105 @@ fn a_refreshed_run_re_resolves_changed_authority_before_display() {
     );
     assert_eq!(read.turns[0].blocks[0].text, "new body");
 }
+
+#[test]
+fn source_stamp_identity_covers_every_subject_field() {
+    let base = tui::Subject {
+        tab: 0,
+        realm: None,
+        run: "r1".to_string(),
+        key: "seat".to_string(),
+        reference: None,
+        provenance: brokkr_view::transcript::LegacyProvenance::Absent,
+        legacy_id: None,
+        working: false,
+    };
+    let stamp = SourceStamp::of(
+        &base,
+        TranscriptRead::refused(
+            None,
+            false,
+            brokkr_view::transcript::Unavailable::None,
+            "x",
+            None,
+            false,
+            0,
+            0,
+            None,
+        ),
+    );
+    assert!(stamp.same_subject(&base));
+
+    let mut differing = base.clone();
+    differing.tab = 1;
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.realm = Some("other".to_string());
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.run = "r2".to_string();
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.key = "other".to_string();
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.reference = Some(brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: "abcd-1234".to_string(),
+        home: "/h".to_string(),
+    });
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.provenance = brokkr_view::transcript::LegacyProvenance::Claude;
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.legacy_id = Some("abcd-1234".to_string());
+    assert!(!stamp.same_subject(&differing));
+}
+
+#[test]
+fn turn_selection_covers_both_bounds_and_the_truncated_explanation() {
+    fn turn(text: &str) -> brokkr_view::transcript::Turn {
+        brokkr_view::transcript::Turn {
+            role: "assistant".to_string(),
+            ts: String::new(),
+            blocks: vec![brokkr_view::transcript::Block::text(text)],
+        }
+    }
+    let read = || {
+        TranscriptRead::readable(
+            Some(brokkr_view::Transcript {
+                kind: "claude-session".to_string(),
+                locator: "abcd-1234".to_string(),
+                home: "/h".to_string(),
+            }),
+            false,
+            brokkr_view::transcript::TranscriptKind::ClaudeSession,
+            Some("/h/a.jsonl".to_string()),
+            vec![turn("one"), turn("two")],
+            false,
+            0,
+            0,
+        )
+    };
+    assert!(select_transcript_turn(read(), None).is_readable());
+    assert_eq!(
+        select_transcript_turn(read(), Some(0)).unavailable,
+        Some(brokkr_view::transcript::Unavailable::TurnNotRetained)
+    );
+    assert_eq!(select_transcript_turn(read(), Some(1)).turns.len(), 1);
+    assert_eq!(select_transcript_turn(read(), Some(2)).turns.len(), 1);
+    assert_eq!(
+        select_transcript_turn(read(), Some(3)).unavailable,
+        Some(brokkr_view::transcript::Unavailable::TurnNotRetained)
+    );
+
+    let mut truncated = read();
+    truncated.truncated = true;
+    let selected = select_transcript_turn(truncated, Some(3));
+    assert!(selected
+        .explanation
+        .as_deref()
+        .unwrap()
+        .contains("retained prefix"));
+}
