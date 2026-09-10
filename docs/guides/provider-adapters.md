@@ -64,11 +64,6 @@ on DeepSeek's own API. A completion verified this beta id on 2026-09-08;
 it was not yet included in the API's model list. Its name indicates a
 September 10 expiry; the exact cutoff time is unconfirmed.
 
-The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
-on DeepSeek's own API. A completion verified this beta id on 2026-09-08;
-it was not yet included in the API's model list. Its name indicates a
-September 10 expiry; the exact cutoff time is unconfirmed.
-
 The same adapter reaches Muse Spark 1.3 through OpenRouter
 (`https://openrouter.ai/api/v1`, OpenAI-compatible, Meta as the sole
 upstream at Meta's own prices) as two routes that share one endpoint
