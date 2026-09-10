@@ -215,22 +215,25 @@ Alternatives weighed, each rejected on evidence rather than taste:
    0.148.0 codex measurement does not enable installed 0.153.4.
 
    DSH's session integration is selected as one exact pair: official core
-   **0.1.5-rc.1** at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` together
-   with community plugin `dsh-plugin-cli-session` **0.2.0** at
+   **0.1.0-rc.6** (`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's
+   own development matrix pins) together with community plugin
+   `dsh-plugin-cli-session` **0.2.0** at
    `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, installed and exercised
    only in worktree- or task-owned storage through the documented
-   extension and `agents.resume` APIs. The pair is selected but
-   **unmeasured**: the declaration stays disabled until the isolated
-   resolved-composite identity, the provider-confirmed exact root,
-   current headless model/effort and restriction precedence, and
-   noncumulative current-sequence output and usage are all established.
-   The request-derived `session_id` echo and the post-`firstSeq` usage
-   selection are interface evidence only: they neither confirm the root
-   nor attribute the total. The installed 0.1.2-rc.1 headless runner
+   extension and `agents.resume` APIs. An isolated live cold+warm
+   qualification establishes composition, a result envelope, one continued
+   root, nonce continuity and per-message usage; the pair is still
+   **unmeasured** for admission because exact-root confirmation, restriction
+   precedence and a multi-message current-sequence accounting boundary are
+   unproven, so the declaration stays disabled. Core 0.1.5-rc.1 removed the
+   `agent.session.events` accessor the plugin reads; that measured pair
+   incompatibility is not a global DSH or extension limitation. The
+   request-derived `session_id` echo and the post-`firstSeq` last-wins usage
+   selection are interface evidence only: they neither confirm the root nor
+   attribute a multi-call total. The installed 0.1.2-rc.1 headless runner
    remains bounded history — its one-shot entry mints a fresh root and
-   cannot forward the launcher's TUI example — and is never restated as a
-   global DSH or extension limitation. This session-selection work stays
-   separate from the hands/tools plugin the adapter defers, preserves
+   cannot forward the launcher's TUI example. This session-selection work
+   stays separate from the hands/tools plugin the adapter defers, preserves
    Rust-only Brokkr production and the admitted headless profile, and
    admits no second runner. No different core or plugin revision inherits
    this evidence, and a measured incompatibility of this exact pair is
@@ -429,15 +432,15 @@ Alternatives weighed, each rejected on evidence rather than taste:
   from what is on disk. Whether a live model obeys is judgment's to
   check, and the guides say so.
 - **The selected DSH route and its bound.** Ruling 5 selects official
-  core 0.1.5-rc.1 at
-  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
-  `dsh-plugin-cli-session` 0.2.0 at
+  core 0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's own
+  supported generation) with `dsh-plugin-cli-session` 0.2.0 at
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda` as the supported extension
   route from the headless caller to an owned root, and keeps its
-  declaration disabled until that exact pair's resolved identity,
-  exact-root rejoin, restriction precedence and current-sequence
-  accounting are measured. The installed 0.1.2-rc.1 one-shot result is
-  bounded history for that entry only and is never restated as a global
-  DSH limitation. Whether a harness other than these four is ever
-  admitted, and on what evidence, stays the question ruling 5 already
-  answers for any adapter.
+  declaration disabled until that exact pair's exact-root rejoin,
+  restriction precedence and current-sequence accounting are measured.
+  The installed 0.1.2-rc.1 one-shot result is bounded history for that
+  entry only and is never restated as a global DSH limitation; core
+  0.1.5-rc.1's removal of `agent.session.events` is a measured pair
+  incompatibility, not a global one. Whether a harness other than these
+  four is ever admitted, and on what evidence, stays the question ruling 5
+  already answers for any adapter.

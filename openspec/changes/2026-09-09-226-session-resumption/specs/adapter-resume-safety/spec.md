@@ -27,17 +27,20 @@ minimum requires dated provider evidence of exact root-session rejoin, current
 restriction enforcement and current-invocation accounting, alongside the
 implementation and deterministic tests. LaneTally SHALL be assessed independently.
 
-The DSH minimum SHALL qualify official core 0.1.5-rc.1 at
-`183f08e9c6dde7e36cd2318eaee70b0da08fb35e` together with the
-`dsh-plugin-cli-session` 0.2.0 extension at
+The DSH minimum SHALL qualify official core 0.1.0-rc.6
+(`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's own development
+matrix pins) together with the `dsh-plugin-cli-session` 0.2.0 extension at
 `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The assessment SHALL record
 the complete resolved dependency identity and SHALL establish that this exact
-pair loads through DSH's documented extension and `agents.resume` APIs. A
-different resolved core or plugin revision SHALL NOT inherit its evidence.
-Enablement SHALL additionally establish that `--session` selects the owned
-provider-confirmed root, the invocation remains in the admitted headless shape,
-current model/effort and restriction settings take precedence, and the plugin's
-sequence boundary yields only current output and attributable usage.
+pair loads through DSH's documented extension and `agents.resume` APIs. Core
+0.1.5-rc.1 removed the `agent.session.events` accessor the plugin reads; that
+measured pair incompatibility SHALL NOT be restated as a global DSH or
+extension limitation. A different resolved core or plugin revision SHALL NOT
+inherit its evidence. Enablement SHALL additionally establish that `--session`
+selects the owned provider-confirmed root, the invocation remains in the
+admitted headless shape, current model/effort and restriction settings take
+precedence, and the plugin's sequence boundary yields only current output and
+attributable usage.
 
 The installed 0.1.2-rc.1 headless runner's lack of a selector establishes only
 that its one-shot entry cannot forward the TUI example. It SHALL NOT be reported
@@ -106,10 +109,10 @@ rather than relabelled as current probes.
 - **AND** explicit removed-tool/MCP enforcement, the complete filesystem boundary and exceptional visible-message/turn/usage attribution remain separate missing observations; the absence of a local executable or a worker-home write failure is not a controller blocker
 
 #### Scenario: Headless startup lacks a resume selector
-- **GIVEN** installed DSH 0.1.2-rc.1's one-shot headless runner mints a fresh root, while official core 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and `dsh-plugin-cli-session` 0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` expose explicit resume through the documented extension API
+- **GIVEN** installed DSH 0.1.2-rc.1's one-shot headless runner mints a fresh root, while core 0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's supported generation) and `dsh-plugin-cli-session` 0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` expose explicit resume through the documented extension API, and a live isolated probe shows the 0.1.5-rc.1 pair breaks on the removed `agent.session.events` accessor
 - **WHEN** the DSH headless minimum is qualified and implemented
 - **THEN** an isolated installation records and verifies that exact resolved pair, and `--session <owned-root>` demonstrably rejoins the provider-confirmed root under the current headless profile, model/effort and restriction settings
-- **AND** the plugin's request-derived `session_id` echo and post-`firstSeq` usage selection are treated as interface evidence only; independent root identity and noncumulative current-usage observations are required
+- **AND** the plugin's request-derived `session_id` echo and post-`firstSeq` last-wins usage selection are treated as interface evidence only; independent root identity and attributable current-usage observations are required
 - **AND** the plugin's sequence boundary demonstrably excludes historical output, tools and usage from current invocation evidence; any unattributable total remains absent and keeps the shape disabled where the boundary itself is uncertain
 - **AND** the live global DSH pin and profiles remain unchanged, the deferred hands/tools plugin does not exclude session integration, and no TUI flag, SDK runner, package patch, UUID interception or unsupported hands shape substitutes for the selected route
 - **AND** incompatibility or failed enforcement is reported as the exact unmet AS1 requirement; the older one-shot limitation is never repeated as a global DSH limitation

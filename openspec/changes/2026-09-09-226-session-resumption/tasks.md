@@ -19,7 +19,7 @@ help, installed source and packages, the dated captures under
 `.forge/`, and the supplied exact-version upstream checkouts, and they run
 **before** group 8's provider-specific construction (8.5–8.9) and group 9's
 accounting boundaries (9.1–9.3), whose argv, routes and cursors are their
-output — 8.8's DSH route is 10.3's exact 0.1.5-rc.1/plugin 0.2.0 candidate,
+output — 8.8's DSH route is 10.3's exact 0.1.0-rc.6/plugin 0.2.0 candidate,
 and 9.1's current-work cursor is measured, not assumed.
 **10.5–10.8 are live enforcement proof**: they need dated controller
 host evidence that does not exist in this worktree, they run after
@@ -32,7 +32,7 @@ The 2026-09-10 DSH correction adds one earlier truth-repair seam without
 renumbering settled task identities: execute **1.1 -> 6.4 -> 11.5 -> 13.1**
 before 8.8. Those four tasks first make proposed 0056, the disabled
 declaration and every packaged/scaffolded representation, and the provider
-guide agree that the exact 0.1.5-rc.1/plugin 0.2.0 route is selected but
+guide agree that the exact 0.1.0-rc.6/plugin 0.2.0 route is selected but
 unmeasured. Task 8.8 may then build against that fail-closed truth; 10.7 still
 qualifies it and 11.3 still owns any later enablement. This is an execution
 dependency across the existing numbered groups, not a completed provider proof
@@ -70,7 +70,7 @@ Conventions binding on every task, restated once rather than per task:
   (`safety / AS1`). `.forge/controller-provider-evidence-index.md` indexes the
   earlier host interface, four-file DSH headless and 40-file DSH
   session/agent/settings captures. The 2026-09-10 controller evidence adds
-  official core 0.1.5-rc.1 and the selected CLI-session plugin as supported
+  official core 0.1.0-rc.6 and the selected CLI-session plugin as supported
   interface evidence, plus partial Claude observations; none of those source
   inspections or partial probes enables a shape by itself.
 - No push, no merge, no new run, no issue closure, no global provider
@@ -96,11 +96,11 @@ saved for the phase commit.
       older-owner resurrection (2), provider-confirmed root and the two
       admitted identity origins (3), the negotiated one-use offer (4),
       measured provider shapes with current-version qualification and the exact
-      official DSH core 0.1.5-rc.1 at
-      `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` plus
+      official DSH core 0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's
+      supported generation; host modules resolve to 0.1.0-rc.8) plus
       `dsh-plugin-cli-session` 0.2.0 at
       `0f487e74c81ed102c6899440d9f5d65e8e9eabda` selected but disabled
-      pending its resolved-composite, root, restriction and accounting proof,
+      pending its exact-root, restriction and multi-message accounting proof,
       with session integration held separate from hands (5), re-imposed
       current restrictions (6), one confirmed launch in the v5 vocabulary,
       manifest dispatch from 0.10.0 under the amended boundary-record
@@ -474,10 +474,10 @@ saved for the phase commit.
       interface identity in
       `.forge/controller-host-provider-interface.json`, with the reason
       naming the enforcement proof 10.6 still owes; DSH's headless work shape
-      **unmeasured** with the *unknown* resolved-composite identity and a
-      bounded reason naming the selected official core 0.1.5-rc.1/plugin 0.2.0
-      commits, their supported `--session` extension route, and 10.7's still
-      missing compatibility, exact-root, restriction and current-accounting
+      **unmeasured** with the measured resolved-composite identity and a
+      bounded reason naming the selected official core 0.1.0-rc.6/plugin 0.2.0
+      pair, their supported `--session` extension route, and 10.7's still
+      missing exact-root, restriction and current-accounting
       proof. Preserve the installed 0.1.2-rc.1 result only as a version-bounded
       one-shot limitation, keep the separate hands deferral unchanged, and do
       not mark the selected route `unsupported` or `supported` before 10.7.
@@ -637,9 +637,12 @@ saved for the phase commit.
       work — safety / AS1, evidence / LE4.
 - [ ] 8.8 After 1.1, 6.4, 11.5 and 13.1 establish the corrected disabled
       truth, implement 10.3's exact isolated DSH route for official core
-      0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and
+      0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's supported
+      generation; host modules resolve to 0.1.0-rc.8) and
       `dsh-plugin-cli-session` 0.2.0 at
-      `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Keep the admitted
+      `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, whose isolated live
+      cold/warm qualification is recorded in
+      `.forge/tasks/dsh-pair-qualification-010rc6.json`. Keep the admitted
       headless profile and Rust-owned persistence/model/effort overlay; use the
       plugin's explicit `--new --output-format stream-json` cold form and
       `--session <owned-id> --output-format stream-json` warm form. Extend only
@@ -831,17 +834,19 @@ itself (`safety / AS1`).
       `--resume` example cannot simply be forwarded — but never restate it as a
       global DSH limitation. Adopt
       `.forge/tasks/controller-dsh-upstream-discovery.json` and the inspected
-      read-only checkouts: official core 0.1.5-rc.1 at
-      `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` exposes
+      read-only checkouts: the official API exposes
       `ctx.agents.resume({ resumeSessionId, agentOptions, setup })` and continued
       persisted history, while `dsh-plugin-cli-session` 0.2.0 at
       `0f487e74c81ed102c6899440d9f5d65e8e9eabda` is the selected documented
       extension route with `--new`, explicit `--session`, current model
-      selection and a pre-followup `firstSeq` interval. Record that its peer
-      range admits 0.1.5-rc.1 but its development pin is 0.1.0-rc.6, its
-      `session_id` is request-derived and latest in-range usage has unknown
-      cumulative semantics; these remain 10.7 compatibility, independent-root
-      confirmation and accounting questions. Reject the official SDK for this
+      selection and a pre-followup `firstSeq` interval. A live isolated probe
+      (`.forge/tasks/dsh-pair-qualification-010rc6.json`,
+      `.forge/tasks/dsh-pair-incompatibility.json`) shows core 0.1.5-rc.1 is
+      incompatible with this plugin because it removed the `agent.session.events`
+      accessor; re-pinning to the plugin's development core 0.1.0-rc.6 composes,
+      runs and continues one root cold-to-warm. Record that its `session_id` is
+      request-derived and its latest in-range usage is last-wins; these remain
+      10.7 independent-root confirmation and accounting questions. Reject the official SDK for this
       change because it would add a second runner where the supported CLI
       extension candidate exists. This checked task proves and selects the
       supported caller route only; it does not prove the resolved pair,
@@ -878,13 +883,16 @@ itself (`safety / AS1`).
       attributable observation and the Brokkr adapter normalization agrees —
       safety / AS1, safety / AS2, evidence / LE4.
 - [ ] 10.7 Qualify the exact DSH pair from 10.3 in an isolated worktree or
-      task-owned profile: install official core 0.1.5-rc.1 at
-      `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
+      task-owned profile: install official core 0.1.0-rc.6
+      (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's supported generation) with
       `dsh-plugin-cli-session` 0.2.0 at
       `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, and record Node, the
       resolved dependency graph, package/plugin hashes, built bytes, Cordis
       patch/composed profile and extension protocol while proving the live
-      global DSH pin, profiles, credentials and other runs are unchanged. Run a
+      global DSH pin, profiles, credentials and other runs are unchanged. The
+      live cold/warm continuity half is recorded in
+      `.forge/tasks/dsh-pair-qualification-010rc6.json`; the exact-root,
+      restriction and multi-message accounting axes below remain. Run a
       bounded `--new` cold invocation that persists and independently confirms
       its root plus a private nonce, then
       `--session <owned-root> --output-format stream-json` against the
@@ -926,7 +934,7 @@ itself (`safety / AS1`).
       proof, and flip `adapters/claude.json` — safety / AS1, safety / AS2.
 - [ ] 11.3 After 8.8, 8.10, 9.6 and 10.7 pass, enable DSH's
       already-admitted headless work shape only for the exact isolated official
-      core 0.1.5-rc.1/plugin 0.2.0 composite identity. Flip
+      core 0.1.0-rc.6/plugin 0.2.0 composite identity. Flip
       `adapters/dsh.json` and its packaged/scaffolded equivalents to
       `supported` with 10.3's interface and 10.7's compatibility, exact-root,
       restriction and current-accounting references; record the provider ID,
@@ -943,9 +951,9 @@ itself (`safety / AS1`).
       supported by analogy — safety / AS1.
 - [x] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
       support representation with 6.4's corrected preparatory truth. DSH's
-      selected official core 0.1.5-rc.1/plugin 0.2.0 route is `unmeasured`,
-      disabled and waiting on 10.7; its exact commits and unknown
-      resolved-composite identity are visible, while the installed 0.1.2-rc.1
+      selected official core 0.1.0-rc.6/plugin 0.2.0 route is `unmeasured`,
+      disabled and waiting on 10.7; its measured resolved-composite identity is
+      visible, while the installed 0.1.2-rc.1
       one-shot result is only bounded history. Preserve every other shape's
       current status and the separate DSH hands deferral. Verify the declaration
       loader/scaffold expectations and a repository content audit agree and find
@@ -1005,8 +1013,8 @@ itself (`safety / AS1`).
 
 - [x] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
       preserving its offer, assessment and held-window guidance. The current
-      adapter table must call the exact official DSH core 0.1.5-rc.1/plugin
-      0.2.0 route `unmeasured` and disabled pending 10.7's compatibility,
+      adapter table must call the exact official DSH core 0.1.0-rc.6/plugin
+      0.2.0 route `unmeasured` and disabled pending 10.7's exact-root,
       independent-root, restriction and current-accounting proof; distinguish
       its documented `--session` extension interface from the version-bounded
       installed 0.1.2-rc.1 one-shot result, and keep the hands plugin deferral
@@ -1958,3 +1966,23 @@ resolve again after the final archive, and the nested-box
 which requires a host that can open the box. The real archive, exact-head
 controller coverage, integration, CI, publication, merge and issue closure
 remain pending and unclaimed.
+
+### 2026-09-10 — successor implement: DSH pair re-pin qualified
+
+Task 10.3's candidate re-pin is now measured. Under an isolated task-owned
+`DSH_HOME` (`.forge/dsh-qualify-010rc6/`), official core `@deepseek-ai/dsh`
+0.1.0-rc.6 — the plugin's development pin, whose host modules resolve to
+0.1.0-rc.8 and still expose `agent.session.events` — composes the `headless`
+profile with `dsh-plugin-cli-session` 0.2.0 and completes both live turns: cold
+`--new` and warm `--session <id>` each exit 0 with a `stream-json` result
+envelope, the same `session-a95eacaf…` root, cold-nonce recall on the warm turn
+and per-message usage, while the global 0.1.2-rc.1 pin, profiles and credentials
+are byte-unchanged. Evidence:
+`.forge/tasks/dsh-pair-qualification-010rc6.json`; the 0.1.5-rc.1 failure
+remains bounded history in `.forge/tasks/dsh-pair-incompatibility.json`.
+Proposal K, design D6, decision 0056, AS1, `adapters/dsh.json`, the provider
+guide and tasks 1.1/6.4/10.3/10.7/11.3/11.5/13.1 now name core 0.1.0-rc.6.
+The shape stays `unmeasured` and **8.8, 8.10, 9.6, 10.7 and 11.3 remain
+unchecked**: consumer-side exact-root confirmation, restriction precedence after
+restore, a multi-message/retry accounting boundary and the Rust route are still
+owed. No provider is enabled and no task is ticked from the qualification alone.

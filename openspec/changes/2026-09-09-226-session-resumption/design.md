@@ -84,13 +84,16 @@ proposal capture hashes were rechecked, along with the newer
 `62aba46649b6919117e3f4882ccb63f19aa87445274f6821883997e682c56d95`.
 All 40 contained source hashes match their captured text. That installed
 0.1.2-rc.1 trace remains truthful for its one-shot runner but is not a global
-DSH conclusion. Official 0.1.5-rc.1 at
-`183f08e9c6dde7e36cd2318eaee70b0da08fb35e` documents explicit persisted-ID
-resume, and `dsh-plugin-cli-session` 0.2.0 at
-`0f487e74c81ed102c6899440d9f5d65e8e9eabda` calls that API through DSH's
-documented extension mechanism. D6 selects that exact pair for isolated
-qualification; source proves the callable route, not compatibility,
-restriction precedence, independent root confirmation or accounting semantics.
+DSH conclusion. Core 0.1.5-rc.1 documents explicit persisted-ID resume, but
+removed the `agent.session.events` accessor the selected plugin reads, so that
+exact pair is a measured incompatibility (`dsh: events is not iterable`). The
+plugin's development matrix pins core **0.1.0-rc.6**, and
+`dsh-plugin-cli-session` 0.2.0 at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda` calls the official API through DSH's
+documented extension mechanism. D6 selects that exact 0.1.0-rc.6 pair for
+isolated qualification; source and an isolated live probe prove the callable
+route and session continuity, not restriction precedence, independent root
+confirmation or accounting semantics.
 
 Claude's captured help says background resume can copy a running session,
 invalid settings can be ignored in print mode, and a recorded system prompt
@@ -136,9 +139,11 @@ inferring wrapper support from Claude.
 **Alternative rejected:** declaring DSH globally unsupported from the installed
 0.1.2-rc.1 one-shot startup and treating launch reporting as closure contradicts
 AS1 and answers F/K. Both current positions reject that reduction. The old
-trace establishes only that runner's limit. The exact 0.1.5-rc.1 core/plugin
+trace establishes only that runner's limit. The exact 0.1.0-rc.6 core/plugin
 pair supplies the supported caller seam and is selected in D6, while remaining
-disabled until its compatibility and safety evidence passes. Failure of that
+disabled until its compatibility and safety evidence passes. Core 0.1.5-rc.1's
+removal of `agent.session.events` is a measured pair incompatibility, not a
+global DSH or extension limitation. Failure of that
 qualification is the precise unmet AS1 result; it does not authorize a narrower
 downstream claim of success or a silent substitution.
 
@@ -414,7 +419,7 @@ and measured confirmation/accounting rules.
 | Codex | Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort and safe passthrough. Admit exact engine-generated MCP fragments separately from arbitrary `-c`. | Current 0.153.4 resume help, class/boxed-fragment enforcement, exact root, current events and pre-work rejection semantics. 0030's 0.148.0 measurement remains historical regression scope. |
 | Claude | Known print/stream-json path with exactly `--resume <owned-id>` and the current restriction plan: permission mode, model/effort, `--tools ""`, strict MCP config, current MCP document and allowed workspace tool where boxed. Current prompt stays on stdin. | Root-opening semantics, complete effective restrictions/precedence, persistent identity and current-only stream/accounting on 2.1.266. |
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
-| DSH | Use an isolated profile pinned to official core 0.1.5-rc.1 at `183f08e9` plus `dsh-plugin-cli-session` 0.2.0 at `0f487e74`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay; use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm. | Exact resolved-pair compatibility, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting and unchanged global installation. |
+| DSH | Use an isolated profile pinned to official core `@deepseek-ai/dsh` 0.1.0-rc.6 (the plugin's own supported generation) plus `dsh-plugin-cli-session` 0.2.0 at `0f487e74`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay; use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm. | Exact resolved-pair compatibility, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting and unchanged global installation. |
 
 Claude creates with its harvested provider ID by default. Bare `-r`, continue,
 fork, user `--session-id`, `--from-pr`, `--teleport`, background/cloud selectors
@@ -432,10 +437,14 @@ truthful historical evidence about that entry. It does not characterize newer
 core releases or documented extensions and must never be restated as a global
 DSH limitation.
 
-Select one exact candidate route: official DSH core 0.1.5-rc.1 at
-`183f08e9c6dde7e36cd2318eaee70b0da08fb35e` plus
+Select one exact candidate route: official DSH core 0.1.0-rc.6
+(`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's own development
+matrix pins; its host modules resolve to 0.1.0-rc.8) plus
 `dsh-plugin-cli-session` 0.2.0 at
-`0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The official core's
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Core 0.1.5-rc.1 removed the
+`agent.session.events` accessor the plugin reads, so that exact pair is a
+measured incompatibility; the pin follows the plugin's supported generation
+rather than resting on a global DSH claim. The official core's
 `ctx.agents.resume({ resumeSessionId, agentOptions, setup })` and the plugin's
 `--session <id> --output-format stream-json` path are supported extension
 interfaces, not UUID interception. Install and exercise the pair only in
@@ -764,7 +773,7 @@ rulings and enforcement bindings are:
 | 2 | Same run/site/instance and local origin; newest owner, no older-owner resurrection. | D2/D3 pure query, stamps, manifest/origin tests. |
 | 3 | Provider-confirmed root; generated or fresh assigned ID; intent proves nothing. | D3/D4 root latch, fence, assignment/kill-window tests. |
 | 4 | Negotiated, correlated, one-use offer in existing wire vocabulary. | D5 protocol/conformance tests. |
-| 5 | Required measured provider shapes; current-version qualification; the exact DSH 0.1.5-rc.1/plugin 0.2.0 route selected but unmeasured and separate from hands until its complete admission proof passes. | D5/D6 loader, runtime identity check, declaration gate and dated provider evidence. |
+| 5 | Required measured provider shapes; current-version qualification; the exact DSH 0.1.0-rc.6/plugin 0.2.0 route selected but unmeasured and separate from hands until its complete admission proof passes. | D5/D6 loader, runtime identity check, declaration gate and dated provider evidence. |
 | 6 | Re-impose current restrictions, model/effort, grant and result door; no alternate selectors. | D5/D6 composition and enforcement proof. |
 | 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
@@ -801,7 +810,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Robustness: detailed support assessments and independent restriction proof; simplicity §4/cut 3: compact pinned data and four explicit planners. | Combine D5/D6. Keep only admission-relevant closed assessment data, including F2/F6's loadable unknown form. Retain separate evidence for interface, restrictions, root/persistence and accounting, including wrapper identity where applicable; no probe DSL, automatic enablement or generic planner language. |
 | Both: provider-specific selectors, current restriction reconstruction and cold/gate selector protection. | Adopt D5/D6. Generated hands provenance and captured CLI precedence require exact parsing; a cold fallback cannot carry ambient continue or competing settings. LaneTally cannot inherit Claude qualification or substitute plain Claude. |
 | Robustness: Claude's selector-only guard does not reject duplicate or last-wins permission/tool/MCP controls; simplicity §4/cut 3: keep explicit provider planners, not a generic grammar engine. | Combine under D5/D6. Each planner performs closed, measured arity, duplicate and precedence validation for every authoritative restriction. For Claude, a second permission mode, tools list, strictness/MCP document, allowed-tools list, model or effort control is a pre-work refusal on cold and resume paths; merely constructing warm argv as cold argv plus `--resume` is insufficient. This is an adapter-local parser and test matrix, not a cross-provider DSL. |
-| Both: select official core 0.1.5-rc.1 plus `dsh-plugin-cli-session` 0.2.0 in an isolated profile and keep it disabled until measured. | Adopt D6. The exact commits supply the supported caller route; 0.1.2-rc.1's one-shot result remains bounded history. Keep 10.7/11.3 incomplete until the resolved pair, headless composition, exact root, restrictions and current accounting pass. |
+| Both: select official core 0.1.0-rc.6 plus `dsh-plugin-cli-session` 0.2.0 in an isolated profile and keep it disabled until measured. | Adopt D6. The exact commits supply the supported caller route; 0.1.2-rc.1's one-shot result remains bounded history. Keep 10.7/11.3 incomplete until the resolved pair, headless composition, exact root, restrictions and current accounting pass. |
 | Robustness: reopen 1.1, 6.4, 11.5 and 13.1 because their checked artifacts retain the disproved premise; simplicity: make the same focused reopening without adding task IDs or a new capability. | Adopt. Task truth must follow current evidence under PM2. Proposed 0056 must select the exact route while retaining `proposed`; `adapters/dsh.json`, every packaged equivalent and the guide must call it `unmeasured`, disabled and awaiting 10.7 rather than `unsupported` or enabled. Complete all four corrections before 8.8, so the exact route is truthful in the decision, fail-closed assessment, packaged declarations and guide before Rust relies on it; 11.3 remains additionally gated on 10.7. The old 0.1.2 trace remains only version-bounded evidence. |
 | Robustness: bind provider ID, persistence root and exact executable/profile identity; simplicity: reuse v5/private context and avoid new machinery. | Combine in D3/D5/D6. Publish root and transcript together on the stamped DSH launch checkpoint, carry a richer private offer while leaving `Body::Resume` unchanged, and use the existing wrapper digest/assessment/instance digest for the pinned composite identity. Reject a new contract, protocol version, store or plugin manager. |
 | Robustness: request echo and latest usage are insufficient; simplicity: qualify first and omit unattributable totals. | Combine in D6/D8. Confirmation is the pinned plugin's successful post-`agents.resume` init plus validated originating root and continuity, never the echoed value alone. Prove first-sequence usage semantics; omit numeric totals if they cannot be attributed and disable the shape if the current interval itself is uncertain. |
@@ -866,7 +875,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the exact 0.1.5-rc.1/plugin 0.2.0 resolved graph, isolated composition, explicit new/session spelling, originating persistence root, composite digest and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the exact 0.1.0-rc.6/plugin 0.2.0 resolved graph, isolated composition, explicit new/session spelling, originating persistence root, composite digest and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -1041,7 +1050,7 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    keep instruction identities coherent. No private-run migration or global
    provider settings change.
 4. Obtain the pre-archive live provider evidence and deliver measured Claude
-   and preserved Codex support. Install the exact DSH 0.1.5-rc.1/plugin 0.2.0
+   and preserved Codex support. Install the exact DSH 0.1.0-rc.6/plugin 0.2.0
    pair only in task-owned storage and record its resolved composite identity.
    Implement its fail-closed route, then qualify D6's root/storage/restriction/
    current-sequence protocol under 10.7 and enable only after every admission
@@ -1326,3 +1335,29 @@ settings, or perform controller publication/merge/closure work. The design is
 drafted rather than `upstream`: proposal/spec already own and contain K/L, and
 this returned correction repairs the earliest stale artifact identified by
 analyze without disguising a downstream fault.
+
+## Current successor design correction — DSH pair re-pin, 2026-09-10
+
+This return answers the implement finding that the exact 0.1.5-rc.1/plugin-0.2.0
+pair is incompatible. The finding is real and measured: core 0.1.5-rc.1 removed
+the public `agent.session.events` accessor the plugin's post-turn fold reads, so
+that pair throws `dsh: events is not iterable` and emits no result envelope. It
+is not the old global DSH limitation. The plugin's own development matrix pins
+`@deepseek-ai/dsh` **0.1.0-rc.6**, whose resolved host modules (0.1.0-rc.8) still
+expose the accessor.
+
+D6 therefore selects official core 0.1.0-rc.6 with `dsh-plugin-cli-session`
+0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` as the exact pair. An
+isolated live cold `--new` plus warm `--session` probe in task-owned storage
+(`.forge/tasks/dsh-pair-qualification-010rc6.json`) completes both turns with
+successful `stream-json` result envelopes, one continued root, nonce continuity
+and per-message usage, leaving the global 0.1.2-rc.1 pin, profiles and
+credentials unchanged. The `headless-work` assessment, AS1's requirement text,
+decision 0056, the provider guide and the task breakdown record that pin, and
+the shape stays `unmeasured`/disabled: independent root confirmation,
+restriction precedence after restore, a multi-message/retry accounting
+boundary and the Rust route (8.8/8.10/9.6) are still owed.
+
+No settled decision, requirement count or scenario count moves; no task is
+ticked from the qualification alone, and no provider is enabled. Codex, Claude
+and LaneTally obligations are unchanged.

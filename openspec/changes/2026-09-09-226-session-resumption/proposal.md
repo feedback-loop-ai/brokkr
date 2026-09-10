@@ -22,8 +22,8 @@ completed work needs a truthful task marker before the phase's final commit.
   resume for Claude's boxed workspace work shape and DSH's already-admitted
   headless work shape, preserving Codex work-site coverage after installed-version
   remeasurement. Qualify an isolated exact-version DSH route using official core
-  0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`
-  and `dsh-plugin-cli-session` 0.2.0 at
+  0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's own
+  development matrix pins) and `dsh-plugin-cli-session` 0.2.0 at
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, through the documented
   extension and `agents.resume` APIs. The deferred hands/tools plugin remains
   separate. Implement every measured safe shape; declare unsupported or
@@ -153,24 +153,27 @@ current interface facts without establishing safe resume:
   session/settings/extension interfaces cannot rejoin: the capture explicitly
   leaves those interfaces for investigation.
 
-- `.forge/tasks/controller-dsh-upstream-discovery.json` and
-  `controller-evidence-2026-09-10.md` correct that limited conclusion. Official
-  DSH **0.1.5-rc.1** at
-  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` exposes explicit persisted
-  identity through `ctx.agents.resume({ resumeSessionId, agentOptions, setup })`
-  and its agent loop. Source inspection of the community
-  `dsh-plugin-cli-session` 0.2.0 at
-  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` confirms a real extension
-  using `agents.resume`, an explicit `--session` selector, current model
-  selection and a pre-followup `firstSeq` boundary for output/usage collection.
-  Core source opens persistence by the exact requested ID and its tests continue
-  history under that ID. The plugin's peer range admits 0.1.5-rc.1, but its own
-  development dependencies test 0.1.0-rc.6; its emitted `session_id` copies the
-  normalized request rather than independently comparing the returned session,
-  and its latest in-range message usage is not proven noncumulative. This
-  establishes a concrete supported extension route for qualification, not
-  compatibility, exact-root confirmation or effective restriction/accounting
-  behavior for the integrated pair.
+- `.forge/tasks/controller-dsh-upstream-discovery.json`,
+  `controller-evidence-2026-09-10.md` and
+  `.forge/tasks/dsh-pair-qualification-010rc6.json` correct that limited
+  conclusion. The official API exposes explicit persisted identity through
+  `ctx.agents.resume({ resumeSessionId, agentOptions, setup })` and its agent
+  loop. Source inspection of the community `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` confirms a real extension using
+  `agents.resume`, an explicit `--session` selector, current model selection
+  and a pre-followup `firstSeq` boundary for output/usage collection. The
+  plugin's development matrix pins core **0.1.0-rc.6**, whose host modules
+  resolve to 0.1.0-rc.8 and still expose `agent.session.events`; core
+  **0.1.5-rc.1** removed that accessor, so a live isolated probe of the
+  0.1.5-rc.1 pair throws `dsh: events is not iterable`. Re-pinning to core
+  0.1.0-rc.6 makes the pair compose and complete a live cold `--new` plus warm
+  `--session` pair with successful result envelopes, one continued root, nonce
+  continuity and per-message usage while the global pin stays unchanged. The
+  plugin's emitted `session_id` copies the normalized request rather than
+  independently comparing the returned session, and its latest in-range message
+  usage is last-wins rather than proven noncumulative. This establishes a
+  compatible supported extension route, not yet exact-root confirmation or
+  effective restriction/accounting behavior for the integrated shape.
 - The four `controller-claude-*-probe.json` artifacts and accounting analysis dated
   **2026-09-10** establish same-root continuity on Claude **2.1.266**, observed
   Read-grant replacement, and partial native-tool and MCP removal. Three sample
@@ -377,23 +380,31 @@ claim of operator acceptance.
   subject heads and remain controller-owned non-checkbox handoff conditions.
 
 - **K — Qualify the pinned DSH core/plugin extension route; do not preserve the
-  disproven global blocker.** Official DSH 0.1.5-rc.1 at
-  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` supplies explicit persisted-root
-  resume in core, and `dsh-plugin-cli-session` 0.2.0 at
+  disproven global blocker.** Official core 0.1.0-rc.6
+  (`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's own development
+  matrix pins) supplies explicit persisted-root resume in core, and
+  `dsh-plugin-cli-session` 0.2.0 at
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda` is the selected headless CLI
   extension candidate. Its inspected source calls the official `agents.resume`
   API with an explicit session, selects the current model and bounds output and
   usage from the current sequence. This is a documented extension mechanism,
   not a patched installed package, UUID interception or a guessed TUI flag.
+  Core 0.1.5-rc.1 removed the `agent.session.events` accessor the plugin reads,
+  so that exact pair is a measured incompatibility (`dsh: events is not
+  iterable`), not a global DSH or extension limitation; the selected route
+  therefore pins the plugin's supported core generation.
 
   The source also bounds what can be claimed before the probe: the plugin's
-  declared peer range includes 0.1.5-rc.1, but its development matrix pins
-  0.1.0-rc.6; its printed `session_id` is derived from the request; and
-  `collectUsage` chooses the latest assistant usage after `firstSeq` without
-  establishing whether that payload is per-message or cumulative. Conversely,
-  official core opens persisted state by the exact requested ID and tests
-  continued history. These are focused compatibility, confirmation and
-  attribution questions, not grounds to reinstate the old global limitation.
+  printed `session_id` is derived from the request, and `collectUsage` chooses
+  the latest assistant usage after `firstSeq` without establishing whether a
+  multi-call payload is attributable. Official core opens persisted state by
+  the exact requested ID and tests continued history. An isolated live
+  cold+warm probe of the selected 0.1.0-rc.6 pair now establishes compatibility,
+  a successful result envelope, one continued root, nonce continuity and
+  per-message usage with the global pin unchanged. These remaining questions —
+  independent root confirmation, restriction precedence and multi-message
+  attribution — are focused proof work, not grounds to reinstate the old global
+  limitation.
 
   The selected route is installed and exercised only in an isolated worktree or
   task-owned profile with its complete dependency identity recorded. Admission
@@ -569,12 +580,15 @@ and implementation obligations:
   resume and the complete current boxed fragment, selector validation, root
   confirmation and current-event accounting. A shim proves the chosen protocol
   cases, not the as-yet-unmeasured provider confirmation or enforcement behavior.
-- Use an isolated dependency/profile installation of official DSH 0.1.5-rc.1 at
-  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
+- Use an isolated dependency/profile installation of official DSH 0.1.0-rc.6
+  (`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's own development
+  matrix pins) with
   `dsh-plugin-cli-session` 0.2.0 at
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Record the resolved dependency
   graph, hashes and extension protocol; prove the plugin loads through the
   documented API without altering the live DSH installation or profiles.
+  Core 0.1.5-rc.1 is a measured incompatibility for this plugin (removed
+  `agent.session.events`), not a global DSH limitation.
   Qualify a bounded cold/resume pair in which cold work creates and confirms a
   persisted root and private nonce, then `--session <owned-root>` rejoins that
   exact root and recalls it while using the current invocation's headless
@@ -873,3 +887,32 @@ every other living capability was unchanged, and all five provenance sections
 remained byte-identical, singular and bidirectional. The real archive, tasks,
 provider proof, Rust gates and delivery remain pending; this simulation proves
 only the corrected fold mechanism.
+
+## Current successor implement return — DSH pair re-pin, 2026-09-10
+
+This visit answers the returned implement finding that the exact
+0.1.5-rc.1/plugin-0.2.0 pair is incompatible. That incompatibility is real and
+measured, not the old global DSH limitation: the plugin reads
+`agent.session.events`, which core 0.1.5-rc.1 removed. The plugin's own
+development matrix pins **0.1.0-rc.6**, whose host modules resolve to
+0.1.0-rc.8 and retain the accessor. A task-owned isolated installation under
+`.forge/dsh-qualify-010rc6/` composes the `headless` profile through the
+plugin's `cordis.patch.yml` and completes a live cold `--new` plus warm
+`--session` pair: both exit zero with `stream-json` result envelopes, the same
+`session-a95eacaf…` root, nonce recall on the warm turn and per-message usage,
+with the global `dsh 0.1.2-rc.1` pin, profiles and credentials byte-unchanged.
+Evidence is `.forge/tasks/dsh-pair-qualification-010rc6.json`; the earlier
+0.1.5-rc.1 failure remains bounded history in
+`.forge/tasks/dsh-pair-incompatibility.json`.
+
+Decision K therefore selects official core **0.1.0-rc.6** with
+`dsh-plugin-cli-session` 0.2.0 at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda` as the exact pair to implement and
+qualify, and the AS1 requirement, the `headless-work` assessment, the provider
+guide and decision 0056 record that pin. The DSH shape remains `unmeasured`
+and disabled: `--session` still needs consumer-side exact-root confirmation,
+restriction precedence after restore and a multi-message/retry current-sequence
+accounting boundary, and the Rust route (tasks 8.8/8.10/9.6) is unimplemented
+until those observations and the adapter path agree. No task is ticked from the
+qualification alone, and Codex, Claude and LaneTally obligations remain
+unchanged.
