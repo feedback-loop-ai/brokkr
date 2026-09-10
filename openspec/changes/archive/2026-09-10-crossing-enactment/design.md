@@ -50,3 +50,26 @@ recorded nowhere (decision 0001; decision 0007's provenance discipline).
 Consequence for the fold: the `muninn` requirement names the crossing
 citation explicitly so a later change cannot quietly re-point it at a
 run.
+
+## DD4 — Declared paths in the refusal and the evidence, resolved paths in the manifest
+
+A crossing is named repository-relative on the map, and the loader also
+resolves it against the publishing realm's worktree to read the bytes.
+The two paths answer different questions, and the surfaces keep them
+apart: a moved refusal names the publisher's own DECLARED path, so the
+refusal text and the crossing evidence Muninn hands a seat carry no host
+location, while the run manifest records the RESOLVED `source` the loader
+actually read beside the digest — a run testifies to what it stood on,
+and that testimony is workspace data, never bundle data.
+
+The dossier states entry for entry what each realm publishes and consumes
+rather than bare counts, and Muninn snapshots those entries into its own
+append-only record, so a later reader can still check a proposal against
+what it saw after the map moves. Because the report comes off the map, a
+mapped world whose realms have not run yet still yields a crossing
+dossier; only a world with neither a readable journal nor a crossing is
+refused.
+
+Consequence for the fold: the `muninn` requirement states the
+entry-level evidence, the snapshot and the no-journal case, and the
+loader requirement names the declared path in a refusal.

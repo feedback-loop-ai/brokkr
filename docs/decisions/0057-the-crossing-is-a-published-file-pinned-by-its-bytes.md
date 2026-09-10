@@ -218,9 +218,13 @@ or compares a pin a second time.
 
 Three refinements make that readout honest. The refusal names the
 publisher's own declared repository-relative path and never the host
-location it resolved to, so no run journal and no Muninn seat input
-carries the operator's filesystem layout (decision 0020 ruling 1). The
-dossier states each publication's declared path and each consumption's
+location it resolved to, so the moved-refusal text and the crossing
+evidence Muninn hands a seat — each publication's declared path, never the
+one it resolved to — carry no filesystem layout of the operator's
+(decision 0020 ruling 1). The run manifest is the deliberate exception:
+`crossings.source` is the resolved path the loader read, recorded beside
+the observed digest so a run testifies to the bytes it actually stood on.
+The dossier states each publication's declared path and each consumption's
 publishing realm and pin state rather than bare counts, and Muninn
 snapshots that crossing evidence into its own append-only record, so a
 later reader can still check a proposal against what it saw after the map

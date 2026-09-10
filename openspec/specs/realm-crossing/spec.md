@@ -121,7 +121,7 @@ resolved source path and the sha256 the loader observed on disk. The
 property SHALL be a SIBLING of the map pin, absent when no realm
 publishes or consumes a crossing, and SHALL carry the loader's
 observation rather than a second copy of the map's declaration
-(decision 0023 ruling 4; decision 0057 ruling 4; commit `9111ee2`).
+(decision 0023 ruling 4; decision 0057's close-out addendum; commit `9111ee2`).
 
 #### Scenario: A world with a publication records what it stood on
 - **WHEN** a run starts in a world that publishes a crossing

@@ -36,9 +36,9 @@ would refuse.
 ## What Changes
 
 1. **The word.** `contracts/realms.v5.schema.json` adds `publishes` and
-   `consumes`; the six pure refusals, the self-consumption refusal and
-   the written-`null` refusal are judged in `brokkr-core` (decision
-   0057 rulings 1–3; commit `c02d97d`).
+   `consumes`; the seven pure refusals — including self-consumption and a
+   written `null` — are judged in `brokkr-core` (decision 0057 rulings
+   1–3; commits `c02d97d`, `8e31632`).
 2. **The loader.** `World::load` resolves each publication and verifies
    each pin against the raw bytes, carrying what is not true as data
    (commit `07ed4ab`).
@@ -49,8 +49,12 @@ would refuse.
    stood on, as a sibling of the map pin (commit `9111ee2`).
 5. **The readouts.** `brokkr doctor`, `brokkr realms` and
    `brokkr muninn run` read the one report; no surface opens a crossing
-   file, hashes a byte or compares a pin a second time (Phase 2 slice
-   vi).
+   file, hashes a byte or compares a pin a second time. Each realm's
+   publications and consumptions are stated entry for entry — the
+   declared path, the publishing realm and the pin state — a moved pin is
+   citable only as a finding of the consuming realm, and the crossing
+   evidence is snapshotted into Muninn's append-only record (commits
+   `15ab884`, `ee0a1ba`).
 
 ## Capabilities
 

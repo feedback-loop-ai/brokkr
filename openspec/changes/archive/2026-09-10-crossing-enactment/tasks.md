@@ -32,6 +32,9 @@ new behavior. Each task names the requirement it serves.
 - [x] 5.2 Confirm `brokkr realms` renders publications, consumptions and the three pin states in text and `--json`, and stays read-only.
 - [x] 5.3 Confirm `brokkr muninn run` carries the report into the dossier and a moved pin is a citable finding under the consuming realm.
 - [x] 5.4 Confirm no read surface opens a crossing file, hashes a byte or compares a pin.
+- [x] 5.5 Confirm a moved refusal names the publisher's declared repository-relative path and never the host location it resolved to, and that Muninn's crossing evidence states declared paths only.
+- [x] 5.6 Confirm the dossier states entries rather than counts, snapshots the crossing evidence into the record, and yields a crossing dossier for a mapped world with no journal yet.
+- [x] 5.7 Confirm the record's snapshot keeps the crossing evidence a proposal stood on after the map changes.
 
 ## 6. The fold
 
