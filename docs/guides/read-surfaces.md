@@ -207,9 +207,13 @@ drawn only when a return was actually taken, never as decoration.
 Every driver records one retained, harness-owned transcript reference
 (decision 0032): Claude a session id, Codex a thread and rollout, DSH its
 session file. `brokkr transcript` reads that local file through the same
-bounded derivation the TUI pane and the browser drill use, for every
-kind, and writes nothing: no provider process is started and the journal
-is opened read-only.
+bounded derivation the TUI pane uses, for every kind, and writes nothing:
+no provider process is started and the journal is opened read-only. The
+browser participant page consumes the same shared presentation for every
+kind and keeps its checkpoint fallback, but its id-only body drill stays
+Claude-only: the existing `/api/session/<id>` and `/sse/session/<id>`
+routes are explicit local Claude-session lookups, so a Codex thread or DSH
+session gets the shared hint and no browser body.
 
 ```
 $ brokkr transcript --run latest --seat review:chief

@@ -2800,9 +2800,19 @@ fn the_transcript_shape_is_closed_and_its_absences_are_explicit() {
         assert_eq!(parsed.home, "/test/home");
     }
 
+    // An unrecognized kind is preserved, not filtered: selection happens
+    // before validation, so the reader can echo `unsupported-kind` for the
+    // latest recorded reference instead of falling back to a stale one.
+    let future = transcript_of(&json!({
+        "kind": "future-kind", "locator": "seat-or-id", "home": "/test/home"
+    }))
+    .unwrap();
+    assert_eq!(future.kind, "future-kind");
+    assert_eq!(future.locator, "seat-or-id");
+    assert_eq!(future.home, "/test/home");
+
     for malformed in [
         json!({"locator":"id", "home":"/h"}),
-        json!({"kind":"future-kind", "locator":"id", "home":"/h"}),
         json!({"kind":"codex-thread", "home":"/h"}),
         json!({"kind":"codex-thread", "locator":"id"}),
     ] {

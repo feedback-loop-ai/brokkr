@@ -865,6 +865,8 @@ struct SourceStamp {
     run: String,
     key: String,
     reference: Option<brokkr_view::Transcript>,
+    provenance: LegacyProvenance,
+    legacy_id: Option<String>,
     read: TranscriptRead,
 }
 
@@ -876,19 +878,24 @@ impl SourceStamp {
             run: subject.run.clone(),
             key: subject.key.clone(),
             reference: subject.reference.clone(),
+            provenance: subject.provenance,
+            legacy_id: subject.legacy_id.clone(),
             read,
         }
     }
 
     /// The identity half the design fixes: realm/journal, run, participant
-    /// key and the complete effective reference — never an id two providers
-    /// can share.
+    /// key and the complete effective reference — including the legacy
+    /// synthesis inputs, so a concluded participant whose legacy id or
+    /// provenance changes is re-read rather than keeping the old prose.
     fn same_subject(&self, subject: &tui::Subject) -> bool {
         self.tab == subject.tab
             && self.realm == subject.realm
             && self.run == subject.run
             && self.key == subject.key
             && self.reference == subject.reference
+            && self.provenance == subject.provenance
+            && self.legacy_id == subject.legacy_id
     }
 }
 
@@ -899,18 +906,15 @@ impl SourceStamp {
 /// the final read a concluding participant receives. A concluded,
 /// unchanged subject is not re-read: automatic growth polling has stopped,
 /// and only an explicit refresh re-resolves it.
-fn resolve_transcript(
-    ask: &tui::Ask,
+fn resolve_subject(
+    subject: &tui::Subject,
+    force: bool,
     seen: &mut Option<SourceStamp>,
 ) -> (Option<TranscriptRead>, bool) {
-    let Some(subject) = ask.subject.as_ref() else {
-        *seen = None;
-        return (None, false);
-    };
     let identity_changed = seen
         .as_ref()
         .is_none_or(|stamp| !stamp.same_subject(subject));
-    let fresh = if ask.force || subject.working || identity_changed {
+    let fresh = if force || subject.working || identity_changed {
         Some(ui::read_local(
             subject.reference.as_ref(),
             subject.provenance,
@@ -931,6 +935,37 @@ fn resolve_transcript(
     // stamp's own bounded result is that frame's transcript.
     let resolved = fresh.or_else(|| seen.as_ref().map(|stamp| stamp.read.clone()));
     (resolved, changed)
+}
+
+fn resolve_transcript(
+    ask: &tui::Ask,
+    seen: &mut Option<SourceStamp>,
+) -> (Option<TranscriptRead>, bool) {
+    let Some(subject) = ask.subject.as_ref() else {
+        *seen = None;
+        return (None, false);
+    };
+    resolve_subject(subject, ask.force, seen)
+}
+
+/// Rebuild the selected subject from the freshly folded run, so authority
+/// that changed inside this frame is read before it is displayed. `None`
+/// means the participant is no longer in the fresh view.
+fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Option<tui::Subject> {
+    let part = view
+        .participants
+        .iter()
+        .find(|part| part.key == prior.key)?;
+    Some(tui::Subject {
+        tab: prior.tab,
+        realm: prior.realm.clone(),
+        run: prior.run.clone(),
+        key: part.key.clone(),
+        reference: part.transcript.clone(),
+        provenance: participant_legacy_provenance(part),
+        legacy_id: part.session_id.clone(),
+        working: part.status == "working",
+    })
 }
 
 /// Fold one run of a FLEET read. A journal that does not fold
@@ -1009,10 +1044,11 @@ fn tui_views(
             ..tui::Views::empty()
         }));
     }
-    let store = match sole {
-        true => Store::open(db)?,
-        false => Store::open_read_only(db)?,
-    };
+    // Reading is inert: even the one-hearth console, the journal the
+    // operator named, opens read-only for this refresh. Transcript
+    // reading must not enable WAL, migrate columns or repair guards on
+    // the journal it came to read (transcript-reading's inertness rule).
+    let store = Store::open_read_only(db)?;
     let current = match ask.run {
         Some(run) => Some(store.head_hash(run)?),
         None => None,
@@ -1059,6 +1095,20 @@ fn tui_views(
         let state = fold(&events).ok();
         brokkr_view::run_view(&events, state.as_ref())
     });
+    // The selected participant's authority can change inside this same
+    // frame: folding may reveal a new common reference, a new legacy id or
+    // a concluded state. Re-resolve the subject against the fresh view
+    // before publishing, so the frame never pairs new authority with the
+    // previous reference's prose.
+    let transcript = match (ask.subject.as_ref(), run.as_ref()) {
+        (Some(prior), Some(view)) => match refreshed_subject(prior, view) {
+            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen).0,
+            // No participant, or an unchanged one: the read resolved from
+            // the selected subject still speaks for it.
+            _ => transcript,
+        },
+        _ => transcript,
+    };
     Ok(Some(tui::Views {
         now: clock(),
         runs: brokkr_view::run_rows(&entries),
@@ -1305,7 +1355,12 @@ fn select_transcript_participant<'a>(
             render::Safe::new(seat).as_str()
         )),
         many => {
-            let keys: Vec<&str> = many.iter().map(|part| part.key.as_str()).collect();
+            // Every candidate key is sanitized, not only the requested
+            // label: a provider-recorded key can carry terminal controls.
+            let keys: Vec<String> = many
+                .iter()
+                .map(|part| render::Safe::new(&part.key).as_str().to_string())
+                .collect();
             Err(anyhow::anyhow!(
                 "participant label {} is ambiguous; choose one of: {}",
                 render::Safe::new(seat).as_str(),
@@ -1425,19 +1480,20 @@ fn transcript_command(
             Ok(ExitCode::SUCCESS)
         }
         Some(reason) => {
-            if !json {
-                let explanation = read.explanation.clone().unwrap_or_default();
-                let mut line = format!(
-                    "transcript unavailable: {}: {}",
-                    reason.as_str(),
-                    render::Safe::new(&explanation).as_str()
-                );
-                for notice in &read.notices {
-                    line.push_str("; ");
-                    line.push_str(render::Safe::new(notice).as_str());
-                }
-                eprintln!("{line}");
+            // The refusal explanation and notices reach stderr in both
+            // modes: JSON still carries the document on stdout, and the
+            // operator still needs the sanitized reason.
+            let explanation = read.explanation.clone().unwrap_or_default();
+            let mut line = format!(
+                "transcript unavailable: {}: {}",
+                reason.as_str(),
+                render::Safe::new(&explanation).as_str()
+            );
+            for notice in &read.notices {
+                line.push_str("; ");
+                line.push_str(render::Safe::new(notice).as_str());
             }
+            eprintln!("{line}");
             Ok(ExitCode::FAILURE)
         }
     }
