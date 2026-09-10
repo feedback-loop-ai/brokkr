@@ -78,7 +78,7 @@ impl NativeProbeHost {
         )
     }
 
-    fn domain(&self, label: &str) -> String {
+    fn service_target(&self, label: &str) -> String {
         format!("gui/{}/{}", self.uid, label)
     }
 
@@ -180,8 +180,8 @@ impl NativeProbeHost {
     ) -> Result<CaseResult, String> {
         let group_kill = case == Case::GroupKillNegativeControl;
         if !group_kill {
-            bootstrap(&self.domain(guard_label), guard_plist)?;
-            wait_for_job(&self.domain(guard_label), true, TEARDOWN)?;
+            bootstrap(&format!("gui/{}", self.uid), guard_plist)?;
+            wait_for_job(&self.service_target(guard_label), true, TEARDOWN)?;
             events.push(Event::GuardRegistered);
         }
 
@@ -197,7 +197,7 @@ impl NativeProbeHost {
             _ => None,
         };
 
-        bootstrap(&self.domain(payload_label), payload_plist)?;
+        bootstrap(&format!("gui/{}", self.uid), payload_plist)?;
         events.push(Event::PayloadStarted);
         let positive = wait_for_heartbeat(root, TEARDOWN)?;
 
@@ -210,7 +210,7 @@ impl NativeProbeHost {
                 &root.join("peer.out"),
                 &root.join("peer.err"),
             )?;
-            bootstrap(&self.domain(peer_label), &peer)?;
+            bootstrap(&format!("gui/{}", self.uid), &peer)?;
         }
 
         match case {
@@ -231,20 +231,20 @@ impl NativeProbeHost {
             wait_for_quiescence(root, payload_label, self.uid)
         };
         if !group_kill {
-            wait_for_job(&self.domain(payload_label), false, TEARDOWN)?;
-            wait_for_job(&self.domain(guard_label), false, TEARDOWN)?;
+            wait_for_job(&self.service_target(payload_label), false, TEARDOWN)?;
+            wait_for_job(&self.service_target(guard_label), false, TEARDOWN)?;
         }
         if quiesced {
             events.push(Event::PayloadQuiescent);
         }
         let heartbeat_moved = heartbeat_moved(root);
-        let labels_gone = !job_loaded(&self.domain(payload_label))
-            && (group_kill || !job_loaded(&self.domain(guard_label)));
-        let guard_survived = job_loaded(&self.domain(guard_label));
+        let labels_gone = !job_loaded(&self.service_target(payload_label))
+            && (group_kill || !job_loaded(&self.service_target(guard_label)));
+        let guard_survived = job_loaded(&self.service_target(guard_label));
         let denied = match case {
             Case::GuardInterference => guard_survived,
-            Case::PeerBootout => job_loaded(&self.domain(peer_label)),
-            Case::EscapeJob => !job_loaded(&self.domain(escape_label)),
+            Case::PeerBootout => job_loaded(&self.service_target(peer_label)),
+            Case::EscapeJob => !job_loaded(&self.service_target(escape_label)),
             _ => true,
         };
         let observed_survivors = live_identities(root);
@@ -253,11 +253,11 @@ impl NativeProbeHost {
             events.push(Event::PrivateStateRemoved);
         }
         if !group_kill {
-            bootout(&self.domain(guard_label));
+            bootout(&self.service_target(guard_label));
             events.push(Event::GuardUnregistered);
         }
         for label in [peer_label, escape_label] {
-            bootout(&self.domain(label));
+            bootout(&self.service_target(label));
         }
         for pid in &observed_survivors {
             let _ = Command::new(KILL).args(["-9", &pid.to_string()]).output();
