@@ -202,9 +202,11 @@ either kind of evidence.
 - **THEN** the specify artifact is drafted, while design, tasks, judged loops, implementation and delivery remain unclaimed
 
 #### Scenario: Run-specific instructions do not become standing truth
-- **GIVEN** a commission chooses particular build limits, commit signing and an owner for external validation
-- **WHEN** the task breakdown is authored and the capability is later promoted
-- **THEN** the concrete commands and responsibilities are preserved in that change's planning artifacts and tasks, while the promoted capability retains only the progress, coverage and truthful-evidence rules
+- **GIVEN** a commission names a release-binary build and other repository-local commands that can run before archive, as well as later exact-head external checks
+- **WHEN** the planning artifacts and task breakdown are authored and the capability is later promoted
+- **THEN** every attainable local command, including the commissioned release-binary build, is explicit in the proposal and tracked by a task that cannot complete until its real check passes
+- **AND** exact-head external results remain explicit non-checkbox handoff evidence because recording them in the task artifact would mutate the head they judge
+- **AND** the promoted capability retains only the general progress, coverage and truthful-evidence rules rather than the commission's concrete commands
 - **AND** a later commission can choose different delivery settings without amending this capability
 
 #### Scenario: External results do not yet exist

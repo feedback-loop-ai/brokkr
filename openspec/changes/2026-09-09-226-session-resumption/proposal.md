@@ -194,11 +194,11 @@ are outside this change.
 ## Decisions
 
 These specification answers were recorded across the returns on 2026-09-09
-and 2026-09-10. Answers A–H remain settled; I adopts the same reopened change
-and is revised here with C to answer the latest clarification. Their observable
-answers are scenarios in the owning deltas. The council must carry these
-choices into `design.md` Decisions and the numbered rulings of proposed
-0056; this is not a claim of operator acceptance.
+and 2026-09-10. Answers A–I remain settled; J answers the returned
+release-binary ambiguity without reopening them. Their observable answers are
+scenarios in the owning deltas. The council must carry these choices into
+`design.md` Decisions and the numbered rulings of proposed 0056; this is not a
+claim of operator acceptance.
 
 - **A — Missing measurements are an incomplete delivery, not an exemption.**
   AS1 requires measured, enabled Claude boxed-workspace and DSH headless-work
@@ -320,6 +320,20 @@ choices into `design.md` Decisions and the numbered rulings of proposed
   provenance checks and exact-head controller evidence remain required and
   unwaived.
 
+- **J — The commissioned release-binary build is tracked repository-local
+  proof.** The supplied release configuration and the adopted intake both
+  require `cargo build --release --locked -p brokkr-cli`. It can be completed
+  against the active worktree before the final artifact operation, so PM4
+  classifies it as a repository-local pre-archive obligation: the proposal
+  names it, and the downstream design and task breakdown must give it an
+  explicit gate whose checkbox stays pending until the command really passes.
+  Treating this as inapplicable merely because #226 is not itself a versioned
+  release is rejected; the realm supplied the command as part of every
+  change's validation, and neither the commission nor an accepted decision
+  provides an exemption. This does not turn remote CI or final-head evidence
+  into tracked work: those results can exist only after their immutable
+  subject heads and remain controller-owned non-checkbox handoff conditions.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -429,6 +443,7 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked
 cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
 cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+cargo build --release --locked -p brokkr-cli
 TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh
 ```
 
@@ -671,3 +686,27 @@ Only the existing change artifacts move or change. Production code, living
 specs, frozen contracts/fixtures/policy/reference, accepted decisions, provider
 settings and sibling worktrees remain untouched. No workflow runner, real
 archive, push, merge, publication or issue action was invoked.
+
+## Current specify return — J release-binary gate, 2026-09-10
+
+This returned visit adopts the dated change and accepts the clarifier's sole
+finding. Proposal decision J now classifies
+`cargo build --release --locked -p brokkr-cli` as an explicit
+repository-local pre-archive validation obligation. The commissioned command is
+listed with the other local gates; the later design and task phases must carry
+it into their own gate account before implementation can become archive-ready.
+Remote CI and exact-head controller results retain their separate non-checkbox
+handoff status.
+
+PM4's existing per-commission scenario now distinguishes every attainable local
+command, including a commissioned release-binary build, from later exact-head
+evidence. No requirement or scenario is added or removed, no task is ticked,
+and answers A–I and repairs F1–F12 retain their settled meaning. The real
+archive, implementation/provider evidence, Rust gates, host coverage and
+shipping actions remain pending.
+
+Strict active validation and OpenSpec status pass under the dated identifier;
+the parser and source headings both remain at **20 requirements / 125
+scenarios**. The existing archived change validates strictly and
+`git diff --check` is clean. Cargo remains unavailable in this box, so this
+specification return claims no Rust or release-binary result.
