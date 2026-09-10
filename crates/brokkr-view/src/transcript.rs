@@ -879,25 +879,46 @@ fn codex_quiet_event(kind: &str) -> bool {
     )
 }
 
-/// The identity a Codex record carries, for the association pass.
-fn codex_identity(value: &Value) -> Option<String> {
-    let payload = value.get("payload")?;
-    ["call_id", "callId", "id"]
-        .iter()
-        .find_map(|key| payload.get(*key).and_then(Value::as_str))
-        .filter(|id| !id.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            payload
-                .get("item")
-                .and_then(|item| {
-                    ["id", "call_id", "callId"]
-                        .iter()
-                        .find_map(|key| item.get(*key).and_then(Value::as_str))
-                })
+/// A mirrored Codex fact family. Identity alone is not evidence: a call
+/// and its output are two facts, and message, reasoning and tool facts
+/// never associate across families.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum CodexFact {
+    Message,
+    Reasoning,
+    Call,
+    Result,
+}
+
+/// One projected Codex block and the optional association fact it shares
+/// with a canonical `response_item` counterpart.
+struct CodexBlock {
+    block: Block,
+    fact: Option<(CodexFact, String)>,
+}
+
+impl CodexBlock {
+    fn plain(block: Block) -> CodexBlock {
+        CodexBlock { block, fact: None }
+    }
+
+    fn identified(block: Block, fact: CodexFact, id: Option<&str>) -> CodexBlock {
+        CodexBlock {
+            block,
+            fact: id
                 .filter(|id| !id.is_empty())
-                .map(str::to_string)
-        })
+                .map(|id| (fact, id.to_string())),
+        }
+    }
+}
+
+/// One classified Codex record before the association pass.
+struct CodexRecord {
+    blocks: Vec<CodexBlock>,
+    role: String,
+    ts: String,
+    unrecognized: bool,
+    canonical: bool,
 }
 
 /// A tool payload rendered as deterministic JSON when it is not a
@@ -913,66 +934,129 @@ fn payload_text(value: Option<&Value>) -> Option<String> {
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
     let (values, skipped) = parsed_rows(admitted);
     projection.skipped_lines = skipped;
-    // The association pass: canonical `response_item` identities that a
-    // later recognized event mirror may not duplicate.
-    let mut canonical = std::collections::HashSet::new();
-    for (_, value) in &values {
-        if value.get("type").and_then(Value::as_str) == Some("response_item") {
-            if let Some(id) = codex_identity(value) {
-                canonical.insert(id);
-            }
-        }
-    }
-    let mut turns = Vec::new();
-    for (_, value) in values {
-        let (blocks, role, ts, unrecognized, identity) = codex_row(&value);
-        if unrecognized {
+    let mut records: Vec<CodexRecord> = values
+        .into_iter()
+        .map(|(_, value)| codex_row(&value))
+        .collect();
+    for record in &records {
+        if record.unrecognized {
             projection.unrecognized_records += 1;
         }
-        if let Some(identity) = identity {
-            if canonical.contains(&identity) {
-                continue;
-            }
+    }
+    // Association is a separate, explicit pass over the complete bounded
+    // prefix: only recorded identity plus direction and compatible family
+    // can remove an event fallback, and only a unique canonical
+    // counterpart can do so.
+    associate_codex(&mut records);
+    let mut turns = Vec::new();
+    for record in records {
+        if record.blocks.is_empty() {
+            continue;
         }
-        if !blocks.is_empty() {
-            turns.push(Turn { role, ts, blocks });
-        }
+        turns.push(Turn {
+            role: record.role,
+            ts: record.ts,
+            blocks: record.blocks.into_iter().map(|block| block.block).collect(),
+        });
     }
     projection.turns = display_cap(turns, &mut projection.truncated);
 }
 
-/// Project one Codex record. Returns `(blocks, role, ts, unrecognized,
-/// fallback identity)`.
-fn codex_row(value: &Value) -> (Vec<Block>, String, String, bool, Option<String>) {
+/// Remove the blocks an event fallback provably mirrors. A canonical
+/// record never deduplicates another canonical record, a colliding
+/// identity keeps both records, and only the blocks the canonical record
+/// actually covers disappear.
+fn associate_codex(records: &mut [CodexRecord]) {
+    use std::collections::{HashMap, HashSet};
+    let mut canonical: HashMap<(CodexFact, String), usize> = HashMap::new();
+    let mut fallback: HashMap<(CodexFact, String), usize> = HashMap::new();
+    for record in records.iter() {
+        let mut seen: HashSet<(CodexFact, String)> = HashSet::new();
+        for block in &record.blocks {
+            let Some((fact, id)) = &block.fact else {
+                continue;
+            };
+            let key = (*fact, id.clone());
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            if record.canonical {
+                *canonical.entry(key).or_default() += 1;
+            } else {
+                *fallback.entry(key).or_default() += 1;
+            }
+        }
+    }
+    for record in records.iter_mut() {
+        if record.canonical {
+            continue;
+        }
+        record.blocks.retain(|block| match &block.fact {
+            Some((fact, id)) => {
+                let key = (*fact, id.clone());
+                canonical.get(&key) != Some(&1) || fallback.get(&key) != Some(&1)
+            }
+            None => true,
+        });
+    }
+}
+
+/// Project one Codex record into its blocks and recorded metadata.
+fn codex_row(value: &Value) -> CodexRecord {
     let Some(object) = value.as_object() else {
-        return (Vec::new(), String::new(), String::new(), true, None);
+        return CodexRecord {
+            blocks: Vec::new(),
+            role: String::new(),
+            ts: String::new(),
+            unrecognized: true,
+            canonical: false,
+        };
     };
     let ts = object
         .get("timestamp")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    let quiet = |ts: String, unrecognized: bool| CodexRecord {
+        blocks: Vec::new(),
+        role: String::new(),
+        ts,
+        unrecognized,
+        canonical: false,
+    };
     let Some(kind) = object.get("type").and_then(Value::as_str) else {
-        return (Vec::new(), String::new(), ts, true, None);
+        return quiet(ts, true);
     };
     let Some(payload) = object.get("payload") else {
-        return (Vec::new(), String::new(), ts, true, None);
+        return quiet(ts, true);
     };
     match kind {
         "response_item" => {
             let (blocks, role, unrecognized) = codex_response_item(payload);
-            (blocks, role, ts, unrecognized, None)
+            CodexRecord {
+                blocks,
+                role,
+                ts,
+                unrecognized,
+                canonical: true,
+            }
         }
         "event_msg" => {
             let (blocks, role, unrecognized) = codex_event_msg(payload);
-            (blocks, role, ts, unrecognized, codex_identity(value))
+            CodexRecord {
+                blocks,
+                role,
+                ts,
+                unrecognized,
+                canonical: false,
+            }
         }
-        _ if codex_quiet_top(kind) => (Vec::new(), String::new(), ts, false, None),
-        _ => (Vec::new(), String::new(), ts, true, None),
+        _ if codex_quiet_top(kind) => quiet(ts, false),
+        _ => quiet(ts, true),
     }
 }
 
-fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
+fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
         return (Vec::new(), String::new(), true);
     };
@@ -983,6 +1067,11 @@ fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
                 .and_then(Value::as_str)
                 .unwrap_or("assistant")
                 .to_string();
+            let id = if role == "assistant" {
+                payload.get("id").and_then(Value::as_str)
+            } else {
+                None
+            };
             let mut blocks = Vec::new();
             let mut unrecognized = false;
             match payload.get("content") {
@@ -991,11 +1080,19 @@ fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
                         match part.get("type").and_then(Value::as_str) {
                             Some("input_text" | "output_text") => {
                                 if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    blocks.push(Block::text(text));
+                                    blocks.push(CodexBlock::identified(
+                                        Block::text(text),
+                                        CodexFact::Message,
+                                        id,
+                                    ));
                                 }
                             }
                             Some("input_image" | "input_audio" | "image" | "audio") => {
-                                blocks.push(Block::omitted("[media omitted]"));
+                                blocks.push(CodexBlock::identified(
+                                    Block::omitted("[media omitted]"),
+                                    CodexFact::Message,
+                                    id,
+                                ));
                             }
                             _ => unrecognized = true,
                         }
@@ -1007,6 +1104,7 @@ fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
             (blocks, role, unrecognized)
         }
         "reasoning" => {
+            let id = payload.get("id").and_then(Value::as_str);
             let mut blocks = Vec::new();
             let mut unrecognized = false;
             match payload.get("summary") {
@@ -1015,7 +1113,11 @@ fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
                         match part.get("type").and_then(Value::as_str) {
                             Some("summary_text") => {
                                 if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    blocks.push(Block::reasoning(text));
+                                    blocks.push(CodexBlock::identified(
+                                        Block::reasoning(text),
+                                        CodexFact::Reasoning,
+                                        id,
+                                    ));
                                 }
                             }
                             _ => unrecognized = true,
@@ -1034,27 +1136,77 @@ fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
                 Some(arguments) => format!("{name} {arguments}"),
                 None => name.to_string(),
             };
-            (vec![Block::tool(text)], "assistant".to_string(), false)
+            let id = payload.get("call_id").and_then(Value::as_str);
+            (
+                vec![CodexBlock::identified(
+                    Block::tool(text),
+                    CodexFact::Call,
+                    id,
+                )],
+                "assistant".to_string(),
+                false,
+            )
         }
         "function_call_output" | "custom_tool_call_output" => {
             let output = payload_text(payload.get("output")).unwrap_or_default();
-            (vec![Block::tool_result(output)], "tool".to_string(), false)
+            let id = payload.get("call_id").and_then(Value::as_str);
+            (
+                vec![CodexBlock::identified(
+                    Block::tool_result(output),
+                    CodexFact::Result,
+                    id,
+                )],
+                "tool".to_string(),
+                false,
+            )
         }
         "local_shell_call" | "web_search_call" => {
             let action = payload_text(payload.get("action")).unwrap_or_default();
-            (vec![Block::tool(action)], "assistant".to_string(), false)
+            let id = payload
+                .get("call_id")
+                .or_else(|| payload.get("id"))
+                .and_then(Value::as_str);
+            (
+                vec![CodexBlock::identified(
+                    Block::tool(action),
+                    CodexFact::Call,
+                    id,
+                )],
+                "assistant".to_string(),
+                false,
+            )
         }
         "tool_search_call" => {
             let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
+            let id = payload
+                .get("call_id")
+                .or_else(|| payload.get("id"))
+                .and_then(Value::as_str);
             (
-                vec![Block::tool(format!("tool_search {arguments}"))],
+                vec![CodexBlock::identified(
+                    Block::tool(format!("tool_search {arguments}")),
+                    CodexFact::Call,
+                    id,
+                )],
                 "assistant".to_string(),
                 false,
             )
         }
         "tool_search_output" => {
             let tools = payload_text(payload.get("tools")).unwrap_or_default();
-            (vec![Block::tool_result(tools)], "tool".to_string(), false)
+            let id = payload
+                .get("call_id")
+                .or_else(|| payload.get("id"))
+                .and_then(Value::as_str);
+            (
+                vec![CodexBlock::identified(
+                    Block::tool_result(tools),
+                    CodexFact::Result,
+                    id,
+                )],
+                "tool".to_string(),
+                false,
+            )
         }
         "additional_tools" | "compaction" | "compaction_summary" | "context_compaction"
         | "compaction_trigger" => (Vec::new(), String::new(), false),
@@ -1062,7 +1214,7 @@ fn codex_response_item(payload: &Value) -> (Vec<Block>, String, bool) {
     }
 }
 
-fn codex_event_msg(payload: &Value) -> (Vec<Block>, String, bool) {
+fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
     let Some(kind) = payload.get("type").and_then(Value::as_str) else {
         return (Vec::new(), String::new(), true);
     };
@@ -1077,7 +1229,11 @@ fn codex_event_msg(payload: &Value) -> (Vec<Block>, String, bool) {
             if text.is_empty() {
                 (Vec::new(), "user".to_string(), false)
             } else {
-                (vec![Block::text(text)], "user".to_string(), false)
+                (
+                    vec![CodexBlock::plain(Block::text(text))],
+                    "user".to_string(),
+                    false,
+                )
             }
         }
         "agent_message" => {
@@ -1089,7 +1245,11 @@ fn codex_event_msg(payload: &Value) -> (Vec<Block>, String, bool) {
             if text.is_empty() {
                 (Vec::new(), "assistant".to_string(), false)
             } else {
-                (vec![Block::text(text)], "assistant".to_string(), false)
+                (
+                    vec![CodexBlock::plain(Block::text(text))],
+                    "assistant".to_string(),
+                    false,
+                )
             }
         }
         "agent_reasoning" => {
@@ -1101,16 +1261,33 @@ fn codex_event_msg(payload: &Value) -> (Vec<Block>, String, bool) {
             if text.is_empty() {
                 (Vec::new(), "assistant".to_string(), false)
             } else {
-                (vec![Block::reasoning(text)], "assistant".to_string(), false)
+                (
+                    vec![CodexBlock::plain(Block::reasoning(text))],
+                    "assistant".to_string(),
+                    false,
+                )
             }
         }
         "exec_command_begin" | "exec_command_end" => {
             let command = payload_text(payload.get("command")).unwrap_or_default();
+            let id = payload.get("call_id").and_then(Value::as_str);
             if kind == "exec_command_begin" {
-                (vec![Block::tool(command)], "assistant".to_string(), false)
+                (
+                    vec![CodexBlock::identified(
+                        Block::tool(command),
+                        CodexFact::Call,
+                        id,
+                    )],
+                    "assistant".to_string(),
+                    false,
+                )
             } else {
                 (
-                    vec![Block::tool_result(codex_command_output(payload))],
+                    vec![CodexBlock::identified(
+                        Block::tool_result(codex_command_output(payload)),
+                        CodexFact::Result,
+                        id,
+                    )],
                     "tool".to_string(),
                     false,
                 )
@@ -1134,37 +1311,57 @@ fn codex_event_msg(payload: &Value) -> (Vec<Block>, String, bool) {
                     .or_else(|| payload_text(payload.pointer("/result/Err")))
                     .unwrap_or_default()
             };
-            let block = if kind == "mcp_tool_call_begin" {
-                Block::tool(text)
+            let id = payload.get("call_id").and_then(Value::as_str);
+            if kind == "mcp_tool_call_begin" {
+                (
+                    vec![CodexBlock::identified(
+                        Block::tool(text),
+                        CodexFact::Call,
+                        id,
+                    )],
+                    "assistant".to_string(),
+                    false,
+                )
             } else {
-                Block::tool_result(text)
-            };
-            (
-                vec![block],
-                if kind == "mcp_tool_call_begin" {
-                    "assistant".to_string()
-                } else {
-                    "tool".to_string()
-                },
-                false,
-            )
+                (
+                    vec![CodexBlock::identified(
+                        Block::tool_result(text),
+                        CodexFact::Result,
+                        id,
+                    )],
+                    "tool".to_string(),
+                    false,
+                )
+            }
         }
         "dynamic_tool_call_request" | "dynamic_tool_call_response" => {
             let text = payload_text(payload.get("arguments")).unwrap_or_default();
-            let block = if kind == "dynamic_tool_call_request" {
-                Block::tool(text)
+            let id = if kind == "dynamic_tool_call_request" {
+                payload.get("callId").and_then(Value::as_str)
             } else {
-                Block::tool_result(text)
+                payload.get("call_id").and_then(Value::as_str)
             };
-            (
-                vec![block],
-                if kind == "dynamic_tool_call_request" {
-                    "assistant".to_string()
-                } else {
-                    "tool".to_string()
-                },
-                false,
-            )
+            if kind == "dynamic_tool_call_request" {
+                (
+                    vec![CodexBlock::identified(
+                        Block::tool(text),
+                        CodexFact::Call,
+                        id,
+                    )],
+                    "assistant".to_string(),
+                    false,
+                )
+            } else {
+                (
+                    vec![CodexBlock::identified(
+                        Block::tool_result(text),
+                        CodexFact::Result,
+                        id,
+                    )],
+                    "tool".to_string(),
+                    false,
+                )
+            }
         }
         _ if codex_quiet_event(kind) => (Vec::new(), String::new(), false),
         _ => (Vec::new(), String::new(), true),
@@ -1191,16 +1388,18 @@ fn codex_command_output(payload: &Value) -> String {
         .to_string()
 }
 
-fn codex_completed_item(item: &Value) -> (Vec<Block>, String, bool) {
+fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
     let Some(kind) = item.get("type").and_then(Value::as_str) else {
         return (Vec::new(), String::new(), true);
     };
     match kind {
         "UserMessage" | "AgentMessage" => {
-            let role = if kind == "UserMessage" {
-                "user"
+            let assistant = kind == "AgentMessage";
+            let role = if assistant { "assistant" } else { "user" };
+            let id = if assistant {
+                item.get("id").and_then(Value::as_str)
             } else {
-                "assistant"
+                None
             };
             let mut blocks = Vec::new();
             let mut unrecognized = false;
@@ -1210,29 +1409,46 @@ fn codex_completed_item(item: &Value) -> (Vec<Block>, String, bool) {
                         match part.get("type").and_then(Value::as_str) {
                             Some("input_text" | "output_text" | "text") => {
                                 if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    blocks.push(Block::text(text));
+                                    blocks.push(CodexBlock::identified(
+                                        Block::text(text),
+                                        CodexFact::Message,
+                                        id,
+                                    ));
                                 }
                             }
                             Some("input_image" | "input_audio" | "image" | "audio") => {
-                                blocks.push(Block::omitted("[media omitted]"));
+                                blocks.push(CodexBlock::identified(
+                                    Block::omitted("[media omitted]"),
+                                    CodexFact::Message,
+                                    id,
+                                ));
                             }
                             _ => unrecognized = true,
                         }
                     }
                 }
-                Some(Value::String(text)) => blocks.push(Block::text(text.clone())),
+                Some(Value::String(text)) => blocks.push(CodexBlock::identified(
+                    Block::text(text.clone()),
+                    CodexFact::Message,
+                    id,
+                )),
                 None | Some(Value::Null) => {}
                 Some(_) => unrecognized = true,
             }
             (blocks, role.to_string(), unrecognized)
         }
         "Reasoning" => {
+            let id = item.get("id").and_then(Value::as_str);
             let mut blocks = Vec::new();
             match item.get("summary_text") {
                 Some(Value::Array(parts)) => {
                     for part in parts {
                         if let Some(text) = part.as_str() {
-                            blocks.push(Block::reasoning(text));
+                            blocks.push(CodexBlock::identified(
+                                Block::reasoning(text),
+                                CodexFact::Reasoning,
+                                id,
+                            ));
                         }
                     }
                 }
@@ -1243,13 +1459,26 @@ fn codex_completed_item(item: &Value) -> (Vec<Block>, String, bool) {
         }
         "FunctionCallOutput" => {
             let output = payload_text(item.get("output")).unwrap_or_default();
-            (vec![Block::tool_result(output)], "tool".to_string(), false)
+            let id = item.get("call_id").and_then(Value::as_str);
+            (
+                vec![CodexBlock::identified(
+                    Block::tool_result(output),
+                    CodexFact::Result,
+                    id,
+                )],
+                "tool".to_string(),
+                false,
+            )
         }
         "CommandExecution" => {
             let command = payload_text(item.get("command")).unwrap_or_default();
             let output = codex_command_output(item);
+            let id = item.get("id").and_then(Value::as_str);
             (
-                vec![Block::tool(command), Block::tool_result(output)],
+                vec![
+                    CodexBlock::identified(Block::tool(command), CodexFact::Call, id),
+                    CodexBlock::identified(Block::tool_result(output), CodexFact::Result, id),
+                ],
                 "assistant".to_string(),
                 false,
             )
@@ -1265,10 +1494,15 @@ fn codex_completed_item(item: &Value) -> (Vec<Block>, String, bool) {
                 .or_else(|| payload_text(item.pointer("/result/content")))
                 .or_else(|| payload_text(item.pointer("/error/message")))
                 .unwrap_or_default();
+            let id = item.get("id").and_then(Value::as_str);
             (
                 vec![
-                    Block::tool(format!("{name} {arguments}")),
-                    Block::tool_result(output),
+                    CodexBlock::identified(
+                        Block::tool(format!("{name} {arguments}")),
+                        CodexFact::Call,
+                        id,
+                    ),
+                    CodexBlock::identified(Block::tool_result(output), CodexFact::Result, id),
                 ],
                 "assistant".to_string(),
                 false,
@@ -1283,7 +1517,11 @@ fn codex_completed_item(item: &Value) -> (Vec<Block>, String, bool) {
             if text.is_empty() {
                 (Vec::new(), "assistant".to_string(), false)
             } else {
-                (vec![Block::text(text)], "assistant".to_string(), false)
+                (
+                    vec![CodexBlock::plain(Block::text(text))],
+                    "assistant".to_string(),
+                    false,
+                )
             }
         }
         _ => (Vec::new(), String::new(), true),
@@ -1375,15 +1613,18 @@ fn dsh_header(value: &Value) -> bool {
 
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     let (values, skipped) = parsed_rows(admitted);
-    // The opening complete row must be the admitted session header.
-    let Some((_, header)) = values.first() else {
+    // The opening physical row must itself be the admitted session header:
+    // a malformed or absent first row cannot borrow a later one.
+    let opening_is_header = matches!(values.first(), Some((index, _)) if *index == 0);
+    if !opening_is_header {
         // No usable opening row: the discovery stage owns this refusal.
         projection.skipped_lines = skipped;
         projection.unavailable = Some(Unavailable::UnsupportedFormat);
         return;
-    };
+    }
+    let (_, header) = &values[0];
     if !dsh_header(header) {
-        // Rejected version: zero counts, no event classification.
+        // Rejected version or depth: zero counts, no event classification.
         projection.skipped_lines = 0;
         projection.unrecognized_records = 0;
         projection.unavailable = Some(Unavailable::UnsupportedFormat);
@@ -1391,6 +1632,10 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     }
     projection.skipped_lines = skipped;
     let mut events: Vec<DshEvent> = Vec::new();
+    // Every observed logical identity counts once, including quiet
+    // omissions, so a duplicate sequence stays ambiguous for citation
+    // uniqueness.
+    let mut observed: Vec<i64> = Vec::new();
     let mut refused = false;
     for (_, value) in values.into_iter().skip(1) {
         match dsh_row(&value) {
@@ -1398,11 +1643,23 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                 if unrecognized {
                     projection.unrecognized_records += 1;
                 }
+                for row in &rows {
+                    if let Some(seq) = row.seq {
+                        observed.push(seq);
+                    }
+                }
                 events.append(&mut rows);
             }
-            DshRow::Quiet => {}
+            DshRow::Quiet => {
+                if let Some(seq) = dsh_seq(&value) {
+                    observed.push(seq);
+                }
+            }
             DshRow::Unrecognized => {
                 projection.unrecognized_records += 1;
+                if let Some(seq) = dsh_seq(&value) {
+                    observed.push(seq);
+                }
                 if !dsh_ignorable(&value) {
                     refused = true;
                 }
@@ -1418,40 +1675,119 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
         projection.unavailable = Some(Unavailable::UnsupportedFormat);
         return;
     }
+    let mut seq_counts: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
+    for seq in observed {
+        *seq_counts.entry(seq).or_default() += 1;
+    }
     // Citation suppression: an assembly suppresses uniquely identified,
     // earlier readable chunks it cites in its own recorded turn/step.
     let mut suppressed = std::collections::HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        if event.assembly {
-            for (start, end) in &event.cited {
-                for (candidate_index, candidate) in events.iter().enumerate() {
-                    if candidate_index >= index || !candidate.chunk {
-                        continue;
-                    }
-                    let Some(seq) = candidate.seq else { continue };
-                    if seq >= *start
-                        && seq <= *end
-                        && candidate.turn == event.turn
-                        && candidate.step == event.step
-                    {
-                        suppressed.insert(candidate_index);
-                    }
-                }
+        if !event.assembly {
+            continue;
+        }
+        for (candidate_index, candidate) in events.iter().enumerate() {
+            if candidate_index >= index || !candidate.chunk {
+                continue;
+            }
+            let Some(seq) = candidate.seq else { continue };
+            if seq_counts.get(&seq) != Some(&1) {
+                continue;
+            }
+            if candidate.turn != event.turn || candidate.step != event.step {
+                continue;
+            }
+            if event
+                .cited
+                .iter()
+                .any(|(start, end)| seq >= *start && seq <= *end)
+            {
+                suppressed.insert(candidate_index);
             }
         }
     }
+    // Dedicated call/result events own matching embedded tool blocks at
+    // their own source positions; the owning message keeps every other
+    // block in recorded order.
+    associate_dsh_tools(&mut events);
     let mut turns = Vec::new();
     for (index, event) in events.into_iter().enumerate() {
-        if suppressed.contains(&index) || event.blocks.is_empty() {
+        if suppressed.contains(&index) {
+            continue;
+        }
+        let blocks: Vec<Block> = event.blocks.into_iter().map(|block| block.block).collect();
+        if blocks.is_empty() {
             continue;
         }
         turns.push(Turn {
             role: event.role,
             ts: event.ts,
-            blocks: event.blocks,
+            blocks,
         });
     }
     projection.turns = display_cap(turns, &mut projection.truncated);
+}
+
+/// The recorded identifier and direction a DSH tool block carries.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum DshDirection {
+    Call,
+    Result,
+}
+
+struct DshTool {
+    id: String,
+    direction: DshDirection,
+}
+
+/// One projected DSH block and the optional tool fact it stores.
+struct DshBlock {
+    block: Block,
+    tool: Option<DshTool>,
+}
+
+impl DshBlock {
+    fn plain(block: Block) -> DshBlock {
+        DshBlock { block, tool: None }
+    }
+}
+
+/// Associate dedicated `tool/call` and `tool/result` events with the tool
+/// blocks embedded in messages. A dedicated event owns an embedded block
+/// only when the recorded call id and the owning `(turn, step)` pair both
+/// match exactly once; dedicated events never suppress one another and an
+/// absent, colliding or disagreeing identity keeps both copies.
+fn associate_dsh_tools(events: &mut [DshEvent]) {
+    use std::collections::{HashMap, HashSet};
+    let mut dedicated: HashMap<(String, DshDirection, i64, i64), usize> = HashMap::new();
+    for event in events.iter() {
+        if !event.dedicated {
+            continue;
+        }
+        let (Some(turn), Some(step)) = (event.turn, event.step) else {
+            continue;
+        };
+        let mut seen: HashSet<(String, DshDirection, i64, i64)> = HashSet::new();
+        for block in &event.blocks {
+            let Some(tool) = &block.tool else { continue };
+            let key = (tool.id.clone(), tool.direction, turn, step);
+            if seen.insert(key.clone()) {
+                *dedicated.entry(key).or_default() += 1;
+            }
+        }
+    }
+    for event in events.iter_mut() {
+        if event.dedicated {
+            continue;
+        }
+        let (Some(turn), Some(step)) = (event.turn, event.step) else {
+            continue;
+        };
+        event.blocks.retain(|block| match &block.tool {
+            Some(tool) => dedicated.get(&(tool.id.clone(), tool.direction, turn, step)) != Some(&1),
+            None => true,
+        });
+    }
 }
 
 fn dsh_ignorable(value: &Value) -> bool {
@@ -1463,7 +1799,7 @@ fn dsh_ignorable(value: &Value) -> bool {
 }
 
 struct DshEvent {
-    blocks: Vec<Block>,
+    blocks: Vec<DshBlock>,
     role: String,
     ts: String,
     seq: Option<i64>,
@@ -1472,6 +1808,8 @@ struct DshEvent {
     chunk: bool,
     assembly: bool,
     cited: Vec<(i64, i64)>,
+    /// A dedicated `tool/call` or `tool/result` event.
+    dedicated: bool,
 }
 
 enum DshRow {
@@ -1489,8 +1827,9 @@ fn dsh_time(value: Option<&Value>) -> String {
     }
 }
 
-/// An ordinary (unpacked) DSH message row's blocks.
-fn dsh_message_blocks(data: &Value) -> (Vec<Block>, bool) {
+/// An ordinary (unpacked) DSH message row's blocks, each retaining the
+/// recorded tool identifier it stores.
+fn dsh_message_blocks(data: &Value) -> (Vec<DshBlock>, bool) {
     let mut blocks = Vec::new();
     let mut unrecognized = false;
     let content = data.get("content").or_else(|| data.get("blocks"));
@@ -1500,31 +1839,53 @@ fn dsh_message_blocks(data: &Value) -> (Vec<Block>, bool) {
                 match part.get("type").and_then(Value::as_str) {
                     Some("text") => {
                         if let Some(text) = part.get("text").and_then(Value::as_str) {
-                            blocks.push(Block::text(text));
+                            blocks.push(DshBlock::plain(Block::text(text)));
                         }
                     }
                     Some("reasoning") => {
                         if let Some(text) = part.get("text").and_then(Value::as_str) {
-                            blocks.push(Block::reasoning(text));
+                            blocks.push(DshBlock::plain(Block::reasoning(text)));
                         }
                     }
                     Some("tool-call") => {
                         let name = part.get("name").and_then(Value::as_str).unwrap_or("?");
                         let arguments = payload_text(part.get("arguments")).unwrap_or_default();
-                        blocks.push(Block::tool(format!("{name} {arguments}")));
+                        let id = part
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty());
+                        blocks.push(DshBlock {
+                            block: Block::tool(format!("{name} {arguments}")),
+                            tool: id.map(|id| DshTool {
+                                id: id.to_string(),
+                                direction: DshDirection::Call,
+                            }),
+                        });
                     }
                     Some("tool-result") => {
                         let output = payload_text(part.get("content"))
                             .or_else(|| payload_text(part.get("text")))
                             .unwrap_or_default();
-                        blocks.push(Block::tool_result(output));
+                        let id = part
+                            .get("toolCallId")
+                            .and_then(Value::as_str)
+                            .filter(|id| !id.is_empty());
+                        blocks.push(DshBlock {
+                            block: Block::tool_result(output),
+                            tool: id.map(|id| DshTool {
+                                id: id.to_string(),
+                                direction: DshDirection::Result,
+                            }),
+                        });
                     }
-                    Some("image") => blocks.push(Block::omitted("[image omitted]")),
+                    Some("image") => {
+                        blocks.push(DshBlock::plain(Block::omitted("[image omitted]")))
+                    }
                     _ => unrecognized = true,
                 }
             }
         }
-        Some(Value::String(text)) => blocks.push(Block::text(text.clone())),
+        Some(Value::String(text)) => blocks.push(DshBlock::plain(Block::text(text.clone()))),
         None | Some(Value::Null) => {}
         Some(_) => unrecognized = true,
     }
@@ -1615,6 +1976,7 @@ fn dsh_row(value: &Value) -> DshRow {
                 chunk: false,
                 assembly: kind == "assistant/message",
                 cited,
+                dedicated: false,
             };
             if unrecognized {
                 // A recognized envelope with an unsupported nested
@@ -1626,9 +1988,19 @@ fn dsh_row(value: &Value) -> DshRow {
         "tool/call" => {
             let name = data.get("name").and_then(Value::as_str).unwrap_or("?");
             let arguments = payload_text(data.get("arguments")).unwrap_or_default();
+            let id = data
+                .get("callId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty());
             DshRow::Events(
                 vec![DshEvent {
-                    blocks: vec![Block::tool(format!("{name} {arguments}"))],
+                    blocks: vec![DshBlock {
+                        block: Block::tool(format!("{name} {arguments}")),
+                        tool: id.map(|id| DshTool {
+                            id: id.to_string(),
+                            direction: DshDirection::Call,
+                        }),
+                    }],
                     role: "assistant".to_string(),
                     ts: dsh_time(object.get("time")),
                     seq: dsh_seq(value),
@@ -1637,13 +2009,14 @@ fn dsh_row(value: &Value) -> DshRow {
                     chunk: false,
                     assembly: false,
                     cited: Vec::new(),
+                    dedicated: true,
                 }],
                 false,
             )
         }
         "tool/result" => {
             let message = data.get("message").unwrap_or(&Value::Null);
-            let (blocks, _) = dsh_message_blocks(message);
+            let (blocks, unrecognized) = dsh_message_blocks(message);
             let owning = dsh_seq(value);
             let cited = match dsh_citations(value, owning) {
                 Ok(cited) => cited,
@@ -1660,8 +2033,9 @@ fn dsh_row(value: &Value) -> DshRow {
                     chunk: false,
                     assembly: false,
                     cited,
+                    dedicated: true,
                 }],
-                false,
+                unrecognized,
             )
         }
         "assistant/chunk" => {
@@ -1677,7 +2051,7 @@ fn dsh_row(value: &Value) -> DshRow {
                     }
                     DshRow::Events(
                         vec![DshEvent {
-                            blocks: vec![Block::text(text)],
+                            blocks: vec![DshBlock::plain(Block::text(text))],
                             role: "assistant".to_string(),
                             ts: dsh_time(object.get("time")),
                             seq: dsh_seq(value),
@@ -1686,6 +2060,7 @@ fn dsh_row(value: &Value) -> DshRow {
                             chunk: true,
                             assembly: false,
                             cited: Vec::new(),
+                            dedicated: false,
                         }],
                         false,
                     )
@@ -1697,7 +2072,7 @@ fn dsh_row(value: &Value) -> DshRow {
                     }
                     DshRow::Events(
                         vec![DshEvent {
-                            blocks: vec![Block::reasoning(text)],
+                            blocks: vec![DshBlock::plain(Block::reasoning(text))],
                             role: "assistant".to_string(),
                             ts: dsh_time(object.get("time")),
                             seq: dsh_seq(value),
@@ -1706,6 +2081,7 @@ fn dsh_row(value: &Value) -> DshRow {
                             chunk: true,
                             assembly: false,
                             cited: Vec::new(),
+                            dedicated: false,
                         }],
                         false,
                     )
@@ -1785,8 +2161,10 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
         };
         let text = member.as_str().unwrap_or("");
         let blocks = match kind {
-            "text-chunks" if !text.is_empty() => vec![Block::text(text)],
-            "reasoning-chunks" if !text.is_empty() => vec![Block::reasoning(text)],
+            "text-chunks" if !text.is_empty() => vec![DshBlock::plain(Block::text(text))],
+            "reasoning-chunks" if !text.is_empty() => {
+                vec![DshBlock::plain(Block::reasoning(text))]
+            }
             // Argument fragments are recognized quiet omissions.
             _ => Vec::new(),
         };
@@ -1800,6 +2178,7 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
             chunk: kind != "tool-call-chunks",
             assembly: false,
             cited: Vec::new(),
+            dedicated: false,
         });
     }
     let _ = index;

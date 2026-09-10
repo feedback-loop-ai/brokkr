@@ -26,6 +26,7 @@
 
 use std::io::IsTerminal;
 
+use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
     FleetView, JournalRow, ModelAtBoundary, Participant, Phase, RunRow, RunView, RunsView,
 };
@@ -793,6 +794,74 @@ pub fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) 
         if !block.is_empty() {
             out.push('\n');
             out.push_str(&block);
+        }
+    }
+    out
+}
+
+/// One local transcript as text: identity, the confirmed source and the
+/// shared hint/notices, then one-based turn numbers, roles, stamps and
+/// every retained block in order. Content, references, paths, stamps,
+/// hints and explanations all pass through [`Safe`]; the matching JSON
+/// document keeps its escaped originals.
+pub fn transcript(
+    run: &str,
+    seat: &str,
+    read: &TranscriptRead,
+    turn: Option<u64>,
+    _style: &Style,
+) -> String {
+    let mut out = String::new();
+    push_line(&mut out, &format!("run   {}", Safe::new(run).as_str()));
+    push_line(&mut out, &format!("seat  {}", Safe::new(seat).as_str()));
+    if let Some(kind) = read.kind {
+        push_line(&mut out, &format!("kind  {}", kind.as_str()));
+    }
+    let source = match &read.path {
+        Some(path) => Safe::new(path).as_str().to_string(),
+        None => "-".to_string(),
+    };
+    push_line(&mut out, &format!("source {source}"));
+    if let Some(hint) = &read.full_session {
+        push_line(&mut out, &format!("hint  {}", Safe::new(hint).as_str()));
+    }
+    for notice in &read.notices {
+        push_line(&mut out, &format!("notice {}", Safe::new(notice).as_str()));
+    }
+    if read.turns.is_empty() {
+        if read.truncated {
+            push_line(
+                &mut out,
+                "no readable turns — transcript truncated (size cap)",
+            );
+        } else {
+            push_line(&mut out, "no readable turns");
+        }
+        return out;
+    }
+    for (position, entry) in read.turns.iter().enumerate() {
+        let number = match turn {
+            Some(requested) => requested,
+            None => position as u64 + 1,
+        };
+        push_line(
+            &mut out,
+            &format!(
+                "turn {} · {} · {}",
+                number,
+                Safe::new(&entry.role).as_str(),
+                Safe::new(&entry.ts).as_str()
+            ),
+        );
+        for block in &entry.blocks {
+            push_line(
+                &mut out,
+                &format!(
+                    "  {}: {}",
+                    block.kind.as_str(),
+                    Safe::new(&block.text).as_str()
+                ),
+            );
         }
     }
     out

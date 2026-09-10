@@ -1093,3 +1093,224 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
     assert!(page.contains("'model ' + model.text + ' · boundary ' + boundary.text"));
     assert_eq!(page.matches("el('th', null, 'boundary')").count(), 4);
 }
+
+// ---------------------------------------------- shared discovery (D3/D4)
+
+fn common(kind: &str, locator: &str, home: &str) -> brokkr_view::Transcript {
+    brokkr_view::Transcript {
+        kind: kind.to_string(),
+        locator: locator.to_string(),
+        home: home.to_string(),
+    }
+}
+
+/// Read a present common reference without touching the ambient HOME.
+fn read_common(reference: &brokkr_view::Transcript) -> TranscriptRead {
+    read_with_home(Some(reference), LegacyProvenance::Absent, None, None)
+}
+
+/// Claude: the exact filename in one immediate project directory; a
+/// duplicate is ambiguous, a symlink is unsafe, and no content is read.
+#[cfg(unix)]
+#[test]
+fn claude_discovery_is_scoped_and_refuses_symlinks() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let body =
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}\n";
+
+    // No file yet.
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), body).unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert_eq!(read.turns.len(), 1);
+
+    // A symlink candidate is unsafe and supplies no content; the one safe
+    // regular file still wins.
+    std::fs::create_dir_all(projects.join("two")).unwrap();
+    std::os::unix::fs::symlink(
+        projects.join("one/abcd-1234.jsonl"),
+        projects.join("two/abcd-1234.jsonl"),
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "the safe regular file wins: {read:?}");
+    assert_eq!(
+        read.path.as_deref().unwrap(),
+        projects.join("one/abcd-1234.jsonl").to_str().unwrap()
+    );
+
+    // A symlink-only lookup that also hides the real file is unsafe-path.
+    std::fs::remove_file(projects.join("one/abcd-1234.jsonl")).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::UnsafePath)
+    );
+
+    // A real file under a symlinked project directory is not an unsafe
+    // candidate; the real project still supplies content.
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), body).unwrap();
+    std::os::unix::fs::symlink(projects.join("one"), projects.join("three")).unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "the real project still wins: {read:?}");
+}
+
+/// Codex: the whole-filename token predicate, through depth, with no
+/// header gate and no id-language beyond the engine's own.
+#[test]
+fn codex_discovery_matches_the_whole_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(sessions.join("2026/09/10")).unwrap();
+    let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+
+    // `rollout-0199other` only.
+    std::fs::write(
+        sessions.join("2026/09/10/rollout-0199other.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    // Add the whole-token match, then a superset token that must not match.
+    std::fs::write(
+        sessions.join("rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(read
+        .path
+        .as_deref()
+        .unwrap()
+        .ends_with("rollout-0199mine.jsonl"));
+
+    std::fs::write(
+        sessions.join("2026/09/10/rollout-0199mineX.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "the superset token is not a match: {read:?}"
+    );
+}
+
+/// DSH: the recorded root's project/session layout, depth zero only, and
+/// version cannot choose between two owned roots.
+#[test]
+fn dsh_discovery_admits_depth_zero_and_refuses_delegated_siblings() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/brokkr/seat-222";
+    let make = |project: &str, session: &str, header: &str| {
+        let dir = root.join(locator).join(project).join(session);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("session.jsonl"), format!("{header}\n")).unwrap();
+    };
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+
+    // A delegated sibling at depth one is not the depth-zero owned session.
+    make(
+        "project",
+        "delegated",
+        "{\"type\":\"session\",\"delegationDepth\":1,\"version\":0}",
+    );
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(read.explanation.as_deref().unwrap().contains("depth-zero"));
+
+    // A string depth is not unsigned zero.
+    make(
+        "project",
+        "stringy",
+        "{\"type\":\"session\",\"delegationDepth\":\"zero\",\"version\":0}",
+    );
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    // A valid depth-zero root.
+    make(
+        "root",
+        "seat",
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}",
+    );
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+
+    // Version never changes ownership: two owned roots are ambiguous.
+    make(
+        "root",
+        "foreign",
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":1}",
+    );
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::AmbiguousSource)
+    );
+}
+
+/// A DSH opening row that is malformed cannot borrow a later header, and
+/// an oversized first record is refused without allocating it.
+#[test]
+fn dsh_discovery_bounds_the_opening_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+
+    std::fs::write(
+        session.join("session.jsonl"),
+        "not json\n{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    std::fs::write(
+        session.join("session.jsonl"),
+        format!("{}\n", "x".repeat(70_000)),
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
+/// A header-only DSH file at EOF without a newline is still complete.
+#[test]
+fn dsh_discovery_accepts_a_header_at_eof_without_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}",
+    )
+    .unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(read.turns.is_empty());
+}

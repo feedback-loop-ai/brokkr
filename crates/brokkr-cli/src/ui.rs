@@ -19,9 +19,14 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::fold::{fold, Status};
 use brokkr_store::Store;
+use brokkr_view::transcript::{
+    LegacyProvenance, Snapshot, TranscriptKind, TranscriptRead, Unavailable, ValidReference,
+};
 use serde_json::{json, Value};
 
 const PAGE: &str = include_str!("ui.html");
+
+mod safe_fs;
 
 pub struct Response {
     pub status: &'static str,
@@ -324,28 +329,572 @@ pub(crate) fn session_turns(id: &str) -> Option<(Vec<Turn>, bool)> {
 fn session_transcript(id: &str) -> Response {
     // The two misses read differently to the operator, and that is the
     // only reason the validity question is asked here as well: the guard
-    // that matters lives inside `session_turns`.
-    if !valid_session_id(id) {
+    // that matters lives inside the shared reader.
+    if !brokkr_view::transcript::valid_claude_id(id) {
         return not_found("session");
     }
-    let Some((turns, truncated)) = session_turns(id) else {
+    let read = read_local(None, LegacyProvenance::Claude, Some(id));
+    if !read.is_readable() {
         return not_found("transcript");
-    };
-    let turns: Vec<Value> = turns
+    }
+    let turns: Vec<Value> = read
+        .turns
         .iter()
         .map(|turn| {
             let blocks: Vec<Value> = turn
                 .blocks
                 .iter()
-                .map(|block| json!({"kind": block.kind, "text": block.text}))
+                .map(|block| json!({"kind": block.kind.as_str(), "text": block.text}))
                 .collect();
             json!({"role": turn.role, "ts": turn.ts, "blocks": blocks})
         })
         .collect();
     ok(
         "application/json",
-        json!({"session_id": id, "turns": turns, "truncated": truncated}).to_string(),
+        json!({"session_id": id, "turns": turns, "truncated": read.truncated}).to_string(),
     )
+}
+
+/// The local Claude projects root a legacy flat id is synthesized
+/// against, or `None` when there is no usable `HOME`.
+pub(crate) fn local_projects_home() -> Option<String> {
+    let home = std::env::var_os("HOME")?;
+    Path::new(&home)
+        .join(".claude")
+        .join("projects")
+        .to_str()
+        .map(str::to_string)
+}
+
+/// A safely opened candidate source: the lossless confirmed path and the
+/// verified handle retained for the body read.
+pub(crate) struct AdmittedSource {
+    pub path: String,
+    pub file: safe_fs::OpenedFile,
+    #[allow(dead_code)]
+    pub identity: safe_fs::Identity,
+}
+
+/// The outcome of safe discovery, before any body byte is interpreted.
+pub(crate) enum Discovery {
+    Admitted(AdmittedSource),
+    Refused(Unavailable, Option<String>),
+}
+
+/// One lookup's collected facts, resolved after the bounded scope is
+/// exhausted so iterator order never chooses the explanation.
+#[derive(Default)]
+struct Lookup {
+    candidates: Vec<AdmittedSource>,
+    examined: usize,
+    unsafe_seen: bool,
+    io_seen: bool,
+    limit_hit: bool,
+    invalid_dsh_header: bool,
+}
+
+impl Lookup {
+    /// Count one examined entry against the bound. Returns false when the
+    /// bound is already spent, setting the limit fact.
+    fn examine(&mut self) -> bool {
+        if self.examined >= brokkr_view::transcript::DISCOVERY_LIMIT {
+            self.limit_hit = true;
+            return false;
+        }
+        self.examined += 1;
+        true
+    }
+
+    fn resolve(mut self, kind: TranscriptKind) -> Discovery {
+        if self.limit_hit && self.candidates.len() < 2 {
+            return Discovery::Refused(Unavailable::DiscoveryLimit, None);
+        }
+        if self.candidates.len() > 1 {
+            return Discovery::Refused(Unavailable::AmbiguousSource, None);
+        }
+        if let Some(candidate) = self.candidates.pop() {
+            return Discovery::Admitted(candidate);
+        }
+        if self.io_seen {
+            return Discovery::Refused(Unavailable::Unreadable, None);
+        }
+        if self.unsafe_seen {
+            return Discovery::Refused(Unavailable::UnsafePath, None);
+        }
+        if kind == TranscriptKind::DshSession && self.invalid_dsh_header {
+            return Discovery::Refused(
+                Unavailable::NotFound,
+                Some("no valid depth-zero DSH session header".to_string()),
+            );
+        }
+        Discovery::Refused(Unavailable::NotFound, None)
+    }
+}
+
+fn root_error(error: &std::io::Error) -> Discovery {
+    let reason = if error.kind() == std::io::ErrorKind::NotFound {
+        Unavailable::NotFound
+    } else {
+        Unavailable::Unreadable
+    };
+    Discovery::Refused(reason, None)
+}
+
+/// Locate one safely opened local source for a validated reference. No
+/// transcript content is read for Claude or Codex; a DSH candidate's
+/// bounded opening header is read to prove depth-zero ownership.
+fn discover(reference: &ValidReference) -> Discovery {
+    let root = match safe_fs::Dir::open_root(&reference.home) {
+        Ok(root) => root,
+        Err(error) => return root_error(&error),
+    };
+    let mut lookup = Lookup::default();
+    match reference.kind {
+        TranscriptKind::ClaudeSession => discover_claude(&root, reference, &mut lookup),
+        TranscriptKind::CodexThread => discover_codex(&root, reference, &mut lookup),
+        TranscriptKind::DshSession => discover_dsh(&root, reference, &mut lookup),
+        TranscriptKind::None => {}
+    }
+    lookup.resolve(reference.kind)
+}
+
+fn join_path(base: &str, name: &str) -> String {
+    format!("{base}/{name}")
+}
+
+fn discover_claude(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lookup) {
+    let file_name = format!("{}.jsonl", reference.locator);
+    let entries = match root.entries() {
+        Ok(entries) => entries,
+        Err(_) => {
+            lookup.io_seen = true;
+            return;
+        }
+    };
+    for name in entries {
+        if !lookup.examine() {
+            return;
+        }
+        let Some(name) = name.to_str() else {
+            lookup.io_seen = true;
+            continue;
+        };
+        let project = match root.child(std::ffi::OsStr::new(name)) {
+            Ok(safe_fs::Child::Dir(dir)) => dir,
+            Ok(safe_fs::Child::Unsafe) => {
+                lookup.unsafe_seen = true;
+                continue;
+            }
+            Ok(_) => continue,
+            Err(_) => {
+                lookup.io_seen = true;
+                continue;
+            }
+        };
+        if !lookup.examine() {
+            return;
+        }
+        match project.child(std::ffi::OsStr::new(&file_name)) {
+            Ok(safe_fs::Child::File(file)) => {
+                lookup.candidates.push(AdmittedSource {
+                    path: join_path(&join_path(&reference.home, name), &file_name),
+                    identity: file.identity(),
+                    file,
+                });
+            }
+            Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
+            Ok(_) => {}
+            Err(_) => lookup.io_seen = true,
+        }
+    }
+}
+
+/// The whole-filename token predicate for a Codex rollout.
+fn codex_filename_matches(filename: &str, id: &str) -> bool {
+    if !filename.starts_with("rollout-") || !filename.ends_with(".jsonl") {
+        return false;
+    }
+    let bytes = filename.as_bytes();
+    let id = id.as_bytes();
+    if id.is_empty() || id.len() > bytes.len() {
+        return false;
+    }
+    for start in 0..=(bytes.len() - id.len()) {
+        if &bytes[start..start + id.len()] != id {
+            continue;
+        }
+        let before_ok = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+        let after = start + id.len();
+        let after_ok = after == bytes.len() || !bytes[after].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn discover_codex(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lookup) {
+    if !lookup.examine() {
+        return;
+    }
+    let sessions = match root.child(std::ffi::OsStr::new("sessions")) {
+        Ok(safe_fs::Child::Dir(dir)) => dir,
+        Ok(safe_fs::Child::Unsafe) => {
+            lookup.unsafe_seen = true;
+            return;
+        }
+        Ok(_) => return,
+        Err(_) => {
+            lookup.io_seen = true;
+            return;
+        }
+    };
+    walk_codex(
+        &sessions,
+        &join_path(&reference.home, "sessions"),
+        0,
+        reference,
+        lookup,
+    );
+}
+
+fn walk_codex(
+    dir: &safe_fs::Dir,
+    path: &str,
+    depth: usize,
+    reference: &ValidReference,
+    lookup: &mut Lookup,
+) {
+    let entries = match dir.entries() {
+        Ok(entries) => entries,
+        Err(_) => {
+            lookup.io_seen = true;
+            return;
+        }
+    };
+    let mut subdirs = Vec::new();
+    for name in entries {
+        if !lookup.examine() {
+            return;
+        }
+        let Some(name_str) = name.to_str() else {
+            lookup.io_seen = true;
+            continue;
+        };
+        if codex_filename_matches(name_str, &reference.locator) {
+            if !lookup.examine() {
+                return;
+            }
+            match dir.child(std::ffi::OsStr::new(name_str)) {
+                Ok(safe_fs::Child::File(file)) => lookup.candidates.push(AdmittedSource {
+                    path: join_path(path, name_str),
+                    identity: file.identity(),
+                    file,
+                }),
+                Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
+                Ok(_) => {}
+                Err(_) => lookup.io_seen = true,
+            }
+            continue;
+        }
+        if depth < 6 {
+            subdirs.push(name);
+        }
+    }
+    for name in subdirs {
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
+        match dir.child(std::ffi::OsStr::new(name_str)) {
+            Ok(safe_fs::Child::Dir(sub)) => walk_codex(
+                &sub,
+                &join_path(path, name_str),
+                depth + 1,
+                reference,
+                lookup,
+            ),
+            Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
+            Ok(_) => {}
+            Err(_) => lookup.io_seen = true,
+        }
+    }
+}
+
+enum HeaderCheck {
+    Valid,
+    Invalid,
+    Io,
+}
+
+/// Read at most the bounded first record from a DSH candidate and admit
+/// it only as an opening `session` object with absent or unsigned-zero
+/// depth. The version field neither qualifies nor vetoes ownership.
+fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
+    let (bytes, overflow, eof) =
+        match file.read_bounded(brokkr_view::transcript::DSH_HEADER_CAP as u64) {
+            Ok(read) => read,
+            Err(_) => return HeaderCheck::Io,
+        };
+    let header = match bytes.iter().position(|byte| *byte == b'\n') {
+        Some(end) => &bytes[..end],
+        None => {
+            if overflow || !eof {
+                return HeaderCheck::Invalid;
+            }
+            &bytes[..]
+        }
+    };
+    let Ok(text) = std::str::from_utf8(header) else {
+        return HeaderCheck::Invalid;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(text) else {
+        return HeaderCheck::Invalid;
+    };
+    let Some(object) = value.as_object() else {
+        return HeaderCheck::Invalid;
+    };
+    if object.get("type").and_then(Value::as_str) != Some("session") {
+        return HeaderCheck::Invalid;
+    }
+    match object.get("delegationDepth") {
+        None | Some(Value::Null) => {}
+        Some(depth) => {
+            if depth.as_u64() != Some(0) {
+                return HeaderCheck::Invalid;
+            }
+        }
+    }
+    HeaderCheck::Valid
+}
+
+fn discover_dsh(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lookup) {
+    let mut current: Option<safe_fs::Dir> = None;
+    let mut base_path = reference.home.clone();
+    for component in reference.locator.split('/') {
+        if !lookup.examine() {
+            return;
+        }
+        let child = match &current {
+            Some(dir) => dir.child(std::ffi::OsStr::new(component)),
+            None => root.child(std::ffi::OsStr::new(component)),
+        };
+        match child {
+            Ok(safe_fs::Child::Dir(dir)) => {
+                base_path = join_path(&base_path, component);
+                current = Some(dir);
+            }
+            Ok(safe_fs::Child::Unsafe) => {
+                lookup.unsafe_seen = true;
+                return;
+            }
+            Ok(_) => return,
+            Err(_) => {
+                lookup.io_seen = true;
+                return;
+            }
+        }
+    }
+    let Some(base) = current else { return };
+    let projects = match base.entries() {
+        Ok(entries) => entries,
+        Err(_) => {
+            lookup.io_seen = true;
+            return;
+        }
+    };
+    for project_name in projects {
+        if !lookup.examine() {
+            return;
+        }
+        let Some(project_name) = project_name.to_str() else {
+            lookup.io_seen = true;
+            continue;
+        };
+        let project = match base.child(std::ffi::OsStr::new(project_name)) {
+            Ok(safe_fs::Child::Dir(dir)) => dir,
+            Ok(safe_fs::Child::Unsafe) => {
+                lookup.unsafe_seen = true;
+                continue;
+            }
+            Ok(_) => continue,
+            Err(_) => {
+                lookup.io_seen = true;
+                continue;
+            }
+        };
+        let project_path = join_path(&base_path, project_name);
+        let sessions = match project.entries() {
+            Ok(entries) => entries,
+            Err(_) => {
+                lookup.io_seen = true;
+                continue;
+            }
+        };
+        for session_name in sessions {
+            if !lookup.examine() {
+                return;
+            }
+            let Some(session_name) = session_name.to_str() else {
+                lookup.io_seen = true;
+                continue;
+            };
+            let session = match project.child(std::ffi::OsStr::new(session_name)) {
+                Ok(safe_fs::Child::Dir(dir)) => dir,
+                Ok(safe_fs::Child::Unsafe) => {
+                    lookup.unsafe_seen = true;
+                    continue;
+                }
+                Ok(_) => continue,
+                Err(_) => {
+                    lookup.io_seen = true;
+                    continue;
+                }
+            };
+            if !lookup.examine() {
+                return;
+            }
+            match session.child(std::ffi::OsStr::new("session.jsonl")) {
+                Ok(safe_fs::Child::File(file)) => match dsh_header(&file) {
+                    HeaderCheck::Valid => lookup.candidates.push(AdmittedSource {
+                        path: join_path(&join_path(&project_path, session_name), "session.jsonl"),
+                        identity: file.identity(),
+                        file,
+                    }),
+                    HeaderCheck::Invalid => lookup.invalid_dsh_header = true,
+                    HeaderCheck::Io => lookup.io_seen = true,
+                },
+                Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
+                Ok(_) => {}
+                Err(_) => lookup.io_seen = true,
+            }
+        }
+    }
+}
+
+/// Select, validate, safely discover, bound-read and project one local
+/// transcript: the one read path every local surface consumes (D2).
+pub fn read_local(
+    common: Option<&brokkr_view::Transcript>,
+    provenance: LegacyProvenance,
+    legacy_id: Option<&str>,
+) -> TranscriptRead {
+    let local = local_projects_home();
+    read_with_home(common, provenance, legacy_id, local.as_deref())
+}
+
+fn read_with_home(
+    common: Option<&brokkr_view::Transcript>,
+    provenance: LegacyProvenance,
+    legacy_id: Option<&str>,
+    local_projects: Option<&str>,
+) -> TranscriptRead {
+    let selection =
+        brokkr_view::transcript::select_reference(common, provenance, legacy_id, local_projects);
+    let valid = match &selection.outcome {
+        Ok(valid) => valid.clone(),
+        Err(reason) => {
+            return TranscriptRead::refused(
+                selection.reference.clone(),
+                selection.legacy,
+                *reason,
+                brokkr_view::transcript::explanation_for(*reason),
+                None,
+                false,
+                0,
+                0,
+                None,
+            )
+        }
+    };
+    match discover(&valid) {
+        Discovery::Refused(reason, explanation) => {
+            let hint = brokkr_view::transcript::full_session(&valid, None);
+            TranscriptRead::refused(
+                selection.reference.clone(),
+                selection.legacy,
+                reason,
+                explanation.unwrap_or_else(|| brokkr_view::transcript::explanation_for(reason)),
+                None,
+                false,
+                0,
+                0,
+                hint,
+            )
+        }
+        Discovery::Admitted(source) => {
+            let hint = brokkr_view::transcript::full_session(&valid, Some(&source.path));
+            let (bytes, overflow, eof) = match source
+                .file
+                .read_bounded(brokkr_view::transcript::SOURCE_CAP)
+            {
+                Ok(read) => read,
+                Err(_) => {
+                    return TranscriptRead::refused(
+                        selection.reference.clone(),
+                        selection.legacy,
+                        Unavailable::Unreadable,
+                        brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
+                        Some(source.path),
+                        false,
+                        0,
+                        0,
+                        hint,
+                    )
+                }
+            };
+            let snapshot = Snapshot {
+                bytes: &bytes,
+                overflow,
+                eof,
+            };
+            // `project` re-admits the snapshot; a UTF-8 failure becomes an
+            // `unreadable` projection with zero counts and source-only
+            // truncation, exactly as the failure-stage matrix fixes.
+            let projection = brokkr_view::transcript::project(valid.kind, &snapshot);
+            if let Some(reason) = projection.unavailable {
+                return TranscriptRead::refused(
+                    selection.reference.clone(),
+                    selection.legacy,
+                    reason,
+                    brokkr_view::transcript::explanation_for(reason),
+                    Some(source.path),
+                    projection.truncated,
+                    projection.skipped_lines,
+                    projection.unrecognized_records,
+                    hint,
+                );
+            }
+            TranscriptRead::readable(
+                selection.reference.clone(),
+                selection.legacy,
+                valid.kind,
+                Some(source.path),
+                projection.turns,
+                projection.truncated,
+                projection.skipped_lines,
+                projection.unrecognized_records,
+            )
+        }
+    }
+}
+
+/// One safely discovered Claude source by flat id: the journal-independent
+/// lookup the API, SSE and browser routes share. Each call revalidates
+/// unique safe discovery rather than trusting an earlier spelling.
+#[allow(dead_code)] // consumed by the SSE/watch and browser routes as they land
+pub(crate) fn claude_source(id: &str) -> Discovery {
+    let Some(home) = local_projects_home() else {
+        return Discovery::Refused(Unavailable::MissingHome, None);
+    };
+    if !brokkr_view::transcript::valid_claude_id(id) {
+        return Discovery::Refused(Unavailable::InvalidReference, None);
+    }
+    let valid = ValidReference {
+        kind: TranscriptKind::ClaudeSession,
+        locator: id.to_string(),
+        home,
+    };
+    discover(&valid)
 }
 
 fn head_seq(db: &Path, run_id: &str) -> u64 {

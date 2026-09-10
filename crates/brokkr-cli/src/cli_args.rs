@@ -265,6 +265,31 @@ pub(super) struct InspectArgs {
 
 #[derive(clap::Args)]
 #[group(skip)]
+pub(super) struct TranscriptArgs {
+    /// Full run id, a unique run-id prefix, or `latest`.
+    #[arg(long)]
+    pub(super) run: String,
+    /// A participant key, or a label that is unique within the run.
+    #[arg(long)]
+    pub(super) seat: String,
+    /// One-based displayed-turn index; omitted reads the whole transcript.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    pub(super) turn: Option<u64>,
+    /// Emit the `brokkr.transcript/v1` document.
+    #[arg(long)]
+    pub(super) json: bool,
+    /// The world's map — the journal it names is the one opened
+    /// (default ./realms.json when present).
+    #[arg(long)]
+    pub(super) realms: Option<PathBuf>,
+    /// The workspace journal. Outranks the map's journal; without
+    /// either, .forge/forge.db as always.
+    #[arg(long)]
+    pub(super) db: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+#[group(skip)]
 pub(super) struct SeatsArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]

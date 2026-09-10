@@ -27,6 +27,7 @@ use brokkr_core::fold::{fold, RunState, Status};
 use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
+use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
 use clap::{ArgGroup, Parser, Subcommand};
 use cli_args::*;
 use serde_json::{json, Value};
@@ -167,6 +168,11 @@ enum Cmd {
     /// verbs the console's clicks became; `--json` emits the view model.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
+    /// Read one participant's retained local transcript — Claude, Codex or
+    /// DSH — through the same bounded local derivation the TUI uses. The
+    /// verb never launches, retries or resumes a provider and writes
+    /// nothing to the journal.
+    Transcript(TranscriptArgs),
     /// The seats of a run: the seats block `inspect` renders — every
     /// seat's model with the boundary its hands stood behind beside it
     /// (decision 0046 ruling 3) — from the same view. `--json` prints
@@ -1085,6 +1091,182 @@ fn run(cli: Cli) -> Result<ExitCode> {
     )
 }
 
+/// Map a participant's provenance to the legacy-synthesis rule: only
+/// Claude, LaneTally and an inline seat with no provenance may fall back
+/// to a local Claude id. Codex and DSH provenance refuses synthesis.
+fn participant_legacy_provenance(participant: &brokkr_view::Participant) -> LegacyProvenance {
+    match participant
+        .provenance
+        .as_ref()
+        .map(|provenance| provenance.provider.as_str())
+    {
+        None => LegacyProvenance::Absent,
+        Some("claude") => LegacyProvenance::Claude,
+        Some("lanetally") => LegacyProvenance::LaneTally,
+        Some(_) => LegacyProvenance::Other,
+    }
+}
+
+/// An exact participant key wins; otherwise an exact label selects only
+/// when unique. Prefixes and fuzzy labels never match, and an ambiguous
+/// label names every matching key so the operator can choose.
+fn select_transcript_participant<'a>(
+    view: &'a brokkr_view::RunView,
+    seat: &str,
+) -> Result<&'a brokkr_view::Participant> {
+    if let Some(exact) = view.participants.iter().find(|part| part.key == seat) {
+        return Ok(exact);
+    }
+    let matched: Vec<&brokkr_view::Participant> = view
+        .participants
+        .iter()
+        .filter(|part| part.label == seat)
+        .collect();
+    match matched.as_slice() {
+        [only] => Ok(only),
+        [] => Err(anyhow::anyhow!(
+            "no participant key or label {} in this run",
+            render::Safe::new(seat).as_str()
+        )),
+        many => {
+            let keys: Vec<&str> = many.iter().map(|part| part.key.as_str()).collect();
+            Err(anyhow::anyhow!(
+                "participant label {} is ambiguous; choose one of: {}",
+                render::Safe::new(seat).as_str(),
+                keys.join(", ")
+            ))
+        }
+    }
+}
+
+/// Apply `--turn` only after every cap, diagnostic and refusal: a
+/// retained index keeps its original turn and the whole read's metadata;
+/// an index beyond the prefix becomes `turn-not-retained` unless the read
+/// already refused for a stronger reason.
+fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> TranscriptRead {
+    let Some(index) = turn else {
+        return read;
+    };
+    if !read.is_readable() {
+        return read;
+    }
+    let index = index as usize;
+    if index >= 1 && index <= read.turns.len() {
+        let mut selected = read;
+        selected.turns = vec![selected.turns[index - 1].clone()];
+        return selected;
+    }
+    let explanation = if read.truncated {
+        "the requested turn is outside the retained prefix; the bounded read does not establish whether it exists later"
+    } else {
+        "the requested turn is beyond the retained projection"
+    };
+    TranscriptRead::refused(
+        read.reference.clone(),
+        read.legacy,
+        Unavailable::TurnNotRetained,
+        explanation,
+        read.path.clone(),
+        read.truncated,
+        read.skipped_lines,
+        read.unrecognized_records,
+        read.full_session.clone(),
+    )
+}
+
+/// The complete `brokkr.transcript/v1` document, every member present
+/// even when null or empty, serialized from the shared result alone.
+fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> Value {
+    json!({
+        "schema": brokkr_view::transcript::TRANSCRIPT_SCHEMA,
+        "run_id": run,
+        "seat": seat,
+        "transcript": &read.reference,
+        "legacy": read.legacy,
+        "path": &read.path,
+        "turn": turn,
+        "turns": &read.turns,
+        "truncated": read.truncated,
+        "skipped_lines": read.skipped_lines,
+        "unrecognized_records": read.unrecognized_records,
+        "notices": &read.notices,
+        "unavailable": read.unavailable.map(Unavailable::as_str),
+        "full_session": &read.full_session,
+    })
+}
+
+/// `brokkr transcript`: resolve the run read-only, select exactly one
+/// participant, run the shared local derivation and render it. Nothing
+/// is launched, written or resumed.
+#[allow(clippy::too_many_arguments)]
+fn transcript_command(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+    run: String,
+    seat: String,
+    turn: Option<u64>,
+    json: bool,
+) -> Result<ExitCode> {
+    let db = journal_of(workspace, realms, db)?;
+    let store = Store::open_read_only(&db)?;
+    let run = selector::resolve_run(&store, &run)?;
+    let events = store.load(&run)?;
+    let state = fold(&events)?;
+    let view = brokkr_view::run_view(&events, Some(&state));
+    let participant = select_transcript_participant(&view, &seat)?;
+    let read = ui::read_local(
+        participant.transcript.as_ref(),
+        participant_legacy_provenance(participant),
+        participant.session_id.as_deref(),
+    );
+    let read = select_transcript_turn(read, turn);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&transcript_document(
+                &run,
+                &participant.key,
+                &read,
+                turn
+            ))?
+        );
+    }
+    match read.unavailable {
+        None => {
+            if !json {
+                print!(
+                    "{}",
+                    render::transcript(
+                        &run,
+                        &participant.key,
+                        &read,
+                        turn,
+                        &render::Style::detect()
+                    )
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(reason) => {
+            if !json {
+                let explanation = read.explanation.clone().unwrap_or_default();
+                let mut line = format!(
+                    "transcript unavailable: {}: {}",
+                    reason.as_str(),
+                    render::Safe::new(&explanation).as_str()
+                );
+                for notice in &read.notices {
+                    line.push_str("; ");
+                    line.push_str(render::Safe::new(notice).as_str());
+                }
+                eprintln!("{line}");
+            }
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
 /// What an invocation resolved before it opens anything: the world it
 /// reads in, whether the operator NAMED that map, and the journal.
 ///
@@ -1832,6 +2014,14 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Transcript(TranscriptArgs {
+            run,
+            seat,
+            turn,
+            json,
+            realms,
+            db,
+        }) => transcript_command(workspace, realms, db, run, seat, turn, json),
         Cmd::Seats(SeatsArgs {
             run,
             realms,

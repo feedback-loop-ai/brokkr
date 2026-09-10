@@ -64,6 +64,21 @@ tempfile = { workspace = true }
 time = { workspace = true }
 ratatui = { workspace = true }
 
+# Decision 0055's narrow, explicit exception to the no-new-dependencies
+# default: the local transcript reader opens descendants below the
+# canonical recorded home through held directory handles, one component
+# at a time, without following symlinks. These extend direct edges to
+# versions already in Cargo.lock; no registry version moves.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+] }
+
 [dev-dependencies]
 rusqlite = { workspace = true }
 # The packaging test verifies an APT `Release` file's own digests
