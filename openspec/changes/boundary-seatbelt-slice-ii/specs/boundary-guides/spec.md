@@ -205,8 +205,10 @@ residual. It SHALL describe S2's `READY`, stages and ordinary child together
 with its printed `not running`, one run and exit 0, and S3's printed exit 2. It
 SHALL report the omitted crash counter as unknown, never as zero; the report's
 erasure of those printed facts is a parser defect, not a launchd verdict. It
-SHALL state that the root-inode removal control was not observed and that Gate
-B did not run. The next action SHALL name child-spawn sub-stage attribution and
+SHALL state that no Seatbelt cell reached `READY`, so the root-inode removal
+control was not due and the predicate remains unproven as load-bearing; it
+SHALL NOT describe fa7's empty removal-control lists as a missing record. It
+SHALL state that Gate B did not run. The next action SHALL name child-spawn sub-stage attribution and
 field-wise launchd parsing. It SHALL NOT request an unchanged retry or present
 a broad diagnostic as the cure.
 
@@ -245,7 +247,7 @@ and historical examples and channel versions retain their meaning.
 
 #### Scenario: The fourth startup run separates progress from proof
 - **WHEN** the guide reports native CI `34457208029`
-- **THEN** it names the progress to `executable`, the child-spawn `EPERM`, the three observed denials, S2's printed clean terminal facts with an unknown crash counter, S3's printed exit 2, the unobserved removal control and Gate B not run, and calls none of startup, launchd containment or any R1–R4 residual proven
+- **THEN** it names the progress to `executable`, the child-spawn `EPERM`, the three observed denials, S2's printed clean terminal facts with an unknown crash counter, S3's printed exit 2, the removal control not due because no Seatbelt cell reached `READY`, and Gate B not run, and calls none of startup, launchd containment or any R1–R4 residual proven
 
 #### Scenario: Accepted observables and proof status stay adjacent
 - **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view

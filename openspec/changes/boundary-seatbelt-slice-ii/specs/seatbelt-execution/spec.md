@@ -358,10 +358,37 @@ A predicate the candidate requires SHALL additionally be proven by removal:
 replaying the exact candidate with that one predicate stripped SHALL fail the
 payload closed before the startup verdict can pass, and a removal that still
 starts or cannot be observed SHALL fail the cell. The stripped profile is
-evidence only and SHALL NOT enter the candidate. Every Seatbelt startup cell
-SHALL carry the observed removal control for each candidate predicate it relies
-on; an empty or missing removal-control record SHALL fail the cell regardless of
-its positive result.
+evidence only and SHALL NOT enter the candidate. The predicates that need a
+removal control are exactly those admitted into the candidate by startup
+diagnosis. The probe's bounded removal set SHALL list each of them verbatim as
+the normalized template carries it; today that is only the root-inode read.
+The template's baseline hands-policy rules are bounded by that policy and by the
+denial controls, not by removal. A set entry the candidate does not carry
+records an unobserved removal. A diagnosis-admitted template predicate missing
+from the set is a probe defect, and a host-independent test SHALL refuse it.
+Removal controls are due on exactly the Seatbelt startup cells that reach a
+nonce-authenticated `READY`. Such a cell SHALL carry an observed removal
+control for every entry in the set. An empty, missing or unobserved record
+SHALL fail that cell whatever its positive result. A removal is blocking only
+when the stripped replay reaches no nonce-authenticated `READY`, from fresh
+payload state. A Seatbelt cell that reaches no `READY` already fails startup.
+It SHALL record each removal as not due. That record is never observed,
+satisfied or blocking, and never a missing-record gap. No removal verdict,
+stage-relative or otherwise, SHALL be drawn from a candidate that does not
+start. Load-bearing status is a property of a starting candidate. A
+predicate's necessity is unproven until a cell that reaches `READY` observes
+its removal blocking. A later predicate may change that necessity, so the
+removal replays on each new candidate that reaches `READY`. Different
+candidates' stage progress, such as the pre-stage abort at `9f4c2c9` against
+`executable` at `fa7ece5`, is diagnosis evidence that may name a predicate. It
+is never a removal control. Each removal runs through direct
+`/usr/bin/sandbox-exec` with the identical helper and argv. It uses that cell's
+own concrete candidate profile and private root, with that one predicate
+stripped. A launchd cell such as S3 does not bootstrap its removal as a launchd
+job, because launchd ownership adds no Seatbelt authority and the profile is the
+only layer the removal varies. A predicate whose named consumer exists only
+under launchd ownership cannot be proven by a direct replay. It SHALL NOT enter
+the candidate under this change.
 The helper's ordinary-child stage SHALL be split into bounded, ordered sub-
 stages: standard-stream setup for each of stdin, stdout and stderr, then the
 spawn/exec call, then the child observed. A failure SHALL record the sub-stage it
@@ -496,9 +523,12 @@ one-class diagnostic fails identically at child spawn, and none of them grants
 any `file-write*`; only the non-admitting `allow default` control starts. The
 credential-read, host-write and loopback-bind denial controls were observed
 denied. They establish those three denials for this candidate only and close
-none of R1–R4. The root-inode removal control was not recorded: every cell
-reports an empty `negative_controls` list, so the predicate is not yet proven
-load-bearing. S2 reached `READY`, the exact stages and an ordinary child. Its
+none of R1–R4. No Seatbelt cell reached `READY`, so no removal control was
+due. The empty `negative_controls` lists on S1 and S3 are that designed
+not-due outcome, not a missing record. The unboxed S0 and S2 carry none by
+construction. The root-inode read is therefore not yet proven load-bearing, and
+it stays unproven until a Seatbelt cell that reaches `READY` observes its
+removal blocking. S2 reached `READY`, the exact stages and an ordinary child. Its
 raw terminal print shows `state = not running`, `runs = 1`, `last exit code = 0`
 and no `successive crashes` line. S3's raw print shows `runs = 1` and
 `last exit code = 2`, also with no crash line. The parser refused each whole
@@ -565,7 +595,7 @@ verdict. Gate B was correctly not run.
 - **THEN** only the named dependency is added, all denial controls rerun, and a success caused only by broad file, Mach/IPC, service or network authority is rejected
 
 #### Scenario: A required startup predicate is proven by removal
-- **WHEN** the candidate grants a minimal predicate such as the root-inode read `(literal "/")` that lets a dynamically linked payload initialise
+- **WHEN** a Seatbelt cell whose candidate grants a minimal predicate, such as the root-inode read `(literal "/")` that lets a dynamically linked payload initialise, reaches `READY`
 - **THEN** the exact candidate with exactly that predicate stripped fails the identical payload closed before `READY`, the removal observation is recorded as blocking, and a removal that still starts the payload fails the cell
 
 
@@ -574,8 +604,21 @@ verdict. Gate B was correctly not run.
 - **THEN** evidence names the root-inode `file-read-data` as the required predicate, grants only `(allow file-read* (literal "/"))` and never recursive `(subpath "/")`, and keeps `allow default` a non-admitting diagnostic
 
 #### Scenario: A Seatbelt cell without an observed removal control fails
-- **WHEN** a Seatbelt startup cell reaches `READY` but carries no observed removal control for a candidate predicate it relies on, as every fa7 cell's empty `negative_controls` list did
+- **WHEN** a Seatbelt startup cell reaches a nonce-authenticated `READY` but its removal-control record is empty, missing, or lacks an observed blocking control for an entry in the removal set
 - **THEN** the cell fails as unproven, whatever its positive result
+
+#### Scenario: A non-starting Seatbelt cell owes no removal verdict
+- **GIVEN** fa7's S1 and S3, which reach `entry`, `payload-dir` and `executable` and then fail the ordinary-child spawn with `EPERM` and no `READY`
+- **WHEN** the probe reports their removal controls
+- **THEN** each set entry reads not due because the cell reached no `READY`; the cell fails on its own startup facts; no stripped replay, stripped-run stages or cross-candidate contrast is recorded as blocking, satisfied or load-bearing; and the root-inode read stays unproven
+
+#### Scenario: A launchd cell's removal replays the profile directly
+- **WHEN** S3 reaches `READY` as a launchd-owned job
+- **THEN** each removal runs through direct `/usr/bin/sandbox-exec` with S3's own concrete profile minus that one predicate, from S3's private root with fresh payload state and the identical helper and argv, and no new launchd label is bootstrapped for it; a predicate whose consumer exists only under launchd ownership is not admitted
+
+#### Scenario: The removal set is exactly the diagnosis-admitted predicates
+- **WHEN** a host-independent probe test compares the removal set with the normalized candidate template
+- **THEN** every set entry appears verbatim in the template, every template predicate admitted by startup diagnosis appears in the set, and baseline hands-policy rules are not required to carry removal controls; a mismatch fails the test
 
 #### Scenario: Child-spawn refusal is localized to its sub-stage
 - **WHEN** a Seatbelt cell reaches `executable` and the ordinary-child spawn fails while the unboxed control spawns the identical child
@@ -959,8 +1002,26 @@ relevant change SHALL not be attributed to the final candidate.
   requiring the counter, because then no launchd cell could ever pass. Refute
   synthesizing zero, because that fabricates a fact. This is probe observation
   semantics, not an accepted-addendum guarantee: a pass still depends on the
-  helper's authenticated facts, so no proposed decision is needed. The
-  root-inode removal control remains unmeasured and blocks every passing cell.
+  helper's authenticated facts, so no proposed decision is needed. No fa7
+  Seatbelt cell reached `READY`, so no removal control was due. The root-inode
+  read remains unproven, and its removal blocks every cell that later reaches
+  `READY` until observed.
+- **SEATBELT-R3-STARTUP at `fa7ece5`: which cells owe a removal control
+  (clarify).** Answer: exactly the Seatbelt startup cells that reach a
+  nonce-authenticated `READY`. Blocking means the stripped replay reaches no
+  `READY`. Refute requiring removal on every cell with a stage-relative
+  criterion. A removal proves necessity only against a candidate that starts,
+  and a later predicate can change that necessity. A stripped run that fails
+  earlier than a failing candidate only shows that the predicate advances the
+  stages. Recording that as load-bearing would be fabricated proof. It also
+  adds no gate, because a non-`READY` cell already fails. Refute reading
+  "blocked" as "no `READY`" on a non-starting candidate, because that verdict is
+  vacuous. The removal set is exactly the diagnosis-admitted predicates. Each
+  removal is a direct `/usr/bin/sandbox-exec` replay of the cell's own profile,
+  including for S3, because launchd adds no Seatbelt authority. A
+  launchd-only predicate is therefore not admissible under this change. This
+  is probe observation semantics, not an accepted-addendum guarantee, so no
+  proposed decision is needed.
 - **SEATBELT-R3-STARTUP at `fa7ece5`: which dictionary supplies launchd facts
   (clarify).** Answer: only the job's top-level dictionary. The fa7 S2 and S3
   terminal prints carry three `state =` lines and three `active count =`

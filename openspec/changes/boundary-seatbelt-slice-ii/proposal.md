@@ -73,8 +73,10 @@ then fails with `EPERM`, and the helper exits 2 without `READY`. Every
 one-class diagnostic fails the same way, and none of them grants any
 `file-write*`. Only the forbidden `allow default` control starts. Credential
 read, host write and loopback bind were observed denied; those are facts about
-this candidate, not proof of R1–R4. The root-inode removal control was not
-recorded, because every cell reports an empty `negative_controls` list. S2
+this candidate, not proof of R1–R4. No Seatbelt cell reached `READY`, so no
+root-inode removal control was due. The empty `negative_controls` lists are that
+designed outcome, not a missing record, and the predicate stays unproven as
+load-bearing until a starting cell observes its removal. S2
 reached `READY`, the exact stages and an ordinary child. Its raw terminal print
 shows `state = not running`, `runs = 1` and `last exit code = 0`, and S3's shows
 `last exit code = 2`. Neither prints a `successive crashes` line. The parser
@@ -83,8 +85,9 @@ This exposes a specification inconsistency, not only a code defect: the
 seatbelt-execution delta failed any omitted crash field, so as written no
 launchd cell could ever pass. This visit reconciles the delta around the facts
 launchd actually prints and names the discriminating child-spawn evidence the
-next probe must collect. Gate B was correctly not run and SEATBELT-R3 remains
-open.
+next probe must collect. A later clarify visit scoped removal controls to
+cells that reach `READY` and corrected the record of fa7's empty lists. Gate B
+was correctly not run and SEATBELT-R3 remains open.
 
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
@@ -144,8 +147,11 @@ measured, as accepted decision 0046 requires.
   refusal with a no-spawn `/dev/null` write cell, an inherited-stdio spawn, a
   null-stdio spawn and one literal `/dev/null` write-data diagnostic before any
   predicate is admitted. An admitted predicate is literal-scoped and has its own
-  removal control. Every removal control must be observed before a Seatbelt
-  startup cell can pass.
+  removal control. The removal set is exactly the diagnosis-admitted
+  predicates. Every entry must be observed blocking on each Seatbelt startup
+  cell that reaches `READY` before that cell can pass. Each removal is a direct
+  `sandbox-exec` replay of the cell's own profile, S3 included. A cell without
+  `READY` records its removals as not due and fails on its own startup facts.
 - Compare the two Seatbelt startup profiles as one normalized authority
   template with typed substitutions for each private cell root and payload
   root. Record the concrete bytes and digest per cell, but do not mistake those
@@ -212,8 +218,8 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved starting HEAD `098914c`, which is measured candidate `fa7ece5` plus
-its specification reconciliation; `225d2c7`, `8c53dce`, `9f4c2c9` and their
+preserved starting HEAD `c84502d`, which is measured candidate `fa7ece5` plus
+its specification reconciliations `098914c` and `c84502d`; `225d2c7`, `8c53dce`, `9f4c2c9` and their
 native measurements remain historical evidence, not checkout targets. It answers the
 current findings in dependency order. The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
@@ -240,7 +246,8 @@ authored in this specify phase. No workflow runner is invoked.
 | Launchd crash counter omitted by macOS | **Adopt as a specification inconsistency.** The measured terminal print omits `successive crashes` for exit 0 and exit 2, so failing an omitted counter makes every launchd cell unpassable. `state`, `runs` and `last exit code` are required. An absent counter stays unknown with its raw sample and is never zero; a present nonzero counter fails. The pass still needs the helper's authenticated facts. | `seatbelt-execution`: An omitted crash counter stays unknown; Required launchd terminal facts still fail closed |
 | Launchd print dictionary scope (clarify, fa7) | **Adopt top-level-only.** The fa7 S2 and S3 terminal prints repeat `state` and `active count` inside both coalition blocks, where they read `active` and 1 even for S3's never-spawned child. Job facts come only from the top-level dictionary of the single outermost block, independent of print order. Nested blocks never supply, complete or override a job fact. A missing top-level key stays unknown. A duplicated top-level key is unknown and fails the cell. Coalition fields are raw evidence only, never liveness, quiescence or survivor facts. First-match scanning, failing on any nested repeat and nested fallback are refuted. The fa7 samples become the parser's regression fixtures in the probe's test data. | `seatbelt-execution`: Launchd job facts come only from the top-level dictionary; The running fa7 sample is non-terminal; Nested or duplicated keys never manufacture a job fact |
 | Child-spawn authority | **Adopt as the next discriminating measurement.** Every failing cell withheld `file-write*` outside the payload, while null stdio opens `/dev/null` for writing before exec. That is the leading hypothesis, not a conclusion. Per-sub-stage errors plus no-spawn, inherited-stdio, null-stdio and single literal diagnostic cells decide it or move attribution to the exec. | `seatbelt-execution`: Child-spawn refusal is localized to its sub-stage |
-| Root-inode removal control unobserved | **Adopt as a blocking evidence gap.** Every fa7 cell reports `negative_controls: []`, so the admitted predicate is not proven load-bearing. An empty removal-control record fails a Seatbelt cell. | `seatbelt-execution`: A Seatbelt cell without an observed removal control fails |
+| Root-inode removal control unobserved | **Corrected by the removal-scope clarify answer below.** No fa7 Seatbelt cell reached `READY`, so no removal was due. The empty `negative_controls` lists on S1 and S3 are the designed not-due outcome, not a gap, and S0 and S2 are unboxed. The root-inode read stays unproven as load-bearing until a cell that reaches `READY` observes its removal blocking. On such a cell an empty record fails. | `seatbelt-execution`: A Seatbelt cell without an observed removal control fails |
+| Removal-control scope (clarify, fa7) | **Adopt READY-only.** Removal controls are due on exactly the Seatbelt startup cells that reach a nonce-authenticated `READY`. Blocking means the stripped replay, from fresh payload state, reaches no `READY`. A non-`READY` cell records each removal as not due and fails on its own facts. The set is exactly the diagnosis-admitted predicates, verbatim as the template carries them; a host-independent test checks that set against the template. Each removal is a direct `/usr/bin/sandbox-exec` replay of the cell's own profile, S3 included, because launchd adds no Seatbelt authority; a launchd-only predicate is not admitted. Every-cell removal with a stage-relative "blocked" is refuted. Necessity is proven only against a candidate that starts, and a later predicate can change it. An earlier failure of a stripped non-starting run only shows that the predicate advances the stages, so recording it as load-bearing would fabricate proof. Cross-candidate stage progress stays diagnosis evidence. | `seatbelt-execution`: A non-starting Seatbelt cell owes no removal verdict; A launchd cell's removal replays the profile directly; The removal set is exactly the diagnosis-admitted predicates |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
 | R5 — system launcher | **Retain.** Only the literal trusted `/usr/bin/sandbox-exec` and a bounded real allow/deny probe establish launcher readiness; lookalikes never execute. | `boundary-availability`: The system pin ignores an earlier lookalike |
@@ -345,8 +352,10 @@ passes startup. If none attributes the refusal, sub-stage and denial evidence
 must name the exec-side operation and target before any predicate is proposed.
 An admitted child-spawn predicate is literal-scoped and has its own removal
 control, and every denial control reruns on the resulting candidate. Each
-Seatbelt cell carries an observed removal control for every candidate predicate
-it relies on, and an empty record fails the cell.
+Seatbelt cell that reaches `READY` carries an observed blocking removal
+control for every diagnosis-admitted predicate, and an empty record fails that
+cell. A cell without `READY` owes no removal verdict. Each removal replays the
+cell's own profile through direct `sandbox-exec`.
 
 The experimental policy is one normalized template. Its cell root and payload
 root are typed placeholders, instantiated separately for the isolated S1 and
@@ -456,13 +465,14 @@ candidate `fa7ece587178a46baa66a7310e0546bfb87a0857` on the GitHub
 with `EPERM`, and the helper exits 2 without `READY`. All one-class diagnostics
 fail at the same step, and `allow default` remains non-admitting. Credential
 read, host write and loopback bind are observed denied for this candidate only.
-The root-inode removal control is unobserved. S2's printed terminal facts
+No Seatbelt cell reached `READY`, so the root-inode removal was not due and
+the predicate remains unproven as load-bearing. S2's printed terminal facts
 (`not running`, one run, exit 0) and S3's (exit 2) are real observations that
 the parser erased because `successive crashes` was absent. The successor keeps
 the candidate's authority and helper otherwise unchanged. It splits and
 discriminates the child-spawn step, parses the required launchd facts field by
-field with the counter optional, and observes the removal control. Gate B stays
-not run until Gate A passes.
+field with the counter optional, and observes the removal control on every
+Seatbelt cell that reaches `READY`. Gate B stays not run until Gate A passes.
 
 Changing an accepted semantic needs a focused decision document with status
 `proposed`; only the operator can accept it. Frozen contracts, policy,
