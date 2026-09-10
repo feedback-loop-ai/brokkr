@@ -2250,3 +2250,45 @@ D10, because three findings sat here:
 
 No identifier was added, removed or renumbered. The record still reads 78
 complete / 23 pending across 101 tasks. No task was ticked and none reopened.
+
+## Current tasks visit — breakdown confirmation, 2026-09-11
+
+This visit belongs to run `current-successor-operator-rulin-b83add73` and
+follows design's `bed1a95` (the analyze return above). It adopts HEAD
+`bed1a95` and the dated change `2026-09-09-226-session-resumption` and checks
+the task breakdown against that settled design input before implementation
+resumes.
+
+Independent re-derivation confirms 10.3's and 8.8's cited facts rather than
+merely trusting them: reading the installed `.forge/dsh-qualify/core`
+0.1.5-rc.1 tree's `@deepseek-ai/dsh-session` package directly reproduces both
+declaring/implementing SHA-256 values 10.3 and 8.8 cite for
+`snapshotEvents(fromSeq?, toSeqExclusive?)` (`lib/types/index.d.ts`,
+`ed327445b83ca8d699eb22991178362e4458172ba3c717a7a894f4907394fc37`) and its
+`log.slice(fromSeq, toSeqExclusive)` implementation (`lib/index.js`,
+`05e94f57d96e7979670a5b51024c8591572eb0051ce793613dbdec35cf2c47bf`), and
+confirms `SessionEvent`'s `{ type, seq, time, data }` shape matches the
+`{ seq, type, data }` fields `summarize`/`collectUsage`/`countTurns` already
+read, so 8.8's one-expression delta needs no signature adaptation beyond the
+accessor name.
+
+Reviewing every task against design D5/D6/D10 finds no further drift: 1.1,
+6.4, 8.8, 8.10, 9.6, 10.3, 10.7, 11.3, 11.5 and 13.1 already state the
+forward-pinned core, the `extensions/dsh/plugin-cli-session/` location, the
+single-expression adaptation, the `wrapper_digest`/`originating_wrapper_digest`
+loader and composite-function ordering ahead of 10.7's recording step, and the
+0.1.0-rc.6 pin only as bounded, dated history — matching A1–A5 above. The
+checkbox count is unchanged at 78 complete / 23 pending across the same 101
+tasks, no identifier was added, removed or renumbered, and every task still
+names the requirement it serves. No production code, contract, decision,
+adapter declaration, doctor output, guide or evidence file was read as
+authoritative or edited by this visit; the independent re-derivation above
+used only the read-only task-owned install already present under
+`.forge/dsh-qualify/`, no install, fetch or model call ran, and the global
+DSH pin, profiles and credentials were not touched.
+
+`openspec validate 2026-09-09-226-session-resumption --strict` exit 0:
+`Change '2026-09-09-226-session-resumption' is valid`. This breakdown is
+ready for the next implement visit in the order this file states: 10.7's
+live half, then 1.1 → 6.4 → 11.5 → 13.1, then 8.8, then 10.7's recording
+step, then 8.10, 9.6 and 11.3.
