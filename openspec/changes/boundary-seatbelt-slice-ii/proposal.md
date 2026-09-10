@@ -16,6 +16,15 @@ blocked until a real
 macOS run demonstrates the mandatory no-survivor guarantee. No Linux, mock,
 source-level or process-group-only result is native enforcement evidence.
 
+Candidate `6a19a6f4ab9bd30b47537de1a649949cd1099d01` was measured by native
+macOS CI run `34433461814` on macOS 26.6.2 arm64. It did not reach a lifetime
+trigger: `/usr/bin/sandbox-exec` started `/usr/bin/python3` directly under the
+experimental profile and the process aborted with `SIGABRT` and empty output;
+the equivalent launchd payload job registered, ran once, recorded one
+successive crash and was no longer running. Every payload heartbeat therefore
+remained still. This identifies a startup failure, not its cause and not
+evidence for or against launchd containment. SEATBELT-R3 remains open.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -51,6 +60,13 @@ measured, as accepted decision 0046 requires.
   `bootout`. It is a named candidate, not a claim: real macOS setsid,
   double-fork, timeout, cancellation and supervisor-SIGKILL adversaries must
   pass.
+- Prove payload startup before exercising any lifetime trigger. Prefer a
+  self-contained native Rust test helper under the exact experimental profile;
+  if an interpreter is retained, use differential controls or denial/system
+  evidence to identify each runtime allowance before adding it. Never widen
+  the profile merely to make a payload start. Direct and launchd-owned startup
+  controls must both reach an externally observed ready state before their
+  observations enter the lifetime matrix.
 - Thread the compiled realm boundary through runtime composition, both
   hands CLI verbs and adapter MCP configurations, entry refusals and doctor.
   Test the existing manifest, effect, seat-record and readout contracts
@@ -105,8 +121,10 @@ Witness and compose pins move only for measured identity changes, with the
 reason recorded. No engine version bump is commissioned.
 
 ## Decisions
-This visit adopts the committed `boundary-seatbelt-slice-ii` change at
-`225d2c7` and answers the returned findings in dependency order. The
+This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
+preserved current HEAD `6a19a6f`; `225d2c7` remains historical ancestry,
+not a checkout target. It answers the returned findings in dependency order.
+The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
 not manufacture evidence. Only the proposal and five capability deltas are
 authored in this specify phase. No workflow runner is invoked.
@@ -119,10 +137,13 @@ authored in this specify phase. No workflow runner is invoked.
 | R2 — readable-empty masks | **Adopt.** Seatbelt uses a permission-class denied read with no content. It is documented as denial; namespace remains unchanged. | `seatbelt-execution`: Present Seatbelt masks deny reads |
 | R3 — detached descendants | **Retain.** No surviving payload is mandatory. The per-invocation transient launchd lease pair uses a candidate payload job/process coalition plus a separately owned guard job; only native adversarial proof may establish feasibility. | `seatbelt-execution`: Native lifetime feasibility precedes full implementation |
 | SEATBELT-SPEC-LIFETIME-TOPOLOGY | **Adopt.** The guard cannot be inside the payload job it must boot out. It is a separately launchd-owned job in the same per-user bootstrap domain, remains alive through payload teardown, establishes quiescence before cleanup, and then unregisters itself. This repairs the specification without claiming that public launchd can contain detached descendants. | `seatbelt-execution`: The guard remains outside the payload job |
+| SEATBELT-R3-STARTUP — native CI `34433461814` | **Adopt as a failed prerequisite, not a lifetime verdict.** Candidate `6a19a6f` aborts direct sandboxed Python with `SIGABRT`; launchd records one crashed run and no heartbeat. The cause is not established. Diagnose startup with bounded controls before any trigger, survivor or quiescence observation is admissible. | `seatbelt-execution`: Payload startup is proved before lifetime is measured |
+| Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
 | R5 — system launcher | **Retain.** Only the literal trusted `/usr/bin/sandbox-exec` and a bounded real allow/deny probe establish launcher readiness; lookalikes never execute. | `boundary-availability`: The system pin ignores an earlier lookalike |
 | R6 — exact coverage seam | **Retain.** Shared Rust decisions compile on Linux behind injected host/process facts; this is logical coverage, not Darwin enforcement. | `seatbelt-execution`: Linux exercises both policy arms without claiming native enforcement |
 | R7 — init warning | **Retain.** macOS advice names namespace, Seatbelt's actual activation status and doctor, plus the explicit unboxed harness alternative. | `boundary-availability`: init on macOS describes the available Seatbelt road |
+| Current-main gate scenario | **Adopt.** The modified gate requirement carries forward `An open work-class chain site asks no fragment`; slice II does not erase the accepted current capability while adding the startup fence. | `gate-boundary-policy`: An open work-class chain site asks no fragment |
 
 ### D1 — one generic private-overlay locator contract
 
@@ -175,6 +196,17 @@ descendants stop after timeout, cancellation and supervisor `SIGKILL`, with an
 independently observed heartbeat quiet for one second and both transient job
 labels absent.
 
+Startup is a separate prerequisite. The exact profile and payload executable
+must first pass an outside-sandbox control, a direct sandbox control and then
+a launchd-owned control, each reporting an externally observed ready token and
+ordinary-child identity. The preferred payload is a purpose-built native Rust
+helper so interpreter startup is not confounded with lifetime. If an
+interpreter is retained, each additional filesystem, IPC or service allowance
+must be justified by staged differential controls or denial/system-log
+evidence and kept no broader than the named dependency; denial controls must
+still pass. A launchd registration, run count, crash count or missing heartbeat
+does not establish that payload code ran.
+
 This is a hypothesis, not evidence. If launchd exposes only process-group
 cleanup, requires private SPI, a privileged entitlement or global mutation,
 permits the payload to signal or impersonate the guard or register an escape
@@ -183,6 +215,20 @@ implementation stops. An observer outside both jobs may use PID identities,
 heartbeats or `kqueue` to measure the experiment, but those observations are
 not containment. A mock, Linux run, source argument, launcher smoke test or
 original-group kill cannot pass.
+
+The controller's measurement defects are specification failures, not
+incidental cleanup details. The group-only negative control has no guard or
+liveness-FIFO dependency, actually sends `SIGKILL` to the original process
+group, and observes the detached identity continuing before cleanup. The
+observer samples guard liveness after payload teardown and before unregister,
+and the peer job reaches an observed ready state before the payload attempts
+its attack. Cancellation, retained-pipe and parent-exit each execute their
+distinct trigger. FIFO setup is nonblocking and bounded; every killed holder
+is waited and reaped on success and error. Payload-writable heartbeats may
+prove activity but may not attest guard survival, quiescence, cleanup ordering
+or the complete survivor set; those facts come from the outside observer and
+guard-private state. Harness cleanup happens only after verdict facts are
+captured and is labeled cleanup, never containment.
 
 ### D4 — private hooks are conditional full-peer behavior
 
@@ -210,6 +256,16 @@ Missing tool, an existing outer box, zero selected tests, skips and failures
 are failures. The Linux controller can prepare shared policy tests but cannot
 produce Mac enforcement evidence. Controller-owned exact coverage, remote CI,
 publication, integration and closure remain pending until real results exist.
+
+Native CI `34433461814` is retained as failed startup evidence for candidate
+`6a19a6f4ab9bd30b47537de1a649949cd1099d01` on macOS 26.6.2 arm64. It closes
+no lifetime or activation residual: direct sandboxed Python exited by
+`SIGABRT`, each launchd payload showed one crashed run, and no heartbeat
+preceded a trigger. The next admissible measurement first diagnoses and
+demonstrates outside-sandbox, direct-sandbox and launchd startup with the same
+helper and bounded policy, then runs the repaired obligation-specific lifetime
+matrix. Git metadata and `/usr/include` setup repairs already present in the
+runner are accepted prerequisites and are not reopened by this specification.
 
 Changing an accepted semantic needs a focused decision document with status
 `proposed`; only the operator can accept it. Frozen contracts, policy,

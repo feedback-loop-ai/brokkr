@@ -38,6 +38,12 @@ one prohibited read must fail without returning its nonce. Failure to
 start, nonzero positive-control exit, successful prohibited read, timeout
 or unexpected output SHALL refuse. Running `true` alone, file existence,
 version output or a launcher stub that merely exits zero SHALL not pass.
+The trusted operation SHALL be a purpose-built native helper or another
+engine-controlled executable whose startup dependencies are part of the
+bounded readiness probe; it SHALL NOT depend on undeclared interpreter,
+shell-startup or repository runtime state. Each justified allowance SHALL be
+followed by the same positive and denial controls.
+
 Doctor and start SHALL share this rule; probes execute no repository code,
 start no seat, and append no journal. A wrong host SHALL refuse without
 executing any launcher or probe. The probe proves readiness only; the full
@@ -80,6 +86,10 @@ boundary or execute the payload after a failed preflight.
 #### Scenario: A no-op launcher fails the denial probe
 - **WHEN** the readiness probe receives exit zero without executing its operations, or a launcher executes both sentinel reads without applying the policy
 - **THEN** the missing expected nonce or successful forbidden read makes the result unusable and no payload starts; an actual native launcher must pass both controls within five seconds
+
+#### Scenario: A crashing probe payload is not launcher readiness
+- **WHEN** `/usr/bin/sandbox-exec` starts the readiness helper but the helper aborts before returning the permitted nonce, including an interpreter `SIGABRT` with empty output
+- **THEN** readiness refuses with the startup status and bounded diagnostics; launcher existence, launchd registration or a prior allow-only smoke test cannot make Seatbelt available
 
 #### Scenario: Readiness does not widen namespace lookup
 - **WHEN** existing namespace lookup and overlay-version fixtures run with their supplied PATHs
@@ -180,6 +190,9 @@ observables but supplies no implementation or evidence. Only the bounded R3
 native feasibility probe may precede its proof; full dependent implementation
 and activation remain fenced. A launcher probe, source inspection, mock, Linux
 test or partially passing Mac suite SHALL NOT make Seatbelt built.
+A native run that never proves payload startup is a failed startup measurement,
+not a partially passing lifetime suite and not evidence that descendants were
+contained.
 
 Refusing a malformed or conflicting individual layout is required safety
 behavior. Refusing all overlays, all masked binds, ordinary linked-worktree
@@ -212,6 +225,10 @@ hands SHALL not be refused merely for its realm's boundary word.
 - **WHEN** relocated snapshots, denied-read masks or private hooks are implemented without the required native proof, or detached survivors or harness-grade Seatbelt are proposed
 - **THEN** Seatbelt activation remains fenced and the missing proof is recorded as an open residual; survivors or reduced grade require a new upstream ruling; no successful Seatbelt gate, peer marker or completion claim is produced
 
+#### Scenario: A non-starting native payload proves no lifetime property
+- **WHEN** the direct sandbox control aborts or the launchd job registers and crashes before its externally observed ready state
+- **THEN** the R3 run stops before lifetime triggers, records startup separately with its exit and job state, leaves SEATBELT-R3 open and keeps the production fence intact
+
 #### Scenario: container with either engine present still refuses
 - **WHEN** a bundle with hands site `work` compiles under `container` and the path holds Docker, Podman or both
 - **THEN** CLI and runtime entries refuse naming `container`, `work`, slice (iii) and the discovered engine, without appending a journal row or invoking a container
@@ -239,6 +256,9 @@ unsupported binds/masks or git layouts. A healthy Seatbelt hands line
 SHALL describe a Brokkr-enforced boundary, never the harness/open message
 that no box is built. Doctor SHALL not run a seat or write a journal, and
 its offering SHALL not substitute for the native security measurements.
+Doctor SHALL distinguish machine launcher readiness, feasibility-probe payload
+startup and the lifetime verdict; a failure at one layer SHALL NOT be restated
+as a fact about a later layer.
 
 #### Scenario: A Linux host with bubblewrap and Docker
 - **WHEN** Linux has bubblewrap 0.11 and Docker, even with a Seatbelt lookalike on PATH

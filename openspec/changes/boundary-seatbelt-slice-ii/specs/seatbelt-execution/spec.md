@@ -327,6 +327,49 @@ all interpreter behavior or all host helpers.
 - **WHEN** the operated worktree contains the bundle, execution binary or symlink aliases of protected inputs
 - **THEN** ordinary source and result-file writes still work while protected-input mutations fail or the precise incompatible layout is refused before execution; no broad grant erases protection
 
+### Requirement: Probe payload startup is established separately
+
+Before any native lifetime trigger, the exact payload executable SHALL pass
+three staged controls: outside Seatbelt, under direct
+`/usr/bin/sandbox-exec` with the exact experimental profile, and as the
+launchd-owned payload job with the identical executable, arguments and profile.
+Each stage SHALL reach an externally observed ready state, identify an ordinary
+child and exit cleanly when directed. The preferred payload is a committed,
+purpose-built native Rust helper with no repository-script or general-purpose
+interpreter dependency. If an interpreter is retained for diagnosis, staged
+differential controls or denial/system-log evidence SHALL identify each
+filesystem, IPC or service dependency before a bounded allowance is added.
+Every added allowance SHALL preserve negative controls over guard/peer
+authority, credentials, host writes and undeclared network access. Broadening a
+class merely until startup succeeds is forbidden.
+
+Startup and lifetime SHALL have separate verdicts. An abort, signal, nonzero
+exit, crash-only launchd state or absent ready token fails startup and marks
+every lifetime case not run. Registration, run/crash counters, empty output or
+a still heartbeat do not establish that payload code executed and SHALL NOT
+establish or reject containment.
+
+Native CI `34433461814` at candidate
+`6a19a6f4ab9bd30b47537de1a649949cd1099d01` is retained as a failed startup
+measurement on macOS 26.6.2 arm64: direct sandboxed `/usr/bin/python3`
+aborted with `SIGABRT` and empty output, while the launchd payload registered,
+ran once, recorded one successive crash and produced no heartbeat. The cause is
+not established. No lifetime observation from that run is admissible and
+SEATBELT-R3 remains open.
+
+#### Scenario: Probe startup is established before lifetime triggers
+- **GIVEN** the exact helper, argv and experimental profile intended for the lifetime matrix
+- **WHEN** the outside-box, direct-sandbox and launchd-owned controls run in order
+- **THEN** all three reach an externally observed ready state, demonstrate an ordinary child and exit as directed before any teardown trigger begins
+
+#### Scenario: A non-starting payload is not lifetime evidence
+- **WHEN** a direct sandbox payload aborts or a launchd job records a crashed run without the external ready observation
+- **THEN** evidence records candidate, host, command, policy, status or signal, bounded output and launchd state, marks lifetime cases not run and leaves R3 open without a containment verdict
+
+#### Scenario: Startup repair preserves least authority
+- **WHEN** a staged control identifies a startup dependency
+- **THEN** only the named dependency is added, all denial controls rerun, and a success caused only by broad file, Mach/IPC, service or network authority is rejected
+
 ### Requirement: Native lifetime feasibility precedes full implementation
 
 The named candidate is the **per-invocation transient launchd lease pair** in
@@ -360,6 +403,15 @@ SHALL fail and leave private state quarantined for an engine-owned reaper that
 re-establishes lease identity and quiescence; cleanup SHALL NOT trust or reuse
 a stale PID, label or filename.
 
+Verdict facts SHALL be captured before harness cleanup. Guard survival SHALL
+be observed after payload teardown and before guard unregister. Quiescence,
+guard state, cleanup ordering and the complete survivor set SHALL come from
+the external observer or guard-private state that the payload cannot write; a
+payload-writable heartbeat or marker may prove activity only. All observed
+children and helper processes, including a killed supervisor-liveness holder,
+SHALL be waited or reaped on every success and error path after their verdict
+facts have been preserved.
+
 The evidence SHALL name candidate revision, macOS version and architecture,
 the per-user bootstrap domain, both unique job labels and exact commands,
 positive controls, trigger, exit statuses and durable logs. It SHALL also
@@ -374,6 +426,24 @@ dependent implementation. PID polling, `kqueue`, source reasoning, mocks,
 Linux execution and launcher smoke tests may assist observation but SHALL NOT
 satisfy the guarantee.
 
+Each named obligation SHALL exercise its own trigger rather than reuse one
+detach routine and infer the label: timeout crosses the configured deadline;
+cancellation delivers a live supervisor request; supervisor death kills the
+sole liveness writer and waits/reaps it; retained-pipes proves the detached
+child actually holds the payload pipe; and parent-exit observes the direct
+parent exit before teardown. The peer target SHALL be registered and observed
+ready before the payload attempts `bootout`, and an outside record SHALL prove
+the attempt occurred and the peer remained alive. Liveness-channel setup SHALL
+use a bounded nonblocking or pollable open with both endpoints accounted for;
+a timed-out blocked thread is a probe failure and is never abandoned.
+
+The process-group negative control SHALL be independent of the guard and its
+liveness FIFO. It SHALL launch the detach helper, record the original process
+group and detached descendant identity, send a real `SIGKILL` to only the
+original process group, and observe the detached descendant and heartbeat
+still live before explicit harness cleanup. It does not pass from an assumed
+group kill or a zero-survivor default.
+
 #### Scenario: The named launchd candidate must survive the detach adversary
 - **GIVEN** a native helper that proves its ordinary-child positive control, then forks, calls setsid, double-forks, ignores termination signals and reports identities while writing a heartbeat
 - **WHEN** the isolated feasibility probe triggers timeout, cancellation and abrupt supervisor death in separate runs
@@ -385,14 +455,30 @@ satisfy the guarantee.
 - **THEN** the guard remains alive after payload bootout, proves payload-domain quiescence before cleanup, unregisters only after cleanup, and an observer outside both jobs verifies the ordering; a guard removed with the payload fails SEATBELT-SPEC-LIFETIME-TOPOLOGY and cannot authorize dependent implementation
 
 #### Scenario: The payload cannot acquire guard or peer-job authority
-- **GIVEN** the guard endpoint, labels and control state are engine-owned and payload code is confined by the experimental profile
+- **GIVEN** the guard endpoint, labels and control state are engine-owned, and the peer job is registered and externally observed ready before payload code is confined by the experimental profile
 - **WHEN** the payload attempts to signal or impersonate the guard, use its private channel, boot out a peer invocation or register an independently surviving launchd job
-- **THEN** every attempt is denied while the ordinary-child control remains usable; any successful interference fails the probe, leaves SEATBELT-R3 open and stops dependent implementation
+- **THEN** an outside record proves each attempt occurred, every attempt is denied, the guard is observed live after payload teardown but before unregister and the peer remains live; any missing synchronization or successful interference fails the probe, leaves SEATBELT-R3 open and stops dependent implementation
+
+#### Scenario: The group-kill negative control performs the weaker operation
+- **GIVEN** a detached helper whose original process group and non-reusable descendant identity are externally recorded without a guard or liveness FIFO
+- **WHEN** the probe sends `SIGKILL` to that original process group
+- **THEN** the detached descendant and heartbeat remain live until the outside observer records them, after which harness cleanup kills and reaps them; an assumed kill, blocked FIFO or zero-survivor result fails the negative control
+
+#### Scenario: Every lifetime label has a distinct observed trigger
+- **WHEN** cancellation, supervisor death, retained pipes and parent exit are measured
+- **THEN** the observer records respectively a live cancellation request, the killed-and-reaped sole liveness writer, a descendant retaining the actual output pipe, and direct-parent exit before teardown; running one generic detach path under four names cannot satisfy the matrix
+
+#### Scenario: Payload markers cannot attest guard or quiescence
+- **WHEN** the adversary can write its heartbeat and other payload-root files
+- **THEN** those files establish only pre-trigger activity, while guard liveness, survivor identities, label state and cleanup ordering are independently observed before unregister and before harness cleanup
+
+#### Scenario: Probe channels and helpers terminate on every path
+- **WHEN** liveness setup, a case trigger or observation fails or times out
+- **THEN** no blocked FIFO-opening thread is abandoned, every killed holder or helper is waited or reaped, durable diagnostics precede cleanup, and harness cleanup is reported separately from containment
 
 #### Scenario: Observation is not containment
 - **WHEN** a candidate only polls descendant PIDs, watches them with `kqueue`, or signals the original process group
 - **THEN** it cannot pass the supervisor-death case or activate Seatbelt, even if timeout returns and the directly observed child exits
-
 
 ### Requirement: Deadlines and teardown bound the entire command lifetime
 

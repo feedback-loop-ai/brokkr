@@ -48,3 +48,7 @@ ruling 1; the resume rule of decision 0042 ruling 1's enactment).
 #### Scenario: A pinned realm does not override an open evidence gate
 - **WHEN** a run, resume or rerun compiles under the Seatbelt realm word while any SEATBELT-R1 through R4 evidence is missing or failing
 - **THEN** its manifest still pins Seatbelt and its runtime entry refuses under the unbuilt fence; neither a current harness realm nor a compile-only identity changes that verdict
+
+#### Scenario: Native startup failure does not rewrite portable identity
+- **WHEN** the bounded Seatbelt feasibility probe fails before payload readiness on a particular macOS host
+- **THEN** compiled manifests continue to pin only `seatbelt` and the declared hands inputs, while the candidate, host, startup status and launchd crash observation remain evidence metadata and the unbuilt runtime fence stays closed

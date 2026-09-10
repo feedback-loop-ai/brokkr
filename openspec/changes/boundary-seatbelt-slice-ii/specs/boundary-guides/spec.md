@@ -158,6 +158,17 @@ setsid/double-fork timeout, cancellation and supervisor-death adversaries
 pass. The network explanation SHALL distinguish shared macOS loopback from a
 private Linux network namespace; a host loopback allowance is not isolation.
 
+The evidence guide SHALL preserve native CI `34433461814` for candidate
+`6a19a6f4ab9bd30b47537de1a649949cd1099d01` as a startup failure on macOS
+26.6.2 arm64: direct sandboxed `/usr/bin/python3` ended in `SIGABRT` with
+empty output, the launchd payload registered but recorded one crashed run, and
+no heartbeat reached any lifetime trigger. It SHALL explicitly say that this
+establishes neither survival nor containment and does not identify the startup
+cause. The next action SHALL name staged outside-box, direct-sandbox and
+launchd-owned native-helper controls plus repaired lifetime observations,
+without reopening the already repaired git-metadata or `/usr/include` runner
+prerequisites.
+
 While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
 labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.
 Refusing shipped overlays is an unmet deliverable, not an optional limitation.
@@ -178,6 +189,10 @@ and historical examples and channel versions retain their meaning.
 #### Scenario: Preparation and measurement have different evidence
 - **WHEN** the guide or handoff is written before native macOS and host exact-coverage runs exist for the candidate
 - **THEN** those checks are pending with controller-owned invocations and required outcomes, no activation or completion is asserted, and later evidence is attributed to its actual candidate and host
+
+#### Scenario: A failed startup run is reported at the layer it measured
+- **WHEN** the guide reports native CI `34433461814`
+- **THEN** it names candidate, host, direct `SIGABRT`, launchd crash state and absent ready signal, says no lifetime case ran, and directs the next run to prove startup before triggering teardown
 
 #### Scenario: Accepted observables and proof status stay adjacent
 - **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view

@@ -52,6 +52,10 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 - **WHEN** a gate-class agent site with hands compiles under `open`, whatever its adapter declares
 - **THEN** compilation is refused naming decision 0046 ruling 4
 
+#### Scenario: An open work-class chain site asks no fragment
+- **WHEN** a work-class agent site with hands resolves to a chain whose links declare no `hands.harness` fragment, and the bundle compiles under `open`
+- **THEN** compilation succeeds, asking no fragment of any link
+
 #### Scenario: A seatbelt gate is admitted at compile
 - **WHEN** a gate-class agent site with hands compiles under `seatbelt`, and again under `container`
 - **THEN** compilation succeeds exactly as under `namespace` and the manifest pins the word, whatever the compiling machine holds
@@ -59,6 +63,10 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 #### Scenario: Compile admission is not native proof
 - **WHEN** a Seatbelt gate compiles while any SEATBELT-R1 through R4 evidence residual is open, including a candidate passing only an unsigned-commit smoke test
 - **THEN** compilation pins the realm word, but start retains the unbuilt refusal before any journal row or seat; compile admission and accepted semantics do not authorize an unproved peer runtime
+
+#### Scenario: Experimental payload startup is not gate admission
+- **WHEN** a native feasibility payload aborts before its externally observed ready state, even though launchd registered the job and the bundle compiled under `seatbelt`
+- **THEN** no gate is admitted at runtime, no model or exec payload is spawned and no peer record is produced; the failure remains an R3 startup prerequisite rather than a lifetime verdict
 
 #### Scenario: A harness work seat without a work fragment is refused
 - **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`, in a bundle that seats no gate and binds no secret, so nothing but the hands law stands before the gate law's work-class early return (design DD22)
