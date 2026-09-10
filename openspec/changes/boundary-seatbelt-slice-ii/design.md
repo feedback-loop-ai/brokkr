@@ -55,14 +55,27 @@ candidate failed Windows linking through unconditional `getuid`/`getpgid`
 references. The controller log records the GitHub `macos-latest` arm64 runner
 but no `sw_vers` value, so no macOS version is inferred.
 
-The next executable work is therefore a bounded Gate A measurement repair and
-profile diagnosis followed by a new exact-head startup run, not the lifetime
-probe or full implementation. GitHub macOS CI is available through the
-controller, so absence of a local Mac is not a host prerequisite. Production
-remains Rust under `crates/`. Frozen contracts,
-policy, reference material, and evaluator fixtures remain unchanged unless a
-measured wire need later requires a new version beside a frozen file.
-`container` remains unbuilt for slice III and `driver.confine` remains retired.
+Native CI `34449331270` then measured candidate `9f4c2c9` after those
+repairs. The generic macOS and Windows workspaces passed, and S0 again reached
+the exact stages, ordinary child and clean exit. S1 still aborted on signal 6
+before the first authenticated stage; all seven single-class diagnostics did
+the same, while only the forbidden `allow default` control started. S2 is an
+observation/parsing refusal because the adapter found no parseable not-running
+shape, not proof that the payload did or did not execute. S3 reached no stage
+or `READY` and ended not running with one run and one crash. Its concrete
+profile digest differs from S1 because isolated cells have different private
+roots; that is a profile-comparison defect, not evidence of authority drift.
+The denial controls did not execute and Gate B correctly did not run.
+
+The next executable work is therefore one bounded, materially changed Gate A
+candidate that attributes pre-entry startup and preserves lossless launchd
+facts, followed by a new exact-head startup run—not lifetime or production
+implementation. GitHub macOS CI is available through the controller, so absence
+of a local Mac is not a host prerequisite. Production remains Rust under
+`crates/`. Frozen contracts, policy, reference material, and evaluator
+fixtures remain unchanged unless a measured wire need later requires a new
+version beside a frozen file. `container` remains unbuilt for slice III and
+`driver.confine` remains retired.
 
 ## Goals / Non-Goals
 
@@ -213,10 +226,14 @@ bounded differential control that separates launchd startup from its
 composition with Seatbelt. All four must pass before any lifetime trigger.
 Each cell records exit status or signal, launchd run/crash state where
 applicable, helper and profile digests, exact argv, bounded stdout/stderr, and
-the external READY observation. Startup has its own typed verdict; an abort,
-nonzero exit, crash-only job state, missing READY, or missing ordinary child
-marks the lifetime matrix `not run`. Registration, one crashed run, a still
-heartbeat, or a missing PID is never a zero-survivor result.
+the external READY observation. Candidate identity also includes the intended
+head and actual checked-out SHA, literal executable path, executable bytes,
+mode, architecture, nonce protocol, structural argv and resolved dynamic
+dependencies; a pull-request merge SHA is never silently reported as the
+candidate head. Startup has its own typed verdict; an abort, nonzero exit,
+crash-only job state, missing READY, or missing ordinary child marks the
+lifetime matrix `not run`. Registration, one crashed run, a still heartbeat,
+or a missing PID is never a zero-survivor result.
 
 Native CI `34433461814` on macOS 26.6.2 arm64 is retained as
 `SEATBELT-R3-STARTUP` failure evidence for candidate `6a19a6f`: direct
@@ -245,41 +262,88 @@ error 5 with missing run/crash fields, and reported a synthesized `exit 1`.
 The log does not record `sw_vers`. Gate B remained not run, and every R3
 lifetime property remains open.
 
-The next Gate A candidate repairs the measurement before it retries the native
-host:
+Native CI `34449331270` for `9f4c2c9` is the third failed Gate A result.
+The generic macOS and Windows suites passed. S0 reached the exact ordered stages
+`entry`, `payload-dir`, `executable`, `child`, `ready`,
+`return-clean`, identified an ordinary child and exited zero. S1 reached no
+stage and died on signal 6 under the exact profile; all seven one-class
+diagnostics also died on signal 6, and only the labelled `allow default`
+control started. That control authorizes nothing and the missing operation and
+target remain unidentified. S2 produced no parseable not-running launchd state,
+so it is an observation refusal rather than an execution result. S3 produced no
+authenticated stage or `READY`, then reported not running with one run and one
+crash. The three denial controls were unobserved because the helper never
+started. Gate B correctly remained not run.
 
-- each cell and repeated invocation owns a never-reused label, private root,
-  plist, streams, and report record; pre-bootstrap and post-bootout
-  `launchctl print` prove exact-label absence, and failed waits or cleanup are
-  verdict facts rather than ignored hygiene;
-- bootstrap, optional kickstart, loaded state, authenticated helper stages,
-  `READY`, ordinary-child identity, payload return intent, terminal state,
-  raw `launchctl print`, run/crash counters, bootout, and final absence remain
-  separate bounded observations. Unknown or unparsable terminal state stays
-  unknown and fails the cell; no counter or payload-authored intent is
-  converted into an OS exit;
-- the destructive launchd adapter has one explicit CI selection, so generic
-  parallel workspace tests cannot run a second launchd sequence against the
-  same per-user domain. Host-independent model tests remain in the ordinary
-  workspace suite;
-- authenticated stage telemetry brackets helper entry, private-directory
-  setup, executable identity, ordinary-child spawn/observation/reap, `READY`,
-  and return intent. Denial logging is captured when public runner facilities
-  permit it. A differential changes one named operation/target allowance at a
-  time and records the consumer and all credential, host-write, network,
-  guard, and peer denial controls in a typed diagnostic collection that can
-  never satisfy a startup cell; and
-- all Unix ABI uses in the helper, including `getuid`, `getpgid`, `setsid`,
-  and signal operations, are target-gated or have off-target refusing stubs.
-  The shared verdict model still compiles and runs on Linux and Windows.
+The third run also disproves two claims in the previous repair status. Raw S1
+and S3 profile digests are not an equality oracle because required cell-private
+root substitutions change their concrete bytes. And launchd parsing still
+discards separately observable facts when one terminal shape is missing. The
+next Gate A candidate therefore repairs attribution and observation before
+retrying the native host:
 
-The identical-helper/argv comparison is structural: immutable executable,
-mode, nonce protocol, and arguments must match, while a controller-generated
-cell root is an explicit typed variable so isolation is not falsely described
-as byte-identical absolute argv. No unchanged retry of `8c53dce`, broad grant,
-or diagnostic result can pass Gate A.
+- represent the experimental policy as a structured, versioned template with
+  normalized rules and typed `cell_root`, `payload_root`, and
+  `helper_path` substitutions. Compare rule identity and placeholder
+  positions, retain every concrete profile and digest, and round-trip the same
+  serializer that supplies `sandbox-exec`; post-render string replacement is
+  not an authority comparison;
+- capture a bounded native Seatbelt denial window keyed by timestamps, process
+  identity, executable and nonce. Preserve raw unified-log output, collector
+  command status, truncation and unavailability. A missing log is unknown, not
+  evidence that no denial occurred;
+- run `/usr/bin/true` and `/bin/echo` through the identical launcher and
+  exact profile as diagnostic system-binary brackets. Pair each with an
+  unboxed positive control. Their success localizes the abort but cannot satisfy
+  S1 or add authority;
+- add committed diagnostic helper modes that distinguish immediate exit,
+  pre-main/first-user-instruction, argument collection, executable lookup,
+  payload-state open/write, child spawn/wait and clean return. The first marker
+  uses an observer-owned inherited endpoint and a raw, allocation-free write
+  before argument parsing or filesystem traversal, so an absent marker
+  distinguishes pre-main failure from later helper code;
+- if denial attribution remains incomplete, test only bounded monotonic
+  combinations as labelled search evidence. Each proposed production
+  predicate must then be shown necessary and sufficient against the last
+  justified baseline, with its operation, narrow target, responsible process
+  and consumer named. No broad family, combination or `allow default` result
+  enters the candidate;
+- make launchd evidence append-only and field-wise. Preserve every command's
+  argv, status/signal, bounded stdout/stderr and monotonic time, plus separate
+  loaded, PID, run, crash, last-exit, `READY`, stage, child, return-intent,
+  bootout and absence observations. An unknown field fails the cell without
+  erasing independent facts or synthesizing an exit;
+- replace ambient or fixed denial controls with nonce-bearing observer-created
+  sentinels: a known-readable nonempty outside secret, a unique absent outside
+  write target with an independently writable parent, and an owned loopback
+  endpoint. `NotFound`, no attempted operation or missing after-state is
+  unknown, not denial; and
+- on uncertain bootstrap, terminal or bootout state, seal the failing verdict
+  and quarantine the never-reused root with the label, identities, concrete
+  inputs, raw commands and cleanup attempts. Later harness cleanup is separately
+  labelled and never counts as containment; no recursive deletion or root reuse
+  occurs until exact identities and quiescence are established.
+
+Each cell and repeated invocation continues to own a never-reused label, private
+root, plist, streams and report. The destructive launchd adapter has one
+explicit CI selection, and Unix ABI calls remain target-gated so the shared
+model continues to build on Linux and Windows. The identical-helper/argv
+comparison remains structural: immutable executable, mode, architecture, nonce
+protocol and arguments must match, while typed private-root substitutions may
+differ. No unchanged retry of `9f4c2c9`, broad grant, diagnostic result,
+missing denial log or parser refusal can pass Gate A.
 
 #### Gate B — measure the transient launchd lease pair
+
+After Gate A passes, a minimal **B0 rejection screen** may answer the cheapest
+mechanism question first: whether public `launchctl bootout` of the payload job
+actually ends one authenticated `setsid`/double-fork descendant while a second,
+independently registered guard remains alive to issue and report that operation.
+B0 records non-reusable identities, an advancing heartbeat before teardown, the
+public operation result and the independent after-state. Failure rejects D2
+immediately and leaves SEATBELT-R3 open. Success only justifies completing B1;
+it is not the accepted R3 feasibility proof, cannot authorize production work,
+and cannot replace any trigger, transport, peer or cleanup case below.
 
 Only after Gate A passes **and the native adapter derives every Gate B fact
 from an observation rather than assigning success constants**, separate cases
@@ -350,13 +414,14 @@ supervisor. Any failure keeps SEATBELT-R3 open and stops all dependent
 implementation. It is recorded as a residual, not translated into a weaker
 guarantee.
 
-The existing GitHub macOS runner is the native execution route. The concrete
-next prerequisite is a committed Rust helper plus these measurement repairs,
-followed by a controller-dispatched native run whose durable report is
-preserved even when the test fails. The native probe is explicitly selected
-once, separately from host-independent model tests, so a generic workspace
-failure cannot prevent report preservation or accidentally turn a non-run
-into green evidence.
+The existing GitHub macOS runner is the native execution route. The helper is
+already committed and works unboxed; the concrete next prerequisite is the
+bounded Gate A discriminator and lossless-observation repair above, followed by
+a controller-dispatched Gate A run on that materially changed exact head. Its
+durable report is preserved even when the test fails. The native probe remains
+explicitly selected once, separately from host-independent model tests, so a
+generic workspace failure cannot prevent report preservation or accidentally
+turn a non-run into green evidence.
 
 ### D4 — A small sealed executor shares facts, not Linux semantics
 
@@ -622,53 +687,65 @@ new test framework is not.
 
 The dependency order is fixed:
 
-1. reconcile proposal/specs/design/tasks and prepare host-independent
-   refusal/planning tests while the activation fence stays closed;
-2. repair helper portability and the isolated Gate A observation harness,
-   commit that bounded candidate, and run only the standalone startup gate on
-   the exact head;
-3. after all four Gate A cells pass, repair any remaining Gate B adapter facts
-   that are still asserted rather than observed, then run the R3 lifetime
-   probe on the admitted helper/profile candidate;
-4. if and only if both gates pass, implement the low-level planner, executor,
-   both hands paths, and native cases behind the closed production fence;
-5. close R1–R4 and all remaining native obligations on the implementation
-   revision, and pass the host-independent validation suite on that same
-   closed-fence revision;
-6. flip only the single activation state to create the activation revision,
+1. keep proposal/specs/design/tasks/evidence coherent and prepare
+   host-independent refusal and evidence-model tests while the activation fence
+   stays closed;
+2. implement only the bounded Gate A discriminator: structured
+   template/substitution identity, native denial capture, system-binary
+   brackets, a first-instruction marker, append-only field-wise launchd
+   evidence, synthetic denial positives and quarantine-on-unknown;
+3. commit that materially changed candidate and have the controller run Gate A
+   alone on the exact head. Any red or unknown S0–S3 cell records the precise
+   residual and returns to step 2 without running lifetime or broadening policy;
+4. after Gate A passes, use B0 only as an early rejection screen. If B0 passes,
+   repair every remaining B1 adapter fact that is still assigned rather than
+   observed and run the complete R3 lifetime matrix; only a truthful B1 pass
+   permits dependent implementation;
+5. implement the low-level planner, executor, both hands paths and native cases
+   behind the closed production fence;
+6. close R1–R4 and all remaining native obligations on the implementation
+   revision, including complete supported-platform evidence, and pass the
+   host-independent validation suite on that same closed-fence revision;
+7. flip only the single activation state to create the activation revision,
    then rerun the complete native and host-independent matrix on that exact
-   revision, including run/resume/rerun, gates, records, doctor, and readouts;
+   revision, including run/resume/rerun, gates, records, doctor and readouts;
    and
-7. run format, clippy, all-features locked workspace tests, self/verify bundle
+8. run format, clippy, all-features locked workspace tests, self/verify bundle
    compiles, release build where commissioned, and controller/CI exact coverage.
 
 Each native result records candidate commit, macOS version and architecture,
 literal launcher metadata, compiler, exact command, selected test names/count,
 helper/profile digests, startup and lifetime verdicts, positive controls, exit
 status, descendant identities where applicable, and durable logs/CI links. The
-existing macOS runner supplies the required native candidate evidence. Evidence
-records the architecture actually exercised; 0049 support remains arm64 and
-x86_64, and any observed architecture-specific failure becomes a named residual
-rather than inheriting another host's result. Remote CI, host exact coverage,
+existing macOS CI route supplies the immediate Gate A candidate evidence.
+Decision 0049 promises the landed Seatbelt boundary on both supported macOS
+arm64 and x86_64. Therefore the complete pre-activation and post-activation
+matrix must pass on both architectures, or an explicit operator-accepted
+narrowing must amend that promise. Evidence never transfers between
+architectures; a missing or failed architecture remains a blocking residual.
+Remote CI, host exact coverage,
 publication, integration, and closure remain controller-owned and pending until
 their real results exist.
 
 ### Council reconciliation
 
-The current robustness and simplicity positions both use exact-head native CI
-`34441725835`; the older rows below retain the still-applicable reconciliation
-of the earlier council. Their current claims are reconciled explicitly first:
+Both current positions use HEAD `70bdb1b` and native CI `34449331270` at
+candidate `9f4c2c9`. The older table below remains historical reconciliation
+where it does not conflict with the current evidence. Every current claim is
+disposed here before those retained rows:
 
 | Current council claim | Disposition | Evidence and resulting design |
 | --- | --- | --- |
-| Both: S0 passed, S1 aborted under the exact profile, `allow default` is diagnostic only, launchd startup is not established, Gate B did not run, and the Windows helper link failed. | **Adopt.** | Controller findings and log lines 1114–1267 show those outcomes. Context and D3 record them without inferring a macOS version, denied operation, launchd verdict, or lifetime property. |
-| Robustness: repair cell isolation, preserve raw lifecycle facts, and never synthesize terminal state. Simplicity: make the smallest launchd measurement repair and remove the double selection/race. | **Combine.** | D3 requires unique roots/labels and pre/post absence, separates bootstrap/print/exit/bootout facts, retains unknown as failure, and selects one native launchd driver. It does not add retries or a new job framework. |
-| Robustness: authenticated helper stages and typed one-authority diagnostics are needed. Simplicity: diagnose one named allowance at a time and shrink back from the broad control. | **Combine.** | D3 adds bounded stage telemetry and a diagnostic-only typed collection. Each differential names its operation, target and consumer and reruns denial controls; `allow default` and broad file/Mach/service/network grants never enter the candidate. |
-| Both: repair non-Darwin helper linkage without compiling away the shared model. | **Adopt.** | D3 target-gates every Unix ABI operation or provides refusing stubs, while shared verdict logic remains exercised on Linux and Windows. |
-| Robustness: the current Gate B adapter contains false-pass paths that must be repaired. Simplicity: do not expand Gate B machinery before startup passes. | **Combine in dependency order.** | No Gate B work or execution precedes a passing exact-head Gate A. After Gate A, D3 requires the named adapter facts to become real observations before Gate B runs; evaluator mutation tests alone cannot establish native truth. |
-| Robustness: preserve explicit production ownership and security invariants. Simplicity: defer D5–D13 production work, the crash reaper, capsule, and request supervisor until the feasibility gates justify consumers. | **Combine.** | D2 and D5–D13 remain architectural constraints so later tasks do not invent security semantics, but D3/D14 forbid their implementation before Gate B. D2 defers the reaper, D10 chooses direct protected paths first, and D11's cancellation seam is implemented only after feasibility. |
-| Simplicity: do not add a sixth capability, wire field, general interpreter, new crate/framework, or unconditional dual-architecture gate. Robustness: preserve full R1–R4, evidence and activation obligations. | **Adopt both.** | The five deltas and accepted addendum already own the semantics. D4/D13 add no public framework or wire change; D14 records the architecture actually tested and blocks on observed architecture failures without fabricating duplicate evidence. No guarantee is removed. |
-| Robustness: stale checked tasks/evidence must not overrule source and native results. Simplicity: the next artifact is one bounded repair commit, not production architecture. | **Adopt.** | This design supersedes its stale “repaired/pending” status. The downstream task/evidence visit must reopen or split the affected repair claims, preserve CI `34441725835`, and define the exact Gate A repair candidate before controller dispatch. |
+| Both: generic macOS/Windows and S0 pass; S1 aborts before stages; all seven single-class diagnostics fail; only forbidden `allow default` starts; S2 is an observation refusal; S3 is one non-ready crash; denials and Gate B are unobserved. | **Adopt.** | The controller findings and durable report state exactly those facts. Context and D3 retain them without inferring the denied operation, nonexecution, containment or a lifetime verdict. |
+| Robustness: compare structured template identity and retain concrete profiles. Simplicity: normalized-template comparison is the smallest repair because private roots necessarily differ. | **Combine.** | D3 uses one serializer, typed substitution roles, normalized rule identity, concrete bytes/digests and a round-trip check. It rejects both raw-digest equality and dropping profile identity. |
+| Robustness: collect native denial evidence and use a complete bounded pre-entry ladder. Simplicity: first use denial capture, system binaries and a first-instruction marker, with at most one later narrow diagnostic. | **Combine the order; reject the numeric cap.** | D3 orders denial capture, `true`/`echo`, raw first-instruction marking and committed staged modes before any combination. Because all seven single-class probes failed and the specification permits bounded joint search, an arbitrary one-predicate cap could leave a jointly required operation unattributed. Combinations remain diagnostic; each promoted predicate still needs operation/target/process/consumer necessity and sufficiency, so no guessed broad allowance is admitted. |
+| Robustness: launchd evidence must be append-only, field-wise and retain command outcomes. Simplicity: fix field-wise parsing in place without a retry framework or second launcher. | **Combine.** | D3 preserves every independent command and job fact, leaves unknown fields unknown and failing, and adds no automatic retry or alternative launcher. S2 cannot erase observed facts or become proof of nonexecution. |
+| Robustness: uncertain cleanup must quarantine evidence; denial controls need nonce-bearing positive controls. Simplicity: keep the next candidate bounded and stop honestly if diagnosis remains unavailable. | **Adopt both.** | Quarantine and synthetic sentinels repair false evidence paths but add no production architecture. An unavailable denial stream or unresolved abort is recorded as a precise residual, Gate B stays not run, and Seatbelt remains unbuilt. |
+| Simplicity: run a minimal B0 `bootout`/detached-child/independent-guard experiment before building the whole matrix. Robustness: B0 must never become a new feasibility gate because only the complete causal matrix satisfies R3. | **Combine as rejection screen only.** | D3 lets B0 reject D2 cheaply after Gate A. A green B0 authorizes only B1 preparation; production remains blocked until the complete timeout/cancellation/supervisor/transport/interference/quiescence matrix passes. |
+| Robustness: retain D5–D13 ownership and security decisions. Simplicity: freeze their implementation until startup and lifetime feasibility pass. | **Combine.** | The decisions remain explicit so downstream work cannot invent overlay, mask, Git, input, transport or cancellation semantics. D3/D14 prohibit implementing them before a truthful B1 pass. |
+| Both: no sixth capability, new wire field, interpreter, crate, public framework, blind retry or rediscovery of Git-metadata and `/usr/include` repairs. | **Adopt.** | The existing five deltas and private Rust seams cover the accepted semantics; D3 changes only measurement until native feasibility exists. |
+| Robustness: require native activation evidence on both supported macOS architectures. Simplicity: exercise the available arm64 runner first and record other architecture gaps. | **Adopt the sequencing from simplicity and the activation gate from robustness.** | The immediate Gate A iteration uses the available arm64 route. Decision 0049 nevertheless promises Seatbelt on macOS arm64 and x86_64, so D14 blocks activation until the complete matrix passes on both or the operator accepts a focused platform narrowing. |
+| Both: stale design/tasks/evidence cannot overrule native evidence; the next commit is a bounded changed probe, not production code. | **Adopt.** | This design supersedes the stale pending-run status with CI `34449331270`. The dependent tasks/evidence visit must reopen the disproved claims, append the third run without rewriting history and name the exact repair and redispatch. |
 
 | Council claim | Disposition | Evidence and resulting design |
 | --- | --- | --- |
@@ -697,7 +774,7 @@ of the earlier council. Their current claims are reconciled explicitly first:
 | Simplicity: do not build crash recovery before proving the lease. Robustness: uncertain state must be quarantined and reaped only after identity and quiescence are re-established. | **Combine in dependency order.** | D2 preserves quarantine/recovery invariants required by the delta but explicitly defers any production reaper until D3 proves the native domain. |
 | Simplicity: use liveness EOF for controller loss and add an MCP supervisor only if cancellation is observable. Robustness: explicit cancellation cannot remain prose. | **Reject deferring the cancellation seam.** | The delta distinguishes explicit cancellation from server/wrapper loss, and the current synchronous loop cannot observe it while blocked. D11 therefore retains a narrow request supervisor/channel, implemented only after D3 passes. |
 | Both: one fail-closed native target can cover both entry paths; missing/zero/skipped cases must fail. | **Adopt and strengthen.** | D14 uses a checked obligation matrix, actual revision/host evidence, and a final post-activation rerun without inventing a bespoke framework. |
-| Robustness: require duplicate native evidence on both supported Mac architectures before activation. | **Reject as an unconditional activation gate.** | The accepted addendum and deltas require the actual host/OS/architecture and the existing native runner, not duplicate full matrices. D14 records the exercised architecture; 0049 still supports both, and any architecture-specific failure becomes a blocking residual rather than inheriting another host's evidence. |
+| Robustness: require duplicate native evidence on both supported Mac architectures before activation. | **Adopt for activation, sequence after the available arm64 feasibility run.** | Decision 0049 promises boxed boundaries as they land on supported macOS arm64 and x86_64. D14 therefore requires complete evidence on both before activation, unless the operator accepts a focused narrowing; no architecture inherits another's result. |
 | Simplicity: accept copy cost and mechanism risk rather than silently weaken guarantees. Robustness: quarantine uncertain state and return infeasibility upstream. | **Adopt.** | D2, D3 and the risks below stop on unproved quiescence. A failed native mechanism becomes a focused residual/proposed decision, never a reduced boundary. |
 
 R1, R2, and conditional R4 are settled, and R3's no-survivor outcome remains
@@ -713,9 +790,24 @@ feasibility gate; a native failure requires the exact residual and any focused
 ## Risks / Trade-offs
 
 - **[The exact payload cannot start under the bounded profile]** → Run D3
-  Gate A first, change only a measured named allowance, preserve all denial
-  controls, and keep lifetime marked not run on failure.
-- **[Public launchd cannot own detached descendants]** → Run D3 Gate B before
+  Gate A first, require operation/target attribution and necessity/sufficiency
+  evidence before changing one narrow predicate, preserve all denial controls,
+  and keep lifetime marked not run on failure.
+- **[Native denial logs are unavailable or incomplete]** → Preserve collector
+  status and raw bounded output, then use system-binary and first-instruction
+  brackets; absence of a denial record stays unknown and never authorizes a
+  guessed allowance.
+- **[System controls start while the Rust helper does not]** → Localize the
+  defect to helper/runtime startup with committed staged modes; a passing
+  `true` or `echo` remains diagnostic rather than admission evidence.
+- **[A launchd parser change erases a real fact]** → Store command results and
+  job fields append-only, fail unknown fields independently, and retain raw
+  text; never infer execution, nonexecution or exit from a missing shape.
+- **[Uncertain cleanup destroys evidence or races a survivor]** → Seal the
+  failure and quarantine the never-reused root; separately labelled harness
+  cleanup cannot become containment evidence.
+- **[Public launchd cannot own detached descendants]** → Use B0 only to reject
+  the candidate cheaply, then require the complete D3 Gate B matrix before
   all dependent implementation; preserve SEATBELT-R3 and the production refusal
   on any failure.
 - **[Payload-writable or harness cleanup evidence creates a false pass]** →
@@ -758,31 +850,38 @@ feasibility gate; a native failure requires the exact residual and any focused
 
 ## Migration Plan
 
-1. Keep the repaired two-job topology in the proposal, `seatbelt-execution`
-   delta and this design coherent, and revalidate the five deltas. Existing
-   Seatbelt realm declarations continue to compile and pin the word but refuse
-   before journal writes.
-2. Preserve native CI `34441725835` as failed Gate A evidence. Repair helper
-   portability, unique launchd cell ownership, raw terminal observation,
-   single native selection, and typed one-authority diagnostics in one bounded
-   candidate. Dispatch only Gate A on that exact head. On failure, preserve
-   the report, record the precise startup residual and stop with Gate B not
-   run; the safe state is already-active `unbuilt: ii`.
-3. After Gate A passes, repair any remaining Gate B false-pass paths named in
-   D3 and run the lifetime matrix on the admitted helper/profile candidate. A
-   failure preserves SEATBELT-R3 and stops dependent implementation.
-4. After both gates pass, land the sealed planner/executor, engine-owned
-   attempt state, native matrix, both hands paths, guides, and host-independent
-   tests while
-   the production activation fence remains closed. Close all native residuals
-   and pass host-independent validation on that implementation revision.
-5. Only then flip the single activation state to create the activation
-   revision and rerun the complete native and host-independent matrix on that
-   exact revision. Acceptance, integration, and a full-peer claim remain
-   forbidden until that post-flip verification passes.
-6. Refresh witness/compose pins only where measured identity changed. Add a
-   contract version only if implementation measured a wire need. Do not edit
-   frozen versions.
+1. Keep the accepted two-job topology, the five reconciled deltas and this
+   design coherent. Existing Seatbelt realm declarations continue to compile
+   and pin the word but refuse before journal writes.
+2. Preserve native CI `34449331270` at `9f4c2c9` as the third failed Gate A
+   observation. Update the dependent task and residual inventory without
+   rewriting the older `6a19a6f` and `8c53dce` evidence or treating S2 as
+   execution.
+3. Implement one bounded Gate A discriminator with structured profile identity,
+   native denial capture, system-binary brackets, first-instruction/staged
+   helper modes, append-only launchd observations, synthetic denial controls
+   and quarantine-on-unknown. Validate and commit that materially changed probe
+   while Seatbelt remains `unbuilt: ii`.
+4. Have the controller dispatch Gate A alone on that exact head and preserve the
+   complete report. A failed or unknown cell appends the precise startup
+   residual and returns to step 3; it never runs lifetime or broadens the
+   admitted profile.
+5. After Gate A passes, run B0 only as an early mechanism-rejection screen, then
+   repair all remaining assigned-success paths and run the complete B1 lifetime
+   matrix. Only a truthful B1 pass permits the sealed planner/executor,
+   engine-owned attempt state, overlays, masks, Git protection, both hands paths
+   and guides to be implemented behind the closed fence.
+6. Close all native and host-independent obligations on the closed-fence
+   implementation revision. Before activation, obtain the complete required
+   matrix on both decision 0049 supported macOS architectures, or an explicit
+   operator-accepted narrowing.
+7. Flip only the single activation authority, then rerun the complete native and
+   host-independent matrix on that exact activation revision. Acceptance,
+   integration and full-peer claims remain forbidden until the post-flip
+   evidence passes.
+8. Refresh witness/compose pins only where measured identity changed. Add a
+   contract version only if implementation measures a wire need; never edit a
+   frozen version.
 
 No stored-data migration or workspace version bump is presently required.
 Omitted low-level boundary transport continues to mean namespace, whose
@@ -795,55 +894,57 @@ uninstallation. Container remains the separately commissioned slice III.
 ## Open Questions
 
 There are no unanswered Seatbelt policy questions. The accepted 0046 addendum
-settles R1, R2, R3's mandatory outcome, and conditional R4; the returned
-clarification found no remaining semantic ambiguity.
+settles R1, R2, R3's mandatory outcome and conditional R4; none may be reopened
+to explain away a failed probe.
 
-Two empirical questions remain in strict order: after repairing the known
-measurement and portability defects, can the committed native helper reach
-authenticated READY and a real clean terminal state in every isolated D3 Gate
-A cell under the bounded profile, and, only then, can the D2 two-job mechanism
-use public unprivileged
-per-user launchd facilities to end every `setsid`/double-fork descendant after
-cancellation or supervisor `SIGKILL` while keeping its guard inaccessible to
-the payload? CI `34433461814` answers only that the former Python payload did
-not start; CI `34441725835` answers S0, fails S1, leaves S2/S3 unmeasured, and
-does not answer lifetime.
+Three empirical questions remain in strict order:
 
-These are not invitations to choose weaker semantics. The existing GitHub
-macOS runner can answer them after the known Gate A defects are repaired; a
-missing local Mac is not the blocker. A Gate A failure records a startup
-residual and leaves
-lifetime not run; a Gate B failure keeps SEATBELT-R3 open. Either keeps
-Seatbelt unbuilt and returns any necessary semantic change in a focused
-proposed decision.
+1. Which exact operation and target withheld by the bounded profile causes the
+   helper to abort before its first authenticated file stage, and can a
+   least-authority predicate be shown necessary and sufficient while every
+   denial control still passes?
+2. Can the launchd observer preserve a truthful field-wise S2/S3 lifecycle on
+   the current macOS format, including command status, partial fields, clean
+   terminal evidence and quarantine after uncertainty?
+3. Only after both startup questions pass, does the public unprivileged
+   per-user launchd payload-job domain causally end all `setsid`/double-fork
+   descendants after timeout, cancellation and supervisor death while the
+   separately owned guard and protected peers survive?
+
+CI `34449331270` answers none of those positively. It proves the helper works
+unboxed, the exact profile still prevents startup, S2 is unparseable and S3 is a
+non-ready crashed run. The available arm64 CI route can run the next bounded
+candidate; no local Mac is missing. An unavailable denial stream or a Gate A
+failure is recorded precisely and leaves lifetime not run. A B0 or B1 failure
+rejects the D2 candidate and keeps SEATBELT-R3 open. Any request to weaken
+accepted semantics or decision 0049 platform scope returns as a focused
+`proposed` decision rather than a downstream workaround.
 
 ## Implementation status
 
-The committed `seatbelt-probe-helper` bin and fail-closed S0–S3 evaluator are
-useful preparation, and native CI `34441725835` proved S0. That same run
-invalidated the earlier “measurement repaired/native pending” status: S1 still
-aborts, S2/S3 reused state and yielded order-dependent or unknown launchd facts,
-the adapter synthesized terminal results, two native selections could race, and
-the helper failed Windows linkage. Gate B correctly remained not run.
+Current HEAD `70bdb1b` preserves the probe work through `9f4c2c9` and the
+third native report, but contains no production Seatbelt implementation.
+Seatbelt remains `unbuilt: ii`; container remains `unbuilt: iii`.
 
-The bounded Gate A repair in tasks 1.8–1.11 is now committed: the helper's Unix
-ABI calls are target-gated, the destructive native tests are `#[ignore]`d and
-selected only by the macOS step, launchd labels/roots/streams are never reused
-and their absence is proven before bootstrap and after bounded bootout, the
-private root is canonicalized after creation, `launchctl print` facts are parsed
-or the cell fails without a synthesized exit, the structural helper/argv
-comparison treats the cell root as a typed variable, bounded startup stages
-localize an abort, the exact profile is diagnosed one named allowance at a time
-with credential/host-write/network denial controls rerun, and no diagnostic can
-enter the candidate or satisfy a cell. Host-independent tests falsify each new
-fact on Linux.
+The committed probe has valuable, demonstrated preparation: one portable Rust
+helper, a fail-closed four-cell model, exact authenticated S0 stages, isolated
+roots and labels, target-gated Unix ABI, a single explicitly selected native
+test, and host-independent evaluator tests. Native CI `34449331270` confirms
+the Windows portability repair and the generic macOS suite.
 
-This does not close any enforcement residual. The concrete next prerequisite is
-the controller-dispatched exact-head native Gate A run on this commit; its
-durable report must be preserved even when the test fails. If S1 still aborts,
-the report now names the last startup stage reached and which single allowance
-restored READY, so the next iteration is a measured repair rather than a blind
-policy widening. No production Seatbelt work is authorized. SEATBELT-R1–R4
-remain open and Seatbelt stays `unbuilt: ii` until a repaired exact-head Gate A
-passes, a truthful Gate B passes, and the later integrated obligations pass
-through both hands entry points.
+The same run invalidates the prior claim that Gate A merely awaited dispatch.
+S1 still aborts on signal 6 before any file-backed stage; seven one-class
+diagnostics do not discriminate it; only non-admitting `allow default`
+starts. S2's all-or-nothing parse loses its terminal observation, S3 is one
+non-ready crashed run, raw profile-digest equality is invalid for distinct
+private roots, denial controls never execute and Gate B remains not run.
+Neither R3 feasibility nor any R1–R4 enforcement residual is closed.
+
+The concrete next implementation unit is only the D3 Gate A discriminator and
+lossless observer described above. It must be committed as a materially changed
+probe, with dependent tasks and `evidence-residuals.md` reconciled, before the
+controller dispatches another exact-head Gate A run. No production planner,
+lifetime executor, overlay, mask, Git, runtime transport, activation edit or
+full-peer claim is authorized until Gate A and the complete B1 feasibility
+matrix pass. Exact coverage, native dispatch, final remote CI, publication,
+integration and closure remain controller-owned.
