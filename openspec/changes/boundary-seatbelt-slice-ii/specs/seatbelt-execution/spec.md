@@ -669,12 +669,17 @@ The check's inputs are fixed and typed. It reads exactly these:
   **helper path**. In a native run the observer that created them supplies
   them, and a host-independent test supplies fixed values. The check never
   takes them from the renderer or from the rendered text;
-- the path-valued **denial-control targets**: each path that the startup
-  credential-read and host-write controls open. Each is listed in its direct
+- the path-valued **denial-control targets**: each path that a startup
+  denial control opens. The credential-read control opens `/etc/passwd` and
+  `/etc/hosts`, and the host-write control opens
+  `/private/tmp/brokkr-probe-denial-write`. Each is listed in its direct
   spelling and in the `/private` spelling macOS resolves it to, where one
-  exists, for example `/etc/passwd` and `/private/etc/passwd`. The credential
-  targets are also listed in their `/System/Volumes/Data` spelling. The guard
-  and peer targets are launchd labels, not paths, and no path rule reads them.
+  exists, for example `/etc/passwd` and `/private/etc/passwd`. The
+  data-volume credential-read control opens one path,
+  `/System/Volumes/Data/private/etc/passwd`, which is listed as its own
+  target. `/etc/passwd` is the only credential target with a data-volume
+  spelling and a data-volume control; `/etc/hosts` has neither. The guard and
+  peer targets are launchd labels, not paths, and no path rule reads them.
 
 Declared binds are never toolchain binds. That covers a bind a `HandsSpec`
 declares in `ro`, `rw` or `overlay` mode, home-expanded or not, such as
@@ -811,9 +816,10 @@ Every rule unit SHALL carry exactly one class.
   justification. The kind is one of three:
   - a **hands element**, the Seatbelt image of authority that decision 0043,
     as `hands.rs` realizes it, already gives every boxed command;
-  - an **execution input**, the exact payload executable or a typed probe root;
-  - a **probe-harness need**, a named file or process the probe itself reads,
-    writes or runs.
+  - an **execution input**, the exact payload executable, `<helper>`;
+  - a **probe-harness need**, a read of one of the probe's own typed roots,
+    `<cell-root>/inputs` and `<payload-root>`, which hold its launch inputs
+    and its payload state.
 
   A rule is not baseline because an earlier template carried it. A baseline
   entry claims no measured necessity.
@@ -826,14 +832,25 @@ Every rule unit SHALL carry exactly one class.
   diagnosis-admitted.
 
 A hands-element entry SHALL be no wider than the image it names. It MAY carry
-less than the whole element, never more. Every filtered baseline unit uses a
-`literal` or `subpath` filter. A hands-element entry SHALL name exactly one
-element of this closed set, and the check SHALL test its target against that
-element's anchor:
+less than the whole element, by leaving out a target or an operation, never
+more. Every filtered baseline unit uses a `literal` or `subpath` filter.
+
+Every baseline entry SHALL pass an **anchor** of two parts. Its operation
+SHALL be one that its element or kind admits, and its target SHALL pass that
+element's or kind's target test. The check SHALL test both parts. Operations
+match by exact name. An admitted family admits itself and not its members:
+where an anchor admits `file-write*`, it does not admit `file-write-data`,
+and where it admits `file-read*`, it does not admit `file-read-data`. A
+hands-element entry SHALL name exactly one element of this closed set:
 
 - A **toolchain unit** images one toolchain bind at the same path. It SHALL
   name that one bind and target exactly that path, in its direct spelling and
-  never another member of its spelling set. The check SHALL confirm
+  never another member of its spelling set. Its operation SHALL be
+  `file-read*`, or `process-exec` when the bind it names is one of the five
+  **program binds**: `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and
+  `/sbin`. The program binds are a fixed list, and the check confirms that
+  each is a source in the host-toolchain set. The box binds every toolchain
+  source read-only, so no toolchain unit writes. The check SHALL confirm
   that each named bind is a source in the host-toolchain set. It reads that
   set from the `hands.rs` item that `box_argv` iterates, never from a copied
   list or a rendered argv. A declared bind and the git common `config` are
@@ -841,13 +858,33 @@ element's anchor:
   A parent directory of several binds is not the image of those binds, because
   it also covers every child the box does not bind.
 - A **system-library unit** images the Linux library binds at macOS paths. Its
-  target SHALL be one of the element's committed targets, `/System/Library`
-  and `/System/Volumes/Preboot/Cryptexes/OS`, or a recorded correction of one.
+  operation SHALL be `file-read*`. Its target SHALL be one of the element's
+  committed targets, `/System/Library` and
+  `/System/Volumes/Preboot/Cryptexes/OS`, or a recorded correction of one.
   It is recorded as that one element, not as a toolchain unit.
-- The **writable worktree** unit targets exactly `<payload-root>`.
-- A **device-set** unit targets exactly one of the literals `/dev/null`,
-  `/dev/urandom` and `/dev/random`, device nodes of the box's `--dev /dev`.
+- The **writable worktree** unit is `file-write*` on exactly `<payload-root>`.
+- A **device-set** unit is `file-read*` on exactly one of the literals
+  `/dev/null`, `/dev/urandom` and `/dev/random`, device nodes of the box's
+  `--dev /dev`. No device-set unit writes. The child-spawn attribution owns a
+  `/dev/null` write, so the anchor carries less than the device set's image.
 - The **shell** element is `(allow process-fork)` alone.
+
+The two other kinds have their own anchors:
+
+- An **execution-input** unit is `file-read*` or `process-exec` on exactly
+  `(literal "<helper>")`.
+- A **probe-harness** unit is `file-read*` on exactly
+  `(subpath "<cell-root>/inputs")` or `(subpath "<payload-root>")`.
+
+The anchors confine the baseline half. Its only write is `file-write*` on
+`<payload-root>`. Its `process-exec` units target only the `<helper>` literal
+and the five program binds, and its only other process unit is
+`(allow process-fork)`. Its device units only read. A baseline entry whose
+operation or target fails its anchor fails the check, whatever element or
+kind the ledger records. The refusal names the unit, the operation or target
+that failed, and the element or kind. The diagnosis-admitted half has no
+element anchor. Its bound is the single-object filter, the recorded evidence
+and the removal entry that `READY` must observe blocking.
 
 A bind's image cannot leave the toolchain check by being recorded as
 something else. Neither its `/private` spelling nor its data-volume spelling
@@ -879,7 +916,11 @@ The candidate's process authority is exactly `(allow process-fork)` and six
 `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`. No other
 `process-*` operation, and no `process-exec` unit on another target, is in the
 candidate. Wherever this delta forbids process authority wider than the
-candidate names, it reads against these seven units.
+candidate names, it reads against these seven units. The check enforces this
+in both halves. The anchors confine the baseline half to these seven, and a
+`process-*` unit of either half outside them fails the check even when the
+ledger lists it. A diagnosis-admitted unit therefore never adds process
+authority.
 
 The candidate this change prepares carries these baseline entries:
 
@@ -934,9 +975,11 @@ It carries one diagnosis-admitted entry:
 Its necessity stays unproven until a Seatbelt cell that reaches `READY`
 observes its removal blocking. A literal `(allow file-write-data (literal
 "/dev/null"))` that the child-spawn cells attribute SHALL enter this half with
-its own removal entry. It does not enter the baseline, even though the box's
-device set could name it, because the child-spawn attribution owns it. Until
-then the candidate carries no `/dev/null` write.
+its own removal entry. It cannot enter the baseline. The box's device set
+could name it, but the device-set anchor admits only `file-read*`, and no
+other element or kind admits a write outside `<payload-root>`. So the check
+refuses it under every baseline element and kind. Until an attribution enters
+it, the candidate carries no `/dev/null` write.
 
 Every unit of the measured fa7 template, `fa7ece5` `sandbox_profile`, SHALL
 keep a recorded disposition. The units kept unchanged are the root-inode
@@ -981,7 +1024,10 @@ diagnosis-admitted entry with its own removal control enters the ledger, and
 every denial control SHALL rerun. The unfiltered process family, unfiltered
 `sysctl-read`, unfiltered `ipc-posix-shm`, host tmp reads, `(subpath
 "/System")`, `(subpath "/usr")` and the whole `<cell-root>` SHALL NOT re-enter
-in their historical form.
+in their historical form. An attribution to a `process-*` operation outside
+the seven process units is recorded as evidence and does not enter, because
+the check refuses a process unit outside the seven in either half. Admitting
+one needs this delta to change.
 
 Toolchain units never respell. Native denial evidence may show an operation on
 a toolchain bind refused under another resolved spelling. The toolchain unit
@@ -1011,8 +1057,9 @@ bounded native Sandbox denial events that the unprivileged observer can read
 for its responsible processes during that cell. If the host does not make them
 available, the cell SHALL record them as unavailable. An absent event never
 proves an operation allowed or unneeded. The startup denial controls SHALL add
-a read of the credential target through its `/System/Volumes/Data` spelling,
-and the candidate SHALL deny it as it denies the direct spelling.
+one read of `/etc/passwd` through its `/System/Volumes/Data` spelling,
+`/System/Volumes/Data/private/etc/passwd`, and the candidate SHALL deny it as
+it denies the direct spelling. It is the only data-volume control.
 
 The check SHALL be a host-independent function over the rendered profile text,
 the ledger, the removal set, the host-toolchain set and the typed concrete
@@ -1031,7 +1078,12 @@ renderer's values. It SHALL refuse each of these:
 - a baseline entry without a justification of a named kind, or a filtered
   baseline unit whose filter is not `literal` or `subpath`;
 - a hands-element entry that names no element of the closed set, or whose
-  target fails that element's anchor;
+  operation or target fails that element's anchor, named with the operation
+  or target and the element;
+- an execution-input or probe-harness entry whose operation or target fails
+  its kind's anchor, named with the operation or target and the kind;
+- a `process-*` unit of either half other than the seven named process
+  units;
 - a toolchain unit whose target is not exactly the one host-toolchain source
   it names, or that names a declared bind or the git common `config`. A target
   respelled under another resolved path fails, with or without recorded
@@ -1155,9 +1207,33 @@ candidate.
 - **WHEN** a system-library unit targets something other than `/System/Library` or `/System/Volumes/Preboot/Cryptexes/OS`
 - **THEN** the check accepts it only as a correction that records the committed unit it replaces, the resolved spelling and the native denial evidence; it fails by name if that record is missing, if the target covers any spelling of a host-toolchain source or a denial-control target, targets `/System/Volumes/Data` or a path under it, or contains `/System/Volumes/Data`, or if it equals or contains the historical target of a withdrawn or narrowed fa7 unit such as `/System`, `/Library` or `/private/tmp`
 
+#### Scenario: Every candidate baseline entry passes its two-part anchor
+- **WHEN** the check judges each baseline entry of the candidate ledger
+- **THEN** `(allow process-fork)` passes as the shell; the seven toolchain reads and the five program-bind `process-exec` units pass as toolchain units; the two system-library reads pass as that element; `(allow file-write* (subpath "<payload-root>"))` passes as the writable worktree; the three device reads pass as the device set; the `<helper>` read and exec pass as execution inputs; and the `<cell-root>/inputs` and `<payload-root>` reads pass as probe-harness needs, so the anchors change no candidate unit
+
+#### Scenario: A baseline /dev/null write fails the operation anchor
+- **WHEN** the ledger records `(allow file-write-data (literal "/dev/null"))` in the baseline half as a device-set unit, with no removal entry
+- **THEN** the check fails and names the unit, the operation `file-write-data` and the device-set element, although the unit is a literal, targets exactly `/dev/null`, covers no host-toolchain source or denial-control target and lies off the data volume; recorded instead as the writable worktree, an execution input or a probe-harness need, it fails that element's or kind's anchor by name; and it enters the candidate only as the diagnosis-admitted literal with its own removal entry
+
+#### Scenario: A write on a read-only bind fails its element's operation anchor
+- **WHEN** the ledger records `(allow file-write* (subpath "/usr/local"))` as a toolchain unit that names `/usr/local`, or `(allow file-write* (subpath "/System/Library"))` as a system-library unit
+- **THEN** the check fails and names the unit, the operation `file-write*` and the element, although each target passes its element's target test; the only baseline write is `file-write*` on `<payload-root>`
+
+#### Scenario: Exec and fork are anchored to named targets
+- **WHEN** the ledger records `(allow process-exec (subpath "/usr/lib"))` or `(allow process-exec (subpath "/usr/share"))` as a toolchain unit that names that bind, `(allow process-fork (subpath "/usr/bin"))` as a toolchain unit, `(allow process-exec (subpath "/System/Library"))` as a system-library unit, or `(allow process-exec (subpath "<payload-root>"))` as the writable worktree or a probe-harness need
+- **THEN** the check fails and names the unit, the operation and the element or kind whose anchor it fails, and also names it as a `process-*` unit outside the seven process units; `/usr/lib` and `/usr/share` are toolchain sources but not program binds
+
+#### Scenario: The execution-input and probe-harness kinds are anchored
+- **WHEN** the ledger records `(allow process-exec (literal "/usr/sbin/spctl"))` or `(allow file-read* (subpath "<cell-root>"))` as an execution input, or `(allow file-read* (subpath "<cell-root>"))`, `(allow file-write* (subpath "<cell-root>/inputs"))` or `(allow file-read* (subpath "/Users/runner/.ssh"))` as a probe-harness need
+- **THEN** the check fails and names the unit and the kind whose anchor it fails, although none of these units covers a host-toolchain source, a denial-control target or the data volume, and the `spctl` exec also fails as a `process-*` unit outside the seven; an execution input is only `file-read*` or `process-exec` on `(literal "<helper>")`, a probe-harness need is only `file-read*` on `<cell-root>/inputs` or `<payload-root>`, and fa7's whole `<cell-root>` read cannot return as either kind
+
+#### Scenario: An operation matches its anchor by exact name
+- **WHEN** the ledger records `(allow file-write-data (subpath "<payload-root>"))` as the writable worktree, `(allow file-read-data (literal "/dev/urandom"))` as a device-set unit or `(allow file-read-metadata (subpath "/usr/bin"))` as a toolchain unit
+- **THEN** the check fails and names the unit and its operation, because an anchor that admits a family admits the family's own name and not its members; a change to an anchor's operations needs this delta to change
+
 #### Scenario: The candidate's process authority is seven named units
 - **WHEN** the check reads the candidate's process units
-- **THEN** they are exactly `(allow process-fork)` and the `process-exec` units for `<helper>`, `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`; any other `process-*` unit, including `process-exec` on `/usr`, `/usr/lib` or `/usr/share`, fails as unlisted; and the child-spawn prohibition on wider process authority reads against these seven
+- **THEN** they are exactly `(allow process-fork)` and the `process-exec` units for `<helper>`, `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`; any other `process-*` unit, including `process-exec` on `/usr`, `/usr/lib` or `/usr/share`, fails as unlisted when the ledger lacks it, and when the ledger lists it in either half it fails by the process rule and, in the baseline half, by its element's or kind's operation anchor; and the child-spawn prohibition on wider process authority reads against these seven
 
 #### Scenario: An unlisted or doubly classified unit fails
 - **WHEN** the check receives a template carrying one extra unit that is in neither half, such as `(allow sysctl-read)` or `(allow file-write-data (literal "/dev/null"))` without its ledger entry, or a ledger that lists one unit both as baseline and in the removal set
@@ -1181,15 +1257,15 @@ candidate.
 
 #### Scenario: A withdrawn unit returns only through the bounded experiment
 - **WHEN** a Seatbelt startup cell of the ledger candidate fails before `READY` and the restoration diagnostic for one withdrawn or narrowed fa7 unit, or the all-restored fa7-authority cell, advances the stages
-- **THEN** those cells stay non-passing and admit nothing, native denial evidence must name an operation and single-object target before a diagnosis-admitted entry with its own removal control enters, every denial control reruns, and no withdrawn unfiltered family, host tmp read, `(subpath "/System")`, `(subpath "/usr")` or whole-cell-root read returns
+- **THEN** those cells stay non-passing and admit nothing, native denial evidence must name an operation and single-object target before a diagnosis-admitted entry with its own removal control enters, every denial control reruns, an attribution to a `process-*` operation outside the seven process units stays evidence and never enters, and no withdrawn unfiltered family, host tmp read, `(subpath "/System")`, `(subpath "/usr")` or whole-cell-root read returns
 
 #### Scenario: An attributed /dev/null write is diagnosis-admitted
 - **WHEN** the child-spawn cells attribute the refusal to the null-stdio write open of `/dev/null`
-- **THEN** exactly `(allow file-write-data (literal "/dev/null"))` enters the diagnosis-admitted half with its own removal entry, the equality check passes only with both, and its necessity stays unproven until a cell that reaches `READY` observes that removal blocking
+- **THEN** exactly `(allow file-write-data (literal "/dev/null"))` enters the diagnosis-admitted half with its own removal entry, the equality check passes only with both, a baseline entry for it fails the operation anchor under every element and kind, and its necessity stays unproven until a cell that reaches `READY` observes that removal blocking
 
 #### Scenario: The data-volume spelling of a credential stays denied
-- **WHEN** a denial control reads the credential target through `/System/Volumes/Data`
-- **THEN** the read fails without returning bytes on every Seatbelt cell that runs the controls, exactly as the direct spelling does
+- **WHEN** the data-volume credential-read control reads `/System/Volumes/Data/private/etc/passwd`
+- **THEN** the read fails without returning bytes on every Seatbelt cell that runs the controls, exactly as the direct `/etc/passwd` read does; the check's control-target list holds that path as its own target beside the direct and `/private` spellings of `/etc/passwd` and `/etc/hosts`; and `/etc/hosts` carries no data-volume target or control, because the data-volume rule already refuses every unit on or under `/System/Volumes/Data`
 
 #### Scenario: The ledger candidate's startup is pending native measurement
 - **WHEN** the ledger candidate is prepared on the Linux controller
@@ -1603,3 +1679,46 @@ relevant change SHALL not be attributed to the final candidate.
   establish liveness, quiescence or survivors, which come from the external
   observer. This is probe observation semantics, not an accepted-addendum
   guarantee, so no proposed decision is needed.
+- **SEATBELT-R3-STARTUP-element-anchor-ignores-operation (analyze, `a633f13`):
+  every baseline anchor names its operations.** The anchors tested only a
+  unit's target, and only the shell anchor carried an operation. So a baseline
+  device-set `(allow file-write-data (literal "/dev/null"))` passed with no
+  removal entry, which bypassed the diagnosis-admitted discipline that the
+  child-spawn answer rules for exactly that predicate. A toolchain or
+  system-library `file-write*` also passed on paths the box binds read-only.
+  Answer: each anchor has an operation part and a target part, and the check
+  tests both. A toolchain unit admits `file-read*`, plus `process-exec` on the
+  five program binds only. A system-library or device-set unit admits
+  `file-read*`. The writable worktree admits `file-write*` on `<payload-root>`,
+  the baseline's only write. The shell admits `process-fork` alone. The
+  execution-input kind is anchored too: `file-read*` or `process-exec` on the
+  `<helper>` literal. The probe-harness kind is `file-read*` on
+  `<cell-root>/inputs` or `<payload-root>`. The seven-process-unit statement
+  becomes a check rule in both halves, which is what "no other `process-*`
+  operation is in the candidate" already said. Every candidate unit passes its
+  anchor, so no unit changes and no grant widens. Four alternatives are
+  refuted. Relying on "no wider than the image" is prose the check cannot
+  decide. Anchoring only the five elements would move the same bypass into the
+  two other kinds: the `/dev/null` write as a probe-harness need for "the
+  child's null stdout", or fa7's whole `<cell-root>` read as a probe-harness
+  need or an execution input. Matching operations by family prefix would read
+  `file-write-data` as covered by the worktree's `file-write*`, so the check
+  would admit operation names nobody listed. Exact names keep the vocabulary
+  closed. Anchoring the diagnosis-admitted half by element would contradict its
+  purpose, admitting what no element grants. Its bound stays the single-object
+  filter, the recorded evidence and the `READY`-observed removal. This is
+  probe-check semantics under the accepted boundary, not a new guarantee, so
+  no proposed decision is needed.
+- **SEATBELT-R3-STARTUP-data-volume-credential-targets-count (analyze,
+  `a633f13`): `/etc/passwd` alone.** The delta listed "the credential
+  targets" in their data-volume spelling in one place and named one
+  data-volume control in another. The design and the task give one control,
+  on `/etc/passwd`. Answer: `/etc/passwd` is the only credential target with
+  a data-volume spelling and a data-volume control, and that control's path,
+  `/System/Volumes/Data/private/etc/passwd`, is its own entry in the check's
+  control-target list. `/etc/hosts` keeps its direct and `/private` spellings
+  only. A data-volume member for every credential target is refuted. It would
+  change no verdict, because the data-volume rule already refuses every unit
+  on or under `/System/Volumes/Data`. One observed denial is enough to show the
+  candidate refuses the volume's spelling of a credential, and adding a second
+  control adds a native measurement with no new question behind it.

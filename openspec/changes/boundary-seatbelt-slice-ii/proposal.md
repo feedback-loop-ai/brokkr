@@ -168,6 +168,23 @@ data-volume rule now refuses every unit on or under `/System/Volumes/Data`. The
 candidate's rule units do not change, so its startup stays pending the same
 native Gate A.
 
+The analyze visit on `a633f13` found that the element anchors tested a unit's
+target and never its operation. Only the shell carried one. So a baseline
+device-set `(allow file-write-data (literal "/dev/null"))` passed with no
+removal entry, which bypassed the diagnosis-admitted discipline the
+child-spawn answer rules for that exact predicate. A toolchain or
+system-library `file-write*` also passed on a path the box binds read-only.
+This visit gives every baseline anchor an operation part as well as a target
+part. Toolchain units read, and exec only on the five program binds. System
+library and device-set units read. The writable worktree alone writes, on
+`<payload-root>`. The execution-input kind is `file-read*` or `process-exec`
+on the `<helper>` literal, and the probe-harness kind is `file-read*` on the
+two typed probe roots. The check now refuses a `process-*` unit outside the
+seven in either half. It also settles which credential target carries a
+data-volume spelling: `/etc/passwd` alone, through one control. The
+candidate's rule units do not change, so its startup stays pending the same
+native Gate A.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -254,9 +271,14 @@ measured, as accepted decision 0046 requires.
   Toolchain units never respell: a toolchain denial under another spelling is
   the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling`. Each
   hands-element entry names one element of a closed set and is tested against
-  its anchor. Only a toolchain unit may cover a bind source, in any of the
-  source's spellings, which include the `/private` spelling of an `/etc`
-  source. No unit may target anything on or under `/System/Volumes/Data`.
+  its anchor, which names the operations the element admits as well as its
+  target. A toolchain unit reads its bind and execs only on a program bind,
+  the device set only reads, and the writable worktree alone writes. The
+  execution-input and probe-harness kinds are anchored the same way. A
+  toolchain unit targets its bind source in the direct spelling only. No
+  other unit may cover any spelling of a bind source, including the
+  `/private` spelling of an `/etc` source. No unit may target anything on or
+  under `/System/Volumes/Data`.
   Only the system-library element keeps
   a typed, bounded correction. The ledger withdraws the self-signal,
   `/Library`, host tmp,
@@ -367,6 +389,8 @@ authored in this specify phase. No workflow runner is invoked.
 | Toolchain respelling vs the exact bind check (clarify, `d63cddf`) | **Adopt option 1: toolchain units never respell.** `d63cddf` required a toolchain unit to target exactly its `--ro-bind-try` source and also let a correction replace it with another resolved spelling. Both cannot hold. Keeping the exact check alone left the clause dead. Relabelling the unit as a non-toolchain element escaped the `box_argv` check, and "no wider than the element" had no mechanical test, which is fail-open. A toolchain denial under another spelling now keeps the unit's bind target, fails the cell and records the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling`. Changing it needs a focused proposed decision. Option 2, a typed same-object spelling per toolchain entry, is refuted. The check cannot prove two spellings name one object without the host, so it would have to trust a recorded path. The probe also names no consumer for `/usr/local`, the bind current macOS firmlinks into the data volume, so the residual costs this probe no named need. The relabelling escape is closed by rules the check can decide. Each hands-element entry names one element of a closed set: toolchain, system library, writable worktree, device set or shell. Each is tested against its anchor. Only a toolchain unit may cover a `box_argv` bind source. No unit of either half may target `/System/Volumes/Data`, a bind's data-volume spelling or a path under one, and no `subpath` may contain it. (That closure held only for data-volume spellings. The `48b6f9d` row below extends the cover rule to each source's `/private` spelling and the data-volume rule to every path under the volume.) Filtered baseline units use `literal` or `subpath`. The system-library element alone keeps a correction. The correction is typed with the unit it replaces, the resolved spelling and the evidence, and it may not equal or contain a withdrawn or narrowed fa7 target. The candidate's units are unchanged. | `seatbelt-execution`: A respelled toolchain unit fails however it is recorded; A bind's image cannot be relabelled out of the toolchain check; A system-library correction is typed and bounded |
 | Ledger anchor inputs (clarify, `a66b559`) | **Adopt a named item and typed, validated inputs.** The anchors read the `--ro-bind-try` sources `box_argv` renders, but `box_argv` also renders each declared `ro` bind, home-expanded, and the git common `config`. So `bundles/self`'s `~/.rustup` could anchor a "toolchain unit", and the verdict varied with the host's home and `GitFacts`. The host-toolchain list becomes one public `hands.rs` item, `HOST_TOOLCHAIN_BINDS`. `box_argv` iterates it with a byte-identical namespace argv, and the check reads it, never a rendered argv. That keeps `design.md`'s refusal of the argv as a policy oracle. A test binds the two: the rendered `--ro-bind-try` sources are exactly the item, the home-expanded declared `ro` binds and `<common>/config`. The named minimal invocation (no binds, no common directory, no bundle root) is refuted. It would still read an argv, depend on scratch paths and home-derived defaults, and let a future default bind enter the anchor silently. Declared binds and the common `config` are never toolchain binds. The check takes no `HandsSpec`, home or `GitFacts`, so its verdict cannot vary with them. The concrete cell root, payload root, inputs directory, helper and path-valued denial-control targets are typed inputs, validated before normalization: the layout `<cell-root>/{payload,inputs}`, absolute canonical spelling with no `/var`, `/tmp` or `/etc` symlink spelling, a cell root that is not `/` and is disjoint from every host-toolchain source, system-library target, device literal, control target and `/System/Volumes/Data`, and a helper disjoint from the cell root. The cover and data-volume rules, and a new rule that no unit covers a control target, read each unit's concrete target as well, so a placeholder hides nothing. The observer, not the string check, proves exclusive fresh creation, ownership and canonicalization equality, and the probe's silent uncanonical fallback is withdrawn. The candidate's rule units do not change. | `seatbelt-execution`: A declared read-only bind is not a toolchain bind; The git common config is not a toolchain bind; A git common directory under the payload root leaves the worktree unit valid; The check's verdict does not depend on HandsSpec, home or GitFacts; A mis-instantiated cell root fails before normalization; The payload and inputs layout is fixed; A non-canonical cell root or helper fails; A placeholder does not hide its concrete target; A unit that covers a denial-control target fails; The observer establishes what the string check cannot |
 | Host-toolchain `/private` spelling (clarify, `48b6f9d`) | **Adopt a fixed spelling set per source and a whole-volume data rule.** `48b6f9d` required the cell root and helper in their `/private` spelling and listed control targets in both spellings. It compared host-toolchain sources only directly. For the six `/etc` sources in `HOST_TOOLCHAIN_BINDS` that is fail-open. The cell root `/private/etc/ssl/brokkr-cell` passed validation and received the payload write, and a non-toolchain `(subpath "/private/etc/ssl")` or `(literal "/private/etc/ld.so.cache")` passed the cover rule. That contradicted the no-respelling ruling and the requirement that protections hold through macOS path aliases. Each source now has a spelling set from one fixed, host-independent map: the direct spelling, plus the `/private`-prefixed spelling when the first component is `etc`, `var` or `tmp`. The canonical-spelling rule and the control-target list use the same map. Cell-root validation and the cover rule, in normalized and concrete form, compare with every spelling, and a refusal names the source and the spelling it matched. The toolchain anchor still reads only the direct spelling, so no grant widens and no toolchain unit changes. An `/etc` toolchain unit would match nothing on macOS, and admitting its `/private` spelling waits for the focused decision under `SEATBELT-R3-STARTUP-toolchain-respelling`. The data-volume rule had two readings: "`/System/Volumes/Data` joined with that source" gave `/System/Volumes/Data/etc/ssl`, not the real `/System/Volumes/Data/private/etc/ssl`, while the refusal list read as any path under the volume. It now refuses every unit on or under `/System/Volumes/Data` and every `subpath` that contains it, in both places. That subsumes each source's data-volume spelling, matches the cell-root clause and makes the helper scenario hold on its only reading. Excluding the `/etc` sources from the comparison is refuted: no reason permits a cell root or a non-toolchain grant under a toolchain bind's resolved image. Extending helper validation to toolchain and control targets is not adopted either. It would contradict the settled scenario in which such a helper passes validation and the concrete cover rule refuses its units. The candidate's rule units, the settled answers and the namespace argv are unchanged. | `seatbelt-execution`: A host-toolchain source is compared in its /private spelling; A toolchain source's /private spelling cannot enter under another class; Nothing on or under the data volume enters under any class |
+| Hands-element anchors ignore the operation (analyze, `a633f13`) | **Adopt a two-part anchor for every baseline entry.** Every anchor tested only a unit's target, and only the shell anchor carried an operation. A baseline device-set `(allow file-write-data (literal "/dev/null"))` therefore passed with no removal entry. It is a literal on exactly `/dev/null`, off the data volume and clear of every toolchain source and control target. That contradicted the scenario in which the equality passes only with the diagnosis-admitted entry and its removal, and it bypassed the discipline for the very predicate the child-spawn cells may attribute. A toolchain `(allow file-write* (subpath "/usr/local"))` or a system-library `(allow file-write* (subpath "/System/Library"))` also passed, granting writes the box binds read-only. Each anchor now has an operation part and a target part, and operations match by exact name. A toolchain unit admits `file-read*`, and `process-exec` only on the five program binds `/usr/bin`, `/usr/libexec`, `/usr/local`, `/bin` and `/sbin`. System-library and device-set units admit `file-read*`. The writable worktree is `file-write*` on `<payload-root>`, the baseline's only write. The shell is `process-fork` alone. The execution-input kind is `file-read*` or `process-exec` on the `<helper>` literal. The probe-harness kind is `file-read*` on `<cell-root>/inputs` or `<payload-root>`. Anchoring only the five elements is refuted, because the bypass would move into the other two kinds. The check also refuses a `process-*` unit outside the seven in either half. That makes checkable what the delta already stated, that no other process operation is in the candidate. A process attribution outside the seven stays evidence. Family-prefix matching is refuted, because it would read `file-write-data` as covered by `file-write*`. The diagnosis-admitted half keeps its single-object filter, evidence and `READY`-observed removal as its bound, with no element anchor. Every candidate unit passes, so no unit changes. | `seatbelt-execution`: Every candidate baseline entry passes its two-part anchor; A baseline /dev/null write fails the operation anchor; A write on a read-only bind fails its element's operation anchor; Exec and fork are anchored to named targets; The execution-input and probe-harness kinds are anchored; An operation matches its anchor by exact name; The candidate's process authority is seven named units |
+| Data-volume credential targets (analyze, `a633f13`) | **`/etc/passwd` alone.** The delta said "the credential targets" had a data-volume spelling, but it named a single data-volume control. The design and the task give one control, on `/etc/passwd`. `/etc/passwd` is the only credential target with a data-volume spelling and control. Its path `/System/Volumes/Data/private/etc/passwd` is its own entry in the check's control-target list. `/etc/hosts` keeps its direct and `/private` spellings only. A data-volume member for every credential target is refuted, because the whole-volume rule already refuses every unit there and no verdict would change. | `seatbelt-execution`: The data-volume spelling of a credential stays denied |
 | Historical template authority | **Withdraw or narrow; never grandfather.** No 0043 element justifies the unfiltered process family, self-signal, `/Library`, host `/private/tmp`, the whole cell root, `sysctl-read` or `ipc-posix-shm`. `/System` also contains `/System/Volumes/Data`. Each is narrowed to a justified unit or withdrawn, and a withdrawn unit re-enters only through a labelled restoration diagnostic, native single-object attribution and its own removal control. A `/System/Volumes/Data` credential-read denial control is added. | `seatbelt-execution`: A withdrawn unit returns only through the bounded experiment; The data-volume spelling of a credential stays denied |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
@@ -498,22 +522,27 @@ form with one operation and at most one filter. The template's grouped
 exactly one unit. The grammar is closed. After the frame, every form is a
 single-operation `allow` form of simple filters, and the check refuses and
 names anything else. Baseline units trace to a 0043 hands element as `hands.rs`
-realizes it, an execution input or a named probe-harness need. A hands-element
-unit is never wider than its element, and names one element of a closed set
-whose anchor the check tests. The toolchain units are one subpath per
+realizes it, the helper as execution input, or a probe-harness read of a typed
+probe root. A hands-element unit is never wider than its element, and names
+one element of a closed set. Every baseline unit's anchor names its admitted
+operations and its target, and the check tests both, so no baseline unit
+writes outside `<payload-root>` or execs outside the helper and the program
+binds. The toolchain units are one subpath per
 `hands.rs` bind, checked against the `HOST_TOOLCHAIN_BINDS` item that
 `box_argv` iterates, and they never respell. Declared binds and the git common
 `config` are never toolchain binds, so the check's verdict does not vary with
 the hands spec, home or git layout. Its concrete roots and helper are typed
-inputs, validated before normalization. Only a toolchain unit may cover a
-bind source, in its direct or its `/private` spelling, and no unit may target
-anything on or under `/System/Volumes/Data`. A toolchain denial under another spelling is a named
+inputs, validated before normalization. A toolchain unit targets its bind
+source in the direct spelling only. No other unit may cover the source in its
+direct or its `/private` spelling, and no unit may target anything on or under
+`/System/Volumes/Data`. A toolchain denial under another spelling is a named
 startup residual that needs a proposed decision. Reads cover `/usr/bin`,
 `/usr/lib`, `/usr/libexec`, `/usr/share`, `/usr/local`, `/bin` and `/sbin`,
 and execs cover the program binds among them. `/System/Library` and the OS
 cryptex, the helper, the typed inputs and payload roots, and the box's device
 reads are baseline too. So is `process-fork`, the only unfiltered unit, and
-with the six `process-exec` units it is the whole process authority. The root-inode read is the one
+with the six `process-exec` units it is the whole process authority. The
+check refuses any other `process-*` unit in either half. The root-inode read is the one
 diagnosis-admitted unit, with removal entry `root-inode-read`. An attributed
 `/dev/null` write-data literal joins that half with its own removal entry.
 Every other fa7 unit is withdrawn or narrowed with a recorded reason. When the
@@ -530,7 +559,8 @@ the non-goals forbid it. Starting from an empty profile would discard
 authority the hands policy itself grants, such as executing the helper that
 `sandbox-exec` must run. `/dev/null` write-data stays diagnosis-admitted, the
 stricter class the child-spawn answer ruled, even though the box's device set
-could name it as baseline.
+could name it as baseline. The device-set anchor admits only `file-read*`, so
+the check itself keeps the write out of the baseline.
 
 This is a hypothesis, not evidence. If launchd exposes only process-group
 cleanup, requires private SPI, a privileged entitlement or global mutation,
