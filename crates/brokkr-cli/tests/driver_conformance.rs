@@ -1237,3 +1237,111 @@ printf '{{"type":"result","num_turns":1,"total_cost_usd":0.0}}\n'
         "{result}"
     );
 }
+
+/// Design D7's terminal half through the real driver protocol: a resumed
+/// invocation the provider answers with a DIFFERENT root — or with none —
+/// is `failed` even when the child exits zero and writes the current
+/// attempt's result. There is no accepted success, no guessed launch row
+/// and no replacement; the delivered file is left for diagnosis.
+#[test]
+fn a_resumed_mismatch_is_never_an_accepted_success() {
+    let other = "01a06183-0000-0000-0000-000000000000";
+    let offered = "019c4b7e-0000-0000-0000-000000000001";
+    for (case, announced) in [("a different root", other), ("no root", "")] {
+        let dir = tempfile::tempdir().unwrap();
+        let workdir = dir.path();
+        let result = workdir.join("results/fx.json");
+        std::fs::create_dir_all(workdir.join("results")).unwrap();
+        let announce = if announced.is_empty() {
+            String::new()
+        } else {
+            format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{announced}\"}}\\n'\n")
+        };
+        let shim = make_shim(
+            workdir,
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; \
+                 exit 0 ;; esac\ncat >/dev/null\ncase \"$*\" in *resume*)\n{announce}\
+                 printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\
+                 \"output_tokens\":1}}}}\\n'\n\
+                 printf '{{\"result\":\"delivered\"}}' > {result}\n\
+                 exit 0 ;; esac\nexit 0\n",
+                result = result.display()
+            ),
+        );
+        let input = json!({
+            "feature": "conformance", "phase": "work", "seat": "work",
+            "role_path": workdir.join("missing-role.md"),
+            "workdir": workdir,
+            "result_path": result,
+            "allowed_results": ["complete"], "context": {},
+            "boundary": "namespace", "hands": "boxed",
+            "resume_context": {"assessment": {"work-site": {
+                "status": "supported",
+                "identity": {"version": "0.153.4", "applies_to": "0.153.4"},
+                "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                "evidence": {"interface": "i", "restrictions": "r",
+                             "root": "o", "accounting": "a"},
+                "limitations": [], "reason": null
+            }}}
+        });
+        let messages = [
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ];
+        let operator_home = tempfile::tempdir().unwrap();
+        let codex_home = tempfile::tempdir().unwrap();
+        let mut child = Command::new(brokkr_bin())
+            .arg("driver")
+            .args(["codex", "--", "--sandbox", "read-only"])
+            .env("BROKKR_CODEX_BIN", &shim)
+            .env("HOME", operator_home.path())
+            .env("CODEX_HOME", codex_home.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for message in &messages {
+            writeln!(stdin, "{message}").unwrap();
+        }
+        drop(stdin);
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let parsed: Vec<Value> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert!(
+            std::fs::metadata(&result).is_ok(),
+            "{case}: the delivered file is retained for diagnosis"
+        );
+        let result_message = parsed
+            .iter()
+            .find(|m| m["type"] == "result")
+            .unwrap_or_else(|| panic!("{case}: one result: {parsed:?}"));
+        assert_eq!(result_message["status"], "failed", "{case}: {parsed:?}");
+        assert!(
+            !parsed
+                .iter()
+                .any(|m| m["type"] == "result" && m["status"] == "succeeded"),
+            "{case}: never an accepted successful seat: {parsed:?}"
+        );
+        assert!(
+            !parsed
+                .iter()
+                .any(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started"),
+            "{case}: no guessed launch: {parsed:?}"
+        );
+    }
+}
