@@ -358,7 +358,7 @@ enum RecipesCmd {
 /// Printed beside the compiled bundle and never written INTO it. A
 /// crossing is the realm's, exactly as the boundary is (decision 0046
 /// ruling 1 prints one under each hands site and keeps it out of no
-/// manifest it does not own; decision 0054 ruling 1), and what a run
+/// manifest it does not own; decision 0057 ruling 1), and what a run
 /// STOOD ON is recorded at run start on the run manifest
 /// (run-manifest/v10). Adding a `crossings` key to `bundle.manifest`
 /// would move every affected bundle's `manifest_digest` for a fact no
@@ -1777,7 +1777,7 @@ fn run_with(
             )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
-            // Decision 0054, on decision 0046's Addendum's terms: a
+            // Decision 0057, on decision 0046's Addendum's terms: a
             // resumed run is fenced where `run` and `rerun` are fenced,
             // before `drive()` and so before any seat spawns. Here, and
             // not inside `Engine::resume`, for two reasons that are one
