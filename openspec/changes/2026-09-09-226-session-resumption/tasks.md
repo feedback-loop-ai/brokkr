@@ -71,7 +71,7 @@ saved for the phase commit.
 
 ## 1. The proposed ruling (design D10)
 
-- [ ] 1.1 Amend the existing proposed
+- [x] 1.1 Amend the existing proposed
       `docs/decisions/0056-same-instance-session-resumption.md`
       with `Status: proposed`, in the register of the neighbouring
       decisions: context from #226 and the measured cold/resumed table,
@@ -627,7 +627,7 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 Complete each provider-local planner guard and its tests in
+- [x] 8.10 Complete each provider-local planner guard and its tests in
       `adapters/tests.rs` from the captured grammar: exact arity plus
       duplicate and precedence checks for every authoritative restriction,
       on cold and resume paths, without introducing a generic provider
@@ -699,7 +699,7 @@ saved for the phase commit.
       backfilled value; a legacy Codex row resumes without rewriting the
       checkpoint; a legacy composite and a DSH-directory-only history
       each start cold — evidence / LE4, evidence / LE5.
-- [ ] 9.7 Close the shared terminal guard and prove launch conformance across
+- [x] 9.7 Close the shared terminal guard and prove launch conformance across
       every built-in adapter in `adapters/tests.rs` and
       `crates/brokkr-cli/tests/driver_conformance.rs`: a different or missing
       required root followed by a clean exit, and the same mismatch followed
@@ -1633,3 +1633,70 @@ mandatory non-checkbox controller evidence.
 This tasks-only repair claims no Rust, provider, bundle or release-binary
 result. Those checks remain pending in dependency order before active-change
 reconciliation and pre-archive readiness.
+
+## Implement — 2026-09-10, run `complete-issue-226-in-full-adopt-2b5ab3ff`
+
+This visit completed the three repository-local tasks this change still had
+open, each with its named focused check, and made no provider claim.
+
+- **1.1** now carries the exact-head separation the F10 clarification
+  required. Ruling 10 in proposed `docs/decisions/0056-*` states that every
+  tracked repository-local obligation is finished and ticked before the
+  normal archive operation, that the delivery commit is an untracked phase
+  action, and that exact-head controller evidence — host exact coverage,
+  remote CI, integration, publication, PR, merge and issue closure — is
+  recorded outside the checked task state and this artifact, because
+  checking it would mutate the head it judges. Its enforcement binding names
+  design D9/D11's finalization order. `Status: proposed` is unchanged.
+  Check: `cargo test -p brokkr-cli --test decisions_index --locked`.
+- **8.10** gains `claude_restriction_conflict` in
+  `crates/brokkr-protocol/src/adapters.rs`: each authoritative Claude
+  restriction control (permission mode, tools list, strict-MCP config,
+  MCP config, allowed/disallowed tools including the alias pair, model,
+  effort) is refused when duplicated or when a value-taking spelling has no
+  value, on both cold and resume paths, before any provider work. The
+  existing exact-argv, class/model/effort, selector, version-drift,
+  identifier, DSH and hands-refusal tests are unchanged and still pass.
+- **9.7** gains `Invocation.launch`/`LaunchTerminal`: `run_seat` now fails
+  an invocation whose rejoin was never confirmed, or confirmed a different
+  root, even when the child exits zero and writes the result file, with no
+  guessed launch and no replacement (`adapters.rs`, `adapters/tests.rs`),
+  plus a codex wire-level conformance case in
+  `crates/brokkr-cli/tests/driver_conformance.rs`.
+
+**Still pending, and why no archive can yet run.** The live provider proofs
+10.5–10.8 and the enablement 11.1–11.4 they gate cannot be produced from
+this box, so 14.1–14.2, 15.1–15.4, 15.6, 15.7 and the final archive
+transaction remain open:
+
+- The root filesystem is mounted read-only; only this worktree and `/tmp`
+  are writable. `$CODEX_HOME` (`~/.codex`) and `$CLAUDE_HOME`
+  (`~/.claude`) therefore cannot persist anything, and `$DSH_HOME`
+  (`~/.dsh`) cannot compose a profile.
+- Codex: `codex exec` fails at `failed to initialize in-process app-server
+  client: Read-only file system (os error 30)` before any session exists.
+- Claude: a cold `2.1.266` print/stream-json run succeeds and names a
+  session id, but `--resume <id>` answers `No conversation found with
+  session ID: …` because the transcript home cannot be written. The
+  installed symlink is 2.1.267 while the measured identity is 2.1.266.
+- DSH: independently verified against the installed `0.1.2-rc.1` bytes
+  (40/40 captured-source hashes match). `dsh-headless` accepts only `task`
+  and always calls `agents.create` with `session-${randomUUID()}`; no
+  supported declarative per-invocation route reaches a restored root, so
+  10.7 has no route to prove and 11.3 has no shape to enable. The upstream
+  capability is that `dsh-headless` must accept a session/resume identifier
+  in its supported config schema and route its admitted task, event
+  interval, summary and flush to the restored agent.
+- LaneTally: `~/.local/bin/claude-lanetally` execs into
+  `/home/vyanakiev/source/feedback-loop-ai/lanetally/rollout/session-wrapper.sh`,
+  a sibling worktree this commission forbids touching, so 10.8/11.4 cannot
+  be measured here and LaneTally stays declared-unsupported.
+
+AS1's measured-impossibility path therefore applies: the delivery minimum
+answer A requires is unmet, and the owning specification owns the return
+with the measured reason. No adapter status was flipped, no unmeasured
+shape was enabled, no provider setting or installed package was changed,
+and no credential or private transcript was read. The focused Rust suites
+above, `cargo fmt --all -- --check`, and the protocol/cli clippy runs pass
+on this tree; the full host gates 15.1–15.4 and the archive effect are not
+claimed.
