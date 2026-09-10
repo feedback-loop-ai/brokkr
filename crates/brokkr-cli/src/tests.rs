@@ -3613,3 +3613,34 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     .to_string();
     assert!(refusal.contains("belong to 'supersede'"), "{refusal}");
 }
+
+#[test]
+fn replayed_crossing_view_preserves_declarations_without_inventing_observations() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("realms.json");
+    let map = json!({
+        "schema": "forge.realms/v5",
+        "realms": [{
+            "name": "publisher", "path": "publisher", "default_branch": "main",
+            "publishes": [{"name": "orders.api", "path": "contracts/orders.json"}]
+        }],
+        "journal": "state/forge.db"
+    });
+    let manifest = json!({"realms": {
+        "source": source.to_string_lossy(),
+        "sha256": sha256_hex(&map),
+        "map": map
+    }});
+    // Replay has declarations but performs no filesystem discovery. A view
+    // must retain the declared path without fabricating observed bytes.
+    let world = World::from_manifest(&manifest).unwrap().unwrap();
+    assert_eq!(
+        crossings_view(&world),
+        Some(json!({"publisher": {
+            "publishes": [{"name": "orders.api", "path": "contracts/orders.json"}],
+            "consumes": []
+        }}))
+    );
+    assert!(!source.exists());
+    assert!(!dir.path().join("publisher").exists());
+}

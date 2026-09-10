@@ -54,7 +54,10 @@ fn report_realm(
 ) {
     report_realm_world(
         report,
-        brokkr_runtime::realms::World::discover(workspace, named),
+        // `inspect`, exactly as `doctor()` reads it: a doctor line
+        // reports and never refuses, so the loader it stands on is the
+        // one that carries a moved crossing as data.
+        brokkr_runtime::realms::World::inspect(workspace, named),
         workspace,
         probe,
         unexpected_box,
@@ -210,6 +213,172 @@ fn doctor_reports_a_realm_without_a_dialect() {
     let report = dialects(&world, always_missing, box_missing);
     assert_eq!(report.render(), "ok       dialect app: none declared");
     assert!(report.healthy);
+}
+
+/// A world with a crossing drawn across it, and the published file's
+/// bytes optionally moved out from under the pin. Two realms, each its
+/// own directory and its own house, so a crossing's failure can be told
+/// apart from every other line this readout carries.
+fn crossing_world(dir: &Path, moved: bool) {
+    let pin = brokkr_core::canonical::sha256_bytes(b"{\"title\": \"orders\"}\n");
+    for realm in ["alpha", "beta"] {
+        std::fs::create_dir_all(dir.join(realm)).unwrap();
+        std::fs::write(dir.join(realm).join("HOUSE.md"), "House.\n").unwrap();
+    }
+    std::fs::create_dir_all(dir.join("alpha/contracts")).unwrap();
+    let published = dir.join("alpha/contracts/orders.v1.schema.json");
+    let bytes = match moved {
+        true => "{\"title\": \"Orders\"}\n",
+        false => "{\"title\": \"orders\"}\n",
+    };
+    std::fs::write(&published, bytes).unwrap();
+    std::fs::write(
+        dir.join("realms.json"),
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": "alpha", "default_branch": "main",
+                 "house": "HOUSE.md",
+                 "publishes": [{"name": "orders.api",
+                                "path": "contracts/orders.v1.schema.json"}]},
+                {"name": "beta", "path": "beta", "default_branch": "main",
+                 "house": "HOUSE.md",
+                 "consumes": [{"name": "orders.api", "realm": "alpha", "sha256": pin}]},
+            ],
+            "journal": ".forge/forge.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+fn realm_report(dir: &Path) -> Report {
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm(&mut report, dir, None, always_missing);
+    report
+}
+
+/// Decision 0057 through doctor, on decision 0046's Addendum's terms: a
+/// crossing that has moved is one realm's LINE, not the end of the
+/// readout. The world still exists — its houses, its dialects, its
+/// boundaries all still answer — and what a run would have refused is
+/// reported here, keyed to the failing realm and the failing crossing,
+/// in the run's own words.
+#[test]
+fn doctor_reports_a_moved_crossing_as_a_line_and_not_a_broken_world() {
+    let dir = tempfile::tempdir().unwrap();
+    crossing_world(dir.path(), true);
+    let report = realm_report(dir.path());
+    let rendered = report.render();
+
+    // The publisher is sound and says so; the consumer's pin is not, and
+    // its line names the realm, the crossing, the pin and what is there.
+    assert!(
+        rendered
+            .contains("ok       crossings alpha: 1 published file(s) present, 0 pin(s) matching"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "MISSING  crossings beta 'orders.api': realm 'beta' consumes crossing \
+             'orders.api' from realm 'alpha' pinned at "
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("orders.v1.schema.json hashes to "),
+        "{rendered}"
+    );
+    assert!(!report.healthy, "a moved crossing is not healthy");
+
+    // And nothing else collapsed: the world came into existence, so the
+    // house count and BOTH realms' dialect lines are still there, and
+    // the map itself was never reported as broken.
+    assert!(
+        rendered.contains("ok       house rules: 2 realm declaration(s) readable"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect alpha: none declared"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect beta: none declared"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("realms map"), "{rendered}");
+
+    // The same world with its bytes intact: both realms report ok, and
+    // the readout is healthy.
+    let sound = tempfile::tempdir().unwrap();
+    crossing_world(sound.path(), false);
+    let report = realm_report(sound.path());
+    assert!(
+        report
+            .render()
+            .contains("ok       crossings beta: 0 published file(s) present, 1 pin(s) matching"),
+        "{}",
+        report.render()
+    );
+    assert!(report.healthy);
+}
+
+/// The other half of the same honesty: when the PUBLISHER's file cannot
+/// be read, its consumer's pin was compared to nothing, and doctor says
+/// so. It must not print the sound realm's line for beta — "1 pin(s)
+/// matching" beside "alpha's file is missing" would claim one contract
+/// both verified and unread — and it must not charge beta with a failure
+/// either, because the missing file is alpha's to answer for.
+#[test]
+fn doctor_never_calls_a_pin_matching_when_its_publisher_could_not_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    crossing_world(dir.path(), false);
+    std::fs::remove_file(dir.path().join("alpha/contracts/orders.v1.schema.json")).unwrap();
+    let report = realm_report(dir.path());
+    let rendered = report.render();
+
+    assert!(
+        rendered.contains("MISSING  crossings alpha 'orders.api': realm 'alpha' publishes"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "warn     crossings beta 'orders.api': pin not checked: realm 'alpha' \
+             publishes it and its file could not be read"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("crossings beta: "),
+        "beta's unchecked pin was counted as verified: {rendered}"
+    );
+    assert!(!report.healthy, "the publisher's missing file is unhealthy");
+
+    // And the whole world is still reported, as ever: this is a line, not
+    // a collapse.
+    assert!(
+        rendered.contains("ok       house rules: 2 realm declaration(s) readable"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("realms map"), "{rendered}");
+}
+
+/// A world that never drew a crossing gets no crossing line at all —
+/// byte for byte the readout it gave before this existed.
+#[test]
+fn doctor_adds_no_crossing_line_to_a_world_that_draws_none() {
+    let dir = tempfile::tempdir().unwrap();
+    world_of(dir.path(), vec![realm_json("app", false, None)]);
+    let rendered = realm_report(dir.path()).render();
+    assert!(!rendered.contains("crossings"), "{rendered}");
+    assert_eq!(
+        rendered,
+        "ok       house rules: 0 realm declaration(s) readable\n\
+         ok       dialect app: none declared"
+    );
 }
 
 #[test]

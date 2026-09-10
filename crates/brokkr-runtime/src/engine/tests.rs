@@ -3965,6 +3965,118 @@ fn a_run_with_no_map_writes_exactly_the_manifest_it_always_did() {
     let manifest = engine.store.manifest(&engine.run_id).unwrap();
     assert_eq!(manifest, engine.bundle.manifest);
     assert!(manifest.get("realms").is_none());
+    // And no `crossings` either, for the same reason (run-manifest/v10):
+    // a run with no world stood on nothing there is anything to say about.
+    assert!(manifest.get("crossings").is_none());
+}
+
+/// The world Phase 2 slice (i) built, with slice (ii)'s crossing drawn
+/// across it and slice (iii)'s loader having read the bytes: a run in it
+/// testifies to the contract it stood on, from the journal alone
+/// (decision 0057, recorded on decision 0023 ruling 4's terms). The
+/// digest is the one the LOADER observed — nothing here opens that file
+/// a second time.
+#[test]
+fn a_run_in_a_world_with_a_crossing_records_the_digest_it_stood_on() {
+    let (dir, _, _) = crate::realms::tests::two_repositories();
+    let bytes = "{\"title\": \"orders\"}\n";
+    let (path, pin) = crate::realms::tests::published_by_alpha(dir.path(), bytes);
+    std::fs::write(
+        dir.path().join("realms.json"),
+        crate::realms::tests::crossing_map(&pin),
+    )
+    .unwrap();
+    let world = crate::realms::World::discover(dir.path(), None)
+        .unwrap()
+        .unwrap();
+    let beta = dir.path().join("beta");
+    let engine = engine_in(dir.path(), Some(world), &beta);
+
+    let manifest = engine.store.manifest(&engine.run_id).unwrap();
+    // Per publishing realm, per crossing name: where the bytes were read
+    // and what they hashed to — measured against the digest of the bytes
+    // this test wrote, not read back off the map's own declaration.
+    assert_eq!(
+        manifest["crossings"]["alpha"]["orders.api"],
+        json!({"source": path.display().to_string(), "sha256": pin}),
+    );
+    assert_eq!(
+        pin,
+        brokkr_core::canonical::sha256_bytes(bytes.as_bytes()),
+        "the recorded digest is the sha256 of the published file's raw bytes",
+    );
+    // Declaration beside observation, two keys, two questions. The
+    // consuming realm's own pin still rides inside the embedded map.
+    assert_eq!(
+        manifest["realms"]["map"]["realms"][1]["consumes"][0]["sha256"],
+        json!(pin),
+    );
+    assert!(manifest["realms"].get("crossings").is_none());
+
+    // From the journal alone, forever: the manifest rides inside
+    // run/started, which is why no new event type was needed.
+    let started = &engine.store.load(&engine.run_id).unwrap()[0];
+    assert_eq!(started.payload["manifest"], manifest);
+
+    // And it is the contract it claims: run-manifest/v10.
+    let schema: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../contracts/run-manifest.v10.schema.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        jsonschema::draft7::new(&schema)
+            .unwrap()
+            .is_valid(&manifest),
+        "{manifest}"
+    );
+
+    // The trap, closed: `bundle_manifest_from_run` rebuilds from six
+    // named keys and drops the rest, so a workspace key it did not drop
+    // would make every adopting run unresumable with a diff that blames
+    // no file. Crossings are workspace data, dropped in the same removal
+    // as the map — the bundle digest a resume compares is unmoved.
+    assert_eq!(
+        brokkr_core::dispatch::bundle_manifest_from_run(&manifest).unwrap(),
+        engine.bundle.manifest,
+    );
+    assert_eq!(
+        brokkr_core::canonical::sha256_hex(
+            &brokkr_core::dispatch::bundle_manifest_from_run(&manifest).unwrap()
+        ),
+        brokkr_core::canonical::sha256_hex(&engine.bundle.manifest),
+    );
+}
+
+/// The same two repositories with no crossing between them: the run
+/// stores the exact v9 shape, key for key. Two realms are not what makes
+/// the property appear — a published file is.
+#[test]
+fn a_two_realm_run_with_no_crossing_stores_the_exact_earlier_shape() {
+    let (dir, _, _) = crate::realms::tests::two_repositories();
+    let world = crate::realms::World::discover(dir.path(), None)
+        .unwrap()
+        .unwrap();
+    let beta = dir.path().join("beta");
+    let engine = engine_in(dir.path(), Some(world), &beta);
+    let manifest = engine.store.manifest(&engine.run_id).unwrap();
+    assert!(manifest.get("crossings").is_none(), "{manifest}");
+    assert!(manifest.get("realms").is_some());
+    let v9: Value = serde_json::from_slice(
+        &std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../contracts/run-manifest.v9.schema.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        jsonschema::draft7::new(&v9).unwrap().is_valid(&manifest),
+        "a world with no crossing writes a manifest v9 still validates",
+    );
 }
 
 /// Ruling 5: the repository facts a decision records are keyed by the
