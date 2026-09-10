@@ -51,7 +51,12 @@ implementation and review.
   Show the correct full-session location and measured command spelling:
   Claude's `claude --resume <id>`, Codex's rollout path and
   `codex exec resume <thread>`, and DSH's session file without inventing a
-  resume command. These are display hints and execute nothing.
+  resume command. These are display hints and execute nothing. Render every
+  path/home fragment as a reversible portable display literal whose payload
+  emits only ASCII alphanumerics plus `/._-:` directly and JSON-escapes every
+  other Unicode scalar; separate Codex fields with commas, never shell command
+  separators. Thus an agent-controlled retained name cannot contribute raw
+  substitution, quoting or operator syntax when the hint is copied.
 - Apply the existing 4,000,000-byte displayed-block budget to every kind,
   with bounded source reads and discovery and an explicit truncation
   notice shared by text, JSON and both TUI doors. Preserve journal privacy,
@@ -136,9 +141,12 @@ The earlier fold introduced the following three capabilities into living truth:
 
 ### Modified Capabilities
 
-- `transcript-command`: on this returned visit, distinguish the references a
-  current frozen seat-record can carry into the CLI from the pure reader's
-  defensive handling of directly supplied unknown kinds.
+- `transcript-reading`: replace executable-looking JSON path/home quoting with
+  reversible portable display literals and command-separator-free framing.
+- `transcript-command`: retain the current-journal fence and consume the new
+  exact shared Codex/DSH values in both output modes.
+- `transcript-tui`: consume the same safe shared value in the pane and both
+  reading doors without independently re-encoding it.
 
 Because the premature archive already folded all three original additions, the
 reactivated deltas express the complete requirements as `MODIFIED` against that
@@ -870,3 +878,59 @@ advocacy remains rejected by the review. This specification office changes no
 production file, decision, frozen byte, design or task content for those
 findings; subsequent phases must repair and prove them without narrowing the
 story.
+
+### S17 — Review return replaces executable-looking path quoting
+
+This visit adopts reviewed head `bde819ac` and answers every review finding
+without reopening R1–R24 or narrowing #222. Review R1 supplies concrete new
+evidence that the earlier full-session encoding was unsafe: JSON string
+literals leave `$()` and backticks active inside the double quotes recognized
+by common shells, so the assertion that the encoding introduced no shell
+expansion was false. This is an upstream specification defect in
+`transcript-reading`, not a downstream implementation choice.
+
+The owning requirement now uses one reversible **portable display literal**.
+It is a valid double-quoted JSON string literal, but emits only ASCII letters,
+digits, `/`, `.`, `_`, `-` and `:` directly within the quotes. Every other
+Unicode scalar is represented with JSON `\u` escapes with lowercase hexadecimal digits, using a
+surrogate pair where JSON requires one. This preserves the exact Unicode
+path/home after JSON decoding while keeping raw whitespace, quotes, reverse
+solidus, `$`, backtick, `%`, `!` and every ASCII shell operator out of the
+untrusted fragment. The Codex line uses comma-separated descriptive fields
+instead of semicolons, so its fixed framing contributes no command separator
+either. POSIX single-quote construction is rejected because the same value is
+shown on Windows and because this is portable display data, not shell syntax.
+Deleting or replacing suspicious path characters is rejected because the
+reader must report the confirmed source losslessly. Merely applying terminal
+sanitization is rejected because printable substitution and operator
+characters are not terminal controls.
+
+The new adversarial scenario binds the exact shared value across CLI text and
+JSON, both TUI doors and browser participant presentation, and requires that
+copying the complete hint cannot evaluate a path/home-supplied substitution or
+split a path/home-supplied command. `transcript-command` updates its exact
+Codex and DSH examples, while `transcript-tui` explicitly consumes the same
+safe value. Proposed decision 0055 must replace its JSON-literal ruling with
+this portable-display rule and the council design and tasks must carry the
+same encoder and cross-surface proof before implementation resumes.
+
+Review R2–R7, R10–R17, R19 and R20 are implementation or omitted-proof defects
+against requirements already present in the three deltas: exact DSH numeric
+admission, recursive supported result content and media omission, readable
+assembly contribution, wrong-typed-member counting, atomic TUI refresh,
+acquisition-boundary identity, cross-surface/privacy matrices, the inclusive
+header bound, missing-subject clearing, quiet Codex kinds, checked turn
+conversion, safe stderr/JSON terminal representation, checked Windows path
+length, text-mode rejection coverage and the measured DSH `content` mapping.
+They provide no evidence for different semantics. R8, R9 and R18 are
+downstream CI/task/dependency-admission defects: the Rust 1.88 job must compile
+all targets/features, a successful advisory audit must replace the failed
+read-only-database attempt, and Boa's production lockfile consequences must be
+admitted explicitly. R21 is an informational resource-risk observation for
+implementation/review; it does not establish a remote path or contradict the
+specified bounded recurring re-check. R22's attempt to direct the gate is
+reasoned advocacy rather than product evidence and is rejected as authority;
+the independent review result and medium residual floor stand. This office
+therefore changes only the proposal and capability deltas. The returned council
+must reconcile design, proposed 0055 and tasks in dependency order rather than
+masking this repaired upstream rule in code.

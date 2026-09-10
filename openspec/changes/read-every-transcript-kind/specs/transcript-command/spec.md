@@ -202,7 +202,7 @@ explicit version change in its schema identifier.
 
 #### Scenario: A missing Codex rollout has a fixed full-session value
 - **WHEN** a participant's valid reference is `{"kind":"codex-thread","locator":"019c-222a","home":"/retained/codex"}` and lookup finds no matching file
-- **THEN** JSON has `path: null`, `unavailable: "not-found"` and `full_session: "full session: rollout unavailable; codex exec resume 019c-222a; home: \"/retained/codex\""`, exactly, with empty turns and zero diagnostic counts; the command exits one
+- **THEN** JSON has `path: null`, `unavailable: "not-found"` and `full_session: "full session: rollout unavailable, codex exec resume 019c-222a, home \"/retained/codex\""`, exactly, with empty turns and zero diagnostic counts; the command exits one
 
 #### Scenario: Missing Claude and DSH files have distinct fixed hints
 - **WHEN** valid Claude id `abcd-1234` and a valid DSH reference each lack a matching local file
@@ -227,7 +227,7 @@ explicit version change in its schema identifier.
 
 #### Scenario: Rejected DSH header versions have a fixed command document
 - **WHEN** the selected common reference is `{"kind":"dsh-session","locator":"sessions/brokkr/seat-222","home":"/retained/dsh"}` and its unique safe file `/retained/dsh/sessions/brokkr/seat-222/project/root/session.jsonl` has an owned header with foreign, missing or mistyped version and a usable source below the source cap, including malformed or readable-looking later rows
-- **THEN** JSON exits one with the resolved run/key, that unchanged `transcript`, `legacy: false`, the confirmed `path`, `full_session: "full session: \"/retained/dsh/sessions/brokkr/seat-222/project/root/session.jsonl\""`, `turn: null`, `turns: []`, `unavailable: "unsupported-format"`, `truncated: false`, zero diagnostic counts and `notices: []`
+- **THEN** JSON exits one with the resolved run/key, that unchanged `transcript`, `legacy: false`, the confirmed `path`, `full_session: "full session: path \"/retained/dsh/sessions/brokkr/seat-222/project/root/session.jsonl\""`, `turn: null`, `turns: []`, `unavailable: "unsupported-format"`, `truncated: false`, zero diagnostic counts and `notices: []`
 - **AND** `--turn 1` or `--turn 999` changes only `turn` to the requested index; measured source overflow instead sets `truncated: true` and adds only `transcript truncated (size cap)`, with counts still zero; text mode exits one with empty stdout and sanitized stderr naming the same refusal and `DSH transcript format is not supported`, without header or event payloads
 
 #### Scenario: DSH format support cannot select between root candidates
