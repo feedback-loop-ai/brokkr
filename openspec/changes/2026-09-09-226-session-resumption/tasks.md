@@ -15,11 +15,12 @@ controller-owned evidence outside the tracked task state.
 Execution order is that order with one declared exception, because two
 groups consume what group 10 produces. Group 10 is split at its own
 seam. **10.1–10.4 are interface investigation**: they read installed
-help, installed source and packages, and the dated captures under
-`.forge/`, and they run **before** group 8's provider-specific
-construction (8.5–8.9) and group 9's accounting boundaries (9.1–9.3),
-whose argv, routes and cursors are their output — 8.8's DSH route is
-10.3's, and 9.1's current-work cursor is measured, not assumed.
+help, installed source and packages, the dated captures under
+`.forge/`, and the supplied exact-version upstream checkouts, and they run
+**before** group 8's provider-specific construction (8.5–8.9) and group 9's
+accounting boundaries (9.1–9.3), whose argv, routes and cursors are their
+output — 8.8's DSH route is 10.3's exact 0.1.5-rc.1/plugin 0.2.0 candidate,
+and 9.1's current-work cursor is measured, not assumed.
 **10.5–10.8 are live enforcement proof**: they need dated controller
 host evidence that does not exist in this worktree, they run after
 groups 8 and 9, and they gate group 11 and nothing else. Every task that
@@ -34,7 +35,8 @@ Capability short names below are `site` (`site-session-resumption`),
 `safety` (`adapter-resume-safety`), `evidence` (`adapter-launch-evidence`),
 `progress` (`sdd-progress-markers`), and `boundary` (`boundary-record`,
 requirement **The seat record carries the boundary as seat-record/v4**).
-The fifth capability is the F7 MODIFIED delta; the original four remain ADDED.
+Across the five capability deltas, AS1–AS3, PM4 and the F7 boundary
+requirement are MODIFIED; the other fifteen requirements remain ADDED.
 
 Conventions binding on every task, restated once rather than per task:
 
@@ -52,12 +54,15 @@ Conventions binding on every task, restated once rather than per task:
   record validation. They are labelled shim evidence and never cited as
   live provider enforcement (`evidence / LE5`).
 - No invented CLI syntax, provider event name, telemetry or config key.
-  Provider-specific construction spends the dated controller captures
-  under `.forge/` and nothing else (`safety / AS1`). Those captures are
-  indexed in `.forge/controller-provider-evidence-index.md`: the host
-  interface capture, the four-file DSH headless capture, and the 40-file
-  DSH session/agent/settings source capture the design's D6 reads. The
-  index is source inspection evidence only and enables nothing.
+  Provider-specific construction spends the dated controller captures under
+  `.forge/`, the exact upstream sources identified by
+  `.forge/tasks/controller-dsh-upstream-discovery.json`, and nothing else
+  (`safety / AS1`). `.forge/controller-provider-evidence-index.md` indexes the
+  earlier host interface, four-file DSH headless and 40-file DSH
+  session/agent/settings captures. The 2026-09-10 controller evidence adds
+  official core 0.1.5-rc.1 and the selected CLI-session plugin as supported
+  interface evidence, plus partial Claude observations; none of those source
+  inspections or partial probes enables a shape by itself.
 - No push, no merge, no new run, no issue closure, no global provider
   settings change. Commits are unsigned and in the repository's message
   style.
@@ -603,16 +608,36 @@ saved for the phase commit.
       it, keep the wrapper and its capture marker, gate the planner
       separately and never substitute plain Claude to make resume
       work — safety / AS1, evidence / LE4.
-- [x] 8.8 DSH: keep the admitted headless profile, the Rust-owned
-      per-invocation overlay, the model and effort settings and the
-      retained transcript scope, and add owned-session selection only
-      through the supported settings or extension route that task 10.3
-      establishes — 10.3 is this task's prerequisite, and if it reports
-      AS1 upstream this task does not proceed on a guessed route. The
-      launcher's TUI `--resume` is not forwarded to
-      headless, and the retained directory is not treated as a provider
-      handle. An unsupported hands shape stays refused — safety / AS1,
-      safety / AS2, safety / AS3.
+- [ ] 8.8 DSH: implement 10.3's exact isolated route for official core
+      0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and
+      `dsh-plugin-cli-session` 0.2.0 at
+      `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Keep the admitted
+      headless profile and Rust-owned persistence/model/effort overlay; use the
+      plugin's explicit `--new --output-format stream-json` cold form and
+      `--session <owned-id> --output-format stream-json` warm form. Extend only
+      the private engine/start context so DSH receives an owned target containing
+      the provider ID and the already-recorded persistence locator; leave
+      `Body::Resume` and driver protocol v1 unchanged, and publish
+      `root_session` plus the complete `transcript` locator atomically on the
+      same stamped launch checkpoint. Resolve that locator beneath the admitted
+      originating DSH home, require its bounded relative form, depth-zero header
+      and exact ID, and decline truncation, ambiguity, `..` or symlink escape
+      without scanning for or creating a substitute root. Record the observed
+      core version in `harness_version` and a canonical digest of Node, resolved
+      dependencies, plugin bytes, Cordis patch/composed profile and any measured
+      adapter-owned extension in `wrapper_digest` and the assessment/instance
+      identity; any component drift disables resume. Reject user `--session`,
+      tag resume, `--new`, `--list`, `--workdir`, `--profile`, `--patch`,
+      `--output-format`, model/effort or settings controls on cold and warm
+      paths. Never forward the launcher's TUI example, treat the retained
+      directory as a provider handle, alter the live global pin/profile, add an
+      SDK runner or admit hands. If 10.7 demonstrates that the documented setup
+      or pre-work observation hook is insufficient, return this task to pending
+      and add only the narrow Cordis extension D6 permits through the documented
+      API, include it in the composite identity, then rerun 10.7; do not patch
+      provider packages or intercept UUIDs. Verify with the DSH planner/storage
+      shim cases in 8.10 and 9.6 before ticking — safety / AS1, safety / AS2,
+      safety / AS3, site / SR3, site / SR5.
 - [x] 8.9 Implement SR3's two identity origins: harvest the
       provider-generated root for the known Claude and Codex paths, and
       support a fresh engine- or adapter-assigned creation ID only where
@@ -627,23 +652,28 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [x] 8.10 Complete each provider-local planner guard and its tests in
+- [ ] 8.10 Complete each provider-local planner guard and its tests in
       `adapters/tests.rs` from the captured grammar: exact arity plus
       duplicate and precedence checks for every authoritative restriction,
       on cold and resume paths, without introducing a generic provider
-      grammar. For Claude, independently refuse a second or last-wins
-      permission mode, tools list, strictness/MCP document, allowed-tools
-      list, model or effort control rather than appending `extra` wholesale.
-      Also cover the exact resume argv per adapter; the complete current
-      class, model and effort on the resume path; the generated fragment
-      admitted where passthrough of the same shape is not; no ambient
-      continuation on the cold or gate path; a nonpersistent shape declared
-      nonresumable; a changed CLI or wrapper version disabling resume;
-      identifier injection refused; DSH's retained directory not offered as
-      a handle; a DSH profile or wrapper override declining the resume with a
-      bounded reason; an unsupported hands request still refused; and neither
-      resume nor cold able to honour the class ending in refusal — safety /
-      AS2, safety / AS3, site / SR3.
+      grammar. Preserve the completed Claude cases that independently refuse a
+      second or last-wins permission mode, tools list, strictness/MCP document,
+      allowed/disallowed-tools list (including alias spellings), model or effort
+      control rather than appending `extra` wholesale. Add the selected DSH pair's exact `--new` and
+      `--session <owned-id>` argv, `stream-json`, admitted profile, current directory,
+      originating persistence root and Rust-owned model/effort/settings overlay;
+      prove no user selector/profile/patch/output/model/effort/settings spelling
+      competes, and that core, Node, dependency, plugin, patch, composed-profile
+      or optional extension drift yields `unverified-harness` before provider
+      work. Cover bounded locator round-trip and refusal of truncation,
+      ambiguity, traversal and symlink escape; a retained directory is never a
+      handle. Retain the exact resume argv and complete current class/model/
+      effort cases for every other adapter, generated-fragment versus passthrough
+      distinction, no ambient cold/gate continuation, nonpersistent refusal,
+      identifier injection, unsupported hands and cold/resume inability to
+      honour the class. Label these deterministic planner/storage shims rather
+      than live DSH compatibility or enforcement evidence — safety / AS1,
+      safety / AS2, safety / AS3, site / SR3, site / SR5, evidence / LE5.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
@@ -690,15 +720,23 @@ saved for the phase commit.
       equated with a session. A new row without confirmed root cannot
       fall back to legacy fields to evade confirmation — site / SR3,
       evidence / LE4.
-- [x] 9.6 Tests: a replayed stream of ten historical turns followed by
-      two new ones records two; an unattributable lifetime total is
-      omitted with the limitation documented; a DSH followup over
-      retained storage journals only new events; a LaneTally resume keeps
-      its capture marker and adds no other ledger entry; a historical
-      journal with no launch field still validates and gains no
-      backfilled value; a legacy Codex row resumes without rewriting the
-      checkpoint; a legacy composite and a DSH-directory-only history
-      each start cold — evidence / LE4, evidence / LE5.
+- [ ] 9.6 Extend the existing accounting and compatibility tests with the
+      selected DSH route. In deterministic retained-store fixtures, a cold
+      `--new` launch confirms a fresh root and nonce and atomically journals the
+      provider ID, safe persistence locator and composite runner identity; a
+      warm `--session` launch can use only that same root/locator, and missing,
+      truncated, ambiguous or escaping storage starts cold without searching
+      for a sibling. Exercise historical sequences followed by a
+      multi-message/tool/retry current interval: fold only post-`firstSeq`
+      output, tools and targets; deduplicate message usage; distinguish
+      per-message from cumulative payloads; omit an unattributable numeric total
+      rather than subtracting a guessed baseline or writing zero. Retain the
+      generic ten-old/two-new stream case, LaneTally capture-only ledger,
+      historical no-launch compatibility, unrewritten legacy Codex resume and
+      cold migration of legacy composites and DSH-directory-only history.
+      Verify the focused adapter/runtime accounting suites and label fixtures as
+      shim/store evidence, not proof of the upstream pair — evidence / LE4,
+      evidence / LE5, site / SR3, site / SR5, safety / AS1.
 - [x] 9.7 Close the shared terminal guard and prove launch conformance across
       every built-in adapter in `adapters/tests.rs` and
       `crates/brokkr-cli/tests/driver_conformance.rs`: a different or missing
@@ -718,11 +756,12 @@ saved for the phase commit.
 Group 10 is the gate on enablement (`safety / AS1`, answers A, F and G),
 and its two halves do not block on the same thing.
 
-**10.1–10.4 are investigation**, preparable in this worktree now: they
-read installed CLI help, installed source and packages, and the existing
-dated captures under `.forge/`. They run before group 8's
-provider-specific construction and group 9's accounting boundaries, whose
-argv, routes and cursors are their output.
+**10.1–10.4 are investigation**: they read the installed interfaces,
+dated captures and supplied exact-version upstream inspection. They run before
+group 8's provider-specific construction and group 9's accounting boundaries,
+whose argv, routes and cursors are their output. The selected DSH extension is
+supported interface evidence; exact-pair compatibility and enforcement remain
+10.7's proof work.
 
 **10.5–10.8 are proof**, and each stays unchecked until dated controller
 host evidence records CLI identity, exact invocation, same-root
@@ -757,44 +796,28 @@ itself (`safety / AS1`).
       emits, from installed help and
       `.forge/controller-host-provider-interface.json`. Prerequisite of
       8.6 and 8.7 — safety / AS1, safety / AS2.
-- [x] 10.3 DSH source and interface: installed
-      `@deepseek-ai/dsh-session`, `@deepseek-ai/dsh-agent`, the settings
-      surface and the Cordis loader and extension exports that headless
-      consumes, with package versions, exports, relevant implementation
-      and hashes, spending the controller captures where they reach.
-      Start from the third capture,
-      `.forge/controller-dsh-resume-source-interface.json` (2026-09-09,
-      40 hashed source files), which design D6 has already read: it
-      establishes real restoration interfaces — `agents.resume` delegating
-      to the registered factory in `dsh-agent`, `Config.agents[].resumeSessionId`
-      and its `resumeWith` call in `dsh-agent-loop`, and the factory
-      loading through `sessionPersistence.prepare` and publishing with
-      source `resume` — and it leaves one seam. **That seam is this
-      task's subject**: captured `dsh-headless` still validates only
-      `task`, calls `agents.create` with a random ID, and applies its
-      followup, `firstSeq` and summary to that newly created agent, so
-      restoring a second configured agent does not route the admitted
-      headless task to the owned root. Establish whether a supported
-      per-invocation declarative route makes the headless caller itself
-      run this task on that root: an exported Session API, a mountable
-      plugin or a resolvable configuration key alone does not make it
-      callable through the admitted headless route. Trace root load
-      versus creation; the caller connection just named; replacement
-      of restored model, settings and tool state by the current plan; and
-      the followup's event interval. Neither the interfaces the capture
-      shows nor the loader's ability to mount plugins establishes the
-      missing caller connection or any effective restriction, and this
-      task is not complete while the seam is open. The allowed integration is Rust
-      construction of supported declarative settings or patch data
-      consumed by the installed CLI — no embedded JavaScript runner, no
-      monkey-patched `agents.create`, no overridden UUID generation, no
-      edited installed package and no TUI substitution. This task is
-      8.8's prerequisite: no DSH session selection is written before it
-      names the route. Stop when the supported route and its consumers
-      establish success, or when those interfaces have been traced and
-      the route requires a forbidden mechanism; in the latter case record
-      the measured limitation and report **AS1 upstream**, naming
-      `proposal.md` and `adapter-resume-safety` as owners — safety / AS1.
+- [x] 10.3 DSH source and interface: retain the completed installed
+      0.1.2-rc.1 trace as a bounded one-shot-entry result — its headless runner
+      accepts only `task` and creates a random root, so the launcher's TUI
+      `--resume` example cannot simply be forwarded — but never restate it as a
+      global DSH limitation. Adopt
+      `.forge/tasks/controller-dsh-upstream-discovery.json` and the inspected
+      read-only checkouts: official core 0.1.5-rc.1 at
+      `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` exposes
+      `ctx.agents.resume({ resumeSessionId, agentOptions, setup })` and continued
+      persisted history, while `dsh-plugin-cli-session` 0.2.0 at
+      `0f487e74c81ed102c6899440d9f5d65e8e9eabda` is the selected documented
+      extension route with `--new`, explicit `--session`, current model
+      selection and a pre-followup `firstSeq` interval. Record that its peer
+      range admits 0.1.5-rc.1 but its development pin is 0.1.0-rc.6, its
+      `session_id` is request-derived and latest in-range usage has unknown
+      cumulative semantics; these remain 10.7 compatibility, independent-root
+      confirmation and accounting questions. Reject the official SDK for this
+      change because it would add a second runner where the supported CLI
+      extension candidate exists. This checked task proves and selects the
+      supported caller route only; it does not prove the resolved pair,
+      restrictions, exact root or accounting and enables nothing. It is 8.8's
+      prerequisite — safety / AS1.
 - [x] 10.4 LaneTally interface: wrapper identity, what it forwards to
       Claude, how the underlying Claude version is read through a
       measured interface, and the capture marker's attribution point. No
@@ -803,19 +826,60 @@ itself (`safety / AS1`).
       version recording the exact invocation, class re-imposition,
       same-root confirmation, current-only accounting and the pre-work
       rejection shape — safety / AS1.
-- [ ] 10.6 Claude proof on 2.1.266: root-opening semantics, the complete
-      effective restrictions and their precedence, including expiry of
-      the old grant and operation of the new one, persistent identity,
-      and current-only stream and accounting on resume. Record tool
-      admission and actual filesystem effects, not a model's statement
-      that it was blocked; one denied write does not prove permission
-      binding, native-tool removal, MCP exclusion and grant renewal
-      together — safety / AS1, safety / AS2.
-- [ ] 10.7 DSH proof over 10.3's route: same-root rejoin, replacement of
-      the restored model, settings and tool state by the current plan,
-      the admitted headless profile and boundary preserved, and
-      current-only accounting from the measured event interval — safety / AS1,
-      safety / AS2.
+- [ ] 10.6 Finish Claude proof on the pinned 2.1.266 binary without
+      repeating the supplied same-root and Read-grant observations. Preserve
+      `controller-claude-root-probe.json`,
+      `controller-claude-grant-probe.json`,
+      `controller-claude-tool-removal-probe.json`,
+      `controller-claude-mcp-probe.json` and
+      `controller-claude-accounting-analysis.json` as partial evidence. Run one
+      bounded disposable-fixture follow-up with successful cold native Write and
+      MCP-call controls, then the same-root resume under the complete replacement
+      boxed plan: explicitly attempt the expired Read grant, removed Write and
+      removed MCP tool, prove their denial or lack of filesystem/server effect,
+      and prove the new Read grant actually operates. Capture init tool/server
+      admission, raw stream message/tool IDs, terminal totals and retained
+      completed-message IDs so the exceptional empty-response/retry and
+      visible-message/turn differences are attributed without a guessed baseline
+      or zero. Also establish the complete filesystem boundary, flag precedence
+      and persistent identity. If only the controller can execute it, prepare
+      and hand off an executable task-owned probe with these exact argv,
+      fixture effects and assertions; do not cite worker-home EROFS as a
+      controller blocker. Tick only when every missing axis has its own
+      attributable observation and the Brokkr adapter normalization agrees —
+      safety / AS1, safety / AS2, evidence / LE4.
+- [ ] 10.7 Qualify the exact DSH pair from 10.3 in an isolated worktree or
+      task-owned profile: install official core 0.1.5-rc.1 at
+      `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
+      `dsh-plugin-cli-session` 0.2.0 at
+      `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, and record Node, the
+      resolved dependency graph, package/plugin hashes, built bytes, Cordis
+      patch/composed profile and extension protocol while proving the live
+      global DSH pin, profiles, credentials and other runs are unchanged. Run a
+      bounded `--new` cold invocation that persists and independently confirms
+      its root plus a private nonce, then
+      `--session <owned-root> --output-format stream-json` against the
+      originating persistence root.
+      Confirmation requires the prior depth-zero header, the pinned plugin's
+      post-`agents.resume` init event, same-root nonce continuity, no fresh
+      sibling root/session and new sequence activity; the request-derived
+      `session_id` echo alone is insufficient. Dump the composed profile and
+      prove current headless runner, model, effort, working directory,
+      persistence root and every applicable sandbox/tool/settings restriction
+      win after restoration; use positive current controls and inverted
+      removed-authority filesystem/server effects, and show an alternate
+      selector/profile cannot override adapter-owned values. Exercise
+      multi-message, tool and retry activity across `firstSeq`, compare raw
+      sequence/message identities and determine whether usage is per-message or
+      cumulative; historical output/tools/tokens must be absent and every
+      numeric total attributable or omitted. If a required policy or pre-work
+      fact is unavailable, identify the exact documented hook needed and return
+      8.8 to pending for D6's narrow digest-bound Cordis extension, then rerun
+      this proof; incompatibility of this exact route is the precise unmet AS1
+      condition, not the old global limitation and not authority for SDK/TUI
+      substitution. Verify both the upstream observation artifact and Brokkr's
+      matching adapter/shim assertions before ticking — safety / AS1, safety /
+      AS2, safety / AS3, site / SR3, evidence / LE4.
 - [ ] 10.8 LaneTally proof: wrapper forwarding, the underlying Claude
       version, root confirmation, capture attribution and the applicable
       restrictions on resume. Unsupported hands stay unsupported — safety / AS1.
@@ -831,10 +895,20 @@ itself (`safety / AS1`).
 - [ ] 11.2 Enable Claude's boxed-workspace work shape under its
       already-supported boxed boundary with 10.2's interface and 10.6's
       proof, and flip `adapters/claude.json` — safety / AS1, safety / AS2.
-- [ ] 11.3 Enable DSH's already-admitted headless work shape through the
-      route 10.3 establishes, on 10.7's proof, and flip
-      `adapters/dsh.json`, keeping the hands deferral untouched and
-      admitting no new tool — safety / AS1, safety / AS2.
+- [ ] 11.3 After 8.8, 8.10, 9.6 and 10.7 pass, enable DSH's
+      already-admitted headless work shape only for the exact isolated official
+      core 0.1.5-rc.1/plugin 0.2.0 composite identity. Flip
+      `adapters/dsh.json` and its packaged/scaffolded equivalents to
+      `supported` with 10.3's interface and 10.7's compatibility, exact-root,
+      restriction and current-accounting references; record the provider ID,
+      persistence-locator and composite-digest limits in proposed 0056 and
+      `docs/guides/provider-adapters.md`. Land an end-to-end adapter case proving
+      eligible rejoin through `--session`, current-only evidence and cold refusal
+      on composite drift or unsafe storage. Keep 0.1.2-rc.1 one-shot, SDK/TUI,
+      global profiles, new trust/boundary and DSH hands disabled. If 10.7 fails
+      an admission condition, leave this task unchecked and report that exact
+      AS1 gap upstream rather than flipping the declaration — safety / AS1,
+      safety / AS2, safety / AS3, site / SR3, evidence / LE4.
 - [ ] 11.4 Enable or leave declared-unsupported LaneTally on 10.4's
       interface and 10.8's proof, with its measured reason. Never mark it
       supported by analogy — safety / AS1.
@@ -965,8 +1039,8 @@ into capability truth (`progress / PM4`). Run them with
       change, rename an archive after folding, spoof/drop the date, rewrite
       provenance or invoke `--skip-specs` — progress / PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
-- [ ] 15.6 After 8.10, 9.7, groups 10–11 and 14.1–15.5 are complete,
-      validate the **active** change
+- [ ] 15.6 After every task in groups 8–14 and gates 15.1–15.5 are
+      complete, validate the **active** change
       strictly. Reconcile every earlier task tick and the final `## Progress`
       account against the worktree and its evidence, stage only the intended
       delivery paths, and inspect the staged diff. Tick 15.6
@@ -992,8 +1066,9 @@ into capability truth (`progress / PM4`). Run them with
 Once every tracked task is checked, run `openspec archive
 2026-09-09-226-session-resumption --yes` as the normal dialect archive
 operation; do not substitute a manual move or `--skip-specs`. Require the
-archive to retain that exact dated identity, apply only repaired PM4
-semantically, treat every identical delta as a no-op, preserve all five existing
+archive to retain that exact dated identity, apply repaired AS1–AS3 and PM4
+as replacements, treat the other sixteen identical requirements as no-ops, and
+preserve all five existing
 provenance sections byte-for-byte with one pointer each and retain
 `boundary-record`'s earlier provenance and historical examples. Validate all
 archived changes strictly, run `crates/brokkr-cli/tests/provenance.rs`, assert
@@ -1700,3 +1775,48 @@ and no credential or private transcript was read. The focused Rust suites
 above, `cargo fmt --all -- --check`, and the protocol/cli clippy runs pass
 on this tree; the full host gates 15.1–15.4 and the archive effect are not
 claimed.
+
+## Current tasks return — exact DSH extension breakdown, 2026-09-10
+
+This tasks visit adopts proposal answers K/L and current design D6/D10. It read
+`controller-evidence-2026-09-10.md` and
+`.forge/tasks/controller-dsh-upstream-discovery.json` first, then the five
+supplied Claude probe/analysis artifacts and the rendered OpenSpec tasks
+instructions. No open design question remains, so no upstream artifact must
+change before implementation resumes.
+
+The selected route changes three completed implementation claims. Tasks 8.8,
+8.10 and 9.6 are therefore reopened for the exact isolated official DSH
+0.1.5-rc.1/plugin 0.2.0 path, retained-root/composite-identity binding,
+provider-local selector and restriction guards, and current-sequence
+accounting/storage tests. Checked task 10.3 keeps its completed status because
+the old one-shot trace remains valid and the supplied official/plugin inspection
+now establishes the supported caller route; its text no longer reports the
+installed 0.1.2-rc.1 entry as a global limitation. Pending 10.7 and 11.3 now
+name the exact dependency graph, independent root confirmation, restriction
+precedence, accounting qualification and evidence-gated enablement. Generic
+9.1/9.2 and the shared terminal guard in 9.7 remain checked as design directs.
+
+Pending 10.6 now consumes the controller's Claude evidence as partial instead
+of repeating it. Its remaining bounded observation requires cold native-Write
+and MCP positive controls; explicit same-root attempts at expired Read, removed
+Write and removed MCP authority; a working replacement Read grant; the complete
+filesystem/precedence result; and raw stream/transcript identity reconciliation
+for the exceptional invisible-response/turn cases. If worker execution is
+unavailable, the implementer supplies that exact executable task-owned probe to
+the controller; worker-home EROFS is not a controller blocker.
+
+The archive action is corrected for answer L: the dated normal archive replaces
+AS1–AS3 and PM4, no-ops the other sixteen identical requirements and preserves
+all five singular bidirectional provenance sections. No task identifier is
+added or renumbered. The authoritative state is **82 complete / 19 pending
+across 101 unique tasks**, with all 20 requirements / 125 scenarios covered.
+Implementation proceeds in dependency order: 8.8, 8.10, 9.6; provider proofs
+10.5–10.8; evidence-gated enablement 11.1–11.4; re-pins, local gates, active
+reconciliation and readiness; then the normal archive effect, read-only
+archived checks and delivery commit.
+
+This visit changes only `tasks.md`. Strict active validation and OpenSpec status
+pass, the structural count and requirement-citation audit pass, and
+`git diff --check` is clean. It claims no provider qualification, Rust test,
+release build, archive, publication, merge or issue closure.
