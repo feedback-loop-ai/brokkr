@@ -769,7 +769,7 @@ fn turn_selection_skips_metadata_and_selects_the_tool_result() {
     assert_eq!(document["turn"], 4);
     assert_eq!(document["turns"].as_array().unwrap().len(), 1);
     assert_eq!(document["turns"][0]["blocks"][0]["kind"], "tool-result");
-    assert_eq!(document["turns"][0]["blocks"][0]["text"], "ok");
+    assert_eq!(document["turns"][0]["blocks"][0]["text"], "ok [c1]");
 }
 
 /// Selecting a retained turn keeps the whole read's cap and unknown
@@ -1672,5 +1672,51 @@ fn an_ambiguous_label_sanitizes_every_candidate_key() {
     assert!(
         stderr.contains("eff") && stderr.contains("eff2"),
         "{stderr:?}"
+    );
+}
+
+/// A frozen seat-record carrying an unknown transcript kind is refused at
+/// the journal boundary, before participant selection, so no command path
+/// can emit stdout or build a `brokkr.transcript/v1` document from it.
+#[test]
+fn a_future_transcript_kind_is_fenced_at_the_journal() {
+    let world = world_effects(&[("eff1", "review", None)]);
+    let mut store = Store::open(&world.db).unwrap();
+    let refused = store.append_next(
+        "r222",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "eff1", "attempt_id": "att0",
+               "checkpoint": {"step": "session-finished",
+                              "transcript": {"kind": "future-session",
+                                             "locator": "opaque-222",
+                                             "home": "/retained/future"}}}),
+        None,
+        None,
+    );
+    assert!(
+        refused.is_err(),
+        "the frozen seat record refuses an unknown transcript kind"
+    );
+
+    // The fenced row never lands, so the command sees no reference and
+    // refuses: text mode leaves stdout empty, and no document can carry
+    // the unknown kind.
+    let output = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "no transcript document may be built from a fenced row"
+    );
+
+    let json = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    let document = read_document(&json);
+    assert_eq!(document["unavailable"], "no-reference");
+    assert!(document["transcript"].is_null());
+    assert!(
+        !String::from_utf8_lossy(&json.stdout).contains("future-session"),
+        "the fenced kind cannot reach the versioned document"
     );
 }

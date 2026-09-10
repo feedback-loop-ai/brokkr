@@ -223,7 +223,8 @@ pub(crate) fn local_projects_home() -> Option<String> {
 pub(crate) struct AdmittedSource {
     pub path: String,
     pub file: safe_fs::OpenedFile,
-    #[allow(dead_code)]
+    /// The leaf's lossless identity, recorded at discovery and rechecked
+    /// through the same held handle at the read boundary.
     pub identity: safe_fs::Identity,
 }
 
@@ -312,12 +313,36 @@ fn root_error(error: &std::io::Error) -> Discovery {
     Discovery::Refused(reason, None)
 }
 
+/// Whether a recorded home uses the current target's native absolute
+/// syntax, so that a foreign-platform spelling is refused before any
+/// filesystem call rather than reinterpreted as a host-relative path.
+#[cfg(unix)]
+fn native_absolute_home(home: &str) -> bool {
+    home.starts_with('/')
+}
+
+#[cfg(windows)]
+fn native_absolute_home(home: &str) -> bool {
+    let bytes = home.as_bytes();
+    (bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/'))
+        || ((home.starts_with("\\\\") || home.starts_with("//")) && home.len() > 2)
+}
+
 /// Locate one safely opened local source for a validated reference. No
 /// transcript content is read for Claude or Codex; a DSH candidate's
 /// bounded opening header is read to prove depth-zero ownership. The
 /// recorded home is canonicalized once (it may itself be a symlink) and
 /// only that canonical directory is opened as the traversal root.
 fn discover(reference: &ValidReference) -> Discovery {
+    // Lexical validity is portable; native I/O is not. A recorded home
+    // spelled in another platform's absolute syntax is refused here,
+    // before canonicalization, and its bytes stay echoed unchanged.
+    if !native_absolute_home(&reference.home) {
+        return Discovery::Refused(Unavailable::InvalidReference, None);
+    }
     let canonical = match std::fs::canonicalize(&reference.home) {
         Ok(path) => path,
         Err(error) => return root_error(&error),
@@ -373,13 +398,14 @@ fn discover_claude(
             }
         };
         match project.child(std::ffi::OsStr::new(&file_name)) {
-            Ok(safe_fs::Child::File(file)) => {
-                lookup.candidates.push(AdmittedSource {
+            Ok(safe_fs::Child::File(file)) => match file.identity() {
+                Ok(identity) => lookup.candidates.push(AdmittedSource {
                     path: join_path(&join_path(home, name), &file_name),
-                    identity: file.identity(),
+                    identity,
                     file,
-                });
-            }
+                }),
+                Err(_) => lookup.io_seen = true,
+            },
             Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
             Ok(_) => {}
             Err(_) => lookup.io_seen = true,
@@ -449,46 +475,42 @@ fn walk_codex(
     let Some(entries) = bounded_entries(dir, lookup) else {
         return;
     };
-    let mut subdirs = Vec::new();
+    let mut subdirs: Vec<(String, safe_fs::Dir)> = Vec::new();
     for name in entries {
         lookup.note_entry();
         let Some(name_str) = name.to_str() else {
             lookup.io_seen = true;
             continue;
         };
-        if codex_filename_matches(name_str, &reference.locator) {
-            match dir.child(std::ffi::OsStr::new(name_str)) {
-                Ok(safe_fs::Child::File(file)) => lookup.candidates.push(AdmittedSource {
-                    path: join_path(path, name_str),
-                    identity: file.identity(),
-                    file,
-                }),
-                Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
-                Ok(_) => {}
-                Err(_) => lookup.io_seen = true,
-            }
-            continue;
-        }
-        if depth < 6 {
-            subdirs.push(name);
-        }
-    }
-    for name in subdirs {
-        let Some(name_str) = name.to_str() else {
-            continue;
-        };
+        // Open and classify the child before applying the rollout filename
+        // predicate: a regular file may match, while an opened directory
+        // remains traversable within depth six even when its own name
+        // resembles `rollout-*.jsonl`.
         match dir.child(std::ffi::OsStr::new(name_str)) {
-            Ok(safe_fs::Child::Dir(sub)) => walk_codex(
-                &sub,
-                &join_path(path, name_str),
-                depth + 1,
-                reference,
-                lookup,
-            ),
+            Ok(safe_fs::Child::File(file)) => {
+                if codex_filename_matches(name_str, &reference.locator) {
+                    match file.identity() {
+                        Ok(identity) => lookup.candidates.push(AdmittedSource {
+                            path: join_path(path, name_str),
+                            identity,
+                            file,
+                        }),
+                        Err(_) => lookup.io_seen = true,
+                    }
+                }
+            }
+            Ok(safe_fs::Child::Dir(sub)) => {
+                if depth < 6 {
+                    subdirs.push((name_str.to_string(), sub));
+                }
+            }
             Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
-            Ok(_) => {}
+            Ok(safe_fs::Child::Absent) => {}
             Err(_) => lookup.io_seen = true,
         }
+    }
+    for (name, sub) in subdirs {
+        walk_codex(&sub, &join_path(path, &name), depth + 1, reference, lookup);
     }
 }
 
@@ -618,11 +640,17 @@ fn discover_dsh(root: &safe_fs::Dir, home: &str, reference: &ValidReference, loo
             };
             match session.child(std::ffi::OsStr::new("session.jsonl")) {
                 Ok(safe_fs::Child::File(file)) => match dsh_header(&file) {
-                    HeaderCheck::Valid => lookup.candidates.push(AdmittedSource {
-                        path: join_path(&join_path(&project_path, session_name), "session.jsonl"),
-                        identity: file.identity(),
-                        file,
-                    }),
+                    HeaderCheck::Valid => match file.identity() {
+                        Ok(identity) => lookup.candidates.push(AdmittedSource {
+                            path: join_path(
+                                &join_path(&project_path, session_name),
+                                "session.jsonl",
+                            ),
+                            identity,
+                            file,
+                        }),
+                        Err(_) => lookup.io_seen = true,
+                    },
                     HeaderCheck::InvalidDepth => lookup.invalid_depth_seen = true,
                     HeaderCheck::NotSessionHeader => {}
                     HeaderCheck::TooLarge => lookup.limit_hit = true,
@@ -688,6 +716,23 @@ fn read_with_home(
         }
         Discovery::Admitted(source) => {
             let hint = brokkr_view::transcript::full_session(&valid, Some(&source.path));
+            // Recheck the held leaf's checked lossless identity at the read
+            // boundary. The handle is already the verified source, so this
+            // never reopens a display path; a widening failure or a
+            // mismatch is a bounded fail-closed `unreadable`.
+            if source.file.identity().ok() != Some(source.identity) {
+                return TranscriptRead::refused(
+                    selection.reference.clone(),
+                    selection.legacy,
+                    Unavailable::Unreadable,
+                    brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
+                    Some(source.path),
+                    false,
+                    0,
+                    0,
+                    hint,
+                );
+            }
             let (bytes, overflow, eof) = match source
                 .file
                 .read_bounded(brokkr_view::transcript::SOURCE_CAP)

@@ -143,6 +143,15 @@ canonicalization SHALL NOT normalize, reclamp, replace or null its recorded
 fields. JSON escaping preserves these string values as data and does not
 authorize a lookup or command. Only absence of a common reference together with failure to derive
 a valid eligible legacy Claude reference SHALL make `transcript` null.
+These document rules apply to common references admitted by the selected
+run's seat-record contract. The frozen `seat-record.v1` through
+`seat-record.v4` contracts admit only `claude-session`, `codex-thread`,
+`dsh-session` and `none`; their append and verification fence SHALL reject an
+unknown kind before it can become a selected participant. The current command
+therefore SHALL NOT promise an `unsupported-kind` document from a valid
+persisted run. The pure reader's defensive handling of a directly supplied
+unknown string remains governed by `transcript-reading` and does not weaken
+that journal fence.
 JSON strings SHALL retain content using JSON escaping, without
 ANSI decoration, terminal control execution or prose scraped from rendered
 text. Structural changes to this new public document SHALL require an
@@ -159,10 +168,14 @@ explicit version change in its schema identifier.
 | Recorded common reference | `unavailable` |
 |---|---|
 | `{"kind":"none","locator":"","home":""}` | `none` |
-| `{"kind":"future-session","locator":"opaque-222","home":"/retained/future"}` | `unsupported-kind` |
 | `{"kind":"codex-thread","locator":"","home":"/retained/codex"}` | `unannounced` |
 | `{"kind":"codex-thread","locator":"0199mine","home":""}` | `missing-home` |
 | `{"kind":"codex-thread","locator":"-abc","home":"/retained/codex"}` | `invalid-reference` |
+
+#### Scenario: The frozen seat-record vocabulary fences an unsupported kind before the command
+- **WHEN** a seat record governed by frozen version 1, 2, 3 or 4 attempts to carry `{"kind":"future-session","locator":"opaque-222","home":"/retained/future"}`
+- **THEN** journal append or verification rejects that seat record before it can become the command's selected run and participant, so `brokkr transcript` constructs no `brokkr.transcript/v1` document from it
+- **AND** a pure-view caller that directly supplies those same three strings still receives the unchanged reference with `unsupported-kind` under `transcript-reading`; the view fold preserves an unknown kind and is not the contract fence
 
 #### Scenario: Codex JSON does not impose a header or Claude id guard
 - **WHEN** a common reference names `0199mine` under `/retained/codex` and the sole safe matching file is `/retained/codex/sessions/rollout-0199mine.jsonl` containing only recognized `turn_context` metadata and no session header

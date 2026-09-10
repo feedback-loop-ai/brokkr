@@ -1647,6 +1647,65 @@ fn resolving_across_hearths_migrates_no_journal_it_passes() {
     assert!(!dir.path().join("alpha.db-wal").exists());
 }
 
+/// The transcript command resolves even a SOLE named hearth read-only: a
+/// read must not create a WAL sidecar, migrate or repair the journal it
+/// came to read.
+#[test]
+fn read_only_resolution_opens_a_sole_hearth_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("alpha.db");
+    running_store(&db, "run-alpha");
+    let before = std::fs::read(&db).unwrap();
+    let world = [Hearth {
+        realms: vec!["alpha".to_string()],
+        journal: db.clone(),
+    }];
+    assert_eq!(
+        resolve_in_hearths_read_only(&world, "run-al".to_string()).unwrap(),
+        (0, "run-alpha".to_string())
+    );
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the sole journal was not modified"
+    );
+
+    // A sole unborn journal is read-only-refused rather than migrated: a
+    // read-write open would write a schema and meta rows into it, so the
+    // refusal is the correct outcome and the file keeps its zero bytes.
+    let unborn = dir.path().join("unborn.db");
+    std::fs::write(&unborn, b"").unwrap();
+    let sole_unborn = [Hearth {
+        realms: vec!["unborn".to_string()],
+        journal: unborn.clone(),
+    }];
+    assert!(
+        resolve_in_hearths_read_only(&sole_unborn, "latest".to_string()).is_err(),
+        "an unmigrated sole journal is refused, not repaired"
+    );
+    assert_eq!(
+        std::fs::metadata(&unborn).unwrap().len(),
+        0,
+        "a read migrated the sole journal it came to read"
+    );
+
+    // A hearth whose journal is not on disk is consulted by neither
+    // resolver and is never created.
+    let ghost = dir.path().join("ghost.db");
+    let empty = [Hearth {
+        realms: vec!["ghost".to_string()],
+        journal: ghost.clone(),
+    }];
+    assert_eq!(
+        resolve_in_hearths_read_only(&empty, "latest".to_string()).unwrap(),
+        (0, "latest".to_string())
+    );
+    assert!(
+        !ghost.exists(),
+        "a read created the journal it came to read"
+    );
+}
+
 /// The console's liveness, at the one place a store is opened on its
 /// path: head-gated on both seq and hash, fleet on the slower cadence,
 /// and one unfoldable run keeping its row.

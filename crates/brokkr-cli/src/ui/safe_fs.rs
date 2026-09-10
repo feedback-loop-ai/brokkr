@@ -13,10 +13,27 @@ use std::ffi::OsStr;
 use std::io;
 
 /// Stable device/inode identity of an opened handle.
+///
+/// Signed `i128` fields losslessly carry every supported target's native
+/// device/inode or volume/file-index values. A native value that cannot be
+/// widened is a refusal, never a wrap or a narrowing (design D3).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Identity {
-    pub device: u64,
-    pub inode: u64,
+    pub device: i128,
+    pub inode: i128,
+}
+
+/// Widen one native identity value into its lossless `i128` spelling.
+fn widen<T>(value: T) -> io::Result<i128>
+where
+    T: TryInto<i128>,
+{
+    value.try_into().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "filesystem identity does not widen losslessly",
+        )
+    })
 }
 
 /// One direct child opened from a held directory handle.
@@ -71,7 +88,7 @@ pub struct OpenedFile {
 }
 
 impl OpenedFile {
-    pub fn identity(&self) -> Identity {
+    pub fn identity(&self) -> io::Result<Identity> {
         self.inner.identity()
     }
 
@@ -90,7 +107,7 @@ impl OpenedFile {
 
 #[cfg(unix)]
 mod imp {
-    use super::Identity;
+    use super::{widen, Identity};
     use rustix::fs::{fstat, openat, Dir as RDir, FileType, Mode, OFlags, CWD};
     use std::ffi::{OsStr, OsString};
     use std::io::{self, Read, Seek};
@@ -114,8 +131,8 @@ mod imp {
     fn identity_of(fd: &impl std::os::fd::AsFd) -> io::Result<Identity> {
         let stat = fstat(fd)?;
         Ok(Identity {
-            device: stat.st_dev,
-            inode: stat.st_ino,
+            device: widen(stat.st_dev)?,
+            inode: widen(stat.st_ino)?,
         })
     }
 
@@ -183,11 +200,8 @@ mod imp {
     }
 
     impl File {
-        pub fn identity(&self) -> Identity {
-            identity_of(&self.fd).unwrap_or(Identity {
-                device: 0,
-                inode: 0,
-            })
+        pub fn identity(&self) -> io::Result<Identity> {
+            identity_of(&self.fd)
         }
 
         pub fn len(&self) -> u64 {
@@ -215,7 +229,7 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    use super::Identity;
+    use super::{widen, Identity};
     use std::ffi::{OsStr, OsString};
     use std::io::{self, Read, Seek};
     use std::mem::size_of;
@@ -271,8 +285,8 @@ mod imp {
             return Err(io::Error::last_os_error());
         }
         Ok(Identity {
-            device: info.dwVolumeSerialNumber as u64,
-            inode: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
+            device: widen(info.dwVolumeSerialNumber)?,
+            inode: widen(((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64)?,
         })
     }
 
@@ -462,8 +476,8 @@ mod imp {
     }
 
     impl File {
-        pub fn identity(&self) -> Identity {
-            self.identity
+        pub fn identity(&self) -> io::Result<Identity> {
+            Ok(self.identity)
         }
 
         pub fn len(&self) -> u64 {
@@ -482,5 +496,27 @@ mod imp {
             }
             Ok((buffer, overflow, !overflow))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::widen;
+
+    /// Signed and unsigned native identity values widen losslessly, and a
+    /// value that cannot be represented is refused rather than wrapped.
+    #[test]
+    fn identity_widening_is_lossless_and_checked() {
+        assert_eq!(widen(0u64).unwrap(), 0);
+        assert_eq!(widen(u64::MAX).unwrap(), u64::MAX as i128);
+        assert_eq!(widen(-1i64).unwrap(), -1);
+        assert_eq!(widen(i64::MIN).unwrap(), i64::MIN as i128);
+        assert_eq!(widen(u32::MAX).unwrap(), u32::MAX as i128);
+        assert_eq!(widen(i32::MIN).unwrap(), i32::MIN as i128);
+        assert_eq!(widen(0i8).unwrap(), 0);
+        assert!(
+            widen(u128::MAX).is_err(),
+            "a value beyond the lossless range is refused"
+        );
     }
 }
