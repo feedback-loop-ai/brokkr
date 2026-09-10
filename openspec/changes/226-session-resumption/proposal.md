@@ -286,40 +286,38 @@ choices into `design.md` Decisions and the numbered rulings of proposed
   as proof of existence. Proposed 0056 must state this ownership/existence rule;
   any new record representation must obey LE2's additive-version requirement.
 
-- **I — An unfinished delivery remains the same active change, and its final
-  archive uses the dialect operation once more.** The implementation commit
-  archived `226-session-resumption` while required repository-local tasks
-  remained honestly unchecked. OpenSpec resolves `status`, `show` and phase
-  validation only in the active namespace, so the returned validator could not
-  adopt the commissioned identifier even though the archive and folded living
-  specifications survived. Reopening that same identifier preserves the
-  surviving design, task progress, implementation and one provenance entry per
-  affected capability; it does not author a competing change.
+- **I — An unfinished delivery remains the same active change, but this
+  change cannot be archived again under the current archive constitution.**
+  The implementation commit archived `226-session-resumption` while ten
+  required tasks remained honestly unchecked. Reopening that same identifier
+  preserves the surviving design, task progress and implementation; it does
+  not author a competing change. It did, however, remove the dated
+  `2026-09-09-226-session-resumption` directory while leaving five append-only
+  living provenance pointers to it.
 
-  Every tracked task and its final progress account is completed while the
-  change is active. The normal `openspec archive 226-session-resumption --yes`
-  operation is then the final artifact operation, followed only by read-only
-  archived verification and the delivery commit. On an already-folded,
-  task-only return whose deltas still equal living truth, the operation is
-  idempotent: it reports zero spec updates, moves the change, leaves living
-  capability bytes and the single provenance entries unchanged, and permits
-  archived all-ticked verification. A scratch probe of the inherited state
-  established exactly that behavior. Manual `git mv` is rejected because it
-  bypasses decision 0042's declared archive operation; `--skip-specs` is
-  rejected for this return because PM4 is now repaired at specification level
-  and OpenSpec reserves that option for changes without spec-level behavior.
+  F12's exact probe disproves the prior idempotent-finalization claim. Restoring
+  the 2026-09-09 archive byte-for-byte from `75ae68e` makes those pointers
+  resolve but makes `openspec validate --archived --strict --no-interactive`
+  fail on its truthful 92/102 task state. Omitting that archive leaves five
+  dangling pointers. A normal archive now creates a new date-derived directory,
+  so appending its required provenance does not repair the old pointers.
+  Rewriting/removing the old lines violates decision 0042's append-only rule;
+  checking the old tasks falsifies their completion; manually renaming the new
+  archive or using `--skip-specs` bypasses the declared dialect operation or
+  strands PM4.
 
-  This specify return therefore makes PM4 a complete `MODIFIED` requirement
-  while retaining the already-folded PM1–PM3 additions in the same delta. At
-  final archive the normal operation updates only PM4; the other requirements
-  and capabilities already equal living truth. The existing provenance pointer
-  is retained exactly once rather than appended again. Controller host coverage,
-  integration, remote CI, publication, merge and issue closure occur after the
-  immutable heads they judge exist and are recorded outside the task artifact.
-  Treating the missing active directory as proof that the change never existed,
-  omitting the PM4 fold, or appending duplicate provenance is rejected because
-  commit `75ae68e` records the first fold and this return records the later
-  requirement repair.
+  No downstream ordering can satisfy all of those accepted invariants. The
+  change therefore remains active and archive readiness remains pending until
+  the operator supplies a sanctioned recovery rule and compatible verifier
+  behavior for a prematurely folded, reopened change. The minimum upstream
+  mechanism must preserve the truthful incomplete historical fold, keep both
+  provenance directions resolvable, permit a later all-ticked fold with its own
+  actual archive identity, and make archived verification recognize that
+  explicit supersession without treating incomplete work as complete. Because
+  accepted decision 0042 currently says every folded change with an unticked
+  task fails verification, only an operator-approved amendment plus supporting
+  dialect/OpenSpec validation can authorize that state. Provider delivery,
+  local gates and exact-head controller evidence remain required and unwaived.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -363,7 +361,34 @@ one repair, no-op the identical deltas and retain the existing provenance lines
 once. `--skip-specs` would strand the repair, while a manual move would evade the
 dialect operation. The downstream design and task visits must replace both old
 instructions with this order; doing so here would cross the specification
-office's artifact wall.
+office's artifact wall. Its archive-identity conclusion is superseded by F12.
+
+### F12 specify return — upstream archive recovery is required
+
+The latest analysis finding is adopted, and an exact scratch reproduction
+establishes that specification prose alone cannot repair it. With every active
+task ticked in the copy, OpenSpec 1.12.0 archived the undated change as
+`2026-09-10-226-session-resumption`, applied only PM4 semantically and left the
+other four deltas as no-ops. Restoring the exact historical archive from
+`75ae68e` and appending the new directory's provenance made the trail resolve
+in both directions. The mandatory archived validator then reported two archives
+passed and one failed: the restored
+`2026-09-09-226-session-resumption` retained its truthful ten incomplete tasks
+(92/102). Removing or modifying that evidence would merely hide the original
+premature fold.
+
+The reasoned refusal is therefore owned here. The previous plan to retain one
+pointer while producing a differently named archive is impossible; the proposed
+two-archive repair is also impossible under decision 0042's unconditional
+all-ticked archived verification. The operator must authorize a lossless
+supersession state (or another equally truthful recovery) and corresponding
+dialect/verifier support before this change may archive. Such a state must keep
+the historical tasks unticked, keep their dated archive and existing pointers,
+append the later archive identity normally, link the two folds explicitly and
+allow `openspec validate --archived --strict --no-interactive` to distinguish a
+superseded premature fold from an incomplete current delivery. Until then,
+design and tasks must expose the upstream block and prohibit archive rather than
+fabricate completion.
 
 ## Delivery obligations
 
@@ -371,16 +396,17 @@ This phase authors proposal and deltas in dialect order. Design, tasks,
 clarification, analysis, full implementation and specification review remain
 mandatory. Clarification answers belong in scenarios; analysis choices belong
 in design's `## Decisions`. Council positions require explicit reconciliation,
-and earlier artifact faults return upstream. The smith performs the normal
-archive operation as the final artifact task,
-after every tracked repository-local task and progress edit is complete while
-the change is active. Because the original archive already folded all five
-capabilities and recorded this change's provenance once, the returned archive
-reconciles the repaired PM4 `MODIFIED` requirement and treats every identical
-delta as a no-op. It retains the existing change provenance once in all five
-living capabilities and boundary-record's earlier provenance; it does not append
-another line. Strict archived validation and bidirectional provenance checks are
-read-only and precede the delivery commit.
+and earlier artifact faults return upstream. After every tracked
+repository-local task and progress edit is complete while the change is active,
+the smith normally performs the archive effect after the final artifact task.
+F12's upstream requirement currently blocks this change before that step.
+No seat may restore an archived copy that fails mandatory verification, discard
+the historical fold, rewrite its five provenance lines, preselect a dated name
+the normal command will not produce or mark incomplete work complete. After an
+operator-approved recovery rule and compatible verifier exist, revise this
+proposal, PM4, design and tasks coherently before any archive attempt. Strict
+archived validation and bidirectional provenance checks remain mandatory and
+precede the delivery commit.
 
 The smith's breakdown must carry these commission-specific obligations, with
 separate unchecked tasks for measurements and validation attainable before the
@@ -611,3 +637,36 @@ current-only accounting, v5 dispatch and answers A–H remain unchanged.
   no Rust validation is claimed by this specification visit. No archive,
   workflow runner, provider probe, push or merge was performed against the real
   change.
+
+## Current successor specify return — F12, 2026-09-10
+
+This visit adopts the existing `226-session-resumption` change and the latest
+HIGH finding. It preserves A–H and every provider/runtime requirement, but
+revises answer I and complete PM4 on new executable evidence. The result is
+**upstream**, not a narrowed draft: accepted decision 0042 and its current
+OpenSpec binding lack a truthful recovery state for the premature fold.
+
+- `openspec validate 226-session-resumption --strict --no-interactive` passes,
+  and status reports all planning artifacts complete. The five deltas still
+  contain **20 requirements / 125 scenarios**.
+- The exact scratch probe restored the historical archive from `75ae68e`,
+  ticked only the copied active tasks, ran the normal archive operation and
+  observed the new `2026-09-10-226-session-resumption` identity with only PM4
+  semantically modified. After appending its five required provenance lines,
+  both provenance directions resolved. Mandatory archived validation then
+  failed only the restored historical archive at its truthful **92/102** state;
+  the other two archives passed.
+- The real tree still has five dangling 2026-09-09 provenance pointers because
+  the reopened active change replaced that archive. Restoring it without an
+  approved supersession rule would knowingly make archived verification fail,
+  so no real archive or living-spec mutation was performed.
+- The task record has **101 unique identifiers, 81 complete / 20 pending** after
+  reopening 15.5 for the upstream recovery. `git diff --check` passes.
+  `cargo` is unavailable in this boxed workspace, so the focused Rust
+  provenance test did not run; no Rust, provider, host-coverage or delivery
+  success is claimed.
+
+Only proposal, the PM4 delta, design and tasks change. Production code, living
+specs, frozen contracts/fixtures/policy/reference, accepted decisions, provider
+settings and sibling worktrees remain untouched. No workflow runner, real
+archive, push, merge, publication or issue action was invoked.

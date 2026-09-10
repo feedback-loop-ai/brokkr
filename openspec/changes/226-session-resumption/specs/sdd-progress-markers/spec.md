@@ -164,6 +164,16 @@ with respect to that artifact. A failed archived check SHALL require reopening
 the same change before repair; later controller evidence SHALL NOT be written
 back into an archived task file.
 
+If a prior premature fold and return to active work cannot satisfy both the
+dialect's append-only bidirectional provenance rule and its all-ticked archived
+verification, the change SHALL remain active and the conflict SHALL return to
+the owning accepted rule. A smith SHALL NOT make the state appear complete by
+checking unfinished historical tasks, deleting or rewriting provenance,
+discarding a historical fold, substituting a manual archive name, skipping a
+required specification fold or weakening archived verification. Archive SHALL
+remain pending until an authorized recovery rule and compatible validation
+exist and the dependent artifacts are revised coherently.
+
 Per-commission commands, resource limits, signing instructions and handoff
 owners SHALL be recorded in the change's planning artifacts and task breakdown
 (the proposal and tasks under OpenSpec), not promoted as standing capability
@@ -196,12 +206,14 @@ either kind of evidence.
 - **THEN** the change archives with all tracked tasks complete while that mandatory condition remains explicitly pending as non-checkbox controller evidence keyed to the head outside the tracked artifact
 - **AND** neither the archived verification, a checked implementation task nor a local commit is reported as the missing external result
 
-#### Scenario: An unchanged returned fold closes idempotently
-- **GIVEN** an OpenSpec change was folded once, retains exactly one provenance pointer in each affected living capability, and is reopened only to complete repository-local tracked work without changing any delta
-- **WHEN** all tracked tasks are completed while active and the normal dialect archive operation runs as the final artifact operation
-- **THEN** it moves the same change to the archive with zero specification updates, leaves living capability bytes and provenance pointers unchanged, and permits strict archived verification of the all-ticked task artifact
+#### Scenario: Dangling historical provenance is not erased
+- **GIVEN** a prematurely archived change was returned to the active namespace by removing its dated archive while append-only living provenance still names that archive
+- **WHEN** a later normal archive would create a different dated directory
+- **THEN** the smith does not rewrite or remove the historical pointers, rename the later archive, or claim that the new directory makes the dangling trail valid
+- **AND** the change remains active while the archive-recovery conflict is reported to the owner of the provenance rule
 
-#### Scenario: A returned specification repair updates only its owner
-- **GIVEN** an already-folded OpenSpec change is reopened and a returned finding changes one requirement while its other deltas still equal living truth
-- **WHEN** the repaired requirement is represented as MODIFIED and the normal dialect archive operation runs after every tracked task is complete
-- **THEN** it replaces that living requirement, treats the identical deltas as no-ops, retains the existing provenance pointer exactly once in every affected capability, and makes no post-archive task edit
+#### Scenario: A truthful unfinished archive cannot pass as complete
+- **GIVEN** the exact historical archive can be restored but its task artifact truthfully contains unticked work
+- **WHEN** mandatory archived verification rejects that historical directory
+- **THEN** the smith does not tick the historical tasks, weaken the validator, hide the directory or proceed with a second fold
+- **AND** final archive readiness remains pending until an authorized supersession or other lossless recovery makes provenance and archived verification simultaneously true

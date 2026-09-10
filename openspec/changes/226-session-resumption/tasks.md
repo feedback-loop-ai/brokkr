@@ -94,7 +94,7 @@ saved for the phase commit.
       operator acceptance. Cite decisions 0006, 0016, 0030, 0034, 0041, 0042, 0043,
       0046 and shipped 0053 where each ruling stands on them, and quote
       no accepted decision into a different meaning. Check the ruling against
-      design D9/D10/D12 and the modified requirement — safety / AS1, progress /
+      design D9/D10/D12/D13 and the modified requirement — safety / AS1, progress /
       PM4, boundary /
       The seat record carries the boundary as seat-record/v4.
 - [x] 1.2 Append the registry row to `docs/decisions/README.md` in number
@@ -946,33 +946,36 @@ into capability truth (`progress / PM4`). Run them with
 - [ ] 15.4 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
       and `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`
       — every requirement of this change.
-- [x] 15.5 Preserve the **completed one-time capability fold and provenance
-      mutation** recorded by commit `75ae68e`: the four new living capability
-      files and the MODIFIED `boundary-record` already contain this change,
-      each has exactly one
-      `` `2026-09-09-226-session-resumption` — folded 2026-09-09 `` line,
-      and `boundary-record` retains its earlier
-      `2026-09-06-boundary-named-slice-i` entry. This task is complete and is
-      not permission to recopy deltas, append another provenance line, use a
-      manual move or invoke `--skip-specs` when the reopened active change is
-      finalized. It does permit and require 15.7's normal dialect archive
-      operation, which applies only the repaired PM4 `MODIFIED` requirement,
-      treats the identical deltas as no-ops and retains those provenance lines
-      exactly once — progress / PM4,
-      boundary / The seat record carries the boundary as seat-record/v4.
-- [ ] 15.6 After 8.10, 9.7, groups 10–11 and 14.1–15.4 are complete, validate
-      the **active** change strictly. Reconcile every earlier task tick and the
-      final `## Progress` account against the worktree and its evidence, stage
-      only the intended delivery paths, and inspect the staged diff. Tick 15.6
+- [ ] 15.5 Resolve the **upstream premature-fold recovery** in proposal
+      answer I/F12 and design D13 before archive readiness. Obtain an
+      operator-approved amendment to decision 0042 plus compatible
+      dialect/OpenSpec verification that can retain the exact incomplete
+      `2026-09-09-226-session-resumption` fold and its five existing pointers,
+      link it to a later all-ticked fold using the normal command's actual
+      archive identity, and distinguish explicit supersession from an ordinary
+      invalid archived change. Then revise proposal, complete PM4, design and
+      this task breakdown in dependency order and validate them. Until that
+      upstream rule exists, do not restore an archive that makes mandatory
+      verification fail, leave the provenance dangling and claim success, tick
+      historical work, rewrite/remove a pointer, manually select an archive
+      name, invoke `--skip-specs` or run the real archive command — progress /
+      PM4, boundary /
+      The seat record carries the boundary as seat-record/v4.
+- [ ] 15.6 After 8.10, 9.7, groups 10–11, 14.1–15.5 and the coherent
+      upstream artifact repair are complete, validate the **active** change
+      strictly. Reconcile every earlier task tick and the final `## Progress`
+      account against the worktree and its evidence, stage only the intended
+      delivery paths, and inspect the staged diff. Tick 15.6
       while the change is still active; at that point 15.7 must be the only
       unchecked tracked task and no ordinary artifact edit remains — progress /
       PM1, progress / PM4.
 - [ ] 15.7 Establish **pre-archive readiness** while the change is active, as
       proposal answer I and design D9 require. After 15.6 passes, confirm every
       other tracked obligation and its evidence is complete, the active strict
-      validation still passes, and the intended delivery paths and exact
-      `openspec archive 226-session-resumption --yes` postconditions below are
-      selected and reviewed. Make the last tracked edit: tick 15.7 and set
+      validation still passes, F12's sanctioned supersession/recovery
+      postconditions are present and verified, and the intended delivery paths
+      and exact `openspec archive 226-session-resumption --yes` postconditions
+      below are selected and reviewed. Make the last tracked edit: tick 15.7 and set
       `## Progress` to the completed repository-local task truth while stating
       that archive and commit are still pending; stage and inspect that final
       active diff. Once ticked, make no further tracked write before the archive
@@ -982,21 +985,22 @@ into capability truth (`progress / PM4`). Run them with
       The seat record carries the boundary as seat-record/v4.
 
 **Post-task phase action — final archive effect and read-only verification.**
-Once every tracked task is checked, run
+This action is currently prohibited by unresolved task 15.5. Once an
+operator-approved recovery rule, compatible verifier behavior and coherent
+artifact repair make every tracked task truthfully checkable, run
 `openspec archive 226-session-resumption --yes` as the normal dialect archive
-operation; do not substitute a manual move or `--skip-specs`. Require it to
-apply only the repaired PM4 `MODIFIED` requirement, treat every identical delta
-as a no-op, retain each existing change provenance pointer exactly once and
-retain `boundary-record`'s earlier provenance and historical examples. Validate
-the archived change strictly, run `crates/brokkr-cli/tests/provenance.rs`,
-assert those conditions bidirectionally and inspect the complete staged diff,
-all read-only with respect to the archived artifact. If archive completion is
-uncertain, classify the active/archive namespaces, living truth, provenance,
-index and `HEAD` before retrying. If the archive is partial or an archived
-check fails, restore the same active authoritative change and invalidate 15.7
-when its premises changed before repairing; never edit the archived task file
-in place (`progress / PM1`, `progress / PM4`, boundary / The seat record carries
-the boundary as seat-record/v4).
+operation; do not substitute a manual move or `--skip-specs`. Apply the
+sanctioned supersession procedure exactly, preserve the truthful historical
+task state and append-only provenance, and use the actual archive identity
+created by the command. Validate every archived state strictly, run
+`crates/brokkr-cli/tests/provenance.rs`, assert both directions and inspect the
+complete staged diff, all read-only with respect to the archived artifact. If
+archive completion is uncertain, classify the active/archive namespaces,
+living truth, provenance, index and `HEAD` before retrying. If the archive is
+partial or a check fails, restore the same active authoritative change and
+invalidate 15.7 when its premises changed before repairing; never edit an
+archived task file in place (`progress / PM1`, `progress / PM4`, boundary /
+The seat record carries the boundary as seat-record/v4).
 
 **Post-archive phase action — delivery commit.** Once the all-ticked change is
 archived, staged and its read-only checks pass, commit that exact tree
@@ -1580,3 +1584,21 @@ complete, and structural checks find 101 unique identifiers at the stated
 provider check is claimed for this task-artifact-only repair; those checks
 remain dependency-ordered delivery work, and host coverage remains mandatory
 controller evidence.
+
+## Current tasks return — F12 archive constitution, 2026-09-10
+
+This return adopts proposal I/F12 and design D13. New evidence invalidates the
+checked premise of 15.5: the historical archive cannot be both restored
+truthfully and accepted by the unconditional archived validator. Task 15.5 is
+therefore reopened and now owns the exact upstream recovery dependency. Tasks
+15.6–15.7 depend on that coherent repair, and the post-task archive action is
+explicitly prohibited until it exists. No task is checked on unavailable proof,
+no archive is run and the existing 101 identifiers remain stable.
+
+The current truth is **81 complete / 20 pending across 101 tracked tasks**.
+Every task still names its served requirement; all 20 requirements / 125
+scenarios retain coverage. Active strict validation and status pass, as does
+`git diff --check`. The scratch archive probe reproduced the date and
+verification conflict; Cargo is unavailable here, so no Rust gate is claimed.
+Provider proof, the full delivery minimum, local gates, host exact coverage and
+controller shipping evidence remain pending and unwaived.
