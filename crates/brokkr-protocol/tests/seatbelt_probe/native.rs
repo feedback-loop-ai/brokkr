@@ -218,6 +218,34 @@ impl NativeProbeHost {
         if !positive {
             // Preserve launch diagnostics before the guard can remove the
             // private payload state. A dead payload is not quiescence proof.
+            if let Ok(state) = Command::new(LAUNCHCTL)
+                .args(["print", &self.service_target(payload_label)])
+                .output()
+            {
+                eprintln!(
+                    "payload launchd state: {}",
+                    String::from_utf8_lossy(&state.stdout)
+                );
+            }
+            // Distinguish launchd registration from interpreter startup under
+            // the identical policy. This diagnostic is never a passing case.
+            if let Ok(startup) = Command::new(SANDBOX_EXEC)
+                .arg("-f")
+                .arg(root.join("policy.sb"))
+                .args([
+                    PYTHON,
+                    "-c",
+                    "print('probe interpreter started', flush=True)",
+                ])
+                .output()
+            {
+                eprintln!(
+                    "direct sandbox startup: status={}; stdout={}; stderr={}",
+                    startup.status,
+                    String::from_utf8_lossy(&startup.stdout),
+                    String::from_utf8_lossy(&startup.stderr)
+                );
+            }
             return Err("payload heartbeat did not advance before the trigger".into());
         }
 
