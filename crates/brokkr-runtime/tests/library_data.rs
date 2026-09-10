@@ -9,6 +9,10 @@
 //! becomes read-only and reports the return instead of applying it.
 //! Decision 0043 retires verifier and shipper from this model library; the
 //! roster test accounts for their boxed exec scripts instead.
+//! Decision 0058 seats the `recipes/gpt-flash` forced crew as fifteen scoped
+//! `gpt-flash-*` offices: each reuses a library charter, names exactly one
+//! model, and carries no fallback chain, which is why the resolution test
+//! below exempts those offices by name from the standard chain assertion.
 
 use std::path::PathBuf;
 
@@ -99,10 +103,25 @@ const AUTHORED_CHARTERS: [&str; 6] = [
 /// strategy-selected seats land. Decision 0044 ruling 4 seats the
 /// researcher: the one office that reads the field and holds the fetch
 /// grant, authored here like muninn and triage.
-const AGENTS: [&str; 20] = [
+const AGENTS: [&str; 35] = [
     "analyst",
     "chief-architect",
     "clarifier",
+    "gpt-flash-analyst",
+    "gpt-flash-chief-architect",
+    "gpt-flash-clarifier",
+    "gpt-flash-implementer",
+    "gpt-flash-implementer-engine",
+    "gpt-flash-implementer-sdd",
+    "gpt-flash-position-robustness",
+    "gpt-flash-position-simplicity",
+    "gpt-flash-review-adversarial",
+    "gpt-flash-review-chief",
+    "gpt-flash-review-correctness",
+    "gpt-flash-review-security",
+    "gpt-flash-review-spec-compliance",
+    "gpt-flash-task-planner",
+    "gpt-flash-triage",
     "implementer",
     "implementer-engine",
     "implementer-sdd",
@@ -120,6 +139,28 @@ const AGENTS: [&str; 20] = [
     "review-spec-compliance",
     "reviewer",
     "triage",
+];
+
+/// Decision 0058: the `recipes/gpt-flash` forced crew, seated as scoped
+/// offices. Each reuses a standard charter and pins exactly one model, so
+/// it has no fallback chain; the exemption is this explicit list, not a
+/// name prefix, so a new single-model office must be named by a decision.
+const SCOPED_OFFICES: [&str; 15] = [
+    "gpt-flash-analyst",
+    "gpt-flash-chief-architect",
+    "gpt-flash-clarifier",
+    "gpt-flash-implementer",
+    "gpt-flash-implementer-engine",
+    "gpt-flash-implementer-sdd",
+    "gpt-flash-position-robustness",
+    "gpt-flash-position-simplicity",
+    "gpt-flash-review-adversarial",
+    "gpt-flash-review-chief",
+    "gpt-flash-review-correctness",
+    "gpt-flash-review-security",
+    "gpt-flash-review-spec-compliance",
+    "gpt-flash-task-planner",
+    "gpt-flash-triage",
 ];
 
 fn library() -> Library {
@@ -176,6 +217,15 @@ fn the_library_holds_the_decision_0041_roster() {
             "{name} should not declare inputs"
         );
     }
+    // Decision 0058: the forced crew's scoped offices are ordinary roster
+    // entries, so a name that moves out of the roster fails here rather than
+    // quietly widening the resolution test's exemption.
+    for scoped in SCOPED_OFFICES {
+        assert!(
+            library.agent(scoped).is_some(),
+            "{scoped} is exempted from the fallback assertion but is not a roster office"
+        );
+    }
 }
 
 #[test]
@@ -208,8 +258,17 @@ fn every_shipped_agent_resolves_at_compile_time() {
             resolution.notices.is_empty(),
             "{name} ships with no capability gap"
         );
-        if name == "muninn" {
-            assert_eq!(resolution.candidates.len(), 1);
+        // Decision 0058: `muninn` is the one standard office that names a
+        // single model, and the `recipes/gpt-flash` forced crew is seated as
+        // scoped offices that deliberately pin one model each so no fallback
+        // can silently reach another vendor or an older Flash. Every other
+        // model-backed office keeps a real chain (0041 ruling 2).
+        if name == "muninn" || SCOPED_OFFICES.contains(&name) {
+            assert_eq!(
+                resolution.candidates.len(),
+                1,
+                "{name} must pin exactly one model (decision 0058)"
+            );
         } else {
             assert!(
                 resolution.candidates.len() >= 2,

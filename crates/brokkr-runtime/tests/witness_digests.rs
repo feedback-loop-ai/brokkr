@@ -160,7 +160,12 @@ fn workspace() -> PathBuf {
 /// This correction moves the two triage descendants together: artifact
 /// validation retries now bind to journal-counted failures instead of every
 /// return into the phase.
-const WITNESSES: [(&str, &str); 9] = [
+/// `recipes/gpt-flash` joins as the tenth witness: it is a descendant of
+/// `recipes/triage` whose scoped `gpt-flash-*` roster, four-strategy
+/// Sol/Flash/Astra seats and inherited deterministic gates are its identity.
+/// Decision 0058's citation in the recipe README moves its manifest digest
+/// once more, because the README bytes are part of the recipe's identity.
+const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
         "76b46f29e359a1d02bbc0c08ad3bb94a60d7ff4c26bb8f1c363bcd02b539bd31",
@@ -192,6 +197,10 @@ const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/research-dsh",
         "3633c913555b12835f385d3f6dad3fc101f1b0756ed52dc9babde78c07d2d657",
+    ),
+    (
+        "recipes/gpt-flash",
+        "b1469d14d1965e39d3a9e8962fb69f225c8ba76365eec7000cadc8c36b4182ae",
     ),
     (
         "bundles/verify",
