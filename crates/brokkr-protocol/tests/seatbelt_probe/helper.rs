@@ -27,6 +27,19 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+// The one source of the startup denial-control targets, shared with the
+// host-independent check by `#[path]` so the helper's attack functions and the
+// check read identical constants (design D3).
+#[path = "controls.rs"]
+mod controls;
+
+/// The exact helper spelling the observer passed as `--helper`, which every
+/// exec of the helper must name. It is required before the first stage: a
+/// helper started without it fails with a named message and records nothing.
+fn helper_exe(args: &[String]) -> Result<PathBuf, String> {
+    required(args, "--helper").map(PathBuf::from)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let code = match dispatch(&args) {
@@ -93,8 +106,11 @@ fn sleep_ms(milliseconds: u64) {
 // Gate A: the startup helper
 // ---------------------------------------------------------------------------
 
-/// `startup --root DIR --nonce NONCE --exit clean|nonzero`
+/// `startup --root DIR --helper PATH --nonce NONCE --exit clean|nonzero`
 fn run_startup(args: &[String]) -> Result<i32, String> {
+    // The observer's staged helper spelling, read before the first stage. A
+    // helper started without it fails here having recorded no stage.
+    let helper = helper_exe(args)?;
     let root = root_of(args)?;
     let nonce = required(args, "--nonce")?;
     let directed = flag(args, "--exit").unwrap_or_else(|| "clean".to_string());
@@ -106,18 +122,41 @@ fn run_startup(args: &[String]) -> Result<i32, String> {
     let stages = payload.join("stages");
     append_at(&stages, "entry\n")?;
     append_at(&stages, "payload-dir\n")?;
-
-    let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
     append_at(&stages, "executable\n")?;
-    let mut child = Command::new(&exe)
+
+    // The ordinary child's streams are explicit pre-opened handles on
+    // `/dev/null`, never `Stdio::null()`, so a stream-setup refusal names the
+    // stream it failed on before any spawn is attempted.
+    let child_stdin = OpenOptions::new()
+        .read(true)
+        .open("/dev/null")
+        .map_err(|error| format!("child streams: stdin /dev/null: {error}"))?;
+    let child_stdout = OpenOptions::new()
+        .write(true)
+        .open("/dev/null")
+        .map_err(|error| format!("child streams: stdout /dev/null: {error}"))?;
+    let child_stderr = OpenOptions::new()
+        .write(true)
+        .open("/dev/null")
+        .map_err(|error| format!("child streams: stderr /dev/null: {error}"))?;
+
+    let mut child = Command::new(&helper)
         .arg("child")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdin(Stdio::from(child_stdin))
+        .stdout(Stdio::from(child_stdout))
+        .stderr(Stdio::from(child_stderr))
         .spawn()
-        .map_err(|error| format!("ordinary child: {error}"))?;
+        .map_err(|error| format!("child spawn/exec: {error}"))?;
+    append_at(&stages, "child-spawn\n")?;
     let child_pid = child.id();
-    append_at(&stages, "child\n")?;
+    if child
+        .try_wait()
+        .map_err(|error| format!("child observation: {error}"))?
+        .is_some_and(|status| !status.success())
+    {
+        return Err("child observation: the ordinary child exited nonzero".to_string());
+    }
+    append_at(&stages, "child-observed\n")?;
     append_at(
         &payload.join("identities"),
         &format!("ordinary {child_pid} {child_pid}\n"),
@@ -153,6 +192,7 @@ fn run_denial(args: &[String]) -> Result<i32, String> {
     fs::create_dir_all(&payload).map_err(|error| format!("payload dir: {error}"))?;
     let (denied, detail) = match kind.as_str() {
         "credential" => attempt_credential_read(),
+        "data-volume-credential" => attempt_data_volume_credential_read(),
         "host-write" => attempt_host_write(),
         "network" => attempt_network(),
         "guard" => {
@@ -176,24 +216,41 @@ fn run_denial(args: &[String]) -> Result<i32, String> {
 }
 
 /// A read of a host credential file must not return bytes; any failure or
-/// permission denial counts as denied.
+/// permission denial counts as denied. The direct and `/private` spellings,
+/// plus the `/System/Volumes/Data` spelling of the credential target, come from
+/// the one shared control-target source.
 fn attempt_credential_read() -> (bool, String) {
-    for path in ["/etc/passwd", "/etc/hosts"] {
+    for path in controls::CREDENTIAL_READ_DENIAL_TARGETS {
         match fs::read(path) {
             Ok(_) => return (false, format!("{path} read succeeded")),
-            Err(error) => {
-                if error.kind() == std::io::ErrorKind::PermissionDenied {
-                    return (true, format!("{path} denied EACCES/EPERM"));
-                }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                return (true, format!("{path} denied EACCES/EPERM"));
             }
+            Err(_) => {}
         }
     }
     (true, "no readable credential file".to_string())
 }
 
+/// The data-volume spelling of the credential target must stay denied exactly
+/// as the direct spelling is.
+fn attempt_data_volume_credential_read() -> (bool, String) {
+    let path = controls::DATA_VOLUME_CREDENTIAL_READ_DENIAL_TARGET;
+    match fs::read(path) {
+        Ok(_) => (false, format!("{path} read succeeded")),
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                (true, format!("{path} denied EACCES/EPERM"))
+            } else {
+                (true, format!("{path} denied: {error}"))
+            }
+        }
+    }
+}
+
 /// A write outside the payload must not create a host file.
 fn attempt_host_write() -> (bool, String) {
-    let path = "/private/tmp/brokkr-probe-denial-write";
+    let path = controls::HOST_WRITE_DENIAL_TARGET;
     match OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -232,6 +289,8 @@ fn attempt_launchctl(args: &[&str]) -> (bool, String) {
 
 /// `payload --root DIR --case CASE --nonce NONCE`
 fn run_payload(args: &[String]) -> Result<i32, String> {
+    // The staged helper spelling is read before any stage or exec.
+    let helper = helper_exe(args)?;
     let root = root_of(args)?;
     let case = required(args, "--case")?;
     let payload = root.join("payload");
@@ -284,7 +343,7 @@ fn run_payload(args: &[String]) -> Result<i32, String> {
             Ok(0)
         }
         "parent-exit" => {
-            let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+            let exe = helper.clone();
             let _child = Command::new(&exe)
                 .args([
                     "detach-leaf",
@@ -299,7 +358,7 @@ fn run_payload(args: &[String]) -> Result<i32, String> {
             Ok(0)
         }
         "double-fork" => {
-            let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+            let exe = helper.clone();
             let _child = detach_spawn(Command::new(&exe).args([
                 "detach-child",
                 "--root",
@@ -308,7 +367,7 @@ fn run_payload(args: &[String]) -> Result<i32, String> {
             Ok(0)
         }
         "ignored-signals" => {
-            let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+            let exe = helper.clone();
             let _child = detach_spawn(Command::new(&exe).args([
                 "detach-leaf",
                 "--root",
@@ -320,7 +379,7 @@ fn run_payload(args: &[String]) -> Result<i32, String> {
             Ok(0)
         }
         "retained-pipes" => {
-            let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+            let exe = helper.clone();
             let _child = detach_spawn(
                 Command::new(&exe)
                     .args([
@@ -338,7 +397,7 @@ fn run_payload(args: &[String]) -> Result<i32, String> {
         // timeout, cancellation and supervisor-death each detach one `setsid`
         // descendant; the observer applies a different real trigger to each.
         _ => {
-            let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+            let exe = helper.clone();
             let _child = detach_spawn(Command::new(&exe).args([
                 "detach-leaf",
                 "--root",
@@ -354,10 +413,10 @@ fn run_payload(args: &[String]) -> Result<i32, String> {
 /// The double-fork intermediate: new session, record itself, spawn the leaf,
 /// then exit so only the reparented leaf remains.
 fn run_detach_child(args: &[String]) -> Result<i32, String> {
+    let helper = helper_exe(args)?;
     let root = root_of(args)?;
-    let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
     record_identity(&root.join("payload"), "fork-child")?;
-    let _child = Command::new(&exe)
+    let _child = Command::new(&helper)
         .args([
             "detach-leaf",
             "--root",

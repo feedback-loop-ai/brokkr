@@ -3,6 +3,7 @@
 //! close no SEATBELT residual.
 
 use super::*;
+use brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS;
 
 /// A scripted host: returns one precondition, one startup observation per
 /// cell and one lifetime result per case, recording what it was asked to run.
@@ -426,7 +427,7 @@ fn every_startup_cell_failure_is_named_separately() {
             c.helper_digest.clear()
         }),
         ("crash", |c: &mut StartupObservation| {
-            c.launchd_crashes = Some(1)
+            c.launchd_successive_crashes = Some(1)
         }),
     ];
     for cell in StartupCell::ALL {
@@ -520,7 +521,7 @@ fn a_seatbelt_cell_that_reached_ready_must_prove_the_root_read_was_load_bearing(
 
     // A removal that still started the payload names a non-load-bearing rule.
     let mut observation = passing_startup(cell);
-    observation.negative_controls[0].blocked = false;
+    observation.negative_controls[0].status = RemovalStatus::ObservedNotBlocking;
     let verdict = evaluate_startup(&[cell], &[observation]);
     assert!(!verdict.is_pass());
     assert!(verdict
@@ -530,7 +531,7 @@ fn a_seatbelt_cell_that_reached_ready_must_prove_the_root_read_was_load_bearing(
 
     // A removal that never ran proves nothing either.
     let mut observation = passing_startup(cell);
-    observation.negative_controls[0].observed = false;
+    observation.negative_controls[0].status = RemovalStatus::Missing;
     let verdict = evaluate_startup(&[cell], &[observation]);
     assert!(!verdict.is_pass());
     assert!(verdict
@@ -687,24 +688,158 @@ fn startup_cells_require_the_exact_bounded_stage_sequence() {
 
 #[test]
 fn launchd_print_parsing_never_synthesizes_missing_fields() {
-    let complete = "state = not running\nruns = 1\nsuccessive crashes = 0\n";
+    let complete = "gui/501/label = {\n\tstate = not running\n\truns = 1\n\tlast exit code = 0\n\tlast exit reason = exited normally\n}\n";
     let facts = parse_launchd_print(complete).expect("complete launchd state");
-    assert_eq!(facts.state, "not running");
-    assert_eq!(facts.runs, 1);
-    assert_eq!(facts.crashes, 0);
+    assert_eq!(facts.state.as_deref(), Some("not running"));
+    assert_eq!(facts.runs, Some(1));
+    assert_eq!(facts.last_exit_code, Some(0));
+    assert_eq!(
+        facts.successive_crashes, None,
+        "an omitted crash counter stays unknown"
+    );
     assert_eq!(classify_launchd_exit(&facts), HelperExit::Clean);
 
-    // A missing or unparsable field is an error, not a default.
-    assert!(parse_launchd_print("state = not running\nsuccessive crashes = 0\n").is_err());
-    assert!(parse_launchd_print("runs = 1\nsuccessive crashes = 0\n").is_err());
+    // An unknown field does not erase another fact; the required terminal
+    // facts still fail closed.
+    let partial = "gui/501/label = {\n\tstate = not running\n\truns = 1\n}\n";
+    let facts = parse_launchd_print(partial).expect("parseable");
+    assert_eq!(facts.state.as_deref(), Some("not running"));
+    assert_eq!(facts.runs, Some(1));
+    assert_eq!(facts.last_exit_code, None);
+    assert_eq!(classify_launchd_exit(&facts), HelperExit::NotRun);
+
+    // The running sample is non-terminal, even with a run counter.
+    let running =
+        "gui/501/label = {\n\tstate = running\n\truns = 0\n\tlast exit code = (never exited)\n}\n";
+    let facts = parse_launchd_print(running).expect("parseable running state");
+    assert_eq!(facts.last_exit_code, None);
+    assert_eq!(classify_launchd_exit(&facts), HelperExit::NotRun);
+
+    // A present nonzero crash counter or terminating signal fails closed.
+    let crash = "gui/501/label = {\n\tstate = not running\n\truns = 2\n\tlast exit code = 0\n\tsuccessive crashes = 1\n}\n";
+    let facts = parse_launchd_print(crash).expect("parseable");
+    assert_eq!(facts.successive_crashes, Some(1));
+    let signal = "gui/501/label = {\n\tstate = not running\n\truns = 1\n\tlast exit code = 0\n\tterminating signal = 9\n}\n";
+    let facts = parse_launchd_print(signal).expect("parseable");
+    assert_eq!(facts.terminating_signal, Some(9));
+
+    // Nested and duplicated keys never manufacture a fact.
+    let nested = "gui/501/label = {\n\tstate = not running\n\tstate = running\n\truns = 1\n\tlast exit code = 0\n\tsome block = {\n\t\truns = 99\n\t}\n}\n";
+    let facts = parse_launchd_print(nested).expect("parseable");
+    assert_eq!(facts.state, None, "a duplicated top-level key is unknown");
+    assert_eq!(facts.runs, Some(1), "a nested key is not a top-level fact");
+    assert!(facts
+        .nested
+        .iter()
+        .any(|(path, line)| path.contains("some block") && line.contains("runs = 99")));
+}
+
+#[test]
+fn the_fa7_launchd_samples_parse_as_the_measured_top_level_dictionary() {
+    use super::fa7_launchd_samples::*;
+    let running = parse_launchd_print(FA7_S2_RUNNING).expect("the running fa7 sample parses");
+    assert_eq!(running.state.as_deref(), Some("running"));
+    assert_eq!(running.active_count, Some(1));
+    assert_eq!(
+        running.last_exit_code_raw.as_deref(),
+        Some("(never exited)"),
+        "the raw value stays typed"
+    );
+    assert_eq!(running.last_exit_code, None);
+    assert_eq!(
+        classify_launchd_exit(&running),
+        HelperExit::NotRun,
+        "the running fa7 sample is non-terminal"
+    );
     assert!(
-        parse_launchd_print("state = not running\nruns = one\nsuccessive crashes = 0\n").is_err()
+        running.nested.iter().any(|(path, _)| path == "arguments"),
+        "nested entries are kept under their block path"
     );
 
-    // No terminal observation never becomes a synthetic nonzero exit.
-    let running = "state = running\nruns = 0\nsuccessive crashes = 0\n";
-    let facts = parse_launchd_print(running).expect("parseable running state");
-    assert_eq!(classify_launchd_exit(&facts), HelperExit::NotRun);
+    // The measured S2 not-running sample carries `runs = 1`, `last exit
+    // code = 0` and no `successive crashes` field; the new parser must read it
+    // as one clean run rather than refuse the absent counter.
+    let terminal = parse_launchd_print(FA7_S2_NOT_RUNNING).expect("the terminal fa7 sample parses");
+    assert_eq!(terminal.state.as_deref(), Some("not running"));
+    assert_eq!(terminal.runs, Some(1));
+    assert_eq!(terminal.last_exit_code, Some(0));
+    assert_eq!(terminal.successive_crashes, None);
+    assert_eq!(classify_launchd_exit(&terminal), HelperExit::Clean);
+    assert_eq!(terminal.active_count, Some(0));
+
+    let s3 = parse_launchd_print(FA7_S3_RUNNING).expect("the S3 fa7 sample parses");
+    assert!(s3.state.is_some());
+}
+
+#[test]
+fn a_non_starting_seatbelt_cell_owes_no_removal_verdict() {
+    let cell = StartupCell::S1DirectSeatbelt;
+    let mut observation = passing_startup(cell);
+    observation.ready = false;
+    observation.negative_controls = vec![StartupNegativeControl {
+        name: "root-inode-read".to_string(),
+        removed_rule: "(allow file-read* (literal \"/\"))".to_string(),
+        consumer: "root inode".to_string(),
+        status: RemovalStatus::NotDue,
+        exit: HelperExit::NotRun,
+        stdout: String::new(),
+        stderr: String::new(),
+    }];
+    // The cell fails on its own startup facts, and the not-due removal is not
+    // read as blocking.
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(!verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("negative control")));
+}
+
+#[test]
+fn a_stripped_replay_that_reaches_ready_is_not_blocking() {
+    let cell = StartupCell::S1DirectSeatbelt;
+    let mut observation = passing_startup(cell);
+    observation.negative_controls[0].status = RemovalStatus::ObservedNotBlocking;
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("load-bearing negative control")));
+}
+
+#[test]
+fn a_measured_nonzero_crash_counter_fails_the_cell() {
+    for cell in [
+        StartupCell::S2LaunchdUnboxed,
+        StartupCell::S3LaunchdSeatbelt,
+    ] {
+        let mut observation = passing_startup(cell);
+        observation.launchd_successive_crashes = Some(2);
+        let verdict = evaluate_startup(&[cell], &[observation]);
+        assert!(!verdict.is_pass(), "{}", cell.name());
+        assert!(verdict
+            .reasons()
+            .iter()
+            .any(|reason| reason.contains("successive crash")));
+    }
+}
+
+#[test]
+fn a_measured_terminating_signal_fails_the_cell() {
+    for cell in [
+        StartupCell::S2LaunchdUnboxed,
+        StartupCell::S3LaunchdSeatbelt,
+    ] {
+        let mut observation = passing_startup(cell);
+        observation.launchd_terminating_signal = Some(9);
+        let verdict = evaluate_startup(&[cell], &[observation]);
+        assert!(!verdict.is_pass(), "{}", cell.name());
+        assert!(verdict
+            .reasons()
+            .iter()
+            .any(|reason| reason.contains("terminating signal")));
+    }
 }
 
 #[test]
@@ -808,4 +943,810 @@ fn a_passing_startup_gate_runs_the_lifetime_matrix() {
     assert!(report.lifetime.is_some());
     assert_eq!(host.runs.len(), Case::ALL.len());
     assert_eq!(host.startup_runs.len(), StartupCell::ALL.len());
+}
+
+// ---------------------------------------------------------------------------
+// The audited startup-rule ledger and the pure check (tasks 1.18-1.21)
+// ---------------------------------------------------------------------------
+
+/// Fixed concrete inputs for host-independent check tests. They are a legal
+/// canonical private layout: a fresh cell root under `/private/var/folders`
+/// (its resolved spelling), a helper staged outside every cell root, and the
+/// fixed payload/inputs layout.
+pub(super) fn fixed_inputs() -> CheckInputs {
+    CheckInputs {
+        cell_root: "/private/var/folders/xy/T/brokkr-seatbelt-probe-1/cell-1".to_string(),
+        payload_root: "/private/var/folders/xy/T/brokkr-seatbelt-probe-1/cell-1/payload"
+            .to_string(),
+        inputs_dir: "/private/var/folders/xy/T/brokkr-seatbelt-probe-1/cell-1/inputs".to_string(),
+        helper: "/private/var/folders/xy/T/brokkr-seatbelt-probe-1/bin/seatbelt-probe-helper"
+            .to_string(),
+    }
+}
+
+fn fixed_profile(inputs: &CheckInputs) -> String {
+    render_candidate_profile(&STARTUP_RULE_LEDGER, inputs)
+}
+
+#[test]
+fn the_candidate_profile_equals_the_ledgers_disjoint_union() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    let result = check_startup_candidate(
+        &profile,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    );
+    assert!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn the_candidate_frame_is_exactly_version_then_deny_default() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    assert!(profile.starts_with("(version 1)\n(deny default)\n"));
+    let units = super::ledger::parse_template(&profile).expect("parses");
+    assert_eq!(
+        units.units.len(),
+        STARTUP_RULE_LEDGER.len(),
+        "one unit per ledger entry"
+    );
+}
+
+#[test]
+fn every_ledger_entry_carries_its_typed_justification() {
+    for entry in &*STARTUP_RULE_LEDGER {
+        match &entry.class {
+            LedgerClass::Baseline(baseline) => {
+                assert!(!baseline.justification.trim().is_empty());
+                assert!(matches!(
+                    baseline.kind,
+                    BaselineKind::HandsElement(_)
+                        | BaselineKind::ExecutionInput
+                        | BaselineKind::ProbeHarnessNeed
+                ));
+            }
+            LedgerClass::DiagnosisAdmitted(admission) => {
+                assert!(!admission.process.trim().is_empty());
+                assert!(!admission.consumer.trim().is_empty());
+                assert!(!admission.evidence.trim().is_empty());
+                assert!(!admission.removal.trim().is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn the_ledger_has_the_named_baseline_entries_and_one_diagnosis() {
+    let baseline = STARTUP_RULE_LEDGER
+        .iter()
+        .filter(|entry| matches!(entry.class, LedgerClass::Baseline(_)))
+        .count();
+    let diagnosis = STARTUP_RULE_LEDGER
+        .iter()
+        .filter(|entry| matches!(entry.class, LedgerClass::DiagnosisAdmitted(_)))
+        .count();
+    assert_eq!(baseline, 23, "twenty-three baseline entries");
+    assert_eq!(diagnosis, 1, "one diagnosis-admitted entry");
+}
+
+#[test]
+fn the_program_binds_are_host_toolchain_sources() {
+    for bind in PROGRAM_BINDS {
+        assert!(
+            HOST_TOOLCHAIN_BINDS.contains(&bind),
+            "{bind} is not a host-toolchain source"
+        );
+    }
+}
+
+#[test]
+fn the_fa7_template_keeps_a_disposition_for_every_unit() {
+    check_fa7_dispositions().expect("every fa7 unit has a disposition");
+}
+
+#[test]
+fn a_multi_operation_form_cannot_hide_an_operation() {
+    let inputs = fixed_inputs();
+    let mut profile = fixed_profile(&inputs);
+    let needle = format!("(allow file-write* (subpath \"{}\"))", inputs.payload_root);
+    profile = profile.replace(
+        &needle,
+        &format!(
+            "(allow file-write* process-exec (subpath \"{}\"))",
+            inputs.payload_root
+        ),
+    );
+    let error = check_startup_candidate(
+        &profile,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect_err("a hidden operation must fail");
+    assert!(
+        error.reason.contains("more than one operation"),
+        "{}",
+        error.reason
+    );
+    assert!(error.reason.contains("process-exec"), "{}", error.reason);
+}
+
+#[test]
+fn a_top_level_form_other_than_the_frame_and_allow_fails() {
+    let inputs = fixed_inputs();
+    let base = fixed_profile(&inputs);
+    for extra in [
+        "(trace \"x\")\n",
+        "(define \"x\" \"y\")\n",
+        "(if true 1 2)\n",
+        "(debug)\n",
+        "(import \"x\")\n",
+        "(param \"x\")\n",
+        "(deny file-read*)\n",
+        "(allow default)\n",
+        "(version 1)\n",
+        "bare-atom\n",
+    ] {
+        let profile = format!("{base}{extra}");
+        let error = check_startup_candidate(
+            &profile,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &inputs,
+        )
+        .expect_err("a non-allow top-level form must fail");
+        assert!(!error.reason.is_empty());
+    }
+}
+
+#[test]
+fn modifiers_compound_filters_and_unparseable_text_fail() {
+    let inputs = fixed_inputs();
+    let unit = STARTUP_RULE_LEDGER[0].unit.render();
+    assert_eq!(unit, "(allow process-fork)");
+    let base = fixed_profile(&inputs);
+    for (label, replacement) in [
+        ("modifier", "(allow process-fork (with report))"),
+        (
+            "compound",
+            "(allow process-fork (require-any (subpath \"/bin\")))",
+        ),
+        ("no-arg", "(allow process-fork (subpath))"),
+        (
+            "two-arg",
+            "(allow process-fork (subpath \"/bin\" \"/sbin\"))",
+        ),
+    ] {
+        let profile = base.replace("(allow process-fork)", replacement);
+        let error = check_startup_candidate(
+            &profile,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &inputs,
+        )
+        .expect_err(label);
+        assert!(!error.reason.is_empty());
+    }
+    // A comment, an unbalanced parenthesis and a duplicated unit.
+    for profile in [
+        format!(";; comment\n{base}"),
+        format!("{base}(allow process-fork\n"),
+        format!("{base}(allow process-fork)\n"),
+    ] {
+        assert!(check_startup_candidate(
+            &profile,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &inputs
+        )
+        .is_err());
+    }
+}
+
+#[test]
+fn a_duplicate_unit_fails() {
+    let inputs = fixed_inputs();
+    let base = fixed_profile(&inputs);
+    let profile = format!("{base}(allow process-fork)\n");
+    let error = check_startup_candidate(
+        &profile,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect_err("a duplicate unit must fail");
+    assert!(error.reason.contains("twice"), "{}", error.reason);
+}
+
+#[test]
+fn an_unlisted_or_missing_unit_fails() {
+    let inputs = fixed_inputs();
+    let base = fixed_profile(&inputs);
+    let extra = format!("{base}(allow sysctl-read)\n");
+    let error = check_startup_candidate(
+        &extra,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect_err("an unlisted unit must fail");
+    assert!(error.reason.contains("neither half"), "{}", error.reason);
+
+    let needle = STARTUP_RULE_LEDGER[0].unit.render();
+    let missing = base.replace(&format!("{needle}\n"), "");
+    let error = check_startup_candidate(
+        &missing,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect_err("a missing unit must fail");
+    assert!(error.reason.contains("lacks"), "{}", error.reason);
+}
+
+#[test]
+fn the_removal_set_is_exactly_the_diagnosis_admitted_unit() {
+    // The root-inode removal names exactly the diagnosis-admitted entry.
+    let diagnosis: Vec<&LedgerEntry> = STARTUP_RULE_LEDGER
+        .iter()
+        .filter(|entry| matches!(entry.class, LedgerClass::DiagnosisAdmitted(_)))
+        .collect();
+    assert_eq!(diagnosis.len(), 1);
+    let admission = match &diagnosis[0].class {
+        LedgerClass::DiagnosisAdmitted(admission) => admission,
+        _ => unreachable!(),
+    };
+    assert_eq!(admission.removal, STARTUP_NEGATIVE_ALLOWANCES[0].name);
+    assert_eq!(
+        diagnosis[0].unit.render(),
+        STARTUP_NEGATIVE_ALLOWANCES[0].removed_rule
+    );
+}
+
+#[test]
+fn a_varied_ledger_that_adds_a_baseline_unit_is_judged() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    ledger.push(entry(
+        unit("file-read*", "subpath", "/etc/ssh"),
+        HandsElement::Toolchain,
+        "smuggled",
+    ));
+    let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("a smuggled ledger unit fails its anchor");
+    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+}
+
+#[test]
+fn the_concrete_inputs_are_validated_before_normalization() {
+    let cell = "/private/var/folders/xy/T/brokkr-seatbelt-probe-1/cell-1";
+    let helper = "/private/var/folders/xy/T/brokkr-seatbelt-probe-1/bin/seatbelt-probe-helper";
+    let cases: [(&str, CheckInputs); 7] = [
+        (
+            "payload layout",
+            CheckInputs {
+                cell_root: cell.to_string(),
+                payload_root: format!("{cell}/work"),
+                inputs_dir: format!("{cell}/inputs"),
+                helper: helper.to_string(),
+            },
+        ),
+        (
+            "inputs layout",
+            CheckInputs {
+                cell_root: cell.to_string(),
+                payload_root: format!("{cell}/payload"),
+                inputs_dir: "/tmp/inputs".to_string(),
+                helper: helper.to_string(),
+            },
+        ),
+        (
+            "root cell",
+            CheckInputs {
+                cell_root: "/".to_string(),
+                payload_root: "/payload".to_string(),
+                inputs_dir: "/inputs".to_string(),
+                helper: helper.to_string(),
+            },
+        ),
+        (
+            "usr parent",
+            CheckInputs {
+                cell_root: "/usr".to_string(),
+                payload_root: "/usr/payload".to_string(),
+                inputs_dir: "/usr/inputs".to_string(),
+                helper: "/opt/helper".to_string(),
+            },
+        ),
+        (
+            "credential parent",
+            CheckInputs {
+                cell_root: "/private/etc".to_string(),
+                payload_root: "/private/etc/payload".to_string(),
+                inputs_dir: "/private/etc/inputs".to_string(),
+                helper: "/opt/helper".to_string(),
+            },
+        ),
+        (
+            "host tmp parent",
+            CheckInputs {
+                cell_root: "/private/tmp".to_string(),
+                payload_root: "/private/tmp/payload".to_string(),
+                inputs_dir: "/private/tmp/inputs".to_string(),
+                helper: "/opt/helper".to_string(),
+            },
+        ),
+        (
+            "data volume",
+            CheckInputs {
+                cell_root: "/System/Volumes/Data/private/var/folders/xy/T/cell".to_string(),
+                payload_root: "/System/Volumes/Data/private/var/folders/xy/T/cell/payload"
+                    .to_string(),
+                inputs_dir: "/System/Volumes/Data/private/var/folders/xy/T/cell/inputs".to_string(),
+                helper: "/System/Volumes/Data/opt/helper".to_string(),
+            },
+        ),
+    ];
+    for (label, inputs) in cases {
+        let profile = fixed_profile(&inputs);
+        let error = check_startup_candidate(
+            &profile,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &inputs,
+        )
+        .expect_err(label);
+        assert!(!error.reason.is_empty(), "{label}");
+    }
+}
+
+#[test]
+fn a_non_canonical_cell_root_or_helper_fails() {
+    let good = fixed_inputs();
+    for (label, cell, helper) in [
+        ("relative", "cell", good.helper.as_str()),
+        (
+            "dotdot",
+            "/private/var/folders/xy/T/../cell",
+            good.helper.as_str(),
+        ),
+        (
+            "trailing",
+            "/private/var/folders/xy/T/cell/",
+            good.helper.as_str(),
+        ),
+        (
+            "var symlink",
+            "/var/folders/xy/T/cell",
+            good.helper.as_str(),
+        ),
+        ("tmp symlink", "/tmp/cell", good.helper.as_str()),
+        (
+            "helper under cell",
+            good.cell_root.as_str(),
+            good.payload_root.as_str(),
+        ),
+        ("helper root", good.cell_root.as_str(), "/"),
+    ] {
+        let inputs = CheckInputs {
+            cell_root: cell.to_string(),
+            payload_root: format!("{cell}/payload"),
+            inputs_dir: format!("{cell}/inputs"),
+            helper: helper.to_string(),
+        };
+        assert!(
+            check_startup_candidate(
+                &fixed_profile(&inputs),
+                &STARTUP_RULE_LEDGER,
+                &STARTUP_NEGATIVE_ALLOWANCES,
+                &inputs,
+            )
+            .is_err(),
+            "{label} must fail"
+        );
+    }
+}
+
+#[test]
+fn a_placeholder_does_not_hide_its_concrete_target() {
+    for (label, helper) in [
+        ("program bind", "/usr/bin"),
+        ("credential", "/private/etc/passwd"),
+        (
+            "data volume",
+            "/System/Volumes/Data/Users/runner/seatbelt-probe-helper",
+        ),
+    ] {
+        let mut inputs = fixed_inputs();
+        inputs.helper = helper.to_string();
+        let profile = fixed_profile(&inputs);
+        let error = check_startup_candidate(
+            &profile,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &inputs,
+        )
+        .expect_err(label);
+        assert!(!error.reason.is_empty(), "{label}");
+    }
+}
+
+#[test]
+fn a_unit_that_covers_a_toolchain_spelling_or_control_target_fails() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    // A ledger unit relabelled as a probe-harness need but targeting `/usr`.
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    if let Some(last) = ledger.iter_mut().find(|entry| {
+        matches!(
+            &entry.class,
+            LedgerClass::Baseline(Baseline {
+                kind: BaselineKind::ProbeHarnessNeed,
+                ..
+            })
+        )
+    }) {
+        last.unit = unit("file-read*", "subpath", "/usr");
+    }
+    let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("a relabelled bind must fail");
+    assert!(
+        error.reason.contains("host-toolchain") || error.reason.contains("probe-harness"),
+        "{}",
+        error.reason
+    );
+}
+
+#[test]
+fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
+    use brokkr_protocol::hands::{box_argv, Bind, BindMode, GitFacts, HandsSpec};
+    use std::path::{Path, PathBuf};
+
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    let verdict = |ledger: &[LedgerEntry]| {
+        check_startup_candidate(&profile, ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs).is_ok()
+    };
+    assert!(verdict(&STARTUP_RULE_LEDGER));
+
+    let scratch = std::env::temp_dir().join(format!("brokkr-hands-test-{}", std::process::id()));
+    let session = scratch.join("session");
+    let varied: [(HandsSpec, PathBuf, GitFacts); 3] = [
+        (
+            HandsSpec::default(),
+            PathBuf::from("/Users/runner"),
+            GitFacts {
+                common_dir: None,
+                ..Default::default()
+            },
+        ),
+        (
+            HandsSpec {
+                network: false,
+                binds: vec![Bind {
+                    path: "~/.rustup".to_string(),
+                    mode: BindMode::Ro,
+                    mask: Vec::new(),
+                }],
+            },
+            PathBuf::from("/home/other"),
+            GitFacts {
+                common_dir: Some(PathBuf::from("/Users/runner/work/.git")),
+                ..Default::default()
+            },
+        ),
+        (
+            HandsSpec {
+                network: true,
+                binds: vec![Bind {
+                    path: "/opt/cache".to_string(),
+                    mode: BindMode::Overlay,
+                    mask: Vec::new(),
+                }],
+            },
+            PathBuf::from("/Users/runner"),
+            GitFacts {
+                common_dir: Some(inputs.payload_root.clone().into()),
+                ..Default::default()
+            },
+        ),
+    ];
+    for (spec, home, git) in varied {
+        let argv = box_argv(
+            &spec,
+            Path::new("/work"),
+            &home,
+            &scratch,
+            &session,
+            &git,
+            None,
+            &["true".to_string()],
+        )
+        .expect("box argv");
+        let mut sources: Vec<String> = argv
+            .windows(2)
+            .filter(|pair| pair[0] == "--ro-bind-try")
+            .map(|pair| pair[1].clone())
+            .collect();
+        let mut expected: Vec<String> = HOST_TOOLCHAIN_BINDS
+            .iter()
+            .map(|source| source.to_string())
+            .collect();
+        if let Some(shared) = &git.common_dir {
+            expected.push(shared.join("config").to_string_lossy().into_owned());
+        }
+        for bind in &spec.binds {
+            if bind.mode == BindMode::Ro {
+                let expanded = match bind.path.strip_prefix("~/") {
+                    Some(rest) => home.join(rest),
+                    None => PathBuf::from(&bind.path),
+                };
+                expected.push(expanded.to_string_lossy().into_owned());
+            }
+        }
+        sources.sort();
+        expected.sort();
+        assert_eq!(
+            sources, expected,
+            "the --ro-bind-try sources must be exactly the host-toolchain set, the \
+             home-expanded declared ro binds and <common>/config"
+        );
+        assert!(
+            verdict(&STARTUP_RULE_LEDGER),
+            "the check is independent of hands facts"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+#[test]
+fn a_declared_read_only_bind_is_not_a_toolchain_bind() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    let toolchain_slot = ledger
+        .iter_mut()
+        .find(|entry| {
+            matches!(
+                (&entry.class, &entry.unit.filter),
+                (
+                    LedgerClass::Baseline(Baseline {
+                        kind: BaselineKind::HandsElement(HandsElement::Toolchain),
+                        ..
+                    }),
+                    Some(_)
+                )
+            )
+        })
+        .expect("the ledger has a toolchain unit");
+    toolchain_slot.unit = unit("file-read*", "subpath", "/Users/runner/.rustup");
+    let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("a declared ro bind is not a toolchain bind");
+    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+}
+
+#[test]
+fn the_git_common_config_is_not_a_toolchain_bind() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    let toolchain_slot = ledger
+        .iter_mut()
+        .find(|entry| {
+            matches!(
+                (&entry.class, &entry.unit.filter),
+                (
+                    LedgerClass::Baseline(Baseline {
+                        kind: BaselineKind::HandsElement(HandsElement::Toolchain),
+                        ..
+                    }),
+                    Some(_)
+                )
+            )
+        })
+        .expect("the ledger has a toolchain unit");
+    toolchain_slot.unit = unit(
+        "file-read*",
+        "literal",
+        "/Users/runner/work/brokkr/.git/config",
+    );
+    let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("the git common config is not a toolchain bind");
+    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+}
+
+#[test]
+fn a_respelled_toolchain_target_fails_even_with_a_record() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    let toolchain_slot = ledger
+        .iter_mut()
+        .find(|entry| {
+            matches!(
+                (&entry.class, &entry.unit.filter),
+                (
+                    LedgerClass::Baseline(Baseline {
+                        kind: BaselineKind::HandsElement(HandsElement::Toolchain),
+                        ..
+                    }),
+                    Some(_)
+                )
+            )
+        })
+        .expect("the ledger has a toolchain unit");
+    toolchain_slot.unit = unit("file-read*", "subpath", "/private/usr/bin");
+    let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("a respelled toolchain target fails");
+    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+}
+
+#[test]
+fn a_git_common_directory_under_the_payload_root_leaves_the_worktree_unit_valid() {
+    // The check takes no GitFacts; the scenario is that a common dir under the
+    // payload root never becomes a bind source the write unit covers.
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    check_startup_candidate(
+        &profile,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect("a common dir under <payload-root> does not invalidate the write unit");
+}
+
+#[test]
+fn the_data_volume_spelling_of_a_credential_control_stays_denied() {
+    // The candidate carries no unit for the data-volume control target.
+    let targets = super::ledger::path_denial_control_targets();
+    assert!(targets.contains(&"/System/Volumes/Data/private/etc/passwd".to_string()));
+    assert!(targets.contains(&"/etc/passwd".to_string()));
+    assert!(!targets
+        .iter()
+        .any(|target| target == "/System/Volumes/Data/private/etc/hosts"));
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    check_startup_candidate(
+        &profile,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect("the data-volume credential control is denied");
+}
+
+// ---------------------------------------------------------------------------
+// The toolchain-respelling residual (task 1.25)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_respelled_toolchain_denial_event_is_detected_and_admits_nothing() {
+    let events = vec![
+        DenialEvent {
+            operation: "file-read*".to_string(),
+            path: "/usr/local/bin/cargo".to_string(),
+        },
+        DenialEvent {
+            operation: "file-read*".to_string(),
+            path: "/System/Volumes/Data/usr/local/bin/cargo".to_string(),
+        },
+        DenialEvent {
+            operation: "process-exec".to_string(),
+            path: "/private/etc/ssl/certs/ca.pem".to_string(),
+        },
+    ];
+    let detected = detect_toolchain_respelling(&events);
+    assert_eq!(detected.len(), 2);
+    assert!(detected
+        .iter()
+        .any(|event| event.path == "/System/Volumes/Data/usr/local/bin/cargo"));
+    assert!(detected
+        .iter()
+        .any(|event| event.path == "/private/etc/ssl/certs/ca.pem"));
+    assert!(
+        !detected
+            .iter()
+            .any(|event| event.path == "/usr/local/bin/cargo"),
+        "the direct spelling is not a respelling"
+    );
+
+    // The residual names the exact finding and fails a cell that records it.
+    let residual = StartupResidual::ToolchainRespelling { events: detected };
+    assert_eq!(residual.name(), "SEATBELT-R3-STARTUP-toolchain-respelling");
+    assert_eq!(residual.events().len(), 2);
+    let cell = StartupCell::S1DirectSeatbelt;
+    let mut observation = passing_startup(cell);
+    observation.residual = Some(residual);
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("SEATBELT-R3-STARTUP-toolchain-respelling")));
+}
+
+#[test]
+fn the_candidate_carries_no_dev_null_write_unit() {
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    assert!(
+        !profile.contains("(allow file-write-data (literal \"/dev/null\"))"),
+        "a /dev/null write enters only through a measured attribution"
+    );
+    check_startup_candidate(
+        &profile,
+        &STARTUP_RULE_LEDGER,
+        &STARTUP_NEGATIVE_ALLOWANCES,
+        &inputs,
+    )
+    .expect("the candidate carries no /dev/null write");
+    // If it entered the baseline as a device-set unit, the operation anchor
+    // refuses it.
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    ledger[0].unit = unit("file-write-data", "literal", "/dev/null");
+    ledger[0].class = LedgerClass::Baseline(Baseline {
+        kind: BaselineKind::HandsElement(HandsElement::DeviceSet),
+        justification: "smuggled".to_string(),
+        correction: None,
+    });
+    let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("a baseline /dev/null write fails the device-set anchor");
+    assert!(error.reason.contains("device set"), "{}", error.reason);
+}
+
+#[test]
+fn the_startup_stage_sequence_localizes_the_child_spawn() {
+    assert_eq!(
+        STARTUP_STAGES,
+        [
+            "entry",
+            "payload-dir",
+            "executable",
+            "child-spawn",
+            "child-observed",
+            "ready",
+            "return-clean",
+        ]
+    );
+    // A cell that reached `executable` but not `child-spawn` is refused.
+    let mut observation = passing_startup(StartupCell::S1DirectSeatbelt);
+    observation.stages = vec![
+        "entry".to_string(),
+        "payload-dir".to_string(),
+        "executable".to_string(),
+    ];
+    observation.ready = false;
+    let verdict = evaluate_startup(&[StartupCell::S1DirectSeatbelt], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("startup stages")));
+}
+
+#[test]
+fn a_respelled_helper_denial_event_records_its_own_residual() {
+    let events = vec![DenialEvent {
+        operation: "process-exec".to_string(),
+        path: "/System/Volumes/Data/private/var/folders/xy/T/probe/bin/seatbelt-probe-helper"
+            .to_string(),
+    }];
+    let residual = StartupResidual::HelperRespelling {
+        events: events.clone(),
+    };
+    assert_eq!(residual.name(), "SEATBELT-R3-STARTUP-helper-respelling");
+    assert_eq!(residual.events(), events.as_slice());
+    let cell = StartupCell::S3LaunchdSeatbelt;
+    let mut observation = passing_startup(cell);
+    observation.residual = Some(residual);
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|reason| reason.contains("SEATBELT-R3-STARTUP-helper-respelling")));
 }

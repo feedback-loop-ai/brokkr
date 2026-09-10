@@ -30,6 +30,16 @@
 // macOS-only, and on other hosts its dead code is allowed on purpose.
 pub mod native;
 
+// The audited startup-rule ledger, the pure check and the one source of the
+// startup denial-control targets (design D3). They are the shared model's
+// host-independent half; the native observer runs the same check.
+pub mod controls;
+pub mod fa7_launchd_samples;
+pub mod ledger;
+
+pub use ledger::*;
+
+use brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS;
 use std::fmt;
 
 /// The adversarial families the R3 probe must exercise. The list is the
@@ -707,12 +717,15 @@ pub const ROOT_TOKEN: &str = "<cell-root>";
 
 /// The exact bounded startup stage sequence the helper records between entry
 /// and clean return. A passing cell must show all of them in order; an abort
-/// localizes to the last stage reached rather than an opaque signal.
-pub const STARTUP_STAGES: [&str; 6] = [
+/// localizes to the last stage reached rather than an opaque signal. The
+/// ordinary-child spawn is split into `child-spawn` (stream setup and spawn or
+/// exec) and `child-observed` so a refusal names its sub-stage.
+pub const STARTUP_STAGES: [&str; 7] = [
     "entry",
     "payload-dir",
     "executable",
-    "child",
+    "child-spawn",
+    "child-observed",
     "ready",
     "return-clean",
 ];
@@ -814,27 +827,42 @@ pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 1] = [StartupN
 
 /// One labelled removal control: the exact candidate profile with a single
 /// load-bearing rule stripped. It is recorded, never admitted.
+///
+/// It is owed only by a cell that reached `READY`. A cell that never started
+/// the payload records every set entry as [`RemovalStatus::NotDue`], because a
+/// stripped replay of a profile that never admitted the payload proves
+/// nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovalStatus {
+    /// The cell reached no authenticated `READY`, so this removal is not owed.
+    NotDue,
+    /// The stripped replay was observed and reached no authenticated `READY`
+    /// from fresh payload state.
+    ObservedBlocking,
+    /// The stripped replay was observed and still reached `READY`.
+    ObservedNotBlocking,
+    /// The removal ran but produced no usable observation.
+    Missing,
+}
+
+/// One labelled removal control: the exact candidate profile with a single
+/// load-bearing rule stripped. It is recorded, never admitted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartupNegativeControl {
     pub name: String,
     pub removed_rule: String,
     pub consumer: String,
-    /// The helper actually ran under the stripped profile.
-    pub observed: bool,
-    /// The stripped profile failed closed: no authenticated READY or no clean
-    /// exit. A stripped profile that still starts names a rule that is not
-    /// load-bearing and fails the cell.
-    pub blocked: bool,
+    pub status: RemovalStatus,
     pub exit: HelperExit,
     pub stdout: String,
     pub stderr: String,
 }
 
 impl StartupNegativeControl {
-    /// A control is satisfied only when it was observed and the removal
-    /// blocked the payload.
+    /// A control is satisfied only when the removal was observed and blocked
+    /// the payload.
     pub fn satisfied(&self) -> bool {
-        self.observed && self.blocked
+        self.status == RemovalStatus::ObservedBlocking
     }
 }
 
@@ -852,8 +880,7 @@ pub fn satisfied_startup_negative_control(name: &str) -> StartupNegativeControl 
         consumer: allowance
             .map(|allowance| allowance.consumer.to_string())
             .unwrap_or_default(),
-        observed: true,
-        blocked: true,
+        status: RemovalStatus::ObservedBlocking,
         exit: HelperExit::Signal(6),
         stdout: String::new(),
         stderr: "test: stripped profile blocked the payload".to_string(),
@@ -911,15 +938,26 @@ impl DenialControl {
 }
 
 /// The denial controls a passing Seatbelt startup cell must have rerun: host
-/// credential bytes unreadable, host writes refused, and loopback binding
-/// refused, with the payload still reaching READY.
-pub const STARTUP_DENIAL_CONTROLS: [&str; 3] = ["credential-read", "host-write", "network-bind"];
+/// credential bytes unreadable in both their direct and `/System/Volumes/Data`
+/// spelling, host writes refused, and loopback binding refused, with the
+/// payload still reaching READY.
+pub const STARTUP_DENIAL_CONTROLS: [&str; 4] = [
+    "credential-read",
+    "data-volume-credential-read",
+    "host-write",
+    "network-bind",
+];
 
 /// Construct a satisfied startup denial control for a named control, so tests
 /// vary exactly one fact.
 pub fn satisfied_startup_denial(name: &str) -> DenialControl {
     let (operation, target, consumer) = match name {
         "credential-read" => ("file-read*", "/etc/passwd", "host credential bytes"),
+        "data-volume-credential-read" => (
+            "file-read*",
+            "/System/Volumes/Data/private/etc/passwd",
+            "the data-volume spelling of the credential bytes",
+        ),
         "host-write" => (
             "file-write*",
             "/private/tmp",
@@ -938,62 +976,229 @@ pub fn satisfied_startup_denial(name: &str) -> DenialControl {
     }
 }
 
-/// Parsed `launchctl print` facts. Missing fields are errors, never defaults.
+/// Parsed `launchctl print` facts. Each top-level field is independently
+/// parsed or unknown; `state`, `runs` and `last exit code` are required for a
+/// terminal verdict, and `successive crashes`, a terminating signal and
+/// `active count` are optional. An unknown field never erases another, and a
+/// duplicated top-level key is unknown rather than a manufactured fact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchdFacts {
-    pub state: String,
-    pub runs: u32,
-    pub crashes: u32,
+    pub state: Option<String>,
+    pub runs: Option<u32>,
     pub last_exit_code: Option<i32>,
+    /// The raw `last exit code` value, so `(never exited)` stays typed.
+    pub last_exit_code_raw: Option<String>,
+    pub successive_crashes: Option<u32>,
+    pub terminating_signal: Option<i32>,
+    pub active_count: Option<u32>,
     pub last_exit_reason: Option<String>,
+    /// Raw nested entries, keyed by their block path, in encounter order.
+    pub nested: Vec<(String, String)>,
+    /// The single outermost block's raw text.
+    pub raw: String,
 }
 
-/// Parse the launchd state block. Every field a cell relies on must be present
-/// and parseable; a missing or unparsable field is an error, never a
+/// Parse the single outermost `launchctl print` block with a brace-depth
+/// scanner. It reads only top-level fields; nested entries are kept as raw
+/// evidence under their block path. A missing block or an unbalanced brace is
+/// an error; a missing or duplicated required field is `None`, never a
 /// synthesized default.
 pub fn parse_launchd_print(text: &str) -> Result<LaunchdFacts, String> {
-    let field = |key: &str| -> Option<String> {
-        text.lines()
-            .find_map(|line| line.trim().strip_prefix(key))
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+    let bytes = text.as_bytes();
+    let start = text
+        .find('{')
+        .ok_or_else(|| "launchctl print held no block".to_string())?;
+    let mut depth = 0i32;
+    let mut end = None;
+    for (index, byte) in bytes.iter().enumerate().skip(start) {
+        match *byte as char {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let end = end.ok_or_else(|| "launchctl print held an unbalanced block".to_string())?;
+    let raw = text[start..=end].to_string();
+
+    let mut facts = LaunchdFacts {
+        state: None,
+        runs: None,
+        last_exit_code: None,
+        last_exit_code_raw: None,
+        successive_crashes: None,
+        terminating_signal: None,
+        active_count: None,
+        last_exit_reason: None,
+        nested: Vec::new(),
+        raw,
     };
-    let state =
-        field("state = ").ok_or_else(|| "launchctl print had no state field".to_string())?;
-    let runs = field("runs = ")
-        .and_then(|value| value.parse::<u32>().ok())
-        .ok_or_else(|| "launchctl print had no parseable runs field".to_string())?;
-    let crashes = field("successive crashes = ")
-        .and_then(|value| value.parse::<u32>().ok())
-        .ok_or_else(|| "launchctl print had no parseable successive crashes field".to_string())?;
-    let last_exit_code = field("last exit code = ").and_then(|value| value.parse::<i32>().ok());
-    let last_exit_reason = field("last exit reason = ");
-    Ok(LaunchdFacts {
-        state,
-        runs,
-        crashes,
-        last_exit_code,
-        last_exit_reason,
-    })
+    let mut seen: Vec<String> = Vec::new();
+    let mut blocks: Vec<String> = Vec::new();
+    let mut relative_depth = 0i32;
+    for line in text[start + 1..end].lines() {
+        let stripped = line.trim();
+        if stripped.is_empty() {
+            continue;
+        }
+        let opens = stripped
+            .chars()
+            .filter(|character| *character == '{')
+            .count() as i32;
+        let closes = stripped
+            .chars()
+            .filter(|character| *character == '}')
+            .count() as i32;
+        if relative_depth == 0 && opens == 1 && closes == 0 {
+            // A top-level block opener: `key = {`.
+            if let Some(key) = stripped.split('=').next() {
+                blocks.push(key.trim().to_string());
+            }
+            relative_depth += 1;
+            continue;
+        }
+        if closes > 0 {
+            for _ in 0..closes {
+                relative_depth -= 1;
+                let _ = blocks.pop();
+            }
+            continue;
+        }
+        if relative_depth > 0 {
+            // A nested entry, kept as raw evidence under its block path.
+            if facts.nested.len() < 64 {
+                facts.nested.push((blocks.join("/"), stripped.to_string()));
+            }
+            continue;
+        }
+        let Some((key, value)) = stripped.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if seen.iter().any(|seen| seen == key) {
+            // A duplicated top-level key is unknown, never a manufactured fact.
+            clear_launchd_field(&mut facts, key);
+            continue;
+        }
+        seen.push(key.to_string());
+        set_launchd_field(&mut facts, key, value);
+    }
+    Ok(facts)
 }
 
-/// Classify a launchd-owned run's terminal state from parsed facts. An absent
-/// terminal observation yields [`HelperExit::NotRun`]; launchd's own
-/// `successive crashes = 0` with `state = not running` is a real terminal
-/// observation, never a missing counter defaulted into an exit code.
+fn clear_launchd_field(facts: &mut LaunchdFacts, key: &str) {
+    match key {
+        "state" => facts.state = None,
+        "runs" => facts.runs = None,
+        "last exit code" => {
+            facts.last_exit_code = None;
+            facts.last_exit_code_raw = None;
+        }
+        "successive crashes" => facts.successive_crashes = None,
+        "terminating signal" => facts.terminating_signal = None,
+        "active count" => facts.active_count = None,
+        "last exit reason" => facts.last_exit_reason = None,
+        _ => {}
+    }
+}
+
+fn set_launchd_field(facts: &mut LaunchdFacts, key: &str, value: &str) {
+    match key {
+        "state" => facts.state = Some(value.to_string()),
+        "runs" => facts.runs = value.parse::<u32>().ok(),
+        "last exit code" => {
+            facts.last_exit_code_raw = Some(value.to_string());
+            facts.last_exit_code = value.parse::<i32>().ok();
+        }
+        "successive crashes" => facts.successive_crashes = value.parse::<u32>().ok(),
+        "terminating signal" => facts.terminating_signal = value.parse::<i32>().ok(),
+        "active count" => facts.active_count = value.parse::<u32>().ok(),
+        "last exit reason" => {
+            facts.last_exit_reason = (!value.is_empty()).then(|| value.to_string())
+        }
+        _ => {}
+    }
+}
+
+/// Classify a launchd-owned run's terminal state from parsed facts. A
+/// non-terminal or unknown state, or a terminal state without a parsed
+/// `last exit code`, yields [`HelperExit::NotRun`]. An absent crash counter is
+/// never read as clean.
 pub fn classify_launchd_exit(facts: &LaunchdFacts) -> HelperExit {
-    if let Some(code) = facts.last_exit_code {
-        return if code == 0 {
-            HelperExit::Clean
-        } else {
-            HelperExit::NonZero(code)
-        };
+    if facts.state.as_deref() != Some("not running") {
+        return HelperExit::NotRun;
     }
-    if facts.runs >= 1 && facts.crashes == 0 && facts.state == "not running" {
-        HelperExit::Clean
-    } else {
-        HelperExit::NotRun
+    match facts.last_exit_code {
+        Some(0) => HelperExit::Clean,
+        Some(code) => HelperExit::NonZero(code),
+        None => HelperExit::NotRun,
     }
+}
+
+/// One bounded native Sandbox denial event the unprivileged observer read: the
+/// operation and the path the kernel named.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DenialEvent {
+    pub operation: String,
+    pub path: String,
+}
+
+/// A named startup residual: native denial evidence the candidate does not
+/// absorb. It fails the cell on its own startup facts and admits nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartupResidual {
+    /// A denial event named an operation on a host-toolchain source, or a path
+    /// under one, under another resolved spelling.
+    ToolchainRespelling { events: Vec<DenialEvent> },
+    /// A denial event named the staged helper under another resolved spelling.
+    HelperRespelling { events: Vec<DenialEvent> },
+}
+
+impl StartupResidual {
+    pub fn name(&self) -> &'static str {
+        match self {
+            StartupResidual::ToolchainRespelling { .. } => {
+                "SEATBELT-R3-STARTUP-toolchain-respelling"
+            }
+            StartupResidual::HelperRespelling { .. } => "SEATBELT-R3-STARTUP-helper-respelling",
+        }
+    }
+
+    pub fn events(&self) -> &[DenialEvent] {
+        match self {
+            StartupResidual::ToolchainRespelling { events }
+            | StartupResidual::HelperRespelling { events } => events,
+        }
+    }
+}
+
+/// Detect the bounded native denial events that name a host-toolchain source,
+/// or a path under one, in a spelling other than its direct one. Such evidence
+/// is recorded as the toolchain-respelling residual; it admits nothing in
+/// either half and never changes a toolchain unit.
+pub fn detect_toolchain_respelling(events: &[DenialEvent]) -> Vec<DenialEvent> {
+    events
+        .iter()
+        .filter(|event| {
+            HOST_TOOLCHAIN_BINDS.iter().any(|source| {
+                let direct = *source;
+                event.path != direct
+                    && toolchain_respelled_spellings(source)
+                        .iter()
+                        .any(|spelling| {
+                            event.path == *spelling
+                                || event.path.starts_with(&format!("{spelling}/"))
+                        })
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 /// One startup cell's observation. `helper_executable`, `helper_mode`,
@@ -1030,8 +1235,17 @@ pub struct StartupObservation {
     pub launchd_state: Option<String>,
     /// launchd's `runs` counter for launchd-owned cells.
     pub launchd_runs: Option<u32>,
-    /// launchd's `successive crashes` counter for launchd-owned cells.
-    pub launchd_crashes: Option<u32>,
+    /// launchd's parsed `last exit code`, required for a terminal verdict.
+    pub launchd_last_exit_code: Option<i32>,
+    /// launchd's `successive crashes` counter when the host prints one.
+    pub launchd_successive_crashes: Option<u32>,
+    /// A present terminating signal, which fails the cell.
+    pub launchd_terminating_signal: Option<i32>,
+    /// launchd's top-level `active count` when present.
+    pub launchd_active_count: Option<u32>,
+    /// Raw launchd facts kept for the report even when an unknown field fails
+    /// the cell.
+    pub launchd_facts: Option<LaunchdFacts>,
     /// A labelled diagnostic (for example an `allow default` profile). It is
     /// recorded for diagnosis and can never make the cell pass.
     pub diagnostic: Option<String>,
@@ -1052,6 +1266,11 @@ pub struct StartupObservation {
     pub stdout: String,
     /// Bounded stderr captured for this cell.
     pub stderr: String,
+    /// The bounded raw Sandbox denial events the observer read for this cell.
+    pub denial_events: Vec<DenialEvent>,
+    /// A named startup residual the cell recorded. It fails the cell and
+    /// admits nothing.
+    pub residual: Option<StartupResidual>,
 }
 
 impl StartupObservation {
@@ -1073,7 +1292,11 @@ impl StartupObservation {
             exit: HelperExit::NotRun,
             launchd_state: None,
             launchd_runs: None,
-            launchd_crashes: None,
+            launchd_last_exit_code: None,
+            launchd_successive_crashes: None,
+            launchd_terminating_signal: None,
+            launchd_active_count: None,
+            launchd_facts: None,
             diagnostic: None,
             diagnostics: Vec::new(),
             denials: Vec::new(),
@@ -1081,6 +1304,8 @@ impl StartupObservation {
             launchd_samples: Vec::new(),
             stdout: String::new(),
             stderr: String::new(),
+            denial_events: Vec::new(),
+            residual: None,
         }
     }
 
@@ -1215,6 +1440,13 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
         reasons.push(format!("{name}: startup cell did not run: {why}"));
         return;
     }
+    if let Some(residual) = &observation.residual {
+        reasons.push(format!(
+            "{name}: recorded the startup residual {} with {} denial event(s)",
+            residual.name(),
+            residual.events().len()
+        ));
+    }
     if observation.helper_executable.is_empty() {
         reasons.push(format!("{name}: no helper executable was recorded"));
     }
@@ -1282,16 +1514,39 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
         }
     }
     if observation.cell.launchd() {
-        if observation.launchd_state.is_none() {
+        // Required terminal facts fail closed: an unknown state, a missing run
+        // counter and a missing `last exit code` each refuse the cell. An
+        // absent optional crash counter is unknown, never clean.
+        if observation.launchd_state.as_deref() != Some("not running") {
             reasons.push(format!(
-                "{name}: launchd recorded no parseable terminal state"
+                "{name}: launchd recorded no parseable not-running terminal state"
             ));
         }
-        match (observation.launchd_runs, observation.launchd_crashes) {
-            (Some(runs), Some(0)) if runs >= 1 => {}
-            (runs, crashes) => reasons.push(format!(
-                "{name}: launchd run/crash facts are not one clean run (runs={runs:?}, crashes={crashes:?})"
+        match observation.launchd_runs {
+            Some(runs) if runs >= 1 => {}
+            runs => reasons.push(format!(
+                "{name}: launchd runs fact is not a completed run (runs={runs:?})"
             )),
+        }
+        match observation.launchd_last_exit_code {
+            Some(0) => {}
+            code => reasons.push(format!(
+                "{name}: launchd recorded no clean `last exit code` (last exit code={code:?})"
+            )),
+        }
+        if let Some(crashes) = observation.launchd_successive_crashes {
+            if crashes != 0 {
+                reasons.push(format!(
+                    "{name}: launchd recorded {crashes} successive crash(es)"
+                ));
+            }
+        }
+        if let Some(signal) = observation.launchd_terminating_signal {
+            if signal != 0 {
+                reasons.push(format!(
+                    "{name}: launchd recorded terminating signal {signal}"
+                ));
+            }
         }
     }
 }
@@ -1413,7 +1668,11 @@ pub fn passing_startup(cell: StartupCell) -> StartupObservation {
         exit: HelperExit::Clean,
         launchd_state: cell.launchd().then(|| "not running".to_string()),
         launchd_runs: cell.launchd().then_some(1),
-        launchd_crashes: cell.launchd().then_some(0),
+        launchd_last_exit_code: cell.launchd().then_some(0),
+        launchd_successive_crashes: cell.launchd().then_some(0),
+        launchd_terminating_signal: None,
+        launchd_active_count: cell.launchd().then_some(0),
+        launchd_facts: None,
         diagnostic: None,
         diagnostics: Vec::new(),
         denials: if cell.seatbelt() {
@@ -1435,6 +1694,8 @@ pub fn passing_startup(cell: StartupCell) -> StartupObservation {
         launchd_samples: Vec::new(),
         stdout: String::new(),
         stderr: String::new(),
+        denial_events: Vec::new(),
+        residual: None,
     }
 }
 
