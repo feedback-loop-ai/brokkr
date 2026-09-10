@@ -33,6 +33,11 @@ Exit codes:
 
 The candidate supervises a fresh process group. On a 300 ms timeout,
 explicit cancellation, or direct-parent exit it sends SIGKILL to that group.
+A rejected group signal is retained as `candidate_signal_errno`, with
+`candidate_signal_attempted` distinguishing it from control/supervisor-death
+cases. The observer still records liveness; signal failure cannot count as a
+clean candidate result even when no survivor is seen. On macOS, a zombie-only
+original group may reject the signal after detached descendants have escaped.
 A fourth trigger kills the candidate supervisor itself. The observer is a
 separate process, so candidate death does not disable measurement.
 

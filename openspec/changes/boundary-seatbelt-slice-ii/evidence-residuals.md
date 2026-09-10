@@ -2,8 +2,9 @@
 
 Recorded 2026-09-09 after the operator accepted the 0046 Seatbelt addendum.
 This is a documentation inventory, not a mutation of the run journal or a
-claim that native tests ran. All four guarantees remain unmeasured here.
-The recording host is Linux; no macOS enforcement evidence was supplied.
+claim that native tests ran on the recording host (Linux). The dated audits
+below track subsequently supplied macOS evidence. All four guarantees remain
+OPEN; the native process-group attempt is incomplete and records survivors.
 
 | ID | Required demonstration | Current status | Next action |
 | --- | --- | --- | --- |
@@ -121,3 +122,52 @@ the accepted addendum without weakening its one-line/content checks.
 record source/binary-independent fixture facts and verified cleanup. The native
 operator must now run the pinned candidate and attach its archive to #253.
 R1–R4 remain OPEN; production Seatbelt remains unavailable.
+
+
+## Native process-group attempt reviewed — 2026-09-10
+
+The operator's [updated evidence](https://github.com/feedback-loop-ai/brokkr/issues/253#issuecomment-5614518335)
+is pinned at `3421ae9676feb266864c6cdbf7aae81de9ca8dc3`, directory
+`docs/evidence/issue-253/native-process-group-2026-09-10-arm64/`.
+Source was clean `7822fdccb044d11e8a0e3c1a6431feeb669262d6`, macOS
+26.6.2 (25G83) arm64, stable Rust 1.98.1. Native archive SHA-256
+`d277193203ad9de2a41775e7ad2cfe735be7513f12e4708dfdbd2369316f1904`
+was verified, along with all 166 archived files against committed Git blobs.
+The earlier failed-attempt archive SHA-256
+`2528a9ce832fbb5593b6283080e7d5ea44e0fbbd158dd403c57324cc52349572`
+and all five archived files were also verified.
+
+The native run returned **2**: 12 attempts, 3 no-survivor observations,
+7 survivor observations, and 2 missing observations (`setsid-parent-exit`,
+`double-fork-parent-exit`). Negative control detected; all 13 fixture cleanup
+markers present. Both missing observations timed out waiting for `action`
+after the supervisor reported EPERM. This is incomplete evidence, not closure.
+
+The supervisor returned before publishing `action` when group signalling
+failed. Apple's published [XNU signal implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)
+excludes zombies from the group iterator and can return EPERM when no eligible
+member remains. A zombie-only original group with an escaped descendant is
+consistent with these logs; the exact installed kernel was not inspected.
+The corrected experiment records the raw signal errno before publishing the
+action marker and allows the outside observer to measure the remaining leaf.
+A signal failure is a candidate residual, never a successful signal.
+
+Two runner defects were also corrected: Homebrew rustc shadowing rustup's
+proxy (use explicit `rustup run stable rustc`), and Bash 3.2's unwaitable
+process-substitution PID (use a direct tee child with a FIFO). Only a completed,
+valid measurement returning 1 may yield runner exit 1; a prerequisite returning
+1 now yields 2. Original evidence is preserved unchanged.
+
+Corrected-source Linux validation: 3 standalone unit tests, warning-free
+compilation, full portable matrix (12 cases, 3 clean, 9 residual, negative
+control detected, 13 verified fixture cleanups), shell syntax, formatting and
+whitespace checks passed. A shell regression with a shadow compiler and a
+rustup prerequisite returning 1 verified runner exit 2, explicit rustup selection,
+complete transcript/archive capture and FIFO removal. These are harness tests;
+macOS Bash 3.2 and native errno observations require the operator rerun.
+Production code and its previous workspace/coverage results are unchanged.
+
+The original-process-group experiment is separate from draft #259's launchd
+lease-pair candidate. Neither this attempted run nor its runner fixes establish
+R1/R2/R4, integrated MCP/exec lifetime, arbitrary descendants or activation.
+R3 remains OPEN and a complete native rerun is the next evidence step.

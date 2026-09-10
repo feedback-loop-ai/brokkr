@@ -159,9 +159,16 @@ mod unix {
                 }
                 if !control {
                     let result = unsafe { kill(-(child.id() as i32), SIGKILL) };
-                    if result != 0 {
-                        return Err(io::Error::last_os_error());
-                    }
+                    // A rejected signal is a candidate outcome. Publish it before
+                    // action so the outside observer can still measure survivors.
+                    let errno = if result == 0 {
+                        0
+                    } else {
+                        io::Error::last_os_error()
+                            .raw_os_error()
+                            .ok_or_else(|| error("signal failure without errno"))?
+                    };
+                    atomic(&root.join("signal-errno"), &errno.to_string())?;
                 }
                 atomic(
                     &root.join("action"),
@@ -300,6 +307,10 @@ mod unix {
         out
     }
 
+    fn candidate_clean(no_survivor: bool, signal_errno: Option<i32>) -> bool {
+        no_survivor && signal_errno.is_none()
+    }
+
     fn case(
         dir: &Path,
         topology: &str,
@@ -362,6 +373,18 @@ mod unix {
             if trigger != "supervisor-death" {
                 wait_for(&dir.join("action"), Duration::from_secs(3))?;
             }
+            let signal_attempted = !control && trigger != "supervisor-death";
+            let signal_errno = if signal_attempted {
+                let errno = fs::read_to_string(dir.join("signal-errno"))?
+                    .parse::<i32>()
+                    .map_err(|_| error("invalid signal errno"))?;
+                if errno < 0 {
+                    return Err(error("negative signal errno"));
+                }
+                (errno != 0).then_some(errno)
+            } else {
+                None
+            };
             let deadline = Instant::now() + TEARDOWN;
             let mut survivors;
             loop {
@@ -381,12 +404,14 @@ mod unix {
                     "fixture safety expiry preceded verdict; invalid measurement",
                 ));
             }
-            let clean =
+            let no_survivor =
                 !survivors.iter().chain(live_after.iter()).any(|v| *v) && !heartbeat_changed;
+            let clean = candidate_clean(no_survivor, signal_errno);
             atomic(&dir.join("result.json"), &format!(
-                "{{\"topology\":{},\"trigger\":{},\"control\":{},\"native\":{},\"root_pid\":{},\"leaf_pid\":{},\"root_group\":{},\"leaf_group\":{},\"root_survived\":{},\"leaf_survived\":{},\"heartbeat_changed\":{},\"observed_ms\":{},\"no_survivor_observed\":{},\"residual\":{}}}\n",
+                "{{\"topology\":{},\"trigger\":{},\"control\":{},\"native\":{},\"root_pid\":{},\"leaf_pid\":{},\"root_group\":{},\"leaf_group\":{},\"root_survived\":{},\"leaf_survived\":{},\"heartbeat_changed\":{},\"observed_ms\":{},\"no_survivor_observed\":{},\"candidate_signal_attempted\":{},\"candidate_signal_errno\":{},\"residual\":{}}}\n",
                 json_string(topology), json_string(trigger), control, native, root.pid, leaf.pid, root.group, leaf.group,
-                survivors[0] || live_after[0], survivors[1] || live_after[1], heartbeat_changed, observed_start.elapsed().as_millis(), clean,
+                survivors[0] || live_after[0], survivors[1] || live_after[1], heartbeat_changed, observed_start.elapsed().as_millis(), no_survivor,
+                signal_attempted, signal_errno.map_or_else(|| "null".into(), |e| e.to_string()),
                 if clean { "null" } else { "\"SEATBELT-R3\"" }
             ))?;
             Ok(clean)
@@ -476,7 +501,8 @@ mod unix {
                         "{name}: {}",
                         match &outcome {
                             Ok(true) => "no survivor observed in this case".to_string(),
-                            Ok(false) => "RESIDUAL: payload survived".to_string(),
+                            Ok(false) =>
+                                "RESIDUAL: payload survived or candidate signal failed".to_string(),
                             Err(e) => format!("ERROR: {e}"),
                         }
                     );
@@ -523,6 +549,13 @@ mod unix {
                 json_string("quote\" slash\\\n\t\u{0}"),
                 "\"quote\\\" slash\\\\\\n\\t\\u0000\""
             );
+        }
+        #[test]
+        fn rejected_signal_cannot_count_as_clean_even_without_survivors() {
+            assert!(!candidate_clean(true, Some(1)));
+            assert!(!candidate_clean(false, Some(1)));
+            assert!(!candidate_clean(false, None));
+            assert!(candidate_clean(true, None));
         }
         #[test]
         fn invalid_modes_do_not_create_output() {
