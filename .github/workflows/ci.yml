@@ -138,13 +138,15 @@ jobs:
           # other operating systems have no namespace to open, so they
           # are left to skip.
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
-      # Decision 0046 slice II: the bounded R3 lifetime feasibility probe
-      # executes real /usr/bin/sandbox-exec and real per-user launchctl. It is
-      # a required native test: a missing tool, an outer box, zero selected
-      # cases or any unmet guarantee fails the job; it never skips into
-      # success. A failure is a recorded SEATBELT-R3 residual, not a pass and
-      # not a reason to weaken the probe.
-      - name: R3 native lifetime feasibility probe
+      # Decision 0046 slice II, design D3/D14: Gate A (startup) executes first
+      # and its durable report survives even when it fails. Gate B (lifetime)
+      # is a separate step that only runs after Gate A succeeds, and the gated
+      # driver marks the lifetime matrix `not run` if the startup verdict is
+      # not a pass for the exact helper/profile candidate. Both use real
+      # /usr/bin/sandbox-exec and real per-user launchctl; a missing tool, an
+      # outer box, zero selected cells or any unmet observation fails the job
+      # and never skips into success.
+      - name: R3 native startup gate
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
@@ -153,9 +155,29 @@ jobs:
           test -x /usr/bin/sandbox-exec
           cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
             -- --exact --nocapture \
+            seatbelt_probe::native::native_startup_feasibility_probe \
+            2>&1 | tee target/r3-startup.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
+      - name: R3 native lifetime feasibility probe
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
+            -- --exact --nocapture \
             seatbelt_probe::native::native_lifetime_feasibility_probe \
-            2>&1 | tee target/r3-probe.log
-          grep -Eq 'test result: ok\. 1 passed' target/r3-probe.log
+            2>&1 | tee target/r3-lifetime.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-lifetime.log
+      - name: R3 native diagnostics
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3-native-diagnostics
+          path: |
+            target/r3-startup.log
+            target/r3-lifetime.log
+            target/r3-startup-report.txt
+            target/r3-lifetime-report.txt
+          if-no-files-found: warn
       - name: self and verify bundles compile under the constitutional lint
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle bundles/self

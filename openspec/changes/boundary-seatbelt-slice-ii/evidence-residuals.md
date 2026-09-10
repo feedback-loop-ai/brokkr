@@ -43,22 +43,54 @@ audit above, whose inspected revision predates this record.
   enforcement residual.
 - **Design and tasks: DONE.** `design.md` and `tasks.md` exist and encode the
   pre-implementation R3 native-proof gate (design D1–D14, tasks 1.1–1.5).
-- **Bounded R3 probe: IMPLEMENTED, NATIVE RUN PENDING.** The probe lives in
+- **Bounded R3 probe: REPAIRED, NATIVE RUN PENDING.** The probe lives in
   `crates/brokkr-protocol/tests/seatbelt_lifetime_probe.rs` and its
-  `seatbelt_probe` module. The shared case/obligation/lifecycle model is
-  compiled and exercised on Linux through injected host facts, and the macOS
-  launchd lease-pair adapter is type-checked on Linux while its required test
-  runs only on macOS. The required macOS CI step executes real
-  `/usr/bin/sandbox-exec` and real per-user `launchctl`, fails on a missing
-  tool or zero selected cases, and never skips into success.
+  `seatbelt_probe` module. The interpreted payload has been replaced by one
+  committed Rust test-support executable
+  (`tests/seatbelt_probe/helper.rs`, the `seatbelt-probe-helper` bin) serving
+  payload, descendant, guard, supervisor and startup roles. The shared model
+  now implements the four-cell S0–S3 startup matrix and gates the lifetime
+  matrix on a passing startup verdict; the measurement findings (real
+  per-case triggers, attack-before-observation, guard liveness before
+  unregister, a real original-process-group `SIGKILL`, public start
+  identities, preserved failure reports, role-separated state and the
+  forged-marker/harness-cleanup bans) are encoded and injected tests fail each
+  forged fact. The macOS launchd lease-pair adapter is type-checked on Linux
+  while its required tests run only on macOS. CI selects the startup gate
+  first, uploads the durable startup and lifetime reports even on failure, and
+  runs the lifetime gate only after startup succeeds.
 - **Native lifetime feasibility evidence: STILL REQUIRED.** No macOS host was
   available to this controller, so SEATBELT-R3 has no adversarial
-  measurement. The native probe run, with the candidate commit, macOS
-  version/architecture, both job labels, descendant identities, triggers and
-  durable log, remains the concrete missing prerequisite.
+  measurement. The controller-dispatched native probe run, with the candidate
+  commit, macOS version/architecture, both job labels, descendant identities,
+  triggers and durable log, remains the concrete missing prerequisite.
 - **Fence: unchanged.** Seatbelt stays unbuilt (slice ii) and container
   unbuilt (slice iii). The existing start refusal is untouched and no
   dependent production Seatbelt implementation was added.
+
+## Native startup measurement — 2026-09-10
+
+Recorded on the Linux controller from the controller-supplied native CI log.
+This is a native observation of a failed startup, not a lifetime result. It
+does not replace or rewrite the historical audit below.
+
+- **Candidate:** `6a19a6f4ab9bd30b47537de1a649949cd1099d01`, native CI run
+  `34433461814`, `macos-26-arm64` runner image, macOS 26.6.2 (build 25G83),
+  arm64.
+- **Observed:** direct `sandbox-exec -f policy.sb /usr/bin/python3 ...` ended
+  on signal 6 (`SIGABRT`) with empty stdout and stderr. The equivalent
+  transient launchd payload job registered, showed `runs = 1` and
+  `successive crashes = 1`, and never advanced the payload heartbeat. The
+  direct and launchd failures were identical for every case.
+- **Conclusion:** payload startup was not established. The startup gate did
+  not pass, no lifetime case ran, and none of SEATBELT-R1–R4 is answered. The
+  `SIGABRT` cause is not established and is deliberately not named; the
+  interpreted Python payload is recorded only as the payload that aborted.
+- **Not the failure:** the already-repaired Git-metadata and `/usr/include`
+  runner prerequisites; registration plus one crashed run is not quiescence.
+- **Next action:** dispatch the committed four-cell S0–S3 startup matrix on
+  the existing macOS CI host. This row is `SEATBELT-R3-STARTUP` failure
+  evidence; it closes no residual.
 
 
 ## Validation audit — 2026-09-09

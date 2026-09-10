@@ -1,5 +1,5 @@
 //! Bounded R3 lifetime feasibility probe for the per-invocation transient
-//! launchd lease pair (decision 0046 slice II, design D2/D3).
+//! launchd lease pair (decision 0046 slice II, design D2/D3/D14).
 //!
 //! This is experimental probe scaffolding, not production Seatbelt code.
 //! The shared model below is ordinary Rust, compiled and exercised on every
@@ -8,6 +8,22 @@
 //! passing model in a Linux test is NOT native evidence: SEATBELT-R3 stays
 //! open until the real macOS cases run and pass, and every failure arm below
 //! is a failure, never a skip.
+//!
+//! Design D3 splits admission into two gates:
+//!
+//! 1. **Gate A — startup**: four cells S0–S3 over direct/launchd ownership and
+//!    the exact candidate Seatbelt profile off/on. All four must reach a
+//!    nonce-authenticated READY, identify an ordinary child and exit cleanly
+//!    on identical helper bytes and argv before any lifetime trigger.
+//! 2. **Gate B — lifetime**: the adversarial matrix. It is not run at all
+//!    unless Gate A passed for the same helper/profile candidate.
+//!
+//! The model records the measurement-repair facts the controller findings
+//! require (design D3): the real trigger each case performs, attack recording
+//! before observation, guard liveness sampled while still registered, a real
+//! original-process-group kill, public start identities, preserved failure
+//! reports, and the ban on payload-forged markers or harness cleanup being
+//! counted as containment.
 
 // The adapter is type-checked on every host so a macOS-only compile error
 // cannot hide in code this Linux controller cannot run. Its required test is
@@ -91,6 +107,50 @@ impl Case {
             GroupKillNegativeControl => Expectation::GroupKillLeavesSurvivor,
         }
     }
+
+    /// The one real, case-specific trigger this case must perform. Naming a
+    /// shared detach routine for several cases is a measurement defect.
+    pub fn required_trigger(self) -> TriggerKind {
+        use Case::*;
+        match self {
+            OrdinaryChild => TriggerKind::OrdinaryCompletion,
+            Timeout => TriggerKind::Timeout,
+            Cancellation => TriggerKind::Cancellation,
+            SupervisorDeath => TriggerKind::SupervisorKill,
+            DoubleFork => TriggerKind::DoubleFork,
+            IgnoredSignals => TriggerKind::IgnoredSignal,
+            RetainedPipes => TriggerKind::RetainedPipe,
+            ParentExit => TriggerKind::ParentExit,
+            GuardInterference => TriggerKind::GuardAttack,
+            PeerBootout => TriggerKind::PeerAttack,
+            EscapeJob => TriggerKind::EscapeRegistration,
+            GroupKillNegativeControl => TriggerKind::OriginalGroupKill,
+        }
+    }
+
+    /// The complete lifecycle a completed case must record, matched exactly:
+    /// an intended-event prefix is not a pass.
+    pub fn expected_lifecycle(self) -> Vec<Event> {
+        if self == Case::GroupKillNegativeControl {
+            // The negative control is independent of the guard and liveness
+            // channel, so it never registers or unregisters a guard.
+            vec![
+                Event::Prepared,
+                Event::PayloadStarted,
+                Event::Terminating,
+                Event::PayloadQuiescent,
+                Event::PrivateStateRemoved,
+            ]
+        } else {
+            LIFECYCLE.to_vec()
+        }
+    }
+
+    /// Whether this case observes a registered guard before releasing
+    /// cleanup (everything except the independent negative control).
+    pub fn observes_guard(self) -> bool {
+        self != Case::GroupKillNegativeControl
+    }
 }
 
 impl fmt::Display for Case {
@@ -112,6 +172,23 @@ pub enum Expectation {
     /// The payload's interference/escape attempt was denied and the guard
     /// survived the payload's teardown.
     PayloadDenied,
+}
+
+/// The distinct real trigger each lifetime case performs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerKind {
+    OrdinaryCompletion,
+    Timeout,
+    Cancellation,
+    SupervisorKill,
+    DoubleFork,
+    IgnoredSignal,
+    RetainedPipe,
+    ParentExit,
+    GuardAttack,
+    PeerAttack,
+    EscapeRegistration,
+    OriginalGroupKill,
 }
 
 /// The ordered lifecycle the design requires. A missing, repeated or
@@ -168,6 +245,54 @@ impl Precondition {
     }
 }
 
+/// The measurement-repair facts task 1.7 requires. Each is a recorded
+/// observation, never a source-reasoning claim; the injected tests forge one
+/// at a time and demand a failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepairFacts {
+    /// The real trigger this case performed; must equal the case's requirement.
+    pub trigger: TriggerKind,
+    /// A denial case durably recorded the attempted attack before observing
+    /// that it was denied.
+    pub attack_recorded_before_observation: bool,
+    /// The peer job was synchronized to READY before the payload attacked it.
+    pub peer_synchronized_before_attack: bool,
+    /// Guard liveness was sampled while the guard was still registered.
+    pub guard_observed_registered: bool,
+    /// The negative control sent a real `SIGKILL` to the original process
+    /// group (never the observer's own group).
+    pub real_original_group_kill: bool,
+    /// Every reported PID was paired with a public start identity so PID reuse
+    /// cannot be mistaken for survival.
+    pub identities_have_start_time: bool,
+    /// Every holder, helper and child was waited or reaped on this path.
+    pub reaped_all_children: bool,
+    /// A failed case preserved its durable report before harness cleanup.
+    pub failure_report_preserved: bool,
+    /// The payload was able to write evidence the observer/guard relied on.
+    pub forged_marker: bool,
+    /// Harness cleanup was counted as containment evidence.
+    pub harness_cleanup_counted: bool,
+}
+
+impl RepairFacts {
+    /// The passing facts for a case, so tests vary exactly one.
+    pub fn passing(case: Case) -> RepairFacts {
+        RepairFacts {
+            trigger: case.required_trigger(),
+            attack_recorded_before_observation: case.expectation() == Expectation::PayloadDenied,
+            peer_synchronized_before_attack: case == Case::PeerBootout,
+            guard_observed_registered: case.observes_guard(),
+            real_original_group_kill: case == Case::GroupKillNegativeControl,
+            identities_have_start_time: true,
+            reaped_all_children: true,
+            failure_report_preserved: true,
+            forged_marker: false,
+            harness_cleanup_counted: false,
+        }
+    }
+}
+
 /// One case's observation. Every field is a fact the outside observer or the
 /// guard recorded; none may be inferred from source reasoning.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,6 +320,8 @@ pub struct CaseResult {
     pub payload_attempt_denied: bool,
     /// The lifecycle events the host recorded, in order.
     pub events: Vec<Event>,
+    /// The task 1.7 measurement-repair facts.
+    pub repairs: RepairFacts,
 }
 
 impl CaseResult {
@@ -213,12 +340,8 @@ impl CaseResult {
             guard_survived_payload: false,
             payload_attempt_denied: false,
             events: Vec::new(),
+            repairs: RepairFacts::passing(case),
         }
-    }
-
-    /// The full ordered lifecycle a completed case records.
-    fn complete_events() -> Vec<Event> {
-        LIFECYCLE.to_vec()
     }
 }
 
@@ -244,9 +367,9 @@ impl Verdict {
 
     pub fn render(&self) -> String {
         match self {
-            Verdict::Pass => "R3 lifetime feasibility probe: PASS".to_string(),
+            Verdict::Pass => "PASS".to_string(),
             Verdict::Fail(reasons) => {
-                let mut out = String::from("R3 lifetime feasibility probe: FAIL");
+                let mut out = String::from("FAIL");
                 for reason in reasons {
                     out.push_str("\n  - ");
                     out.push_str(reason);
@@ -260,7 +383,7 @@ impl Verdict {
 /// Is `events` the required lifecycle in order, possibly a prefix when the
 /// case failed early? A repeated, reordered or unknown event is a failure,
 /// so cleanup can never precede quiescence and the guard always unregisters
-/// last.
+/// last. Exact per-case equality is enforced by [`evaluate_case`].
 pub fn events_are_ordered(events: &[Event]) -> bool {
     let mut next = 0;
     for event in events {
@@ -313,10 +436,12 @@ fn evaluate_case(result: &CaseResult, reasons: &mut Vec<String>) {
         reasons.push(format!("{name}: skipped or did not run: {why}"));
         return;
     }
-    if !events_are_ordered(&result.events) {
+    evaluate_repairs(result, reasons);
+    let wanted = result.case.expected_lifecycle();
+    if result.events != wanted {
         reasons.push(format!(
-            "{name}: lifecycle events are missing, repeated or out of order: {:?}",
-            result.events
+            "{name}: lifecycle {:?} is not the exact required {:?}",
+            result.events, wanted
         ));
     }
     match result.case.expectation() {
@@ -389,6 +514,64 @@ fn evaluate_case(result: &CaseResult, reasons: &mut Vec<String>) {
     }
 }
 
+/// Reject forged or harness-contaminated measurement, a wrong trigger, or a
+/// lost failure report before a case's guarantee is even considered.
+fn evaluate_repairs(result: &CaseResult, reasons: &mut Vec<String>) {
+    let name = result.case.name();
+    if result.repairs.trigger != result.case.required_trigger() {
+        reasons.push(format!(
+            "{name}: performed {:?}, not the required {:?} trigger",
+            result.repairs.trigger,
+            result.case.required_trigger()
+        ));
+    }
+    if result.repairs.forged_marker {
+        reasons.push(format!(
+            "{name}: payload-writable state was used as guard/observer evidence"
+        ));
+    }
+    if result.repairs.harness_cleanup_counted {
+        reasons.push(format!(
+            "{name}: harness cleanup was counted as containment evidence"
+        ));
+    }
+    if !result.repairs.identities_have_start_time {
+        reasons.push(format!(
+            "{name}: a reported PID had no public start identity"
+        ));
+    }
+    if !result.repairs.reaped_all_children {
+        reasons.push(format!(
+            "{name}: a holder, helper or child was abandoned rather than reaped"
+        ));
+    }
+    if !result.repairs.failure_report_preserved {
+        reasons.push(format!("{name}: a failure lost its durable report"));
+    }
+    if result.case.observes_guard() && !result.repairs.guard_observed_registered {
+        reasons.push(format!(
+            "{name}: guard liveness was sampled only after unregister"
+        ));
+    }
+    if result.case.expectation() == Expectation::PayloadDenied
+        && !result.repairs.attack_recorded_before_observation
+    {
+        reasons.push(format!(
+            "{name}: the attack was observed without a prior recorded attempt"
+        ));
+    }
+    if result.case == Case::PeerBootout && !result.repairs.peer_synchronized_before_attack {
+        reasons.push(format!(
+            "{name}: the peer was not synchronized before the attack"
+        ));
+    }
+    if result.case == Case::GroupKillNegativeControl && !result.repairs.real_original_group_kill {
+        reasons.push(format!(
+            "{name}: no real original-process-group SIGKILL was performed"
+        ));
+    }
+}
+
 /// The operations the shared probe driver needs from a host. The macOS
 /// adapter performs them with public launchd facilities; tests supply
 /// scripted facts.
@@ -397,7 +580,10 @@ pub trait ProbeHost {
     /// the probe. Checked before any payload executes.
     fn precondition(&mut self) -> Option<Precondition>;
 
-    /// Run one case to its trigger and observation, recording the lifecycle.
+    /// Run one Gate A startup cell to its observation.
+    fn run_startup_cell(&mut self, cell: StartupCell) -> StartupObservation;
+
+    /// Run one Gate B lifetime case to its trigger and observation.
     fn run_case(&mut self, case: Case) -> CaseResult;
 }
 
@@ -409,8 +595,8 @@ pub struct ProbeReport {
     pub verdict: Verdict,
 }
 
-/// Drive the probe: check the precondition, run every selected case, then
-/// evaluate. A failed precondition runs no case.
+/// Drive the lifetime matrix: check the precondition, run every selected
+/// case, then evaluate. A failed precondition runs no case.
 pub fn run_probe(host: &mut dyn ProbeHost, selected: &[Case]) -> ProbeReport {
     let precondition = host.precondition();
     let mut results = Vec::new();
@@ -423,6 +609,333 @@ pub fn run_probe(host: &mut dyn ProbeHost, selected: &[Case]) -> ProbeReport {
     ProbeReport {
         selected: selected.to_vec(),
         results,
+        verdict,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gate A: the S0-S3 startup matrix (design D3)
+// ---------------------------------------------------------------------------
+
+/// The four startup cells: launch ownership (direct observer vs. transient
+/// launchd payload job) crossed with the candidate Seatbelt profile (off/on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StartupCell {
+    /// Outside observer, no Seatbelt.
+    S0DirectUnboxed,
+    /// Outside observer, exact candidate profile.
+    S1DirectSeatbelt,
+    /// Transient launchd payload job, no Seatbelt.
+    S2LaunchdUnboxed,
+    /// Transient launchd payload job, exact candidate profile.
+    S3LaunchdSeatbelt,
+}
+
+impl StartupCell {
+    pub const ALL: [StartupCell; 4] = [
+        StartupCell::S0DirectUnboxed,
+        StartupCell::S1DirectSeatbelt,
+        StartupCell::S2LaunchdUnboxed,
+        StartupCell::S3LaunchdSeatbelt,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            StartupCell::S0DirectUnboxed => "S0-direct-unboxed",
+            StartupCell::S1DirectSeatbelt => "S1-direct-seatbelt",
+            StartupCell::S2LaunchdUnboxed => "S2-launchd-unboxed",
+            StartupCell::S3LaunchdSeatbelt => "S3-launchd-seatbelt",
+        }
+    }
+
+    /// Whether the helper is launched by a transient launchd job.
+    pub fn launchd(self) -> bool {
+        matches!(
+            self,
+            StartupCell::S2LaunchdUnboxed | StartupCell::S3LaunchdSeatbelt
+        )
+    }
+
+    /// Whether the exact candidate Seatbelt profile is applied.
+    pub fn seatbelt(self) -> bool {
+        matches!(
+            self,
+            StartupCell::S1DirectSeatbelt | StartupCell::S3LaunchdSeatbelt
+        )
+    }
+}
+
+impl fmt::Display for StartupCell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// How the helper process ended in a startup cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelperExit {
+    /// Exited zero before an outer timeout.
+    Clean,
+    /// Exited nonzero with this code.
+    NonZero(i32),
+    /// Ended on this signal.
+    Signal(i32),
+    /// Never ran to an observed exit.
+    NotRun,
+}
+
+impl HelperExit {
+    pub fn is_clean(self) -> bool {
+        matches!(self, HelperExit::Clean)
+    }
+
+    pub fn describe(self) -> String {
+        match self {
+            HelperExit::Clean => "exit 0".to_string(),
+            HelperExit::NonZero(code) => format!("exit {code}"),
+            HelperExit::Signal(signal) => format!("signal {signal}"),
+            HelperExit::NotRun => "did not run".to_string(),
+        }
+    }
+}
+
+/// One startup cell's observation. `helper_digest`, `profile_digest` and
+/// `helper_argv` are immutable launch inputs; `ready`, `ordinary_child` and
+/// `exit` are the external observations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartupObservation {
+    pub cell: StartupCell,
+    pub ran: bool,
+    pub skip: Option<String>,
+    /// Digest of the helper bytes actually executed.
+    pub helper_digest: String,
+    /// Digest of the exact candidate profile when this cell applies it.
+    pub profile_digest: Option<String>,
+    /// The argv handed to the helper itself (without any launcher prefix).
+    pub helper_argv: Vec<String>,
+    /// A READY nonce matching the externally chosen nonce was observed.
+    pub ready: bool,
+    /// A real ordinary child was spawned and identified.
+    pub ordinary_child: bool,
+    /// The observed helper exit.
+    pub exit: HelperExit,
+    /// launchd's `runs` counter for launchd-owned cells.
+    pub launchd_runs: Option<u32>,
+    /// launchd's `successive crashes` counter for launchd-owned cells.
+    pub launchd_crashes: Option<u32>,
+    /// A labelled diagnostic (for example an `allow default` profile). It is
+    /// recorded for diagnosis and can never make the cell pass.
+    pub diagnostic: Option<String>,
+    /// Bounded stdout captured for this cell.
+    pub stdout: String,
+    /// Bounded stderr captured for this cell.
+    pub stderr: String,
+}
+
+impl StartupObservation {
+    /// A cell that did not run, for `skip` reasons.
+    pub fn skipped(cell: StartupCell, reason: &str) -> StartupObservation {
+        StartupObservation {
+            cell,
+            ran: false,
+            skip: Some(reason.to_string()),
+            helper_digest: String::new(),
+            profile_digest: None,
+            helper_argv: Vec::new(),
+            ready: false,
+            ordinary_child: false,
+            exit: HelperExit::NotRun,
+            launchd_runs: None,
+            launchd_crashes: None,
+            diagnostic: None,
+            stdout: String::new(),
+            stderr: String::new(),
+        }
+    }
+
+    /// Mark this observation as a labelled diagnostic. It can never pass.
+    pub fn labelled_diagnostic(mut self, label: &str) -> StartupObservation {
+        self.diagnostic = Some(label.to_string());
+        self
+    }
+}
+
+/// The Gate A report: selected cells, observations and typed verdict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartupReport {
+    pub selected: Vec<StartupCell>,
+    pub cells: Vec<StartupObservation>,
+    pub verdict: Verdict,
+}
+
+/// Evaluate the startup matrix. Every selected cell must reach an
+/// authenticated READY, identify an ordinary child and exit cleanly, and all
+/// selected cells must have used identical helper bytes and helper argv (and
+/// identical profile bytes where the profile applies). Any single cell's
+/// failure is named separately.
+pub fn evaluate_startup(selected: &[StartupCell], cells: &[StartupObservation]) -> Verdict {
+    let mut reasons = Vec::new();
+    if selected.is_empty() {
+        reasons.push("zero startup cells selected: admission cannot be proven".to_string());
+        return Verdict::Fail(reasons);
+    }
+    let mut helper_digest: Option<&str> = None;
+    let mut helper_argv: Option<&[String]> = None;
+    let mut profile_digest: Option<&str> = None;
+    for cell in selected {
+        let Some(observation) = cells.iter().find(|candidate| candidate.cell == *cell) else {
+            reasons.push(format!(
+                "{}: selected but produced no observation",
+                cell.name()
+            ));
+            continue;
+        };
+        evaluate_startup_cell(observation, &mut reasons);
+        if !observation.ran {
+            continue;
+        }
+        match helper_digest {
+            None => helper_digest = Some(&observation.helper_digest),
+            Some(first) if first != observation.helper_digest => reasons.push(format!(
+                "{}: helper bytes differ from the first selected cell",
+                cell.name()
+            )),
+            Some(_) => {}
+        }
+        match helper_argv {
+            None => helper_argv = Some(&observation.helper_argv),
+            Some(first) if first != observation.helper_argv.as_slice() => reasons.push(format!(
+                "{}: helper argv differs from the first selected cell",
+                cell.name()
+            )),
+            Some(_) => {}
+        }
+        if cell.seatbelt() {
+            match profile_digest {
+                None => profile_digest = Some(observation.profile_digest.as_deref().unwrap_or("")),
+                Some(first) if Some(first) != observation.profile_digest.as_deref() => reasons
+                    .push(format!(
+                        "{}: profile bytes differ from the first Seatbelt cell",
+                        cell.name()
+                    )),
+                Some(_) => {}
+            }
+        }
+    }
+    match reasons.is_empty() {
+        true => Verdict::Pass,
+        false => Verdict::Fail(reasons),
+    }
+}
+
+fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<String>) {
+    let name = observation.cell.name();
+    if let Some(label) = &observation.diagnostic {
+        // A diagnostic profile (for example `allow default`) is admissible
+        // only as a labelled, non-passing diagnostic: it names what was tried
+        // and can never be counted as startup admission.
+        reasons.push(format!(
+            "{name}: labelled non-passing diagnostic, not an admission: {label}"
+        ));
+        return;
+    }
+    if !observation.ran {
+        let why = observation
+            .skip
+            .as_deref()
+            .unwrap_or("did not run and named no reason");
+        reasons.push(format!("{name}: startup cell did not run: {why}"));
+        return;
+    }
+    if observation.helper_digest.is_empty() {
+        reasons.push(format!("{name}: no helper digest was recorded"));
+    }
+    if observation.cell.seatbelt() && observation.profile_digest.is_none() {
+        reasons.push(format!("{name}: Seatbelt cell recorded no profile digest"));
+    }
+    if !observation.ready {
+        reasons.push(format!(
+            "{name}: the helper never reached a nonce-authenticated READY"
+        ));
+    }
+    if !observation.ordinary_child {
+        reasons.push(format!("{name}: no ordinary child was identified"));
+    }
+    if !observation.exit.is_clean() {
+        reasons.push(format!(
+            "{name}: the helper did not exit cleanly ({})",
+            observation.exit.describe()
+        ));
+    }
+    if observation.cell.launchd() {
+        match (observation.launchd_runs, observation.launchd_crashes) {
+            (Some(runs), Some(0)) if runs >= 1 => {}
+            (runs, crashes) => reasons.push(format!(
+                "{name}: launchd run/crash facts are not one clean run (runs={runs:?}, crashes={crashes:?})"
+            )),
+        }
+    }
+}
+
+/// Run the selected startup cells.
+pub fn run_startup(host: &mut dyn ProbeHost, selected: &[StartupCell]) -> StartupReport {
+    let precondition = host.precondition();
+    let mut cells = Vec::new();
+    if precondition.is_none() && !selected.is_empty() {
+        for cell in selected {
+            cells.push(host.run_startup_cell(*cell));
+        }
+    }
+    let verdict = match precondition.as_ref() {
+        Some(precondition) => Verdict::Fail(vec![format!(
+            "startup precondition failed: {}",
+            precondition.describe()
+        )]),
+        None => evaluate_startup(selected, &cells),
+    };
+    StartupReport {
+        selected: selected.to_vec(),
+        cells,
+        verdict,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The two gates in sequence (design D3/D14)
+// ---------------------------------------------------------------------------
+
+/// The gated report: Gate A always runs; Gate B exists only when Gate A
+/// passed. A `None` lifetime report means the lifetime matrix was not run,
+/// which is a failure, never a pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatedReport {
+    pub startup: StartupReport,
+    pub lifetime: Option<ProbeReport>,
+    pub verdict: Verdict,
+}
+
+/// Run Gate A, then Gate B only if Gate A passed. The overall verdict names a
+/// startup failure separately from a lifetime failure.
+pub fn run_gated_probe(
+    host: &mut dyn ProbeHost,
+    startup_selected: &[StartupCell],
+    lifetime_selected: &[Case],
+) -> GatedReport {
+    let startup = run_startup(host, startup_selected);
+    if !startup.verdict.is_pass() {
+        return GatedReport {
+            startup,
+            lifetime: None,
+            verdict: Verdict::Fail(vec![
+                "lifetime matrix not run: the S0-S3 startup gate did not pass".to_string(),
+            ]),
+        };
+    }
+    let lifetime = run_probe(host, lifetime_selected);
+    let verdict = lifetime.verdict.clone();
+    GatedReport {
+        startup,
+        lifetime: Some(lifetime),
         verdict,
     }
 }
@@ -446,7 +959,33 @@ pub fn passing_result(case: Case) -> CaseResult {
         cleanup_after_quiescence: cleanup,
         guard_survived_payload: true,
         payload_attempt_denied: true,
-        events: CaseResult::complete_events(),
+        events: case.expected_lifecycle(),
+        repairs: RepairFacts::passing(case),
+    }
+}
+
+/// Construct a passing startup observation for a cell, so tests vary exactly
+/// one fact.
+pub fn passing_startup(cell: StartupCell) -> StartupObservation {
+    StartupObservation {
+        cell,
+        ran: true,
+        skip: None,
+        helper_digest: "00ff".to_string(),
+        profile_digest: cell.seatbelt().then(|| "aa55".to_string()),
+        helper_argv: vec![
+            "startup".to_string(),
+            "--exit".to_string(),
+            "clean".to_string(),
+        ],
+        ready: true,
+        ordinary_child: true,
+        exit: HelperExit::Clean,
+        launchd_runs: cell.launchd().then_some(1),
+        launchd_crashes: cell.launchd().then_some(0),
+        diagnostic: None,
+        stdout: String::new(),
+        stderr: String::new(),
     }
 }
 

@@ -4,12 +4,14 @@
 
 use super::*;
 
-/// A scripted host: returns one precondition and one result per case, and
-/// records which cases it was actually asked to run.
+/// A scripted host: returns one precondition, one startup observation per
+/// cell and one lifetime result per case, recording what it was asked to run.
 struct ScriptedHost {
     precondition: Option<Precondition>,
     results: Vec<(Case, CaseResult)>,
+    startup: Vec<(StartupCell, StartupObservation)>,
     runs: Vec<Case>,
+    startup_runs: Vec<StartupCell>,
 }
 
 impl ScriptedHost {
@@ -17,7 +19,9 @@ impl ScriptedHost {
         ScriptedHost {
             precondition,
             results: Vec::new(),
+            startup: Vec::new(),
             runs: Vec::new(),
+            startup_runs: Vec::new(),
         }
     }
 
@@ -25,11 +29,38 @@ impl ScriptedHost {
         self.results.push((result.case, result));
         self
     }
+
+    fn with_startup(mut self, observation: StartupObservation) -> ScriptedHost {
+        self.startup.push((observation.cell, observation));
+        self
+    }
+
+    fn all_passing() -> ScriptedHost {
+        let mut host = ScriptedHost::new(None);
+        for cell in StartupCell::ALL {
+            host = host.with_startup(passing_startup(cell));
+        }
+        for case in Case::ALL {
+            host = host.with(passing_result(case));
+        }
+        host
+    }
 }
 
 impl ProbeHost for ScriptedHost {
     fn precondition(&mut self) -> Option<Precondition> {
         self.precondition.clone()
+    }
+
+    fn run_startup_cell(&mut self, cell: StartupCell) -> StartupObservation {
+        self.startup_runs.push(cell);
+        self.startup
+            .iter()
+            .find(|(scripted, _)| *scripted == cell)
+            .map(|(_, observation)| observation.clone())
+            .unwrap_or_else(|| {
+                StartupObservation::skipped(cell, "scripted host has no observation")
+            })
     }
 
     fn run_case(&mut self, case: Case) -> CaseResult {
@@ -183,7 +214,14 @@ fn every_payload_denial_obligation_fails_when_its_fact_is_wrong() {
 }
 
 #[test]
-fn lifecycle_events_must_be_ordered() {
+fn lifecycle_events_must_be_exact_not_a_prefix() {
+    // An intended prefix is not a pass.
+    let mut prefix = passing_result(Case::Timeout);
+    prefix.events.truncate(4);
+    let verdict = evaluate(&[Case::Timeout], &[prefix], None);
+    assert!(!verdict.is_pass());
+    assert!(verdict.reasons()[0].contains("not the exact required"));
+
     // A reordered event is refused.
     let mut reordered = passing_result(Case::Timeout);
     reordered.events = vec![
@@ -193,9 +231,8 @@ fn lifecycle_events_must_be_ordered() {
     ];
     let verdict = evaluate(&[Case::Timeout], &[reordered], None);
     assert!(!verdict.is_pass());
-    assert!(verdict.reasons()[0].contains("out of order"));
 
-    // A duplicate is refused.
+    // A duplicate is refused by the ordered check.
     let mut duplicate = passing_result(Case::Timeout);
     duplicate.events = vec![Event::Prepared, Event::Prepared, Event::GuardRegistered];
     assert!(!events_are_ordered(&duplicate.events));
@@ -212,8 +249,93 @@ fn lifecycle_events_must_be_ordered() {
     ];
     assert!(!events_are_ordered(&early.events));
 
+    // The negative control has its own guard-free lifecycle.
+    assert_eq!(
+        Case::GroupKillNegativeControl.expected_lifecycle(),
+        vec![
+            Event::Prepared,
+            Event::PayloadStarted,
+            Event::Terminating,
+            Event::PayloadQuiescent,
+            Event::PrivateStateRemoved,
+        ]
+    );
+
     // A full, ordered lifecycle is accepted.
     assert!(events_are_ordered(&LIFECYCLE));
+}
+
+#[test]
+fn every_measurement_repair_forgery_fails() {
+    type Mutation = fn(&mut CaseResult);
+    let generic: [(&str, Mutation); 6] = [
+        ("trigger", |r: &mut CaseResult| {
+            r.repairs.trigger = TriggerKind::Cancellation
+        }),
+        ("forged_marker", |r: &mut CaseResult| {
+            r.repairs.forged_marker = true
+        }),
+        ("harness_cleanup", |r: &mut CaseResult| {
+            r.repairs.harness_cleanup_counted = true
+        }),
+        ("start_time", |r: &mut CaseResult| {
+            r.repairs.identities_have_start_time = false
+        }),
+        ("reaped", |r: &mut CaseResult| {
+            r.repairs.reaped_all_children = false
+        }),
+        ("failure_report", |r: &mut CaseResult| {
+            r.repairs.failure_report_preserved = false
+        }),
+    ];
+    for (label, mutate) in generic {
+        let mut result = passing_result(Case::Timeout);
+        mutate(&mut result);
+        let verdict = evaluate(&[Case::Timeout], &[result], None);
+        assert!(!verdict.is_pass(), "{label} must fail");
+    }
+
+    // Late guard sampling fails for any guard-observing case.
+    let mut result = passing_result(Case::Timeout);
+    result.repairs.guard_observed_registered = false;
+    let verdict = evaluate(&[Case::Timeout], &[result], None);
+    assert!(!verdict.is_pass(), "late guard sampling must fail");
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|r| r.contains("after unregister")));
+
+    // A denial case with no recorded attack before the denial fails.
+    let mut result = passing_result(Case::GuardInterference);
+    result.repairs.attack_recorded_before_observation = false;
+    let verdict = evaluate(&[Case::GuardInterference], &[result], None);
+    assert!(!verdict.is_pass(), "missing attack record must fail");
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|r| r.contains("prior recorded attempt")));
+
+    // An early peer attack (peer not synchronized first) fails.
+    let mut result = passing_result(Case::PeerBootout);
+    result.repairs.peer_synchronized_before_attack = false;
+    let verdict = evaluate(&[Case::PeerBootout], &[result], None);
+    assert!(!verdict.is_pass(), "early peer attack must fail");
+    assert!(verdict.reasons().iter().any(|r| r.contains("synchronized")));
+
+    // The negative control owns the real-group-kill fact.
+    let mut control = passing_result(Case::GroupKillNegativeControl);
+    control.repairs.real_original_group_kill = false;
+    let verdict = evaluate(&[Case::GroupKillNegativeControl], &[control], None);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|r| r.contains("real original-process-group")));
+
+    // The negative control does not require a guard observation.
+    let mut control = passing_result(Case::GroupKillNegativeControl);
+    control.repairs.guard_observed_registered = false;
+    assert!(evaluate(&[Case::GroupKillNegativeControl], &[control], None).is_pass());
 }
 
 #[test]
@@ -261,4 +383,156 @@ fn case_names_and_expectations_are_total() {
         Expectation::GroupKillLeavesSurvivor
     );
     assert_eq!(Case::EscapeJob.expectation(), Expectation::PayloadDenied);
+}
+
+// ---------------------------------------------------------------------------
+// Gate A: the startup matrix
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_startup_cell_passes_a_complete_matrix() {
+    let cells: Vec<StartupObservation> = StartupCell::ALL
+        .iter()
+        .copied()
+        .map(passing_startup)
+        .collect();
+    let verdict = evaluate_startup(&StartupCell::ALL, &cells);
+    assert!(verdict.is_pass(), "{}", verdict.render());
+}
+
+#[test]
+fn an_empty_startup_selection_fails() {
+    let verdict = evaluate_startup(&[], &[]);
+    assert!(!verdict.is_pass());
+    assert!(verdict.reasons()[0].contains("zero startup cells"));
+}
+
+#[test]
+fn every_startup_cell_failure_is_named_separately() {
+    type Mutation = fn(&mut StartupObservation);
+    let mutations: [(&str, Mutation); 6] = [
+        ("not_run", |c: &mut StartupObservation| {
+            c.ran = false;
+            c.skip = Some("sandbox-exec rejected the profile".to_string());
+        }),
+        ("no_ready", |c: &mut StartupObservation| c.ready = false),
+        ("no_child", |c: &mut StartupObservation| {
+            c.ordinary_child = false
+        }),
+        ("signal", |c: &mut StartupObservation| {
+            c.exit = HelperExit::Signal(6)
+        }),
+        ("no_digest", |c: &mut StartupObservation| {
+            c.helper_digest.clear()
+        }),
+        ("crash", |c: &mut StartupObservation| {
+            c.launchd_crashes = Some(1)
+        }),
+    ];
+    for cell in StartupCell::ALL {
+        for (label, mutate) in mutations {
+            if label == "crash" && !cell.launchd() {
+                continue;
+            }
+            let mut observation = passing_startup(cell);
+            mutate(&mut observation);
+            let cells = vec![observation];
+            let verdict = evaluate_startup(&[cell], &cells);
+            assert!(!verdict.is_pass(), "{} {label} must fail", cell.name());
+            assert!(
+                verdict
+                    .reasons()
+                    .iter()
+                    .any(|reason| reason.contains(cell.name())),
+                "{} {label}: {}",
+                cell.name(),
+                verdict.render()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_seatbelt_cell_without_a_profile_digest_fails() {
+    let mut observation = passing_startup(StartupCell::S1DirectSeatbelt);
+    observation.profile_digest = None;
+    let verdict = evaluate_startup(&[StartupCell::S1DirectSeatbelt], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|r| r.contains("profile digest")));
+}
+
+#[test]
+fn startup_cells_must_share_helper_bytes_and_argv() {
+    let mut cells = vec![
+        passing_startup(StartupCell::S0DirectUnboxed),
+        passing_startup(StartupCell::S1DirectSeatbelt),
+    ];
+    cells[1].helper_argv.push("--extra".to_string());
+    let verdict = evaluate_startup(
+        &[StartupCell::S0DirectUnboxed, StartupCell::S1DirectSeatbelt],
+        &cells,
+    );
+    assert!(!verdict.is_pass());
+    assert!(verdict.reasons().iter().any(|r| r.contains("argv differs")));
+
+    let mut cells = vec![
+        passing_startup(StartupCell::S0DirectUnboxed),
+        passing_startup(StartupCell::S1DirectSeatbelt),
+    ];
+    cells[1].helper_digest = "ffff".to_string();
+    let verdict = evaluate_startup(
+        &[StartupCell::S0DirectUnboxed, StartupCell::S1DirectSeatbelt],
+        &cells,
+    );
+    assert!(!verdict.is_pass());
+    assert!(verdict
+        .reasons()
+        .iter()
+        .any(|r| r.contains("helper bytes differ")));
+}
+
+#[test]
+fn a_labelled_default_allow_diagnostic_can_never_pass() {
+    let cell = StartupCell::S1DirectSeatbelt;
+    let observation = passing_startup(cell).labelled_diagnostic("allow-default profile at S1");
+    let verdict = evaluate_startup(&[cell], &[observation]);
+    assert!(!verdict.is_pass());
+    assert!(verdict.reasons()[0].contains("labelled non-passing diagnostic"));
+}
+
+// ---------------------------------------------------------------------------
+// The two-gate order
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_startup_failure_marks_the_lifetime_matrix_not_run() {
+    let mut host = ScriptedHost::all_passing();
+    // Replace S1 with a failed startup observation.
+    host.startup
+        .retain(|(cell, _)| *cell != StartupCell::S1DirectSeatbelt);
+    host = host.with_startup(StartupObservation::skipped(
+        StartupCell::S1DirectSeatbelt,
+        "SIGABRT",
+    ));
+    let report = run_gated_probe(&mut host, &StartupCell::ALL, &Case::ALL);
+    assert!(!report.verdict.is_pass());
+    assert!(report.lifetime.is_none(), "lifetime must not run");
+    assert!(
+        host.runs.is_empty(),
+        "no lifetime case may run after a startup failure"
+    );
+    assert!(report.verdict.reasons()[0].contains("lifetime matrix not run"));
+}
+
+#[test]
+fn a_passing_startup_gate_runs_the_lifetime_matrix() {
+    let mut host = ScriptedHost::all_passing();
+    let report = run_gated_probe(&mut host, &StartupCell::ALL, &Case::ALL);
+    assert!(report.verdict.is_pass(), "{}", report.verdict.render());
+    assert!(report.lifetime.is_some());
+    assert_eq!(host.runs.len(), Case::ALL.len());
+    assert_eq!(host.startup_runs.len(), StartupCell::ALL.len());
 }

@@ -698,8 +698,22 @@ the payload? CI `34433461814` answers only that the former Python payload did
 not start; it does not answer either question for the repaired helper.
 
 These are not invitations to choose weaker semantics. The existing GitHub
-macOS runner can answer them once the committed helper and measurement repairs
-exist, so a missing local Mac is not the blocker. A Gate A failure records a
-startup residual and leaves lifetime not run; a Gate B failure keeps
-SEATBELT-R3 open. Either keeps Seatbelt unbuilt and returns any necessary
-semantic change in a focused proposed decision.
+macOS runner can answer them now that the committed helper, the S0–S3 startup
+matrix and the measurement repairs exist (tasks 1.5–1.8), so a missing local
+Mac is not the blocker. A Gate A failure records a startup residual and leaves
+lifetime not run; a Gate B failure keeps SEATBELT-R3 open. Either keeps
+Seatbelt unbuilt and returns any necessary semantic change in a focused
+proposed decision.
+
+## Implementation status
+
+Tasks 1.5–1.8 are implemented on the controller: the interpreted payload is
+replaced by the committed `seatbelt-probe-helper` bin, the shared model owns
+the S0–S3 startup matrix and refuses to run the lifetime matrix unless the
+startup verdict passes, the measurement-repair facts are recorded and forged
+by injected tests, and CI runs the startup gate separately from the lifetime
+gate while uploading both durable reports even on failure. This is
+host-independent preparation only. No native macOS gate has been dispatched
+from this controller, so SEATBELT-R1–R4 remain open and Seatbelt stays
+unbuilt until the controller-dispatched startup and lifetime runs report real
+results.
