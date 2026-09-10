@@ -4,7 +4,7 @@ Let an operator read the retained transcript belonging to a selected seat,
 regardless of harness, with one ordered content projection and explicit
 limits that preserve local ownership and journal privacy.
 
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: One transcript derivation serves the local readers
 

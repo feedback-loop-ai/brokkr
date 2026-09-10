@@ -4,7 +4,7 @@ Make each retained Claude, Codex and DSH transcript readable through the
 existing terminal transcript pane and its two reading doors, with the same
 identity, content, limits and full-session information as the transcript CLI.
 
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Every readable kind reaches the pane and both doors
 
