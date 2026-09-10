@@ -649,11 +649,108 @@ candidate's authority.
 The ledger's unit of account is the **rule unit**: one `allow` form with one
 operation and at most one filter. Units are written in the normalized template,
 where the typed placeholders `<cell-root>`, `<payload-root>` and `<helper>`
-replace the concrete cell root, payload root and helper path. A string equal to
-one of those concrete paths, or beginning with it and then `/`, takes its
-placeholder, longest path first. No other string is rewritten. `<helper>` SHALL
-be instantiated with the helper's canonical path, because Seatbelt matches
-resolved paths.
+replace the concrete cell root, payload root and helper path. The check first
+validates those concrete values, as the check inputs below require, and
+rewrites nothing until they pass. Then a string equal to one of the validated
+paths, or beginning with it and then `/`, takes its placeholder, longest path
+first. No other string is rewritten. `<helper>` SHALL be instantiated with the
+helper's canonical path, because Seatbelt matches resolved paths.
+
+The check's inputs are fixed and typed. It reads exactly these:
+
+- the rendered concrete profile text, the ledger and the removal set;
+- the **host-toolchain set**: the one public item `HOST_TOOLCHAIN_BINDS` in
+  `hands.rs`, which lists the host paths the box binds read-only at the same
+  path where they exist. `box_argv` iterates that item for its host-toolchain
+  `--ro-bind-try` binds, and the check reads the same item. The check never
+  reads an argv that `box_argv` renders, and it takes no `HandsSpec`, home,
+  scratch, session, `GitFacts` or bundle root;
+- the concrete **cell root**, **payload root**, **inputs directory** and
+  **helper path**. In a native run the observer that created them supplies
+  them, and a host-independent test supplies fixed values. The check never
+  takes them from the renderer or from the rendered text;
+- the path-valued **denial-control targets**: each path that the startup
+  credential-read and host-write controls open. Each is listed in its direct
+  spelling and in the `/private` spelling macOS resolves it to, where one
+  exists, for example `/etc/passwd` and `/private/etc/passwd`. The credential
+  targets are also listed in their `/System/Volumes/Data` spelling. The guard
+  and peer targets are launchd labels, not paths, and no path rule reads them.
+
+Declared binds are never toolchain binds. That covers a bind a `HandsSpec`
+declares in `ro`, `rw` or `overlay` mode, home-expanded or not, such as
+`bundles/self`'s `~/.rustup`. It also covers the git common `config` that
+`box_argv` binds read-only. Neither is in the host-toolchain set, whatever argv
+`box_argv` renders for it. The toolchain anchor, the rule that no other unit
+covers a bind source, and the data-volume rule take their bind sources from the
+host-toolchain set and from nothing else. The check's verdict on a given profile, ledger, removal set and
+concrete inputs SHALL NOT vary with any `HandsSpec`, home or `GitFacts`.
+
+A host-independent test SHALL bind `box_argv` to the item, over varied
+`HandsSpec`, home and `GitFacts` values. The `--ro-bind-try` sources that
+`box_argv` renders SHALL be exactly these, and nothing else:
+
+- the host-toolchain set;
+- each declared `ro` bind, home-expanded;
+- when a common directory is present, `<common>/config`.
+
+Naming the item SHALL leave the namespace argv byte-identical.
+
+The check SHALL validate the concrete inputs before it normalizes any string.
+It SHALL refuse each of these and name the input and what it found:
+
+- a payload root other than the cell root joined with `payload`, or an inputs
+  directory other than the cell root joined with `inputs`;
+- a cell root or helper path that is not absolute and canonical in spelling.
+  That is one with an empty, `.` or `..` component or a trailing `/`. It is
+  also one spelled through a top-level symlink that macOS resolves under
+  `/private`: equal to `/var`, `/tmp` or `/etc`, or beginning with one of them
+  and then `/`;
+- a cell root that is `/`;
+- a cell root that equals, contains or lies under a host-toolchain source, a
+  committed system-library target or its recorded correction, a device-set
+  literal, or a path-valued denial-control target;
+- a cell root that is `/System/Volumes/Data`, lies under it or contains it;
+- a helper path that is `/`, or that equals, contains or lies under the cell
+  root. The helper and the cell root are disjoint, so the payload cannot write
+  the executable it runs and normalization never has to choose between
+  `<helper>` and a root placeholder.
+
+A profile rendered with any other root or helper than the observer's inputs
+carries strings that normalization does not rewrite. Its units are therefore
+unlisted and fail the equality.
+
+After validation, the check normalizes and judges every unit in both forms.
+The grammar, the element anchors and the equality read the normalized form. The
+cover rule, the data-volume rule and the control-target rule below also read
+each unit's concrete target, which is the unit with its validated concrete
+values put back. A placeholder therefore never hides a concrete path those
+rules refuse. For example, a helper of `/usr/bin` makes the `<helper>` units
+cover a host-toolchain source.
+
+The string check proves spelling and layout, not the file system. The observer
+that runs a native cell SHALL also establish these facts before the cell runs,
+and record them in the cell's report:
+
+- the observer created the cell root with an exclusive create that fails when
+  the path exists, under a per-run probe root it also created exclusively. The
+  cell root therefore holds no host object that the observer did not put
+  there;
+- the observer created the payload and inputs directories inside that fresh
+  cell root;
+- the cell root, payload root and inputs directory are directories owned by
+  the invoking user;
+- canonicalizing the cell root and the helper returns exactly the input
+  spelling;
+- the helper is a regular file, and the report records its digest.
+
+A canonicalization that fails or returns another spelling fails the cell
+before `sandbox-exec` runs. The uncanonical spelling is never kept as a
+fallback. Before any native run under the candidate profile, in Gate A or
+Gate B, the observer SHALL run the check over that cell's concrete candidate
+profile and inputs. A refusal fails the cell before `sandbox-exec` runs.
+Removal replays and diagnostics use profiles that differ from the candidate by
+design. They run only from a cell whose inputs passed that check. The
+host-independent check claims none of these file-system facts.
 
 The normalization is closed. The template SHALL open with exactly
 `(version 1)` and `(deny default)`. That frame is not a unit. After it, every
@@ -715,8 +812,10 @@ element's anchor:
 
 - A **toolchain unit** images one toolchain bind at the same path. It SHALL
   name that one bind and target exactly that path. The check SHALL confirm
-  that each named bind is a `--ro-bind-try` source in the argv that `hands.rs`
-  `box_argv` renders, read from that function rather than from a copied list.
+  that each named bind is a source in the host-toolchain set. It reads that
+  set from the `hands.rs` item that `box_argv` iterates, never from a copied
+  list or a rendered argv. A declared bind and the git common `config` are
+  never toolchain binds, so no toolchain unit may name one.
   A parent directory of several binds is not the image of those binds, because
   it also covers every child the box does not bind.
 - A **system-library unit** images the Linux library binds at macOS paths. Its
@@ -728,17 +827,21 @@ element's anchor:
   `/dev/urandom` and `/dev/random`, device nodes of the box's `--dev /dev`.
 - The **shell** element is `(allow process-fork)` alone.
 
-A bind's image cannot leave the `box_argv` check by being recorded as
-something else, and its data-volume spelling cannot enter under any class. Two
-rules hold for every unit of either half:
+A bind's image cannot leave the toolchain check by being recorded as
+something else, and its data-volume spelling cannot enter under any class.
+Three rules hold for every unit of either half, in its normalized and in its
+concrete form:
 
-- A unit that is not a toolchain unit SHALL NOT cover a `--ro-bind-try` source
-  that `box_argv` renders. Covering means a `literal` or `subpath` equal to
-  that source, or a `subpath` that contains it.
+- A unit that is not a toolchain unit SHALL NOT cover a source in the
+  host-toolchain set. Covering means a `literal` or `subpath` equal to that
+  source, or a `subpath` that contains it. A declared bind and the git common
+  `config` are not sources here. A git common directory under `<payload-root>`
+  therefore leaves the writable worktree unit valid.
 - No unit SHALL target `/System/Volumes/Data` itself, the data-volume spelling
-  of a bind source (`/System/Volumes/Data` joined with that source), or a path
-  under such a spelling. No `subpath` unit SHALL contain
+  of a host-toolchain source (`/System/Volumes/Data` joined with that source),
+  or a path under such a spelling. No `subpath` unit SHALL contain
   `/System/Volumes/Data`.
+- No unit SHALL cover a path-valued denial-control target.
 
 The **justified baseline** is the baseline half of this ledger and nothing
 else. The candidate's rule units SHALL equal the disjoint union of the baseline
@@ -867,8 +970,9 @@ The system-library element alone MAY be corrected. When native denial evidence
 shows one of its reads refused under another resolved spelling, a correction
 replaces the committed unit. The correction records the unit it replaces, the
 resolved spelling and that evidence, and it keeps the same justification.
-Like every unit, its target covers no `box_argv` bind source and no
-data-volume spelling of one, and it does not contain `/System/Volumes/Data`.
+Like every unit, its target covers no host-toolchain source, no data-volume
+spelling of one and no path-valued denial-control target, and it does not
+contain `/System/Volumes/Data`.
 It SHALL NOT equal or contain the target of a withdrawn or narrowed fa7 unit
 in that unit's historical form.
 
@@ -880,10 +984,14 @@ proves an operation allowed or unneeded. The startup denial controls SHALL add
 a read of the credential target through its `/System/Volumes/Data` spelling,
 and the candidate SHALL deny it as it denies the direct spelling.
 
-The check SHALL be a host-independent function over the rendered template text,
-the ledger and the removal set. It SHALL parse the rendered profile rather than
-trust whatever renders it. It SHALL refuse each of these:
+The check SHALL be a host-independent function over the rendered profile text,
+the ledger, the removal set, the host-toolchain set and the typed concrete
+inputs above. It SHALL parse the rendered profile rather than trust whatever
+renders it, and it SHALL validate the concrete inputs rather than trust the
+renderer's values. It SHALL refuse each of these:
 
+- a concrete input that fails the validation above, before any string is
+  normalized;
 - a unit in neither half, or a unit in both halves;
 - a ledger or removal entry the template lacks;
 - a missing or altered frame, an extra `deny` or an `allow default`;
@@ -894,13 +1002,15 @@ trust whatever renders it. It SHALL refuse each of these:
   baseline unit whose filter is not `literal` or `subpath`;
 - a hands-element entry that names no element of the closed set, or whose
   target fails that element's anchor;
-- a toolchain unit whose target is not exactly the one `--ro-bind-try` source
-  it names in the argv that `box_argv` renders. A target respelled under
-  another resolved path fails, with or without recorded evidence;
-- a unit that is not a toolchain unit but covers a `box_argv` bind source;
+- a toolchain unit whose target is not exactly the one host-toolchain source
+  it names, or that names a declared bind or the git common `config`. A target
+  respelled under another resolved path fails, with or without recorded
+  evidence;
+- a unit that is not a toolchain unit but covers a host-toolchain source;
 - a unit that targets `/System/Volumes/Data`, the data-volume spelling of a
-  bind source or a path under one, or a `subpath` unit that contains
+  host-toolchain source or a path under one, or a `subpath` unit that contains
   `/System/Volumes/Data`;
+- a unit that covers a path-valued denial-control target;
 - a system-library unit whose target is neither a committed target nor a
   correction that records the unit it replaces, the resolved spelling and its
   evidence, or a correction that equals or contains a withdrawn or narrowed fa7
@@ -941,22 +1051,66 @@ candidate.
 - **THEN** the check fails and names the modifier, filter, text or duplicated unit, and no unit is taken from the unparsed remainder
 
 #### Scenario: The toolchain baseline is no wider than the binds it names
-- **GIVEN** the `--ro-bind-try` sources that `hands.rs` `box_argv` renders
+- **GIVEN** the host-toolchain set that `hands.rs` names as `HOST_TOOLCHAIN_BINDS` and `box_argv` iterates
 - **WHEN** the check reads the ledger's toolchain units
-- **THEN** each unit names one of those binds and targets exactly it; `(subpath "/usr")` for read or exec is an unlisted unit and fails; `/usr/include`, `/usr/lib64`, `/lib` and `/lib64` carry no unit; and a unit whose named bind `box_argv` no longer renders fails
+- **THEN** each unit names one of those sources and targets exactly it; `(subpath "/usr")` for read or exec is an unlisted unit and fails; `/usr/include`, `/usr/lib64`, `/lib` and `/lib64` carry no unit; and a unit whose named bind the set does not list fails and names that bind
 
 #### Scenario: A respelled toolchain unit fails however it is recorded
 - **GIVEN** native denial evidence that shows an operation under the `/usr/local` toolchain bind refused as `/System/Volumes/Data/usr/local`
 - **WHEN** the ledger replaces the `/usr/local` toolchain unit with a unit on that spelling, with or without the evidence recorded, or adds such a unit beside it, or records that spelling or a path under it as a system-library unit, another hands element, an execution input, a probe-harness need or a diagnosis-admitted literal
-- **THEN** the check fails and names the unit; the toolchain unit keeps its `box_argv` target, the cell fails on its own startup facts and records the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling` with that evidence, and a change to the toolchain unit's target waits for a focused proposed decision
+- **THEN** the check fails and names the unit; the toolchain unit keeps its host-toolchain target, the cell fails on its own startup facts and records the startup residual `SEATBELT-R3-STARTUP-toolchain-respelling` with that evidence, and a change to the toolchain unit's target waits for a focused proposed decision
 
-#### Scenario: A bind's image cannot be relabelled out of the box_argv check
+#### Scenario: A bind's image cannot be relabelled out of the toolchain check
 - **WHEN** a unit that the ledger records as a system-library unit, device-set unit, execution input, probe-harness need or diagnosis-admitted entry is `(subpath "/usr/local")`, `(subpath "/usr")`, `(subpath "/System")`, `(subpath "/System/Volumes")` or `(literal "/bin")`
-- **THEN** the check fails and names the unit, because it covers a `box_argv` bind source or contains `/System/Volumes/Data`; only a toolchain unit that names the bind may target a bind source
+- **THEN** the check fails and names the unit, because it covers a host-toolchain source or contains `/System/Volumes/Data`; only a toolchain unit that names the bind may target a bind source
+
+#### Scenario: A declared read-only bind is not a toolchain bind
+- **GIVEN** a `HandsSpec` that declares `~/.rustup` read-only, as `bundles/self` does, and the home `/Users/runner`, so that `box_argv` renders `--ro-bind-try /Users/runner/.rustup`
+- **WHEN** the ledger records `(allow file-read* (subpath "/Users/runner/.rustup"))` as a toolchain unit that names that bind
+- **THEN** the check fails and names the unit, because `/Users/runner/.rustup` is not in the host-toolchain set; the same holds for any declared `ro`, `rw` or `overlay` bind under any home
+
+#### Scenario: The git common config is not a toolchain bind
+- **GIVEN** `GitFacts` whose common directory is `/Users/runner/work/brokkr/brokkr/.git`, so that `box_argv` renders `--ro-bind-try` for its `config`
+- **WHEN** the ledger records `(allow file-read* (literal "/Users/runner/work/brokkr/brokkr/.git/config"))` as a toolchain unit
+- **THEN** the check fails and names the unit, because the common `config` is not in the host-toolchain set
+
+#### Scenario: A git common directory under the payload root leaves the worktree unit valid
+- **GIVEN** `GitFacts` whose common directory lies under the concrete payload root
+- **WHEN** the check judges the writable worktree unit `(allow file-write* (subpath "<payload-root>"))`
+- **THEN** the unit passes, because the common `config` is not a host-toolchain source and nothing counts it as a bind source the unit covers
+
+#### Scenario: The check's verdict does not depend on HandsSpec, home or GitFacts
+- **GIVEN** the candidate profile, ledger, removal set and one set of concrete inputs
+- **WHEN** a host-independent test renders `box_argv` for a `HandsSpec` with no binds and for `bundles/self`'s binds, under two different homes, and with `GitFacts` that have no common directory, an outside common directory and a common directory under the payload root
+- **THEN** the check takes none of those values and returns the same verdict on the candidate every time; each rendered argv's `--ro-bind-try` sources are exactly the host-toolchain set, the home-expanded declared `ro` binds and, when a common directory is present, `<common>/config`, and nothing else; and the namespace argv is byte-identical to its form before the item was named
+
+#### Scenario: A mis-instantiated cell root fails before normalization
+- **WHEN** the concrete cell root is `/`; `/usr`, which contains host-toolchain sources; `/private/etc`, a parent of the credential target; `/private/tmp`, a parent of the host-write target; `/Users/runner` while the helper is `/Users/runner/work/brokkr/brokkr/target/debug/seatbelt-probe-helper`; or `/System/Volumes/Data/private/var/folders/xy/T/brokkr-seatbelt-probe-1/startup-1-s1`, a data-volume spelling
+- **THEN** the check fails before it rewrites any string, names the offending input and a rule it breaks, and no unit reaches the equality
+
+#### Scenario: The payload and inputs layout is fixed
+- **WHEN** the concrete payload root is `/Users/runner`, or `<cell-root>/work`, or the inputs directory is anything other than `<cell-root>/inputs`
+- **THEN** the check fails before normalization and names the input; and a profile rendered with a root other than the observer's input fails the equality, because its root strings are not rewritten and its units are unlisted
+
+#### Scenario: A non-canonical cell root or helper fails
+- **WHEN** the concrete cell root is relative, has a `..`, `.` or empty component or a trailing `/`, or is spelled under `/var`, `/tmp` or `/etc` rather than `/private`, or the helper is relative, has such a component, has a trailing `/`, or equals, contains or lies under the cell root
+- **THEN** the check fails before normalization and names the input and what it found
+
+#### Scenario: A placeholder does not hide its concrete target
+- **WHEN** the concrete inputs pass validation but the helper is `/usr/bin`, `/private/etc/passwd` or `/System/Volumes/Data/Users/runner/seatbelt-probe-helper`
+- **THEN** the check fails and names the `<helper>` units, because their concrete targets cover a host-toolchain source, cover a credential target or target a data-volume spelling, even though their normalized form passes
+
+#### Scenario: A unit that covers a denial-control target fails
+- **WHEN** the ledger carries a probe-harness need `(allow file-read* (subpath "/private/etc"))` or a system-library correction whose target contains `/private/tmp/brokkr-probe-denial-write`
+- **THEN** the check fails and names the unit and the denial-control target it covers
+
+#### Scenario: The observer establishes what the string check cannot
+- **WHEN** a native Seatbelt cell's root already exists before the observer creates it, is not owned by the invoking user, or canonicalizes to a spelling other than its input, or the helper is not a regular file or canonicalizes to another spelling
+- **THEN** the cell fails before `sandbox-exec` runs, the report names the observer duty that failed, the uncanonical spelling is not kept as a fallback, and the host-independent check is recorded as proving none of these facts
 
 #### Scenario: A system-library correction is typed and bounded
 - **WHEN** a system-library unit targets something other than `/System/Library` or `/System/Volumes/Preboot/Cryptexes/OS`
-- **THEN** the check accepts it only as a correction that records the committed unit it replaces, the resolved spelling and the native denial evidence; it fails by name if that record is missing, if the target covers a `box_argv` bind source, targets a data-volume spelling or contains `/System/Volumes/Data`, or if it equals or contains the historical target of a withdrawn or narrowed fa7 unit such as `/System`, `/Library` or `/private/tmp`
+- **THEN** the check accepts it only as a correction that records the committed unit it replaces, the resolved spelling and the native denial evidence; it fails by name if that record is missing, if the target covers a host-toolchain source or a denial-control target, targets a data-volume spelling or contains `/System/Volumes/Data`, or if it equals or contains the historical target of a withdrawn or narrowed fa7 unit such as `/System`, `/Library` or `/private/tmp`
 
 #### Scenario: The candidate's process authority is seven named units
 - **WHEN** the check reads the candidate's process units
