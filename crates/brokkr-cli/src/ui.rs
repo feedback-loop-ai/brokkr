@@ -365,6 +365,19 @@ fn discover(reference: &ValidReference) -> Discovery {
     lookup.resolve(reference.kind)
 }
 
+/// D3: an acquisition is current only when a fresh handle-relative walk
+/// finds the same unique safe candidate at the same recorded path and
+/// identity. A swapped leaf or ancestor name, a changed DSH opening
+/// header or a newly ambiguous root fails closed before any byte of the
+/// retained handle is read.
+fn acquisition_is_current(reference: &ValidReference, admitted: &AdmittedSource) -> bool {
+    matches!(
+        discover(reference),
+        Discovery::Admitted(recheck)
+            if recheck.identity == admitted.identity && recheck.path == admitted.path
+    )
+}
+
 fn join_path(base: &str, name: &str) -> String {
     format!("{base}/{name}")
 }
@@ -723,6 +736,23 @@ fn read_with_home(
                 inode: source.identity.inode,
             };
             let hint = brokkr_view::transcript::full_session(&valid, Some(&source.path));
+            // Re-derive the unique safe candidate through the retained
+            // root and require the same recorded path and identity: a
+            // swapped name, changed opening header or new ambiguity fails
+            // closed rather than reading the old handle's bytes.
+            if !acquisition_is_current(&valid, &source) {
+                return TranscriptRead::refused(
+                    selection.reference.clone(),
+                    selection.legacy,
+                    Unavailable::Unreadable,
+                    brokkr_view::transcript::explanation_for(Unavailable::Unreadable),
+                    Some(source.path),
+                    false,
+                    0,
+                    0,
+                    hint,
+                );
+            }
             // Recheck the held leaf's checked lossless identity at the read
             // boundary. The handle is already the verified source, so this
             // never reopens a display path; a widening failure or a

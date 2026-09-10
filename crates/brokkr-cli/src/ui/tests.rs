@@ -1896,6 +1896,55 @@ fn held_handles_survive_ancestor_and_leaf_replacement() {
     }
 }
 
+/// M7: the read boundary's acquisition recheck is not the held leaf
+/// compared against itself. A leaf or ancestor replaced after discovery
+/// is a different candidate, so the acquisition is refused and the read
+/// fails closed instead of serving the old inode.
+#[cfg(unix)]
+#[test]
+fn a_replaced_leaf_or_ancestor_fails_the_acquisition_recheck() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let file = project.join("abcd-1234.jsonl");
+    let original =
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"original\"}}\n";
+    std::fs::write(&file, original).unwrap();
+    let valid = brokkr_view::transcript::ValidReference {
+        kind: brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        locator: "abcd-1234".to_string(),
+        home: root.to_str().unwrap().to_string(),
+    };
+    let source = match discover(&valid) {
+        Discovery::Admitted(source) => source,
+        _ => panic!("the original is discoverable"),
+    };
+    assert!(
+        acquisition_is_current(&valid, &source),
+        "the unchanged acquisition is current"
+    );
+
+    // Replace the leaf with an identical copy: a new inode is a new
+    // acquisition even though every displayed byte matches.
+    std::fs::remove_file(&file).unwrap();
+    std::fs::write(&file, original).unwrap();
+    assert!(
+        !acquisition_is_current(&valid, &source),
+        "a replaced leaf inode is not the retained acquisition"
+    );
+
+    // Replace the ancestor: the held root no longer reaches the candidate
+    // the recorded path now names.
+    std::fs::rename(&project, root.join("moved")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(&file, original).unwrap();
+    assert!(
+        !acquisition_is_current(&valid, &source),
+        "a replaced ancestor is not the retained acquisition"
+    );
+}
+
 // =========================================================================
 // The browser participant controller (D9/D11). The exact marker-delimited
 // controller bytes served from `PAGE` are extracted and evaluated with the
