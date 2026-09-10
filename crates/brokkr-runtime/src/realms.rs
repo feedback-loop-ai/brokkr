@@ -6,7 +6,10 @@
 //! present and malformed, is a refusal here — before a store is opened
 //! and long before any seat spawns. There is no silent fallback: a world
 //! that never drew a map notices nothing, and a world that drew a broken
-//! one is told.
+//! one is told. A crossing (decision 0057) is judged here for the same
+//! reason and at the same moment: `brokkr_core::realms` says what a
+//! published and a consumed crossing may look like, and this half reads
+//! the published file and holds the consumer's pin to its bytes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -40,6 +43,41 @@ pub enum WorldError {
     },
     #[error("realm '{realm}' dialect is unusable: {detail}")]
     RealmDialect { realm: String, detail: String },
+    #[error(
+        "realm '{realm}' publishes crossing '{crossing}' at {path}, \
+         but it is not a readable file: {detail}"
+    )]
+    Crossing {
+        realm: String,
+        crossing: String,
+        path: String,
+        detail: String,
+    },
+    /// Boxed, and alone among these variants: six names are what it takes
+    /// to say which contract moved, and a refusal nobody can act on is
+    /// worth less than the word it saves. The box keeps that cost off
+    /// every other `Result` in this module.
+    #[error(
+        "realm '{}' consumes crossing '{}' from realm '{}' pinned at {}, \
+         but {} hashes to {}",
+        .0.realm, .0.crossing, .0.publisher, .0.pinned, .0.path, .0.observed
+    )]
+    CrossingMoved(Box<MovedCrossing>),
+}
+
+/// A consumed crossing whose publisher's bytes are no longer the bytes it
+/// was pinned against. Every name a reader needs to act is here — which
+/// realm is refusing, which crossing, whose file, what was pinned and
+/// what is there now — so the contract that moved can be identified
+/// without opening either repository.
+#[derive(Debug)]
+pub struct MovedCrossing {
+    pub realm: String,
+    pub crossing: String,
+    pub publisher: String,
+    pub path: String,
+    pub pinned: String,
+    pub observed: String,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +93,140 @@ struct DialectPin {
     sha256: String,
     content: Value,
     dialect: Dialect,
+}
+
+/// A published crossing, resolved against the tree that publishes it
+/// (decision 0057 rulings 1 and 2): where the bytes were found, and what
+/// they hash to. Carried on the [`World`] beside the house and dialect
+/// pins, so that whatever records a crossing later reads the digest that
+/// was verified at load rather than hashing the file a second time — by
+/// which point it could say something else.
+#[derive(Debug)]
+pub struct ResolvedCrossing {
+    /// The path the bytes were read from, resolved against the publishing
+    /// realm's own worktree.
+    pub source: String,
+    /// sha256 over the file's RAW bytes, never a canonical form: a
+    /// crossing may be a schema, a `.proto` or Markdown, and only the
+    /// publisher's own format knows what canonicalising would mean.
+    pub sha256: String,
+}
+
+/// Every crossing this world publishes, keyed by the realm that
+/// publishes it and the name it publishes it under — the pair decision
+/// 0057's consequences make unique, since a realm is named once and a
+/// crossing name is one name inside one realm.
+type Crossings = BTreeMap<(String, String), ResolvedCrossing>;
+
+/// What is wrong with one crossing, held apart from the realm and the
+/// name so the two [`WorldError`] variants a crossing can raise are
+/// built from one place and worded once.
+#[derive(Debug, Clone)]
+enum CrossingFault {
+    /// The publishing realm's own file could not be read.
+    Unpublished { path: String, detail: String },
+    /// The publisher's bytes are no longer the bytes a consumer pinned.
+    Moved {
+        publisher: String,
+        path: String,
+        pinned: String,
+        observed: String,
+    },
+}
+
+/// A crossing that is not what its realm's map says it is, carried as
+/// DATA rather than returned as a `Result` — the same shape, and for the
+/// same reason, as [`RealmTextFailure`] above.
+///
+/// One reading of the disk answers two questions with it. `World::load`
+/// REFUSES on the first of these, so `run`, `rerun`, `compile` and
+/// `resume` end before a seat spawns (decision 0046's Addendum, decision
+/// 0021 ruling 2); `brokkr doctor` REPORTS them all and refuses nothing
+/// (the same Addendum: a doctor line reports). Both read their wording
+/// out of [`CrossingFailure::error`], so a moved crossing has exactly one
+/// wording in this build.
+#[derive(Debug, Clone)]
+pub struct CrossingFailure {
+    /// The realm this failure is named against: the PUBLISHER when its
+    /// own file cannot be read, the CONSUMER when a pin no longer
+    /// matches. Which is the whole point of the ordering in
+    /// [`resolve_crossings`].
+    realm: String,
+    crossing: String,
+    fault: CrossingFault,
+}
+
+impl CrossingFailure {
+    pub fn realm(&self) -> &str {
+        &self.realm
+    }
+
+    pub fn crossing(&self) -> &str {
+        &self.crossing
+    }
+
+    /// The refusal a run would have been given for this crossing —
+    /// `WorldError::Crossing` or `WorldError::CrossingMoved`, never a
+    /// third wording composed at the reporting site.
+    pub fn error(&self) -> WorldError {
+        match &self.fault {
+            CrossingFault::Unpublished { path, detail } => WorldError::Crossing {
+                realm: self.realm.clone(),
+                crossing: self.crossing.clone(),
+                path: path.clone(),
+                detail: detail.clone(),
+            },
+            CrossingFault::Moved {
+                publisher,
+                path,
+                pinned,
+                observed,
+            } => WorldError::CrossingMoved(Box::new(MovedCrossing {
+                realm: self.realm.clone(),
+                crossing: self.crossing.clone(),
+                publisher: publisher.clone(),
+                path: path.clone(),
+                pinned: pinned.clone(),
+                observed: observed.clone(),
+            })),
+        }
+    }
+
+    fn is_unpublished(&self) -> bool {
+        matches!(self.fault, CrossingFault::Unpublished { .. })
+    }
+}
+
+/// A consumed pin that was never compared to anything, because the realm
+/// that publishes it could not have its file read. It is not a failure of
+/// this realm — the publisher's own unreadable file is already a
+/// [`CrossingFailure`] on the publisher's report, and it is the refusal
+/// [`World::load`] gives — but it is not a pin that matched either, and a
+/// readout that counted it among the matching ones would say a contract
+/// was verified against bytes nobody read.
+#[derive(Debug)]
+pub struct UncheckedPin {
+    /// The realm that publishes the crossing, whose line carries why.
+    pub publisher: String,
+    pub crossing: String,
+}
+
+/// One realm's crossings, as `brokkr doctor` reports them: how many files
+/// it publishes, how many pins it carries, whichever of those is not
+/// currently true, and which of its pins could not be checked at all.
+///
+/// Built only for a realm that draws a crossing at all, so a world that
+/// never drew one gets no line — exactly as it writes no manifest key and
+/// prints nothing at compile.
+#[derive(Debug)]
+pub struct CrossingReport {
+    pub realm: String,
+    pub published: usize,
+    pub consumed: usize,
+    pub failures: Vec<CrossingFailure>,
+    /// The consumed pins nothing could be compared to, so that
+    /// `consumed` is never read as "this many pins matched".
+    pub unchecked: Vec<UncheckedPin>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +268,12 @@ pub struct World {
     pub content: Value,
     pub sha256: String,
     texts: RealmTexts,
+    crossings: Crossings,
+    /// Every crossing this world draws, per realm, whether or not it is
+    /// currently true. Read as a refusal by [`World::load`] and as a
+    /// readout by `brokkr doctor`; empty for a world that draws none and
+    /// for a world replayed from a manifest, which resolves none.
+    reports: Vec<CrossingReport>,
 }
 
 /// One hearth of a world (decision 0026 ruling 1): a journal, and the
@@ -134,8 +312,26 @@ fn absolute(path: &Path) -> PathBuf {
 }
 
 impl World {
-    /// Load one named map, refusing a missing or malformed file.
+    /// Load one named map, refusing a missing or malformed file — and a
+    /// crossing that is not what the map says it is.
     pub fn load(path: &Path) -> Result<World, WorldError> {
+        let world = World::read(path)?;
+        // Eagerly, and unlike the house and the dialect: those are
+        // deferred per realm because only the realm actually running needs
+        // its own, but a crossing is a fact about the WHOLE world's
+        // integrity. A contract that moved is refused here, before a store
+        // is opened and long before any seat spawns, whichever realm this
+        // invocation happens to be standing in.
+        match world.crossing_failure() {
+            Some(failure) => Err(failure),
+            None => Ok(world),
+        }
+    }
+
+    /// Every step of [`World::load`] except its crossing refusal: the
+    /// crossings are resolved and the pins compared exactly the same way,
+    /// and whatever is not true is carried as data.
+    fn read(path: &Path) -> Result<World, WorldError> {
         let named = path.display().to_string();
         if !path.is_file() {
             return Err(WorldError::Missing(named));
@@ -147,24 +343,51 @@ impl World {
         let (map, content) = RealmMap::parse(&named, &text)?;
         let source = path.to_path_buf();
         let texts = load_realm_texts(&source, &map);
+        let (crossings, reports) = resolve_crossings(&source, &map);
         Ok(World {
             source,
             sha256: canonical::sha256_hex(&content),
             map,
             content,
             texts,
+            crossings,
+            reports,
         })
     }
 
     /// The map an invocation reads: the one it named, else `realms.json`
     /// beside the workspace when there is one, else no map at all.
     pub fn discover(dir: &Path, named: Option<&Path>) -> Result<Option<World>, WorldError> {
+        World::found(dir, named, World::load)
+    }
+
+    /// The same world `brokkr doctor` reads, and nothing else does: a
+    /// crossing that has moved is a LINE, not the end of the readout.
+    ///
+    /// A doctor line reports and never refuses (decision 0046's Addendum),
+    /// and folding a moved crossing into `World::discover`'s `Err` would
+    /// throw away every house, dialect and boundary line under it — a
+    /// broken world where one contract moved. So doctor loads the world
+    /// and reads [`World::crossings_report`] beside it, while every verb
+    /// that starts or continues a run keeps [`World::load`]'s refusal.
+    ///
+    /// Never used to pin a run: a world read this way may hold fewer
+    /// resolved crossings than its map declares.
+    pub fn inspect(dir: &Path, named: Option<&Path>) -> Result<Option<World>, WorldError> {
+        World::found(dir, named, World::read)
+    }
+
+    fn found(
+        dir: &Path,
+        named: Option<&Path>,
+        open: fn(&Path) -> Result<World, WorldError>,
+    ) -> Result<Option<World>, WorldError> {
         match named {
-            Some(path) => World::load(path).map(Some),
+            Some(path) => open(path).map(Some),
             None => {
                 let default = dir.join(DEFAULT_MAP_FILE);
                 match default.is_file() {
-                    true => World::load(&default).map(Some),
+                    true => open(&default).map(Some),
                     false => Ok(None),
                 }
             }
@@ -212,6 +435,22 @@ impl World {
             content,
             sha256: sha256.to_string(),
             texts,
+            // A resumed world answers off its own manifest and never off
+            // the disk, which may since have changed or gone. The manifest
+            // DOES carry what the original run observed (`crossings`,
+            // run-manifest/v10), and that pin is deliberately not read back
+            // into here: it answers a READER's question about the past —
+            // which contracts did that run stand on — not a live
+            // accessor's question about the present. `World::crossing` on
+            // a replayed world would otherwise report bytes nobody has
+            // looked at since, so it reports none, and re-reading the
+            // files the replayed run stood beside is exactly what this
+            // path must not do.
+            crossings: BTreeMap::new(),
+            // And so it reports none either. What a resumed run owes the
+            // present is a FENCE, not a readout, and that is
+            // [`World::verify_crossings`], asked for by the verb.
+            reports: Vec::new(),
         }))
     }
 
@@ -330,6 +569,93 @@ impl World {
         }
     }
 
+    /// One published crossing as this world resolved it: the path it was
+    /// read from and the digest of the bytes that were there. Keyed by the
+    /// realm that PUBLISHES it and the name it publishes it under, which
+    /// is how a consuming realm names it too (`ConsumedCrossing`), so a
+    /// consumer's resolved crossings are its own `consumed()` entries read
+    /// through here.
+    ///
+    /// Present only for a world loaded off a disk. A world replayed from a
+    /// manifest resolves none — the manifest's `crossings` pin is
+    /// testimony about the run that wrote it, not a live reading — and
+    /// this accessor never reaches for a file to make up for it.
+    pub fn crossing(&self, realm: &str, name: &str) -> Option<&ResolvedCrossing> {
+        self.crossings.get(&(realm.to_string(), name.to_string()))
+    }
+
+    /// Every crossing this world draws, one entry per realm that draws
+    /// one, with whatever under it is not currently true — what `brokkr
+    /// doctor` prints. Empty for a world that drew none, so doctor adds
+    /// no line to a world that never heard the word.
+    pub fn crossings_report(&self) -> &[CrossingReport] {
+        &self.reports
+    }
+
+    /// The refusal [`World::load`] gives for this world's crossings, or
+    /// `None` when every one of them is what its map says it is.
+    fn crossing_failure(&self) -> Option<WorldError> {
+        first_crossing_failure(&self.reports)
+    }
+
+    /// Re-read this world's crossings off the disk as it stands NOW, and
+    /// refuse exactly as [`World::load`] would have.
+    ///
+    /// `brokkr resume` names a journal and no map: its world is rehydrated
+    /// from the run manifest's pin ([`World::from_manifest`]), which
+    /// resolves no crossings at all, deliberately, because that pin is
+    /// testimony about the past. A resumed run is therefore the one whose
+    /// world has never met the disk, and this is where it does — so that
+    /// it cannot carry on over bytes its journal never saw.
+    ///
+    /// Paths resolve by the map's own rule, unchanged: a map's relative
+    /// names are relative to the map FILE's own directory, and the pinned
+    /// source is itself resolved against the workspace the operator is
+    /// standing in. For the ordinary `./realms.json` that is that
+    /// workspace — where a `--repo`-less verb already looks — and for a
+    /// map pinned by absolute path it is that path's own directory.
+    pub fn verify_crossings(&self, workspace: &Path) -> Result<(), WorldError> {
+        let source = workspace.join(&self.source);
+        let (_, reports) = resolve_crossings(&source, &self.map);
+        match first_crossing_failure(&reports) {
+            Some(failure) => Err(failure),
+            None => Ok(()),
+        }
+    }
+
+    /// The crossings this world STOOD ON, as they go into a run manifest
+    /// (run-manifest/v10, on decision 0023 ruling 4's terms): per
+    /// publishing realm, per crossing name, where the bytes were read and
+    /// what they hashed to. Exactly the map [`resolve_crossings`] built at
+    /// load, serialized verbatim — nothing is hashed a second time, by
+    /// which point it could say something else.
+    ///
+    /// This is OBSERVATION and never a second copy of the DECLARATION: a
+    /// consuming realm's pin already rides into the manifest inside the
+    /// embedded map itself (`realms.map…consumes[].sha256`, unchanged
+    /// since v4), and a reader who holds both sees what the world claimed
+    /// beside what it stood on.
+    ///
+    /// `None` when this world publishes nothing, so a world that never
+    /// drew a crossing writes the exact shape it always wrote. The key
+    /// pair cannot collide: only a realm's own `publishes` list adds an
+    /// entry, and a name used twice in one such list is already refused
+    /// (decision 0057 ruling 3.3).
+    fn crossings_pin(&self) -> Option<Value> {
+        if self.crossings.is_empty() {
+            return None;
+        }
+        let mut published = serde_json::Map::new();
+        for ((realm, name), resolved) in &self.crossings {
+            let publisher = published.entry(realm.clone()).or_insert_with(|| json!({}));
+            publisher[name.as_str()] = json!({
+                "source": resolved.source,
+                "sha256": resolved.sha256,
+            });
+        }
+        Some(Value::Object(published))
+    }
+
     /// The world as it goes into a run manifest: named, hashed, embedded.
     pub fn pin(&self, repo: Option<&Path>) -> Result<Value, WorldError> {
         let mut pin = json!({
@@ -370,12 +696,21 @@ impl World {
         Ok(pin)
     }
 
-    /// A run manifest with this world pinned into it (run-manifest/v4, carried forward by v5).
-    /// The bundle manifest is untouched — the map is workspace data, not
-    /// bundle data, so adopting a map moves no bundle digest.
+    /// A run manifest with this world pinned into it (run-manifest/v4,
+    /// carried forward by v5, and the crossings beside it at v10).
+    /// The bundle manifest is untouched — the map and the crossings are
+    /// workspace data, not bundle data, so adopting either moves no
+    /// bundle digest.
     pub fn pinned(&self, manifest: &Value, repo: Option<&Path>) -> Result<Value, WorldError> {
         let mut fields = manifest.as_object().cloned().unwrap_or_default();
         fields.insert("realms".to_string(), self.pin(repo)?);
+        // A SIBLING of `realms`, never nested inside it: the map is what
+        // this world declared and the crossings are what it observed, and
+        // the contract keeps two answers to two questions apart. Omitted
+        // entirely, never written empty, when there is nothing to say.
+        if let Some(crossings) = self.crossings_pin() {
+            fields.insert("crossings".to_string(), crossings);
+        }
         Ok(Value::Object(fields))
     }
 }
@@ -398,18 +733,23 @@ fn read_text(
     })
 }
 
+/// The directory a realm's own repository-relative names resolve
+/// against: its `path`, itself resolved against the map file's directory,
+/// so a house, a dialect and a crossing all travel with the workspace the
+/// map describes.
+fn realm_root(base: &Path, realm: &Realm) -> PathBuf {
+    let path = Path::new(&realm.path);
+    match path.is_relative() {
+        true => base.join(path),
+        false => path.to_path_buf(),
+    }
+}
+
 fn load_realm_texts(map_source: &Path, map: &RealmMap) -> RealmTexts {
     let base = map_source.parent().unwrap_or(Path::new(""));
     let mut texts = BTreeMap::new();
     for realm in &map.realms {
-        let realm_root = {
-            let path = Path::new(&realm.path);
-            if path.is_relative() {
-                base.join(path)
-            } else {
-                path.to_path_buf()
-            }
-        };
+        let realm_root = realm_root(base, realm);
         let house = match &realm.house {
             Some(path) => read_text(realm, "house", realm_root.join(path)).map(Some),
             None => Ok(None),
@@ -433,6 +773,120 @@ fn load_realm_texts(map_source: &Path, map: &RealmMap) -> RealmTexts {
         texts.insert(realm.name.clone(), (house, dialect));
     }
     texts
+}
+
+/// Decision 0057's filesystem half: read every published crossing off the
+/// tree that publishes it, then hold every pinned one to the bytes that
+/// are actually there.
+///
+/// Publication is resolved for the whole world first, and only then are
+/// the pins compared. That ordering is what a reader is told: a crossing
+/// whose file is gone is the PUBLISHER's fault and is named as the
+/// publisher's, never reported as the consumer having pinned the wrong
+/// digest of a file that is not there at all. Its consumers' pins are then
+/// neither matching nor moved, and come back as [`UncheckedPin`]s so that
+/// a readout can say so rather than count them as verified.
+///
+/// Nothing here refuses. Every crossing is read and every pin compared,
+/// and what is not true comes back as a [`CrossingReport`] per realm, so
+/// that one reading serves both the verb that must end
+/// ([`World::load`], through [`first_crossing_failure`]) and the doctor
+/// line that must not.
+///
+/// Nothing is fetched and nothing is written. A crossing consumed from a
+/// realm whose worktree this workspace does not hold is an ordinary
+/// missing file: how bytes reach a consumer that is not co-located is
+/// deliberately unsettled (0057's Context), and refusing is not choosing.
+fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<CrossingReport>) {
+    let base = map_source.parent().unwrap_or(Path::new(""));
+    let mut crossings = Crossings::new();
+    let mut reports: Vec<CrossingReport> = Vec::new();
+    for realm in &map.realms {
+        if realm.published().is_empty() && realm.consumed().is_empty() {
+            continue;
+        }
+        let mut report = CrossingReport {
+            realm: realm.name.clone(),
+            published: realm.published().len(),
+            consumed: realm.consumed().len(),
+            failures: Vec::new(),
+            unchecked: Vec::new(),
+        };
+        let root = realm_root(base, realm);
+        for crossing in realm.published() {
+            let path = root.join(&crossing.path);
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    crossings.insert(
+                        (realm.name.clone(), crossing.name.clone()),
+                        ResolvedCrossing {
+                            source: path.display().to_string(),
+                            sha256: canonical::sha256_bytes(&bytes),
+                        },
+                    );
+                }
+                Err(error) => report.failures.push(CrossingFailure {
+                    realm: realm.name.clone(),
+                    crossing: crossing.name.clone(),
+                    fault: CrossingFault::Unpublished {
+                        path: path.display().to_string(),
+                        detail: error.to_string(),
+                    },
+                }),
+            }
+        }
+        reports.push(report);
+    }
+    for realm in &map.realms {
+        for crossing in realm.consumed() {
+            let report = reports
+                .iter_mut()
+                .find(|report| report.realm == realm.name)
+                .expect("a realm that consumes a crossing draws one");
+            // `brokkr-core` admits a `consumes` entry only when this world
+            // holds the realm it names AND that realm publishes that
+            // crossing (0057 ruling 3.1 and 3.2), so the entry is one of
+            // the publications resolved above — unless that publication's
+            // own file could not be read, which is already the
+            // PUBLISHER's line, and a pin has nothing to be compared to.
+            // Nothing is charged to this realm for that, but the pin is
+            // recorded as unchecked, so no reader is told it matched.
+            let Some(published) = crossings.get(&(crossing.realm.clone(), crossing.name.clone()))
+            else {
+                report.unchecked.push(UncheckedPin {
+                    publisher: crossing.realm.clone(),
+                    crossing: crossing.name.clone(),
+                });
+                continue;
+            };
+            if published.sha256 != crossing.sha256 {
+                report.failures.push(CrossingFailure {
+                    realm: realm.name.clone(),
+                    crossing: crossing.name.clone(),
+                    fault: CrossingFault::Moved {
+                        publisher: crossing.realm.clone(),
+                        path: published.source.clone(),
+                        pinned: crossing.sha256.clone(),
+                        observed: published.sha256.clone(),
+                    },
+                });
+            }
+        }
+    }
+    (crossings, reports)
+}
+
+/// The one refusal a world with several broken crossings gives, in the
+/// order it has always given them: every publisher's own unreadable file
+/// before any consumer's pin, so a crossing whose file is GONE is named
+/// as the publisher's fault and never reported as the consumer having
+/// pinned the wrong digest of a file that is not there at all.
+fn first_crossing_failure(reports: &[CrossingReport]) -> Option<WorldError> {
+    let failures = || reports.iter().flat_map(|report| &report.failures);
+    failures()
+        .find(|failure| failure.is_unpublished())
+        .or_else(|| failures().next())
+        .map(CrossingFailure::error)
 }
 
 fn pinned_text(pin: &Value, key: &str) -> Result<Option<TextPin>, WorldError> {
@@ -484,8 +938,11 @@ fn pinned_dialect(pin: &Value) -> Result<Option<DialectPin>, WorldError> {
         )));
     }
     let text = serde_json::to_string(&content).expect("JSON serializes");
-    let (mut dialect, _) =
-        Dialect::parse(source, &text).map_err(|error| WorldError::Unpinned(error.to_string()))?;
+    // A pin is read at the version it was written, not at the version
+    // this build writes: the run pinned its world and a resume gets that
+    // world back (decision 0042's dialect versions, `dialect::SCHEMAS`).
+    let (mut dialect, _) = Dialect::parse_pinned(source, &text)
+        .map_err(|error| WorldError::Unpinned(error.to_string()))?;
     let instructions = value
         .get("instructions")
         .ok_or_else(|| WorldError::Unpinned("its dialect pin carries no instructions".into()))?;
@@ -536,5 +993,10 @@ fn pinned_texts(pin: &Value, map: &RealmMap) -> Result<RealmTexts, WorldError> {
     Ok(texts)
 }
 
+// `pub(crate)` so the two-repository fixture below can be REUSED by the
+// engine's own tests rather than rebuilt there: a private `mod` is
+// visible only to its own module and its descendants, so `pub(crate)`
+// items inside it stay unreachable from `crate::engine::tests` until the
+// module itself is widened. Test-only visibility, no production surface.
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

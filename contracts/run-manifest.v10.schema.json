@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v10.json",
+  "title": "Forge run manifest v10",
+  "description": "v9 plus the crossings the run stood on (decision 0057, recorded on decision 0023 ruling 4's terms): per publishing realm, per crossing name, the resolved source path and the sha256 OBSERVED on disk when the world loaded. Absent when no realm of the world publishes or consumes a crossing, so every world without one stores and exports the exact v9 shape. This is observation, never a second copy of the declaration — a consuming realm's declared pin already rides inside realms.map.realms[i].consumes[j].sha256 (v4, unchanged), and a reader compares the two to see what a world claimed against what it stood on. Like realms and unlike drivers or boundary, this key is WORKSPACE data: bundle_manifest_from_run drops it before the resume comparison, so pinning a crossing moves no bundle digest.",
+  "type": "object",
+  "required": ["engine", "event_schema", "database_schema", "driver_protocol", "bundle_name", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "engine": {"type": "string"},
+    "event_schema": {"const": 1},
+    "database_schema": {"const": 1},
+    "driver_protocol": {"const": 1},
+    "bundle_name": {"type": "string"},
+    "files": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "agents": {"type": "object"},
+    "realms": {"type": "object"},
+    "crossings": {
+      "type": "object",
+      "description": "publishing realm to crossing name to what the loader OBSERVED for it at run start (decision 0057 rulings 1 and 2); every crossing the world publishes is here, consumed or not, and the digest is over the published file's RAW bytes",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["source", "sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "source": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "drivers": {"type": "object"},
+    "hands": {
+      "type": "object",
+      "description": "site to box spec",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "network", "binds"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"const": "workspace"},
+          "network": {"type": "boolean"},
+          "binds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "mode", "mask"],
+              "additionalProperties": false,
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "mode": {"enum": ["ro", "rw", "overlay"]},
+                "mask": {"type": "array", "items": {"type": "string", "minLength": 1}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "description": "hands site to the boundary its box stands behind (decision 0046 ruling 1); the key set equals the hands key set by construction, every value the realm's one resolved word",
+      "additionalProperties": {"enum": ["namespace", "seatbelt", "container", "harness", "open"]}
+    },
+    "select": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "selecting site to its pinned resolved cases",
+      "additionalProperties": {"$ref": "#/definitions/cases"}
+    }
+  },
+  "dependencies": {
+    "hands": ["boundary"],
+    "boundary": ["hands"]
+  },
+  "definitions": {
+    "candidate": {
+      "type": "object",
+      "required": ["provider", "model", "effort"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "effort": {"type": ["string", "null"]}
+      }
+    },
+    "single": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["driver"],
+          "additionalProperties": false,
+          "properties": {"driver": {"const": "inline"}}
+        },
+        {
+          "type": "object",
+          "required": ["agent", "candidates"],
+          "additionalProperties": false,
+          "properties": {
+            "agent": {"type": "string", "minLength": 1},
+            "candidates": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/candidate"}}
+          }
+        }
+      ]
+    },
+    "panel": {
+      "type": "object",
+      "required": ["panel", "aggregate"],
+      "additionalProperties": false,
+      "properties": {
+        "panel": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/definitions/single"}},
+        "aggregate": {"enum": ["unanimous-pass", "review-panel"]}
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["name", "results", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "body": {"oneOf": [{"$ref": "#/definitions/single"}, {"$ref": "#/definitions/panel"}]}
+      }
+    },
+    "body": {
+      "oneOf": [
+        {"$ref": "#/definitions/single"},
+        {"$ref": "#/definitions/panel"},
+        {
+          "type": "object",
+          "required": ["sequence"],
+          "additionalProperties": false,
+          "properties": {"sequence": {"type": "array", "minItems": 1, "items": {"$ref": "#/definitions/step"}}}
+        }
+      ]
+    },
+    "cases": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "chore": {"$ref": "#/definitions/body"},
+        "feature": {"$ref": "#/definitions/body"},
+        "design": {"$ref": "#/definitions/body"},
+        "engine": {"$ref": "#/definitions/body"},
+        "default": {"$ref": "#/definitions/body"}
+      }
+    }
+  }
+}

@@ -471,7 +471,10 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     );
 
     // A journal with no run/started to pin anything, and one whose
-    // attempt journaled no session at all.
+    // attempt journaled no session at all — the shape decision 0053
+    // ruling 8 puts a window around: a driver holds its harness's
+    // locator until work begins, so an attempt killed before its first
+    // turn leaves exactly this journal and its retry starts cold.
     assert_eq!(resume_offer(&[], &bundle, "work", &started, true), None);
     assert_eq!(
         resume_offer(

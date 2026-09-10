@@ -6,8 +6,10 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
+use brokkr_protocol::hands::HandsSpec;
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
 
@@ -51,14 +53,117 @@ fn tool_version(program: &str) -> Option<String> {
     if !out.status.success() {
         return None;
     }
-    Some(safe_version(&out.stdout))
+    Some(safe_line(&out.stdout))
 }
 
-fn safe_version(stdout: &[u8]) -> String {
-    let line = String::from_utf8_lossy(stdout);
+/// The first line of a probe's output, escaped for a terminal: a version
+/// banner, or the reason a box gave for not running one. Both are output
+/// doctor did not author, so both go through `Safe`.
+fn safe_line(output: &[u8]) -> String {
+    let line = String::from_utf8_lossy(output);
     Safe::new(line.lines().next().unwrap_or_default().trim())
         .as_str()
         .to_string()
+}
+
+/// Quote one word for the `bash -lc` string `hands::execute` runs. The
+/// dialect's binary is a bare filename (`Dialect::check` refuses a
+/// slash), but a dialect file is realm data: a name may still carry a
+/// shell metacharacter, and the probe must run the tool, never the
+/// metacharacter.
+fn shell_quote(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
+}
+
+/// How long doctor waits for a probe inside the box. A version banner is
+/// milliseconds' work; anything near this bound is a box that is not
+/// running, not a slow tool.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The exit `bash -lc` reports for a command it cannot find. It is the
+/// one non-zero code that answers doctor's question about the TOOL;
+/// every other one is a fact about the box.
+const NOT_ON_PATH: i32 = 127;
+
+/// Probe a dialect tool where its gate will run (issue #218): run the
+/// binary's own `--version` inside a box built from the very spec the
+/// compiler builds for a dialect `validate`/`check` step. `Ok(None)`
+/// means the box was built and the tool was not on its PATH; `Err` means
+/// no answer came from a box at all — a different fact, said differently.
+fn probe_in_box(spec: &HandsSpec, workdir: &Path, program: &str) -> Result<Option<String>, String> {
+    let command = if program == "sh" {
+        "sh -c \"printf 'POSIX shell'\"".to_string()
+    } else {
+        format!("{} --version", shell_quote(program))
+    };
+    let session = brokkr_protocol::hands::session_dir("doctor").map_err(unbuilt)?;
+    let result = brokkr_protocol::hands::execute(spec, workdir, &session, &command, PROBE_TIMEOUT);
+    let _ = std::fs::remove_dir_all(&session);
+    match result {
+        Ok(executed) => box_answer(&executed),
+        Err(error) => Err(unbuilt(error)),
+    }
+}
+
+/// The reason a box never stood, in the words the report prints.
+fn unbuilt(error: String) -> String {
+    format!("the box could not be built: {error}")
+}
+
+/// Read one probe run inside the box. Only two outcomes say anything
+/// about the tool: exit 0 carries its version, and 127 means the box was
+/// built and the name is not on its PATH. Everything else — a bubblewrap
+/// that a kernel or container policy refuses a namespace to, a probe that
+/// never returned — is a fact about the box, and reporting it as a fact
+/// about the tool is the same defect issue #218 exists to close: doctor
+/// would tell an operator to install a tool that is already installed.
+fn box_answer(executed: &brokkr_protocol::hands::Executed) -> Result<Option<String>, String> {
+    if executed.timed_out {
+        return Err(format!(
+            "the probe was still running in the box after {} seconds",
+            PROBE_TIMEOUT.as_secs()
+        ));
+    }
+    match executed.exit_code {
+        0 => Ok(Some(safe_line(executed.stdout.as_bytes()))),
+        NOT_ON_PATH => Ok(None),
+        code => {
+            let said = safe_line(executed.stderr.as_bytes());
+            match said.is_empty() {
+                true => Err(format!("the probe did not run in the box: exit {code}")),
+                false => Err(format!(
+                    "the probe did not run in the box: exit {code}, {said}"
+                )),
+            }
+        }
+    }
+}
+
+/// Which surface answered for a dialect's tool. The words are the fix as
+/// much as the probe is: doctor must never answer for the host PATH
+/// while the gate runs in a box that cannot see it (issue #218).
+enum Surface {
+    /// Inside the box the dialect's `validate`/`check` step runs in.
+    Box,
+    /// On the host PATH because the boundary builds no box of Brokkr's
+    /// (`harness`, `open`), which doctor says rather than implying a box.
+    Host,
+    /// The boundary is boxed but no answer came from a box on this
+    /// machine; the answer came from the host PATH, and the reason it
+    /// had to rides along.
+    NoBox(String),
+}
+
+impl Surface {
+    fn probed(&self, boundary: Boundary) -> String {
+        match self {
+            Surface::Box => "probed inside the box".to_string(),
+            Surface::Host => {
+                format!("probed on the host PATH (boundary `{boundary}` builds no box of Brokkr's)")
+            }
+            Surface::NoBox(reason) => format!("probed on the host PATH ({reason})"),
+        }
+    }
 }
 
 /// Probe every provider an adapter file declares, reporting its binary,
@@ -279,11 +384,18 @@ pub fn doctor(
     realms: Option<&Path>,
 ) -> Report {
     let workspace = std::env::current_dir().unwrap_or_default();
-    // The world is discovered once, before the bundle compiles: a bundle
+    // The world is read once, before the bundle compiles: a bundle
     // doctor is asked about compiles in the discovered realm, under its
     // boundary (decision 0046 ruling 2), and the realm's own lines follow
     // the machine's.
-    let world = brokkr_runtime::realms::World::discover(&workspace, realms);
+    //
+    // `inspect`, not `discover`: a doctor line reports and never refuses
+    // (decision 0046's Addendum), so a crossing that has moved is one
+    // realm's line here rather than the `Err` that would replace every
+    // house, dialect and boundary line in this report with a single
+    // "realms map" one and tell an operator their world is broken when
+    // one contract moved (decision 0057).
+    let world = brokkr_runtime::realms::World::inspect(&workspace, realms);
     let boundary = match &world {
         Ok(Some(world)) => world.boundary_for(&workspace),
         _ => Boundary::Namespace,
@@ -306,33 +418,22 @@ pub fn doctor(
             )
         }),
     );
-    report_realm_world(&mut report, world, tool_version);
+    report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
-}
-
-#[cfg(test)]
-fn report_realm(
-    report: &mut Report,
-    workspace: &Path,
-    named: Option<&Path>,
-    probe: fn(&str) -> Option<String>,
-) {
-    report_realm_world(
-        report,
-        brokkr_runtime::realms::World::discover(workspace, named),
-        probe,
-    );
 }
 
 fn report_realm_world(
     report: &mut Report,
     world: Result<Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>,
+    workdir: &Path,
     probe: fn(&str) -> Option<String>,
+    inside: fn(&HandsSpec, &Path, &str) -> Result<Option<String>, String>,
 ) {
     match world {
         Ok(Some(world)) => {
             report_realm_house_for_world(report, &world);
-            report_realm_dialects(report, &world, probe);
+            report_realm_crossings(report, &world);
+            report_realm_dialects(report, &world, workdir, probe, inside);
         }
         Ok(None) => {
             report.ok("house rules", "no realms map; none declared".into());
@@ -377,12 +478,79 @@ fn report_realm_house_for_world(report: &mut Report, world: &brokkr_runtime::rea
     }
 }
 
+/// Decision 0057's crossings, per realm, on decision 0046's Addendum's
+/// terms: doctor REPORTS what `run` refuses, and refuses nothing itself.
+///
+/// One line per realm that draws a crossing at all — a world that never
+/// drew one gets none, exactly as it writes no manifest key and prints
+/// none at compile. A published file that is gone, or a pin that no
+/// longer matches, is its OWN line, keyed to the failing realm and the
+/// failing crossing rather than collapsing the world; the detail is the
+/// refusal `run` would have given, read out of the error itself so the
+/// two surfaces cannot word one fact twice.
+///
+/// A pin whose publisher could not publish is neither: it is its own
+/// `warn`, naming the realm that owes the bytes. The realm consuming it is
+/// not at fault and is not marked unhealthy for it — the publisher's line
+/// already is — but it does not get the sound realm's line either, because
+/// "n pin(s) matching" would claim a contract was verified against bytes
+/// nobody could read.
+fn report_realm_crossings(report: &mut Report, world: &brokkr_runtime::realms::World) {
+    for crossings in world.crossings_report() {
+        let what = format!("crossings {}", crossings.realm);
+        if crossings.failures.is_empty() && crossings.unchecked.is_empty() {
+            report.ok(
+                &what,
+                format!(
+                    "{} published file(s) present, {} pin(s) matching",
+                    crossings.published, crossings.consumed
+                ),
+            );
+            continue;
+        }
+        for failure in &crossings.failures {
+            report.missing(
+                &format!("{what} '{}'", failure.crossing()),
+                failure.error().to_string(),
+            );
+        }
+        for pin in &crossings.unchecked {
+            report.warn(
+                &format!("{what} '{}'", pin.crossing),
+                format!(
+                    "pin not checked: realm '{}' publishes it and its file could not be read",
+                    pin.publisher
+                ),
+            );
+        }
+    }
+}
+
+/// Decision 0042 ruling 8's dialect line, with issue #218's correction:
+/// the tool is probed where its `validate`/`check` step will actually
+/// run. Under a boxed boundary that is a box built from the compiler's
+/// own gate spec; under `harness` or `open` no box of Brokkr's stands,
+/// so the host PATH is the honest surface and doctor names it. A host
+/// that has the tool while the box does not is its own line, because
+/// that is exactly the green check that lost a run two chief passes.
+///
+/// Each realm is judged under ITS OWN boundary (decision 0046 ruling 1),
+/// never under the boundary of whichever realm holds the current
+/// directory: a map may put an `open` realm beside a `namespace` one, and
+/// answering for the reader's realm would put #218's defect back on the
+/// realm axis — doctor building a box for a realm whose dialect gate is
+/// refused at compile, or reading the host for a realm that will run
+/// boxed.
 fn report_realm_dialects(
     report: &mut Report,
     world: &brokkr_runtime::realms::World,
-    probe: fn(&str) -> Option<String>,
+    workdir: &Path,
+    host: fn(&str) -> Option<String>,
+    inside: fn(&HandsSpec, &Path, &str) -> Result<Option<String>, String>,
 ) {
+    let gate = brokkr_runtime::bundle::dialect_gate_hands();
     for realm in &world.map.realms {
+        let boundary = realm.boundary();
         let what = format!("dialect {}", realm.name);
         let dialect = match world.dialect_for_realm(realm) {
             Ok(Some(dialect)) => dialect,
@@ -395,28 +563,59 @@ fn report_realm_dialects(
                 continue;
             }
         };
-        match probe(&dialect.tool.binary) {
-            Some(version) if version.contains(&dialect.tool.version) => report.ok(
+        let binary = &dialect.tool.binary;
+        let pinned = &dialect.tool.version;
+        // The host answer is taken once whether or not it is the surface:
+        // it is what tells "not found anywhere" from "found on the host,
+        // unreachable in the box", the distinction this fix exists for.
+        let on_host = host(binary);
+        let (found, surface) = if boundary.is_boxed() {
+            match inside(&gate, workdir, binary) {
+                Ok(found) => (found, Surface::Box),
+                Err(reason) => (on_host.clone(), Surface::NoBox(reason)),
+            }
+        } else {
+            (on_host.clone(), Surface::Host)
+        };
+        match &found {
+            Some(version) if version.contains(pinned) => report.ok(
                 &what,
                 format!(
-                    "{} · tool '{}' {version} · pinned {}",
-                    dialect.name, dialect.tool.binary, dialect.tool.version
+                    "{} · tool '{binary}' {version} · pinned {pinned} · {}",
+                    dialect.name,
+                    surface.probed(boundary)
                 ),
             ),
             Some(version) => report.warn(
                 &what,
                 format!(
-                    "{} · tool '{}' {version} · pinned {} (version differs)",
-                    dialect.name, dialect.tool.binary, dialect.tool.version
+                    "{} · tool '{binary}' {version} · pinned {pinned} (version differs) · {}",
+                    dialect.name,
+                    surface.probed(boundary)
                 ),
             ),
-            None => report.warn(
-                &what,
-                format!(
-                    "{} · tool binary '{}' not found · pinned {} — the design route will refuse to run",
-                    dialect.name, dialect.tool.binary, dialect.tool.version
+            None => match (&surface, &on_host) {
+                (Surface::Box, Some(_)) => report.warn(
+                    &what,
+                    format!(
+                        "{} · tool '{binary}' present on PATH, not reachable inside the box; \
+                         install under /usr/local or declare a bind · pinned {pinned}",
+                        dialect.name
+                    ),
                 ),
-            ),
+                // Not found anywhere doctor could look — and the line
+                // says where that was, because under a boxed boundary
+                // whose box did not stand this is the host's answer to a
+                // question the gate will ask of a box.
+                _ => report.warn(
+                    &what,
+                    format!(
+                        "{} · tool binary '{binary}' not found · pinned {pinned} — the design route will refuse to run · {}",
+                        dialect.name,
+                        surface.probed(boundary)
+                    ),
+                ),
+            },
         }
 
         let realm_root = world.path_of(realm);

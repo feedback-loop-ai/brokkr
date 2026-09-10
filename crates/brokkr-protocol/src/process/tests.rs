@@ -403,6 +403,16 @@ fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
         "the stalled driver must really have had a child of its own, \
          or the kill had no tree to prove anything about"
     );
+    // Decision 0053 ruling 5: the stalled driver never accepted and
+    // never checkpointed, so `Failed` alone would read as a failure to
+    // START. The report says who ended it, and that is the fact the
+    // engine's predicate reads instead.
+    assert!(!report.accepted);
+    assert!(report.checkpoints.is_empty());
+    assert!(
+        report.deadline_killed,
+        "the watchdog's kill is on the report, not only in its prose"
+    );
 
     // The child was scheduled to announce its survival well after the
     // deadline. Nothing may announce itself.

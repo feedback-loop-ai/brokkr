@@ -7,6 +7,7 @@
 //! indeterminate — never converted to success, never silently retried.
 
 pub mod adapters;
+pub mod dsh_sandbox;
 pub mod fake;
 pub mod hands;
 pub mod legacy;
@@ -126,4 +127,12 @@ pub struct AttemptReport {
     /// construction — decision 0016's mid-session boundary mechanised
     /// rather than described.
     pub accepted: bool,
+    /// Did the ENGINE's own deadline watchdog end this attempt? A kill
+    /// makes non-completion determinate (decision 0006), which is why
+    /// the outcome is `Failed` rather than `Indeterminate` — but it says
+    /// nothing about whether a session ever opened, because the driver
+    /// is SIGKILLed with no chance to report. Decision 0053 ruling 5
+    /// therefore keeps a deadline kill off the fail-to-start side of the
+    /// boundary: the engine ended it, no provider refused it.
+    pub deadline_killed: bool,
 }

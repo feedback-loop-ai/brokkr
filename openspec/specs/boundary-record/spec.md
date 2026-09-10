@@ -162,3 +162,7 @@ decision 0043 as amended by the boxed-marker fix).
 #### Scenario: A site without hands carries neither
 - **WHEN** a site without hands is rendered under `harness`
 - **THEN** its input carries neither `hands` nor `boundary` and its prompt has no hands paragraph
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06

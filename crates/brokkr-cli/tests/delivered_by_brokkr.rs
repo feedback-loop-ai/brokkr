@@ -700,7 +700,9 @@ fn a_v2_anchor_vouches_for_its_head_and_nothing_else() {
 /// run's evidence, re-published with what this engine never writes — a
 /// boxed manifest without `boundary`, an entry outside the vocabulary,
 /// an entry without its tag — reads `boundary not recorded`, never
-/// `unboxed` and never nothing (design DD13, DD14).
+/// `unboxed` and never nothing (design DD13, DD14), and so does a
+/// manifest carrying both `hands` and `boundary` whose journal holds no
+/// entry yet (proposal D34).
 #[test]
 fn a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so() {
     let side = tempfile::tempdir().unwrap();
@@ -853,6 +855,37 @@ fn a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so() {
             format!("delivered by brokkr: run {run} vouches for {judged} · boundary not recorded")
         );
     }
+
+    // A manifest that carries both `hands` and `boundary` but a journal
+    // with no `effect/started.boundary` entry yet: unreachable for a
+    // completed anchored run over any shipped bundle — each runs a hands
+    // gate before `done` — but the view renders `no boundary recorded`
+    // for it, and the script says the same rather than nothing (D34).
+    git(
+        &repo,
+        &[
+            "update-ref",
+            &format!("refs/heads/brokkr-runs/{run}"),
+            &original,
+        ],
+    );
+    republish(&repo, &run, |events| {
+        for event in events.iter_mut() {
+            if event.event_type == brokkr_core::envelope::EventType::EffectStarted {
+                event.payload.as_object_mut().unwrap().remove("boundary");
+            }
+        }
+    });
+    let (code, log) = gate.judge(&body, &judged, "");
+    assert_eq!(code, 0, "{log}");
+    assert_eq!(
+        line_starting(&log, "delivered by brokkr: tier"),
+        "delivered by brokkr: tier vouched · delta since the judgment: [] · boundary not recorded"
+    );
+    assert_eq!(
+        line_starting(&log, "delivered by brokkr: run"),
+        format!("delivered by brokkr: run {run} vouches for {judged} · boundary not recorded")
+    );
 }
 
 /// The same bundle under `namespace`: the exec gate runs in decision
@@ -861,7 +894,10 @@ fn a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so() {
 #[test]
 fn a_namespace_judged_run_carries_no_adjective() {
     if !can_create_namespace() {
-        eprintln!("skipped: no namespace can be built here");
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here",
+        );
         return;
     }
     let side = tempfile::tempdir().unwrap();

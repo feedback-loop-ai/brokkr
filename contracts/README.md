@@ -97,8 +97,9 @@ Realm prompt data adds a third map version while leaving v1 and v2 unchanged:
 | Contract | File | Consumers |
 |---|---|---|
 | The world's map, with house and dialect declarations | `realms.v3.schema.json` | brokkr-core (shape), brokkr-runtime (loading and pins), prompt assembly |
-| Specification dialect | `dialect.v1.schema.json` | superseded for new files by v2, below; bytes frozen |
-| Specification dialect, with the install identity | `dialect.v2.schema.json` | brokkr-runtime (loading, map checks and boxed dialect steps) |
+| Specification dialect | `dialect.v1.schema.json` | no longer written; read from a run's pin, for the runs that pinned it; bytes frozen |
+| Specification dialect, with the install identity | `dialect.v2.schema.json` | no longer written; read from a run's pin, for the runs that pinned it; bytes frozen |
+| Specification dialect, with the archive instruction | `dialect.v3.schema.json` | brokkr-runtime (loading, map checks, boxed dialect steps and the smith's fold) |
 
 `forge.realms/v3` adds optional `house` and `dialect` fields per realm. A
 house is a repository-relative Markdown file; its content and digest are
@@ -108,6 +109,31 @@ maps artifact and judge phases to framework artifacts, instructions,
 validators, dependency order and lifecycle commands. The loader checks the
 map and pins the resolved JSON content, not merely its declaration. A v2 map
 remains byte- and behavior-compatible.
+
+Decision 0042's addendum of 2026-09-06 adds `dialect.v3`, v2 plus one thing:
+a dialect that folds a change into a living truth tree declares the
+instruction its archive step carries. The archive command's `instructions`
+is a dialect-relative Markdown file rendered into the smith's implement
+prompt, where it tells the smith to append one `## Provenance` line per
+capability the change touched — the archived directory's name and the day it
+was folded, appended and never rewritten. A dialect with no truth tree
+declares the archive `unsupported` and names no instruction. v1 and v2 are
+not edited; their bytes stay frozen beside v3.
+
+A dialect FILE is v3, and only v3: it is written today, so it is written at
+the version this build writes, and an older declaration may not be used to
+escape what v3 requires. A dialect PIN may be any of the three. A dialect is
+not only a file on disk — a run pins its resolved content into the manifest,
+and a resume rehydrates that pin — and `realms.json` has declared a dialect
+since 2026-09-04, so runs have pinned `brokkr.dialect/v1` and `v2` bodies. A
+build that read v3 everywhere would strand every one of them, and would say
+so only as an untagged-variant mismatch. So `Dialect::parse` reads a file and
+`Dialect::parse_pinned` reads a pin; both refuse a version they do not read
+BY ITS VERSION, before the bytes are given a shape, and both hold each read
+version to its own shape: `tool.install` is absent at v1 and required from
+v2, and the archive command's `instructions` is absent below v3 and required
+at v3. An older dialect therefore folds exactly as it did on the day it was
+pinned — carrying no provenance instruction, because then there was none.
 
 The Looper-bound `run-manifest.v2` lineage carries no world, for the reason it
 carries no `agents`: its round-trip reconstructs the bundle manifest from six
@@ -477,3 +503,85 @@ annotation present is byte-identical to the same run folded without it. What
 reads it is `brokkr_view::residual_findings`, which marks the named findings
 as superseded and leaves them in the journal and in every readout — a
 superseded finding is closed, never deleted.
+
+Decision 0057 (the crossing) adds one more file and changes none of the
+bytes above — `realms.v1` through `realms.v4` included, whose bytes are now
+all pinned by digest:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The world's map, with the crossings its realms publish and consume | `realms.v5.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (map loading and the resolution of every published crossing) |
+
+`forge.realms/v5` is `v4` plus exactly two optional properties per realm.
+`publishes` is a list of `{name, path}`: the crossings this realm offers,
+each a FILE the realm owns, named repository-relative on the same terms
+`house` and `dialect` are named, its bytes the contract. `consumes` is a
+list of `{name, realm, sha256}`: a crossing this realm depends on, named by
+its publishing realm and pinned by a lowercase hex sha256 over the published
+file's RAW bytes — never over a canonical form, because a crossing may be a
+JSON schema, a `.proto` or a Markdown document and only the publisher's own
+format knows what canonicalising would mean. The map's own pin is unchanged
+and stays canonical JSON over the map (decision 0023 ruling 4); the two
+digests answer for two different objects.
+
+Absent both properties a v5 map reads exactly as a v4 map, and every earlier
+map keeps loading unchanged, so a world that never drew a crossing notices
+nothing. Absent is the property being left out, and only that: both lists are
+typed `array` here, so a written `null` is refused by this file and refused by
+the loader too, rather than read as though the word had never been written.
+The vocabulary is closed inside the new entries as it is at every
+level above them: an unknown field there is refused, so a content type, a
+compatibility relation or any fetch configuration would have to arrive as
+`forge.realms/v6`. `brokkr-core` performs no I/O (decision 0003), so the
+digest is judged as a shape only — 64 lowercase hex characters — and the
+published file is neither read nor resolved by this contract's landing
+slice; a `consumes` entry is checked against the world's own realms and
+their `publishes` lists, and a realm consuming its own crossing is refused
+because a crossing is between realms.
+
+Decision 0057's recording half adds one manifest version and changes none
+of the bytes above — `run-manifest.v9`'s included, which is now pinned by
+digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with the crossings the run stood on | `run-manifest.v10.schema.json` | brokkr-runtime, brokkr-store export/resume |
+
+`run-manifest.v10` is `v9` plus one optional `crossings` property: per
+publishing realm, per crossing name, the resolved source path and the
+sha256 the loader observed on disk at run start. It continues the LOCAL
+lineage on decision 0023 ruling 4's terms — the manifest already rides
+inside `run/started`, which is exactly why embedding the pin there answers
+"what contracts did this run stand on?" from the journal alone, forever,
+without opening either repository. The event vocabulary needed nothing;
+a new event type would have been the wrong instrument for the same reason
+it was for the map. The property is absent when no realm of the world
+publishes or consumes a crossing, so every world without one stores and
+exports the exact v9 shape.
+
+**Declaration and observation are two facts, kept apart.** A consuming
+realm's DECLARED pin already rides into the manifest inside the map
+itself (`realms.map.realms[i].consumes[j].sha256`, unchanged since v4),
+so `crossings` is deliberately not a second copy of it: it is what the
+machine OBSERVED when it loaded the world, keyed by the realm that
+PUBLISHES the file rather than by the realm that pinned it. A reader
+comparing `realms.map…consumes[j].sha256` against
+`crossings[<declared realm>][<declared name>].sha256` sees the difference
+between what a world claimed and what it stood on. Every crossing any
+realm publishes is recorded, consumed or not — the property answers for
+the world's contracts, not for one realm's dependencies.
+
+`crossings` is WORKSPACE data, exactly like `realms` and unlike `drivers`
+or `boundary`: it must NOT move a bundle digest. This is the same trap
+`agents` has on the v2 Looper-bound lineage, named here by name.
+`bundle_manifest_from_run` reconstructs a bundle manifest from six named
+keys and drops the rest, so a key it cannot round-trip is dropped in
+silence and every adopting run becomes unresumable with a diff that
+blames no file. `crossings` is therefore dropped in the SAME removal as
+`realms`, before the resume comparison — pinning a crossing moves no
+bundle digest and makes no run unresumable. On the Looper-bound lineage
+nothing changes: `brokkr run` refuses `--dispatch` together with a map,
+so a v2-schema manifest never carries `crossings` any more than it
+carries `realms`, and `build_run_manifest_v2` would refuse the key by the
+fail-closed guard it has held over the whole key space since decision
+0021's witness — loudly, on the day it arrived, rather than quietly.

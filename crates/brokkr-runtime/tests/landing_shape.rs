@@ -158,12 +158,22 @@ fn prose_is_judged_and_code_is_built_and_both_pass_review() {
 #[cfg(unix)]
 fn git(repo: &Path, args: &[&str]) {
     let status = Command::new("git")
+        // The fixture must not inherit a host's `commit.gpgsign=true`,
+        // which cannot sign where no agent is reachable; every other git
+        // fixture in the tree disables signing for the same reason.
+        .args(["-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(repo)
         .env("GIT_AUTHOR_NAME", "landing")
         .env("GIT_AUTHOR_EMAIL", "landing@example")
         .env("GIT_COMMITTER_NAME", "landing")
         .env("GIT_COMMITTER_EMAIL", "landing@example")
+        // Seat commits are unsigned (CONTRIBUTING); a host whose global
+        // config signs would otherwise fail this fixture before the
+        // engine ever runs.
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
         .status()
         .expect("git runs");
     assert!(status.success(), "git {args:?}");

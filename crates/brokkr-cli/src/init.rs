@@ -100,6 +100,10 @@ const OPENSPEC_INSTRUCTIONS: &[(&str, &str)] = &[
         include_str!("../dialects/openspec/analyze.md"),
     ),
     (
+        "archive.md",
+        include_str!("../dialects/openspec/archive.md"),
+    ),
+    (
         "clarify.md",
         include_str!("../dialects/openspec/clarify.md"),
     ),

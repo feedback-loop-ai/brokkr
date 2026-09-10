@@ -1764,6 +1764,9 @@ impl Engine {
                                 // accepted: the structural
                                 // fail-to-start predicate holds.
                                 accepted: false,
+                                // No process existed for a watchdog to
+                                // kill.
+                                deadline_killed: false,
                             },
                             Ok(process) => process.run_attempt(
                                 ENGINE_VERSION,
@@ -3533,10 +3536,15 @@ fn select_candidates(
 /// locator any attempt of this seat journaled, with that attempt.
 ///
 /// Journaled checkpoints are the only channel read — `state =
-/// fold(events)`, and a driver's transcript locator reaches the record as
-/// evidence the moment its harness announces one, which is what lets an
-/// attempt killed on its deadline still hand its thread to the retry
-/// that follows.
+/// fold(events)`. A driver has its harness's locator in hand from the
+/// harness's first message, but since decision 0053 the row reaches the
+/// record with the attempt's FIRST WORK checkpoint, which the driver
+/// flushes it ahead of: a checkpoint before then would put a provider's
+/// pre-session refusal on decision 0016's mid-session side and strand the
+/// chain. So an attempt killed on its deadline after its first turn still
+/// hands its thread to the retry that follows, and one killed before that
+/// turn hands nothing — the window ruling 8 names, and the price it puts
+/// a figure on.
 fn seat_session(events: &[EventEnvelope], seat: &str) -> Option<(String, String)> {
     let effects: Vec<&str> = events
         .iter()
@@ -3666,10 +3674,20 @@ fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> 
 /// rather than described in a comment. A seat that ran for forty turns
 /// and then hit a quota wall has produced work a different model does
 /// not inherit, and it follows 0006 unchanged.
+///
+/// The fourth fact is the engine's own (decision 0053 ruling 5): an
+/// attempt this watchdog KILLED is `Failed` because the kill made
+/// non-completion determinate, not because anything refused to start.
+/// The driver died with no chance to say which side of the boundary it
+/// was on, so the ambiguity decision 0003 parks on holds — and without
+/// this term a vendor that hangs a first turn would walk the chain down
+/// every link, each one hanging for a full deadline, and journal
+/// per-model start failures for one vendor-wide stall.
 fn failed_to_start(report: &AttemptReport) -> bool {
     matches!(report.outcome, AttemptOutcome::Failed { .. })
         && !report.accepted
         && report.checkpoints.is_empty()
+        && !report.deadline_killed
 }
 
 /// Which panel members failed to start, tagged as the journal tags them.

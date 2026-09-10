@@ -199,7 +199,12 @@ run's journal, read that run's `effect/started` events and append
 recorded` when the run's manifest carries `hands` and no `boundary`;
 append ` · boundary not recorded` too when an entry's word is outside
 the vocabulary or an entry lacks its tag, never `unboxed` and never
-nothing (design DD14); and append nothing for a run that boxes nothing. A docs-tier preflight
+nothing (design DD14); append the same when the manifest carries
+`hands` and `boundary` but the journal holds no
+`effect/started.boundary` entry yet — unreachable for a completed
+anchored run over any shipped bundle, each of which runs a hands gate
+before `done`, and the view renders the same absence; and append
+nothing for a run that boxes nothing. A docs-tier preflight
 run SHALL be read the same way on its own line. The data read is the
 plain word; the adjective is the script's rendering. The script SHALL
 stay bash 3.2-compatible (decision 0046 ruling 3; decision 0038's gate).
@@ -220,6 +225,14 @@ stay bash 3.2-compatible (decision 0046 ruling 3; decision 0038's gate).
 - **WHEN** the anchored run's `effect/started.boundary` carries an entry whose word is outside the vocabulary
 - **THEN** the lines end with `· boundary not recorded`
 
+#### Scenario: A manifest with no entry yet
+- **WHEN** the anchored run's manifest carries `hands` and `boundary` and its journal holds no `effect/started.boundary` entry
+- **THEN** the lines end with `· boundary not recorded`
+
 #### Scenario: The binding is pinned
 - **WHEN** the contributing test reads the gate script
 - **THEN** it finds the bindings that read `effect/started.boundary` and the word `unboxed`
+
+## Provenance
+
+- `2026-09-06-boundary-named-slice-i` — folded 2026-09-06
