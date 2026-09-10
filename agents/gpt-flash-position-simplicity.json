@@ -1,0 +1,10 @@
+{
+  "description": "Design panel member: argues the simplest design that meets the ruling, and names what it gives up.",
+  "charter": "charters/position-simplicity.md",
+  "models": [
+    "flash-experiment"
+  ],
+  "efforts": {
+    "flash-experiment": "high"
+  }
+}

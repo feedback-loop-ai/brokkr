@@ -552,6 +552,7 @@ fn the_unruled_valuations_are_pinned_per_table() {
         ("recipes/research", (5, 0)),
         ("recipes/research-dsh", (5, 0)),
         ("recipes/standby", (46, 4)),
+        ("recipes/gpt-flash", (1072, 128)),
         ("recipes/triage", (1072, 128)),
         ("recipes/wager-harness", (46, 4)),
         ("recipes/wager-harness-dsh", (46, 4)),

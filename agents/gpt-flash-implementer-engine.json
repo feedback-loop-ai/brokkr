@@ -1,0 +1,14 @@
+{
+  "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
+  "charter": "charters/implementer.md",
+  "models": [
+    "flash-experiment"
+  ],
+  "efforts": {
+    "flash-experiment": "high"
+  },
+  "limits": {
+    "max_attempts": 2,
+    "timeout_seconds": 7200
+  }
+}
