@@ -148,6 +148,9 @@ prepared -> guard-registered -> payload-started -> terminating
 If quiescence cannot be established, execution fails and cleanup stops. The
 private root is quarantined for an engine-owned reaper that must re-establish
 the lease identity and quiescence; it never trusts a stale PID or filename.
+This records the recovery invariant already required by the delta; it does not
+authorize building a production crash reaper before D3 proves the lifetime
+mechanism that such a reaper would have to recover.
 
 ### D3 — Native R3 feasibility is the first implementation gate
 
@@ -231,23 +234,25 @@ worktree, every bind, Git administration paths, and every other seat root, and
 is checked through macOS aliases such as `/tmp` and `/private/tmp`.
 
 Fresh per-call HOME, TMPDIR, profile, and pipes belong to `CallState`.
-Overlays and execution capsule state belong to `SeatAttemptState`, so a second
-workspace call or supervised MCP restart in the same attempt retains the map.
+Overlays belong to `SeatAttemptState`, so a second workspace call or
+supervised MCP restart in the same attempt retains the map.
 Another seat, member, resume, or rerun receives a different root and mapping.
 Process-local `session_dir("serve")` cannot be the authority for persistent
 state because provider restart/fallback would otherwise reset it.
 
 ### D6 — Filesystem authority is normalized before SBPL rendering
 
-Preparation constructs a canonical authority graph after home expansion and
-alias analysis. Its precedence is:
+Preparation constructs one internal normalized authority plan after home
+expansion and alias analysis. This is not a public graph framework or a second
+policy language; it is the checked input to the Seatbelt renderer. Its
+precedence is:
 
 ```text
 protected or masked deny > read-only > read-write > default deny
 ```
 
-The graph includes the worktree, expanded binds, masks, private roots,
-execution capsule, result path, Git administration graph, and controlled
+The plan includes the worktree, expanded binds, masks, private roots, result
+path, Git administration graph, execution inputs, and controlled
 system/toolchain paths. Equal and nested paths, symlink aliases, hard-link
 identities, `/var`/`/private/var` and `/tmp` aliases, case-folding and Unicode-
 normalization collisions, and replaceable ancestors take the strictest
@@ -298,7 +303,7 @@ claimed under the accepted addendum.
 ### D8 — R2 combines snapshot exclusion with identity-aware profile denial
 
 A present masked entry and every admitted alias to its host identity are
-excluded without reading content and denied by the authority graph at both the
+excluded without reading content and denied by the authority plan at both the
 host and snapshot spellings. Either copy exclusion or string-path denial alone
 is insufficient. An unsafe alias that cannot be enumerated across admitted
 trees causes pre-spawn refusal.
@@ -344,26 +349,30 @@ positive control, not proof. Custom Git wrappers, patched Git, and dynamic-
 loader injection are rejected because they add bypass surfaces without being
 the boundary.
 
-### D10 — Immutable execution inputs live in a verified capsule
+### D10 — Immutable execution inputs use protected paths or refuse
 
 Seatbelt has no `/runtime/bundle` mount. Before an exec dispatch, preparation
-copies the exact engine executable and the declaring script directory/helpers
-already covered by decision 0048's manifest/spawn pin into a protected private
-capsule and verifies their bytes against the compiled file map before
-publication. Seatbelt executes capsule paths. `{brokkr}` and the bundle-
-relative script argument are rewritten to those paths only for the Seatbelt
-dispatch; portable identity continues to name the declared files, not the
-ephemeral capsule.
+resolves the exact engine executable and the declaring script directory/helpers
+already covered by decision 0048's manifest/spawn pin, revalidates the compiled
+file map at the existing spawn boundary, and grants read/execute only to those
+controlled absolute paths. The authority plan independently denies writes,
+unlink, rename, replacement, and admitted aliases of the engine, bundle,
+script, and helper inputs. `{brokkr}` and the bundle-relative script continue
+to identify the intended pinned inputs; portable identity remains the declared
+files rather than a temporary host spelling.
 
-Copying is not protection of the originals. The authority graph independently
-denies writes, unlink, rename, replacement, and alias access that could mutate
-the original pinned engine, bundle, script, or helper inputs. A layout where
-that protection conflicts with required worktree authority refuses before
-spawn rather than relying on the capsule to hide a host mutation.
+If an input is beneath a required writable grant, has a replaceable ancestor,
+or otherwise cannot retain both worktree usability and input protection, the
+exact incompatible layout refuses before spawn. This is the delta's explicit
+safe outcome for a worktree containing its bundle. A verified private capsule
+is not selected pre-emptively: copying executable metadata and rewriting paths
+would add an unmeasured mechanism before the native probe. If post-R3 native
+adversaries demonstrate that direct protection cannot serve a required
+non-conflicting shipped layout, return to design and add a capsule only with
+byte/metadata verification and native positive controls.
 
-Helpers outside the existing pin retain decision 0048's limitation/refusal;
-the capsule does not widen integrity scope. This avoids relying on fragile deny
-carve-outs for inputs nested below a writable worktree or replaceable ancestor.
+Helpers outside decision 0048's existing pin retain its limitation/refusal;
+direct protected paths do not widen integrity scope.
 
 ### D11 — Environment, network, output, and cancellation are independent
 
@@ -424,8 +433,8 @@ a separate fact. Container remains unbuilt whatever engine is present.
 ### D13 — Existing identity and record contracts remain authoritative
 
 No new wire version is currently justified. Slice I already pins and records
-the boundary. Temporary profiles, private roots, capsule paths, snapshots, and
-locator spellings do not enter portable identity. End-to-end native cases must
+the boundary. Temporary profiles, private roots, snapshots, and locator
+spellings do not enter portable identity. End-to-end native cases must
 still prove manifest, `effect/started`, seat record, export/verification, and
 all readouts agree on the boundary that ran, and that an unproved or failed
 attempt never emits a successful full-peer marker.
@@ -475,16 +484,20 @@ controller-owned and pending until their real results exist.
 | --- | --- | --- |
 | Simplicity: reuse `HandsSpec`, bind types, limits, `Offer`, engine composition, doctor, records, and readouts. | **Adopt.** | Slice I already owns those public seams; D1, D4 and D12 extend them instead of rebuilding them. |
 | Both: avoid a new crate, public trait/plugin system, vocabulary, CLI workflow, or pre-emptive contract. | **Adopt.** | D4 uses sealed internal types and at most one private module; D13 keeps existing wire versions unless measurement proves a gap. |
-| Simplicity: treat Seatbelt as one more argv builder with one shared spawn/wait/kill routine. | **Reject.** | Direct-child/group kill cannot satisfy `setsid` or supervisor death, and process-scoped state cannot preserve overlays. D2, D4, D5 and D11 make lifetime and ownership boundary-specific. |
+| Simplicity: keep one private Seatbelt module and a small boundary-selected launcher. | **Adopt with a lifetime constraint.** | D4 uses at most one private module and a dispatcher, but D2 and D5 keep native lifetime and attempt ownership boundary-specific because direct-child/group kill cannot satisfy `setsid`, supervisor death, or overlay persistence. |
 | Robustness: separate preparation, seat-attempt state, call state, and teardown. | **Adopt.** | Current `box_argv`, `session_dir`, and child-kill paths conflate lifetimes; D2, D4 and D5 give each required owner. |
 | Simplicity: use transient launchd state, not a resident daemon/XPC service. | **Adopt and strengthen.** | D2 chooses two transient jobs so the guard survives payload bootout; D3 requires public unprivileged proof before implementation. |
 | Robustness: launchd/process-coalition names are hypotheses until a separate observer proves detach and supervisor-death behavior. | **Adopt.** | D3 includes positive and group-kill negative controls, stable identities, heartbeat quiet, job cleanup, and fail-closed stop conditions. |
 | Simplicity: reuse `box_argv`'s policy work. | **Combine in part.** | D4 reuses parsed facts and bounds but rejects the argv as an oracle because it imports Linux mounts, `/dev/null`, `/runtime/bundle`, and namespace semantics. |
 | Simplicity: plain-copy overlays; no FUSE/APFS path. Robustness: descriptor-relative coherent copying and engine-owned attempt state. | **Combine.** | D5 and D7 choose a private copy but add the link, mask, TOCTOU, publication, cleanup, and persistence defenses arbitrary overlays require. |
 | Simplicity: profile denial plus copy exclusion is enough for masks. Robustness: identity/alias/overlap analysis is also required. | **Combine.** | D6 and D8 use denial/exclusion only after authority and inode analysis; unsafe layouts refuse. No masking filesystem is introduced. |
+| Simplicity: avoid a general authority-graph framework. Robustness: normalize aliases, overlaps, and deny precedence before rendering. | **Combine, favoring a focused internal plan.** | D6 retains the required normalization and conflict detector but makes it one private renderer input, not a public graph abstraction or second policy language. |
+| Simplicity: preserve only metadata demonstrated by Cargo/npm and refuse unsupported forms. Robustness: never silently lose ACL/xattr/sparse/dataless semantics. | **Combine.** | D7 names and tests metadata required by shipped users; every additional form is preserved or explicitly refused rather than receiving a speculative matrix. |
 | Simplicity: private hooks plus profile denial; no Git shim or loader injection. Robustness: discover the complete Git administration graph and narrow allowed mutations. | **Combine.** | D9 treats private routing as convenience and the normalized profile as independent protection, with primary and linked-worktree adversaries. |
-| Robustness: stage immutable inputs because Seatbelt has no `/runtime/bundle` and writable ancestors can undermine them. | **Adopt.** | D10 creates a verified capsule without widening decision 0048's pin. |
+| Simplicity: protect and revalidate exact inputs directly, refusing conflicts by default. Robustness: a capsule can avoid mutable input spellings. | **Combine, favoring the smaller first mechanism.** | D10 uses direct read/execute grants plus independent mutation denial and pre-spawn refusal, which the delta explicitly permits. A verified capsule is reconsidered only if post-R3 native evidence shows a required non-conflicting shipped layout cannot work directly. |
 | Simplicity: reuse the existing availability table. Robustness: one evidence-gated activation authority must feed every verdict. | **Combine.** | D1 and D12 keep the table/readouts but derive their built state from one runtime authority; readiness remains separate. |
+| Simplicity: do not build crash recovery before proving the lease. Robustness: uncertain state must be quarantined and reaped only after identity and quiescence are re-established. | **Combine in dependency order.** | D2 preserves quarantine/recovery invariants required by the delta but explicitly defers any production reaper until D3 proves the native domain. |
+| Simplicity: use liveness EOF for controller loss and add an MCP supervisor only if cancellation is observable. Robustness: explicit cancellation cannot remain prose. | **Reject deferring the cancellation seam.** | The delta distinguishes explicit cancellation from server/wrapper loss, and the current synchronous loop cannot observe it while blocked. D11 therefore retains a narrow request supervisor/channel, implemented only after D3 passes. |
 | Both: one fail-closed native target can cover both entry paths; missing/zero/skipped cases must fail. | **Adopt and strengthen.** | D14 uses a checked obligation matrix, actual revision/host evidence, and a final post-activation rerun without inventing a bespoke framework. |
 | Robustness: require duplicate native evidence on both supported Mac architectures before activation. | **Reject as an unconditional activation gate.** | The accepted addendum and deltas require the actual host/OS/architecture and the existing native runner, not duplicate full matrices. D14 records the exercised architecture; 0049 still supports both, and any architecture-specific failure becomes a blocking residual rather than inheriting another host's evidence. |
 | Simplicity: accept copy cost and mechanism risk rather than silently weaken guarantees. Robustness: quarantine uncertain state and return infeasibility upstream. | **Adopt.** | D2, D3 and the risks below stop on unproved quiescence. A failed native mechanism becomes a focused residual/proposed decision, never a reduced boundary. |
@@ -520,7 +533,7 @@ feasibility gate; a native failure requires the exact residual and any focused
   conflict before payload instead of granting the common directory broadly;
   refusal is safe but does not make refusal of all shipped layouts complete.
 - **[MCP restart or fallback loses state]** → Make the engine's attempt handle,
-  not the MCP process, own overlays and capsule state.
+  not the MCP process, own overlay state.
 - **[A survivor holds pipes or private state]** → Prove domain quiescence before
   drain/cleanup, fail an outer watchdog, and quarantine uncertain state.
 - **[Host-independent coverage hides Darwin behavior]** → Keep decisions in
@@ -558,3 +571,19 @@ native case fails, rollback is to leave/reinstate the single unbuilt state,
 retain durable failure evidence, and remove only engine-owned private state
 whose identity and quiescence are established. No persistent service needs
 uninstallation. Container remains the separately commissioned slice III.
+
+## Open Questions
+
+There are no unanswered Seatbelt policy questions. The accepted 0046 addendum
+settles R1, R2, R3's mandatory outcome, and conditional R4; the returned
+clarification found no remaining semantic ambiguity.
+
+One empirical feasibility question gates all subsequent implementation: can
+the D2 two-job mechanism, using only public unprivileged per-user launchd
+facilities, establish a non-PID-reuse-prone empty payload domain after
+`setsid`/double-fork detachment, cancellation, and supervisor `SIGKILL`,
+while keeping its guard inaccessible to the payload? This is not an invitation
+to choose weaker semantics. It is answered only by D3's real, unboxed macOS
+probe. On this Linux controller it remains unmeasured because the required
+macOS host is absent. A failure keeps SEATBELT-R3 open, keeps Seatbelt unbuilt,
+and returns any necessary semantic change in a focused proposed decision.
