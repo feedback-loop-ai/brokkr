@@ -92,6 +92,40 @@ fn write_transcript(world: &World) -> PathBuf {
     file
 }
 
+fn write_config(world: &World) -> PathBuf {
+    let claude = world.home.join(".claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let config = claude.join("config.json");
+    std::fs::write(&config, "{\"provider\":\"claude\",\"retained\":true}\n").unwrap();
+    config
+}
+
+/// Every regular file below `root`, relative path -> bytes, sorted. Used
+/// to prove the retained root and provider configuration keep their bytes
+/// and existence across a read or a growth watch.
+fn snapshot_tree(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap())
+            .collect();
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            let path = entry.path();
+            let meta = std::fs::symlink_metadata(&path).unwrap();
+            if meta.is_dir() {
+                walk(base, &path, out);
+            } else {
+                let bytes = std::fs::read(&path).unwrap_or_default();
+                out.push((path.strip_prefix(base).unwrap().to_path_buf(), bytes));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out
+}
+
 fn run(world: &World, args: &[&str]) -> std::process::Output {
     Command::new(brokkr_bin())
         .args(args)
@@ -114,9 +148,12 @@ fn digest(path: &Path) -> [u8; 32] {
 fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     let world = world();
     let file = write_transcript(&world);
+    let config = write_config(&world);
     let journal = world.db.clone();
     let before_journal = digest(&journal);
     let before_file = digest(&file);
+    let before_config = digest(&config);
+    let before_tree = snapshot_tree(&world.home);
 
     let output = run(
         &world,
@@ -125,6 +162,12 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     assert!(output.status.success());
     assert_eq!(digest(&journal), before_journal, "no journal write");
     assert_eq!(digest(&file), before_file, "no retained-byte change");
+    assert_eq!(digest(&config), before_config, "no provider-config change");
+    assert_eq!(
+        snapshot_tree(&world.home),
+        before_tree,
+        "the retained root keeps every byte and its existence"
+    );
 
     // A refusal is equally inert.
     let refused = run(
@@ -145,6 +188,8 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     assert_eq!(document["unavailable"], "turn-not-retained");
     assert_eq!(digest(&journal), before_journal);
     assert_eq!(digest(&file), before_file);
+    assert_eq!(digest(&config), before_config);
+    assert_eq!(snapshot_tree(&world.home), before_tree);
 }
 
 /// The sentinel prose reaches only the explicit transcript read; every
@@ -165,6 +210,7 @@ fn sentinel_prose_never_enters_a_journal_derived_surface() {
         vec!["seats", "--run", "r222", "--json"],
         vec!["runs", "--json"],
         vec!["replay", "--run", "r222"],
+        vec!["watch", "--run", "r222", "--once"],
     ] {
         let output = run(&world, &args);
         let combined = format!(

@@ -1258,8 +1258,9 @@ fn dsh_discovery_admits_depth_zero_and_refuses_delegated_siblings() {
     );
 }
 
-/// A DSH opening row that is malformed cannot borrow a later header, and
-/// an oversized first record is refused without allocating it.
+/// A DSH opening row that is malformed cannot borrow a later header, an
+/// oversized first record is a discovery-limit (not a missing session),
+/// and invalid opening-header UTF-8 is unreadable.
 #[test]
 fn dsh_discovery_bounds_the_opening_header() {
     let dir = tempfile::tempdir().unwrap();
@@ -1279,6 +1280,41 @@ fn dsh_discovery_bounds_the_opening_header() {
         Some(Unavailable::NotFound)
     );
 
+    // A non-session first record is not an invalid-depth explanation.
+    std::fs::write(
+        session.join("session.jsonl"),
+        "{\"type\":\"entry\",\"version\":0}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(
+        !read
+            .explanation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("depth-zero"),
+        "a non-session opening row must not borrow the invalid-depth explanation: {read:?}"
+    );
+
+    // A null depth is invalid, not legacy zero: it is excluded from
+    // ownership and keeps the invalid-depth explanation.
+    std::fs::write(
+        session.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":null,\"version\":0}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(
+        read.explanation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("depth-zero"),
+        "a null depth keeps the invalid-depth explanation: {read:?}"
+    );
+    assert!(read.path.is_none());
+
     std::fs::write(
         session.join("session.jsonl"),
         format!("{}\n", "x".repeat(70_000)),
@@ -1286,7 +1322,22 @@ fn dsh_discovery_bounds_the_opening_header() {
     .unwrap();
     assert_eq!(
         read_common(&reference).unavailable,
-        Some(Unavailable::NotFound)
+        Some(Unavailable::DiscoveryLimit)
+    );
+
+    std::fs::write(
+        session.join("session.jsonl"),
+        [
+            b"{\"type\":\"session\",\"delegationDepth\":0,\"version\":0,\"pad\":\"".as_slice(),
+            &[0xff, 0xfe],
+            b"\"}\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
     );
 }
 
@@ -1820,6 +1871,7 @@ function __clearController() { __controller.clear(); }
 function __resolvePresentation(presentation) { __pres.shift().resolve(presentation); }
 function __rejectPresentation() { __pres.shift().reject(new Error('presentation')); }
 function __resolveBody(body) { __body.shift().resolve(body); }
+function __resolveBodyAt(index, body) { __body.splice(index, 1)[0].resolve(body); }
 function __rejectBody() { __body.shift().reject(new Error('body')); }
 function __tick() { __timers[__timers.length - 1].callback(); }
 function __grow(index) { __watches[index].handlers.growth(); }
@@ -1873,6 +1925,9 @@ impl Boa {
     }
     fn resolve_body(&mut self, body: &Value) {
         self.call(&format!("__resolveBody({body})"));
+    }
+    fn resolve_body_at(&mut self, index: usize, body: &Value) {
+        self.call(&format!("__resolveBodyAt({index}, {body})"));
     }
     fn reject_body(&mut self) {
         self.call("__rejectBody()");
@@ -3000,4 +3055,243 @@ fn a_failed_presentation_request_is_an_unreadable_refusal() {
     assert_eq!(state["bodies"], 0);
     assert_eq!(state["opens"], 0);
     assert_eq!(state["sessionId"], Value::Null);
+}
+
+/// A bounded growth watch reads the source and writes nothing: the
+/// journal is untouched and the retained file keeps every byte.
+#[test]
+fn a_growth_watch_changes_no_retained_byte() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects").join("live-project");
+    std::fs::create_dir_all(&projects).unwrap();
+    let file = projects.join("abcd-1234.jsonl");
+    std::fs::write(
+        &file,
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"a word\"}}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", &home);
+    let before = std::fs::read(&file).unwrap();
+    let mut request = std::io::Cursor::new(
+        b"GET /sse/session/abcd-1234 HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+    );
+    let mut sink = Vec::new();
+    serve_io(
+        &PathBuf::from("missing.db"),
+        &mut request,
+        &mut sink,
+        Some(2),
+    );
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        before,
+        "a growth watch must read the source, never rewrite it"
+    );
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+/// Syncing a participant from working to concluded closes the watch it
+/// owns instead of leaving it open on a seat with no further prose.
+#[test]
+fn syncing_a_concluded_participant_closes_its_owned_watch() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut working = subject("r1", "seat", Some(reference), None, Some("claude"), true);
+    let mut boa = Boa::boot();
+    boa.select(&working);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+
+    working["working"] = json!(false);
+    boa.sync(&working);
+    let state = boa.state();
+    assert_eq!(state["watch"], false, "a concluded seat keeps no watch");
+    assert!(
+        boa.trace().iter().any(|entry| entry.starts_with("close ")),
+        "the transition closes the owned watch: {:?}",
+        boa.trace()
+    );
+}
+
+/// Two growth callbacks issue two body requests; when the newer response
+/// resolves first, the older superseded response cannot repaint.
+#[test]
+fn overlapping_growth_reads_cannot_restore_older_prose() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.grow(0);
+    boa.grow(0);
+    assert_eq!(
+        boa.state()["bodies"],
+        3,
+        "each growth callback issues one body request"
+    );
+
+    // Resolve the newer request first, then the older one.
+    boa.resolve_body_at(1, &text_body("newer"));
+    boa.resolve_body_at(0, &text_body("older"));
+    let renders = boa
+        .trace()
+        .iter()
+        .filter(|entry| entry.starts_with("render body"))
+        .count();
+    assert_eq!(
+        renders,
+        2,
+        "only the newest body request may repaint: {:?}",
+        boa.trace()
+    );
+}
+
+/// An eligibility-only presentation change resets the watch budget, as
+/// the transcript-reading recovery rule exempts eligibility changes from
+/// the previous automatic-recovery bound.
+#[test]
+fn an_eligibility_change_restores_the_watch_budget() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let ineligible = presentation(reference.clone(), true, None, Some("hint"), false);
+    let eligible = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&eligible);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+    assert_eq!(boa.state()["openingsUsed"], 1);
+
+    // The closure's fresh presentation turns the drill ineligible. The
+    // spent opening must not survive that eligibility change.
+    boa.close_watch(0);
+    boa.resolve_presentation(&ineligible);
+    assert_eq!(
+        boa.state()["openingsUsed"],
+        0,
+        "an eligibility change restores the watch budget"
+    );
+    assert_eq!(boa.state()["drillEligible"], false);
+    assert_eq!(
+        boa.state()["opens"],
+        1,
+        "no watch opens while the drill is ineligible"
+    );
+}
+
+/// A valid Claude reference under a foreign recorded home keeps the
+/// recorded-home explanation even when shared lookup refuses it at the
+/// same time, and still drives no body request or watch.
+#[test]
+fn a_foreign_home_shows_the_home_explanation_beside_a_discovery_refusal() {
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let pres = presentation(
+        reference.clone(),
+        false,
+        Some("ambiguous-source"),
+        Some("full session: claude --resume abcd-1234"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    let trace = boa.trace();
+    assert!(
+        trace.iter().any(|entry| entry.ends_with(" home")),
+        "a foreign home keeps its explanation beside the refusal: {trace:?}"
+    );
+    assert!(
+        trace.iter().any(|entry| entry.contains("ambiguous-source")),
+        "{trace:?}"
+    );
+    assert_eq!(boa.state()["bodies"], 0);
+    assert_eq!(boa.state()["opens"], 0);
+}
+
+/// A symlinked recorded home is canonicalized once and opened as the
+/// traversal root; the confirmed path is the canonical spelling.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_home_is_canonicalized_and_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    let projects = real.join("project");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::write(
+        projects.join("abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let reference = common("claude-session", "abcd-1234", link.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "a symlinked home is canonicalized, not refused: {read:?}"
+    );
+    assert!(
+        read.path
+            .as_deref()
+            .unwrap()
+            .starts_with(real.to_str().unwrap()),
+        "the confirmed path is canonical: {read:?}"
+    );
+}
+
+/// Each enumerated project costs one discovery entry, not two: 6,000
+/// projects with only one matching file stay inside the 10,000-entry
+/// bound instead of exhausting it on the file probes.
+#[test]
+fn claude_discovery_counts_each_project_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("winning")).unwrap();
+    std::fs::write(
+        projects.join("winning/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"late\"}}\n",
+    )
+    .unwrap();
+    for index in 0..6_000 {
+        std::fs::create_dir_all(projects.join(format!("filler-{index:05}"))).unwrap();
+    }
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "6,000 projects are 6,000 examined entries, not 12,000: {read:?}"
+    );
 }

@@ -46,9 +46,12 @@ impl Dir {
         })
     }
 
-    /// Enumerate names through the held handle. Dot entries are dropped.
-    pub fn entries(&self) -> io::Result<Vec<std::ffi::OsString>> {
-        self.inner.entries()
+    /// Enumerate at most `max` names through the held handle, dot entries
+    /// dropped. Returns `(names, truncated)`: `truncated` is true when the
+    /// directory held more entries than `max`, so the caller can charge its
+    /// discovery bound without materializing an unbounded listing.
+    pub fn entries_bounded(&self, max: usize) -> io::Result<(Vec<std::ffi::OsString>, bool)> {
+        self.inner.entries_bounded(max)
     }
 
     /// Open one direct child, following no symlink or reparse point.
@@ -134,7 +137,7 @@ mod imp {
             Ok(Dir { fd })
         }
 
-        pub fn entries(&self) -> io::Result<Vec<OsString>> {
+        pub fn entries_bounded(&self, max: usize) -> io::Result<(Vec<OsString>, bool)> {
             let mut names = Vec::new();
             for entry in RDir::read_from(&self.fd)? {
                 let entry = entry?;
@@ -143,9 +146,13 @@ mod imp {
                 if name == OsStr::new(".") || name == OsStr::new("..") {
                     continue;
                 }
+                if names.len() >= max {
+                    // One more eligible entry exists beyond the budget.
+                    return Ok((names, true));
+                }
                 names.push(name);
             }
-            Ok(names)
+            Ok((names, false))
         }
 
         pub fn child(&self, name: &OsStr) -> io::Result<Child> {
@@ -211,12 +218,30 @@ mod imp {
     use super::Identity;
     use std::ffi::{OsStr, OsString};
     use std::io::{self, Read, Seek};
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::path::{Path, PathBuf};
+    use std::mem::size_of;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, OwnedHandle, RawHandle};
+    use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+    use windows_sys::Wdk::Storage::FileSystem::{
+        NtCreateFile, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+    };
+    use windows_sys::Win32::Foundation::{
+        ERROR_NO_MORE_FILES, HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE,
+        STATUS_FILE_IS_A_DIRECTORY, STATUS_NOT_A_DIRECTORY, STATUS_OBJECT_NAME_NOT_FOUND,
+        STATUS_OBJECT_PATH_NOT_FOUND, STATUS_REPARSE_POINT_ENCOUNTERED, STATUS_SUCCESS,
+        UNICODE_STRING,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FileIdBothDirectoryInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, SYNCHRONIZE,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
-    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
-    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+    const DIRECTORY_LIST_BUFFER: usize = 64 * 1024;
 
     pub enum Child {
         File(File),
@@ -225,11 +250,13 @@ mod imp {
         Absent,
     }
 
-    /// A held Windows directory. Handle-relative opening with reparse
-    /// rejection is approximated with `FILE_FLAG_OPEN_REPARSE_POINT` and
-    /// attribute checks; Windows execution remains a controller gate.
+    /// A held Windows directory opened with `FILE_FLAG_OPEN_REPARSE_POINT`
+    /// and its stable identity. Descendants are opened relative to this
+    /// handle with `NtCreateFile`, never by rebuilding an absolute path.
     pub struct Dir {
-        path: PathBuf,
+        handle: OwnedHandle,
+        #[allow(dead_code)]
+        identity: Identity,
     }
 
     pub struct File {
@@ -237,67 +264,200 @@ mod imp {
         identity: Identity,
     }
 
-    fn attributes(metadata: &std::fs::Metadata) -> u32 {
-        use std::os::windows::fs::MetadataExt;
-        metadata.file_attributes()
+    fn handle_identity(handle: &impl AsRawHandle) -> io::Result<Identity> {
+        let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        let ok = unsafe { GetFileInformationByHandle(handle.as_raw_handle() as HANDLE, &mut info) };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Identity {
+            device: info.dwVolumeSerialNumber as u64,
+            inode: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
+        })
     }
 
-    fn identity_of(metadata: &std::fs::Metadata) -> Identity {
-        use std::os::windows::fs::MetadataExt;
-        Identity {
-            device: metadata.volume_serial_number().unwrap_or(0) as u64,
-            inode: metadata.file_index().unwrap_or(0),
+    fn handle_attributes(handle: &impl AsRawHandle) -> io::Result<u32> {
+        let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        let ok = unsafe { GetFileInformationByHandle(handle.as_raw_handle() as HANDLE, &mut info) };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
         }
+        Ok(info.dwFileAttributes)
+    }
+
+    fn nt_status(error: &io::Error) -> Option<i32> {
+        error.raw_os_error()
+    }
+
+    fn absent_status(status: i32) -> bool {
+        status == STATUS_OBJECT_NAME_NOT_FOUND
+            || status == STATUS_OBJECT_PATH_NOT_FOUND
+            || status == FILE_NOT_FOUND_STATUS
+    }
+
+    /// `STATUS_NO_SUCH_FILE` keeps this mapping local so the import list
+    /// stays to the statuses the reader distinguishes.
+    const FILE_NOT_FOUND_STATUS: i32 = 0xC000_000F_u32 as i32;
+
+    fn nt_open(root: &impl AsRawHandle, name: &OsStr, directory: bool) -> io::Result<OwnedHandle> {
+        let wide: Vec<u16> = name.encode_wide().collect();
+        let unicode = UNICODE_STRING {
+            Length: (wide.len() * 2) as u16,
+            MaximumLength: (wide.len() * 2) as u16,
+            Buffer: wide.as_ptr() as *mut u16,
+        };
+        let attributes = OBJECT_ATTRIBUTES {
+            Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: root.as_raw_handle() as HANDLE,
+            ObjectName: &unicode,
+            Attributes: OBJ_CASE_INSENSITIVE,
+            SecurityDescriptor: std::ptr::null(),
+            SecurityQualityOfService: std::ptr::null(),
+        };
+        let mut iosb = IO_STATUS_BLOCK::default();
+        let mut handle: HANDLE = std::ptr::null_mut();
+        let access = if directory {
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE
+        } else {
+            FILE_READ_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE
+        };
+        let mut options = FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT;
+        options |= if directory {
+            FILE_DIRECTORY_FILE
+        } else {
+            FILE_NON_DIRECTORY_FILE
+        };
+        let status = unsafe {
+            NtCreateFile(
+                &mut handle,
+                access,
+                &attributes,
+                &mut iosb,
+                std::ptr::null(),
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                FILE_OPEN,
+                options,
+                std::ptr::null(),
+                0,
+            )
+        };
+        if status != STATUS_SUCCESS {
+            return Err(io::Error::from_raw_os_error(status));
+        }
+        Ok(unsafe { OwnedHandle::from_raw_handle(handle as RawHandle) })
+    }
+
+    fn into_file(handle: OwnedHandle) -> std::fs::File {
+        let raw = handle.into_raw_handle();
+        unsafe { std::fs::File::from_raw_handle(raw as RawHandle) }
     }
 
     impl Dir {
         pub fn open_root(path: &str) -> io::Result<Dir> {
-            let _metadata = std::fs::metadata(path)?;
-            Ok(Dir {
-                path: Path::new(path).to_path_buf(),
-            })
+            // The caller canonicalizes the recorded home first, so the root
+            // itself is opened without following a reparse point.
+            let wide: Vec<u16> = OsStr::new(path)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let handle = unsafe {
+                CreateFileW(
+                    wide.as_ptr(),
+                    FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    std::ptr::null_mut(),
+                )
+            };
+            if handle == INVALID_HANDLE_VALUE {
+                return Err(io::Error::last_os_error());
+            }
+            let handle = unsafe { OwnedHandle::from_raw_handle(handle as RawHandle) };
+            let identity = handle_identity(&handle)?;
+            Ok(Dir { handle, identity })
         }
 
-        pub fn entries(&self) -> io::Result<Vec<OsString>> {
+        pub fn entries_bounded(&self, max: usize) -> io::Result<(Vec<OsString>, bool)> {
             let mut names = Vec::new();
-            for entry in std::fs::read_dir(&self.path)? {
-                names.push(entry?.file_name());
+            let mut buffer = vec![0u8; DIRECTORY_LIST_BUFFER];
+            loop {
+                let ok = unsafe {
+                    GetFileInformationByHandleEx(
+                        self.handle.as_raw_handle() as HANDLE,
+                        FileIdBothDirectoryInfo,
+                        buffer.as_mut_ptr() as *mut _,
+                        buffer.len() as u32,
+                    )
+                };
+                if ok == 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+                        return Ok((names, false));
+                    }
+                    return Err(error);
+                }
+                let mut offset = 0usize;
+                loop {
+                    let info =
+                        unsafe { &*(buffer.as_ptr().add(offset) as *const FILE_ID_BOTH_DIR_INFO) };
+                    if info.FileNameLength > 0 {
+                        let length = (info.FileNameLength / 2) as usize;
+                        let slice =
+                            unsafe { std::slice::from_raw_parts(info.FileName.as_ptr(), length) };
+                        let name = OsString::from_wide(slice);
+                        if name != OsStr::new(".") && name != OsStr::new("..") {
+                            if names.len() >= max {
+                                return Ok((names, true));
+                            }
+                            names.push(name);
+                        }
+                    }
+                    if info.NextEntryOffset == 0 {
+                        break;
+                    }
+                    offset += info.NextEntryOffset as usize;
+                }
             }
-            Ok(names)
         }
 
         pub fn child(&self, name: &OsStr) -> io::Result<Child> {
-            let path = self.path.join(name);
-            let metadata = match std::fs::symlink_metadata(&path) {
-                Ok(metadata) => metadata,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Child::Absent),
-                Err(error) => return Err(error),
-            };
-            let attributes = attributes(&metadata);
-            if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                return Ok(Child::Unsafe);
+            match nt_open(&self.handle, name, true) {
+                Ok(handle) => {
+                    // A directory reparse point (a junction or directory
+                    // symlink) is not a traversal-safe ancestor.
+                    if handle_attributes(&handle)? & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                        return Ok(Child::Unsafe);
+                    }
+                    let identity = handle_identity(&handle)?;
+                    return Ok(Child::Dir(Dir { handle, identity }));
+                }
+                Err(error) => {
+                    if nt_status(&error).is_some_and(absent_status) {
+                        return Ok(Child::Absent);
+                    }
+                }
             }
-            if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
-                return Ok(Child::Dir(Dir {
-                    identity: identity_of(&metadata),
-                    path,
-                }));
+            match nt_open(&self.handle, name, false) {
+                Ok(handle) => {
+                    let file = into_file(handle);
+                    let attributes = handle_attributes(&file)?;
+                    if attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY) != 0 {
+                        return Ok(Child::Unsafe);
+                    }
+                    let identity = handle_identity(&file)?;
+                    Ok(Child::File(File { file, identity }))
+                }
+                Err(error) => match nt_status(&error) {
+                    Some(status) if absent_status(status) => Ok(Child::Absent),
+                    Some(STATUS_FILE_IS_A_DIRECTORY)
+                    | Some(STATUS_NOT_A_DIRECTORY)
+                    | Some(STATUS_REPARSE_POINT_ENCOUNTERED) => Ok(Child::Unsafe),
+                    _ => Err(error),
+                },
             }
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-                .open(&path)?;
-            let handle_metadata = file.metadata()?;
-            let handle_attributes = attributes(&handle_metadata);
-            if handle_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
-                || handle_attributes & FILE_ATTRIBUTE_DIRECTORY != 0
-            {
-                return Ok(Child::Unsafe);
-            }
-            Ok(Child::File(File {
-                identity: identity_of(&handle_metadata),
-                file,
-            }))
         }
     }
 

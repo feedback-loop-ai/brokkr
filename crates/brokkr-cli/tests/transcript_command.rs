@@ -1574,3 +1574,103 @@ fn one_invalid_packed_row_counts_once() {
     assert_eq!(document["unrecognized_records"], 1);
     assert!(document["turns"].as_array().unwrap().is_empty());
 }
+
+/// JSON mode still writes the sanitized refusal explanation to stderr,
+/// beside the complete document on stdout.
+#[test]
+fn json_mode_still_writes_the_sanitized_stderr_explanation() {
+    let world = world_effects(&[("eff1", "review", None)]);
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(!output.status.success());
+    let document = read_document(&output);
+    assert_eq!(document["unavailable"], "no-reference");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("transcript unavailable: no-reference"),
+        "JSON mode must still explain the refusal on stderr: {stderr:?}"
+    );
+}
+
+/// An ambiguous label sanitizes every candidate key it names, not only
+/// the requested label.
+#[test]
+fn an_ambiguous_label_sanitizes_every_candidate_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r222", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    let none = json!({"kind": "none", "locator": "", "home": ""});
+    let events: Vec<(EventType, Value)> = vec![
+        (
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "intake"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "eff\u{1b}[31mred", "seat": "same-label",
+                   "phase": "intake"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff\u{1b}[31mred", "attempt_id": "att0"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff\u{1b}[31mred", "attempt_id": "att0",
+                   "checkpoint": {"step": "session-finished", "transcript": none}}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "eff\u{1b}[31mred", "attempt_id": "att0",
+                   "result": {"result": "intook"}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"rule_id": "INTAKE-OK", "severity": "normal",
+                   "from": "intake", "next": "design", "result": "intook"}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "design"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "eff2", "seat": "same-label", "phase": "design"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff2", "attempt_id": "att1"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff2", "attempt_id": "att1",
+                   "checkpoint": {"step": "session-finished", "transcript": none}}),
+        ),
+    ];
+    for (event_type, payload) in events {
+        store
+            .append_next("r222", event_type, payload, None, None)
+            .unwrap();
+    }
+    let world = World { dir, db, home };
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "same-label"],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ambiguous"), "{stderr:?}");
+    assert!(
+        !stderr.contains('\u{1b}'),
+        "a candidate key's terminal control must be sanitized: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("eff") && stderr.contains("eff2"),
+        "{stderr:?}"
+    );
+}

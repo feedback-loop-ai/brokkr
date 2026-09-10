@@ -1012,6 +1012,42 @@ fn dsh_invalid_packed_rows_refuse_once() {
             "overflowing reconstruction",
             json!({"type":"text-chunks","seq0":9007199254740991_i64,"time0":1000,"data":{"turn":1,"step":1,"index":0,"dt":[5],"texts":["a","b"]}}),
         ),
+        (
+            "missing tool id",
+            json!({"type":"tool-call-chunks","seq0":10,"time0":1000,"data":{"turn":1,"step":1,"index":0,"dt":[5],"args":["a","b"]}}),
+        ),
+        (
+            "non-string tool id",
+            json!({"type":"tool-call-chunks","seq0":10,"time0":1000,"data":{"turn":1,"step":1,"index":0,"dt":[5],"args":["a","b"],"id":5}}),
+        ),
+        (
+            "non-string optional tool name",
+            json!({"type":"tool-call-chunks","seq0":10,"time0":1000,"data":{"turn":1,"step":1,"index":0,"dt":[5],"args":["a","b"],"id":"c1","name":5}}),
+        ),
+        (
+            "key outside the text shape",
+            json!({"type":"text-chunks","seq0":10,"time0":1000,"data":{"turn":1,"step":1,"index":0,"dt":[5],"texts":["a","b"],"args":["x"]}}),
+        ),
+        (
+            "missing required data key",
+            json!({"type":"text-chunks","seq0":10,"time0":1000,"data":{"turn":1,"step":1,"dt":[5],"texts":["a","b"]}}),
+        ),
+        (
+            "key outside the envelope",
+            json!({"type":"text-chunks","seq0":10,"time0":1000,"extra":1,"data":{"turn":1,"step":1,"index":0,"dt":[5],"texts":["a","b"]}}),
+        ),
+        (
+            "unsafe time0",
+            json!({"type":"text-chunks","seq0":10,"time0":9007199254740992_i64,"data":{"turn":1,"step":1,"index":0,"dt":[5],"texts":["a","b"]}}),
+        ),
+        (
+            "unsafe dt member between safe endpoints",
+            json!({"type":"text-chunks","seq0":10,"time0":-1,"data":{"turn":1,"step":1,"index":0,"dt":[9007199254740992_i64],"texts":["a","b"]}}),
+        ),
+        (
+            "negative-zero seq0",
+            json!({"type":"text-chunks","seq0":-0.0,"time0":1000,"data":{"turn":1,"step":1,"index":0,"dt":[5],"texts":["a","b"]}}),
+        ),
     ];
     for (label, value) in cases {
         let text = format!(
@@ -1237,6 +1273,19 @@ fn dsh_citation_validation_refuses_and_large_ranges_stay_bounded() {
         assert_eq!(projection.unrecognized_records, 1, "{label}");
         assert!(projection.turns.is_empty(), "{label}");
     }
+
+    // An owning sequence above the safe integer range is refused even
+    // when every cited value is itself small.
+    let text = format!(
+        "{}{}{}",
+        row(json!({"type":"session","version":0})),
+        dsh_chunk(10, 1000, 1, 1, "c10"),
+        dsh_assembly(9007199254740992_i64, 1020, 1, 1, Some(json!([10]))),
+    );
+    let projection = dsh(&text);
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 1);
+    assert!(projection.turns.is_empty());
 
     // A valid huge range tests only observed identities, with no
     // allocation or iteration proportional to its width.
@@ -1569,4 +1618,139 @@ fn dsh_suppressed_only_block_emits_no_empty_turn() {
     assert!(projection.unavailable.is_none());
     assert_eq!(projection.turns.len(), 1);
     assert_eq!(projection.turns[0].blocks, vec![Block::tool("Read {}")]);
+}
+
+// --------------------------------------- offline evidence for the
+// review's validation, omission, time and media findings
+
+#[test]
+fn dsh_unknown_nested_chunk_variant_is_a_counted_omission() {
+    for chunk in [json!({"type":"future-chunk","text":"x"}), json!({})] {
+        let text = format!(
+            "{}{}",
+            row(json!({"type":"session","version":0})),
+            row(json!({"type":"assistant/chunk","seq":10,"time":1000,
+                       "data":{"turn":1,"step":1,"chunk":chunk}})),
+        );
+        let projection = dsh(&text);
+        assert!(
+            projection.unavailable.is_none(),
+            "an unsupported nested variant never refuses the source: {chunk}"
+        );
+        assert_eq!(projection.unrecognized_records, 1, "{chunk}");
+        assert!(projection.turns.is_empty());
+    }
+}
+
+#[test]
+fn dsh_assembly_without_readable_blocks_does_not_suppress_chunks() {
+    let text = format!(
+        "{}{}{}{}",
+        row(json!({"type":"session","version":0})),
+        dsh_chunk(10, 1000, 1, 1, "kept-a"),
+        dsh_chunk(11, 1001, 1, 1, "kept-b"),
+        row(json!({"type":"assistant/message","seq":12,"time":1002,
+                   "data":{"message":{"content":[]},"turn":1,"step":1},
+                   "sourceEventSeqs":[[10,11]]})),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(
+        projection.turns.len(),
+        2,
+        "an assembly with no readable projected blocks suppresses nothing"
+    );
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("kept-a")]);
+    assert_eq!(projection.turns[1].blocks, vec![Block::text("kept-b")]);
+}
+
+#[test]
+fn dsh_negative_zero_time_renders_zero() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        "{\"type\":\"assistant/chunk\",\"seq\":10,\"time\":-0.0,\
+         \"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"a\"}}}\n",
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns[0].ts, "0");
+
+    let packed = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":-0.0,\
+         \"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"a\",\"b\"]}}\n",
+    );
+    let projection = dsh(&packed);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.turns.len(), 2);
+    assert_eq!(projection.turns[0].ts, "0");
+    assert_eq!(projection.turns[1].ts, "1");
+}
+
+#[test]
+fn source_utf8_refusal_keeps_established_overflow() {
+    let bytes = [0xffu8, 0xfe];
+    let projection = project(
+        TranscriptKind::ClaudeSession,
+        &Snapshot {
+            bytes: &bytes,
+            overflow: true,
+            eof: false,
+        },
+    );
+    assert_eq!(projection.unavailable, Some(Unavailable::Unreadable));
+    assert!(
+        projection.truncated,
+        "the bounded read's overflow fact survives a UTF-8 refusal"
+    );
+    assert_eq!(projection.skipped_lines, 0);
+    assert_eq!(projection.unrecognized_records, 0);
+    assert!(projection.turns.is_empty());
+}
+
+#[test]
+fn codex_media_parts_name_their_class() {
+    let text = row(json!({"timestamp":"t1","type":"response_item","payload":{
+        "type":"message","role":"user",
+        "content":[{"type":"input_text","text":"see"},{"type":"input_image"},
+                   {"type":"input_audio"}]}}));
+    let projection = codex(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(
+        projection.turns[0].blocks,
+        vec![
+            Block::text("see"),
+            Block::omitted("[image omitted]"),
+            Block::omitted("[audio omitted]"),
+        ]
+    );
+}
+
+#[test]
+fn codex_unassociated_user_mirrors_are_both_preserved() {
+    let text = [
+        row(json!({"timestamp":"t1","type":"response_item","payload":{
+            "type":"message","role":"user",
+            "content":[{"type":"input_text","text":"question"}]}})),
+        row(json!({"timestamp":"t1b","type":"event_msg","payload":{
+            "type":"user_message","message":"question"}})),
+    ]
+    .concat();
+    let projection = codex(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(
+        projection.turns.len(),
+        2,
+        "id-less user mirrors are deliberately unassociated and both stay visible"
+    );
+    assert_eq!(projection.turns[0].role, "user");
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("question")]);
+    assert_eq!(projection.turns[1].role, "user");
+    assert_eq!(projection.turns[1].blocks, vec![Block::text("question")]);
 }

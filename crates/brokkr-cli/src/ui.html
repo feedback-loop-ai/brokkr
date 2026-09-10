@@ -773,6 +773,10 @@ function createTranscriptController(effects) {
   let presentations = 0;
   let bodies = 0;
   let opens = 0;
+  // The newest issued body request. A response older than this cannot
+  // repaint, even when it shares the current generation, so overlapping
+  // growth reads can never restore earlier prose.
+  let bodyRequest = 0;
 
   function referenceKey(reference) {
     if (!reference) return 'none';
@@ -824,12 +828,15 @@ function createTranscriptController(effects) {
       drillEligible: presentation ? !!presentation.drill_eligible : false,
       legacy: presentation ? !!presentation.legacy : false,
       reference: presentation ? (presentation.reference ?? null) : null,
-      // A valid Claude reference that is admitted but whose canonical home
-      // is not the local projects home: show the recorded-home explanation
-      // and drill nothing.
-      homeUnavailable: !!(presentation && presentation.admitted
-        && !presentation.drill_eligible && presentation.reason === null
-        && presentation.reference && presentation.reference.kind === 'claude-session'),
+      // A valid Claude reference whose canonical home is not the local
+      // projects home: show the recorded-home explanation and drill
+      // nothing, whether or not shared lookup simultaneously refuses the
+      // source. The non-null shared hint is the shared proof that the
+      // reference itself validated; an invalid reference has none.
+      homeUnavailable: !!(presentation && presentation.reference
+        && presentation.reference.kind === 'claude-session'
+        && !presentation.drill_eligible
+        && (presentation.hint ?? null) !== null),
       bodyState: bodyState,
       body: body,
     };
@@ -866,12 +873,18 @@ function createTranscriptController(effects) {
     if (!active) return;
     const changed = !equivalent(presentation, result);
     if (changed) {
+      // Eligibility is not automatic recovery: a changed drill gate
+      // restores the watch budget so an operator-visible change can open
+      // its watch without waiting for another timer interval.
+      const eligibilityChanged = !!presentation
+        && !!presentation.drill_eligible !== !!result.drill_eligible;
       generation += 1;
       closeOwnedWatch();
       presentation = result;
       bodyPending = 0;
       bodyState = 'missing';
       body = null;
+      if (eligibilityChanged) openingsUsed = 0;
       effects.clear();
       paint('presentation');
     } else {
@@ -881,12 +894,13 @@ function createTranscriptController(effects) {
   }
   function requestBody(gen) {
     bodies += 1;
+    const request = ++bodyRequest;
     bodyPending = gen;
     bodyState = 'pending';
     effects.requestBody(drillId(), active.subject).then(
       (result) => {
         if (bodyPending === gen) bodyPending = 0;
-        if (gen !== generation) return;
+        if (gen !== generation || request !== bodyRequest) return;
         bodyState = 'succeeded';
         body = result;
         paint('body');
@@ -894,7 +908,7 @@ function createTranscriptController(effects) {
       },
       () => {
         if (bodyPending === gen) bodyPending = 0;
-        if (gen !== generation) return;
+        if (gen !== generation || request !== bodyRequest) return;
         refuseBody();
       },
     );
@@ -979,7 +993,13 @@ function createTranscriptController(effects) {
       beginInterval(subject);
       return;
     }
+    const wasWorking = !!(active.subject && active.subject.working);
     active.subject = subject;
+    // A seat that stopped working has no further prose to await: close the
+    // owned watch rather than leaving it open on a concluded participant.
+    if (wasWorking && !subject.working) {
+      closeOwnedWatch();
+    }
   }
   function clear() {
     generation += 1;
@@ -1123,10 +1143,13 @@ function renderTranscriptView(view) {
     if (view.explanation !== null) {
       transcriptBox.appendChild(el('p', 'cause', view.explanation));
     }
-  } else if (view.homeUnavailable) {
+  }
+  if (view.homeUnavailable) {
+    // A valid Claude reference under a foreign recorded home keeps this
+    // explanation beside any simultaneous shared lookup refusal.
     transcriptBox.appendChild(el('p', 'cause',
       'browser transcript unavailable for this recorded home'));
-  } else if (view.drillEligible && view.admitted) {
+  } else if (view.reason === null && view.drillEligible && view.admitted) {
     transcriptBox.appendChild(el('p', 'cause', 'loading transcript…'));
   }
   if (transcriptPart) transcriptBox.appendChild(checkpointTable(transcriptPart));

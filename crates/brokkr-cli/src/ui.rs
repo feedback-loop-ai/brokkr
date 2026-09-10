@@ -87,7 +87,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
         // initialized empty store.
         return not_found("database");
     }
-    let store = match Store::open(db) {
+    let store = match Store::open_read_only(db) {
         Ok(store) => store,
         Err(e) => {
             return Response {
@@ -242,19 +242,18 @@ struct Lookup {
     unsafe_seen: bool,
     io_seen: bool,
     limit_hit: bool,
-    invalid_dsh_header: bool,
+    invalid_depth_seen: bool,
 }
 
 impl Lookup {
-    /// Count one examined entry against the bound. Returns false when the
-    /// bound is already spent, setting the limit fact.
-    fn examine(&mut self) -> bool {
-        if self.examined >= brokkr_view::transcript::DISCOVERY_LIMIT {
-            self.limit_hit = true;
-            return false;
-        }
+    /// Entries still chargeable to the one 10,000-entry discovery budget.
+    fn remaining(&self) -> usize {
+        brokkr_view::transcript::DISCOVERY_LIMIT.saturating_sub(self.examined)
+    }
+
+    /// Charge one directory entry that was actually examined.
+    fn note_entry(&mut self) {
         self.examined += 1;
-        true
     }
 
     fn resolve(mut self, kind: TranscriptKind) -> Discovery {
@@ -264,22 +263,43 @@ impl Lookup {
         if self.candidates.len() > 1 {
             return Discovery::Refused(Unavailable::AmbiguousSource, None);
         }
-        if let Some(candidate) = self.candidates.pop() {
-            return Discovery::Admitted(candidate);
-        }
+        // An unreadable sibling prevents proving that a sole candidate is
+        // unique, so I/O failure outranks a provisional admission.
         if self.io_seen {
             return Discovery::Refused(Unavailable::Unreadable, None);
+        }
+        if let Some(candidate) = self.candidates.pop() {
+            return Discovery::Admitted(candidate);
         }
         if self.unsafe_seen {
             return Discovery::Refused(Unavailable::UnsafePath, None);
         }
-        if kind == TranscriptKind::DshSession && self.invalid_dsh_header {
+        if kind == TranscriptKind::DshSession && self.invalid_depth_seen {
             return Discovery::Refused(
                 Unavailable::NotFound,
                 Some("no valid depth-zero DSH session header".to_string()),
             );
         }
         Discovery::Refused(Unavailable::NotFound, None)
+    }
+}
+
+/// Enumerate one directory under the remaining discovery budget. A
+/// listing larger than the budget sets the limit fact without
+/// materializing the extra names; an I/O failure is recorded and yields
+/// `None`, ending this lookup.
+fn bounded_entries(dir: &safe_fs::Dir, lookup: &mut Lookup) -> Option<Vec<std::ffi::OsString>> {
+    match dir.entries_bounded(lookup.remaining()) {
+        Ok((names, truncated)) => {
+            if truncated {
+                lookup.limit_hit = true;
+            }
+            Some(names)
+        }
+        Err(_) => {
+            lookup.io_seen = true;
+            None
+        }
     }
 }
 
@@ -294,17 +314,27 @@ fn root_error(error: &std::io::Error) -> Discovery {
 
 /// Locate one safely opened local source for a validated reference. No
 /// transcript content is read for Claude or Codex; a DSH candidate's
-/// bounded opening header is read to prove depth-zero ownership.
+/// bounded opening header is read to prove depth-zero ownership. The
+/// recorded home is canonicalized once (it may itself be a symlink) and
+/// only that canonical directory is opened as the traversal root.
 fn discover(reference: &ValidReference) -> Discovery {
-    let root = match safe_fs::Dir::open_root(&reference.home) {
+    let canonical = match std::fs::canonicalize(&reference.home) {
+        Ok(path) => path,
+        Err(error) => return root_error(&error),
+    };
+    let Some(home) = canonical.to_str() else {
+        // A non-Unicode root has no lossless output spelling.
+        return Discovery::Refused(Unavailable::Unreadable, None);
+    };
+    let root = match safe_fs::Dir::open_root(home) {
         Ok(root) => root,
         Err(error) => return root_error(&error),
     };
     let mut lookup = Lookup::default();
     match reference.kind {
-        TranscriptKind::ClaudeSession => discover_claude(&root, reference, &mut lookup),
-        TranscriptKind::CodexThread => discover_codex(&root, reference, &mut lookup),
-        TranscriptKind::DshSession => discover_dsh(&root, reference, &mut lookup),
+        TranscriptKind::ClaudeSession => discover_claude(&root, home, reference, &mut lookup),
+        TranscriptKind::CodexThread => discover_codex(&root, home, reference, &mut lookup),
+        TranscriptKind::DshSession => discover_dsh(&root, home, reference, &mut lookup),
         TranscriptKind::None => {}
     }
     lookup.resolve(reference.kind)
@@ -314,19 +344,18 @@ fn join_path(base: &str, name: &str) -> String {
     format!("{base}/{name}")
 }
 
-fn discover_claude(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lookup) {
+fn discover_claude(
+    root: &safe_fs::Dir,
+    home: &str,
+    reference: &ValidReference,
+    lookup: &mut Lookup,
+) {
     let file_name = format!("{}.jsonl", reference.locator);
-    let entries = match root.entries() {
-        Ok(entries) => entries,
-        Err(_) => {
-            lookup.io_seen = true;
-            return;
-        }
+    let Some(entries) = bounded_entries(root, lookup) else {
+        return;
     };
     for name in entries {
-        if !lookup.examine() {
-            return;
-        }
+        lookup.note_entry();
         let Some(name) = name.to_str() else {
             lookup.io_seen = true;
             continue;
@@ -343,13 +372,10 @@ fn discover_claude(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut
                 continue;
             }
         };
-        if !lookup.examine() {
-            return;
-        }
         match project.child(std::ffi::OsStr::new(&file_name)) {
             Ok(safe_fs::Child::File(file)) => {
                 lookup.candidates.push(AdmittedSource {
-                    path: join_path(&join_path(&reference.home, name), &file_name),
+                    path: join_path(&join_path(home, name), &file_name),
                     identity: file.identity(),
                     file,
                 });
@@ -385,10 +411,13 @@ fn codex_filename_matches(filename: &str, id: &str) -> bool {
     false
 }
 
-fn discover_codex(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lookup) {
-    if !lookup.examine() {
-        return;
-    }
+fn discover_codex(
+    root: &safe_fs::Dir,
+    home: &str,
+    reference: &ValidReference,
+    lookup: &mut Lookup,
+) {
+    lookup.note_entry();
     let sessions = match root.child(std::ffi::OsStr::new("sessions")) {
         Ok(safe_fs::Child::Dir(dir)) => dir,
         Ok(safe_fs::Child::Unsafe) => {
@@ -403,7 +432,7 @@ fn discover_codex(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut 
     };
     walk_codex(
         &sessions,
-        &join_path(&reference.home, "sessions"),
+        &join_path(home, "sessions"),
         0,
         reference,
         lookup,
@@ -417,26 +446,17 @@ fn walk_codex(
     reference: &ValidReference,
     lookup: &mut Lookup,
 ) {
-    let entries = match dir.entries() {
-        Ok(entries) => entries,
-        Err(_) => {
-            lookup.io_seen = true;
-            return;
-        }
+    let Some(entries) = bounded_entries(dir, lookup) else {
+        return;
     };
     let mut subdirs = Vec::new();
     for name in entries {
-        if !lookup.examine() {
-            return;
-        }
+        lookup.note_entry();
         let Some(name_str) = name.to_str() else {
             lookup.io_seen = true;
             continue;
         };
         if codex_filename_matches(name_str, &reference.locator) {
-            if !lookup.examine() {
-                return;
-            }
             match dir.child(std::ffi::OsStr::new(name_str)) {
                 Ok(safe_fs::Child::File(file)) => lookup.candidates.push(AdmittedSource {
                     path: join_path(path, name_str),
@@ -472,9 +492,15 @@ fn walk_codex(
     }
 }
 
+/// The classification of a DSH candidate's bounded opening record. The
+/// variants keep an invalid-depth session header distinct from an absent
+/// or malformed opening row and from a header that outgrew the cap, so
+/// discovery can resolve the exact specified outcome and explanation.
 enum HeaderCheck {
     Valid,
-    Invalid,
+    InvalidDepth,
+    NotSessionHeader,
+    TooLarge,
     Io,
 }
 
@@ -482,7 +508,7 @@ enum HeaderCheck {
 /// it only as an opening `session` object with absent or unsigned-zero
 /// depth. The version field neither qualifies nor vetoes ownership.
 fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
-    let (bytes, overflow, eof) =
+    let (bytes, overflow, _eof) =
         match file.read_bounded(brokkr_view::transcript::DSH_HEADER_CAP as u64) {
             Ok(read) => read,
             Err(_) => return HeaderCheck::Io,
@@ -490,42 +516,42 @@ fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
     let header = match bytes.iter().position(|byte| *byte == b'\n') {
         Some(end) => &bytes[..end],
         None => {
-            if overflow || !eof {
-                return HeaderCheck::Invalid;
+            // No complete first record inside the cap: either the header
+            // itself exceeds the bound, or the whole file was read.
+            if overflow {
+                return HeaderCheck::TooLarge;
             }
             &bytes[..]
         }
     };
     let Ok(text) = std::str::from_utf8(header) else {
-        return HeaderCheck::Invalid;
+        // Invalid UTF-8 prevents establishing a unique ownership answer.
+        return HeaderCheck::Io;
     };
     let Ok(value) = serde_json::from_str::<Value>(text) else {
-        return HeaderCheck::Invalid;
+        return HeaderCheck::NotSessionHeader;
     };
     let Some(object) = value.as_object() else {
-        return HeaderCheck::Invalid;
+        return HeaderCheck::NotSessionHeader;
     };
     if object.get("type").and_then(Value::as_str) != Some("session") {
-        return HeaderCheck::Invalid;
+        return HeaderCheck::NotSessionHeader;
     }
     match object.get("delegationDepth") {
-        None | Some(Value::Null) => {}
-        Some(depth) => {
-            if depth.as_u64() != Some(0) {
-                return HeaderCheck::Invalid;
-            }
-        }
+        // Omitted depth retains the legacy meaning of zero.
+        None => {}
+        Some(depth) if depth.as_u64() == Some(0) => {}
+        // Null, booleans, strings, negatives and floats are invalid.
+        Some(_) => return HeaderCheck::InvalidDepth,
     }
     HeaderCheck::Valid
 }
 
-fn discover_dsh(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lookup) {
+fn discover_dsh(root: &safe_fs::Dir, home: &str, reference: &ValidReference, lookup: &mut Lookup) {
     let mut current: Option<safe_fs::Dir> = None;
-    let mut base_path = reference.home.clone();
+    let mut base_path = home.to_string();
     for component in reference.locator.split('/') {
-        if !lookup.examine() {
-            return;
-        }
+        lookup.note_entry();
         let child = match &current {
             Some(dir) => dir.child(std::ffi::OsStr::new(component)),
             None => root.child(std::ffi::OsStr::new(component)),
@@ -547,17 +573,11 @@ fn discover_dsh(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lo
         }
     }
     let Some(base) = current else { return };
-    let projects = match base.entries() {
-        Ok(entries) => entries,
-        Err(_) => {
-            lookup.io_seen = true;
-            return;
-        }
+    let Some(projects) = bounded_entries(&base, lookup) else {
+        return;
     };
     for project_name in projects {
-        if !lookup.examine() {
-            return;
-        }
+        lookup.note_entry();
         let Some(project_name) = project_name.to_str() else {
             lookup.io_seen = true;
             continue;
@@ -575,17 +595,11 @@ fn discover_dsh(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lo
             }
         };
         let project_path = join_path(&base_path, project_name);
-        let sessions = match project.entries() {
-            Ok(entries) => entries,
-            Err(_) => {
-                lookup.io_seen = true;
-                continue;
-            }
+        let Some(sessions) = bounded_entries(&project, lookup) else {
+            continue;
         };
         for session_name in sessions {
-            if !lookup.examine() {
-                return;
-            }
+            lookup.note_entry();
             let Some(session_name) = session_name.to_str() else {
                 lookup.io_seen = true;
                 continue;
@@ -602,9 +616,6 @@ fn discover_dsh(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lo
                     continue;
                 }
             };
-            if !lookup.examine() {
-                return;
-            }
             match session.child(std::ffi::OsStr::new("session.jsonl")) {
                 Ok(safe_fs::Child::File(file)) => match dsh_header(&file) {
                     HeaderCheck::Valid => lookup.candidates.push(AdmittedSource {
@@ -612,7 +623,9 @@ fn discover_dsh(root: &safe_fs::Dir, reference: &ValidReference, lookup: &mut Lo
                         identity: file.identity(),
                         file,
                     }),
-                    HeaderCheck::Invalid => lookup.invalid_dsh_header = true,
+                    HeaderCheck::InvalidDepth => lookup.invalid_depth_seen = true,
+                    HeaderCheck::NotSessionHeader => {}
+                    HeaderCheck::TooLarge => lookup.limit_hit = true,
                     HeaderCheck::Io => lookup.io_seen = true,
                 },
                 Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
@@ -931,7 +944,7 @@ fn participant_presentation(store: &Store, rest: &str) -> Response {
 }
 
 fn head_seq(db: &Path, run_id: &str) -> u64 {
-    Store::open(db)
+    Store::open_read_only(db)
         .and_then(|s| s.head_hash(run_id))
         .map(|(seq, _)| seq)
         .unwrap_or(0)

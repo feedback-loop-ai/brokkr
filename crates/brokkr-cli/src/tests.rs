@@ -3658,3 +3658,108 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     .to_string();
     assert!(refusal.contains("belong to 'supersede'"), "{refusal}");
 }
+
+/// The refreshed journal's authority wins the same frame: a subject that
+/// still names the previous reference must not publish the new
+/// participant/reference beside the old reference's prose.
+#[test]
+fn a_refreshed_run_re_resolves_changed_authority_before_display() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects");
+    let live = projects.join("live-project");
+    std::fs::create_dir_all(&live).unwrap();
+    std::fs::write(
+        live.join("aaaa1111.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"new body\"}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        live.join("bbbb2222.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"old body\"}}\n",
+    )
+    .unwrap();
+    let home_str = projects.to_string_lossy().to_string();
+
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    let mut append = |event_type, payload| {
+        store
+            .append_next("r1", event_type, payload, None, None)
+            .unwrap();
+    };
+    append(
+        EventType::RunStarted,
+        json!({"feature": "feat", "manifest": {}}),
+    );
+    append(EventType::PhaseEntered, json!({"phase": "intake"}));
+    append(
+        EventType::EffectRequested,
+        json!({"effect_id": "seat", "seat": "review", "phase": "intake"}),
+    );
+    append(
+        EventType::EffectStarted,
+        json!({"effect_id": "seat", "attempt_id": "att0"}),
+    );
+    append(
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "seat", "attempt_id": "att0",
+               "checkpoint": {"step": "claude-session-finished",
+                 "transcript": {"kind": "claude-session", "locator": "aaaa1111",
+                                "home": home_str}}}),
+    );
+    append(
+        EventType::EffectSucceeded,
+        json!({"effect_id": "seat", "attempt_id": "att0",
+               "result": {"result": "intook"}}),
+    );
+
+    // The subject still carries the previous reference's id.
+    let subject = tui::Subject {
+        tab: 0,
+        realm: None,
+        run: "r1".to_string(),
+        key: "seat".to_string(),
+        reference: Some(brokkr_view::Transcript {
+            kind: "claude-session".to_string(),
+            locator: "bbbb2222".to_string(),
+            home: home_str.clone(),
+        }),
+        provenance: brokkr_view::transcript::LegacyProvenance::Claude,
+        legacy_id: None,
+        working: false,
+    };
+    let mut head = None;
+    let mut seen = None;
+    let views = tui_views(
+        &db,
+        true,
+        tui::Ask {
+            tab: 0,
+            run: Some("r1"),
+            subject: Some(subject),
+            force: true,
+            fleet: false,
+        },
+        &mut head,
+        &mut seen,
+        || "2026-01-01T00:00:00Z".to_string(),
+    )
+    .unwrap()
+    .expect("a forced frame");
+    let read = views.transcript.expect("a transcript read");
+    assert_eq!(
+        read.reference.as_ref().unwrap().locator,
+        "aaaa1111",
+        "the frame re-reads the refreshed reference, not the stale subject"
+    );
+    assert_eq!(
+        read.turns.len(),
+        1,
+        "expected exactly one projected turn: {read:?}"
+    );
+    assert_eq!(read.turns[0].blocks[0].text, "new body");
+}

@@ -263,10 +263,28 @@ pub fn valid_dsh_locator(locator: &str) -> bool {
     })
 }
 
-/// A home is valid when it is absolute, carries no control character or
-/// NUL, and is not empty.
+/// A home is valid when it is absolute on either supported platform,
+/// carries no control character or NUL, and is not empty. Unix roots
+/// begin with `/`; Windows homes are drive-absolute (`C:\` or `C:/`) or
+/// UNC (`\\server\share`). Validating both spellings keeps a recorded
+/// Windows home readable by the Windows-built reader without widening
+/// Unix behavior into relative paths.
 fn valid_home(home: &str) -> bool {
-    !home.is_empty() && clean_path(home) && home.starts_with('/')
+    if home.is_empty() || !clean_path(home) {
+        return false;
+    }
+    if home.starts_with('/') {
+        return true;
+    }
+    let bytes = home.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return true;
+    }
+    (home.starts_with("\\\\") || home.starts_with("//")) && home.len() > 2
 }
 
 /// Validate one present common reference under the reading delta's
@@ -681,28 +699,52 @@ pub struct Projection {
 }
 
 impl Projection {
-    fn unreadable() -> Projection {
+    /// A source-failure projection keeps zero counts but preserves any
+    /// truncation the bounded read independently established.
+    fn source_failure(truncated: bool) -> Projection {
         Projection {
+            truncated,
             unavailable: Some(Unavailable::Unreadable),
             ..Projection::default()
         }
     }
 }
 
-/// Parse the complete physical rows of an admitted snapshot. A
-/// newline-less final fragment that does not parse is provisional and
-/// uncounted; any other complete row that does not parse is malformed.
-fn parsed_rows(admitted: &Admitted<'_>) -> (Vec<(usize, Value)>, u64) {
-    let mut values = Vec::new();
+/// Parse the complete physical rows of an admitted snapshot one at a
+/// time, handing each decoded value to `visit` and releasing it before
+/// the next row is parsed. Neither the row text nor its decoded JSON is
+/// retained for the whole file (design D4). A newline-less final fragment
+/// that does not parse is provisional and uncounted; any other complete
+/// row that does not parse is malformed and counted. Returns the
+/// malformed count.
+fn for_each_parsed_row<F>(admitted: &Admitted<'_>, mut visit: F) -> u64
+where
+    F: FnMut(usize, Value),
+{
+    let text = admitted.text;
+    let bytes = text.as_bytes();
     let mut skipped = 0u64;
-    for (index, row) in rows(admitted).into_iter().enumerate() {
-        match serde_json::from_str::<Value>(&row.text) {
-            Ok(value) => values.push((index, value)),
-            Err(_) if row.final_fragment => {}
+    let mut start = 0usize;
+    let mut index = 0usize;
+    for (end, byte) in bytes.iter().enumerate() {
+        if *byte != b'\n' {
+            continue;
+        }
+        match serde_json::from_str::<Value>(&text[start..end]) {
+            Ok(value) => visit(index, value),
             Err(_) => skipped += 1,
         }
+        index += 1;
+        start = end + 1;
     }
-    (values, skipped)
+    if start < text.len() && !admitted.overflow {
+        // A newline-less tail at true EOF is provisional: it participates
+        // only when it parses, and an unparseable tail is never counted.
+        if let Ok(value) = serde_json::from_str::<Value>(&text[start..]) {
+            visit(index, value);
+        }
+    }
+    skipped
 }
 
 /// Apply the 4,000,000-byte sum-of-block-texts budget after association
@@ -729,7 +771,9 @@ fn display_cap(turns: Vec<Turn>, truncated: &mut bool) -> Vec<Turn> {
 pub fn project(kind: TranscriptKind, snapshot: &Snapshot<'_>) -> Projection {
     let admitted = match admit(snapshot) {
         Ok(admitted) => admitted,
-        Err(_) => return Projection::unreadable(),
+        // A UTF-8 refusal keeps only the overflow fact the bounded read
+        // already established, with zero counts.
+        Err(_) => return Projection::source_failure(snapshot.overflow),
     };
     let mut projection = Projection {
         truncated: admitted.overflow,
@@ -747,10 +791,8 @@ pub fn project(kind: TranscriptKind, snapshot: &Snapshot<'_>) -> Projection {
 // -------------------------------------------------------------- Claude
 
 fn project_claude(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let (values, skipped) = parsed_rows(admitted);
-    projection.skipped_lines = skipped;
     let mut turns = Vec::new();
-    for (_, value) in values {
+    projection.skipped_lines = for_each_parsed_row(admitted, |_, value| {
         let (blocks, role, ts, unrecognized) = claude_row(&value);
         if unrecognized {
             projection.unrecognized_records += 1;
@@ -758,7 +800,7 @@ fn project_claude(admitted: &Admitted<'_>, projection: &mut Projection) {
         if !blocks.is_empty() {
             turns.push(Turn { role, ts, blocks });
         }
-    }
+    });
     projection.turns = display_cap(turns, &mut projection.truncated);
 }
 
@@ -921,6 +963,16 @@ struct CodexRecord {
     canonical: bool,
 }
 
+/// A Codex media part stays visible as an omission that names its class,
+/// never the bytes.
+fn media_omission(kind: &str) -> &'static str {
+    if kind.ends_with("image") {
+        "[image omitted]"
+    } else {
+        "[audio omitted]"
+    }
+}
+
 /// A tool payload rendered as deterministic JSON when it is not a
 /// string, or its recorded string when it is.
 fn payload_text(value: Option<&Value>) -> Option<String> {
@@ -932,12 +984,10 @@ fn payload_text(value: Option<&Value>) -> Option<String> {
 }
 
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let (values, skipped) = parsed_rows(admitted);
-    projection.skipped_lines = skipped;
-    let mut records: Vec<CodexRecord> = values
-        .into_iter()
-        .map(|(_, value)| codex_row(&value))
-        .collect();
+    let mut records: Vec<CodexRecord> = Vec::new();
+    projection.skipped_lines = for_each_parsed_row(admitted, |_, value| {
+        records.push(codex_row(&value));
+    });
     for record in &records {
         if record.unrecognized {
             projection.unrecognized_records += 1;
@@ -1087,9 +1137,9 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                                     ));
                                 }
                             }
-                            Some("input_image" | "input_audio" | "image" | "audio") => {
+                            Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
                                 blocks.push(CodexBlock::identified(
-                                    Block::omitted("[media omitted]"),
+                                    Block::omitted(media_omission(kind)),
                                     CodexFact::Message,
                                     id,
                                 ));
@@ -1416,9 +1466,9 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                                     ));
                                 }
                             }
-                            Some("input_image" | "input_audio" | "image" | "audio") => {
+                            Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
                                 blocks.push(CodexBlock::identified(
-                                    Block::omitted("[media omitted]"),
+                                    Block::omitted(media_omission(kind)),
                                     CodexFact::Message,
                                     id,
                                 ));
@@ -1609,36 +1659,27 @@ fn dsh_header(value: &Value) -> bool {
 }
 
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let (values, skipped) = parsed_rows(admitted);
-    // The opening physical row must itself be the admitted session header:
-    // a malformed or absent first row cannot borrow a later one.
-    let opening_is_header = matches!(values.first(), Some((index, _)) if *index == 0);
-    if !opening_is_header {
-        // No usable opening row: the discovery stage owns this refusal.
-        projection.skipped_lines = skipped;
-        projection.unavailable = Some(Unavailable::UnsupportedFormat);
-        return;
-    }
-    let (_, header) = &values[0];
-    if !dsh_header(header) {
-        // Rejected version or depth: zero counts, no event classification.
-        projection.skipped_lines = 0;
-        projection.unrecognized_records = 0;
-        projection.unavailable = Some(Unavailable::UnsupportedFormat);
-        return;
-    }
-    projection.skipped_lines = skipped;
+    let mut header: Option<Value> = None;
+    let mut opening_is_header = false;
     let mut events: Vec<DshEvent> = Vec::new();
     // Every observed logical identity counts once, including quiet
     // omissions, so a duplicate sequence stays ambiguous for citation
     // uniqueness.
     let mut observed: Vec<i64> = Vec::new();
     let mut refused = false;
-    for (_, value) in values.into_iter().skip(1) {
+    let mut unrecognized = 0u64;
+    let skipped = for_each_parsed_row(admitted, |index, value| {
+        // The opening physical row must itself be the admitted session
+        // header: a malformed or absent first row cannot borrow a later one.
+        if index == 0 {
+            opening_is_header = true;
+            header = Some(value);
+            return;
+        }
         match dsh_row(&value) {
-            DshRow::Events(mut rows, unrecognized) => {
-                if unrecognized {
-                    projection.unrecognized_records += 1;
+            DshRow::Events(mut rows, row_unrecognized) => {
+                if row_unrecognized {
+                    unrecognized += 1;
                 }
                 for row in &rows {
                     if let Some(seq) = row.seq {
@@ -1653,7 +1694,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                 }
             }
             DshRow::Unrecognized => {
-                projection.unrecognized_records += 1;
+                unrecognized += 1;
                 if let Some(seq) = dsh_seq(&value) {
                     observed.push(seq);
                 }
@@ -1661,12 +1702,36 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                     refused = true;
                 }
             }
+            DshRow::Omission => {
+                // A recognized envelope with an unsupported nested variant
+                // keeps no content and counts once without refusing.
+                unrecognized += 1;
+                if let Some(seq) = dsh_seq(&value) {
+                    observed.push(seq);
+                }
+            }
             DshRow::Refused => {
-                projection.unrecognized_records += 1;
+                unrecognized += 1;
                 refused = true;
             }
         }
+    });
+    if !opening_is_header {
+        // No usable opening row: the discovery stage owns this refusal.
+        projection.skipped_lines = skipped;
+        projection.unavailable = Some(Unavailable::UnsupportedFormat);
+        return;
     }
+    let header = header.expect("a first parsed row stored the header");
+    if !dsh_header(&header) {
+        // Rejected version or depth: zero counts, no event classification.
+        projection.skipped_lines = 0;
+        projection.unrecognized_records = 0;
+        projection.unavailable = Some(Unavailable::UnsupportedFormat);
+        return;
+    }
+    projection.skipped_lines = skipped;
+    projection.unrecognized_records = unrecognized;
     if refused {
         projection.turns = Vec::new();
         projection.unavailable = Some(Unavailable::UnsupportedFormat);
@@ -1676,22 +1741,39 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     for seq in observed {
         *seq_counts.entry(seq).or_default() += 1;
     }
-    // Citation suppression: an assembly suppresses uniquely identified,
-    // earlier readable chunks it cites in its own recorded turn/step.
-    let mut suppressed = std::collections::HashSet::new();
+    // Citation suppression: an assembly with readable projected blocks
+    // suppresses uniquely identified, earlier readable chunks it cites in
+    // its own recorded turn/step. The chunk index by `(turn, step)` bounds
+    // the work by the actual retained members instead of rescanning every
+    // event for every assembly.
+    let mut chunk_index: std::collections::HashMap<(i64, i64), Vec<usize>> =
+        std::collections::HashMap::new();
     for (index, event) in events.iter().enumerate() {
-        if !event.assembly {
+        if !event.chunk {
             continue;
         }
-        for (candidate_index, candidate) in events.iter().enumerate() {
-            if candidate_index >= index || !candidate.chunk {
+        if let (Some(turn), Some(step)) = (event.turn, event.step) {
+            chunk_index.entry((turn, step)).or_default().push(index);
+        }
+    }
+    let mut suppressed = std::collections::HashSet::new();
+    for (index, event) in events.iter().enumerate() {
+        if !event.assembly || event.cited.is_empty() || event.blocks.is_empty() {
+            continue;
+        }
+        let (Some(turn), Some(step)) = (event.turn, event.step) else {
+            continue;
+        };
+        let Some(candidates) = chunk_index.get(&(turn, step)) else {
+            continue;
+        };
+        for &candidate_index in candidates {
+            if candidate_index >= index {
                 continue;
             }
+            let candidate = &events[candidate_index];
             let Some(seq) = candidate.seq else { continue };
             if seq_counts.get(&seq) != Some(&1) {
-                continue;
-            }
-            if candidate.turn != event.turn || candidate.step != event.step {
                 continue;
             }
             if event
@@ -1812,13 +1894,29 @@ struct DshEvent {
 enum DshRow {
     Events(Vec<DshEvent>, bool),
     Quiet,
+    /// A recognized envelope with an unsupported or absent nested
+    /// variant: counted once, no content, never a whole-read refusal.
+    Omission,
     Unrecognized,
     Refused,
 }
 
+/// A recorded DSH millisecond number, including the floating-point `-0`
+/// spelling, which is still zero milliseconds. Non-integer fractions are
+/// not a millisecond count.
+fn dsh_millis(value: &Value) -> Option<i64> {
+    if let Some(integer) = value.as_i64() {
+        return Some(integer);
+    }
+    if value.as_f64() == Some(0.0) {
+        return Some(0);
+    }
+    None
+}
+
 /// The signed epoch-millisecond string DSH turns carry, or empty.
 fn dsh_time(value: Option<&Value>) -> String {
-    match value.and_then(Value::as_i64) {
+    match value.and_then(dsh_millis) {
         Some(millis) if millis.unsigned_abs() <= DSH_SAFE_MAX as u64 => millis.to_string(),
         _ => String::new(),
     }
@@ -1903,13 +2001,15 @@ fn dsh_citations(value: &Value, owning_seq: Option<i64>) -> Result<Vec<(i64, i64
     if list.is_empty() {
         return Ok(Vec::new());
     }
-    let owning = owning_seq.filter(|seq| *seq >= 0).ok_or(())?;
+    let owning = owning_seq
+        .filter(|seq| (0..=DSH_SAFE_MAX).contains(seq))
+        .ok_or(())?;
     let mut out = Vec::new();
     for entry in list {
         match entry {
             Value::Number(_) => {
                 let seq = entry.as_i64().ok_or(())?;
-                if seq < 0 || seq >= owning {
+                if !(0..=DSH_SAFE_MAX).contains(&seq) || seq >= owning {
                     return Err(());
                 }
                 out.push((seq, seq));
@@ -1917,7 +2017,11 @@ fn dsh_citations(value: &Value, owning_seq: Option<i64>) -> Result<Vec<(i64, i64
             Value::Array(range) if range.len() == 2 => {
                 let start = range[0].as_i64().ok_or(())?;
                 let end = range[1].as_i64().ok_or(())?;
-                if start < 0 || start > end || end >= owning {
+                if !(0..=DSH_SAFE_MAX).contains(&start)
+                    || !(0..=DSH_SAFE_MAX).contains(&end)
+                    || start > end
+                    || end >= owning
+                {
                     return Err(());
                 }
                 out.push((start, end));
@@ -2038,7 +2142,9 @@ fn dsh_row(value: &Value) -> DshRow {
         "assistant/chunk" => {
             let chunk = data.get("chunk").unwrap_or(&Value::Null);
             let Some(chunk_kind) = chunk.get("type").and_then(Value::as_str) else {
-                return DshRow::Unrecognized;
+                // A recognized chunk envelope with an absent nested
+                // variant is a counted omission, not a whole-read refusal.
+                return DshRow::Omission;
             };
             match chunk_kind {
                 "text-delta" => {
@@ -2086,7 +2192,9 @@ fn dsh_row(value: &Value) -> DshRow {
                 "tool-call-delta" | "block-start" | "block-end" | "usage" | "finish" => {
                     DshRow::Quiet
                 }
-                _ => DshRow::Unrecognized,
+                // Any other nested chunk variant counts once without
+                // refusing the whole source.
+                _ => DshRow::Omission,
             }
         }
         "text-chunks" | "reasoning-chunks" | "tool-call-chunks" => dsh_packed(kind, object, data),
@@ -2095,12 +2203,47 @@ fn dsh_row(value: &Value) -> DshRow {
     }
 }
 
+/// True when `object`'s key set is exactly the required keys plus at
+/// most the optional ones: no missing required key and no key outside
+/// the declared storage shape.
+fn exact_keys(
+    object: &serde_json::Map<String, Value>,
+    required: &[&str],
+    optional: &[&str],
+) -> bool {
+    if object.len() < required.len() || object.len() > required.len() + optional.len() {
+        return false;
+    }
+    object
+        .keys()
+        .all(|key| required.contains(&key.as_str()) || optional.contains(&key.as_str()))
+        && required.iter().all(|key| object.contains_key(*key))
+}
+
 /// Decode one packed DSH storage row. Any structural violation refuses
-/// the whole read and counts the physical row once.
+/// the whole read and counts the physical row once. The envelope and
+/// data shapes are validated exactly before any member can supply
+/// content or association.
 fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value) -> DshRow {
+    if !exact_keys(object, &["type", "seq0", "time0", "data"], &[]) {
+        return DshRow::Refused;
+    }
     let Some(data) = data.as_object() else {
         return DshRow::Refused;
     };
+    let tool = kind == "tool-call-chunks";
+    let shape_ok = if tool {
+        exact_keys(
+            data,
+            &["turn", "step", "index", "dt", "args", "id"],
+            &["name"],
+        )
+    } else {
+        exact_keys(data, &["turn", "step", "index", "dt", "texts"], &[])
+    };
+    if !shape_ok {
+        return DshRow::Refused;
+    }
     let Some(turn) = data.get("turn").and_then(Value::as_i64) else {
         return DshRow::Refused;
     };
@@ -2111,22 +2254,31 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
         return DshRow::Refused;
     };
     let Some(seq0) = object.get("seq0").and_then(Value::as_i64) else {
+        // A negative-zero spelling parses as a float and is excluded here.
         return DshRow::Refused;
     };
-    if seq0 < 0 {
+    if !(0..=DSH_SAFE_MAX).contains(&seq0) {
         return DshRow::Refused;
     }
-    let Some(time0) = object.get("time0").and_then(Value::as_i64) else {
+    let Some(time0) = object.get("time0").and_then(dsh_millis) else {
         return DshRow::Refused;
     };
+    if time0.unsigned_abs() > DSH_SAFE_MAX as u64 {
+        return DshRow::Refused;
+    }
+    if tool {
+        // The tool id is a required string; a present name must be one.
+        if data.get("id").and_then(Value::as_str).is_none() {
+            return DshRow::Refused;
+        }
+        if data.get("name").is_some_and(|name| name.as_str().is_none()) {
+            return DshRow::Refused;
+        }
+    }
     let Some(dt) = data.get("dt").and_then(Value::as_array) else {
         return DshRow::Refused;
     };
-    let members = match data.get(if kind == "tool-call-chunks" {
-        "args"
-    } else {
-        "texts"
-    }) {
+    let members = match data.get(if tool { "args" } else { "texts" }) {
         Some(Value::Array(members)) if !members.is_empty() => members,
         _ => return DshRow::Refused,
     };
@@ -2138,9 +2290,12 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
     }
     let mut gaps = Vec::new();
     for gap in dt {
-        let Some(gap) = gap.as_i64() else {
+        let Some(gap) = dsh_millis(gap) else {
             return DshRow::Refused;
         };
+        if gap.unsigned_abs() > DSH_SAFE_MAX as u64 {
+            return DshRow::Refused;
+        }
         gaps.push(gap);
     }
     let mut events = Vec::new();

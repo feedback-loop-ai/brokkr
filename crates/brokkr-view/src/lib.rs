@@ -1458,14 +1458,13 @@ fn run_boundary(events: &[EventEnvelope]) -> RunBoundary {
 
 // -------------------------------------------------------------- activity
 
+/// The latest recorded common transcript reference, preserved verbatim.
+/// Selection happens before validation: an unrecognized kind is still a
+/// recorded reference the reader must echo as `unsupported-kind`, so it
+/// must not be filtered out here and leave a stale earlier reference in
+/// its place.
 fn transcript_of(value: &Value) -> Option<Transcript> {
     let kind = value.get("kind").and_then(Value::as_str)?;
-    if !matches!(
-        kind,
-        "claude-session" | "codex-thread" | "dsh-session" | "none"
-    ) {
-        return None;
-    }
     let locator = value.get("locator").and_then(Value::as_str)?;
     let home = value.get("home").and_then(Value::as_str)?;
     Some(Transcript {
