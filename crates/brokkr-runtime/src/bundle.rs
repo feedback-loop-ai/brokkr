@@ -989,6 +989,7 @@ impl Bundle {
                 )));
             }
             refuse_boundary_key(phase, raw)?;
+            refuse_crossing_keys(phase, raw)?;
             refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
             refuse_confine(phase, raw)?;
             let law = SiteLaw {
@@ -1534,6 +1535,35 @@ fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
         ))),
     }
 }
+
+/// Decision 0057 ruling 1: a crossing is the REALM's — a file one realm
+/// publishes and another realm pins by its bytes — declared in
+/// `realms.json` under `forge.realms/v5`, and a bundle never names one.
+///
+/// The same refusal `boundary` gets one function above, on the same terms
+/// and for the same reason: a site that writes the word is told where the
+/// word lives rather than that its key is unknown. Per seat, like
+/// `boundary`, because a seat is the site that would claim the fact;
+/// there is no root-level unknown-key check for either.
+fn refuse_crossing_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+    let Some(key) = CROSSING_KEYS.iter().find(|key| raw.get(*key).is_some()) else {
+        return Ok(());
+    };
+    Err(CompileError::Invalid(format!(
+        "seat '{what}' declares {key}; {CROSSING_IS_THE_REALMS}"
+    )))
+}
+
+/// The two words `forge.realms/v5` adds, refused wherever a bundle writes
+/// one.
+const CROSSING_KEYS: [&str; 2] = ["publishes", "consumes"];
+
+/// Where a crossing lives (decision 0057 ruling 1), said once for the
+/// site that tries to write it into a bundle.
+const CROSSING_IS_THE_REALMS: &str = "a crossing is declared by the realm \
+    (realms.json, forge.realms/v5) and never by a bundle, because the file one realm \
+    publishes and the digest another pins it at is the realm's fact and not a \
+    recipe's (decision 0057 ruling 1)";
 
 /// The box the compiler builds for every dialect `validate`/`check` step
 /// (decision 0042 ruling 4). Public so `brokkr doctor` probes the
@@ -2473,6 +2503,7 @@ fn parse_selected_body(
         ..
     } = compile;
     refuse_boundary_key(what, raw)?;
+    refuse_crossing_keys(what, raw)?;
     refuse_unknown_keys(what, raw, BODY_KEYS)?;
     refuse_confine(what, raw)?;
     let has_agent = raw.get("agent").is_some();
@@ -2703,6 +2734,7 @@ fn parse_panel(
     for (name, member_raw) in members_raw {
         let site = format!("{what}:{name}");
         refuse_boundary_key(&site, member_raw)?;
+        refuse_crossing_keys(&site, member_raw)?;
         refuse_confine(&site, member_raw)?;
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
@@ -2799,6 +2831,7 @@ fn parse_sequence(
         }
         let what = format!("{phase}:{name}");
         refuse_boundary_key(&what, step_raw)?;
+        refuse_crossing_keys(&what, step_raw)?;
         refuse_confine(&what, step_raw)?;
         let has_agent = step_raw.get("agent").is_some();
         if has_agent {

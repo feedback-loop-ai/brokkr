@@ -510,7 +510,7 @@ all pinned by digest:
 
 | Contract | File | Consumers |
 |---|---|---|
-| The world's map, with the crossings its realms publish and consume | `realms.v5.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (map loading — a crossing's own bytes are read by no slice yet) |
+| The world's map, with the crossings its realms publish and consume | `realms.v5.schema.json` | brokkr-core (shape and refusals), brokkr-runtime (map loading and the resolution of every published crossing) |
 
 `forge.realms/v5` is `v4` plus exactly two optional properties per realm.
 `publishes` is a list of `{name, path}`: the crossings this realm offers,
@@ -538,3 +538,50 @@ published file is neither read nor resolved by this contract's landing
 slice; a `consumes` entry is checked against the world's own realms and
 their `publishes` lists, and a realm consuming its own crossing is refused
 because a crossing is between realms.
+
+Decision 0057's recording half adds one manifest version and changes none
+of the bytes above — `run-manifest.v9`'s included, which is now pinned by
+digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with the crossings the run stood on | `run-manifest.v10.schema.json` | brokkr-runtime, brokkr-store export/resume |
+
+`run-manifest.v10` is `v9` plus one optional `crossings` property: per
+publishing realm, per crossing name, the resolved source path and the
+sha256 the loader observed on disk at run start. It continues the LOCAL
+lineage on decision 0023 ruling 4's terms — the manifest already rides
+inside `run/started`, which is exactly why embedding the pin there answers
+"what contracts did this run stand on?" from the journal alone, forever,
+without opening either repository. The event vocabulary needed nothing;
+a new event type would have been the wrong instrument for the same reason
+it was for the map. The property is absent when no realm of the world
+publishes or consumes a crossing, so every world without one stores and
+exports the exact v9 shape.
+
+**Declaration and observation are two facts, kept apart.** A consuming
+realm's DECLARED pin already rides into the manifest inside the map
+itself (`realms.map.realms[i].consumes[j].sha256`, unchanged since v4),
+so `crossings` is deliberately not a second copy of it: it is what the
+machine OBSERVED when it loaded the world, keyed by the realm that
+PUBLISHES the file rather than by the realm that pinned it. A reader
+comparing `realms.map…consumes[j].sha256` against
+`crossings[<declared realm>][<declared name>].sha256` sees the difference
+between what a world claimed and what it stood on. Every crossing any
+realm publishes is recorded, consumed or not — the property answers for
+the world's contracts, not for one realm's dependencies.
+
+`crossings` is WORKSPACE data, exactly like `realms` and unlike `drivers`
+or `boundary`: it must NOT move a bundle digest. This is the same trap
+`agents` has on the v2 Looper-bound lineage, named here by name.
+`bundle_manifest_from_run` reconstructs a bundle manifest from six named
+keys and drops the rest, so a key it cannot round-trip is dropped in
+silence and every adopting run becomes unresumable with a diff that
+blames no file. `crossings` is therefore dropped in the SAME removal as
+`realms`, before the resume comparison — pinning a crossing moves no
+bundle digest and makes no run unresumable. On the Looper-bound lineage
+nothing changes: `brokkr run` refuses `--dispatch` together with a map,
+so a v2-schema manifest never carries `crossings` any more than it
+carries `realms`, and `build_run_manifest_v2` would refuse the key by the
+fail-closed guard it has held over the whole key space since decision
+0021's witness — loudly, on the day it arrived, rather than quietly.

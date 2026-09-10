@@ -189,6 +189,10 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         "--ro-bind-try {r} {r}",
         r = home.join(".rustup").display()
     )));
+    assert!(
+        text.contains("--ro-bind-try /usr/include /usr/include"),
+        "the libc headers are toolchain, or a boxed gate cannot compile C"
+    );
     assert!(text.contains("--bind-try /opt/scratchpad /opt/scratchpad"));
     assert!(text.contains(&format!("--setenv NPM_CONFIG_CACHE {}", npm.display())));
     assert!(

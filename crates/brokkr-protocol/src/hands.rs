@@ -459,6 +459,16 @@ pub fn box_argv(
         "/usr/bin",
         "/usr/lib",
         "/usr/lib64",
+        // The libc headers belong to the toolchain as much as `cc` does.
+        // Without them a boxed gate holds only as long as something else
+        // already compiled the C in the dependency tree: `cargo test`
+        // against a warm target directory passes, and a gate that builds
+        // into a fresh one dies on `libsqlite3-sys` with "stdio.h: No such
+        // file or directory" — a C compiler failure in a seat that reads
+        // as the branch's fault. Headers are read-only declarations, so
+        // binding them grants no capability the bound `/usr/lib` beside
+        // them does not already imply.
+        "/usr/include",
         "/usr/share",
         "/usr/local",
         "/usr/libexec",

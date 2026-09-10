@@ -603,6 +603,368 @@ fn the_run_manifest_pins_the_maps_hash_and_embeds_the_map() {
     assert_eq!(code, Some(0), "{stderr}");
 }
 
+/// The other half of the same testimony (decision 0057, run-manifest/v10):
+/// what the run STOOD ON. A realm publishes a file; the run records the
+/// digest the loader observed for it, the export carries it, and
+/// `verify-run` accepts that journal offline. Proved through the shipped
+/// binary, because "answerable from the journal alone" is a claim about
+/// what an operator can read back, not about an internal call.
+#[test]
+fn the_run_manifest_records_the_crossing_the_run_stood_on() {
+    let ws = Workspace::new(None);
+    let bytes = "{\"title\": \"orders\"}\n";
+    std::fs::create_dir_all(ws.path().join("contracts")).unwrap();
+    std::fs::write(ws.path().join("contracts/orders.v1.schema.json"), bytes).unwrap();
+    let mut map = map_over(".");
+    map["schema"] = json!("forge.realms/v5");
+    map["realms"][0]["publishes"] =
+        json!([{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}]);
+    std::fs::write(ws.path().join("realms.json"), map.to_string()).unwrap();
+
+    let (code, run_id, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, _, stderr) = ws.run(&["export", "--run", &run_id, "--out", "exported"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.manifest.json")))
+            .unwrap(),
+    )
+    .unwrap();
+
+    // Keyed by the publishing realm and the crossing's name, carrying the
+    // sha256 over the published file's RAW bytes — observed at load, and
+    // declared nowhere in this map, which has no consumer at all.
+    let crossing = &manifest["crossings"]["brokkr"]["orders.api"];
+    assert_eq!(
+        crossing["sha256"],
+        json!(brokkr_core::canonical::sha256_bytes(bytes.as_bytes()))
+    );
+    assert!(
+        crossing["source"]
+            .as_str()
+            .unwrap()
+            .replace('\\', "/")
+            .ends_with("contracts/orders.v1.schema.json"),
+        "{crossing}"
+    );
+
+    // The export verifies offline: chain, envelopes and fold, over a
+    // journal whose run/started carries the crossing inside its manifest.
+    let (code, out, stderr) = ws.run(&["verify-run", &format!("exported/{run_id}.ndjson")]);
+    assert_eq!(code, Some(0), "{stderr}{out}");
+    let journal =
+        std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.ndjson"))).unwrap();
+    assert!(journal.contains("\"crossings\""), "it rides in run/started");
+
+    // And the run stays resumable under its exact bundle: the crossing is
+    // workspace data, so it moved no bundle digest.
+    let (code, _, stderr) = ws.run(&[
+        "resume",
+        "--bundle",
+        "bundle",
+        "--run",
+        &run_id,
+        "--db",
+        "state/world.db",
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+}
+
+// ---------------------- a moved crossing refuses the run (decision 0057)
+
+/// The bytes this workspace's realm publishes while the pin is true.
+const PUBLISHED: &str = "{\"title\": \"orders\"}\n";
+
+/// A map that draws a crossing across two realms: this tree publishes
+/// `orders.api`, a second realm pins its bytes. Two realms, because
+/// decision 0057 ruling 3.6 refuses a realm that consumes its own
+/// published crossing. Returns the published file and the pin the map
+/// carries for it.
+fn crossing_map(ws: &Workspace) -> (PathBuf, String) {
+    let published = ws.path().join("contracts/orders.v1.schema.json");
+    std::fs::create_dir_all(published.parent().unwrap()).unwrap();
+    std::fs::write(&published, PUBLISHED).unwrap();
+    std::fs::create_dir_all(ws.path().join("client")).unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(PUBLISHED.as_bytes());
+    let map = json!({
+        "schema": "forge.realms/v5",
+        "realms": [
+            {"name": "brokkr", "path": ".", "default_branch": "main",
+             "publishes": [{"name": "orders.api",
+                            "path": "contracts/orders.v1.schema.json"}]},
+            {"name": "client", "path": "client", "default_branch": "main",
+             "consumes": [{"name": "orders.api", "realm": "brokkr", "sha256": pin}]},
+        ],
+        "journal": "state/world.db",
+    });
+    std::fs::write(ws.path().join("realms.json"), map.to_string()).unwrap();
+    (published, pin)
+}
+
+/// One byte moves in the publishing realm's tree; the map is untouched.
+/// Returns the digest the file now hashes to.
+fn move_the_crossing(published: &Path) -> String {
+    std::fs::write(published, "{\"title\": \"Orders\"}\n").unwrap();
+    brokkr_core::canonical::sha256_bytes(&std::fs::read(published).unwrap())
+}
+
+/// The four facts item 4 of the slice asks every refusal to carry: which
+/// realm, which crossing, the digest it was pinned at and the digest that
+/// is there now — plus the file, so a reader can act without opening
+/// either repository.
+fn names_what_moved(stderr: &str, pinned: &str, observed: &str) {
+    assert!(
+        stderr.contains("realm 'client' consumes crossing 'orders.api'"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("from realm 'brokkr'"), "{stderr}");
+    assert!(stderr.contains(pinned), "the pinned digest: {stderr}");
+    assert!(stderr.contains(observed), "the observed digest: {stderr}");
+    assert!(stderr.contains("orders.v1.schema.json"), "{stderr}");
+}
+
+/// Decision 0057, made a run-start law on decision 0046's Addendum's
+/// terms: a consumed crossing whose publisher's bytes have moved refuses
+/// `run`, `rerun` and `resume` before any seat spawns, and the refusal
+/// names what moved. The three verbs word it identically because all
+/// three read the one `WorldError::CrossingMoved` — `run` and `rerun`
+/// through the loader, `resume` through the fence its replayed world
+/// needs because its world is rehydrated from a manifest and has met no
+/// disk.
+///
+/// The proof that nothing was continued is the run itself: exported
+/// before the bytes moved and again after they are put back, byte for
+/// byte the same journal.
+#[test]
+fn a_moved_crossing_refuses_run_rerun_and_resume_before_any_seat_spawns() {
+    let ws = Workspace::new(None);
+    let (published, pin) = crossing_map(&ws);
+    let (code, run_id, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let export = |out: &str| {
+        let (code, _, stderr) = ws.run(&["export", "--run", &run_id, "--out", out]);
+        assert_eq!(code, Some(0), "{stderr}");
+        std::fs::read_to_string(ws.path().join(format!("{out}/{run_id}.ndjson"))).unwrap()
+    };
+    let before = export("before");
+
+    let observed = move_the_crossing(&published);
+    assert_ne!(observed, pin);
+
+    // `run`: refused by the loader, before a run id exists to print.
+    let (code, started, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(started.is_empty(), "no run was started: {stderr}");
+    names_what_moved(&stderr, &pin, &observed);
+
+    // `rerun`: a new run stands where `run` stands, so it refuses there.
+    let (code, _, stderr) = ws.run(&[
+        "rerun",
+        "--run",
+        &run_id,
+        "--bundle",
+        "bundle",
+        "--db",
+        "state/world.db",
+    ]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(
+        !stderr.contains("rerun of"),
+        "no rerun was started: {stderr}"
+    );
+    names_what_moved(&stderr, &pin, &observed);
+
+    // `resume`: the gap this slice closed. The engine is built and the
+    // bundle matches its pin, and the drive never begins.
+    let (code, _, stderr) = ws.run(&[
+        "resume",
+        "--run",
+        &run_id,
+        "--bundle",
+        "bundle",
+        "--db",
+        "state/world.db",
+    ]);
+    assert_eq!(code, Some(1), "{stderr}");
+    names_what_moved(&stderr, &pin, &observed);
+
+    // Put the contract back, and the run is exactly where it was: not one
+    // event was appended by any of the three refusals.
+    std::fs::write(&published, PUBLISHED).unwrap();
+    assert_eq!(export("after"), before, "a refusal continued the run");
+}
+
+/// `brokkr compile` shows each realm's crossings and never writes one
+/// into the bundle (decision 0046 ruling 1's shape, decision 0057 ruling
+/// 1's home): the printed view carries the publisher's file and observed
+/// digest and the consumer's pin, `bundle.manifest` carries neither, and
+/// the bundle's digest is the digest the same bundle compiles to in a
+/// workspace with no map at all.
+///
+/// And compile refuses a moved crossing too — before any prompt exists to
+/// leak, which is decision 0021 ruling 2's reason for a compile-time
+/// check.
+#[test]
+fn compile_shows_each_realms_crossings_and_refuses_one_that_moved() {
+    let ws = Workspace::new(None);
+    let (published, pin) = crossing_map(&ws);
+    let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let view: Value = serde_json::from_str(&out).unwrap();
+
+    // Under the realm that publishes it: the declared path, the file the
+    // loader read and the digest of the bytes that were there.
+    let publishes = &view["crossings"]["brokkr"]["publishes"][0];
+    assert_eq!(publishes["name"], json!("orders.api"));
+    assert_eq!(publishes["path"], json!("contracts/orders.v1.schema.json"));
+    assert_eq!(publishes["sha256"], json!(pin));
+    assert!(publishes["source"]
+        .as_str()
+        .unwrap()
+        .replace('\\', "/")
+        .ends_with("contracts/orders.v1.schema.json"));
+    assert_eq!(view["crossings"]["brokkr"]["consumes"], json!([]));
+
+    // And under the realm that consumes it: the publisher and the pin.
+    assert_eq!(
+        view["crossings"]["client"]["consumes"][0],
+        json!({"name": "orders.api", "realm": "brokkr", "sha256": pin})
+    );
+
+    // Never in the bundle. A crossing is the realm's, and what a run
+    // stood on is recorded at run start (run-manifest/v10) — so no
+    // bundle digest moves for one.
+    assert!(
+        view["manifest"].get("crossings").is_none(),
+        "{}",
+        view["manifest"]
+    );
+    let digest = view["digest"].clone();
+
+    // A moved crossing refuses the compile, in the same words.
+    let observed = move_the_crossing(&published);
+    let (code, _, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    names_what_moved(&stderr, &pin, &observed);
+
+    // And the same bundle in a workspace that draws no crossing compiles
+    // to the same digest and prints no `crossings` key at all.
+    std::fs::remove_file(ws.path().join("realms.json")).unwrap();
+    let (code, out, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let plain: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(plain["digest"], digest, "a crossing moved a bundle digest");
+    assert!(plain.get("crossings").is_none(), "{plain}");
+}
+
+/// `brokkr doctor` reports and never refuses (decision 0046's Addendum),
+/// through the shipped binary: a moved crossing is its realm's line,
+/// keyed to the realm and the crossing, and every other line doctor would
+/// have printed is still printed. The world is not "broken"; one contract
+/// moved, and doctor says which.
+#[test]
+fn doctor_names_the_realm_and_the_crossing_that_moved_and_reports_everything_else() {
+    let ws = Workspace::new(None);
+    let (published, pin) = crossing_map(&ws);
+    let (code, sound, _) = ws.run(&["doctor"]);
+    assert_eq!(code, Some(0), "{sound}");
+    assert!(
+        sound.contains("ok       crossings brokkr: 1 published file(s) present, 0 pin(s) matching"),
+        "{sound}"
+    );
+    assert!(
+        sound.contains("ok       crossings client: 0 published file(s) present, 1 pin(s) matching"),
+        "{sound}"
+    );
+
+    let observed = move_the_crossing(&published);
+    let (code, moved, _) = ws.run(&["doctor"]);
+    assert_eq!(
+        code,
+        Some(1),
+        "an unhealthy readout, not a refusal: {moved}"
+    );
+    assert!(
+        moved.contains("MISSING  crossings client 'orders.api': "),
+        "{moved}"
+    );
+    names_what_moved(&moved, &pin, &observed);
+    // The publisher is still sound and still says so, and nothing
+    // collapsed into a single "realms map" line.
+    assert!(moved.contains("ok       crossings brokkr: "), "{moved}");
+    assert!(!moved.contains("realms map"), "{moved}");
+    // Every other line doctor prints is still there, unchanged.
+    for line in [
+        "ok       house rules:",
+        "ok       dialect brokkr:",
+        "boundaries:",
+    ] {
+        assert!(moved.contains(line), "{line} is gone: {moved}");
+    }
+
+    // And when the published file is gone rather than moved, the pin that
+    // met no bytes is never counted among the matching ones: the missing
+    // file is the publisher's line, the consumer's pin is a warn naming
+    // who owes the bytes, and doctor claims no contract verified.
+    std::fs::remove_file(&published).unwrap();
+    let (code, gone, _) = ws.run(&["doctor"]);
+    assert_eq!(code, Some(1), "{gone}");
+    assert!(
+        gone.contains("MISSING  crossings brokkr 'orders.api': "),
+        "{gone}"
+    );
+    assert!(
+        gone.contains(
+            "warn     crossings client 'orders.api': pin not checked: realm 'brokkr' \
+             publishes it and its file could not be read"
+        ),
+        "{gone}"
+    );
+    assert!(
+        !gone.contains("crossings client: "),
+        "an unchecked pin was reported as matching: {gone}"
+    );
+}
+
+/// A world that never drew a crossing behaves at every one of the five
+/// verbs exactly as it did before this slice: no line added, no digest
+/// moved, no refusal invented.
+#[test]
+fn a_world_with_no_crossing_behaves_at_every_verb_as_it_always_did() {
+    let ws = Workspace::new(Some(map_over(".")));
+    let (code, run_id, stderr) = ws.brokkr_run(&[]);
+    assert_eq!(code, Some(0), "{stderr}");
+    for verb in [
+        vec![
+            "resume",
+            "--run",
+            &run_id,
+            "--bundle",
+            "bundle",
+            "--db",
+            "state/world.db",
+        ],
+        vec![
+            "rerun",
+            "--run",
+            &run_id,
+            "--bundle",
+            "bundle",
+            "--db",
+            "state/world.db",
+        ],
+    ] {
+        let (code, _, stderr) = ws.run(&verb);
+        assert_eq!(code, Some(0), "{verb:?}: {stderr}");
+    }
+    let (code, compiled, stderr) = ws.run(&["compile", "--bundle", "bundle"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let compiled: Value = serde_json::from_str(&compiled).unwrap();
+    assert!(compiled.get("crossings").is_none(), "{compiled}");
+    let (_, readout, _) = ws.run(&["doctor"]);
+    assert!(!readout.contains("crossings"), "{readout}");
+}
+
 /// A world that never drew a map notices nothing: same default journal,
 /// same manifest, no realm key anywhere in the journal.
 #[test]
@@ -614,7 +976,7 @@ fn a_workspace_with_no_map_runs_exactly_as_it_always_did() {
     ws.run(&["export", "--run", &run_id, "--out", "exported"]);
     let journal =
         std::fs::read_to_string(ws.path().join(format!("exported/{run_id}.ndjson"))).unwrap();
-    for key in ["\"realms\"", "\"realm_facts\""] {
+    for key in ["\"realms\"", "\"realm_facts\"", "\"crossings\""] {
         assert!(!journal.contains(key), "an unmapped run journaled {key}");
     }
 }
