@@ -249,7 +249,18 @@ The per-kind full-session line is inert information: Claude keeps
 `claude --resume <id>`, Codex names the confirmed rollout (or
 `rollout unavailable`), `codex exec resume <id>` and the recorded home,
 and DSH names only a confirmed session file. The reader executes none of
-it.
+it. Path and home placeholders are reversible portable display literals,
+not shell quoting and not pasteable commands: each is a valid
+double-quoted JSON string literal that emits only ASCII letters, digits,
+`/`, `.`, `_`, `-` and `:` directly, and encodes every other Unicode
+scalar as a lowercase four-digit `\u` escape — a surrogate pair for a
+scalar outside the basic multilingual plane — never a JSON short escape,
+so JSON decoding recovers the exact path or home. The fixed fields are
+separated by commas and introduce no semicolon, pipe, ampersand or
+redirection operator. A `--json` document escapes the complete shared
+line a second time as an ordinary JSON member; decoding that member
+recovers the exact hint the TUI, the command and the browser show. A hint
+is not resumption, credential or sandbox-reimposition evidence.
 
 **Claude compatibility.** The shared reader deliberately tightens the old
 Claude lookup: an id that begins with a hyphen is now invalid
@@ -262,7 +273,10 @@ remediation is the operator's: inspect the original file independently,
 place a duplicate deliberately, fit the recorded scope within the bound,
 or use real owned entries instead of below-home symlinks. The guide's
 `brokkr tui` pane and the `brokkr ui` Claude drill read the same result,
-so a seat the command refuses is refused in all three.
+so a seat the command refuses is refused in all three. The TUI, the
+command and the browser present the exact same completed
+portable-display hint without independently quoting a path or home
+fragment.
 
 ### `brokkr watch` — the same, live
 

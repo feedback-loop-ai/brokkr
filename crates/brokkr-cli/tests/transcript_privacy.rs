@@ -275,3 +275,86 @@ fn the_reader_starts_no_provider_process() {
     assert!(output.status.success());
     assert!(!marker.exists(), "a provider process was started");
 }
+
+/// R25: a hostile agent-controlled path/home is losslessly represented only
+/// by the portable display literal, and the read still leaves every retained
+/// byte and the journal unchanged.
+#[test]
+fn hostile_paths_are_portable_and_retained_inert() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let home = dir.path().join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    std::fs::create_dir_all(home.join("sessions")).unwrap();
+    let file = home.join("sessions/rollout-0199mine.jsonl");
+    std::fs::write(&file, "{\"type\":\"turn_context\"}\n").unwrap();
+
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r222", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "intake"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "review", "phase": "intake"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "att1"}),
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": {"step": "session-finished",
+                     "transcript": {"kind": "codex-thread", "locator": "0199mine",
+                       "home": home.to_str().unwrap()}}}),
+        ),
+    ] {
+        store
+            .append_next("r222", event_type, payload, None, None)
+            .unwrap();
+    }
+    drop(store);
+
+    let before_journal = digest(&db);
+    let before_file = digest(&file);
+    let before_tree = snapshot_tree(&home);
+    let output = Command::new(brokkr_bin())
+        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .arg("--db")
+        .arg(&db)
+        .env("HOME", &home)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let hint = document["full_session"].as_str().expect("the shared hint");
+    let expected = format!(
+        "full session: path {}, codex exec resume 0199mine, home {}",
+        brokkr_view::transcript::portable_display_literal(file.to_str().unwrap()),
+        brokkr_view::transcript::portable_display_literal(home.to_str().unwrap()),
+    );
+    assert_eq!(hint, expected);
+    for raw in ["$(", "`", ";", "&", "|", "<", ">", "%", "!", "é", "😀"] {
+        assert!(!hint.contains(raw), "{raw:?} survived raw in {hint:?}");
+    }
+    assert!(hint.contains("\\u0020"), "{hint}");
+    assert!(hint.contains("\\ud83d\\ude00"), "{hint}");
+
+    assert_eq!(digest(&db), before_journal, "no journal write");
+    assert_eq!(digest(&file), before_file, "no retained-byte change");
+    assert_eq!(
+        snapshot_tree(&home),
+        before_tree,
+        "the retained root keeps every byte and its existence"
+    );
+}

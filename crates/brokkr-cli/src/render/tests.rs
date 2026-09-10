@@ -1198,7 +1198,9 @@ fn a_readable_zero_turn_codex_keeps_its_hint_and_notice() {
         "{text}"
     );
     assert!(
-        text.contains("full session: \"/retained/codex/sessions/rollout-0199mine.jsonl\""),
+        text.contains(
+            "full session: path \"/retained/codex/sessions/rollout-0199mine.jsonl\", codex exec resume 0199mine, home \"/retained/codex\""
+        ),
         "{text}"
     );
 }
