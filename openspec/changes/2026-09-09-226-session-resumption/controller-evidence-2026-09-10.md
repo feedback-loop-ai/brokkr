@@ -62,3 +62,25 @@ accounting attribution for these exceptional cases, Brokkr adapter behavior,
 and other providers remain to be established. Tasks 10.5–10.8 and provider
 enablement remain unchecked. DSH's supported headless resume route remains
 unestablished; these Claude results do not supply it.
+
+## Correction: DSH upstream and plugin discovery
+
+The earlier DSH negative result covers the installed 0.1.2-rc.1 one-shot
+headless entry only. It does not establish an absent upstream capability.
+On 2026-09-10 the controller inspected official release 0.1.5-rc.1 at
+`183f08e9c6dde7e36cd2318eaee70b0da08fb35e`. Its core documents
+`ctx.agents.resume()` with an explicit persisted session identity; the
+agent-loop also documents `resumeSessionId`, and the SDK exposes named
+sessions and activity-interval collection.
+
+The community plugin https://github.com/ghbhiee/dsh-plugin-cli-session at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda` supplies an explicit `--session`
+CLI. Source inspection confirms an `agents.resume()` call, current model
+selection and sequence-bounded output/usage collection. Compatibility and
+effective restriction enforcement remain untested; this is an integration
+and qualification path, not a completed provider admission.
+
+The follow-up must evaluate these supported extension mechanisms rather than
+repeat the old one-shot CLI investigation or treat missing built-in flags as
+a global DSH limitation. Local source paths and evidence are recorded in
+`.forge/tasks/controller-dsh-upstream-discovery.json`.
