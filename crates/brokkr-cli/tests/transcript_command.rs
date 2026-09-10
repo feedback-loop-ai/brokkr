@@ -436,8 +436,9 @@ fn a_headerless_codex_rollout_is_readable() {
     assert_eq!(
         document["full_session"],
         format!(
-            "full session: \"{path}\"; codex exec resume 0199mine; home: \"{}\"",
-            world.home.to_str().unwrap()
+            "full session: {}; codex exec resume 0199mine; home: {}",
+            serde_json::to_string(&path).unwrap(),
+            serde_json::to_string(world.home.to_str().unwrap()).unwrap()
         )
     );
 }
@@ -463,8 +464,8 @@ fn a_missing_codex_rollout_has_its_fixed_hint() {
     assert_eq!(
         document["full_session"],
         format!(
-            r#"full session: rollout unavailable; codex exec resume 019c-222a; home: "{}""#,
-            missing_home.display()
+            "full session: rollout unavailable; codex exec resume 019c-222a; home: {}",
+            serde_json::to_string(missing_home.to_str().unwrap()).unwrap()
         )
     );
 }
@@ -531,7 +532,7 @@ fn a_foreign_dsh_version_refuses_with_its_document() {
     assert_eq!(document["unrecognized_records"], 0);
     assert_eq!(
         document["full_session"],
-        format!("full session: \"{path}\"")
+        format!("full session: {}", serde_json::to_string(&path).unwrap())
     );
 }
 
@@ -1429,7 +1430,7 @@ fn dsh_event_refusal_carries_all_three_notices() {
     assert_eq!(document["path"], path);
     assert_eq!(
         document["full_session"],
-        format!("full session: \"{path}\"")
+        format!("full session: {}", serde_json::to_string(&path).unwrap())
     );
     assert_eq!(document["truncated"], true);
     assert_eq!(document["skipped_lines"], 2);
@@ -1492,7 +1493,7 @@ fn a_rejected_dsh_header_version_has_fixed_documents() {
         assert_eq!(document["path"], path);
         assert_eq!(
             document["full_session"],
-            format!("full session: \"{path}\"")
+            format!("full session: {}", serde_json::to_string(&path).unwrap())
         );
         assert_eq!(document["truncated"], false);
         assert_eq!(document["skipped_lines"], 0);
@@ -1584,7 +1585,7 @@ fn one_invalid_packed_row_counts_once() {
     assert_eq!(document["path"], path);
     assert_eq!(
         document["full_session"],
-        format!("full session: \"{path}\"")
+        format!("full session: {}", serde_json::to_string(&path).unwrap())
     );
     assert_eq!(document["skipped_lines"], 0);
     assert_eq!(document["unrecognized_records"], 1);
