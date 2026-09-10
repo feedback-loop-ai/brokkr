@@ -332,17 +332,30 @@ all interpreter behavior or all host helpers.
 Before any native lifetime trigger, the exact payload executable SHALL pass
 three staged controls: outside Seatbelt, under direct
 `/usr/bin/sandbox-exec` with the exact experimental profile, and as the
-launchd-owned payload job with the identical executable, arguments and profile.
+launchd-owned payload job with the identical executable, argument structure and
+normalized profile authority. Each isolated cell SHALL instantiate typed cell-
+root and payload-root placeholders in the same template positions; those
+required path values and the resulting concrete profile digests MAY differ.
+The observer SHALL retain both the normalized template and every concrete
+profile and digest.
 Each stage SHALL reach an externally observed ready state, identify an ordinary
 child and exit cleanly when directed. The preferred payload is a committed,
 purpose-built native Rust helper with no repository-script or general-purpose
 interpreter dependency. If an interpreter is retained for diagnosis, staged
 differential controls or denial/system-log evidence SHALL identify each
-filesystem, IPC or service dependency before a bounded allowance is added.
-Every added allowance SHALL preserve negative controls over guard/peer
-authority, credentials, host writes and undeclared network access. Broadening a
-class merely until startup succeeds is forbidden. A separately labelled
-`allow default` run MAY diagnose that the restrictive profile is the differing
+required operation, narrow target, responsible process and consumer before a
+bounded predicate is added. Native Seatbelt denial events are preferred. When
+they are unavailable or insufficient, committed minimal helpers SHALL bracket
+dynamic-loader, pre-main, first-write, executable lookup, child-spawn and clean-
+exit behavior; bounded monotonic combinations MAY reveal jointly required
+predicates but remain diagnostic. Each proposed predicate SHALL be rerun alone
+against the newly justified baseline. Every added predicate SHALL preserve
+negative controls over guard/peer authority, credentials, host writes and
+undeclared network access. Broadening an operation class merely until startup
+succeeds is forbidden, and a passing broad combination SHALL NOT be copied into
+the candidate without independent operation/target evidence for every member.
+A separately labelled `allow default` run MAY diagnose that the restrictive
+profile is the differing
 layer, but it SHALL never be a candidate observation or authorize an allowance.
 
 Startup and lifetime SHALL have separate verdicts. An abort, signal, nonzero
@@ -356,11 +369,14 @@ job label and private root. The observer SHALL prove the exact label absent
 before bootstrap, preserve raw bounded stdout/stderr and status separately for
 bootstrap, any explicit kickstart, `print`, payload exit and `bootout`, and
 prove the label absent again before another cell runs. Loaded state, `READY`,
-ordinary-child identity, terminal state, run/crash counters and cleanup are
-distinct observations. A missing or unparsable field SHALL remain unknown and
-fail the cell; it SHALL NOT be converted into a synthesized nonzero or clean
-exit. An order-dependent result, stale registration or failed bootstrap is a
-measurement failure, not a payload or lifetime verdict.
+ordered stages, ordinary-child identity, terminal state, each available
+run/crash/exit field and cleanup are distinct observations. Parsing SHALL be
+field-wise and version-tolerant: a missing or unparsable field SHALL remain
+unknown and fail the cell, but SHALL NOT erase independently observed facts or
+be converted into a synthesized nonzero or clean exit. The evidence SHALL keep
+the raw `launchctl` text that caused each parsed or unknown value. An order-
+dependent result, stale registration or failed bootstrap is a measurement
+failure, not a payload or lifetime verdict.
 
 Native CI `34433461814` at candidate
 `6a19a6f4ab9bd30b47537de1a649949cd1099d01` is retained as a failed startup
@@ -381,6 +397,22 @@ launchd cells alternated between bootstrap error 5 and observations with
 missing run/crash facts, so neither launchd control is established. Gate B was
 not run; the startup cause and all lifetime properties remain unresolved.
 
+Native CI `34449331270` at candidate
+`9f4c2c944cac217ccb8dc055971cc62614313ed4` is retained as a third failed
+Gate A measurement on the GitHub `macos-latest` arm64 runner. Generic macOS
+and Windows workspace tests passed. S0 reached the exact stages, identified an
+ordinary child and exited cleanly. S1 reached no stage and exited by signal 6;
+all seven single-class differentials also failed, while only the labelled
+`allow default` diagnostic started. S2 produced no parseable not-running state
+and is an observation refusal, not proof of execution or nonexecution. S3
+produced no `READY` or stages and reported not-running, one run and one crash.
+Denial controls were unobserved and Gate B was not run. The operation denied at
+startup is still unidentified. The report's S1/S3 raw profile-digest mismatch
+is also not authority drift: unique private roots require different literal
+paths. The measurement adapter must compare the normalized template and typed
+substitutions and preserve independent launchd facts before the next native
+candidate.
+
 #### Scenario: Probe startup is established before lifetime triggers
 - **GIVEN** the exact helper, argv and experimental profile intended for the lifetime matrix
 - **WHEN** the outside-box, direct-sandbox and launchd-owned controls run in order
@@ -392,11 +424,23 @@ not run; the startup cause and all lifetime properties remain unresolved.
 
 #### Scenario: A broad diagnostic never becomes an admitted profile
 - **WHEN** the exact profile aborts before `READY` but a separately labelled `allow default` run of the identical helper and argv exits cleanly
-- **THEN** evidence records only that the exact profile withheld some required authority, keeps every exact-profile cell failing, adds no broad allowance and requires a named one-authority differential plus preserved denial controls before retry
+- **THEN** evidence records only that the exact profile withheld some required authority, keeps every exact-profile cell failing, adds no broad allowance and requires operation/target attribution plus preserved denial controls before retry
+
+#### Scenario: Startup diagnosis names operations and targets
+- **WHEN** no single broad-class differential starts the helper and a bounded combination or minimal staged helper advances farther
+- **THEN** the evidence identifies each newly required operation, narrow target, process and consumer from native denial or stage evidence, reruns each predicate against the justified baseline, and refuses to promote the broad family or combination itself
+
+#### Scenario: Cell-private roots are not profile drift
+- **WHEN** S1 and S3 instantiate the same normalized policy template with their distinct private cell and payload roots
+- **THEN** the authority comparison passes only when the normalized rules and placeholder positions agree, while both concrete profiles, substitutions and different digests remain recorded; raw digest equality is neither required nor claimed
 
 #### Scenario: Launchd startup cells are isolated and fully observed
 - **WHEN** Gate A executes or repeats a direct/launchd and profile-off/on matrix
 - **THEN** every launchd cell uses a never-reused label/root, proves absence before bootstrap and after cleanup, preserves each command's raw bounded status/output and reports missing job fields as unknown; a bootstrap error, stale label, inferred exit or result that changes with cell order fails Gate A
+
+#### Scenario: An unknown launchd field does not erase other facts
+- **WHEN** a launchd cell reaches `READY`, writes some ordered stages or produces bounded output but its terminal print omits or changes a run, crash, state or exit field
+- **THEN** that field stays unknown and the cell fails, while every independently observed fact and the raw lifecycle command evidence remain present in the report
 
 #### Scenario: Startup repair preserves least authority
 - **WHEN** a staged control identifies a startup dependency
@@ -749,3 +793,12 @@ relevant change SHALL not be attributed to the final candidate.
   repeated cells reused lifecycle state and returned bootstrap errors or
   missing terminal facts. Unique-label isolation, raw lifecycle evidence and
   one-authority profile diagnosis precede another lifetime attempt.
+- **SEATBELT-R3-STARTUP at `9f4c2c9` — repair observation before another
+  native dispatch.** Adopt S0 and generic workspace passes as controls and S1's
+  signal 6 plus S3's non-ready crash as startup failures. Reject the S2 parser
+  refusal as proof that the payload did or did not run, and reject raw S1/S3
+  profile-digest equality because private roots are intentionally distinct.
+  Seven failing single-class diagnostics identify no admissible allowance;
+  `allow default` still authorizes none. The successor must retain independent
+  launchd facts, compare normalized authority and name the denied operation,
+  target and consumer before changing the profile. Lifetime remains not run.

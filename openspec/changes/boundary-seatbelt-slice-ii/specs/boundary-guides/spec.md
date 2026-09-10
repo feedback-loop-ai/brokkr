@@ -182,6 +182,17 @@ status and bounded output, a recorded host version, and one-authority-at-a-time
 profile diagnosis. The Windows helper link failure SHALL be reported as a
 portability repair, never as macOS enforcement evidence.
 
+It SHALL preserve native CI `34449331270` for candidate
+`9f4c2c944cac217ccb8dc055971cc62614313ed4` as a third failed Gate A
+measurement. It SHALL record that generic macOS and Windows workspaces and S0
+passed, while S1 aborted before stages, seven single-class diagnostics failed,
+and only the non-admitting `allow default` control started. It SHALL describe
+S2 as an observation/parsing refusal, S3 as one non-ready crashed run, denial
+controls as unobserved and Gate B as not run. The next action SHALL name
+normalized profile-template comparison, field-wise lossless launchd evidence
+and native operation/target attribution; it SHALL NOT request an unchanged
+retry or present concrete private-root profile digests as authority drift.
+
 While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
 labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.
 Refusing shipped overlays is an unmet deliverable, not an optional limitation.
@@ -210,6 +221,10 @@ and historical examples and channel versions retain their meaning.
 #### Scenario: The successor startup run preserves each distinct fact
 - **WHEN** the guide reports native CI `34441725835`
 - **THEN** it names candidate, runner/architecture, missing recorded host version, direct-unboxed success, exact-profile signal 6, non-admitting broad diagnostic, incoherent launchd observations, Gate B not run and the Windows portability failure without turning any of them into a containment verdict
+
+#### Scenario: The third startup run names measurement defects
+- **WHEN** the guide reports native CI `34449331270`
+- **THEN** it separates S0 and workspace controls from S1's signal 6, the non-admitting diagnostics, S2's parsing refusal and S3's non-ready crash; it says denial controls and lifetime were not observed and directs the next candidate to normalized-policy, lossless-launchd and operation-level diagnosis
 
 #### Scenario: Accepted observables and proof status stay adjacent
 - **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view

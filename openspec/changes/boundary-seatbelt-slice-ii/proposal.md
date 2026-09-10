@@ -41,8 +41,29 @@ The run therefore proves neither launchd startup nor lifetime containment; it
 requires isolated launchd measurements and bounded profile diagnosis. The
 successor repair commits the portability, label/root isolation, canonical-path,
 parsed-terminal-state, staged-startup and one-authority diagnostic changes and
-leaves the controller-dispatched exact-head Gate A run as the next prerequisite;
+left the controller-dispatched exact-head Gate A run as its next prerequisite;
+that completed run is reconciled below.
 no production Seatbelt path is authorized by that repair.
+
+Candidate `9f4c2c944cac217ccb8dc055971cc62614313ed4` was measured by native
+CI `34449331270` on the GitHub `macos-latest` arm64 runner. The generic macOS
+workspace and Windows workspace passed, and S0 again proved that the committed
+helper, arguments, ordinary child and bounded stages work unboxed. S1 aborted
+with signal 6 before the first stage under the exact restrictive profile. None
+of the seven one-class diagnostics reached `READY`; only the forbidden
+`allow default` control did, so the withheld operation and target remain
+unidentified and no profile broadening is authorized. S2 is a launchd
+observation refusal, not a payload result: its terminal output did not populate
+the parser's required not-running shape. S3 recorded a not-running job with one
+run and one crash but no authenticated startup fact. Gate B was correctly not
+run, denial controls were unobservable because the helper never started, and
+SEATBELT-R3 remains open. The report also exposes two probe measurement defects:
+cell-private roots make raw instantiated profile digests differ even when the
+authority template is identical, and an incomplete launchd terminal parse
+currently erases separately observable readiness, stages and output. The next
+candidate must compare a normalized profile template, preserve every launchd
+fact independently, and identify the denied operation/target from native denial
+evidence or a minimal staged syscall probe before changing the candidate.
 
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
@@ -91,6 +112,14 @@ measured, as accepted decision 0046 requires.
   bootout, and preserve raw bootstrap, print, exit and cleanup outcomes.
   Reused-label races, missing counters or inferred exits fail the startup
   measurement. Diagnostic broad profiles never become candidates.
+- Compare the two Seatbelt startup profiles as one normalized authority
+  template with typed substitutions for each private cell root and payload
+  root. Record the concrete bytes and digest per cell, but do not mistake those
+  required substitutions for authority drift.
+- Diagnose startup at an operation and target boundary. Preserve native denial
+  reports and use staged, minimal helpers or bounded combination controls when
+  no single broad class suffices; no broad class enters the candidate merely
+  because a diagnostic combination starts.
 - Keep probe helpers portable: non-Darwin workspace builds must compile and
   link without unresolved Unix symbols even though native cases run on macOS.
 - Thread the compiled realm boundary through runtime composition, both
@@ -148,9 +177,9 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved starting HEAD `8c53dce`; `225d2c7` remains historical ancestry,
-not a checkout target. It answers the current findings in dependency order.
-The
+preserved starting HEAD `9f4c2c9`; `225d2c7`, `8c53dce` and their native
+measurements remain historical evidence, not checkout targets. It answers the
+current findings in dependency order. The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
 not manufacture evidence. Only the proposal and five capability deltas are
 authored in this specify phase. No workflow runner is invoked.
@@ -167,6 +196,10 @@ authored in this specify phase. No workflow runner is invoked.
 | SEATBELT-R3-STARTUP — native CI `34441725835` | **Adopt as a narrower failed prerequisite.** Candidate `8c53dce` proves the committed Rust helper and argv work directly unboxed, then reproduces signal 6 only under the exact restrictive profile. The `allow default` diagnostic narrows the layer but authorizes nothing. Gate B correctly remains not run. | `seatbelt-execution`: A broad diagnostic never becomes an admitted profile |
 | Launchd startup measurement isolation | **Adopt as a probe defect.** S2/S3 results varied between the two Gate A runs and lacked reliable run/crash facts. Each cell and invocation therefore needs a unique label/root, pre-bootstrap absence, explicit kickstart/terminal observations, raw command evidence and confirmed post-bootout absence; inferred exits and label reuse cannot pass. | `seatbelt-execution`: Launchd startup cells are isolated and fully observed |
 | Windows helper link failure | **Adopt as probe portability, not native security evidence.** Unconditional `getuid`/`getpgid` references break the Windows workspace test link. The helper must use target-correct implementations or be structurally unavailable off Unix without hiding shared decision logic. | `seatbelt-execution`: Probe support does not break non-Darwin validation |
+| Native CI `34449331270` at `9f4c2c9` | **Adopt as a third failed startup prerequisite.** S0 and both generic workspaces pass; S1 aborts before stages, every one-class diagnostic fails, and only forbidden `allow default` starts. S2 is an observation refusal and S3 is one non-ready crash. No denial or lifetime fact is established. | `seatbelt-execution`: The third startup run still identifies no admissible authority |
+| Cell-private profile comparison | **Adopt as a measurement defect.** Unique roots are required isolation, so their concrete profile literals and digests must differ. Compare a normalized policy template and typed root substitutions for equal authority while retaining each concrete profile as evidence. | `seatbelt-execution`: Cell-private roots are not profile drift |
+| Lossless launchd observation | **Adopt as a measurement defect.** Failure to parse one terminal field must fail the cell but cannot erase separately observed `READY`, stages, child identity, raw lifecycle output or individual parsed fields. | `seatbelt-execution`: An unknown launchd field does not erase other facts |
+| Exact startup operation | **Retain as unresolved.** Seven single broad-class additions did not start the helper. A next candidate needs native deny-report attribution or staged minimal syscall/combination evidence naming each required operation, target and consumer; broad combination success alone authorizes nothing. | `seatbelt-execution`: Startup diagnosis names operations and targets |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
 | R5 — system launcher | **Retain.** Only the literal trusted `/usr/bin/sandbox-exec` and a bounded real allow/deny probe establish launcher readiness; lookalikes never execute. | `boundary-availability`: The system pin ignores an earlier lookalike |
@@ -243,11 +276,26 @@ Every launchd control uses a unique label and cell root, verifies the label is
 absent before bootstrap, explicitly starts the job when bootstrap does not
 itself prove execution, and captures the raw status and bounded output of
 bootstrap, kickstart, print, payload exit and bootout. It observes the exact job
-loaded, `READY`, ordinary child, terminal state and label absence as distinct
-facts. A missing field is unknown, not a synthesized exit; a label must be
-absent after cleanup before the next cell starts. Order-dependent results or a
+loaded, `READY`, ordered stages, ordinary child, terminal state, each available
+run/crash/exit field and label absence as distinct facts. A missing field is
+unknown, not a synthesized exit and not permission to discard the other facts;
+a label must be absent after cleanup before the next cell starts.
 registration collision fail Gate A and are diagnosed before another native
 candidate is dispatched.
+
+The experimental policy is one normalized template. Its cell root and payload
+root are typed placeholders, instantiated separately for the isolated S1 and
+S3 roots. Equality means equal normalized rules and substitutions in the same
+positions, not equal concrete bytes or digests; every concrete profile is
+still retained and hashed. Diagnosis first captures native Seatbelt denial
+events with operation, target and responsible process. If those events are
+unavailable or insufficient, committed minimal helpers bracket dynamic-loader,
+pre-main, filesystem, child-spawn and clean-exit stages, and bounded monotonic
+combinations determine the minimal jointly required predicates. Every proposed
+predicate names its operation, narrow target and consumer and is rerun alone
+against the newly justified baseline with credential, host-write, network,
+guard and peer denial controls. A broad family or combination is diagnostic
+only and never becomes the candidate without this per-predicate evidence.
 
 This is a hypothesis, not evidence. If launchd exposes only process-group
 cleanup, requires private SPI, a privileged entitlement or global mutation,
@@ -320,6 +368,21 @@ measurement and captures the host version, then bisects only named profile
 authorities with denial controls intact. The same revision's Windows
 `getuid`/`getpgid` link failure is a portability defect to repair before the
 workspace suite can be evidence; it says nothing about native containment.
+
+Native CI `34449331270` is retained as failed Gate A evidence for candidate
+`9f4c2c944cac217ccb8dc055971cc62614313ed4` on the GitHub
+`macos-latest` arm64 runner. The generic macOS and Windows workspaces pass. S0
+reaches all exact stages with an ordinary child and clean exit; S1 reaches no
+stage and exits by signal 6 under the exact profile; seven single-class
+diagnostics also fail, while `allow default` alone starts and remains
+non-admitting. S2 yields no parseable not-running launchd state and is an
+observation refusal. S3 yields no `READY` or stages and reports not-running,
+one run and one crash. Denial controls and Gate B are not observed. Raw digest
+inequality between S1 and S3 is not authority drift because their required
+private path literals differ. The next candidate must preserve per-fact
+launchd observations, compare normalized policy authority, and obtain native
+operation/target attribution before altering the exact profile or attempting
+lifetime. No unchanged retry and no diagnostic default admission is allowed.
 
 Changing an accepted semantic needs a focused decision document with status
 `proposed`; only the operator can accept it. Frozen contracts, policy,
