@@ -164,15 +164,22 @@ with respect to that artifact. A failed archived check SHALL require reopening
 the same change before repair; later controller evidence SHALL NOT be written
 back into an archived task file.
 
-If a prior premature fold and return to active work cannot satisfy both the
-dialect's append-only bidirectional provenance rule and its all-ticked archived
-verification, the change SHALL remain active and the conflict SHALL return to
-the owning accepted rule. A smith SHALL NOT make the state appear complete by
-checking unfinished historical tasks, deleting or rewriting provenance,
-discarding a historical fold, substituting a manual archive name, skipping a
-required specification fold or weakening archived verification. Archive SHALL
-remain pending until an authorized recovery rule and compatible validation
-exist and the dependent artifacts are revised coherently.
+When an archived OpenSpec change is returned to active work, the smith SHALL
+preserve that same change's complete archive identity in the active namespace,
+including any existing date prefix. After every tracked repository-local task is
+truthfully complete, the unchanged dated identifier SHALL be passed to the
+dialect's normal archive operation. The smith SHALL NOT create a competing
+change, drop or spoof the date, rename the archive after folding, skip a required
+specification fold, rewrite append-only provenance or weaken archived
+verification.
+
+A date-prefixed active change SHALL archive under that same identity when the
+installed dialect tool defines that behavior. Existing provenance entries for
+the change SHALL remain singular and byte-for-byte unchanged; normal archive
+may update the changed requirement while treating identical deltas as no-ops.
+Strict archived validation and bidirectional provenance verification SHALL pass
+after the fold. A scratch simulation SHALL establish only mechanism feasibility
+and SHALL NOT mark real tasks, provider evidence, gates or delivery complete.
 
 Per-commission commands, resource limits, signing instructions and handoff
 owners SHALL be recorded in the change's planning artifacts and task breakdown
@@ -206,14 +213,15 @@ either kind of evidence.
 - **THEN** the change archives with all tracked tasks complete while that mandatory condition remains explicitly pending as non-checkbox controller evidence keyed to the head outside the tracked artifact
 - **AND** neither the archived verification, a checked implementation task nor a local commit is reported as the missing external result
 
-#### Scenario: Dangling historical provenance is not erased
-- **GIVEN** a prematurely archived change was returned to the active namespace by removing its dated archive while append-only living provenance still names that archive
-- **WHEN** a later normal archive would create a different dated directory
-- **THEN** the smith does not rewrite or remove the historical pointers, rename the later archive, or claim that the new directory makes the dangling trail valid
-- **AND** the change remains active while the archive-recovery conflict is reported to the owner of the provenance rule
+#### Scenario: A returned dated change retains its identity
+- **GIVEN** a dated archived change is returned to active work under the accepted reopen-and-refold rule
+- **WHEN** the smith restores the active namespace for that same change
+- **THEN** the active directory and every current command retain the complete dated identifier
+- **AND** the smith does not create a competing change, drop or spoof the date, rename a later archive, rewrite provenance or invoke `--skip-specs`
 
-#### Scenario: A truthful unfinished archive cannot pass as complete
-- **GIVEN** the exact historical archive can be restored but its task artifact truthfully contains unticked work
-- **WHEN** mandatory archived verification rejects that historical directory
-- **THEN** the smith does not tick the historical tasks, weaken the validator, hide the directory or proceed with a second fold
-- **AND** final archive readiness remains pending until an authorized supersession or other lossless recovery makes provenance and archived verification simultaneously true
+#### Scenario: Normal rearchive preserves identity and provenance
+- **GIVEN** the same date-prefixed active change has every real tracked repository-local task truthfully complete
+- **WHEN** the smith invokes the dialect's normal archive operation on that dated identifier
+- **THEN** the archive keeps the exact identifier, applies only changed requirement semantics and treats identical deltas as no-ops
+- **AND** each existing provenance pointer remains byte-for-byte unchanged and singular, strict archived validation passes, and bidirectional provenance resolves
+- **AND** a prior scratch success is not reported as completion of the real archive, tasks, provider proof or delivery
