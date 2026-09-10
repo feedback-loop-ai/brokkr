@@ -73,3 +73,10 @@ refused.
 Consequence for the fold: the `muninn` requirement states the
 entry-level evidence, the snapshot and the no-journal case, and the
 loader requirement names the declared path in a refusal.
+
+The dossier's move from journal-derived facts alone to the loader's
+map-derived crossing report is a widening of accepted decision 0020's
+evidence-source and citation rules. It is not this change's to rule, and
+it is not left resting on the fold: the proposed decision 0059 takes its
+own number, names the two 0020 rulings it amends, and is cited where the
+`muninn` requirement and the crossing half of the record are enforced.

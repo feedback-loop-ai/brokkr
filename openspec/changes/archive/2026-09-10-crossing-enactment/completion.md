@@ -32,3 +32,23 @@ living capability only by its `## ADDED Requirements` header, its title
 and the provenance line the fold appends. The change remains archived as
 `2026-09-10-crossing-enactment`, and the archived strict validator
 passes.
+
+## Later archive amendment — normative reconciliation, 2026-09-10
+
+The final review of slice (vi) found that the `muninn` requirement
+rested on accepted decision 0020's evidence-source and citation rules
+while the readout it describes — the loader's map-derived crossing
+report in the dossier, a `(realm, crossing)` citation, and a crossing
+dossier for a world with no journal yet — widens both. Decision 0057 was
+proposed as vocabulary only and its close-out changes no ruling, so no
+numbered ruling authorises the widening, and decision 0042 ruling 1
+forbids a specification or an implementation account from amending an
+accepted decision.
+
+The widening is now proposed as decision 0059, which names the two 0020
+rulings it amends and is cited where the crossing half of Muninn's
+dossier is enforced. This delta's `## Decisions` section names 0059, the
+`muninn` requirement in both the archived delta and the living capability
+cites it, and decision 0057's close-out addendum points to it. The
+archived delta and the living spec are edited together and still agree,
+and the change remains archived as `2026-09-10-crossing-enactment`.

@@ -1,4 +1,6 @@
-//! `brokkr muninn` — the standing overseer (decision 0020).
+//! `brokkr muninn` — the standing overseer (decision 0020, whose
+//! evidence-source and citation rulings are amended for the world's
+//! crossings by decision 0059).
 //!
 //! One invocation, three steps and no fourth: derive a fleet dossier
 //! from the journal, hand it to one bounded seat, record what that seat
@@ -94,7 +96,8 @@ pub struct Dossier {
     /// it carries the citation it honestly has, the realm whose run would
     /// refuse and the crossing that would refuse it, rather than a run
     /// citation a reader would follow to a ruling that never mentioned a
-    /// contract (decision 0057; decision 0007's provenance discipline).
+    /// contract (decision 0057; decision 0020 ruling 3, as amended by
+    /// decision 0059; decision 0007's provenance discipline).
     pub crossings: Vec<CitedCrossing>,
     /// Per run, the operator commands `brokkr-view` derives as legal.
     /// Keyed by run id alone, as the report cites it: a run id is unique
@@ -377,7 +380,8 @@ pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -
     if !realms.is_empty() {
         fleet["realms"] = json!(realms);
     }
-    // Decision 0057 read into the dossier: what each mapped realm
+    // Decision 0057 read into the dossier, on the terms decision 0020
+    // ruling 1's amendment (0059) admits: what each mapped realm
     // publishes and consumes, entry for entry, and — when a consumed pin
     // no longer matches — a FINDING charged to the CONSUMING realm,
     // because that is the realm whose next run `World::load` would refuse.
@@ -727,11 +731,11 @@ fn usage(checkpoints: &[Value]) -> Value {
 /// The dossier's `fleet` summary and its crossing report are both
 /// snapshotted here. The fleet line has always named the runs the
 /// proposal stood on; the crossing entries are snapshotted beside it for
-/// the same reason (decision 0020 ruling 3): a crossing names mutable
-/// map and file state, so a citation alone would not survive the next
-/// `realms.json` edit. The append-only record must still say, later, what
-/// the pin was when the proposal was derived — and it now does,
-/// repository-relative paths and all.
+/// the same reason (decision 0020 ruling 3, as amended by decision 0059):
+/// a crossing names mutable map and file state, so a citation alone would
+/// not survive the next `realms.json` edit. The append-only record must
+/// still say, later, what the pin was when the proposal was derived — and
+/// it now does, repository-relative paths and all.
 fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Value) -> Value {
     let mut dossier_pin = json!({
         "dossier_version": DOSSIER_VERSION,

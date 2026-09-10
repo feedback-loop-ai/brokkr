@@ -1,4 +1,5 @@
-//! The standing overseer, proven end to end (decision 0020).
+//! The standing overseer, proven end to end (decision 0020; the crossing
+//! evidence it admits is amended by decision 0059).
 //!
 //! Every guarantee here is a claim about what Muninn CANNOT do, so each
 //! test is written as an observation of the real binary rather than as a

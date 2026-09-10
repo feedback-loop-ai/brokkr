@@ -360,8 +360,8 @@ carry is refused and recorded nowhere. The record snapshots the crossing
 evidence the proposal stood on — the published paths, publishing realms
 and pin states, never the host locations behind them — so a later reader
 can still see what the proposal saw after the map changes. Acting on any
-of it stays the operator's own `brokkr operator` command (decision
-0020).
+of it stays the operator's own `brokkr operator` command (decision 0020,
+as amended by decision 0059).
 
 A finding the operator has superseded (below) is still derived, still
 listed and still cited — it carries the mark, and the fleet summary says

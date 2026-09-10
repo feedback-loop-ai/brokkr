@@ -83,12 +83,17 @@ capability is new.
 - **Frozen surfaces:** untouched. No new event type, policy input,
   contract version or manifest field beyond the already-landed v10.
 - **Docs:** `docs/guides/read-surfaces.md`, `ARCHITECTURE.md`, and an
-  addendum to decision 0057.
+  addendum to decision 0057. The `muninn` widening of decision 0020 is
+  proposed as decision 0059.
 
 ## Decisions
 
-None open. Decision 0057 and slices (i)–(vi) rule every fact this change
-describes, and the fold adds no behavior. The two questions 0057 leaves
+Decision 0057 rules the crossing vocabulary and its refusals, and slices
+(i)–(vi) built the rest. The `muninn` readout also admits the loader's
+map-derived crossing report into the dossier, which widens accepted
+decision 0020's evidence-source and citation rules; that widening has its
+own numbered ruling, the proposed decision 0059. The fold adds no
+behavior beyond these. The two questions 0057 leaves
 open — Ratatoskr transport for realms that are not co-located, and
 whether a consumer may plant a keep-ref in a publisher's repository
 (0028's gap) — stay open and are recorded in 0057's close-out addendum,

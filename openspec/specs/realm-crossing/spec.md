@@ -196,8 +196,8 @@ crossing entries SHALL be snapshotted into the recorded proposal, so the
 evidence survives a later change to the map. An invented crossing, or one
 charged to the wrong realm, SHALL be refused rather than recorded; a
 matching or unchecked pin SHALL NOT be a finding; and the flight SHALL
-write no run journal (decision 0020 ruling 3; decision 0026 ruling 3;
-decision 0057).
+write no run journal (decision 0020 ruling 3, as amended by decision
+0059; decision 0026 ruling 3; decision 0057).
 
 #### Scenario: The dossier names entries, not counts
 - **WHEN** a realm publishes a file and another consumes it
