@@ -2220,8 +2220,18 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     // field is identical, but the source identity differs, so the frame
     // must be re-derived rather than treated as unchanged.
     let bytes = std::fs::read(&file).unwrap();
-    std::fs::remove_file(&file).unwrap();
+    // Retain the old file so the filesystem cannot recycle its identity.
+    let retained = file.with_extension("retained");
+    std::fs::rename(&file, &retained).unwrap();
     std::fs::write(&file, &bytes).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_ne!(
+            std::fs::metadata(&retained).unwrap().ino(),
+            std::fs::metadata(&file).unwrap().ino()
+        );
+    }
     let views = tui_views(
         &db,
         true,
