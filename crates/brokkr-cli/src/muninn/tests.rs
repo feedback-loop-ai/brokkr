@@ -851,7 +851,7 @@ fn two_hearths_holding_one_run_id_stay_two_runs() {
     assert_eq!(derived.commands["shared-id"], Vec::<String>::new());
 }
 
-// ---------------------- crossings (decision 0054, slice vi)
+// ---------------------- crossings (decision 0057, slice vi)
 
 fn realm_crossings(
     realm: &str,

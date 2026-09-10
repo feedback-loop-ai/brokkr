@@ -94,7 +94,7 @@ pub struct Dossier {
     /// it carries the citation it honestly has, the realm whose run would
     /// refuse and the crossing that would refuse it, rather than a run
     /// citation a reader would follow to a ruling that never mentioned a
-    /// contract (decision 0054; decision 0007's provenance discipline).
+    /// contract (decision 0057; decision 0007's provenance discipline).
     pub crossings: Vec<CitedCrossing>,
     /// Per run, the operator commands `brokkr-view` derives as legal.
     /// Keyed by run id alone, as the report cites it: a run id is unique
@@ -142,7 +142,7 @@ impl Dossier {
     }
 }
 
-/// One realm's crossings, as the dossier states them (decision 0054;
+/// One realm's crossings, as the dossier states them (decision 0057;
 /// decision 0026 ruling 3, which makes every fact name the realm it was
 /// read for). Built only for a realm that draws a crossing at all, so a
 /// world that never drew one hands the seat the exact dossier it always
@@ -399,7 +399,7 @@ pub fn dossier_of(sources: &[Source], crossings: &[RealmCrossings], now: &str) -
     if !realms.is_empty() {
         fleet["realms"] = json!(realms);
     }
-    // Decision 0054 read into the dossier: what each mapped realm
+    // Decision 0057 read into the dossier: what each mapped realm
     // publishes and consumes, and — when a consumed pin no longer matches
     // — a FINDING charged to the CONSUMING realm, because that is the
     // realm whose next run `World::load` would refuse. A matching pin is
@@ -613,7 +613,7 @@ fn citation(what: &str, dossier: &Dossier, entry: &Value) -> Result<Cited, Strin
 /// CONSUMES the crossing and the crossing itself. Both are required, and
 /// the pair must be one the dossier actually states as a finding — a
 /// crossing that is matching, or a realm the dossier did not charge, is
-/// not a fact a reader could follow back (decision 0054; decision 0007's
+/// not a fact a reader could follow back (decision 0057; decision 0007's
 /// provenance discipline). A crossing finding has no run id and no
 /// sequence, so this is its own citation shape and never a borrowed run
 /// citation (decision 0026 ruling 3's realm key, unchanged).
@@ -960,7 +960,7 @@ pub fn run(
         })
         .collect();
     // The world's crossings, read off the SAME report `brokkr realms` and
-    // `brokkr doctor` read (decision 0054): nothing is resolved, hashed or
+    // `brokkr doctor` read (decision 0057): nothing is resolved, hashed or
     // compared again here, and a moved pin becomes a finding rather than
     // the end of the flight. A world with no map draws none.
     let crossings = world_crossings(world);

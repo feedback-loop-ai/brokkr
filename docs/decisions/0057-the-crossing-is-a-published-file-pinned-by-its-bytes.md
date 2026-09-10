@@ -195,7 +195,7 @@ a mechanism in the schema before there is a ruling behind it.
 ## Addendum: Phase 2 close-out, 2026-09-10
 
 This addendum records what building the Decision taught. It changes no
-ruling above; 0054 stays `proposed`, because only the operator accepts a
+ruling above; 0057 stays `proposed`, because only the operator accepts a
 decision.
 
 ### What Phase 2 built
@@ -265,5 +265,5 @@ fixture is two realms in one workspace, and the consuming realm never
 executed, so the refusal is proved at load and not yet under a running
 consumer. And no crossing was tested whose publishing realm declares no
 `boundary`, `house` or `dialect` of its own, so how 0046 and 0041 compose
-with 0054 at a publisher that is only a publisher is unproven. Both are
+with 0057 at a publisher that is only a publisher is unproven. Both are
 work Phase 3 should carry, not facts Phase 2 established.

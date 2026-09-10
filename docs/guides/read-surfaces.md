@@ -66,7 +66,7 @@ journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
 ```
 
-A world whose realms draw crossings (`forge.realms/v5`, decision 0054)
+A world whose realms draw crossings (`forge.realms/v5`, decision 0057)
 says so under each realm: what that realm publishes, then what it
 consumes — naming the publishing realm and whether the pin still
 matches. The readout opens no crossing file and hashes nothing: every

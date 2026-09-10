@@ -6,7 +6,7 @@ A crossing is a contract between realms: a realm publishes a FILE it
 owns, and the realm that depends on it pins the bytes. The vocabulary,
 the refusals, the loader that resolves and verifies at world load, the
 `run-manifest/v10` recording of what a run stood on, and the readouts
-that report the crossings — decision 0054, built by Phase 2 slices
+that report the crossings — decision 0057, built by Phase 2 slices
 (ii)–(vi).
 
 ## ADDED Requirements
@@ -18,7 +18,7 @@ file the realm owns, named repository-relative on the same terms `house`
 and `dialect` are named, its bytes the contract. `consumes` SHALL be a
 list of `{name, realm, sha256}`: a crossing named by its publishing
 realm and pinned by a lowercase 64-character hex sha256 over the
-published file's RAW bytes, never a canonical form (decision 0054
+published file's RAW bytes, never a canonical form (decision 0057
 rulings 1 and 2).
 
 #### Scenario: A v5 map declares and pins a crossing
@@ -41,7 +41,7 @@ entry naming a crossing its publisher does not publish; one realm
 publishing or consuming the same crossing name twice; a pin that is not
 64 lowercase hex characters; either word written under a label older
 than v5; a realm consuming its own published crossing; or either word
-written as `null`. Every refusal SHALL name what it read (decision 0054
+written as `null`. Every refusal SHALL name what it read (decision 0057
 ruling 3).
 
 #### Scenario: A consumer names an unknown realm
@@ -81,7 +81,7 @@ naming the CONSUMING realm, the crossing, the publishing realm, the
 pinned digest, the observed digest and the file. A published file that
 cannot be read SHALL be charged to the PUBLISHING realm, and its
 consumers' pins SHALL be recorded as unchecked — never matching
-(decision 0054; decision 0023 ruling 4; decision 0046's Addendum).
+(decision 0057; decision 0023 ruling 4; decision 0046's Addendum).
 
 #### Scenario: A matching pin is accepted
 - **WHEN** the published file's raw bytes hash to the consumer's pin
@@ -100,7 +100,7 @@ consumers' pins SHALL be recorded as unchecked — never matching
 crossing moved before any seat spawns or any prompt exists, reading the
 one refusal the loader built, and `resume` SHALL re-read the disk as a
 fence over the world it rehydrated from its run manifest (decision
-0046's Addendum; decision 0054; commits `b9b2ee6` and `ca0c765`).
+0046's Addendum; decision 0057; commits `b9b2ee6` and `ca0c765`).
 
 #### Scenario: run refuses before a seat spawns
 - **WHEN** `run` opens a world whose consumed pin moved
@@ -121,7 +121,7 @@ resolved source path and the sha256 the loader observed on disk. The
 property SHALL be a SIBLING of the map pin, absent when no realm
 publishes or consumes a crossing, and SHALL carry the loader's
 observation rather than a second copy of the map's declaration
-(decision 0023 ruling 4; decision 0054 ruling 4; commit `9111ee2`).
+(decision 0023 ruling 4; decision 0057 ruling 4; commit `9111ee2`).
 
 #### Scenario: A world with a publication records what it stood on
 - **WHEN** a run starts in a world that publishes a crossing
@@ -143,7 +143,7 @@ pin's failure naming the CONSUMING realm and the crossing; and a warning
 naming the publishing realm when a consumer's pin could not be checked.
 An unchecked pin SHALL NOT be counted among the matching ones, and a
 world that draws no crossing SHALL gain no line (decision 0046's
-Addendum; decision 0054; commit `ca0c765`).
+Addendum; decision 0057; commit `ca0c765`).
 
 #### Scenario: A sound crossing is reported
 - **WHEN** every published file is readable and every pin matches
@@ -168,7 +168,7 @@ naming its publishing realm and whether the pin is `matching`, `moved`
 (with the loader's own refusal words) or `unchecked`. It SHALL emit the
 same three states as values under `--json`, SHALL render a world with no
 crossing exactly as it did before, and SHALL remain a read surface with
-no writes (decision 0023 ruling 6; decision 0054).
+no writes (decision 0023 ruling 6; decision 0057).
 
 #### Scenario: The three pin states render distinctly
 - **WHEN** a world draws a matching, a moved and an unchecked pin
@@ -189,7 +189,7 @@ pin raised as a FINDING under the CONSUMING realm and citable by that
 realm and the crossing's name. An invented crossing, or one charged to
 the wrong realm, SHALL be refused rather than recorded; a matching or
 unchecked pin SHALL NOT be a finding; and the flight SHALL write no run
-journal (decision 0020 ruling 3; decision 0026 ruling 3; decision 0054).
+journal (decision 0020 ruling 3; decision 0026 ruling 3; decision 0057).
 
 #### Scenario: A moved pin is a citable finding of the consumer
 - **WHEN** the dossier states a moved pin

@@ -1,9 +1,9 @@
-# Design: The crossing, enacted — decision 0054, Phase 2
+# Design: The crossing, enacted — decision 0057, Phase 2
 
 This change folds a mechanism already built and proved into the living
 specs; it rules no new behavior. The design records the three readings
 that shaped the fold, each already encoded in the code and in decision
-0054's own consequences, so the next reader meets the reason beside the
+0057's own consequences, so the next reader meets the reason beside the
 requirement.
 
 ## DD1 — One reading of the disk, two questions answered

@@ -260,7 +260,7 @@ fn the_json_view_is_the_same_world_as_the_frame() {
     assert_eq!(odd["realms"][0]["name"], json!("a\u{202e}b"));
 }
 
-// -------------------- crossings, read out (decision 0054, slice vi)
+// -------------------- crossings, read out (decision 0057, slice vi)
 
 /// A row carrying crossings, built the way [`rows`] builds one.
 fn crossing_row(

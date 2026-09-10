@@ -513,7 +513,7 @@ fn the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm() {
     assert_eq!(bytes_before, std::fs::read(ws.db()).unwrap());
 }
 
-// ---------------------- crossings (decision 0054, slice vi)
+// ---------------------- crossings (decision 0057, slice vi)
 
 /// The bytes the crossing world publishes while its pin is true.
 const CROSSING_BYTES: &str = "{\"title\": \"orders\"}\n";

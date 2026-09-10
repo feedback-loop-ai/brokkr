@@ -179,7 +179,7 @@ The world is chosen at invocation (decision 0023): `realms.json` names
 the repositories a run may see and the journal they share, is pinned by
 content hash into the run manifest, and `resume` rehydrates it from that
 pin rather than from the disk. A realm publishes a file, another pins
-its bytes, and the loader verifies at world load (decision 0054).
+its bytes, and the loader verifies at world load (decision 0057).
 
 ## A bundle, resolved
 

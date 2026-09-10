@@ -33,7 +33,7 @@ pub struct Row {
     /// already said its journal once, at the top, and saying it again
     /// per realm would be noise.
     pub journal: String,
-    /// The files this realm publishes (decision 0054 ruling 1), in map
+    /// The files this realm publishes (decision 0057 ruling 1), in map
     /// order. Empty for every realm that draws no crossing, which is
     /// every realm of every world before `forge.realms/v5`.
     pub publishes: Vec<Published>,
@@ -125,7 +125,7 @@ fn crossing_width<'a>(cells: impl Iterator<Item = &'a str>) -> usize {
 ///
 /// A realm that draws none contributes nothing at all — not a heading, not
 /// a blank line — so a world that never drew a crossing reads out exactly
-/// as it did before decision 0054, byte for byte.
+/// as it did before decision 0057, byte for byte.
 fn crossings(row: &Row, name: usize, publisher: usize) -> String {
     let mut out = String::new();
     for published in &row.publishes {
@@ -234,7 +234,7 @@ pub fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
                 });
                 // Written only by a realm that has one to write, so a
                 // world that never drew a crossing emits the exact bytes
-                // it emitted before decision 0054 — the same rule the
+                // it emitted before decision 0057 — the same rule the
                 // manifest's `crossings` pin and doctor's lines follow.
                 if !row.publishes.is_empty() {
                     realm["publishes"] = json!(row

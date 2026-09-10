@@ -1235,7 +1235,7 @@ type OpenWorld =
 impl Invocation {
     /// The world as every verb that STARTS or CONTINUES a run reads it: a
     /// crossing that has moved refuses here, before a store is opened
-    /// (decision 0054, `b9b2ee6`).
+    /// (decision 0057, `b9b2ee6`).
     fn resolve(
         workspace: &std::path::Path,
         realms: Option<PathBuf>,
@@ -1426,7 +1426,7 @@ fn hearths_of(
 /// The same fleet, with the WORLD it was read from kept — what a surface
 /// needs when it states facts about the map itself and not only about the
 /// journals the map names, which is `brokkr muninn run` and its crossings
-/// (decision 0054; decision 0026 ruling 3).
+/// (decision 0057; decision 0026 ruling 3).
 ///
 /// Opened with [`Invocation::inspect`]: the raven reports a moved
 /// crossing as a finding, so a moved crossing must not be the end of the
@@ -2437,7 +2437,7 @@ fn run_with(
                 // `world_and_hearths`, not `hearths_of`: the raven reports
                 // a moved crossing as a finding, so it reads the world
                 // with `inspect` and keeps the resolved map beside the
-                // journals it names (decision 0054).
+                // journals it names (decision 0057).
                 let (world, hearths) = world_and_hearths(workspace, realms, db)?;
                 muninn::run(
                     &hearths,

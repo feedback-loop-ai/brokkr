@@ -1,9 +1,9 @@
-# Change: The crossing, enacted — decision 0054, Phase 2
+# Change: The crossing, enacted — decision 0057, Phase 2
 
 ## Why
 
 Decision 0023 ruled the world and deferred the paths between its realms;
-decision 0054 (proposed, 2026-09-09) ruled the vocabulary — a realm
+decision 0057 (proposed, 2026-09-09) ruled the vocabulary — a realm
 publishes a file and another pins its raw bytes. Slices (i)–(vi) of
 Phase 2 built the rest: the pure refusals, the loader that resolves and
 verifies at world load, the `run-manifest/v10` recording, the refusals
@@ -38,7 +38,7 @@ would refuse.
 1. **The word.** `contracts/realms.v5.schema.json` adds `publishes` and
    `consumes`; the six pure refusals, the self-consumption refusal and
    the written-`null` refusal are judged in `brokkr-core` (decision
-   0054 rulings 1–3; commit `c02d97d`).
+   0057 rulings 1–3; commit `c02d97d`).
 2. **The loader.** `World::load` resolves each publication and verifies
    each pin against the raw bytes, carrying what is not true as data
    (commit `07ed4ab`).
@@ -79,13 +79,13 @@ capability is new.
 - **Frozen surfaces:** untouched. No new event type, policy input,
   contract version or manifest field beyond the already-landed v10.
 - **Docs:** `docs/guides/read-surfaces.md`, `ARCHITECTURE.md`, and an
-  addendum to decision 0054.
+  addendum to decision 0057.
 
 ## Decisions
 
-None open. Decision 0054 and slices (i)–(vi) rule every fact this change
-describes, and the fold adds no behavior. The two questions 0054 leaves
+None open. Decision 0057 and slices (i)–(vi) rule every fact this change
+describes, and the fold adds no behavior. The two questions 0057 leaves
 open — Ratatoskr transport for realms that are not co-located, and
 whether a consumer may plant a keep-ref in a publisher's repository
-(0028's gap) — stay open and are recorded in 0054's close-out addendum,
+(0028's gap) — stay open and are recorded in 0057's close-out addendum,
 not resolved here.
