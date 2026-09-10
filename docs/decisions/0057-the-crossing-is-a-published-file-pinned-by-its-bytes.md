@@ -216,6 +216,19 @@ where a moved pin is a finding under the consuming realm. Both read that
 one already-computed report; neither opens a crossing file, hashes a byte
 or compares a pin a second time.
 
+Three refinements make that readout honest. The refusal names the
+publisher's own declared repository-relative path and never the host
+location it resolved to, so no run journal and no Muninn seat input
+carries the operator's filesystem layout (decision 0020 ruling 1). The
+dossier states each publication's declared path and each consumption's
+publishing realm and pin state rather than bare counts, and Muninn
+snapshots that crossing evidence into its own append-only record, so a
+later reader can still check a proposal against what it saw after the map
+changes (decision 0020 ruling 3). And a world whose realms have not run
+yet still yields a crossing dossier: the report comes off the map, each
+absent journal is said out loud, and only a world with neither a readable
+journal nor a crossing is refused.
+
 ### Ratatoskr, sharpened
 
 The readouts already separate two reasons a consumer's pin cannot be
@@ -263,7 +276,12 @@ Two things are said honestly rather than implied. Nothing in Phase 2
 exercised a SECOND realm consuming a crossing under load: every crossing
 fixture is two realms in one workspace, and the consuming realm never
 executed, so the refusal is proved at load and not yet under a running
-consumer. And no crossing was tested whose publishing realm declares no
-`boundary`, `house` or `dialect` of its own, so how 0046 and 0041 compose
-with 0057 at a publisher that is only a publisher is unproven. Both are
-work Phase 3 should carry, not facts Phase 2 established.
+consumer. And a publisher that is ONLY a publisher IS exercised at load
+and in every readout — slice (i)'s two-repository fixture names `alpha`
+with no `boundary`, `house` or `dialect`, and the crossing tests resolve,
+refuse and report it — but how 0046 and 0041 compose with 0057 when such
+a publisher is the realm EXECUTING is unproven, because no fixture yet
+runs a seat standing in that realm. The distinction is the honest one:
+the crossing mechanism at a bare publisher is proved; the boundary,
+house and dialect machinery composed around it at run time is not. Both
+are work Phase 3 should carry, not facts Phase 2 established.

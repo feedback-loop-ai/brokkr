@@ -273,15 +273,17 @@ pub fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
 /// compares one: the answer this realm's next run would be given is the
 /// answer printed, or the two surfaces would eventually disagree.
 ///
-/// A moved pin is looked up by the crossing's name AND the fault's
-/// direction, because a realm may publish `x` and consume another realm's
-/// `x`, and its report would then carry two faults under one name.
+/// A moved pin is looked up by the fault's direction, the publishing
+/// realm and the crossing's name. The three are pure predicates, so the
+/// order cannot change the answer; each is asked separately because a
+/// realm may consume differently-named crossings from different
+/// publishers, and no single field is the answer on its own.
 fn pin_of(reports: &[CrossingReport], realm: &str, name: &str, publisher: &str) -> Pin {
     let mine = || reports.iter().filter(|report| report.realm == realm);
     let moved = mine()
         .flat_map(|report| &report.failures)
         .find(|failure| {
-            failure.moved() && failure.crossing() == name && failure.publisher() == Some(publisher)
+            failure.moved() && failure.publisher() == Some(publisher) && failure.crossing() == name
         })
         .map(|failure| Pin::Moved(failure.error().to_string()));
     let unchecked = || {

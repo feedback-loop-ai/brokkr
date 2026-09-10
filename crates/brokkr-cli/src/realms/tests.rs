@@ -503,3 +503,153 @@ fn rows_derive_each_pin_state_from_the_one_loaded_report() {
     let out = render("realms.json", "j.db", &seen, per_realm(&world, &seen));
     assert!(out.contains("unchecked"), "{out}");
 }
+
+/// Phase 2 slice (vi): every crossing readout consumes the ONE report the
+/// loader already built and never reopens a crossing. The proof is
+/// behavioral rather than a source scan: a world is loaded while the pin
+/// matches, the published file is then overwritten, and both readouts
+/// still report the pin as it was when the world loaded. A second
+/// resolver or a second hash would have seen the new bytes and said
+/// `moved`.
+#[test]
+fn a_loaded_readout_never_reopens_the_crossing_it_was_loaded_from() {
+    let dir = tempfile::tempdir().unwrap();
+    let contracts = dir.path().join("contracts");
+    std::fs::create_dir_all(&contracts).unwrap();
+    std::fs::create_dir_all(dir.path().join("client")).unwrap();
+    let file = contracts.join("orders.v1.schema.json");
+    let bytes = "{\"title\": \"orders\"}\n";
+    std::fs::write(&file, bytes).unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(bytes.as_bytes());
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "brokkr", "path": ".", "default_branch": "main",
+                 "publishes": [{"name": "orders.api",
+                                "path": "contracts/orders.v1.schema.json"}]},
+                {"name": "client", "path": "client", "default_branch": "main",
+                 "consumes": [{"name": "orders.api", "realm": "brokkr", "sha256": pin}]},
+            ],
+            "journal": "j.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let world = World::inspect(dir.path(), Some(&map)).unwrap().unwrap();
+    let seen = rows(&world);
+    let consumer = seen.iter().find(|row| row.name == "client").unwrap();
+    assert_eq!(consumer.consumes[0].pin.word(), "matching");
+    assert!(crate::muninn::world_crossings(Some(&world))
+        .iter()
+        .find(|realm| realm.realm == "client")
+        .unwrap()
+        .consumes
+        .iter()
+        .all(|consumed| consumed.pin.word() == "matching"));
+
+    // One byte moves on disk AFTER the world was loaded.
+    std::fs::write(&file, "{\"title\": \"Orders\"}\n").unwrap();
+
+    // The already-loaded world still answers from its own report — a
+    // readout that re-read the file would now say `moved`.
+    let seen = rows(&world);
+    let consumer = seen.iter().find(|row| row.name == "client").unwrap();
+    assert_eq!(
+        consumer.consumes[0].pin.word(),
+        "matching",
+        "the readout reopened the crossing and disagreed with the loaded world"
+    );
+    let carried = crate::muninn::world_crossings(Some(&world));
+    let consumer = carried
+        .iter()
+        .find(|realm| realm.realm == "client")
+        .unwrap();
+    assert_eq!(
+        consumer.consumes[0].pin.word(),
+        "matching",
+        "muninn reopened the crossing and disagreed with the loaded world"
+    );
+
+    // A fresh inspection of the same changed disk DOES say moved, which
+    // is what makes the assertion above about staleness and not blindness.
+    let reloaded = World::inspect(dir.path(), Some(&map)).unwrap().unwrap();
+    let seen = rows(&reloaded);
+    let consumer = seen.iter().find(|row| row.name == "client").unwrap();
+    assert_eq!(consumer.consumes[0].pin.word(), "moved");
+}
+
+/// A realm that both publishes and consumes puts publication failures and
+/// consumption failures on ONE report. Each consumed pin is still found
+/// by its own name and publishing realm: the realm's own unreadable
+/// publication is passed over, a moved pin for another crossing is passed
+/// over, and a pin whose publisher could not be read is `unchecked`.
+#[test]
+fn a_realm_that_both_publishes_and_consumes_finds_each_pin_by_name_and_publisher() {
+    let dir = tempfile::tempdir().unwrap();
+    let contracts = dir.path().join("contracts");
+    std::fs::create_dir_all(&contracts).unwrap();
+    let beta_bytes = b"{\"title\": \"beta\"}\n";
+    let sound_bytes = b"{\"title\": \"sound\"}\n";
+    let gamma_bytes = b"{\"title\": \"gamma\"}\n";
+    std::fs::write(contracts.join("beta.v1.json"), beta_bytes).unwrap();
+    std::fs::write(contracts.join("sound.v1.json"), sound_bytes).unwrap();
+    std::fs::write(contracts.join("gamma.v1.json"), gamma_bytes).unwrap();
+    let sha = |bytes: &[u8]| brokkr_core::canonical::sha256_bytes(bytes);
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": ".", "default_branch": "main",
+                 "publishes": [{"name": "alpha.doc", "path": "contracts/alpha.v1.md"}],
+                 "consumes": [
+                    {"name": "beta.api", "realm": "beta", "sha256": "a".repeat(64)},
+                    {"name": "sound.api", "realm": "beta", "sha256": sha(sound_bytes)},
+                    {"name": "gamma.api", "realm": "gamma", "sha256": "c".repeat(64)},
+                    {"name": "missing.api", "realm": "delta", "sha256": "d".repeat(64)},
+                 ]},
+                {"name": "beta", "path": ".", "default_branch": "main",
+                 "publishes": [
+                    {"name": "beta.api", "path": "contracts/beta.v1.json"},
+                    {"name": "sound.api", "path": "contracts/sound.v1.json"},
+                 ]},
+                {"name": "gamma", "path": ".", "default_branch": "main",
+                 "publishes": [{"name": "gamma.api", "path": "contracts/gamma.v1.json"}]},
+                {"name": "delta", "path": ".", "default_branch": "main",
+                 "publishes": [{"name": "missing.api", "path": "contracts/missing.v1.json"}]},
+            ],
+            "journal": "j.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let world = World::inspect(dir.path(), Some(&map)).unwrap().unwrap();
+    let seen = rows(&world);
+    let alpha = seen.iter().find(|row| row.name == "alpha").unwrap();
+    assert_eq!(
+        alpha.publishes.len(),
+        1,
+        "alpha still declares its own file"
+    );
+    let states: Vec<(&str, &str)> = alpha
+        .consumes
+        .iter()
+        .map(|consumed| (consumed.name.as_str(), consumed.pin.word()))
+        .collect();
+    assert_eq!(
+        states,
+        vec![
+            ("beta.api", "moved"),
+            ("sound.api", "matching"),
+            ("gamma.api", "moved"),
+            ("missing.api", "unchecked"),
+        ],
+        "each pin is read against its own publisher, never a neighbour's"
+    );
+}

@@ -1122,27 +1122,3 @@ fn the_repository_carries_the_bootstrap_map() {
     assert_eq!(world.journal(), root.join(".forge/forge.db"));
     assert_eq!(world.realm_for(&root).unwrap().name, "brokkr");
 }
-
-/// Phase 2 slice (vi): both crossing readouts consume the ONE report
-/// slices (ii)-(v) already produced. They open no crossing file, hash no
-/// bytes and compare no pin themselves — a second computation is a second
-/// answer waiting to disagree with the loader's. Proved structurally, the
-/// way decision 0012's single-egress rule is.
-#[test]
-fn no_crossing_readout_resolves_or_hashes_a_crossing_itself() {
-    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    for file in ["realms.rs", "muninn.rs"] {
-        let text = std::fs::read_to_string(src.join(file)).unwrap();
-        for needle in [
-            "sha256",
-            "resolve_crossings",
-            "std::fs::read",
-            "read_to_string",
-        ] {
-            assert!(
-                !text.contains(needle),
-                "{file} would compute a crossing a second time: {needle}"
-            );
-        }
-    }
-}

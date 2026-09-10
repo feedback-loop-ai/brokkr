@@ -77,7 +77,8 @@ crossing from the publishing realm's own tree and hold every consumer's
 pin to the raw bytes actually found there. A pin that matches SHALL be
 accepted. A pin whose publisher's bytes differ SHALL become a refusal
 naming the CONSUMING realm, the crossing, the publishing realm, the
-pinned digest, the observed digest and the file. A published file that
+pinned digest, the observed digest and the publisher's declared
+repository-relative path — never a host location. A published file that
 cannot be read SHALL be charged to the PUBLISHING realm, and its
 consumers' pins SHALL be recorded as unchecked — never matching
 (decision 0057; decision 0023 ruling 4; decision 0046's Addendum).
@@ -88,7 +89,7 @@ consumers' pins SHALL be recorded as unchecked — never matching
 
 #### Scenario: A moved pin names what moved
 - **WHEN** the published file's bytes no longer hash to the consumer's pin
-- **THEN** the load refuses with a message naming the consuming realm, the crossing, the publishing realm, the pinned digest, the observed digest and the file
+- **THEN** the load refuses with a message naming the consuming realm, the crossing, the publishing realm, the pinned digest, the observed digest and the publisher's declared repository-relative path
 
 #### Scenario: An unreadable publication charges the publisher
 - **WHEN** the publishing realm's file cannot be read
@@ -183,12 +184,24 @@ no writes (decision 0023 ruling 6; decision 0057).
 
 ### Requirement: brokkr muninn run carries crossings into the dossier
 `brokkr muninn run` SHALL read the world's one crossing report into the
-fleet dossier: per realm, what it publishes and consumes, with a moved
-pin raised as a FINDING under the CONSUMING realm and citable by that
-realm and the crossing's name. An invented crossing, or one charged to
-the wrong realm, SHALL be refused rather than recorded; a matching or
-unchecked pin SHALL NOT be a finding; and the flight SHALL write no run
-journal (decision 0020 ruling 3; decision 0026 ruling 3; decision 0057).
+fleet dossier: per realm, entry for entry, what it publishes — each with
+its declared repository-relative path — and what it consumes — each entry
+naming its publishing realm and carrying its pin state (`matching`,
+`moved` or `unchecked`) — with a moved pin raised as a FINDING under the
+CONSUMING realm and citable by that realm and the crossing's name. A
+world whose mapped realms have no journal yet SHALL still receive a
+crossing dossier, each absent journal said out loud; only a world with
+neither a readable journal nor a crossing SHALL be refused. The dossier's
+crossing entries SHALL be snapshotted into the recorded proposal, so the
+evidence survives a later change to the map. An invented crossing, or one
+charged to the wrong realm, SHALL be refused rather than recorded; a
+matching or unchecked pin SHALL NOT be a finding; and the flight SHALL
+write no run journal (decision 0020 ruling 3; decision 0026 ruling 3;
+decision 0057).
+
+#### Scenario: The dossier names entries, not counts
+- **WHEN** a realm publishes a file and another consumes it
+- **THEN** the dossier states the publication's declared path and each consumption's publishing realm and pin state
 
 #### Scenario: A moved pin is a citable finding of the consumer
 - **WHEN** the dossier states a moved pin
@@ -201,6 +214,14 @@ journal (decision 0020 ruling 3; decision 0026 ruling 3; decision 0057).
 #### Scenario: A matching pin is not a finding
 - **WHEN** every crossing matches
 - **THEN** the dossier states the crossings per realm and raises no crossing finding
+
+#### Scenario: A world with no journal yet carries its crossings
+- **WHEN** a mapped world draws a crossing and no realm has run yet
+- **THEN** the dossier carries the crossing entries, each absent journal is reported, and the flight proceeds
+
+#### Scenario: The record keeps the crossing evidence
+- **WHEN** a proposal cites a moved crossing and the map later changes
+- **THEN** the recorded dossier still states the pin and observation the proposal stood on
 
 #### Scenario: A world with no crossing hands the seat the same dossier
 - **WHEN** the world draws no crossing

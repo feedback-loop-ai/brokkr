@@ -69,7 +69,10 @@ pub enum WorldError {
 /// was pinned against. Every name a reader needs to act is here — which
 /// realm is refusing, which crossing, whose file, what was pinned and
 /// what is there now — so the contract that moved can be identified
-/// without opening either repository.
+/// without opening either repository. `path` is the publisher's declared
+/// repository-relative path, never the host location it resolved to: a
+/// refusal reaches run journals and readouts that must not carry the
+/// operator's filesystem layout.
 #[derive(Debug)]
 pub struct MovedCrossing {
     pub realm: String,
@@ -106,6 +109,12 @@ pub struct ResolvedCrossing {
     /// The path the bytes were read from, resolved against the publishing
     /// realm's own worktree.
     pub source: String,
+    /// The repository-relative path the MAP declared, beside the resolved
+    /// `source`. A refusal names the contract at this level — the
+    /// publisher's realm and its own path — rather than the host location
+    /// the bytes happened to be read from, so no readout or seat input
+    /// carries the operator's filesystem layout (decision 0020 ruling 1).
+    pub declared: String,
     /// sha256 over the file's RAW bytes, never a canonical form: a
     /// crossing may be a schema, a `.proto` or Markdown, and only the
     /// publisher's own format knows what canonicalising would mean.
@@ -864,6 +873,7 @@ fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<Cross
                         (realm.name.clone(), crossing.name.clone()),
                         ResolvedCrossing {
                             source: path.display().to_string(),
+                            declared: crossing.path.clone(),
                             sha256: canonical::sha256_bytes(&bytes),
                         },
                     );
@@ -908,7 +918,12 @@ fn resolve_crossings(map_source: &Path, map: &RealmMap) -> (Crossings, Vec<Cross
                     crossing: crossing.name.clone(),
                     fault: CrossingFault::Moved {
                         publisher: crossing.realm.clone(),
-                        path: published.source.clone(),
+                        // The publisher's OWN declared path, never the
+                        // resolved `source`: the refusal names the
+                        // contract at the level the map declares it, and
+                        // no run journal or seat input learns where the
+                        // operator's checkout lives.
+                        path: published.declared.clone(),
                         pinned: crossing.sha256.clone(),
                         observed: published.sha256.clone(),
                     },
