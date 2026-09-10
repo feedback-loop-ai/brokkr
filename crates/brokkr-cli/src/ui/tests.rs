@@ -1601,12 +1601,10 @@ fn codex_whole_token_variants_and_length_boundary() {
         .path
         .as_deref()
         .unwrap(),
-        ambient
-            .join("sessions/rollout-0199mine.jsonl")
-            .canonicalize()
-            .unwrap()
-            .to_str()
-            .unwrap()
+        format!(
+            "{}/sessions/rollout-0199mine.jsonl",
+            ambient.canonicalize().unwrap().display()
+        )
     );
 
     // An 80-character id never matches an 81-character filename token.

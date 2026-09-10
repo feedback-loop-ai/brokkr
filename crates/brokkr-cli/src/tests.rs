@@ -1900,7 +1900,12 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
                 reference: Some(brokkr_view::Transcript {
                     kind: "claude-session".to_string(),
                     locator: "9999-9999".to_string(),
-                    home: "/no/such/home".to_string(),
+                    home: dir
+                        .path()
+                        .join("missing-home")
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
                 }),
                 provenance: brokkr_view::transcript::LegacyProvenance::Claude,
                 legacy_id: None,

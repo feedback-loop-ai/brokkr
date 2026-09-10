@@ -41,7 +41,10 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                     locator: locator.to_string(),
                     home: projects.to_str().unwrap().to_string(),
                 },
-                file.canonicalize().unwrap().to_str().unwrap().to_string(),
+                format!(
+                    "{}/project/{locator}.jsonl",
+                    projects.canonicalize().unwrap().display()
+                ),
             )
         }
         "codex-thread" => {
@@ -55,7 +58,10 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                     locator: locator.to_string(),
                     home: home.to_str().unwrap().to_string(),
                 },
-                file.canonicalize().unwrap().to_str().unwrap().to_string(),
+                format!(
+                    "{}/sessions/rollout-{locator}.jsonl",
+                    home.canonicalize().unwrap().display()
+                ),
             )
         }
         "dsh-session" => {
@@ -69,7 +75,10 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                     locator: locator.to_string(),
                     home: home.to_str().unwrap().to_string(),
                 },
-                file.canonicalize().unwrap().to_str().unwrap().to_string(),
+                format!(
+                    "{}/{locator}/project/seat/session.jsonl",
+                    home.canonicalize().unwrap().display()
+                ),
             )
         }
         other => panic!("unknown kind {other}"),

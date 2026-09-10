@@ -159,7 +159,10 @@ fn write_dsh_body(world: &World, locator: &str, body: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, body).unwrap();
-    file.canonicalize().unwrap().to_str().unwrap().to_string()
+    format!(
+        "{}/{locator}/project/seat/session.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
 }
 
 fn claude_reference(world: &World, id: &str) -> Value {
@@ -209,7 +212,10 @@ fn write_claude(world: &World, id: &str, body: &str) -> String {
     std::fs::create_dir_all(&project).unwrap();
     let file = project.join(format!("{id}.jsonl"));
     std::fs::write(&file, body).unwrap();
-    file.canonicalize().unwrap().to_str().unwrap().to_string()
+    format!(
+        "{}/project/{id}.jsonl",
+        world.projects().canonicalize().unwrap().display()
+    )
 }
 
 /// The id guard rejects a leading hyphen before any path is formed.
@@ -386,7 +392,10 @@ fn write_codex(world: &World, id: &str, body: &str) -> String {
     std::fs::create_dir_all(&sessions).unwrap();
     let file = sessions.join(format!("rollout-{id}.jsonl"));
     std::fs::write(&file, body).unwrap();
-    file.canonicalize().unwrap().to_str().unwrap().to_string()
+    format!(
+        "{}/sessions/rollout-{id}.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
 }
 
 fn write_dsh(world: &World, locator: &str, header: &str) -> String {
@@ -394,7 +403,10 @@ fn write_dsh(world: &World, locator: &str, header: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, format!("{header}\n")).unwrap();
-    file.canonicalize().unwrap().to_str().unwrap().to_string()
+    format!(
+        "{}/{locator}/project/seat/session.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
 }
 
 /// A Codex rollout needs no header: a `turn_context`-only file is a
@@ -434,10 +446,11 @@ fn a_headerless_codex_rollout_is_readable() {
 #[test]
 fn a_missing_codex_rollout_has_its_fixed_hint() {
     let world = world();
+    let missing_home = world.home.join("missing-codex");
     record(
         &world,
         json!({"kind": "codex-thread", "locator": "019c-222a",
-               "home": "/retained/codex"}),
+               "home": missing_home.to_str().unwrap()}),
     );
     let output = run(
         &world,
@@ -449,7 +462,10 @@ fn a_missing_codex_rollout_has_its_fixed_hint() {
     assert!(document["path"].is_null());
     assert_eq!(
         document["full_session"],
-        "full session: rollout unavailable; codex exec resume 019c-222a; home: \"/retained/codex\""
+        format!(
+            r#"full session: rollout unavailable; codex exec resume 019c-222a; home: "{}""#,
+            missing_home.display()
+        )
     );
 }
 
