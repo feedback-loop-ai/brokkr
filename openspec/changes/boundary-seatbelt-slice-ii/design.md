@@ -3,10 +3,14 @@
 ## Context
 
 This design adopts the existing `boundary-seatbelt-slice-ii` change. The
-evidence inventory committed at `225d2c7` records the absence of native proof,
-the accepted decision 0046 addendum at `c966ef3` settles R1–R4's semantics,
-and `7e79b43` reconciles the proposal and all five capability deltas to that
-ruling. See [the proposal](proposal.md#why) for the motivation and
+evidence inventory first committed at `225d2c7` records the absence of native
+proof, but that commit is historical rather than the recovery base. The
+predecessor's work was preserved at `da12b3c`, the controller probe repairs
+continue through `40e2ab8` and `6a19a6f`, and this visit uses the preserved
+current HEAD rather than reconstructing any of them. The accepted decision
+0046 addendum at `c966ef3` settles R1–R4's semantics, and `7e79b43`
+reconciles the proposal and all five capability deltas to that ruling. See
+[the proposal](proposal.md#why) for the motivation and
 [the residual inventory](evidence-residuals.md) for evidence status. The audit
 is historical evidence about its inspected revision; this design does not
 rewrite it.
@@ -34,11 +38,16 @@ R4 remain open and Seatbelt remains unbuilt. The five deltas are the
 requirements for this design; no Linux, mock, generated-profile, source-level,
 or process-group result closes them.
 
-This controller is Linux and has no native Mac evidence. The first executable
-Seatbelt work is therefore a bounded native lifetime feasibility probe, not
-the full implementation. Production remains Rust under `crates/`. Frozen
-contracts, policy, reference material, and evaluator fixtures remain unchanged
-unless a measured wire need later requires a new version beside a frozen file.
+Native CI `34433461814` supplies one real macOS observation for candidate
+`6a19a6f`: direct sandboxed Python aborted with `SIGABRT`, the equivalent
+launchd job registered but crashed once, and no payload heartbeat advanced.
+That is failed startup evidence, not a lifetime result and not the cause of the
+abort. The next executable work is therefore a bounded startup repair followed
+by the lifetime feasibility probe, not the full implementation. GitHub macOS CI
+is available through the controller, so absence of a local Mac is not a host
+prerequisite. Production remains Rust under `crates/`. Frozen contracts,
+policy, reference material, and evaluator fixtures remain unchanged unless a
+measured wire need later requires a new version beside a frozen file.
 `container` remains unbuilt for slice III and `driver.confine` remains retired.
 
 ## Goals / Non-Goals
@@ -117,9 +126,12 @@ unprivileged per-user bootstrap domain:
    engine-liveness channel;
 3. normal completion, timeout, explicit cancellation, MCP/server loss, exec
    wrapper loss, or engine/supervisor EOF asks the guard to `bootout` the
-   payload job;
-4. the guard establishes payload-domain quiescence before private-state
-   cleanup, then unregisters itself.
+   payload job and report the public operation's result over guard-private
+   control state;
+4. the guard treats successful `bootout` plus payload-job absence as the
+   candidate quiescence event but cannot infer it from silence; while the guard
+   remains registered, the outside observer corroborates every stable identity
+   and the quiet window, then releases cleanup and self-unregistration.
 
 The guard belongs to the per-invocation launchd mechanism and the same user
 bootstrap domain, but not to the payload job it must boot out. A guard killed
@@ -160,45 +172,113 @@ This records the recovery invariant already required by the delta; it does not
 authorize building a production crash reaper before D3 proves the lifetime
 mechanism that such a reaper would have to recover.
 
-### D3 — Native R3 feasibility is the first implementation gate
+### D3 — Native startup and R3 feasibility are separate implementation gates
 
 Before production profiles, overlays, masks, Git protection, or runtime
-composition, a standalone macOS probe exercises only the lifetime pair and the
-minimum experimental Seatbelt policy needed to isolate the guard. It runs
-outside any existing Brokkr/Seatbelt box and uses disposable state.
+composition, a standalone macOS probe exercises only the native helper,
+lifetime pair, outside observer, and minimum experimental Seatbelt policy
+needed to isolate the guard. It runs outside any existing Brokkr/Seatbelt box
+and uses disposable state. One committed test-support Rust executable provides
+the payload, guard, and supervisor modes; the feasibility path has no
+repository-script or general-purpose interpreter dependency.
 
-The probe has separate cases for ordinary child completion, timeout, explicit
-cancellation, direct-parent normal exit with a background child, MCP-server
-death, exec-wrapper death, and engine/supervisor `SIGKILL`. Each adversarial
-case uses a native helper that calls `setsid`, double-forks, ignores ordinary
-termination, records every PID plus a non-reusable start identity, retains
-output pipes, and writes a heartbeat. An observer outside both jobs must:
+#### Gate A — admit the exact payload before measuring lifetime
 
-- establish that the ordinary-child positive control works and that the
-  adversarial heartbeat advances before the trigger;
-- observe every recorded identity disappear within five seconds;
+For the exact helper bytes and candidate profile, the probe records a four-cell
+startup matrix:
+
+| Cell | Launch owner | Seatbelt | Required observation |
+| --- | --- | --- | --- |
+| S0 | outside observer | off | helper reaches nonce-authenticated READY, identifies an ordinary child, and exits as directed |
+| S1 | outside observer | exact candidate profile | the identical helper and argv reach the same READY and clean exit |
+| S2 | transient launchd payload job | off | the launchd-owned helper reaches the same READY and clean exit |
+| S3 | transient launchd payload job | exact candidate profile | the identical job used by the lifetime matrix reaches the same READY and clean exit |
+
+S0, S1, and S3 are the specification's three admission stages. S2 is the
+bounded differential control that separates launchd startup from its
+composition with Seatbelt. All four must pass before any lifetime trigger.
+Each cell records exit status or signal, launchd run/crash state where
+applicable, helper and profile digests, exact argv, bounded stdout/stderr, and
+the external READY observation. Startup has its own typed verdict; an abort,
+nonzero exit, crash-only job state, missing READY, or missing ordinary child
+marks the lifetime matrix `not run`. Registration, one crashed run, a still
+heartbeat, or a missing PID is never a zero-survivor result.
+
+Native CI `34433461814` on macOS 26.6.2 arm64 is retained as
+`SEATBELT-R3-STARTUP` failure evidence for candidate `6a19a6f`: direct
+`/usr/bin/sandbox-exec ... /usr/bin/python3` ended on `SIGABRT` with empty
+output, the launchd job registered and recorded one successive crash, and no
+heartbeat advanced. It establishes neither the cause nor a lifetime verdict.
+The committed Rust helper removes the interpreter as a confounder. If S1 or S3
+still fails, diagnosis changes one allowance at a time and names its consumer
+with positive and negative controls. A temporary `allow default` profile may
+be a labelled diagnostic control, never a passing candidate or a source of
+production authority. Broad file, Mach/IPC, service, temporary-directory, or
+network grants made merely until startup succeeds are rejected. Existing Git
+metadata and `/usr/include` runner repairs are prerequisites already fixed,
+not blockers to rediscover.
+
+#### Gate B — measure the transient launchd lease pair
+
+Only after Gate A passes, separate cases exercise ordinary child completion,
+timeout, live explicit cancellation, direct-parent normal exit with a
+background child, MCP-server death, exec-wrapper death, engine/supervisor
+`SIGKILL`, `setsid`, double-fork, ignored signals, retained output, guard
+interference, peer `bootout`, and escape-job registration. Each case performs
+the trigger it names rather than relabelling one detach routine.
+
+The probe physically separates owner-only observer/guard control state from
+payload-writable state and from immutable launch inputs. The payload may report
+READY, the descendants it deliberately creates, and a moving heartbeat. It
+cannot write the durable event ledger, guard-liveness evidence, peer state,
+quiescence, cleanup ordering, helper/profile inputs, or final verdict. The
+guard reports its public `bootout` result and waits at a protected barrier.
+While the guard is still registered, the outside observer must:
+
+- establish that the ordinary-child positive control works and that each
+  adversarial heartbeat advances before its distinct trigger;
+- compare every reported PID with a public non-reusable start identity and
+  observe the same identities disappear within five seconds;
 - observe the heartbeat unchanged for a further second;
-- observe both transient job labels disappear; and
-- prove scratch removal occurred only after payload quiescence.
+- confirm payload-job absence, guard survival, and protected peer state; and
+- only then authorize private-state cleanup and guard self-unregistration.
 
-A negative control must show the same helper surviving an original-process-
-group-only kill; otherwise the test did not exercise the required escape. The
-probe records candidate revision, `sw_vers`, architecture, launcher metadata,
-bootstrap domain, exact command, selected case count, identities, triggers,
-exit statuses, cleanup observations, and a durable log/CI link.
+The observer finally proves cleanup followed quiescence and both transient
+labels disappeared in order. Complete case-specific lifecycle sequences are
+matched exactly; an intended-event prefix is not a pass. Stable identities and
+job observations measure the known helper lineage, but they are not a second
+containment mechanism. Passing also requires the public launchd
+job/process-coalition ownership and `bootout` semantics to be the causal
+boundary. A process walker, PID polling, `kqueue`, heartbeat silence, or
+harness cleanup cannot substitute for that ownership claim.
+
+The process-group negative control is independent of the guard and liveness
+channel. It records an original process group and detached descendant identity,
+checks that the target group is neither the observer's nor the CI runner's,
+sends a real `SIGKILL` to that group, and proves the detached identity and
+heartbeat remain live through the quiet window before explicit harness
+cleanup. Control channels use bounded nonblocking or pollable opens; every
+holder, helper, supervisor, and child is waited or reaped on every success and
+error path. The retained-output case uses the transport production intends to
+drain rather than launchd files presented as pipes. Peer and interference
+cases synchronize the target to READY and durably record the attempted attack
+before observing its denial.
 
 The probe fails on zero cases, a skip, an outer box, missing/unusable public
 facilities, sudo/private-SPI/entitlement/persistent-configuration needs, a
 surviving descendant or label, payload interference with the guard, cleanup
-before quiescence, or evidence lost with the supervisor. Any failure keeps
-SEATBELT-R3 open and stops all dependent implementation. It is recorded as a
-residual, not translated into a weaker guarantee.
+before quiescence, an abandoned helper/thread, or evidence lost with the
+supervisor. Any failure keeps SEATBELT-R3 open and stops all dependent
+implementation. It is recorded as a residual, not translated into a weaker
+guarantee.
 
-The concrete missing prerequisite is a real, unboxed macOS host with
-`/usr/bin/sandbox-exec` and public per-user `launchctl` facilities that permit
-uniquely labelled transient jobs without installation or privilege. It must
-permit an outside observer to kill the supervisor and retain the evidence just
-listed. This Linux controller cannot supply that proof.
+The existing GitHub macOS runner is the native execution route. The concrete
+next prerequisite is a committed Rust helper plus these measurement repairs,
+followed by a controller-dispatched native run whose durable report is
+preserved even when the test fails. The native probe is explicitly selected
+once, separately from host-independent model tests, so a generic workspace
+failure cannot prevent report preservation or accidentally turn a non-run
+into green evidence.
 
 ### D4 — A small sealed executor shares facts, not Linux semantics
 
@@ -466,9 +546,10 @@ The dependency order is fixed:
 
 1. reconcile proposal/specs/design/tasks and prepare host-independent
    refusal/planning tests while the activation fence stays closed;
-2. commit and run only the standalone R3 native probe;
-3. if and only if it passes, implement the low-level planner, executor, both
-   hands paths, and native cases behind the closed production fence;
+2. commit the native Rust helper and measurement repairs, then run the
+   standalone startup gate and, only after it passes, the R3 lifetime probe;
+3. if and only if both gates pass, implement the low-level planner, executor,
+   both hands paths, and native cases behind the closed production fence;
 4. close R1–R4 and all remaining native obligations on the implementation
    revision, and pass the host-independent validation suite on that same
    closed-fence revision;
@@ -481,18 +562,25 @@ The dependency order is fixed:
 
 Each native result records candidate commit, macOS version and architecture,
 literal launcher metadata, compiler, exact command, selected test names/count,
-positive controls, exit status, descendant identities where applicable, and
-durable logs/CI links. The existing macOS runner supplies the required native
-candidate evidence. Evidence records the architecture actually exercised;
-0049 support remains arm64 and x86_64, and any observed architecture-specific
-failure becomes a named residual rather than inheriting another host's result.
-Remote CI, host exact coverage, publication, integration, and closure remain
-controller-owned and pending until their real results exist.
+helper/profile digests, startup and lifetime verdicts, positive controls, exit
+status, descendant identities where applicable, and durable logs/CI links. The
+existing macOS runner supplies the required native candidate evidence. Evidence
+records the architecture actually exercised; 0049 support remains arm64 and
+x86_64, and any observed architecture-specific failure becomes a named residual
+rather than inheriting another host's result. Remote CI, host exact coverage,
+publication, integration, and closure remain controller-owned and pending until
+their real results exist.
 
 ### Council reconciliation
 
 | Council claim | Disposition | Evidence and resulting design |
 | --- | --- | --- |
+| Both native-recovery positions: CI `34433461814` failed payload startup and says nothing about lifetime; replace Python with one committed Rust helper. | **Adopt.** | The log shows direct `SIGABRT`, one crashed launchd run, and no heartbeat. Context and D3 preserve that result as `SEATBELT-R3-STARTUP`, require a native helper, and make every lifetime case not run until startup passes. |
+| Robustness: use a four-cell direct/launchd × unboxed/Seatbelt matrix. Simplicity: keep the specification's three-stage gate. | **Combine, retaining the diagnostic cell.** | D3 keeps the three specified admission stages and adds unboxed launchd startup as S2. Requiring all four distinguishes helper, profile, launchd, and composed startup failures at the cost of one bounded control, without widening production policy. |
+| Both: separate payload-writable state from guard/observer evidence and sample guard survival before unregister. Robustness adds a protected observer barrier; simplicity keeps the guard minimal. | **Combine.** | D2 and D3 limit the guard to liveness, public `bootout`, protected reporting, cleanup, and self-unregister. The outside observer owns stable-identity, quiet-window, peer, ordering, and final verdict facts and releases cleanup only after corroborating quiescence. |
+| Robustness: helper PIDs alone cannot prove an arbitrary empty domain. Simplicity: use `(pid, start identity)` over the deliberately closed helper lineage and do not add coalition/`kqueue` machinery. | **Combine, distinguishing observation from containment.** | D3 requires stable identities for every reported helper descendant and public launchd job/coalition ownership as the causal mechanism. It rejects polling or `kqueue` as containment and adds no second process-discovery mechanism. |
+| Both: repair the seven controller findings as measurement defects, with obligation-specific triggers and cleanup after verdict. | **Adopt and strengthen with source evidence.** | D3 requires a real group kill, pre-unregister guard observation, pre-attack peer readiness, bounded nonblocking channels, complete reaping, distinct triggers, payload-inaccessible evidence, and exact case lifecycles rather than accepted prefixes. |
+| Robustness: isolate the native target and preserve failure evidence unconditionally. Simplicity: reuse the existing macOS CI route rather than inventing a host or framework. | **Combine.** | D3 and D14 reuse the existing controller-dispatched runner but select the destructive native probe once, apart from model tests, and preserve its durable report even on failure. |
 | Simplicity: reuse `HandsSpec`, bind types, limits, `Offer`, engine composition, doctor, records, and readouts. | **Adopt.** | Slice I already owns those public seams; D1, D4 and D12 extend them instead of rebuilding them. |
 | Both: avoid a new crate, public trait/plugin system, vocabulary, CLI workflow, or pre-emptive contract. | **Adopt.** | D4 uses sealed internal types and at most one private module; D13 keeps existing wire versions unless measurement proves a gap. |
 | Simplicity: keep one private Seatbelt module and a small boundary-selected launcher. | **Adopt with a lifetime constraint.** | D4 uses at most one private module and a dispatcher, but D2 and D5 keep native lifetime and attempt ownership boundary-specific because direct-child/group kill cannot satisfy `setsid`, supervisor death, or overlay persistence. |
@@ -527,9 +615,15 @@ feasibility gate; a native failure requires the exact residual and any focused
 
 ## Risks / Trade-offs
 
-- **[Public launchd cannot own detached descendants]** → Run D3 before all
-  dependent implementation; preserve SEATBELT-R3 and the production refusal on
-  any failure.
+- **[The exact payload cannot start under the bounded profile]** → Run D3
+  Gate A first, change only a measured named allowance, preserve all denial
+  controls, and keep lifetime marked not run on failure.
+- **[Public launchd cannot own detached descendants]** → Run D3 Gate B before
+  all dependent implementation; preserve SEATBELT-R3 and the production refusal
+  on any failure.
+- **[Payload-writable or harness cleanup evidence creates a false pass]** →
+  Separate state roots and roles, record complete verdict facts before cleanup,
+  require exact lifecycles, and preserve the report even on CI failure.
 - **[The guard can be killed, impersonated, or leave registered state]** → Use
   distinct launchd ownership, private identities/endpoints, interference cases,
   and require both labels to disappear before the probe passes.
@@ -564,11 +658,13 @@ feasibility gate; a native failure requires the exact residual and any focused
    delta and this design coherent, and revalidate the five deltas. Existing
    Seatbelt realm declarations continue to compile and pin the word but refuse
    before journal writes.
-2. Land the standalone native lifetime probe and obtain D3 evidence on the
-   concrete macOS prerequisite. On failure, record the residual and stop; the
-   safe rollback is already-active `unbuilt: ii`.
-3. After a pass, land the sealed planner/executor, engine-owned attempt state,
-   native matrix, both hands paths, guides, and host-independent tests while
+2. Land the committed native Rust helper and repair the standalone probe's
+   measurement defects. Dispatch the existing macOS CI route, pass D3 Gate A,
+   then run Gate B. On either failure, preserve the report, record the residual
+   and stop; the safe rollback is already-active `unbuilt: ii`.
+3. After both gates pass, land the sealed planner/executor, engine-owned
+   attempt state, native matrix, both hands paths, guides, and host-independent
+   tests while
    the production activation fence remains closed. Close all native residuals
    and pass host-independent validation on that implementation revision.
 4. Only then flip the single activation state to create the activation
@@ -593,12 +689,17 @@ There are no unanswered Seatbelt policy questions. The accepted 0046 addendum
 settles R1, R2, R3's mandatory outcome, and conditional R4; the returned
 clarification found no remaining semantic ambiguity.
 
-One empirical feasibility question gates all subsequent implementation: can
-the D2 two-job mechanism, using only public unprivileged per-user launchd
-facilities, establish a non-PID-reuse-prone empty payload domain after
-`setsid`/double-fork detachment, cancellation, and supervisor `SIGKILL`,
-while keeping its guard inaccessible to the payload? This is not an invitation
-to choose weaker semantics. It is answered only by D3's real, unboxed macOS
-probe. On this Linux controller it remains unmeasured because the required
-macOS host is absent. A failure keeps SEATBELT-R3 open, keeps Seatbelt unbuilt,
-and returns any necessary semantic change in a focused proposed decision.
+Two empirical questions remain in strict order: can the committed native
+helper reach authenticated READY in every D3 Gate A cell under the bounded
+profile, and, only then, can the D2 two-job mechanism use public unprivileged
+per-user launchd facilities to end every `setsid`/double-fork descendant after
+cancellation or supervisor `SIGKILL` while keeping its guard inaccessible to
+the payload? CI `34433461814` answers only that the former Python payload did
+not start; it does not answer either question for the repaired helper.
+
+These are not invitations to choose weaker semantics. The existing GitHub
+macOS runner can answer them once the committed helper and measurement repairs
+exist, so a missing local Mac is not the blocker. A Gate A failure records a
+startup residual and leaves lifetime not run; a Gate B failure keeps
+SEATBELT-R3 open. Either keeps Seatbelt unbuilt and returns any necessary
+semantic change in a focused proposed decision.
