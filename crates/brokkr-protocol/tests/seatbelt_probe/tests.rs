@@ -828,6 +828,33 @@ fn a_measured_nonzero_crash_counter_fails_the_cell() {
 }
 
 #[test]
+fn a_measured_run_count_other_than_one_fails_the_cell() {
+    // The spec's "Required launchd terminal facts still fail closed" scenario
+    // fails any run count other than one. A terminal print with two clean runs
+    // is not one clean run of this label.
+    for cell in [
+        StartupCell::S2LaunchdUnboxed,
+        StartupCell::S3LaunchdSeatbelt,
+    ] {
+        let mut observation = passing_startup(cell);
+        observation.launchd_runs = Some(2);
+        assert_eq!(observation.launchd_state.as_deref(), Some("not running"));
+        assert_eq!(observation.launchd_last_exit_code, Some(0));
+        let verdict = evaluate_startup(&[cell], &[observation]);
+        assert!(!verdict.is_pass(), "{}", cell.name());
+        assert!(
+            verdict
+                .reasons()
+                .iter()
+                .any(|reason| reason.contains("exactly one completed run")
+                    && reason.contains("runs=Some(2)")),
+            "{:?}",
+            verdict.reasons()
+        );
+    }
+}
+
+#[test]
 fn a_measured_terminating_signal_fails_the_cell() {
     for cell in [
         StartupCell::S2LaunchdUnboxed,
@@ -1074,11 +1101,15 @@ fn a_multi_operation_form_cannot_hide_an_operation() {
     )
     .expect_err("a hidden operation must fail");
     assert!(
-        error.reason.contains("more than one operation"),
+        render_refusals(&error).contains("more than one operation"),
         "{}",
-        error.reason
+        render_refusals(&error)
     );
-    assert!(error.reason.contains("process-exec"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("process-exec"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]
@@ -1105,7 +1136,7 @@ fn a_top_level_form_other_than_the_frame_and_allow_fails() {
             &inputs,
         )
         .expect_err("a non-allow top-level form must fail");
-        assert!(!error.reason.is_empty());
+        assert!(!render_refusals(&error).is_empty());
     }
 }
 
@@ -1135,7 +1166,7 @@ fn modifiers_compound_filters_and_unparseable_text_fail() {
             &inputs,
         )
         .expect_err(label);
-        assert!(!error.reason.is_empty());
+        assert!(!render_refusals(&error).is_empty());
     }
     // A comment, an unbalanced parenthesis and a duplicated unit.
     for profile in [
@@ -1165,7 +1196,11 @@ fn a_duplicate_unit_fails() {
         &inputs,
     )
     .expect_err("a duplicate unit must fail");
-    assert!(error.reason.contains("twice"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("twice"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]
@@ -1180,7 +1215,11 @@ fn an_unlisted_or_missing_unit_fails() {
         &inputs,
     )
     .expect_err("an unlisted unit must fail");
-    assert!(error.reason.contains("neither half"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("neither half"),
+        "{}",
+        render_refusals(&error)
+    );
 
     let needle = STARTUP_RULE_LEDGER[0].unit.render();
     let missing = base.replace(&format!("{needle}\n"), "");
@@ -1191,7 +1230,11 @@ fn an_unlisted_or_missing_unit_fails() {
         &inputs,
     )
     .expect_err("a missing unit must fail");
-    assert!(error.reason.contains("lacks"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("lacks"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]
@@ -1225,7 +1268,349 @@ fn a_varied_ledger_that_adds_a_baseline_unit_is_judged() {
     ));
     let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("a smuggled ledger unit fails its anchor");
-    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("toolchain"),
+        "{}",
+        render_refusals(&error)
+    );
+}
+
+/// Build the candidate ledger with one baseline entry replaced by a tested
+/// unit and kind, render the profile from that ledger, and run the check so the
+/// tested entry's own two-part anchor and the process rule are judged.
+fn check_replaced_baseline(unit: RuleUnit, kind: BaselineKind) -> Vec<CheckRefusal> {
+    let inputs = fixed_inputs();
+    let mut ledger = STARTUP_RULE_LEDGER.clone();
+    ledger[0] = LedgerEntry {
+        unit,
+        class: LedgerClass::Baseline(Baseline {
+            kind,
+            justification: "falsification-test entry".to_string(),
+            correction: None,
+        }),
+    };
+    let profile = render_candidate_profile(&ledger, &inputs);
+    check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+        .expect_err("the tested baseline entry must fail")
+}
+
+#[test]
+fn a_program_bind_outside_the_host_toolchain_set_is_refused_by_name() {
+    // The real five-entry constant is a subset of the host-toolchain set.
+    confirm_program_binds(&PROGRAM_BINDS, HOST_TOOLCHAIN_BINDS).expect("the real list is bound");
+    // A substituted list naming a source the host-toolchain set lacks exercises
+    // the refusal variant the real constant can never trigger.
+    let error = confirm_program_binds(&["/usr/bin", "/opt/nowhere"], HOST_TOOLCHAIN_BINDS)
+        .expect_err("a program bind outside the host-toolchain set must fail");
+    assert!(
+        matches!(error, CheckRefusal::ProgramBindNotToolchain { ref bind } if bind == "/opt/nowhere"),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains("HOST_TOOLCHAIN_BINDS"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_baseline_write_on_a_read_only_bind_fails_its_operation_anchor() {
+    for (target, kind) in [
+        (
+            "/usr/local",
+            BaselineKind::HandsElement(HandsElement::Toolchain),
+        ),
+        (
+            "/System/Library",
+            BaselineKind::HandsElement(HandsElement::SystemLibrary),
+        ),
+    ] {
+        let refusals = check_replaced_baseline(unit("file-write*", "subpath", target), kind);
+        assert!(
+            refusals.iter().any(|refusal| matches!(
+                refusal,
+                CheckRefusal::AnchorOperation { operation, .. } if operation == "file-write*"
+            )),
+            "{target}: {}",
+            render_refusals(&refusals)
+        );
+    }
+}
+
+#[test]
+fn exec_and_fork_failures_name_the_anchor_and_the_process_rule() {
+    let cases: [(&str, RuleUnit, BaselineKind); 4] = [
+        (
+            "exec on /usr/lib",
+            unit("process-exec", "subpath", "/usr/lib"),
+            BaselineKind::HandsElement(HandsElement::Toolchain),
+        ),
+        (
+            "exec on /usr/share",
+            unit("process-exec", "subpath", "/usr/share"),
+            BaselineKind::HandsElement(HandsElement::Toolchain),
+        ),
+        (
+            "exec on <payload-root>",
+            unit("process-exec", "subpath", PLACEHOLDER_PAYLOAD_ROOT),
+            BaselineKind::HandsElement(HandsElement::WritableWorktree),
+        ),
+        (
+            "filtered fork",
+            unit("process-fork", "subpath", "/usr/bin"),
+            BaselineKind::HandsElement(HandsElement::Toolchain),
+        ),
+    ];
+    for (label, unit, kind) in cases {
+        let refusals = check_replaced_baseline(unit, kind);
+        let anchor = refusals
+            .iter()
+            .position(|refusal| matches!(refusal, CheckRefusal::AnchorOperation { .. }));
+        let process = refusals
+            .iter()
+            .position(|refusal| matches!(refusal, CheckRefusal::ProcessUnit { .. }));
+        assert!(anchor.is_some(), "{label}: {}", render_refusals(&refusals));
+        assert!(process.is_some(), "{label}: {}", render_refusals(&refusals));
+        assert!(
+            anchor < process,
+            "{label}: the failed anchor must be named before the process rule"
+        );
+    }
+}
+
+#[test]
+fn execution_input_and_probe_harness_anchors_fail() {
+    // An `spctl` exec fails its execution-input target and the process rule.
+    let refusals = check_replaced_baseline(
+        unit("process-exec", "literal", "/usr/sbin/spctl"),
+        BaselineKind::ExecutionInput,
+    );
+    assert!(
+        refusals.iter().any(
+            |refusal| matches!(refusal, CheckRefusal::AnchorTarget { kind, .. } if *kind == "execution input")
+        ),
+        "{}",
+        render_refusals(&refusals)
+    );
+    assert!(
+        refusals
+            .iter()
+            .any(|refusal| matches!(refusal, CheckRefusal::ProcessUnit { .. })),
+        "{}",
+        render_refusals(&refusals)
+    );
+
+    for (label, unit, kind, expected_kind) in [
+        (
+            "fa7 whole cell root read",
+            unit("file-read*", "subpath", PLACEHOLDER_CELL_ROOT),
+            BaselineKind::ProbeHarnessNeed,
+            "probe-harness need",
+        ),
+        (
+            "outside ssh read",
+            unit("file-read*", "subpath", "/Users/runner/.ssh"),
+            BaselineKind::ProbeHarnessNeed,
+            "probe-harness need",
+        ),
+        (
+            "inputs write",
+            unit("file-write*", "subpath", "<cell-root>/inputs"),
+            BaselineKind::ProbeHarnessNeed,
+            "probe-harness need",
+        ),
+    ] {
+        let refusals = check_replaced_baseline(unit, kind);
+        let named = refusals.iter().any(|refusal| match refusal {
+            CheckRefusal::AnchorOperation { kind, .. } => *kind == expected_kind,
+            CheckRefusal::AnchorTarget { kind, .. } => *kind == expected_kind,
+            _ => false,
+        });
+        assert!(named, "{label}: {}", render_refusals(&refusals));
+    }
+}
+
+#[test]
+fn member_named_operations_fail_their_family_anchor() {
+    for (unit, kind, operation) in [
+        (
+            unit("file-write-data", "subpath", PLACEHOLDER_PAYLOAD_ROOT),
+            BaselineKind::HandsElement(HandsElement::WritableWorktree),
+            "file-write-data",
+        ),
+        (
+            unit("file-read-data", "literal", "/dev/urandom"),
+            BaselineKind::HandsElement(HandsElement::DeviceSet),
+            "file-read-data",
+        ),
+        (
+            unit("file-read-metadata", "subpath", "/usr/bin"),
+            BaselineKind::HandsElement(HandsElement::Toolchain),
+            "file-read-metadata",
+        ),
+    ] {
+        let refusals = check_replaced_baseline(unit, kind);
+        assert!(
+            refusals.iter().any(|refusal| matches!(
+                refusal,
+                CheckRefusal::AnchorOperation { operation: op, .. } if op == operation
+            )),
+            "{operation}: {}",
+            render_refusals(&refusals)
+        );
+    }
+}
+
+#[test]
+fn a_system_library_correction_is_typed_and_bounded() {
+    // A non-committed target with no correction is refused.
+    let refusals = check_replaced_baseline(
+        unit("file-read*", "subpath", "/opt/NotASystemLibrary"),
+        BaselineKind::HandsElement(HandsElement::SystemLibrary),
+    );
+    assert!(
+        refusals
+            .iter()
+            .any(|refusal| matches!(refusal, CheckRefusal::SystemLibrary { .. })),
+        "{}",
+        render_refusals(&refusals)
+    );
+
+    // Every correction must record a committed unit it replaces and stay off
+    // the data volume, the denial controls and the withdrawn fa7 targets.
+    for (label, replaces, resolved, evidence) in [
+        (
+            "uncommitted replaces",
+            "/usr/bin",
+            "/opt/NotASystemLibrary",
+            "native denial evidence",
+        ),
+        (
+            "missing evidence",
+            "/System/Library",
+            "/opt/NotASystemLibrary",
+            "",
+        ),
+        (
+            "data volume",
+            "/System/Library",
+            "/System/Volumes/Data/Library",
+            "native denial evidence",
+        ),
+        (
+            "control target",
+            "/System/Library",
+            "/private/tmp/brokkr-probe-denial-write",
+            "native denial evidence",
+        ),
+        (
+            "historical target",
+            "/System/Library",
+            "/System",
+            "native denial evidence",
+        ),
+    ] {
+        let inputs = fixed_inputs();
+        let mut ledger = STARTUP_RULE_LEDGER.clone();
+        ledger[0] = LedgerEntry {
+            unit: unit("file-read*", "subpath", resolved),
+            class: LedgerClass::Baseline(Baseline {
+                kind: BaselineKind::HandsElement(HandsElement::SystemLibrary),
+                justification: "correction under test".to_string(),
+                correction: Some(SystemLibraryCorrection {
+                    replaces: replaces.to_string(),
+                    resolved: resolved.to_string(),
+                    evidence: evidence.to_string(),
+                }),
+            }),
+        };
+        let profile = render_candidate_profile(&ledger, &inputs);
+        let refusals =
+            check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+                .expect_err(label);
+        assert!(!render_refusals(&refusals).is_empty(), "{label}");
+    }
+}
+
+#[test]
+fn nothing_on_or_under_the_data_volume_enters_under_any_class() {
+    for target in [
+        "/System/Volumes/Data/private/etc/ssl",
+        "/System/Volumes/Data/usr/local",
+        "/System/Volumes/Data/Users/runner/work",
+        "/System/Volumes/Data",
+        "/System/Volumes",
+    ] {
+        for (label, kind) in [
+            ("probe-harness need", BaselineKind::ProbeHarnessNeed),
+            (
+                "toolchain",
+                BaselineKind::HandsElement(HandsElement::Toolchain),
+            ),
+            (
+                "system library",
+                BaselineKind::HandsElement(HandsElement::SystemLibrary),
+            ),
+            (
+                "writable worktree",
+                BaselineKind::HandsElement(HandsElement::WritableWorktree),
+            ),
+            (
+                "device set",
+                BaselineKind::HandsElement(HandsElement::DeviceSet),
+            ),
+            ("execution input", BaselineKind::ExecutionInput),
+        ] {
+            let refusals = check_replaced_baseline(unit("file-read*", "subpath", target), kind);
+            assert!(
+                refusals
+                    .iter()
+                    .any(|refusal| matches!(refusal, CheckRefusal::DataVolume { .. })),
+                "{label} {target}: {}",
+                render_refusals(&refusals)
+            );
+        }
+    }
+}
+
+#[test]
+fn a_private_spelling_of_a_toolchain_source_enters_under_no_other_class() {
+    // `/etc/ssl` is a host-toolchain source, so `/private/etc/ssl` may not
+    // enter as a probe-harness read, a system-library unit or any other class.
+    for (label, kind) in [
+        ("probe-harness need", BaselineKind::ProbeHarnessNeed),
+        (
+            "system library",
+            BaselineKind::HandsElement(HandsElement::SystemLibrary),
+        ),
+        (
+            "device set",
+            BaselineKind::HandsElement(HandsElement::DeviceSet),
+        ),
+    ] {
+        let refusals =
+            check_replaced_baseline(unit("file-read*", "subpath", "/private/etc/ssl"), kind);
+        assert!(
+            refusals
+                .iter()
+                .any(|refusal| matches!(refusal, CheckRefusal::ToolchainCover { .. })),
+            "{label}: {}",
+            render_refusals(&refusals)
+        );
+    }
+    // A toolchain unit must keep the direct spelling, so a `/private` target
+    // fails its anchor.
+    let refusals = check_replaced_baseline(
+        unit("file-read*", "subpath", "/private/etc/ssl"),
+        BaselineKind::HandsElement(HandsElement::Toolchain),
+    );
+    assert!(
+        refusals.iter().any(|refusal| matches!(
+            refusal,
+            CheckRefusal::AnchorTarget { kind, .. } if *kind == "toolchain"
+        )),
+        "{}",
+        render_refusals(&refusals)
+    );
 }
 
 #[test]
@@ -1307,7 +1692,7 @@ fn the_concrete_inputs_are_validated_before_normalization() {
             &inputs,
         )
         .expect_err(label);
-        assert!(!error.reason.is_empty(), "{label}");
+        assert!(!render_refusals(&error).is_empty(), "{label}");
     }
 }
 
@@ -1378,7 +1763,7 @@ fn a_placeholder_does_not_hide_its_concrete_target() {
             &inputs,
         )
         .expect_err(label);
-        assert!(!error.reason.is_empty(), "{label}");
+        assert!(!render_refusals(&error).is_empty(), "{label}");
     }
 }
 
@@ -1402,9 +1787,10 @@ fn a_unit_that_covers_a_toolchain_spelling_or_control_target_fails() {
     let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("a relabelled bind must fail");
     assert!(
-        error.reason.contains("host-toolchain") || error.reason.contains("probe-harness"),
+        render_refusals(&error).contains("host-toolchain")
+            || render_refusals(&error).contains("probe-harness"),
         "{}",
-        error.reason
+        render_refusals(&error)
     );
 }
 
@@ -1533,7 +1919,11 @@ fn a_declared_read_only_bind_is_not_a_toolchain_bind() {
     toolchain_slot.unit = unit("file-read*", "subpath", "/Users/runner/.rustup");
     let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("a declared ro bind is not a toolchain bind");
-    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("toolchain"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]
@@ -1563,7 +1953,11 @@ fn the_git_common_config_is_not_a_toolchain_bind() {
     );
     let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("the git common config is not a toolchain bind");
-    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("toolchain"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]
@@ -1589,7 +1983,11 @@ fn a_respelled_toolchain_target_fails_even_with_a_record() {
     toolchain_slot.unit = unit("file-read*", "subpath", "/private/usr/bin");
     let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("a respelled toolchain target fails");
-    assert!(error.reason.contains("toolchain"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("toolchain"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]
@@ -1703,7 +2101,11 @@ fn the_candidate_carries_no_dev_null_write_unit() {
     });
     let error = check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("a baseline /dev/null write fails the device-set anchor");
-    assert!(error.reason.contains("device set"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("device set"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 /// An attributed `/dev/null` write enters only as the diagnosis-admitted
@@ -1752,7 +2154,11 @@ fn an_attributed_dev_null_write_is_admitted_only_with_its_own_removal_entry() {
     let profile = render_candidate_profile(&baseline, &inputs);
     let error = check_startup_candidate(&profile, &baseline, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
         .expect_err("a baseline /dev/null write fails the device-set anchor");
-    assert!(error.reason.contains("device set"), "{}", error.reason);
+    assert!(
+        render_refusals(&error).contains("device set"),
+        "{}",
+        render_refusals(&error)
+    );
 }
 
 #[test]

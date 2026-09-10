@@ -158,23 +158,184 @@ pub struct CheckInputs {
     pub helper: String,
 }
 
-/// A refused check, naming what was found.
+/// A refused check, carrying the rule and the input or unit it found. Each
+/// variant is a named specification refusal, so a falsification test can match
+/// it; [`std::fmt::Display`] renders the human reason. The check collects
+/// these in a fixed order instead of stopping at the first one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CheckRefusal {
-    pub reason: String,
-}
-
-impl CheckRefusal {
-    fn new(reason: impl Into<String>) -> CheckRefusal {
-        CheckRefusal {
-            reason: reason.into(),
-        }
-    }
+pub enum CheckRefusal {
+    /// Stage 1: a concrete input failed one validation rule before any rewrite.
+    Input {
+        rule: &'static str,
+        input: String,
+        value: String,
+        detail: String,
+    },
+    /// Stage 2: the frame is not exactly `(version 1)` then `(deny default)`.
+    Frame { detail: String },
+    /// Stage 2: a top-level form other than the frame and an `allow` form.
+    TopLevelForm { form: String },
+    /// Stage 2: an `allow` form names more than one operation.
+    MultiOperation { operations: Vec<String> },
+    /// Stage 2: an action modifier such as `(with report)`.
+    Modifier { modifier: String },
+    /// Stage 2: a compound `require-any`/`require-all`/`require-not` filter.
+    CompoundFilter { filter: String },
+    /// Stage 2: a filter that does not carry exactly one string or `self`.
+    FilterArity { filter: String },
+    /// Stage 2: an `allow default` form.
+    AllowDefault,
+    /// Stage 2: text the closed grammar cannot normalize.
+    Grammar { detail: String },
+    /// Stage 2: the same unit rendered twice.
+    DuplicateUnit { unit: String },
+    /// A baseline entry without a typed justification or with a wide filter.
+    BaselineRecord { unit: String, detail: String },
+    /// A baseline entry's operation fails its element's or kind's anchor.
+    AnchorOperation {
+        kind: &'static str,
+        unit: String,
+        operation: String,
+        detail: String,
+    },
+    /// A baseline entry's target fails its element's or kind's anchor.
+    AnchorTarget {
+        kind: &'static str,
+        unit: String,
+        target: String,
+        detail: String,
+    },
+    /// A `process-*` unit of either half outside the seven named process units.
+    ProcessUnit { unit: String },
+    /// A listed program bind that is not a `HOST_TOOLCHAIN_BINDS` source.
+    ProgramBindNotToolchain { bind: String },
+    /// A non-toolchain unit covering a host-toolchain source spelling.
+    ToolchainCover {
+        unit: String,
+        source: String,
+        spelling: String,
+    },
+    /// A unit targeting or containing `/System/Volumes/Data`.
+    DataVolume { unit: String, detail: String },
+    /// A unit covering a path-valued denial-control target.
+    DenialControlCover { unit: String, target: String },
+    /// A unit in neither half or in both halves of the ledger.
+    Classification { unit: String, detail: String },
+    /// A ledger or removal entry the rendered template lacks.
+    MissingUnit { unit: String, detail: String },
+    /// A diagnosis-admitted entry lacking evidence or naming a wide filter.
+    DiagnosisRecord { unit: String, detail: String },
+    /// A removal entry whose unit is not diagnosis-admitted.
+    RemovalNotDiagnosis { name: String },
+    /// A system-library target that is neither committed nor a bounded
+    /// correction of a committed one.
+    SystemLibrary { unit: String, detail: String },
+    /// A baseline unit that is unfiltered and is not `process-fork`.
+    UnfilteredUnit { unit: String },
 }
 
 impl std::fmt::Display for CheckRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.reason)
+        match self {
+            CheckRefusal::Input {
+                rule,
+                input,
+                value,
+                detail,
+            } => write!(f, "the {input} {value:?} {detail} [{rule}]"),
+            CheckRefusal::Frame { detail } => write!(f, "{detail}"),
+            CheckRefusal::TopLevelForm { form } => write!(
+                f,
+                "the template holds a top-level form other than the frame and allow: '{form}'"
+            ),
+            CheckRefusal::MultiOperation { operations } => write!(
+                f,
+                "the allow form names more than one operation: {}; after the first: {}",
+                operations.join(", "),
+                operations
+                    .get(1..)
+                    .map(|rest| rest.join(", "))
+                    .unwrap_or_default()
+            ),
+            CheckRefusal::Modifier { modifier } => {
+                write!(
+                    f,
+                    "the template holds an action modifier: (with {modifier})"
+                )
+            }
+            CheckRefusal::CompoundFilter { filter } => {
+                write!(f, "the template holds a compound filter: {filter}")
+            }
+            CheckRefusal::FilterArity { filter } => write!(
+                f,
+                "the filter {filter} does not carry exactly one string or self argument"
+            ),
+            CheckRefusal::AllowDefault => write!(f, "the template holds an allow default form"),
+            CheckRefusal::Grammar { detail } => write!(f, "{detail}"),
+            CheckRefusal::DuplicateUnit { unit } => {
+                write!(f, "the template renders the same unit twice: {unit}")
+            }
+            CheckRefusal::BaselineRecord { unit, detail } => {
+                write!(f, "the baseline unit {unit} {detail}")
+            }
+            CheckRefusal::AnchorOperation {
+                kind,
+                unit,
+                operation,
+                detail,
+            } => write!(
+                f,
+                "the unit {unit} fails its {kind} anchor on the operation {operation}: {detail}"
+            ),
+            CheckRefusal::AnchorTarget {
+                kind,
+                unit,
+                target,
+                detail,
+            } => write!(
+                f,
+                "the unit {unit} fails its {kind} anchor on the target {target:?}: {detail}"
+            ),
+            CheckRefusal::ProcessUnit { unit } => write!(
+                f,
+                "the unit {unit} is a process unit outside the seven named process units"
+            ),
+            CheckRefusal::ProgramBindNotToolchain { bind } => write!(
+                f,
+                "the program bind {bind:?} is not a HOST_TOOLCHAIN_BINDS source"
+            ),
+            CheckRefusal::ToolchainCover {
+                unit,
+                source,
+                spelling,
+            } => write!(
+                f,
+                "the unit {unit} covers the host-toolchain source {source:?} at its spelling \
+                 {spelling:?}"
+            ),
+            CheckRefusal::DataVolume { unit, detail } => write!(f, "the unit {unit} {detail}"),
+            CheckRefusal::DenialControlCover { unit, target } => write!(
+                f,
+                "the unit {unit} covers the denial-control target {target:?}"
+            ),
+            CheckRefusal::Classification { unit, detail } => write!(f, "the unit {unit} {detail}"),
+            CheckRefusal::MissingUnit { unit, detail } => {
+                write!(f, "the entry {unit} {detail}")
+            }
+            CheckRefusal::DiagnosisRecord { unit, detail } => {
+                write!(f, "the diagnosis-admitted unit {unit} {detail}")
+            }
+            CheckRefusal::RemovalNotDiagnosis { name } => {
+                write!(f, "removal entry {name} is not a diagnosis-admitted unit")
+            }
+            CheckRefusal::SystemLibrary { unit, detail } => {
+                write!(f, "the system-library unit {unit} {detail}")
+            }
+            CheckRefusal::UnfilteredUnit { unit } => write!(
+                f,
+                "the unit {unit} is unfiltered and is not (allow process-fork)"
+            ),
+        }
     }
 }
 
@@ -189,7 +350,33 @@ struct ValidatedInputs {
 }
 
 fn refusal(reason: impl Into<String>) -> CheckRefusal {
-    CheckRefusal::new(reason)
+    CheckRefusal::Grammar {
+        detail: reason.into(),
+    }
+}
+
+fn input_refusal(
+    rule: &'static str,
+    input: impl Into<String>,
+    value: &str,
+    detail: impl Into<String>,
+) -> CheckRefusal {
+    CheckRefusal::Input {
+        rule,
+        input: input.into(),
+        value: value.to_string(),
+        detail: detail.into(),
+    }
+}
+
+/// Render an ordered refusal list as one human string. The check returns every
+/// refusal it finds, so the report and the native cell name all of them.
+pub fn render_refusals(refusals: &[CheckRefusal]) -> String {
+    refusals
+        .iter()
+        .map(CheckRefusal::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 // ---------------------------------------------------------------------------
@@ -834,7 +1021,9 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
         forms.push(parser.sexp()?);
     }
     if forms.len() < 2 {
-        return Err(refusal("the template is missing its two-form frame"));
+        return Err(CheckRefusal::Frame {
+            detail: "the template is missing its two-form frame".to_string(),
+        });
     }
     match &forms[0] {
         Sexp::List(items)
@@ -842,9 +1031,9 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
                 && items[0].atom() == Some("version")
                 && items[1].atom() == Some("1") => {}
         other => {
-            return Err(refusal(format!(
-                "the template does not open with exactly (version 1): {other:?}"
-            )))
+            return Err(CheckRefusal::Frame {
+                detail: format!("the template does not open with exactly (version 1): {other:?}"),
+            })
         }
     }
     match &forms[1] {
@@ -853,9 +1042,11 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
                 && items[0].atom() == Some("deny")
                 && items[1].atom() == Some("default") => {}
         other => {
-            return Err(refusal(format!(
-                "the template does not open with exactly (deny default): {other:?}"
-            )))
+            return Err(CheckRefusal::Frame {
+                detail: format!(
+                    "the template does not open with exactly (deny default): {other:?}"
+                ),
+            })
         }
     }
 
@@ -863,27 +1054,31 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
     for form in &forms[2..] {
         let items = match form {
             Sexp::List(items) => items,
-            Sexp::Atom(atom) => {
-                return Err(refusal(format!(
-                    "the template holds a bare top-level atom: '{atom}'"
-                )))
+            Sexp::Atom(atom) => return Err(CheckRefusal::TopLevelForm { form: atom.clone() }),
+            Sexp::Str(_) => {
+                return Err(CheckRefusal::TopLevelForm {
+                    form: "<string>".to_string(),
+                })
             }
-            Sexp::Str(_) => return Err(refusal("the template holds a top-level string")),
         };
         let head = items
             .first()
             .and_then(Sexp::atom)
             .ok_or_else(|| refusal("the template holds an empty or non-symbol top-level form"))?;
         if head == "version" {
-            return Err(refusal("the template holds a second (version ...) form"));
+            return Err(CheckRefusal::TopLevelForm {
+                form: "version".to_string(),
+            });
         }
         if head == "deny" {
-            return Err(refusal("the template holds a top-level deny form"));
+            return Err(CheckRefusal::TopLevelForm {
+                form: "deny".to_string(),
+            });
         }
         if head != "allow" {
-            return Err(refusal(format!(
-                "the template holds a top-level form other than the frame and allow: '{head}'"
-            )));
+            return Err(CheckRefusal::TopLevelForm {
+                form: head.to_string(),
+            });
         }
         let tail = &items[1..];
         let mut operations: Vec<&str> = Vec::new();
@@ -912,15 +1107,13 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
             return Err(refusal("the allow form names no operation"));
         }
         if operations.len() > 1 {
-            return Err(refusal(format!(
-                "the allow form names more than one operation: {}; after the first: {}",
-                operations.join(", "),
-                operations[1..].join(", ")
-            )));
+            return Err(CheckRefusal::MultiOperation {
+                operations: operations.iter().map(|op| (*op).to_string()).collect(),
+            });
         }
         let operation = operations[0];
         if operation == "default" {
-            return Err(refusal("the template holds an allow default form"));
+            return Err(CheckRefusal::AllowDefault);
         }
         let mut parsed_filters = Vec::new();
         for filter in filters {
@@ -933,15 +1126,18 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
                 .and_then(Sexp::atom)
                 .ok_or_else(|| refusal("an allow filter has no symbol name"))?;
             if name == "with" {
-                return Err(refusal(format!(
-                    "the template holds an action modifier: (with {})",
-                    list.get(1).and_then(Sexp::atom).unwrap_or("...")
-                )));
+                return Err(CheckRefusal::Modifier {
+                    modifier: list
+                        .get(1)
+                        .and_then(Sexp::atom)
+                        .unwrap_or("...")
+                        .to_string(),
+                });
             }
             if matches!(name, "require-any" | "require-all" | "require-not") {
-                return Err(refusal(format!(
-                    "the template holds a compound filter: {name}"
-                )));
+                return Err(CheckRefusal::CompoundFilter {
+                    filter: name.to_string(),
+                });
             }
             match list.as_slice() {
                 [_, Sexp::Str(target)] => parsed_filters.push(RuleFilter {
@@ -953,9 +1149,9 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
                     target: target.clone(),
                 }),
                 _ => {
-                    return Err(refusal(format!(
-                        "the filter {name} does not carry exactly one string or self argument"
-                    )))
+                    return Err(CheckRefusal::FilterArity {
+                        filter: name.to_string(),
+                    })
                 }
             }
         }
@@ -977,10 +1173,9 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
     // The same unit rendered twice is refused.
     for (index, unit) in units.iter().enumerate() {
         if units[index + 1..].contains(unit) {
-            return Err(refusal(format!(
-                "the template renders the same unit twice: {}",
-                unit.render()
-            )));
+            return Err(CheckRefusal::DuplicateUnit {
+                unit: unit.render(),
+            });
         }
     }
 
@@ -991,31 +1186,48 @@ pub fn parse_template(text: &str) -> Result<ParsedTemplate, CheckRefusal> {
 // Input validation and normalization
 // ---------------------------------------------------------------------------
 
-fn validate_inputs(inputs: &CheckInputs) -> Result<ValidatedInputs, CheckRefusal> {
+/// Validate every concrete input in the specification's rule order, collecting
+/// all refusals before any rewrite. The caller stops stage 1 on a non-empty
+/// list, so no unit is ever normalized from an invalid value.
+fn validate_inputs(inputs: &CheckInputs) -> Result<ValidatedInputs, Vec<CheckRefusal>> {
     let cell_root = &inputs.cell_root;
     let payload_root = &inputs.payload_root;
     let inputs_dir = &inputs.inputs_dir;
     let helper = &inputs.helper;
+    let mut refusals: Vec<CheckRefusal> = Vec::new();
 
     if payload_root != &format!("{cell_root}/payload") {
-        return Err(refusal(format!(
-            "payload root {payload_root:?} is not the cell root joined with `payload`"
-        )));
+        refusals.push(input_refusal(
+            "layout",
+            "payload root",
+            payload_root,
+            "is not the cell root joined with `payload`",
+        ));
     }
     if inputs_dir != &format!("{cell_root}/inputs") {
-        return Err(refusal(format!(
-            "inputs directory {inputs_dir:?} is not the cell root joined with `inputs`"
-        )));
+        refusals.push(input_refusal(
+            "layout",
+            "inputs directory",
+            inputs_dir,
+            "is not the cell root joined with `inputs`",
+        ));
     }
-    validate_canonical("cell root", cell_root)?;
-    validate_canonical("helper", helper)?;
+    if let Err(refusal) = validate_canonical("cell root", cell_root) {
+        refusals.push(refusal);
+    }
+    if let Err(refusal) = validate_canonical("helper", helper) {
+        refusals.push(refusal);
+    }
 
     if cell_root == "/" {
-        return Err(refusal("the cell root is `/`"));
+        refusals.push(input_refusal("root", "cell root", cell_root, "is `/`"));
     }
     if overlaps(cell_root, "/System/Volumes/Data") {
-        return Err(refusal(
-            "the cell root is, lies under or contains `/System/Volumes/Data`",
+        refusals.push(input_refusal(
+            "data-volume",
+            "cell root",
+            cell_root,
+            "is, lies under or contains `/System/Volumes/Data`",
         ));
     }
 
@@ -1026,41 +1238,61 @@ fn validate_inputs(inputs: &CheckInputs) -> Result<ValidatedInputs, CheckRefusal
     for source in HOST_TOOLCHAIN_BINDS {
         for spelling in spelling_set(source) {
             if overlaps(cell_root, &spelling) {
-                return Err(refusal(format!(
-                    "the cell root {cell_root:?} overlaps the host-toolchain source \
-                     {source:?} at its spelling {spelling:?}"
-                )));
+                refusals.push(input_refusal(
+                    "toolchain-overlap",
+                    "cell root",
+                    cell_root,
+                    format!(
+                        "overlaps the host-toolchain source {source:?} at its spelling \
+                         {spelling:?}"
+                    ),
+                ));
             }
         }
     }
     for target in system_library_targets() {
         if overlaps(cell_root, &target) {
-            return Err(refusal(format!(
-                "the cell root {cell_root:?} overlaps the system-library target {target:?}"
-            )));
+            refusals.push(input_refusal(
+                "system-library-overlap",
+                "cell root",
+                cell_root,
+                format!("overlaps the system-library target {target:?}"),
+            ));
         }
     }
     for target in device_set_literals() {
         if overlaps(cell_root, &target) {
-            return Err(refusal(format!(
-                "the cell root {cell_root:?} overlaps the device-set literal {target:?}"
-            )));
+            refusals.push(input_refusal(
+                "device-overlap",
+                "cell root",
+                cell_root,
+                format!("overlaps the device-set literal {target:?}"),
+            ));
         }
     }
     for target in path_denial_control_targets() {
         if overlaps(cell_root, &target) {
-            return Err(refusal(format!(
-                "the cell root {cell_root:?} overlaps the denial-control target {target:?}"
-            )));
+            refusals.push(input_refusal(
+                "control-overlap",
+                "cell root",
+                cell_root,
+                format!("overlaps the denial-control target {target:?}"),
+            ));
         }
     }
 
     if helper == "/" || overlaps(helper, cell_root) {
-        return Err(refusal(format!(
-            "the helper path {helper:?} is `/` or overlaps the cell root {cell_root:?}"
-        )));
+        refusals.push(input_refusal(
+            "helper-disjoint",
+            "helper path",
+            helper,
+            format!("is `/` or overlaps the cell root {cell_root:?}"),
+        ));
     }
 
+    if !refusals.is_empty() {
+        return Err(refusals);
+    }
     Ok(ValidatedInputs {
         cell_root: cell_root.clone(),
         payload_root: payload_root.clone(),
@@ -1070,25 +1302,41 @@ fn validate_inputs(inputs: &CheckInputs) -> Result<ValidatedInputs, CheckRefusal
 
 fn validate_canonical(name: &str, value: &str) -> Result<(), CheckRefusal> {
     if !value.starts_with('/') {
-        return Err(refusal(format!("the {name} {value:?} is not absolute")));
+        return Err(input_refusal(
+            "canonical",
+            name.to_string(),
+            value,
+            "is not absolute",
+        ));
     }
     if value.len() > 1 && value.ends_with('/') {
-        return Err(refusal(format!("the {name} {value:?} has a trailing `/`")));
+        return Err(input_refusal(
+            "canonical",
+            name.to_string(),
+            value,
+            "has a trailing `/`",
+        ));
     }
     if value != "/" {
         for component in value.split('/').skip(1) {
             if component.is_empty() || component == "." || component == ".." {
-                return Err(refusal(format!(
-                    "the {name} {value:?} has an empty, `.` or `..` component"
-                )));
+                return Err(input_refusal(
+                    "canonical",
+                    name.to_string(),
+                    value,
+                    "has an empty, `.` or `..` component",
+                ));
             }
         }
     }
     for top in ["/var", "/tmp", "/etc"] {
         if value == top || value.starts_with(&format!("{top}/")) {
-            return Err(refusal(format!(
-                "the {name} {value:?} is spelled through the top-level symlink {top:?}"
-            )));
+            return Err(input_refusal(
+                "canonical",
+                name.to_string(),
+                value,
+                format!("is spelled through the top-level symlink {top:?}"),
+            ));
         }
     }
     Ok(())
@@ -1218,28 +1466,56 @@ fn concretize_unit(unit: &RuleUnit, validated: &ValidatedInputs) -> RuleUnit {
 // The check
 // ---------------------------------------------------------------------------
 
+/// Confirm every listed program bind is a host-toolchain source. The pure
+/// sub-function takes both lists as parameters, so a falsification test can
+/// exercise the refusal the real five-entry constant can never trigger.
+pub fn confirm_program_binds(
+    program_binds: &[&str],
+    host_toolchain: &[&str],
+) -> Result<(), CheckRefusal> {
+    for bind in program_binds {
+        if !host_toolchain.contains(bind) {
+            return Err(CheckRefusal::ProgramBindNotToolchain {
+                bind: (*bind).to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Validate the concrete inputs and prove the rendered profile carries exactly
 /// the ledger's baseline entries plus the removal set, with every anchor and
-/// cross-cutting rule holding in normalized and concrete form.
+/// cross-cutting rule holding in normalized and concrete form. The check is a
+/// pure function; it collects every refusal in a fixed order instead of
+/// stopping at the first, so a unit that fails both its anchor and the process
+/// rule is named under both.
 pub fn check_startup_candidate(
     profile: &str,
     ledger: &[LedgerEntry],
     removal_set: &[StartupNegativeAllowance],
     inputs: &CheckInputs,
-) -> Result<(), CheckRefusal> {
+) -> Result<(), Vec<CheckRefusal>> {
     // Stage 1: validate the concrete inputs before any string is normalized.
     let validated = validate_inputs(inputs)?;
 
     // Stage 2: parse the closed grammar and normalize longest-validated-path
     // first.
-    let parsed = parse_template(profile)?;
+    let parsed = parse_template(profile).map_err(|refusal| vec![refusal])?;
     let parsed_units: Vec<RuleUnit> = parsed
         .units
         .iter()
         .map(|unit| normalize_unit(unit, &validated))
         .collect();
 
-    // Stage 3: judge the ledger and the equality.
+    // Stage 3: judge each unit in a fixed order. Within one unit the baseline
+    // record and its two-part anchor come first, then the process rule, then
+    // the cross-cutting rules.
+    let mut refusals: Vec<CheckRefusal> = Vec::new();
+
+    if let Err(refusal) = confirm_program_binds(&PROGRAM_BINDS, HOST_TOOLCHAIN_BINDS) {
+        refusals.push(refusal);
+    }
+
     let baseline_units: Vec<RuleUnit> = ledger
         .iter()
         .filter(|entry| matches!(entry.class, LedgerClass::Baseline(_)))
@@ -1252,133 +1528,28 @@ pub fn check_startup_candidate(
         .collect();
     let mut removal_units = Vec::new();
     for removal in removal_set {
-        let parsed = parse_template(&format!(
+        match parse_template(&format!(
             "(version 1)\n(deny default)\n{}\n",
             removal.removed_rule
-        ))
-        .map_err(|error| {
-            refusal(format!(
-                "removal entry {} does not name one rule unit: {}",
-                removal.name, error.reason
-            ))
-        })?;
-        if parsed.units.len() != 1 {
-            return Err(refusal(format!(
-                "removal entry {} does not name exactly one rule unit",
-                removal.name
-            )));
-        }
-        removal_units.push(parsed.units[0].clone());
-    }
-
-    // Every baseline entry carries a typed, non-empty justification of a named
-    // kind and passes its anchor.
-    for entry in ledger {
-        if let LedgerClass::Baseline(baseline) = &entry.class {
-            if baseline.justification.trim().is_empty() {
-                return Err(refusal(format!(
-                    "baseline unit {} carries no justification",
-                    entry.unit.render()
-                )));
-            }
-            if let Some(filter) = &entry.unit.filter {
-                if !(filter.is_literal() || filter.is_subpath()) {
-                    return Err(refusal(format!(
-                        "baseline unit {} uses a filter that is not `literal` or `subpath`",
-                        entry.unit.render()
-                    )));
-                }
-            }
-            check_baseline_anchor(entry)?;
+        )) {
+            Ok(parsed) if parsed.units.len() == 1 => removal_units.push(parsed.units[0].clone()),
+            Ok(_) => refusals.push(CheckRefusal::MissingUnit {
+                unit: removal.removed_rule.to_string(),
+                detail: format!(
+                    "removal entry {} does not name exactly one rule unit",
+                    removal.name
+                ),
+            }),
+            Err(error) => refusals.push(CheckRefusal::MissingUnit {
+                unit: removal.removed_rule.to_string(),
+                detail: format!(
+                    "removal entry {} does not name one rule unit: {error}",
+                    removal.name
+                ),
+            }),
         }
     }
 
-    // Every diagnosis-admitted entry carries complete evidence, names exactly
-    // one removal entry, uses a single-object filter, and matches it.
-    for entry in ledger {
-        if let LedgerClass::DiagnosisAdmitted(admission) = &entry.class {
-            if admission.process.trim().is_empty()
-                || admission.consumer.trim().is_empty()
-                || admission.evidence.trim().is_empty()
-                || admission.removal.trim().is_empty()
-            {
-                return Err(refusal(format!(
-                    "diagnosis-admitted unit {} lacks its operation, target, process, consumer, \
-                     evidence or removal entry",
-                    entry.unit.render()
-                )));
-            }
-            match &entry.unit.filter {
-                Some(filter) if filter.is_single_object() => {}
-                _ => {
-                    return Err(refusal(format!(
-                        "diagnosis-admitted unit {} does not use a single-object filter",
-                        entry.unit.render()
-                    )))
-                }
-            }
-            let matching = removal_set
-                .iter()
-                .position(|removal| removal.name == admission.removal);
-            match matching {
-                Some(index) if removal_units[index] == entry.unit => {}
-                Some(_) => {
-                    return Err(refusal(format!(
-                        "diagnosis-admitted unit {} does not equal its removal entry {}",
-                        entry.unit.render(),
-                        admission.removal
-                    )))
-                }
-                None => {
-                    return Err(refusal(format!(
-                        "diagnosis-admitted unit {} names no removal entry",
-                        entry.unit.render()
-                    )))
-                }
-            }
-        }
-    }
-
-    // A removal entry whose unit is not diagnosis-admitted fails.
-    for (unit, removal) in removal_units.iter().zip(removal_set) {
-        if !diagnosis_units.contains(unit) {
-            return Err(refusal(format!(
-                "removal entry {} is not a diagnosis-admitted unit",
-                removal.name
-            )));
-        }
-    }
-
-    // The candidate's units equal the disjoint union of the baseline entries
-    // and the removal set.
-    for unit in &baseline_units {
-        if removal_units.contains(unit) {
-            return Err(refusal(format!(
-                "unit {} is in both halves of the ledger",
-                unit.render()
-            )));
-        }
-    }
-    let mut expected = baseline_units.clone();
-    expected.extend(removal_units.iter().cloned());
-    for unit in &parsed_units {
-        if !expected.contains(unit) {
-            return Err(refusal(format!(
-                "the template carries a unit that is in neither half: {}",
-                unit.render()
-            )));
-        }
-    }
-    for unit in &expected {
-        if !parsed_units.contains(unit) {
-            return Err(refusal(format!(
-                "the template lacks the ledger unit {}",
-                unit.render()
-            )));
-        }
-    }
-
-    // Cross-cutting rules, over every unit, in normalized and concrete form.
     let toolchain_units: Vec<RuleUnit> = ledger
         .iter()
         .filter(|entry| {
@@ -1392,34 +1563,173 @@ pub fn check_startup_candidate(
         })
         .map(|entry| entry.unit.clone())
         .collect();
+
+    // Units rendered by the template, in template order. Each is judged once.
     for unit in &parsed_units {
         let normalized = unit.clone();
         let concrete = concretize_unit(unit, &validated);
         let is_toolchain = toolchain_units.contains(&normalized);
-        check_process_rule(&normalized, &validated)?;
-        check_process_rule(&concrete, &validated)?;
-        check_cross_cutting(&normalized, is_toolchain)?;
-        check_cross_cutting(&concrete, is_toolchain)?;
-    }
-    // The ledger itself is judged too, so a varied ledger cannot smuggle a
-    // unit the renderer never emits.
-    for entry in ledger {
-        let normalized = entry.unit.clone();
-        let concrete = concretize_unit(&entry.unit, &validated);
-        let is_toolchain = toolchain_units.contains(&normalized);
-        check_process_rule(&normalized, &validated)?;
-        check_process_rule(&concrete, &validated)?;
-        check_cross_cutting(&normalized, is_toolchain)?;
-        check_cross_cutting(&concrete, is_toolchain)?;
+        if let Some(entry) = ledger.iter().find(|entry| &entry.unit == unit) {
+            judge_ledger_entry(entry, removal_set, &removal_units, &mut refusals);
+        }
+        judge_unit(&normalized, &validated, is_toolchain, &mut refusals);
+        // The concrete form is read by the cover, data-volume and
+        // control-target rules only.
+        check_cross_cutting(&concrete, is_toolchain, &mut refusals);
     }
 
-    Ok(())
+    // Ledger entries the template does not render are judged too, in ledger
+    // order, so a varied ledger cannot smuggle a unit the renderer never emits.
+    for entry in ledger {
+        if !parsed_units.contains(&entry.unit) {
+            judge_ledger_entry(entry, removal_set, &removal_units, &mut refusals);
+            let is_toolchain = toolchain_units.contains(&entry.unit);
+            judge_unit(&entry.unit, &validated, is_toolchain, &mut refusals);
+        }
+    }
+
+    // A removal entry whose unit is not diagnosis-admitted fails.
+    for (unit, removal) in removal_units.iter().zip(removal_set) {
+        if !diagnosis_units.contains(unit) {
+            refusals.push(CheckRefusal::RemovalNotDiagnosis {
+                name: removal.name.to_string(),
+            });
+        }
+    }
+
+    // The candidate's units equal the disjoint union of the baseline entries
+    // and the removal set.
+    for unit in &baseline_units {
+        if removal_units.contains(unit) {
+            refusals.push(CheckRefusal::Classification {
+                unit: unit.render(),
+                detail: "is in both halves of the ledger".to_string(),
+            });
+        }
+    }
+    let mut expected = baseline_units.clone();
+    expected.extend(removal_units.iter().cloned());
+    for unit in &parsed_units {
+        if !expected.contains(unit) {
+            refusals.push(CheckRefusal::Classification {
+                unit: unit.render(),
+                detail: "is in neither half of the ledger".to_string(),
+            });
+        }
+    }
+    // Every required unit the template lacks is reported once, whichever half
+    // it belongs to.
+    let mut required = expected;
+    for entry in ledger {
+        if !required.contains(&entry.unit) {
+            required.push(entry.unit.clone());
+        }
+    }
+    for unit in &required {
+        if !parsed_units.contains(unit) {
+            refusals.push(CheckRefusal::MissingUnit {
+                unit: unit.render(),
+                detail: "is a ledger or removal entry the template lacks".to_string(),
+            });
+        }
+    }
+
+    if refusals.is_empty() {
+        Ok(())
+    } else {
+        Err(refusals)
+    }
+}
+
+/// Judge one ledger entry's record and, for a baseline entry, its two-part
+/// anchor. Every refusal is pushed in the specification's order.
+fn judge_ledger_entry(
+    entry: &LedgerEntry,
+    removal_set: &[StartupNegativeAllowance],
+    removal_units: &[RuleUnit],
+    refusals: &mut Vec<CheckRefusal>,
+) {
+    match &entry.class {
+        LedgerClass::Baseline(baseline) => {
+            if baseline.justification.trim().is_empty() {
+                refusals.push(CheckRefusal::BaselineRecord {
+                    unit: entry.unit.render(),
+                    detail: "carries no justification".to_string(),
+                });
+            }
+            if let Some(filter) = &entry.unit.filter {
+                if !(filter.is_literal() || filter.is_subpath()) {
+                    refusals.push(CheckRefusal::BaselineRecord {
+                        unit: entry.unit.render(),
+                        detail: "uses a filter that is not `literal` or `subpath`".to_string(),
+                    });
+                }
+            }
+            check_baseline_anchor(entry, refusals);
+        }
+        LedgerClass::DiagnosisAdmitted(admission) => {
+            if admission.process.trim().is_empty()
+                || admission.consumer.trim().is_empty()
+                || admission.evidence.trim().is_empty()
+                || admission.removal.trim().is_empty()
+            {
+                refusals.push(CheckRefusal::DiagnosisRecord {
+                    unit: entry.unit.render(),
+                    detail: "lacks its operation, target, process, consumer, evidence or removal \
+                             entry"
+                        .to_string(),
+                });
+            }
+            match &entry.unit.filter {
+                Some(filter) if filter.is_single_object() => {}
+                _ => refusals.push(CheckRefusal::DiagnosisRecord {
+                    unit: entry.unit.render(),
+                    detail: "does not use a single-object filter".to_string(),
+                }),
+            }
+            let matching = removal_set
+                .iter()
+                .position(|removal| removal.name == admission.removal);
+            match matching {
+                Some(index) if removal_units.get(index) == Some(&entry.unit) => {}
+                Some(_) => refusals.push(CheckRefusal::DiagnosisRecord {
+                    unit: entry.unit.render(),
+                    detail: format!("does not equal its removal entry {}", admission.removal),
+                }),
+                None => refusals.push(CheckRefusal::DiagnosisRecord {
+                    unit: entry.unit.render(),
+                    detail: "names no removal entry".to_string(),
+                }),
+            }
+        }
+    }
+}
+
+/// Judge one normalized unit: the unfiltered rule, the process rule and the
+/// normalized cross-cutting rules, in that order.
+fn judge_unit(
+    unit: &RuleUnit,
+    validated: &ValidatedInputs,
+    is_toolchain: bool,
+    refusals: &mut Vec<CheckRefusal>,
+) {
+    if unit.filter.is_none() && unit.operation != "process-fork" {
+        refusals.push(CheckRefusal::UnfilteredUnit {
+            unit: unit.render(),
+        });
+    }
+    check_process_rule(unit, validated, refusals);
+    check_cross_cutting(unit, is_toolchain, refusals);
 }
 
 /// The candidate's process authority is exactly the seven named process units.
-fn check_process_rule(unit: &RuleUnit, validated: &ValidatedInputs) -> Result<(), CheckRefusal> {
+fn check_process_rule(
+    unit: &RuleUnit,
+    validated: &ValidatedInputs,
+    refusals: &mut Vec<CheckRefusal>,
+) {
     if !unit.is_process_unit() {
-        return Ok(());
+        return;
     }
     let named = match (&unit.operation[..], &unit.filter) {
         ("process-fork", None) => true,
@@ -1436,40 +1746,37 @@ fn check_process_rule(unit: &RuleUnit, validated: &ValidatedInputs) -> Result<()
         }
         _ => false,
     };
-    if named {
-        Ok(())
-    } else {
-        Err(refusal(format!(
-            "the unit {} is a process unit outside the seven named process units",
-            unit.render()
-        )))
+    if !named {
+        refusals.push(CheckRefusal::ProcessUnit {
+            unit: unit.render(),
+        });
     }
 }
 
 /// Three rules hold for every unit of either half, in normalized and concrete
 /// form: no non-toolchain unit covers a host-toolchain spelling, no unit
 /// touches the data volume, and no unit covers a denial-control target.
-fn check_cross_cutting(unit: &RuleUnit, is_toolchain: bool) -> Result<(), CheckRefusal> {
+fn check_cross_cutting(unit: &RuleUnit, is_toolchain: bool, refusals: &mut Vec<CheckRefusal>) {
     let target = unit.filter.as_ref().map(|filter| filter.target.as_str());
 
     // The data-volume rule reads every unit, toolchain included.
     if let Some(target) = target {
         let data_volume = "/System/Volumes/Data";
         if target == data_volume || is_under(target, data_volume) {
-            return Err(refusal(format!(
-                "the unit {} targets `/System/Volumes/Data` or a path under it",
-                unit.render()
-            )));
+            refusals.push(CheckRefusal::DataVolume {
+                unit: unit.render(),
+                detail: "targets `/System/Volumes/Data` or a path under it".to_string(),
+            });
         }
         if unit
             .filter
             .as_ref()
             .is_some_and(|filter| filter.is_subpath() && is_under(data_volume, target))
         {
-            return Err(refusal(format!(
-                "the subpath unit {} contains `/System/Volumes/Data`",
-                unit.render()
-            )));
+            refusals.push(CheckRefusal::DataVolume {
+                unit: unit.render(),
+                detail: "contains `/System/Volumes/Data`".to_string(),
+            });
         }
     }
 
@@ -1479,11 +1786,11 @@ fn check_cross_cutting(unit: &RuleUnit, is_toolchain: bool) -> Result<(), CheckR
         for source in HOST_TOOLCHAIN_BINDS {
             for spelling in spelling_set(source) {
                 if covers(unit, &spelling) {
-                    return Err(refusal(format!(
-                        "the unit {} covers the host-toolchain source {source:?} at its \
-                         spelling {spelling:?}",
-                        unit.render()
-                    )));
+                    refusals.push(CheckRefusal::ToolchainCover {
+                        unit: unit.render(),
+                        source: (*source).to_string(),
+                        spelling,
+                    });
                 }
             }
         }
@@ -1492,13 +1799,12 @@ fn check_cross_cutting(unit: &RuleUnit, is_toolchain: bool) -> Result<(), CheckR
     // No unit covers a path-valued denial-control target.
     for denial in path_denial_control_targets() {
         if covers(unit, &denial) {
-            return Err(refusal(format!(
-                "the unit {} covers the denial-control target {denial:?}",
-                unit.render()
-            )));
+            refusals.push(CheckRefusal::DenialControlCover {
+                unit: unit.render(),
+                target: denial,
+            });
         }
     }
-    Ok(())
 }
 
 /// Does `unit`'s target cover `path`? A `literal` equals it; a `subpath` equals
@@ -1513,191 +1819,267 @@ fn covers(unit: &RuleUnit, path: &str) -> bool {
     }
 }
 
+fn anchor_operation(
+    kind: &'static str,
+    unit: &RuleUnit,
+    operation: &str,
+    detail: &str,
+) -> CheckRefusal {
+    CheckRefusal::AnchorOperation {
+        kind,
+        unit: unit.render(),
+        operation: operation.to_string(),
+        detail: detail.to_string(),
+    }
+}
+
+fn anchor_target(kind: &'static str, unit: &RuleUnit, target: &str, detail: &str) -> CheckRefusal {
+    CheckRefusal::AnchorTarget {
+        kind,
+        unit: unit.render(),
+        target: target.to_string(),
+        detail: detail.to_string(),
+    }
+}
+
 /// A baseline entry's two-part anchor: its operation is one the element or kind
 /// admits, matched by exact name, and its target passes that element's or
 /// kind's target test.
-fn check_baseline_anchor(entry: &LedgerEntry) -> Result<(), CheckRefusal> {
+fn check_baseline_anchor(entry: &LedgerEntry, refusals: &mut Vec<CheckRefusal>) {
     let baseline = match &entry.class {
         LedgerClass::Baseline(baseline) => baseline,
-        LedgerClass::DiagnosisAdmitted(_) => return Ok(()),
+        LedgerClass::DiagnosisAdmitted(_) => return,
     };
     let unit = &entry.unit;
     let target = unit.filter.as_ref().map(|filter| filter.target.as_str());
-    let fail = |element: &str, detail: String| {
-        refusal(format!(
-            "the baseline unit {} fails its {element} anchor: {detail}",
-            unit.render()
-        ))
-    };
 
     match &baseline.kind {
         BaselineKind::HandsElement(HandsElement::Shell) => {
-            if unit.operation == "process-fork" && unit.filter.is_none() {
-                Ok(())
-            } else {
-                Err(fail(
+            if !(unit.operation == "process-fork" && unit.filter.is_none()) {
+                refusals.push(anchor_operation(
                     "shell",
-                    "the shell element is (allow process-fork) alone".to_string(),
-                ))
+                    unit,
+                    &unit.operation,
+                    "the shell element is (allow process-fork) alone",
+                ));
             }
         }
         BaselineKind::HandsElement(HandsElement::Toolchain) => {
             let Some(filter) = &unit.filter else {
-                return Err(fail(
+                refusals.push(anchor_target(
                     "toolchain",
-                    "a toolchain unit needs a target".to_string(),
+                    unit,
+                    "",
+                    "a toolchain unit needs a target",
                 ));
+                return;
             };
             if !(filter.is_literal() || filter.is_subpath()) {
-                return Err(fail("toolchain", "the target is not a path".to_string()));
+                refusals.push(anchor_target(
+                    "toolchain",
+                    unit,
+                    &filter.target,
+                    "the target is not a path",
+                ));
+                return;
             }
             if !HOST_TOOLCHAIN_BINDS.contains(&filter.target.as_str()) {
-                return Err(fail(
+                refusals.push(anchor_target(
                     "toolchain",
-                    format!(
+                    unit,
+                    &filter.target,
+                    &format!(
                         "the named bind {:?} is not in HOST_TOOLCHAIN_BINDS",
                         filter.target
                     ),
                 ));
+                return;
             }
             match unit.operation.as_str() {
-                "file-read*" => Ok(()),
+                "file-read*" => {}
                 "process-exec" => {
-                    if PROGRAM_BINDS.contains(&filter.target.as_str()) {
-                        Ok(())
-                    } else {
-                        Err(fail(
+                    if !PROGRAM_BINDS.contains(&filter.target.as_str()) {
+                        refusals.push(anchor_operation(
                             "toolchain",
-                            format!(
+                            unit,
+                            &unit.operation,
+                            &format!(
                                 "process-exec is only admitted for a program bind; {:?} is not \
                                  one",
                                 filter.target
                             ),
-                        ))
+                        ));
                     }
                 }
-                other => Err(fail(
+                other => refusals.push(anchor_operation(
                     "toolchain",
-                    format!("the operation {other} is not admitted (file-read* or process-exec)"),
+                    unit,
+                    other,
+                    "the operation is not admitted (file-read* or process-exec)",
                 )),
             }
         }
         BaselineKind::HandsElement(HandsElement::SystemLibrary) => {
             if unit.operation != "file-read*" {
-                return Err(fail(
+                refusals.push(anchor_operation(
                     "system library",
-                    format!("the operation {} is not file-read*", unit.operation),
+                    unit,
+                    &unit.operation,
+                    "the operation is not file-read*",
                 ));
+                return;
             }
             let Some(target) = target else {
-                return Err(fail("system library", "no target".to_string()));
+                refusals.push(anchor_target("system library", unit, "", "no target"));
+                return;
             };
             if system_library_targets()
                 .iter()
                 .any(|committed| committed == target)
             {
-                return Ok(());
+                return;
             }
             match &baseline.correction {
                 Some(correction) if correction.resolved == target => {
+                    if !system_library_targets()
+                        .iter()
+                        .any(|committed| committed == &correction.replaces)
+                    {
+                        refusals.push(CheckRefusal::SystemLibrary {
+                            unit: unit.render(),
+                            detail: format!(
+                                "records a correction that replaces {:?}, which is not a \
+                                 committed system-library target",
+                                correction.replaces
+                            ),
+                        });
+                        return;
+                    }
                     if correction.replaces.trim().is_empty()
                         || correction.evidence.trim().is_empty()
                     {
-                        return Err(fail(
-                            "system library",
-                            "the correction lacks the unit it replaces or its evidence".to_string(),
-                        ));
+                        refusals.push(CheckRefusal::SystemLibrary {
+                            unit: unit.render(),
+                            detail: "has a correction that lacks the unit it replaces or its \
+                                     evidence"
+                                .to_string(),
+                        });
+                        return;
                     }
                     for historical in FA7_HISTORICAL_TARGETS {
                         if overlaps(target, historical) {
-                            return Err(fail(
-                                "system library",
-                                format!(
-                                    "the correction equals or contains a withdrawn or narrowed \
-                                     fa7 target {historical:?}"
+                            refusals.push(CheckRefusal::SystemLibrary {
+                                unit: unit.render(),
+                                detail: format!(
+                                    "has a correction that equals or contains a withdrawn or \
+                                     narrowed fa7 target {historical:?}"
                                 ),
-                            ));
+                            });
+                            return;
                         }
                     }
-                    Ok(())
                 }
-                _ => Err(fail(
-                    "system library",
-                    format!(
-                        "the target {target} is neither a committed target nor a recorded \
+                _ => refusals.push(CheckRefusal::SystemLibrary {
+                    unit: unit.render(),
+                    detail: format!(
+                        "targets {target}, which is neither a committed target nor a recorded \
                          correction"
                     ),
-                )),
+                }),
             }
         }
         BaselineKind::HandsElement(HandsElement::WritableWorktree) => {
-            if unit.operation == "file-write*"
+            let exact = unit.operation == "file-write*"
                 && unit.filter.as_ref().is_some_and(|filter| {
                     filter.is_subpath() && filter.target == PLACEHOLDER_PAYLOAD_ROOT
-                })
-            {
-                Ok(())
-            } else {
-                Err(fail(
+                });
+            if !exact {
+                refusals.push(anchor_operation(
                     "writable worktree",
-                    "the only baseline write is file-write* on exactly <payload-root>".to_string(),
-                ))
+                    unit,
+                    &unit.operation,
+                    "the only baseline write is file-write* on exactly <payload-root>",
+                ));
             }
         }
         BaselineKind::HandsElement(HandsElement::DeviceSet) => {
-            if unit.operation == "file-read*"
-                && unit.filter.as_ref().is_some_and(|filter| {
+            if unit.operation != "file-read*" {
+                refusals.push(anchor_operation(
+                    "device set",
+                    unit,
+                    &unit.operation,
+                    "a device-set unit is file-read* on exactly one device literal",
+                ));
+            } else {
+                let exact = unit.filter.as_ref().is_some_and(|filter| {
                     filter.is_literal()
                         && device_set_literals()
                             .iter()
                             .any(|device| device == &filter.target)
-                })
-            {
-                Ok(())
-            } else {
-                Err(fail(
-                    "device set",
-                    "a device-set unit is file-read* on exactly one device literal".to_string(),
-                ))
+                });
+                if !exact {
+                    refusals.push(anchor_target(
+                        "device set",
+                        unit,
+                        target.unwrap_or(""),
+                        "a device-set unit is file-read* on exactly one device literal",
+                    ));
+                }
             }
         }
         BaselineKind::ExecutionInput => {
-            if matches!(unit.operation.as_str(), "file-read*" | "process-exec")
-                && unit.filter.as_ref().is_some_and(|filter| {
-                    filter.is_literal() && filter.target == PLACEHOLDER_HELPER
-                })
-            {
-                Ok(())
-            } else {
-                Err(fail(
+            if !matches!(unit.operation.as_str(), "file-read*" | "process-exec") {
+                refusals.push(anchor_operation(
                     "execution input",
+                    unit,
+                    &unit.operation,
                     "an execution input is file-read* or process-exec on exactly (literal \
-                     \"<helper>\")"
-                        .to_string(),
-                ))
+                     \"<helper>\")",
+                ));
+                return;
+            }
+            let exact = unit
+                .filter
+                .as_ref()
+                .is_some_and(|filter| filter.is_literal() && filter.target == PLACEHOLDER_HELPER);
+            if !exact {
+                refusals.push(anchor_target(
+                    "execution input",
+                    unit,
+                    target.unwrap_or(""),
+                    "an execution input is file-read* or process-exec on exactly (literal \
+                     \"<helper>\")",
+                ));
             }
         }
         BaselineKind::ProbeHarnessNeed => {
-            if unit.operation == "file-read*"
-                && unit.filter.as_ref().is_some_and(|filter| {
-                    filter.is_subpath()
-                        && (filter.target == "<cell-root>/inputs"
-                            || filter.target == PLACEHOLDER_PAYLOAD_ROOT)
-                })
-            {
-                Ok(())
-            } else {
-                Err(fail(
+            if unit.operation != "file-read*" {
+                refusals.push(anchor_operation(
                     "probe-harness need",
+                    unit,
+                    &unit.operation,
                     "a probe-harness need is file-read* on exactly <cell-root>/inputs or \
-                     <payload-root>"
-                        .to_string(),
-                ))
+                     <payload-root>",
+                ));
+                return;
+            }
+            let exact = unit.filter.as_ref().is_some_and(|filter| {
+                filter.is_subpath()
+                    && (filter.target == "<cell-root>/inputs"
+                        || filter.target == PLACEHOLDER_PAYLOAD_ROOT)
+            });
+            if !exact {
+                refusals.push(anchor_target(
+                    "probe-harness need",
+                    unit,
+                    target.unwrap_or(""),
+                    "a probe-harness need is file-read* on exactly <cell-root>/inputs or \
+                     <payload-root>",
+                ));
             }
         }
     }
 }
-
 // ---------------------------------------------------------------------------
 // The candidate renderer
 // ---------------------------------------------------------------------------

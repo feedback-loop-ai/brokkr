@@ -690,7 +690,8 @@ brace-depth scanner over the single outermost block replaces the
 all-or-nothing `parse_launchd_print`. It gives each field an independent
 parsed or unknown value, raw evidence for nested entries under their block
 path, and unknown for duplicated top-level keys. `state`, `runs` and
-`last exit code` are required; `successive crashes`, a terminating signal and
+`last exit code` are required, and `runs` must be exactly one completed run;
+`successive crashes`, a terminating signal and
 `active count` are optional, and a present nonzero crash counter or a present
 terminating signal fails the cell. The launchd exit classifier no longer infers
 "clean" from a zero crash counter, which may be absent. The three fa7 raw
@@ -1420,11 +1421,11 @@ decision rather than a downstream workaround.
 
 ## Implementation status
 
-Current HEAD `d52cbd7` preserves the probe work through `fa7ece5`, the fourth
-native report and the specification visits that settle the ledger candidate,
-its operation anchors and the helper's staged spelling. It contains no
-production Seatbelt implementation. Seatbelt remains `unbuilt: ii`; container
-remains `unbuilt: iii`.
+The current committed head preserves the probe work through `fa7ece5`, the
+fourth native report, the specification visits that settle the ledger
+candidate and the implementation of tasks 1.18–1.27. It contains no production
+Seatbelt implementation. Seatbelt remains `unbuilt: ii`; container remains
+`unbuilt: iii`.
 
 The committed probe has demonstrated preparation:
 
@@ -1438,31 +1439,33 @@ The committed probe has demonstrated preparation:
 Native CI `34457208029` confirmed that progress and three denial controls on
 that candidate. It also showed that the committed parser erases printed
 terminal facts when the crash counter is absent, and that the ordinary-child
-spawn is refused.
+spawn is refused. No later native run exists, so the ledger candidate's startup
+is unmeasured.
 
-None of the D3 ledger candidate is implemented yet:
+The D3 ledger candidate is now implemented:
 
-- `hands.rs` still inlines the toolchain array;
-- `native.rs` still renders the fa7 literal, including `(allow sysctl-read)`,
-  and keeps the uncanonical fallback;
-- the helper still hard-codes its control targets, uses `Stdio::null()` and
-  re-executes through `current_exe()` at seven sites, and the observer runs
-  the build file itself rather than a staged single-link copy;
-- the ledger, check, sub-stages, discriminating and restoration cells,
-  denial events, top-level scanner and four-way removal record are absent.
+- `hands.rs` exposes `HOST_TOOLCHAIN_BINDS`, and `box_argv` iterates it so
+  there is one list and the namespace argv is byte-identical;
+- `controls.rs` is the one source of the path-valued denial-control targets
+  that both the helper and the check read;
+- `ledger.rs` carries the typed 23-entry baseline plus one diagnosis-admitted
+  entry, `PROGRAM_BINDS`, the fa7 disposition table and the pure check, which
+  validates the concrete inputs before normalization and returns an ordered
+  `Vec<CheckRefusal>` of named variants, including a failed operation anchor
+  and a failed target anchor, a `process-*` unit outside the seven and a
+  program bind that is not a host-toolchain source;
+- `native.rs` stages the helper with exclusive owner-only creates and no
+  canonicalization fallback, passes the validated `--helper` spelling, runs
+  the check over the concrete profile before `sandbox-exec`, and carries the
+  child-spawn sub-stages, the four discriminating replays, the restoration
+  diagnostics, the bounded `log show` collection and the top-level launchd
+  scanner with a four-way removal record.
 
-`evidence-residuals.md` carries the fa7ece5 residual as its own row, and
-`tasks.md` carries the ledger candidate's task breakdown (1.18–1.28: the
-`HOST_TOOLCHAIN_BINDS` constant, `controls.rs`, the typed ledger, the pure
-check, the observer repair, the child-spawn sub-stages and restoration
-diagnostics, the denial events and the launchd scanner, then validation,
-commit and the native Gate A run) ahead of the existing B0/B1 tasks
-(renumbered 1.29–1.33). Those tasks predate `d1d714d` and `d52cbd7`. The
-tasks visit adds the operation-anchor, process-rule and helper-respelling
-tests, the staged-copy duty and the `--helper` re-exec to tasks 1.20–1.23.
-Implementing tasks 1.18–1.27 and dispatching task 1.28's controller-run Gate
-A on that exact head is the next unit of work. No production planner,
+The host-independent probe suite passes (95 tests, two native-only ignored),
+and the ledger candidate's Gate A startup, denial controls and removal
+controls are still pending the controller's exact-head native run. Tasks
+1.28–1.33 (native Gate A, B0 and B1) remain open. No production planner,
 lifetime executor, overlay, mask, Git, runtime transport, activation edit or
 full-peer claim is authorized until Gate A and the complete B1 feasibility
-matrix pass. Exact coverage, native dispatch, final
-remote CI, publication, integration and closure remain controller-owned.
+matrix pass. Exact coverage, native dispatch, final remote CI, publication,
+integration and closure remain controller-owned.

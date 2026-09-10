@@ -1702,10 +1702,13 @@ fn evaluate_startup_cell(observation: &StartupObservation, reasons: &mut Vec<Str
                 "{name}: launchd recorded no parseable not-running terminal state"
             ));
         }
+        // Required terminal facts fail closed. `runs` must be exactly one: a
+        // terminal print that recorded two runs is not a single clean run of
+        // this label, however many exited cleanly.
         match observation.launchd_runs {
-            Some(runs) if runs >= 1 => {}
+            Some(1) => {}
             runs => reasons.push(format!(
-                "{name}: launchd runs fact is not a completed run (runs={runs:?})"
+                "{name}: launchd runs fact is not exactly one completed run (runs={runs:?})"
             )),
         }
         match observation.launchd_last_exit_code {

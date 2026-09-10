@@ -30,12 +30,12 @@ use std::time::{Duration, Instant};
 
 use super::{
     check_startup_candidate, classify_launchd_exit, detect_residual, parse_launchd_print,
-    parse_sandbox_denials, render_candidate_profile, render_restoration_profile, run_gated_probe,
-    run_startup, Case, CaseResult, CheckInputs, DenialControl, DenialLog, Event, GatedReport,
-    HelperExit, LaunchdFacts, Precondition, ProbeHost, ProfileDiagnostic, RemovalStatus,
-    RepairFacts, RuleUnit, StartupCell, StartupNegativeControl, StartupObservation, TriggerKind,
-    DIAGNOSTIC_ALLOWANCES, FA7_RESTORATIONS, ROOT_TOKEN, STARTUP_DENIAL_CONTROLS,
-    STARTUP_NEGATIVE_ALLOWANCES, STARTUP_RULE_LEDGER,
+    parse_sandbox_denials, render_candidate_profile, render_refusals, render_restoration_profile,
+    run_gated_probe, run_startup, Case, CaseResult, CheckInputs, CheckRefusal, DenialControl,
+    DenialLog, Event, GatedReport, HelperExit, LaunchdFacts, Precondition, ProbeHost,
+    ProfileDiagnostic, RemovalStatus, RepairFacts, RuleUnit, StartupCell, StartupNegativeControl,
+    StartupObservation, TriggerKind, DIAGNOSTIC_ALLOWANCES, FA7_RESTORATIONS, ROOT_TOKEN,
+    STARTUP_DENIAL_CONTROLS, STARTUP_NEGATIVE_ALLOWANCES, STARTUP_RULE_LEDGER,
 };
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -417,7 +417,10 @@ impl NativeProbeHost {
             ) {
                 return StartupObservation::skipped(
                     cell,
-                    &format!("candidate check refused the profile: {error}"),
+                    &format!(
+                        "candidate check refused the profile: {}",
+                        render_refusals(&error)
+                    ),
                 );
             }
             match fs::write(&profile, &profile_text) {
@@ -859,7 +862,12 @@ impl NativeProbeHost {
             &STARTUP_NEGATIVE_ALLOWANCES,
             &inputs,
         )
-        .map_err(|error| format!("candidate check refused the Gate B profile: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "candidate check refused the Gate B profile: {}",
+                render_refusals(&error)
+            )
+        })?;
         fs::write(&profile, &profile_text).map_err(|e| format!("policy: {e}"))?;
         let profile_digest = digest(&profile);
         let _profile_digest = profile_digest;
@@ -2053,46 +2061,75 @@ fn stage_helper(probe_root: &Path, build: &Path) -> Result<StagedHelper, String>
 
     let metadata =
         fs::metadata(&staged).map_err(|error| format!("staged helper metadata: {error}"))?;
-    if !metadata.is_file() {
+    let observed = ObservedHelper {
+        is_file: metadata.is_file(),
+        uid: metadata.uid(),
+        nlink: metadata.nlink(),
+        digest: format!("{:016x}", fnv1a(&fs::read(&staged).unwrap_or_default())),
+        canonical: fs::canonicalize(&staged)
+            .map_err(|error| format!("staged helper canonicalize: {error}"))?,
+    };
+    verify_staged_helper(&staged, &build_digest, &observed)?;
+    Ok(StagedHelper {
+        path: staged,
+        digest: observed.digest,
+        build_digest,
+        mode: metadata.permissions().mode() & 0o777,
+    })
+}
+
+/// The file-system facts an observer verifies about a staged helper. A native
+/// run reads them from the file it created; an injected test substitutes
+/// fabricated facts to falsify each duty.
+#[derive(Debug, Clone)]
+pub(super) struct ObservedHelper {
+    pub is_file: bool,
+    pub uid: u32,
+    pub nlink: u64,
+    pub digest: String,
+    pub canonical: PathBuf,
+}
+
+/// Verify the staged-helper duties against observed facts. There is no
+/// fallback: a mismatch fails the cell before `sandbox-exec` runs.
+pub(super) fn verify_staged_helper(
+    staged: &Path,
+    build_digest: &str,
+    observed: &ObservedHelper,
+) -> Result<(), String> {
+    if !observed.is_file {
         return Err(format!(
             "staged helper {} is not a regular file",
             staged.display()
         ));
     }
-    if metadata.uid() != current_uid() {
+    if observed.uid != current_uid() {
         return Err(format!(
             "staged helper {} is not owned by the invoking user",
             staged.display()
         ));
     }
-    if metadata.nlink() != 1 {
+    if observed.nlink != 1 {
         return Err(format!(
             "staged helper {} has {} links, not one",
             staged.display(),
-            metadata.nlink()
+            observed.nlink
         ));
     }
-    let digest = format!("{:016x}", fnv1a(&fs::read(&staged).unwrap_or_default()));
-    if digest != build_digest {
+    if observed.digest != build_digest {
         return Err(format!(
-            "staged helper digest {digest} differs from the build digest {build_digest}"
+            "staged helper digest {} differs from the build digest {build_digest}",
+            observed.digest
         ));
     }
-    let canonical = fs::canonicalize(&staged)
-        .map_err(|error| format!("staged helper canonicalize: {error}"))?;
-    if canonical != staged {
+    if observed.canonical != staged {
         return Err(format!(
             "staged helper canonicalizes to {} rather than its input spelling {}",
-            canonical.display(),
+            observed.canonical.display(),
             staged.display()
         ));
     }
-    Ok(StagedHelper {
-        path: staged,
-        digest,
-        build_digest,
-        mode: metadata.permissions().mode() & 0o777,
-    })
+    Ok(())
 }
 
 #[cfg(not(unix))]
@@ -2112,6 +2149,18 @@ fn create_cell_root(cell_root: &Path) -> Result<CheckInputs, String> {
     create_private_dir(&inputs_dir).map_err(|error| format!("inputs dir: {error}"))?;
     let canonical = fs::canonicalize(cell_root)
         .map_err(|error| format!("cell root canonicalize {}: {error}", cell_root.display()))?;
+    verify_cell_root(cell_root, &canonical)?;
+    Ok(CheckInputs {
+        cell_root: cell_root.to_string_lossy().to_string(),
+        payload_root: payload_root.to_string_lossy().to_string(),
+        inputs_dir: inputs_dir.to_string_lossy().to_string(),
+        helper: String::new(),
+    })
+}
+
+/// Require that the cell root canonicalizes to exactly the spelling the
+/// observer created. A substitution is never kept as a fallback.
+pub(super) fn verify_cell_root(cell_root: &Path, canonical: &Path) -> Result<(), String> {
     if canonical != cell_root {
         return Err(format!(
             "cell root canonicalizes to {} rather than its input spelling {}",
@@ -2119,12 +2168,7 @@ fn create_cell_root(cell_root: &Path) -> Result<CheckInputs, String> {
             cell_root.display()
         ));
     }
-    Ok(CheckInputs {
-        cell_root: cell_root.to_string_lossy().to_string(),
-        payload_root: payload_root.to_string_lossy().to_string(),
-        inputs_dir: inputs_dir.to_string_lossy().to_string(),
-        helper: String::new(),
-    })
+    Ok(())
 }
 
 /// A launchd-label-safe atom: no path separators or quoting surprises.
@@ -2568,8 +2612,15 @@ mod tests {
 
     #[test]
     fn structural_profile_digest_ignores_the_typed_cell_root() {
+        // The two cells differ in all three typed inputs: cell root, payload
+        // root and helper spelling. The digest still compares the policy.
         let first_inputs = check_inputs("cell-one");
-        let second_inputs = check_inputs("cell-two");
+        let mut second_inputs = check_inputs("cell-two");
+        second_inputs.helper =
+            "/private/var/folders/probe/bin/other-seatbelt-probe-helper".to_string();
+        assert_ne!(first_inputs.cell_root, second_inputs.cell_root);
+        assert_ne!(first_inputs.payload_root, second_inputs.payload_root);
+        assert_ne!(first_inputs.helper, second_inputs.helper);
         let first = candidate(&first_inputs);
         let second = candidate(&second_inputs);
         assert_ne!(first, second, "raw profiles embed distinct typed roots");
@@ -2718,5 +2769,114 @@ mod tests {
             assert_eq!(stages.last().copied(), Some(expected_last), "{variant}");
             let _ = fs::remove_dir_all(&root);
         }
+    }
+
+    /// The injected facts falsify each staged-helper duty, including the ones a
+    /// real filesystem cannot produce on demand (a second link, a digest other
+    /// than the build's, a file the invoking user does not own).
+    #[test]
+    fn injected_staged_helper_duty_failures_are_rejected() {
+        let staged = Path::new("/private/var/folders/probe/bin/seatbelt-probe-helper");
+        let good = ObservedHelper {
+            is_file: true,
+            uid: current_uid(),
+            nlink: 1,
+            digest: "abc".to_string(),
+            canonical: staged.to_path_buf(),
+        };
+        verify_staged_helper(staged, "abc", &good).expect("the observed duties hold");
+
+        for (label, observed) in [
+            (
+                "non-regular",
+                ObservedHelper {
+                    is_file: false,
+                    ..good.clone()
+                },
+            ),
+            (
+                "not owned",
+                ObservedHelper {
+                    uid: good.uid.wrapping_add(1),
+                    ..good.clone()
+                },
+            ),
+            (
+                "multi-link",
+                ObservedHelper {
+                    nlink: 2,
+                    ..good.clone()
+                },
+            ),
+            (
+                "digest mismatch",
+                ObservedHelper {
+                    digest: "def".to_string(),
+                    ..good.clone()
+                },
+            ),
+            (
+                "canonical mismatch",
+                ObservedHelper {
+                    canonical: PathBuf::from("/private/other"),
+                    ..good.clone()
+                },
+            ),
+        ] {
+            let error = verify_staged_helper(staged, "abc", &observed).expect_err(label);
+            assert!(!error.is_empty(), "{label}");
+        }
+    }
+
+    #[test]
+    fn injected_cell_root_canonicalization_mismatch_is_rejected() {
+        let cell = Path::new("/private/var/folders/probe/cell");
+        verify_cell_root(cell, cell).expect("the same spelling is canonical");
+        let error = verify_cell_root(cell, Path::new("/private/var/folders/probe/other"))
+            .expect_err("a substituted spelling must fail");
+        assert!(error.contains("canonicalizes"), "{error}");
+    }
+
+    /// An exclusive create fails when the path already exists, so no
+    /// pre-existing host object is accepted as observer-created state.
+    #[cfg(unix)]
+    #[test]
+    fn exclusive_creates_refuse_a_pre_existing_path() {
+        let root = helper_test_root("exclusive-dir");
+        create_private_dir(&root).expect_err("a second exclusive create must fail");
+        let _ = fs::remove_dir_all(&root);
+
+        let base = fs::canonicalize(helper_test_root("exclusive-cell"))
+            .expect("the temp base canonicalizes");
+        let cell = base.join("cell");
+        create_cell_root(&cell).expect("the first cell root create succeeds");
+        create_cell_root(&cell).expect_err("a pre-existing cell root must fail");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// The observer supplies `CheckInputs`; a profile the renderer produced
+    /// with other roots carries units the check cannot normalize, so it fails
+    /// the equality instead of passing on renderer-supplied values.
+    #[test]
+    fn a_renderer_supplied_root_fails_against_the_observer_inputs() {
+        let observer = check_inputs("observed-cell");
+        let renderer = check_inputs("renderer-cell");
+        assert_ne!(observer.payload_root, renderer.payload_root);
+        let profile = candidate(&renderer);
+        let refusals = check_startup_candidate(
+            &profile,
+            &STARTUP_RULE_LEDGER,
+            &STARTUP_NEGATIVE_ALLOWANCES,
+            &observer,
+        )
+        .expect_err("a renderer-supplied root must fail against the observer inputs");
+        assert!(
+            refusals.iter().any(|refusal| matches!(
+                refusal,
+                CheckRefusal::Classification { detail, .. } if detail.contains("neither half")
+            )),
+            "{}",
+            render_refusals(&refusals)
+        );
     }
 }
