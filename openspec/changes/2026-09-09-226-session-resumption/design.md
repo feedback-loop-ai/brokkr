@@ -3,7 +3,7 @@
 This design adopts the existing
 **2026-09-09-226-session-resumption** change at `7178895`, over its
 implementation commit `75ae68e`, while retaining the commissioned shipped base
-`5bc8cf305aaef9af269866cbf83f094939691399`, settled answers A–I and repairs
+`5bc8cf305aaef9af269866cbf83f094939691399`, settled answers A–J and repairs
 F1–F12. See [proposal.md](proposal.md) for motivation and scope. The active
 directory has been restored to the original dated archive identity under
 decision 0042's same-change return rule. This is a returned council
@@ -28,6 +28,11 @@ came from dropping the original date prefix on reopen: OpenSpec preserves an
 already dated change name. D13 adopts that supported same-change mechanism
 without reopening any provider or runtime choice. Controller integration of
 PR250 and #222 remains separate.
+The later proposal answer J also classifies the commissioned release-profile
+CLI build as repository-local pre-archive evidence. D9 and D11 adopt it without
+creating a new architecture or task identity: the tasks phase must extend the
+still-pending 15.4 gate, and no readiness claim may infer release-profile
+success from tests or bundle compiles.
 
 The implementation at this head already contains the reusable architecture:
 `engine/resume.rs::{eligible_offer, SiteContext, InstanceKey,
@@ -88,7 +93,8 @@ engine eligibility from provider planning and from acceptance/accounting.
 **Non-Goals:** No policy input, reducer state, session database, provider workflow
 runner, transcript reader, CLI/TUI derivation or cross-provider memory transfer.
 No global settings, provider installation patch, non-Rust production runner,
-new DSH hands admission, boundary, release work or sibling-worktree change.
+new DSH hands admission, boundary, version bump, packaging, publication or
+sibling-worktree change. The commissioned local release-profile build is a gate.
 The controller integrates #222 overlap; this design uses the commissioned base
 and supplied controller evidence.
 
@@ -96,7 +102,7 @@ and supplied controller evidence.
 
 ### D1 — Preserve the adopted answers and the full minimum
 
-Proposal answers A–I stand. Work/gate class comes from the selected compiled
+Proposal answers A–J stand. Work/gate class comes from the selected compiled
 invocation, including a step's own class and a panel member's inherited class.
 Single gates lose their old offer path under SR1 and accepted 0042's fresh-judge
 rule. Work authors and council positions remain eligible even when a later
@@ -602,6 +608,11 @@ the final progress account distinguishes repository-local completion from the
 still-pending archive and commit, the intended paths are staged and reviewed,
 and the archive command and exact postconditions below are selected. Ticking it
 is the last task-artifact edit; the tick does not claim that archive ran.
+The tracked obligations include the commissioned
+`cargo build --release --locked -p brokkr-cli`: it is attainable against the
+active worktree and must pass on the same final active bytes as the other local
+gates. A successful debug/test build or either bundle compile is not evidence
+that the release profile built.
 
 F12 is resolved by preserving the original archive identity in the active
 namespace. Installed OpenSpec 1.12.0 tests
@@ -650,7 +661,7 @@ public runtime lifecycle type remain unnecessary.
 
 **Bindings:** PM1–PM4; `library_data.rs` charter/roster/identity tests, both
 dialects' implement/return prompt tests, a deterministic recovery exercise,
-proposal answers C/I/F12, the dated-return state, pre-archive readiness, the
+proposal answers C/I/J/F12, the dated-return state, pre-archive readiness, the
 normal archive operation on `2026-09-09-226-session-resumption`, read-only
 archived validation/provenance, and controller evidence keyed outside the
 tracked artifact to its exact subject head.
@@ -681,8 +692,8 @@ text. The required numbered rulings and enforcement bindings are:
 The current sitting's sources are the two run-local positions named in Context,
 recorded here so the reasoning survives their replacement on a future visit:
 
-- Robustness SHA-256: `68d44f914426bdb006a1c3f8e250b29d88a00b35c292d3c6a5b81ebe3c9170bb`.
-- Simplicity SHA-256: `3fe6c1812c79246e844cb44dcc2f7e5e9441cc98d6fc3060c3e03106dca1d4bf`.
+- Robustness SHA-256: `2cb5028aafa70a3491acb4513e51dd13f498427b0e870e93180e99640ef6b3c7`.
+- Simplicity SHA-256: `c62f40cfd4ddd9594052b8fc11915c9f748c66aa8f0b11b04d6e1b458a302a86`.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -695,6 +706,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Robustness: finalization needs explicit interruption recovery; simplicity: F11 adds no runtime lifecycle, capability or evidence store. | Combine in D9. Make pre-archive readiness truthful and classify observable archive/commit outcomes before recovery, using only the existing task artifact, OpenSpec operation, Git commit and controller journal. No production type or new capability follows. |
 | Both: every tracked edit finishes active, the normal archive is the final non-checkbox artifact operation, and exact-head controller proof stays outside checkboxes. | Adopt D9. Answer C, answer I, PM1/PM4 and accepted 0042 make this the only attainable all-ticked archived state. Reject the stale archive checkbox, manual-move/`--skip-specs` path and any post-archive task edit. |
 | Robustness: external evidence is content-addressed and not transferable across changed heads; simplicity: no tracked evidence database. | Combine in D9. The controller's existing journal/evidence owner records the exact subject and outcome; no repository schema or task is added. |
+| Robustness: answer J requires an explicit release-profile CLI build; simplicity: keep the settled task IDs and gate shape. | Adopt the release build because proposal answer J and the commission's release configuration are owning evidence that postdate the older gate account. Reject simplicity's closed-gate premise only to the extent it omits that command, while adopting its no-new-ID constraint: the tasks phase extends pending 15.4 to cover both bundles and `cargo build --release --locked -p brokkr-cli`. Tests, debug builds and bundle compiles cannot substitute for that result. |
 | Robustness: harden the generic rendered archive instruction; simplicity: keep this repair within the returned change and treat a broader decision amendment separately. | Reject the shared instruction edit in this design return. F11's earliest owner is this design, the rendered design instruction names only `design.md`, and PM1/PM4 already supply the governing truth semantics. Bind this change's implement/return rendering tests to the non-checkbox order in D9; a repository-wide wording or accepted-decision amendment requires its own owning specification and evidence, not an opportunistic #226 production edit. |
 | Robustness: typed structural ownership; simplicity §1: private structural values, equality digests and one pure reverse scan. | Combine D2/D3. The pre-change `Site` and `seat_session` lost ancestry/root kind; the implemented `SiteKey`, `InstanceKey`, checkpoint stamp and existing journal/manifest/origin guards close that gap without a second store. Keep per-site candidate projection so sibling chain movement does not change the owner. |
 | Robustness: effect-start site table and numbered extension; simplicity §1/cut 1: confirmed checkpoints suffice. | Adopt the checkpoint association, reject the duplicate start table. Engine stamps plus the validated attempt/start link prove the originating site and instance without another store, reducer field or migration (D3). |
@@ -716,7 +728,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Robustness: full verification axes; simplicity: table-driven coverage and bounded probes. | Combine D11. Distinguishable assertions cover 20 requirements / 125 scenarios without one test function per scenario or a provider-flag cross-product. Live evidence remains separate from shims. |
 | Simplicity: keep stable task IDs and add no F10 task group. | Adopt. The current file has 101 tracked tasks after the exact-head evidence checkboxes were removed. F1–F10 repaired concrete dependencies and proof obligations; the tasks return should amend the affected existing rows rather than renumber them or add a handoff group. |
 | Both: local origin is not account authentication, LaneTally can remain unmeasured/cold, and unsupported required shapes block delivery. | Adopt D5/D6/D8 and Risks. Detectable owner rejection fails closed; do not inspect credentials to invent a stronger guarantee. LaneTally's truthful evidence is still required. |
-| Both: keep scope within #226; simplicity cut 8 rejects release work, #222 readers, provider patches and new hands/boundaries. | Adopt the existing Non-Goals. No sibling tree or assumed PR250 integration; controller evidence and later integration remain the only coordination path. |
+| Both: keep scope within #226; simplicity rejects production/release expansion, #222 readers, provider patches and new hands/boundaries. | Adopt the existing Non-Goals for versioning, packaging, publication and integration. The exact release-profile build is local validation expressly required by answer J, not authorization for release management. No sibling tree or assumed PR250 integration; controller evidence and later integration remain the only coordination path. |
 
 F7's upstream defect and F10's proposal/PM4 ambiguity are repaired at their
 owners. F11's owning design defect is repaired here. F12 supplies later evidence
@@ -726,7 +738,10 @@ archive, singular provenance, truthful all-ticked archived state and no new
 production machinery are retained; their undated command is corrected to the
 restored dated identifier. D13 rejects the supersession conclusion because its
 premise is disproved, while robustness's recovery classification and
-simplicity's minimal mechanism combine in the supported same-change path. Task
+simplicity's minimal mechanism combine in the supported same-change path.
+Answer J's later owning evidence adds the release build without reopening those
+settlements; robustness's explicit gate is adopted and simplicity's stable task
+identity is retained. Task
 15.5 records the completed identity repair, 15.7 remains readiness, and all 101
 identifiers are preserved. Existing tasks 8.10 and 9.7 still own the two runtime
 conformance gaps. No provider or production architecture is changed; 19 tracked
@@ -759,7 +774,9 @@ modify frozen evaluator fixtures.
 
 Run the proposal's exact commands with `CARGO_BUILD_JOBS=2` and
 `RUST_TEST_THREADS=2`: format, clippy with all targets/features and warnings as
-errors, workspace tests with all features/locked, and both bundle compiles.
+errors, workspace tests with all features/locked, both bundle compiles, and
+`cargo build --release --locked -p brokkr-cli`. The release-profile command
+has its own result and is not discharged by the other builds.
 Run the unchanged exact-coverage gate on the host with `TMPDIR=/var/tmp` and
 `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`. CI, release admission and coverage continue
 to consume `rust-nightly-version.txt`. A nested-box skip or missing tool is
@@ -782,7 +799,7 @@ unresolved triage fault or further upstream requirement is established by F7.
 Retain the requirement’s exact title for OpenSpec replacement, all original
 boundary scenarios, frozen v1–v4 bytes and the tagged 0.9.0/0.9.1 no-boundary
 example. F1/F5’s historical/current-producer distinction remains unchanged, as
-do A–I and F2–F4/F6/F8–F10. No provider measurement or enablement follows from F7.
+do A–J and F2–F4/F6/F8–F10. No provider measurement or enablement follows from F7.
 
 **Alternatives rejected:** changing only implementation tasks leaves the
 standing dispatch inconsistent; removing the historical tagged example attacks
@@ -883,6 +900,9 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
   before recovery. Accept an already-complete fold without repeating it; restore
   one active authoritative copy before repairing a partial fold and invalidate
   readiness when its premises change. Never patch the archived task file.
+- [Release-profile validation is inferred from another successful build] →
+  Track and run the exact commissioned release command on the final active
+  bytes; neither tests nor bundle compilation substitutes for its exit status.
 - [Commit succeeds but acknowledgement is lost] → Inspect HEAD, its tree and
   worktree cleanliness; do not create a duplicate commit for an already-present
   exact archive.
@@ -906,8 +926,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    `dsh-headless` release exposing D6's exact caller seam; then prove and enable
    it without changing the minimum. Resolve that upstream dependency before
    claiming completion. Finish the repository-local tests, house validation,
-   specification review, task reconciliation and final progress account while
-   the change is active.
+   both bundle compiles and
+   `cargo build --release --locked -p brokkr-cli`, then specification review,
+   task reconciliation and the final progress account while the change is
+   active. The task phase adds the release build to still-pending 15.4 rather
+   than creating or renumbering a task.
 5. Preserve the restored active identity
    `2026-09-09-226-session-resumption` through every current command and
    artifact. After every real tracked task is complete and readiness is
@@ -1102,3 +1125,27 @@ complete, the existing archive validates strictly, and `git diff --check` is
 clean. The real tree is not archived by this visit, and the scratch probe
 completes no real provider, Rust, host or delivery task. Cargo remains
 unavailable in the box, so no Rust gate is claimed.
+
+## Current design return — J release-binary gate, 2026-09-10
+
+This returned visit adopts proposal answer J and the full dated F12 settlement.
+The commissioned `cargo build --release --locked -p brokkr-cli` is attainable
+repository-local evidence and is now explicit in D9's readiness boundary,
+D10's council dispositions, D11's exact gate list, Risks and Migration Plan.
+It remains distinct from tests, debug builds and both bundle compiles.
+
+The robustness position's release-build finding is adopted. The simplicity
+position's no-new-task and no-new-architecture claims are also adopted, while
+its premise that the earlier gate list remains closed is rejected because
+answer J and the supplied release configuration are later owning evidence.
+The tasks phase must amend still-unchecked task 15.4 to name the release build;
+this design phase neither edits that downstream artifact nor ticks it. The task
+record therefore remains at 101 identifiers, 82 complete / 19 pending.
+
+F12 remains answered without amendment: the same dated active identifier is
+used in every current command, PM4 is the sole eventual semantic living-spec
+change, decision 0042 remains accepted as written, and proposed 0056 remains
+proposed. The scratch probe is mechanism evidence only. No provider scope,
+gate, archive postcondition or controller handoff obligation is narrowed.
+This visit changes only `design.md`; it does not archive, modify production or
+frozen bytes, alter provider settings, or claim any unrun Rust or host check.
