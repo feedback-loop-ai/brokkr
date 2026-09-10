@@ -2778,7 +2778,11 @@ fn the_presentation_route_decodes_each_component_exactly_once() {
 #[test]
 fn a_hostile_recorded_home_reaches_the_page_only_as_portable_display_data() {
     let dir = tempfile::tempdir().unwrap();
-    let hostile_home = dir.path().join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    let hostile_home = dir.path().join(if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    });
     std::fs::create_dir_all(hostile_home.join("sessions")).unwrap();
     std::fs::write(
         hostile_home.join("sessions/rollout-0199mine.jsonl"),

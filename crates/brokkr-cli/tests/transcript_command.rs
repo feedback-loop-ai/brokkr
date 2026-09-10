@@ -1756,9 +1756,11 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
 #[test]
 fn hostile_confirmed_paths_stay_portable_display_data() {
     let mut world = world();
-    let hostile_home = world
-        .path()
-        .join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    let hostile_home = world.path().join(if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    });
     std::fs::create_dir_all(&hostile_home).unwrap();
     world.home = hostile_home;
     let home_text = world.home.to_str().unwrap().to_string();

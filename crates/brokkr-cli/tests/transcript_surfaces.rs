@@ -449,7 +449,11 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
 /// surface reconstructing a fragment.
 #[test]
 fn r25_portable_hint_is_identical_across_every_surface() {
-    let hostile = "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀";
+    let hostile = if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    };
     for (kind, locator, body) in [
         ("codex-thread", "0199mine", "{\"type\":\"turn_context\"}\n"),
         (
