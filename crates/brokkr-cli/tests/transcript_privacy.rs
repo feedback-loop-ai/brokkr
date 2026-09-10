@@ -130,7 +130,14 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     let refused = run(
         &world,
         &[
-            "transcript", "--run", "r222", "--seat", "eff1", "--json", "--turn", "99",
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+            "--turn",
+            "99",
         ],
     );
     assert!(!refused.status.success());
@@ -176,15 +183,13 @@ fn sentinel_prose_never_enters_a_journal_derived_surface() {
     std::fs::create_dir_all(&out).unwrap();
     let export = run(
         &world,
-        &[
-            "export",
-            "--run",
-            "r222",
-            "--out",
-            out.to_str().unwrap(),
-        ],
+        &["export", "--run", "r222", "--out", out.to_str().unwrap()],
     );
-    assert!(export.status.success(), "{}", String::from_utf8_lossy(&export.stderr));
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
     for entry in std::fs::read_dir(&out).unwrap() {
         let text = std::fs::read_to_string(entry.unwrap().path()).unwrap_or_default();
         assert!(!text.contains(SENTINEL), "export leaked transcript prose");

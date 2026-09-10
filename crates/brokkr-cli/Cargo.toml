@@ -85,3 +85,8 @@ rusqlite = { workspace = true }
 # against the files it indexes — the same hash the engine already
 # depends on, no new crate in the graph.
 sha2 = { workspace = true }
+# Decision 0055 / design D11: one pinned, default-feature-free ECMAScript
+# engine so the CLI can execute the exact marker-delimited controller
+# bytes served from `ui.html` under ordinary `cargo test`. Dev-only: it is
+# not linked into the release binary and adds no Node or browser service.
+boa_engine = { version = "=0.21.1", default-features = false }

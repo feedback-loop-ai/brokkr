@@ -1602,11 +1602,8 @@ fn dsh_header(value: &Value) -> bool {
     }
     match object.get("delegationDepth") {
         None => {}
-        Some(depth) => {
-            if depth.as_u64() != Some(0) {
-                return false;
-            }
-        }
+        Some(depth) if depth.as_u64() != Some(0) => return false,
+        Some(_) => {}
     }
     object.get("version").is_some_and(dsh_numeric_zero)
 }

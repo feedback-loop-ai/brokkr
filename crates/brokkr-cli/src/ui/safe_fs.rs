@@ -72,6 +72,11 @@ impl OpenedFile {
         self.inner.identity()
     }
 
+    /// The source's size in bytes, measured through the held handle.
+    pub fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
     /// Read at most `cap` bytes plus one probe byte from the start of the
     /// file. Returns `(bytes, overflow, eof)`: `overflow` means the probe
     /// byte was present, `eof` means the read reached true end of file.
@@ -176,6 +181,12 @@ mod imp {
                 device: 0,
                 inode: 0,
             })
+        }
+
+        pub fn len(&self) -> u64 {
+            fstat(&self.fd)
+                .map(|stat| stat.st_size.max(0) as u64)
+                .unwrap_or(0)
         }
 
         pub fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {
@@ -293,6 +304,10 @@ mod imp {
     impl File {
         pub fn identity(&self) -> Identity {
             self.identity
+        }
+
+        pub fn len(&self) -> u64 {
+            self.file.metadata().map(|meta| meta.len()).unwrap_or(0)
         }
 
         pub fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {

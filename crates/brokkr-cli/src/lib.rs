@@ -737,27 +737,83 @@ pub fn main() -> ExitCode {
     }
 }
 
-/// The transcript's own liveness, asked beside the journal head's: a
-/// seat's prose lands BETWEEN checkpoints, so a working seat's file
-/// growing is a refresh reason in its own right. Size only, read at the
-/// shell's existing tick — no watch, no dependency — and only while the
-/// seat can still write: the state resets with the session, so one
-/// seat's length never speaks for another's, and a concluded seat is
-/// not stat'd at all.
-fn transcript_moved(ask: &tui::Ask, seen: &mut Option<(String, u64)>) -> bool {
-    let Some(session) = ask.session.filter(|_| ask.working) else {
-        *seen = None;
-        return false;
-    };
-    let size = ui::transcript_path(session).map_or(0, |file| ui::transcript_len(&file));
-    let grew = match seen {
-        Some((watched, previous)) => {
-            watched == session && ui::transcript_grew(Some(*previous), size)
+/// The in-memory stamp of the selected transcript source: the subject
+/// identity and the bounded result it last produced. It holds no mtime
+/// and no length — the same bytes are re-derived and compared, which is
+/// what lets a same-length rewrite or an append be told apart. No
+/// persistent cache and no fleet-wide body cache exist.
+struct SourceStamp {
+    tab: usize,
+    realm: Option<String>,
+    run: String,
+    key: String,
+    reference: Option<brokkr_view::Transcript>,
+    read: TranscriptRead,
+}
+
+impl SourceStamp {
+    fn of(subject: &tui::Subject, read: TranscriptRead) -> SourceStamp {
+        SourceStamp {
+            tab: subject.tab,
+            realm: subject.realm.clone(),
+            run: subject.run.clone(),
+            key: subject.key.clone(),
+            reference: subject.reference.clone(),
+            read,
         }
-        None => false,
+    }
+
+    /// The identity half the design fixes: realm/journal, run, participant
+    /// key and the complete effective reference — never an id two providers
+    /// can share.
+    fn same_subject(&self, subject: &tui::Subject) -> bool {
+        self.tab == subject.tab
+            && self.realm == subject.realm
+            && self.run == subject.run
+            && self.key == subject.key
+            && self.reference == subject.reference
+    }
+}
+
+/// Re-resolve the selected participant's transcript under the shared
+/// bounded reader. The journal is read-only. A subject is re-read at every
+/// refresh opportunity while it works and on an explicit refresh, and
+/// again whenever the selected reference itself changed — which is also
+/// the final read a concluding participant receives. A concluded,
+/// unchanged subject is not re-read: automatic growth polling has stopped,
+/// and only an explicit refresh re-resolves it.
+fn resolve_transcript(
+    ask: &tui::Ask,
+    seen: &mut Option<SourceStamp>,
+) -> (Option<TranscriptRead>, bool) {
+    let Some(subject) = ask.subject.as_ref() else {
+        *seen = None;
+        return (None, false);
     };
-    *seen = Some((session.to_string(), size));
-    grew
+    let identity_changed = seen
+        .as_ref()
+        .is_none_or(|stamp| !stamp.same_subject(subject));
+    let fresh = if ask.force || subject.working || identity_changed {
+        Some(ui::read_local(
+            subject.reference.as_ref(),
+            subject.provenance,
+            subject.legacy_id.as_deref(),
+        ))
+    } else {
+        None
+    };
+    let changed = match (&fresh, &*seen) {
+        (Some(read), Some(stamp)) => !stamp.same_subject(subject) || stamp.read != *read,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if let Some(read) = &fresh {
+        *seen = Some(SourceStamp::of(subject, read.clone()));
+    }
+    // A concluded, unchanged subject keeps the frame it already has; the
+    // stamp's own bounded result is that frame's transcript.
+    let resolved = fresh.or_else(|| seen.as_ref().map(|stamp| stamp.read.clone()));
+    (resolved, changed)
 }
 
 /// Fold one run of a FLEET read. A journal that does not fold
@@ -807,7 +863,7 @@ fn tui_views(
     sole: bool,
     ask: tui::Ask,
     head: &mut Option<(u64, String)>,
-    seen: &mut Option<(String, u64)>,
+    seen: &mut Option<SourceStamp>,
     clock: fn() -> String,
 ) -> Result<tui::Refreshed> {
     // A realm the map names before its first run has no journal yet, and
@@ -826,6 +882,7 @@ fn tui_views(
         // Nothing was read, so nothing is remembered as read: the tick
         // that finds the journal finally there rebuilds from scratch.
         *head = None;
+        *seen = None;
         return Ok(Some(tui::Views {
             now: clock(),
             note: Some(format!(
@@ -843,11 +900,13 @@ fn tui_views(
         Some(run) => Some(store.head_hash(run)?),
         None => None,
     };
-    // Unconditional, and before the gate: the size that was observed is
-    // the size the next tick compares against, whatever the gate rules.
-    let grew = transcript_moved(&ask, seen);
+    // Unconditional, and before the gate: the resolved read (and the
+    // stamp it updates) is what the next tick compares against, whatever
+    // the gate rules. A working seat's prose lands between checkpoints,
+    // so the read is its own refresh reason.
+    let (transcript, transcript_changed) = resolve_transcript(&ask, seen);
     let moved = current != *head;
-    if !(ask.force || ask.fleet || moved || grew) {
+    if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
         return Ok(None);
@@ -887,9 +946,9 @@ fn tui_views(
         now: clock(),
         runs: brokkr_view::run_rows(&entries),
         run,
-        // The seat's own session, located by the SAME lookup the
-        // console's /api/session endpoint uses.
-        transcript: ask.session.and_then(ui::session_turns),
+        // The selected participant's own bounded local read, produced by
+        // the shared reader the command and the browser also consume.
+        transcript,
         // A journal that was read has nothing to say about itself.
         note: None,
     }))
@@ -907,7 +966,7 @@ fn tui_views(
 fn tui_source<'a>(
     hearths: &'a [Hearth],
     heads: &'a mut [Option<(u64, String)>],
-    seen: &'a mut Option<(String, u64)>,
+    seen: &'a mut Option<SourceStamp>,
 ) -> impl FnMut(tui::Ask) -> Result<tui::Refreshed> + 'a {
     let sole = hearths.len() < 2;
     move |ask| {
@@ -1054,7 +1113,7 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
 /// called — which is after that gate.
 fn run_tui(hearths: Vec<Hearth>, run: Option<String>, tab: usize) -> Result<ExitCode> {
     let mut heads: Vec<Option<(u64, String)>> = vec![None; hearths.len()];
-    let mut seen: Option<(String, u64)> = None;
+    let mut seen: Option<SourceStamp> = None;
     let db_is_file = hearths.iter().any(|hearth| hearth.journal.is_file());
     // A world with one hearth names no tabs, and the console draws none.
     let tabs: Vec<String> = match hearths.len() {

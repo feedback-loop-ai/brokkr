@@ -583,16 +583,15 @@ fn the_console_wears_the_brokkr_wordmark_and_keeps_the_motto() {
     }
 }
 
-/// The traversal guard lives with the lookup, not in the HTTP layer: a
-/// second caller — decision 0014's TUI — reaches `session_turns`
-/// directly, and a refactor that left validation behind would hand it a
-/// path traversal.
+/// The traversal guard lives with the shared reference selection, not in
+/// the HTTP layer: invalid ids refuse before any path is formed.
 #[test]
 fn the_session_lookup_carries_its_own_id_validation() {
     for bad in ["", "../../etc/passwd", &"a".repeat(65), "/etc/passwd"] {
+        let reference = common("claude-session", bad, "/tmp/projects");
         assert!(
-            session_turns(bad).is_none(),
-            "session_turns itself refuses {bad:?}"
+            read_common(&reference).unavailable.is_some(),
+            "{bad:?} must refuse"
         );
     }
 }
@@ -717,28 +716,23 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     }
 }
 
-/// The whole liveness rule of the transcript watch, as a predicate with
-/// its own test rather than a comparison buried in a poll loop. Prose is
-/// only ever appended, so length is the signal — and the FIRST look is
-/// never growth, because the reader already holds the file as it stood.
+/// The liveness rule the watch keeps, now measured through the retained
+/// handle rather than a reopened pathname: the first look is never
+/// growth, an append is, and a shrunk or vanished source is not.
 #[test]
-fn transcript_growth_is_length_and_the_first_look_is_never_growth() {
-    assert!(!transcript_grew(None, 0), "the first look at an empty file");
-    assert!(!transcript_grew(None, 8_192), "nor at a long one");
-    assert!(transcript_grew(Some(10), 11), "one more byte is new prose");
-    assert!(!transcript_grew(Some(10), 10), "an unchanged file is quiet");
-    assert!(
-        !transcript_grew(Some(10), 3),
-        "a file that shrank was replaced, not appended to"
-    );
-
-    // The length itself: what is there, and 0 for what is not — a
-    // transcript that vanished mid-watch has not grown.
+fn source_growth_is_measured_through_the_retained_handle() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("t.jsonl");
-    std::fs::write(&file, "1234567890").unwrap();
-    assert_eq!(transcript_len(&file), 10);
-    assert_eq!(transcript_len(&dir.path().join("gone.jsonl")), 0);
+    std::fs::write(dir.path().join("t.jsonl"), "1234567890").unwrap();
+    let root = safe_fs::Dir::open_root(dir.path().to_str().unwrap()).unwrap();
+    let safe_fs::Child::File(file) = root.child(std::ffi::OsStr::new("t.jsonl")).unwrap() else {
+        panic!("a regular file opens as a file");
+    };
+    assert_eq!(file.len(), 10, "the held handle reports the size");
+    let grew = |previous: Option<u64>, current: u64| previous.is_some_and(|p| current > p);
+    assert!(!grew(None, file.len()), "the first look is never growth");
+    assert!(grew(Some(10), 11), "one more byte is new prose");
+    assert!(!grew(Some(10), 10), "an unchanged file is quiet");
+    assert!(!grew(Some(10), 3), "a shrink is not an append");
 }
 
 /// A drilled seat's prose lands BETWEEN journal checkpoints, so the
@@ -804,8 +798,9 @@ fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
     );
     assert_eq!(
         stream.matches(": ping").count(),
-        2,
-        "the polls that saw no new prose are heartbeats: {stream}"
+        1,
+        "the one poll that saw no new prose is a heartbeat; losing the \
+         unique source closes the stream without another size: {stream}"
     );
 
     // A client that has already gone gets no stream: the header write
@@ -869,21 +864,20 @@ impl Write for GrowsThenVanishes {
     }
 }
 
-/// The page's half of the same rule: it subscribes to that one session,
-/// drops that one cache entry, and closes what it opened.
+/// The page's half of the same rule: the controller keys the watch to the
+/// active participant and owns the exact handle it opened.
 #[test]
 fn the_page_watches_one_working_sessions_prose_and_closes_what_it_opens() {
     for kept in [
         "/sse/session/",
-        "transcriptCache.delete",
-        "closeSessionWatch",
         "part.status === 'working'",
+        "source.close(); handlers.close()",
     ] {
         assert!(PAGE.contains(kept), "the page streams prose with {kept}");
     }
-    // One cache entry at a time: a full clear would refetch every
-    // transcript the operator has already read.
-    assert!(!PAGE.contains("transcriptCache.clear"));
+    // No separate cache survives across intervals: the controller's own
+    // body state is the only cache, and a key change clears it.
+    assert!(!PAGE.contains("transcriptCache"));
 }
 
 /// AC-8's fourth surface: the console's payload carries the same two
@@ -1313,4 +1307,1273 @@ fn dsh_discovery_accepts_a_header_at_eof_without_newline() {
     let read = read_common(&reference);
     assert!(read.is_readable(), "{read:?}");
     assert!(read.turns.is_empty());
+}
+
+// =========================================================================
+// The browser participant controller (D9/D11). The exact marker-delimited
+// controller bytes served from `PAGE` are extracted and evaluated with the
+// pinned, default-feature-free dev-only Boa engine; deterministic promises,
+// identity-bearing watches, timers and paint/clear effects drive the traces.
+
+const CONTROLLER_START: &str = "/* transcript-controller:start */";
+const CONTROLLER_END: &str = "/* transcript-controller:end */";
+
+fn controller_block() -> String {
+    let start = PAGE
+        .find(CONTROLLER_START)
+        .expect("the served page marks the controller start")
+        + CONTROLLER_START.len();
+    let end = PAGE[start..]
+        .find(CONTROLLER_END)
+        .expect("the served page marks the controller end")
+        + start;
+    PAGE[start..end].to_string()
+}
+
+const DRIVER: &str = r#"
+var __trace = [];
+var __pres = [];
+var __body = [];
+var __watches = [];
+var __timers = [];
+var __controller = null;
+function __t(kind, detail) {
+  __trace.push(detail === undefined ? kind : kind + ' ' + detail);
+}
+function __newController() {
+  __trace = [];
+  __pres = [];
+  __body = [];
+  __watches = [];
+  __timers = [];
+  __controller = createTranscriptController({
+    requestPresentation: function (subject) {
+      __t('presentation', subject.participantKey);
+      return new Promise(function (resolve, reject) {
+        __pres.push({ resolve: resolve, reject: reject });
+      });
+    },
+    requestBody: function (id) {
+      __t('body', id);
+      return new Promise(function (resolve, reject) {
+        __body.push({ resolve: resolve, reject: reject });
+      });
+    },
+    openWatch: function (id, subject, handlers) {
+      var handle = { id: id, token: __watches.length, closed: false };
+      __watches.push({ handle: handle, handlers: handlers });
+      __t('open', id + '#' + handle.token);
+      return handle;
+    },
+    closeWatch: function (handle) {
+      if (handle) handle.closed = true;
+      __t('close', handle ? handle.id + '#' + handle.token : '');
+    },
+    schedule: function (callback) {
+      var timer = { callback: callback, active: true };
+      __timers.push(timer);
+      __t('timer');
+      return timer;
+    },
+    cancel: function (timer) {
+      if (timer) timer.active = false;
+      __t('cancel');
+    },
+    clear: function () { __t('clear'); },
+    render: function (view) {
+      __t('render',
+        view.phase + ' ' + (view.sessionId === null ? '-' : view.sessionId)
+        + ' ' + (view.reason === null ? '-' : view.reason)
+        + (view.homeUnavailable ? ' home' : ''));
+    }
+  });
+  return true;
+}
+function __select(subject) { __controller.select(subject); }
+function __sync(subject) { __controller.sync(subject); }
+function __repaint() { __controller.repaint(); }
+function __clearController() { __controller.clear(); }
+function __resolvePresentation(presentation) { __pres.shift().resolve(presentation); }
+function __rejectPresentation() { __pres.shift().reject(new Error('presentation')); }
+function __resolveBody(body) { __body.shift().resolve(body); }
+function __rejectBody() { __body.shift().reject(new Error('body')); }
+function __tick() { __timers[__timers.length - 1].callback(); }
+function __grow(index) { __watches[index].handlers.growth(); }
+function __watchClose(index) { __watches[index].handlers.close(); }
+function __traceText() { return JSON.stringify(__trace); }
+function __snapshotText() { return JSON.stringify(__controller.snapshot()); }
+"#;
+
+struct Boa {
+    context: boa_engine::Context,
+}
+
+impl Boa {
+    fn boot() -> Boa {
+        let mut context = boa_engine::Context::default();
+        let block = controller_block();
+        context
+            .eval(boa_engine::Source::from_bytes(block.as_bytes()))
+            .expect("the served controller block evaluates");
+        context
+            .eval(boa_engine::Source::from_bytes(DRIVER.as_bytes()))
+            .expect("the deterministic driver evaluates");
+        let mut harness = Boa { context };
+        harness.call("__newController()");
+        harness
+    }
+
+    fn call(&mut self, source: &str) -> String {
+        let value = self
+            .context
+            .eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|error| panic!("evaluating {source}: {error}"));
+        self.context.run_jobs().expect("queued promise jobs drain");
+        value
+            .as_string()
+            .map(|text| text.to_std_string_escaped())
+            .unwrap_or_default()
+    }
+
+    fn select(&mut self, subject: &Value) {
+        self.call(&format!("__select({subject})"));
+    }
+    fn sync(&mut self, subject: &Value) {
+        self.call(&format!("__sync({subject})"));
+    }
+    fn resolve_presentation(&mut self, presentation: &Value) {
+        self.call(&format!("__resolvePresentation({presentation})"));
+    }
+    fn reject_presentation(&mut self) {
+        self.call("__rejectPresentation()");
+    }
+    fn resolve_body(&mut self, body: &Value) {
+        self.call(&format!("__resolveBody({body})"));
+    }
+    fn reject_body(&mut self) {
+        self.call("__rejectBody()");
+    }
+    fn tick(&mut self) {
+        self.call("__tick()");
+    }
+    fn grow(&mut self, index: usize) {
+        self.call(&format!("__grow({index})"));
+    }
+    fn close_watch(&mut self, index: usize) {
+        self.call(&format!("__watchClose({index})"));
+    }
+    fn trace(&mut self) -> Vec<String> {
+        serde_json::from_str(&self.call("__traceText()")).expect("the effect trace parses")
+    }
+    fn state(&mut self) -> Value {
+        serde_json::from_str(&self.call("__snapshotText()")).expect("the snapshot parses")
+    }
+}
+
+fn subject(
+    run_id: &str,
+    participant_key: &str,
+    reference: Option<Value>,
+    session_id: Option<&str>,
+    provider: Option<&str>,
+    working: bool,
+) -> Value {
+    json!({
+        "runId": run_id,
+        "participantKey": participant_key,
+        "reference": reference,
+        "sessionId": session_id,
+        "provider": provider,
+        "working": working,
+    })
+}
+
+fn claude_reference(id: &str, home: &str) -> Value {
+    json!({"kind": "claude-session", "locator": id, "home": home})
+}
+
+fn presentation(
+    reference: Value,
+    admitted: bool,
+    reason: Option<&str>,
+    hint: Option<&str>,
+    drill_eligible: bool,
+) -> Value {
+    json!({
+        "reference": reference,
+        "legacy": false,
+        "admitted": admitted,
+        "reason": reason,
+        "explanation": reason.map(|_| "explained"),
+        "path": if admitted { json!("/confirmed") } else { Value::Null },
+        "hint": hint,
+        "drill_eligible": drill_eligible,
+    })
+}
+
+fn text_body(text: &str) -> Value {
+    json!({"session_id": "abcd-1234", "turns": [
+        {"role": "assistant", "ts": "", "blocks": [{"kind": "text", "text": text}]}
+    ], "truncated": false})
+}
+
+#[test]
+fn the_served_controller_block_evaluates_in_boa() {
+    let mut boa = Boa::boot();
+    assert_eq!(boa.call("'ok'"), "ok");
+    let state = boa.state();
+    assert_eq!(state["active"], Value::Null);
+    assert_eq!(state["body"], "missing");
+    assert_eq!(state["bodies"], 0);
+}
+
+/// The production adapter is thin and lives outside the block; the block
+/// reaches no ambient browser global and is extracted from the exact bytes.
+#[test]
+fn the_controller_is_isolated_and_the_adapter_is_thin() {
+    assert_eq!(
+        PAGE.matches(CONTROLLER_START).count(),
+        1,
+        "exactly one served controller block"
+    );
+    assert_eq!(PAGE.matches(CONTROLLER_END).count(), 1);
+    assert_eq!(
+        PAGE.matches("= createTranscriptController(").count(),
+        1,
+        "the adapter constructs the controller exactly once"
+    );
+    assert!(PAGE.contains("encodeURIComponent(subject.runId)"));
+    assert!(PAGE.contains("encodeURIComponent(subject.participantKey)"));
+    assert!(PAGE.contains("encodeURIComponent(id)"));
+    assert_eq!(
+        PAGE.matches("{ cache: 'no-store' }").count(),
+        2,
+        "presentation and body fetches request no-store freshness"
+    );
+    assert_eq!(
+        PAGE.matches("new EventSource(").count(),
+        2,
+        "the run stream and the controller's watch each own one EventSource"
+    );
+    assert!(PAGE.contains("source.onerror = () => { source.close(); handlers.close(); };"));
+    assert_eq!(
+        PAGE.matches("setInterval(").count(),
+        2,
+        "the runs poll and the controller's re-check each own one timer"
+    );
+    assert!(PAGE.contains("clearInterval(handle)"));
+    assert!(PAGE.contains("transcriptBox.replaceChildren()"));
+    assert!(PAGE.contains("/^[0-9a-fA-F][0-9a-fA-F-]{0,63}$/"));
+    for retired in [
+        "transcriptCache",
+        "closeSessionWatch",
+        "held by ",
+        "— resume the session for the rest",
+        "— claude --resume carries the rest",
+    ] {
+        assert!(
+            !PAGE.contains(retired),
+            "the page still carries {retired:?}"
+        );
+    }
+    let block = controller_block();
+    assert!(block.contains("function createTranscriptController(effects)"));
+    for banned in [
+        "document",
+        "window",
+        "fetch",
+        "EventSource",
+        "setInterval",
+        "setTimeout",
+        "clearInterval",
+        "localStorage",
+        "XMLHttpRequest",
+        "JSON",
+    ] {
+        assert!(
+            !block.contains(banned),
+            "the controller block reaches the ambient {banned}"
+        );
+    }
+}
+
+/// The pinned Boa engine is a dev-only edge: the release dependency tree
+/// excludes it by construction.
+#[test]
+fn the_test_engine_is_pinned_and_dev_only() {
+    let manifest =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+    let (production, dev) = manifest
+        .split_once("[dev-dependencies]")
+        .expect("the manifest separates dev-dependencies");
+    assert!(
+        !production.contains("boa_engine"),
+        "Boa must never be a production dependency"
+    );
+    assert!(
+        dev.contains("boa_engine = { version = \"=0.21.1\", default-features = false }"),
+        "Boa is pinned exactly with default features disabled"
+    );
+}
+
+#[test]
+fn admitted_non_claude_sources_never_drill() {
+    for (kind, locator) in [
+        ("codex-thread", "0199mine"),
+        ("dsh-session", "sessions/one"),
+    ] {
+        let reference = json!({"kind": kind, "locator": locator, "home": "/retained"});
+        let pres = presentation(reference.clone(), true, None, Some("shared hint"), false);
+        let mut boa = Boa::boot();
+        boa.select(&subject(
+            "r1",
+            "seat",
+            Some(reference),
+            None,
+            Some("codex"),
+            true,
+        ));
+        boa.resolve_presentation(&pres);
+        boa.tick();
+        boa.resolve_presentation(&pres);
+        boa.tick();
+        boa.resolve_presentation(&pres);
+        let trace = boa.trace();
+        assert!(
+            !trace.iter().any(|entry| entry.starts_with("body ")),
+            "{kind} drove an id-only body request: {trace:?}"
+        );
+        assert!(
+            !trace.iter().any(|entry| entry.starts_with("open ")),
+            "{kind} opened a watch: {trace:?}"
+        );
+        let state = boa.state();
+        assert_eq!(state["admitted"], true);
+        assert_eq!(state["drillEligible"], false);
+        assert_eq!(state["bodies"], 0);
+        assert_eq!(state["opens"], 0);
+    }
+
+    // A valid Claude reference whose recorded home is not the local
+    // projects home is admitted yet drills nothing.
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume abcd-1234"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    let trace = boa.trace();
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("body ")),
+        "{trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("open ")),
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn a_concluded_zero_turn_body_is_fetched_once() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume abcd-1234"),
+        true,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        false,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&json!({"session_id": "abcd-1234", "turns": [], "truncated": false}));
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    let state = boa.state();
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(
+        state["bodies"], 1,
+        "an empty success is received, not re-requested"
+    );
+    assert_eq!(state["opens"], 0, "a concluded participant watches nothing");
+    let trace = boa.trace();
+    assert_eq!(
+        trace
+            .iter()
+            .filter(|entry| entry.starts_with("body "))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_persistently_unreadable_body_costs_one_request_per_interval() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        false,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.reject_body();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["body"], "refused");
+    for _ in 0..2 {
+        boa.tick();
+        boa.resolve_presentation(&pres);
+        boa.reject_body();
+        boa.resolve_presentation(&pres);
+    }
+    let state = boa.state();
+    assert_eq!(state["bodies"], 3, "one refused request per interval");
+    assert_eq!(state["opens"], 0);
+}
+
+#[test]
+fn discovery_refusals_close_admission_everywhere() {
+    for (kind, locator, home) in [
+        ("dsh-session", "sessions/one", "/retained"),
+        ("claude-session", "abcd-1234", "/retained/claude"),
+        ("codex-thread", "0199mine", "/retained"),
+    ] {
+        let reference = json!({"kind": kind, "locator": locator, "home": home});
+        let refused = presentation(reference.clone(), false, Some("unreadable"), None, false);
+        let mut boa = Boa::boot();
+        boa.select(&subject(
+            "r1",
+            "seat",
+            Some(reference),
+            None,
+            Some("codex"),
+            true,
+        ));
+        boa.resolve_presentation(&refused);
+        boa.tick();
+        boa.resolve_presentation(&refused);
+        boa.tick();
+        boa.resolve_presentation(&refused);
+        let state = boa.state();
+        assert_eq!(state["admitted"], false);
+        assert_eq!(state["reason"], "unreadable");
+        assert_eq!(state["explanation"], "explained");
+        assert_eq!(state["path"], Value::Null);
+        assert_eq!(
+            state["hint"],
+            Value::Null,
+            "a discovery refusal has no path hint"
+        );
+        assert_eq!(state["sessionId"], Value::Null, "no session label to drill");
+        assert_eq!(state["body"], "missing");
+        assert_eq!(state["bodies"], 0);
+        assert_eq!(state["opens"], 0);
+        let trace = boa.trace();
+        assert_eq!(
+            trace
+                .iter()
+                .filter(|entry| entry.starts_with("presentation "))
+                .count(),
+            3,
+            "each interval performs only fresh presentation discovery: {trace:?}"
+        );
+    }
+}
+
+#[test]
+fn a_recheck_first_interval_opens_one_watch() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut subject = subject("r1", "seat", Some(reference), None, Some("claude"), false);
+    let mut boa = Boa::boot();
+    boa.select(&subject);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["opens"], 0, "a concluded seat watches nothing");
+
+    // The seat starts working without a key change; the next recurring
+    // re-check spends its restored budget on the missing watch.
+    subject["working"] = json!(true);
+    boa.sync(&subject);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["opens"], 1);
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    let state = boa.state();
+    assert_eq!(state["opens"], 1, "one automatic opening per interval");
+    assert_eq!(state["watch"], true);
+}
+
+#[test]
+fn a_closure_first_interval_and_a_second_immediate_closure() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["opens"], 1);
+
+    // The watch closes at once; the interval's single budget is spent, so
+    // the fresh presentation repaints from a fresh body without a watch.
+    boa.close_watch(0);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("second"));
+    let state = boa.state();
+    assert_eq!(
+        state["opens"], 1,
+        "no second watch before the next re-check"
+    );
+    assert_eq!(state["watch"], false);
+    assert_eq!(state["body"], "succeeded");
+
+    // The next re-check restores the budget and opens exactly one watch.
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["opens"], 2);
+    assert_eq!(boa.state()["watch"], true);
+
+    // A second immediate closure again repaints from a fresh body and
+    // leaves the watch closed until the following re-check.
+    boa.close_watch(1);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("third"));
+    let state = boa.state();
+    assert_eq!(state["opens"], 2);
+    assert_eq!(state["watch"], false);
+    assert_eq!(state["body"], "succeeded");
+}
+
+#[test]
+fn admission_loss_rejects_late_callbacks_and_then_recovers() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let lost = presentation(
+        reference.clone(),
+        false,
+        Some("not-found"),
+        Some("hint"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.tick();
+    boa.resolve_presentation(&lost);
+    let state = boa.state();
+    assert_eq!(state["admitted"], false);
+    assert_eq!(state["reason"], "not-found");
+    assert_eq!(state["watch"], false);
+    assert_eq!(
+        state["body"], "missing",
+        "admission loss discards the prose"
+    );
+
+    // A late growth or close callback from the closed handle is inert.
+    let before = boa.trace().len();
+    boa.grow(0);
+    boa.close_watch(0);
+    assert_eq!(
+        boa.trace().len(),
+        before,
+        "a stale watch callback repainted"
+    );
+
+    // The next re-check admits again and restores body and watch.
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("recovered"));
+    let state = boa.state();
+    assert_eq!(state["admitted"], true);
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(state["watch"], true);
+    assert_eq!(state["opens"], 2);
+}
+
+#[test]
+fn an_identity_change_resets_only_the_new_key() {
+    let first = claude_reference("aaaa-1111", "/local/projects");
+    let second = claude_reference("bbbb-2222", "/local/projects");
+    let pres_first = presentation(first.clone(), true, None, Some("hint-a"), true);
+    let pres_second = presentation(second.clone(), true, None, Some("hint-b"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat-a",
+        Some(first),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres_first);
+    boa.resolve_body(&text_body("a"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.select(&subject(
+        "r1",
+        "seat-b",
+        Some(second),
+        None,
+        Some("claude"),
+        true,
+    ));
+    let state = boa.state();
+    assert_eq!(state["watch"], false, "the old watch is closed");
+    assert_eq!(state["body"], "missing");
+    assert_eq!(state["sessionId"], Value::Null);
+
+    boa.resolve_presentation(&pres_second);
+    boa.resolve_body(&text_body("b"));
+    let state = boa.state();
+    assert_eq!(state["sessionId"], "bbbb-2222");
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(state["watch"], true);
+    assert_eq!(state["opens"], 2);
+
+    // The first key's stale handle cannot touch the second's state.
+    boa.grow(0);
+    boa.close_watch(0);
+    assert_eq!(boa.state()["watch"], true);
+    assert_eq!(boa.state()["body"], "succeeded");
+}
+
+#[test]
+fn identical_subject_reselection_starts_a_fresh_interval() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference.clone()),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["opens"], 1);
+    // A closure spends the interval's opening; the fresh body repaints
+    // without a second watch.
+    boa.close_watch(0);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("second"));
+    assert_eq!(boa.state()["opens"], 1);
+    // The next re-check opens one watch and the interval then refuses a
+    // deferred body, exhausting the floor and the budget.
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["opens"], 2);
+    boa.close_watch(1);
+    boa.resolve_presentation(&pres);
+    boa.reject_body();
+    boa.resolve_presentation(&pres);
+    let exhausted = boa.state();
+    assert_eq!(exhausted["body"], "refused");
+    let generation = exhausted["generation"].as_u64().unwrap();
+
+    // The operator reselects the identical subject: a fresh generation,
+    // interval, presentation, body and eligible watch — never the
+    // consumed refusal floor or watch budget.
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    let fresh = boa.state();
+    assert!(
+        fresh["generation"].as_u64().unwrap() > generation,
+        "identical reselection is an event, not a no-op"
+    );
+    assert_eq!(fresh["body"], "missing");
+    assert_eq!(fresh["openingsUsed"], 0);
+    assert_eq!(fresh["watch"], false);
+
+    // Late callbacks from the prior generation stay inert while the fresh
+    // interval completes.
+    boa.grow(0);
+    boa.close_watch(0);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("third"));
+    let state = boa.state();
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(state["watch"], true);
+    assert_eq!(state["opens"], 3, "one eligible opening per interval");
+}
+
+#[test]
+fn a_foreign_home_shows_the_home_explanation_in_the_view() {
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume abcd-1234"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    let trace = boa.trace();
+    assert!(
+        trace.iter().any(|entry| entry.ends_with(" home")),
+        "a foreign canonical home shows the recorded-home explanation: {trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("body ")),
+        "{trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("open ")),
+        "{trace:?}"
+    );
+    let state = boa.state();
+    assert_eq!(state["sessionId"], Value::Null);
+    assert_eq!(state["drillEligible"], false);
+}
+
+// =========================================================================
+// HTTP: the shared Claude routes and the participant-presentation route.
+
+fn percent_encode(component: &str) -> String {
+    let mut out = String::new();
+    for byte in component.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+fn participant_fixture(
+    reference: Option<Value>,
+    provider: Option<&str>,
+    session_id: Option<&str>,
+) -> (tempfile::TempDir, PathBuf, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    {
+        let mut append = |kind, payload| {
+            store.append_next("r1", kind, payload, None, None).unwrap();
+        };
+        append(
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+        );
+        append(EventType::PhaseEntered, json!({"phase": "intake"}));
+        append(
+            EventType::EffectRequested,
+            json!({"effect_id": "e1:seat", "seat": "intake", "phase": "intake",
+                   "idempotency_key": "k", "input_digest": "d"}),
+        );
+        let mut started = json!({"effect_id": "e1:seat", "attempt_id": "a1", "driver": "d"});
+        if let Some(provider) = provider {
+            started["provenance"] = json!([{"member": null, "agent": "intake",
+                "model": "m", "provider": provider, "chain_index": 1}]);
+        }
+        append(EventType::EffectStarted, started);
+        let mut checkpoint = json!({"step": "session-started"});
+        if let Some(reference) = reference {
+            checkpoint["transcript"] = reference;
+        }
+        if let Some(session_id) = session_id {
+            checkpoint["session_id"] = json!(session_id);
+        }
+        append(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e1:seat", "attempt_id": "a1", "checkpoint": checkpoint}),
+        );
+    }
+    let view: Value = serde_json::from_str(&handle(&db, "/api/view/r1").body).unwrap();
+    let key = view["participants"][0]["key"]
+        .as_str()
+        .expect("the fixture derives a participant")
+        .to_string();
+    (dir, db, key)
+}
+
+fn claude_projects_home() -> (tempfile::TempDir, PathBuf) {
+    let home = tempfile::tempdir().unwrap();
+    let projects = home.path().join(".claude").join("projects");
+    std::fs::create_dir_all(projects.join("seat")).unwrap();
+    (home, projects)
+}
+
+#[test]
+fn the_presentation_route_decodes_each_component_exactly_once() {
+    let (_dir, db, key) = participant_fixture(
+        Some(claude_reference("abcd-1234", "/retained/claude")),
+        None,
+        None,
+    );
+    let once = percent_encode(&key);
+    let twice = percent_encode(&once);
+
+    let response = handle(&db, &format!("/api/presentation/r1/{once}"));
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert!(parsed.get("reference").is_some());
+    assert!(parsed.get("legacy").is_some());
+    assert!(parsed.get("admitted").is_some());
+    assert!(parsed.get("reason").is_some());
+    assert!(parsed.get("explanation").is_some());
+    assert!(parsed.get("hint").is_some());
+    assert!(parsed.get("drill_eligible").is_some());
+    assert!(
+        parsed.get("turns").is_none(),
+        "no prose in the presentation"
+    );
+    assert!(parsed.get("blocks").is_none());
+    assert!(parsed.get("truncated").is_none());
+
+    // A double-encoded key decodes once to a non-peer, never twice.
+    assert_eq!(
+        handle(&db, &format!("/api/presentation/r1/{twice}")).status,
+        "404 Not Found"
+    );
+
+    // Malformed escapes and extra or missing components are refused.
+    for bad in [
+        "/api/presentation/r1/%zz".to_string(),
+        "/api/presentation/r1/%".to_string(),
+        "/api/presentation/r1".to_string(),
+        "/api/presentation/r1/".to_string(),
+        "/api/presentation/".to_string(),
+        format!("/api/presentation/r1/{once}/extra"),
+    ] {
+        assert_eq!(
+            handle(&db, &bad).status,
+            "404 Not Found",
+            "route {bad} must refuse"
+        );
+    }
+}
+
+#[test]
+fn an_eligible_claude_participant_shares_the_hint_and_turns() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (home, projects) = claude_projects_home();
+    std::fs::write(
+        projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"the words\"}}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", home.path());
+    let recorded = std::fs::canonicalize(&projects)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let (_dir, db, key) =
+        participant_fixture(Some(claude_reference("abcd-1234", &recorded)), None, None);
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], true, "{}", response.body);
+    assert_eq!(parsed["drill_eligible"], true, "{}", response.body);
+    assert_eq!(parsed["reason"], Value::Null);
+    assert_eq!(parsed["hint"], "full session: claude --resume abcd-1234");
+    assert!(parsed["path"]
+        .as_str()
+        .unwrap()
+        .ends_with("abcd-1234.jsonl"));
+
+    let api = handle(&db, "/api/session/abcd-1234");
+    assert_eq!(api.status, "200 OK");
+    let body: Value = serde_json::from_str(&api.body).unwrap();
+    assert_eq!(body["session_id"], "abcd-1234");
+    assert_eq!(body["turns"][0]["blocks"][0]["text"], "the words");
+    assert_eq!(body["truncated"], false);
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn a_legacy_codex_participant_is_ineligible_while_the_id_route_answers() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (home, projects) = claude_projects_home();
+    std::fs::write(
+        projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", home.path());
+    let (_dir, db, key) = participant_fixture(None, Some("codex"), Some("abcd-1234"));
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], false, "{}", response.body);
+    assert_eq!(parsed["reason"], "no-reference");
+    assert_eq!(parsed["hint"], Value::Null);
+    assert_eq!(parsed["drill_eligible"], false);
+
+    // The id-only route is journal-independent: it still answers.
+    let api = handle(&db, "/api/session/abcd-1234");
+    assert_eq!(api.status, "200 OK", "{}", api.body);
+    let body: Value = serde_json::from_str(&api.body).unwrap();
+    assert_eq!(body["turns"][0]["blocks"][0]["text"], "hello");
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn a_common_reference_defeats_a_stale_flat_id() {
+    for reference in [
+        json!({"kind": "none", "locator": "", "home": ""}),
+        json!({"kind": "claude-session", "locator": "", "home": "/retained"}),
+    ] {
+        let (_dir, db, key) =
+            participant_fixture(Some(reference), Some("claude"), Some("abcd-1234"));
+        let response = handle(
+            &db,
+            &format!("/api/presentation/r1/{}", percent_encode(&key)),
+        );
+        assert_eq!(response.status, "200 OK", "{}", response.body);
+        let parsed: Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(parsed["legacy"], false);
+        assert_eq!(parsed["admitted"], false, "{}", response.body);
+        assert!(parsed["reason"] == "none" || parsed["reason"] == "unannounced");
+        assert_eq!(parsed["hint"], Value::Null);
+        assert_eq!(parsed["path"], Value::Null);
+    }
+}
+
+/// The shared refusal mapping: every Claude lookup failure is a 404 with the
+/// exact envelope, on both routes, before any stream header.
+#[test]
+fn lookup_refusals_are_the_exact_envelope_on_both_routes() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (home, projects) = claude_projects_home();
+    // An unreadable body: the body route refuses it with the same envelope.
+    std::fs::write(projects.join("seat/dead-beef.jsonl"), [0xff, 0xfe]).unwrap();
+    // Two qualifying files: ambiguous-source.
+    std::fs::write(
+        projects.join("seat/aaaa-1111.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"one\"}}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(projects.join("other")).unwrap();
+    std::fs::write(
+        projects.join("other/aaaa-1111.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"two\"}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        projects.join("seat/a-bC09.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"ok\"}}\n",
+    )
+    .unwrap();
+    // A below-home symlink: unsafe-path.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        projects.join("seat/a-bC09.jsonl"),
+        projects.join("other/baad-beef.jsonl"),
+    )
+    .unwrap();
+    std::env::set_var("HOME", home.path());
+    let db = PathBuf::from("missing.db");
+
+    // The body route refuses every lookup and body failure identically.
+    for id in ["dead-beef", "9999-9999", "aaaa-1111", "baad-beef"] {
+        let api = handle(&db, &format!("/api/session/{id}"));
+        assert_eq!(api.status, "404 Not Found", "id {id}: {}", api.body);
+        assert_eq!(api.body, "{\"error\":\"transcript not found\"}", "id {id}");
+    }
+    // The stream route refuses every lookup (it never reads a body) before
+    // a stream header; an invalid id maps to the same transcript envelope.
+    for id in ["9999-9999", "aaaa-1111", "baad-beef", "-abc"] {
+        let sse = exchange(
+            db.clone(),
+            &format!("GET /sse/session/{id} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+            None,
+        );
+        assert!(sse.starts_with("HTTP/1.1 404 Not Found"), "id {id}: {sse}");
+        assert!(
+            sse.contains("{\"error\":\"transcript not found\"}"),
+            "id {id}: {sse}"
+        );
+        assert!(
+            !sse.contains("text/event-stream"),
+            "a refusal writes no stream header: {sse}"
+        );
+    }
+
+    // The API's invalid id keeps its distinct envelope.
+    let api = handle(&db, "/api/session/-abc");
+    assert_eq!(api.status, "404 Not Found");
+    assert_eq!(api.body, "{\"error\":\"session not found\"}");
+
+    // a-bC09 keeps the three-field envelope and the stream.
+    let api = handle(&db, "/api/session/a-bC09");
+    assert_eq!(api.status, "200 OK", "{}", api.body);
+    let parsed: Value = serde_json::from_str(&api.body).unwrap();
+    assert_eq!(parsed["session_id"], "a-bC09");
+    assert_eq!(parsed["turns"][0]["blocks"][0]["text"], "ok");
+    assert_eq!(parsed["truncated"], false);
+    let sse = exchange(
+        db.clone(),
+        "GET /sse/session/a-bC09 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        Some(1),
+    );
+    assert!(sse.starts_with("HTTP/1.1 200 OK"), "{sse}");
+    assert!(sse.contains("Content-Type: text/event-stream"), "{sse}");
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn every_api_body_and_the_presentation_send_no_store() {
+    let (_dir, db, key) = participant_fixture(
+        Some(claude_reference("abcd-1234", "/retained/claude")),
+        None,
+        None,
+    );
+    let requests = [
+        "GET /api/runs HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+        "GET /api/view/r1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+        "GET /api/run/r1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+        format!("/api/presentation/r1/{}", percent_encode(&key)),
+    ];
+    for request in requests {
+        let line = if request.starts_with("GET") {
+            request
+        } else {
+            format!("GET {request} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        };
+        let response = exchange(db.clone(), &line, None);
+        assert!(
+            response.contains("Cache-Control: no-store"),
+            "{line}: {response}"
+        );
+    }
+
+    // A refusal carries the header too.
+    let missing = exchange(
+        PathBuf::from("missing.db"),
+        "GET /api/session/-abc HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        None,
+    );
+    assert!(missing.contains("Cache-Control: no-store"), "{missing}");
+    assert!(missing.contains("{\"error\":\"session not found\"}"));
+}
+
+#[test]
+fn a_foreign_claude_home_admits_and_drills_nothing_over_http() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (local_home, _local_projects) = claude_projects_home();
+    std::env::set_var("HOME", local_home.path());
+    let custom = tempfile::tempdir().unwrap();
+    let custom_projects = custom.path().join("claude-projects");
+    std::fs::create_dir_all(custom_projects.join("seat")).unwrap();
+    std::fs::write(
+        custom_projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"custom\"}}\n",
+    )
+    .unwrap();
+    let recorded = std::fs::canonicalize(&custom_projects)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let (_dir, db, key) =
+        participant_fixture(Some(claude_reference("abcd-1234", &recorded)), None, None);
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], true, "{}", response.body);
+    assert_eq!(parsed["drill_eligible"], false, "{}", response.body);
+    assert_eq!(parsed["hint"], "full session: claude --resume abcd-1234");
+    assert_eq!(parsed["reason"], Value::Null);
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn the_client_id_guard_refuses_a_leading_hyphen_drill() {
+    let reference = claude_reference("-abc", "/local/projects");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume -abc"),
+        true,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    let state = boa.state();
+    assert_eq!(
+        state["sessionId"],
+        Value::Null,
+        "the client guard is the leading-hexadecimal rule"
+    );
+    assert_eq!(state["bodies"], 0);
+    assert_eq!(state["opens"], 0);
+    let trace = boa.trace();
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("body ")),
+        "{trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("open ")),
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn an_eligibility_change_resets_that_key() {
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let eligible = presentation(reference.clone(), true, None, Some("hint"), true);
+    let ineligible = presentation(reference.clone(), true, None, Some("hint"), false);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&eligible);
+    boa.resolve_body(&text_body("x"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.tick();
+    boa.resolve_presentation(&ineligible);
+    let state = boa.state();
+    assert_eq!(state["drillEligible"], false);
+    assert_eq!(state["watch"], false, "eligibility loss closes the watch");
+    assert_eq!(state["body"], "missing", "eligibility loss clears prose");
+}
+
+#[test]
+fn a_failed_presentation_request_is_an_unreadable_refusal() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.reject_presentation();
+    let state = boa.state();
+    assert_eq!(state["admitted"], false);
+    assert_eq!(state["reason"], "unreadable");
+    assert_eq!(state["bodies"], 0);
+    assert_eq!(state["opens"], 0);
+    assert_eq!(state["sessionId"], Value::Null);
 }

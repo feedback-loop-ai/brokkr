@@ -97,6 +97,9 @@ pub fn handle(db: &Path, path: &str) -> Response {
             }
         }
     };
+    if let Some(rest) = path.strip_prefix("/api/presentation/") {
+        return participant_presentation(&store, rest);
+    }
     if path == "/api/runs" {
         // The page receives `RunsView.runs` — already newest first,
         // because ordering is a derivation rule and not something each
@@ -167,157 +170,6 @@ pub fn handle(db: &Path, path: &str) -> Response {
         return ok("application/json", body.to_string());
     }
     not_found(path)
-}
-
-/// One block of a turn: prose, or a tool marker carrying a file target.
-pub(crate) struct Block {
-    pub kind: &'static str,
-    pub text: String,
-}
-
-/// One transcript turn as the surfaces show it. Two plain structs: no
-/// `serde` derive, so the TUI reaches the transcript without the console
-/// gaining a dependency edge or the JSON body gaining a definition.
-pub(crate) struct Turn {
-    pub role: String,
-    pub ts: String,
-    pub blocks: Vec<Block>,
-}
-
-/// The id is joined into `~/.claude/projects/*/<id>.jsonl`, so validating
-/// it is a path-traversal guard and belongs with the lookup, never in a
-/// caller. Both surfaces call [`session_turns`], which calls this first.
-///
-/// It is also a DISPLAY guard, which is why it is public: the id is a
-/// raw journal string, and every surface renders it into the seat's
-/// session line — which, for a claude harness, is the
-/// `claude --resume <id>` command an operator is invited to paste
-/// (`tui::session_line` and the same rule in `ui.html`). Control
-/// characters alone are not enough — `;`, `&&`, `$(…)` and backticks
-/// survive sanitizing, so a hostile seat could otherwise hand the
-/// operator a pasteable shell command. Ids that fail this render as the
-/// deliberate-absence mark instead.
-pub fn valid_session_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
-}
-
-/// Validation, then location: where this session's transcript lives on
-/// the operator's machine, or `None` for "there is no such file here".
-/// The id is checked BEFORE any path is formed, which is what makes the
-/// guard a traversal guard rather than a lookup with a comment beside
-/// it. Both readers of a transcript — the parse below and the growth
-/// watch — come through here, so neither can form a path of its own.
-pub(crate) fn transcript_path(id: &str) -> Option<PathBuf> {
-    if !valid_session_id(id) {
-        return None;
-    }
-    let home = std::env::var_os("HOME")?;
-    let projects = Path::new(&home).join(".claude").join("projects");
-    let file_name = format!("{id}.jsonl");
-    for dir in std::fs::read_dir(&projects).ok()?.flatten() {
-        let candidate = dir.path().join(&file_name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// The transcript's size on disk, and 0 when it cannot be read at all —
-/// a transcript that vanished mid-watch has not grown.
-pub(crate) fn transcript_len(file: &Path) -> u64 {
-    std::fs::metadata(file).map(|meta| meta.len()).unwrap_or(0)
-}
-
-/// Growth as a predicate rather than a comparison buried in a loop, so
-/// the rule has its own test: the FIRST observation is never growth —
-/// the reader already holds the file as it stood — and a file that
-/// shrank (rotated, replaced, gone) has not grown either. Prose is only
-/// ever appended, so length is the whole signal.
-pub(crate) fn transcript_grew(previous: Option<u64>, current: u64) -> bool {
-    previous.is_some_and(|previous| current > previous)
-}
-
-/// Validation, location and parse, together: the seat session's local
-/// transcript by id, plus whether the size cap truncated it. `None` is
-/// "there is no such transcript on this machine" — never a guess.
-pub(crate) fn session_turns(id: &str) -> Option<(Vec<Turn>, bool)> {
-    let text = std::fs::read_to_string(transcript_path(id)?).ok()?;
-    let mut turns = Vec::new();
-    let mut budget: usize = 4_000_000;
-    let mut truncated = false;
-    for line in text.lines() {
-        let Ok(v) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
-        if kind != "user" && kind != "assistant" {
-            continue;
-        }
-        let msg = v.get("message").cloned().unwrap_or(Value::Null);
-        let role = msg
-            .get("role")
-            .and_then(Value::as_str)
-            .unwrap_or(kind)
-            .to_string();
-        let ts = v
-            .get("timestamp")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let mut blocks = Vec::new();
-        match msg.get("content") {
-            Some(Value::String(t)) => blocks.push(Block {
-                kind: "text",
-                text: t.clone(),
-            }),
-            Some(Value::Array(parts)) => {
-                for part in parts {
-                    match part.get("type").and_then(Value::as_str) {
-                        Some("text") => {
-                            if let Some(t) = part.get("text").and_then(Value::as_str) {
-                                if !t.trim().is_empty() {
-                                    blocks.push(Block {
-                                        kind: "text",
-                                        text: t.to_string(),
-                                    });
-                                }
-                            }
-                        }
-                        Some("tool_use") => {
-                            let name = part.get("name").and_then(Value::as_str).unwrap_or("?");
-                            let target = part
-                                .pointer("/input/file_path")
-                                .and_then(Value::as_str)
-                                .unwrap_or("");
-                            let label = if target.is_empty() {
-                                name.to_string()
-                            } else {
-                                format!("{name} · {target}")
-                            };
-                            blocks.push(Block {
-                                kind: "tool",
-                                text: label,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-        if blocks.is_empty() {
-            continue;
-        }
-        let cost: usize = blocks.iter().map(|block| block.text.len()).sum();
-        if cost > budget {
-            truncated = true;
-            break;
-        }
-        budget -= cost;
-        turns.push(Turn { role, ts, blocks });
-    }
-    Some((turns, truncated))
 }
 
 /// Lowest-level drilldown: the seat session's transcript, located in
@@ -897,6 +749,187 @@ pub(crate) fn claude_source(id: &str) -> Discovery {
     discover(&valid)
 }
 
+/// The current size of the unique safely discovered Claude source for a
+/// flat id, or `None` when the shared guard and discovery admit nothing.
+/// The size event keeps its shipped `{"size": n}` shape; the size is
+/// measured through the retained handle, never a reopened pathname.
+fn claude_source_size(id: &str) -> Option<u64> {
+    match claude_source(id) {
+        Discovery::Admitted(source) => Some(source.file.len()),
+        Discovery::Refused(..) => None,
+    }
+}
+
+/// The provenance bridge the presentation route shares with the command:
+/// Claude, LaneTally and an inline pre-0032 seat may fall back to a local
+/// Claude id, while explicit Codex/DSH provenance refuses synthesis.
+fn presentation_provenance(participant: &brokkr_view::Participant) -> LegacyProvenance {
+    match participant
+        .provenance
+        .as_ref()
+        .map(|provenance| provenance.provider.as_str())
+    {
+        None => LegacyProvenance::Absent,
+        Some("claude") => LegacyProvenance::Claude,
+        Some("lanetally") => LegacyProvenance::LaneTally,
+        Some(_) => LegacyProvenance::Other,
+    }
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Percent-decode one path component exactly once. `+` is a literal plus
+/// in a path, and a `%` that does not begin a two-hex-digit escape
+/// refuses the component rather than being repaired.
+fn decode_component(component: &str) -> Option<String> {
+    let bytes = component.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = bytes.get(index + 1).copied().and_then(hex_nibble);
+            let low = bytes.get(index + 2).copied().and_then(hex_nibble);
+            let (Some(high), Some(low)) = (high, low) else {
+                return None;
+            };
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
+/// The server's local Claude projects root, canonicalized. Canonicalizing
+/// is the only way "the same recorded home" is established: a recorded
+/// home that cannot be canonicalized is not the local projects home.
+fn canonical_local_projects() -> Option<PathBuf> {
+    std::fs::canonicalize(local_projects_home()?).ok()
+}
+
+/// True only when the recorded home and the local projects home are the
+/// same canonical directory.
+fn same_canonical_home(recorded: &str, local: &Option<PathBuf>) -> bool {
+    let Some(local) = local else { return false };
+    std::fs::canonicalize(recorded)
+        .map(|path| path == *local)
+        .unwrap_or(false)
+}
+
+/// The CLI-private, prose-free participant presentation (D9): the
+/// selected reference, its legacy flag, admission state, discovery-stage
+/// unavailability, the shared hint and Claude drill eligibility. It is
+/// constructed from selection, validation, bounded safe discovery and
+/// hint helpers only — never from body bytes or a content projector.
+fn presentation_payload(
+    common: Option<&brokkr_view::Transcript>,
+    provenance: LegacyProvenance,
+    legacy_id: Option<&str>,
+) -> Value {
+    let selection = brokkr_view::transcript::select_reference(
+        common,
+        provenance,
+        legacy_id,
+        local_projects_home().as_deref(),
+    );
+    let (admitted, reason, explanation, path, valid) = match &selection.outcome {
+        Ok(valid) => match discover(valid) {
+            Discovery::Admitted(source) => (
+                true,
+                None,
+                None,
+                Some(source.path.clone()),
+                Some(valid.clone()),
+            ),
+            Discovery::Refused(reason, explanation) => (
+                false,
+                Some(reason.as_str()),
+                Some(
+                    explanation.unwrap_or_else(|| brokkr_view::transcript::explanation_for(reason)),
+                ),
+                None,
+                Some(valid.clone()),
+            ),
+        },
+        Err(reason) => (
+            false,
+            Some(reason.as_str()),
+            Some(brokkr_view::transcript::explanation_for(*reason)),
+            None,
+            None,
+        ),
+    };
+    let hint = valid
+        .as_ref()
+        .and_then(|valid| brokkr_view::transcript::full_session(valid, path.as_deref()));
+    let local = canonical_local_projects();
+    let drill_eligible = valid.as_ref().is_some_and(|valid| {
+        valid.kind == TranscriptKind::ClaudeSession && same_canonical_home(&valid.home, &local)
+    });
+    json!({
+        "reference": selection.reference,
+        "legacy": selection.legacy,
+        "admitted": admitted,
+        "reason": reason,
+        "explanation": explanation,
+        "path": path,
+        "hint": hint,
+        "drill_eligible": drill_eligible,
+    })
+}
+
+/// One GET participant-presentation route, keyed by a full run id and an
+/// encoded participant key. Each path component is decoded exactly once;
+/// a malformed escape or any extra component is refused before the
+/// read-only journal is touched. No path or home override is accepted.
+fn participant_presentation(store: &Store, rest: &str) -> Response {
+    let mut components = rest.split('/');
+    let (Some(run_id), Some(participant_key), None) =
+        (components.next(), components.next(), components.next())
+    else {
+        return not_found("participant");
+    };
+    if run_id.is_empty() || participant_key.is_empty() {
+        return not_found("participant");
+    }
+    let (Some(run_id), Some(participant_key)) =
+        (decode_component(run_id), decode_component(participant_key))
+    else {
+        return not_found("participant");
+    };
+    if run_id.is_empty() || participant_key.is_empty() {
+        return not_found("participant");
+    }
+    let events = match store.load(&run_id) {
+        Ok(events) => events,
+        Err(_) => return not_found("participant"),
+    };
+    let state = fold(&events).ok();
+    let view = brokkr_view::run_view(&events, state.as_ref());
+    let Some(participant) = view
+        .participants
+        .iter()
+        .find(|participant| participant.key == participant_key)
+    else {
+        return not_found("participant");
+    };
+    let payload = presentation_payload(
+        participant.transcript.as_ref(),
+        presentation_provenance(participant),
+        participant.session_id.as_deref(),
+    );
+    ok("application/json", payload.to_string())
+}
+
 fn head_seq(db: &Path, run_id: &str) -> u64 {
     Store::open(db)
         .and_then(|s| s.head_hash(run_id))
@@ -946,7 +979,7 @@ const SSE_HEADER: &str = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n
 
 fn write_response(stream: &mut impl Write, response: Response) {
     let payload = format!(
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nCache-Control: no-store\r\nContent-Length: {}\r\n\
          Connection: close\r\n\r\n{}",
         response.status,
         response.content_type,
@@ -976,22 +1009,29 @@ fn serve_io(
     // the seat's own prose lands BETWEEN journal checkpoints, so the
     // transcript is watched on its own file rather than on the head.
     if let Some(session_id) = path.strip_prefix("/sse/session/") {
-        // The id guard and the lookup both run before a single byte of
-        // stream is written: an id that cannot name a transcript, or a
-        // transcript that is not on this machine, is a clean 404 — never
-        // an open connection waiting for a file to appear.
-        let Some(file) = transcript_path(session_id) else {
+        // The shared identifier guard and safe discovery both run before a
+        // single byte of stream is written: an id that cannot name a
+        // transcript, or a transcript that is not on this machine, is a
+        // clean 404 — never an open connection waiting for a file to
+        // appear. Every refusal, an invalid id included, is
+        // `{"error":"transcript not found"}`.
+        if claude_source_size(session_id).is_none() {
             write_response(stream, not_found("transcript"));
             return;
-        };
+        }
         if stream.write_all(SSE_HEADER.as_bytes()).is_err() {
             return;
         }
         let mut seen: Option<u64> = None;
         let mut sent = 0usize;
         loop {
-            let size = transcript_len(&file);
-            let message = if transcript_grew(seen, size) {
+            // Unique safe discovery is revalidated on every poll, not
+            // trusted from the admitted first look. Losing it closes the
+            // stream without reporting another size.
+            let Some(size) = claude_source_size(session_id) else {
+                return;
+            };
+            let message = if seen.is_some_and(|previous| size > previous) {
                 format!("data: {}\n\n", json!({"size": size}))
             } else {
                 // Heartbeat comment, exactly as the run's stream: the
