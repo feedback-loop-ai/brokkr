@@ -27,17 +27,31 @@ minimum requires dated provider evidence of exact root-session rejoin, current
 restriction enforcement and current-invocation accounting, alongside the
 implementation and deterministic tests. LaneTally SHALL be assessed independently.
 
-The DSH minimum SHALL include source-level investigation and integration of
-supported headless session/settings/extension interfaces needed to select and
-load the owned root. The absence of a headless resume flag SHALL NOT end that
-investigation or make the TUI's flag a headless interface. This session-selection
-work is in scope independently of the deferred plugin for replacing native tools
-with boxed hands. It SHALL preserve Rust-only production, the admitted headless
-profile, existing trust and boundary restrictions, and per-invocation settings;
-it SHALL NOT patch provider installations, change global profiles, introduce a
-non-Rust production runner or admit DSH hands. Treating a hands-plugin deferral
-as a ban on session integration is rejected: selecting an owned session does
-not replace the tool surface or authorize more tools (decisions 0009 and 0030).
+The DSH minimum SHALL qualify official core 0.1.5-rc.1 at
+`183f08e9c6dde7e36cd2318eaee70b0da08fb35e` together with the
+`dsh-plugin-cli-session` 0.2.0 extension at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The assessment SHALL record
+the complete resolved dependency identity and SHALL establish that this exact
+pair loads through DSH's documented extension and `agents.resume` APIs. A
+different resolved core or plugin revision SHALL NOT inherit its evidence.
+Enablement SHALL additionally establish that `--session` selects the owned
+provider-confirmed root, the invocation remains in the admitted headless shape,
+current model/effort and restriction settings take precedence, and the plugin's
+sequence boundary yields only current output and attributable usage.
+
+The installed 0.1.2-rc.1 headless runner's lack of a selector establishes only
+that its one-shot entry cannot forward the TUI example. It SHALL NOT be reported
+as a global DSH or extension limitation. The selected core/plugin pair SHALL be
+installed and exercised only under the worktree or task-owned temporary storage;
+the live global DSH pin, profiles, credentials and other runs SHALL remain
+unchanged. This session-selection work is independent of the deferred plugin
+for replacing native tools with boxed hands. It SHALL preserve Rust-only Brokkr
+production, the admitted headless profile, existing trust and boundary
+restrictions, and per-invocation settings; it SHALL NOT patch provider packages,
+intercept UUID generation, introduce a second non-Rust Brokkr runner, substitute
+TUI or SDK execution, or admit DSH hands. Selecting an owned session through a
+documented provider extension does not replace or authorize more tools
+(decisions 0009 and 0030).
 
 Previously supported Codex work-site shapes SHALL remain delivery requirements,
 subject to installed-version remeasurement. A CLI/wrapper version change SHALL
@@ -86,17 +100,19 @@ rather than relabelled as current probes.
 - **THEN** the interface is recorded as available, its construction and validation work proceeds from that evidence, and enforcement remains unmeasured so the affected resume shape is not enabled
 
 #### Scenario: Supplied interface evidence while the seat lacks the CLI
-- **GIVEN** the implementation seat has no provider binary on PATH but a dated controller capture identifies installed Claude help with resume, creation, permission, MCP and tool controls
+- **GIVEN** the implementation seat has no provider binary on PATH but dated controller captures identify Claude 2.1.266's interface, same-root continuity, Read-grant replacement and partial native-tool/MCP removal
 - **WHEN** it prepares the adapter
-- **THEN** it uses that capture for explicit-handle launch construction and deterministic validation tests, and separately records missing effective restrictions, same-root confirmation and current-only accounting evidence
-- **AND** the absence of a local executable cannot justify omitting the known argv work; shim results cannot supply the missing provider behavior proof
+- **THEN** it uses each positive observation for explicit-handle construction, restriction planning and deterministic validation without relabelling partial evidence as full admission
+- **AND** explicit removed-tool/MCP enforcement, the complete filesystem boundary and exceptional visible-message/turn/usage attribution remain separate missing observations; the absence of a local executable or a worker-home write failure is not a controller blocker
 
-#### Scenario: Headless startup lacks a resume selector
-- **GIVEN** installed DSH launcher help shows resume only for TUI, while headless help/startup expose task/help and the runner mints a fresh root ID
-- **WHEN** the DSH headless minimum is implemented
-- **THEN** installed headless, session and agent/settings extension interfaces are investigated for a supported per-invocation owned-session selection path, with versions and source evidence recorded
-- **AND** an established safe route is implemented within the existing headless restrictions; the deferred hands/tools plugin does not exclude that session integration
-- **AND** no TUI flag is guessed to work in headless, no unsupported hands shape is admitted, and the limited startup evidence alone cannot establish impossibility
+#### Scenario: The pinned DSH extension candidate is qualified
+- **GIVEN** installed DSH 0.1.2-rc.1's one-shot headless runner mints a fresh root, while official core 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and `dsh-plugin-cli-session` 0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` expose explicit resume through the documented extension API
+- **WHEN** the DSH headless minimum is qualified and implemented
+- **THEN** an isolated installation records and verifies that exact resolved pair, and `--session <owned-root>` demonstrably rejoins the provider-confirmed root under the current headless profile, model/effort and restriction settings
+- **AND** the plugin's request-derived `session_id` echo and post-`firstSeq` usage selection are treated as interface evidence only; independent root identity and noncumulative current-usage observations are required
+- **AND** the plugin's sequence boundary demonstrably excludes historical output, tools and usage from current invocation evidence; any unattributable total remains absent and keeps the shape disabled where the boundary itself is uncertain
+- **AND** the live global DSH pin and profiles remain unchanged, the deferred hands/tools plugin does not exclude session integration, and no TUI flag, SDK runner, package patch, UUID interception or unsupported hands shape substitutes for the selected route
+- **AND** incompatibility or failed enforcement is reported as the exact unmet AS1 requirement; the older one-shot limitation is never repeated as a global DSH limitation
 
 #### Scenario: An installed version differs from historical Codex evidence
 - **GIVEN** the accepted resume measurement identifies codex-cli 0.148.0 and supplied installed-version evidence identifies 0.153.4
@@ -166,6 +182,7 @@ an unsupported hands shape or change which adapters can hold a gate.
 #### Scenario: DSH remains in its declared headless shape
 - **WHEN** an eligible DSH site resumes under a measured supported path
 - **THEN** headless operation, the pinned model/effort overlay and the owned session/transcript relationship remain effective, without falling into an interactive or ambient profile
+- **AND** the isolated extension profile is composed for this invocation and cannot inherit a different global core, plugin, profile or selector
 
 #### Scenario: Unsupported hands still refuse
 - **WHEN** a DSH or LaneTally site requests a hands shape its declaration does not support
@@ -230,6 +247,7 @@ SHALL be respected and reflected in support and session-eligibility evidence.
 #### Scenario: A DSH profile or wrapper can replace session selection
 - **WHEN** user passthrough or a wrapper setting would override the headless profile, selected session, model/effort overlay or restriction set
 - **THEN** the resume is declined and the safe cold or refusal outcome names a bounded reason
+- **AND** only the adapter-owned `--session <owned-root>` value reaches the selected pinned extension route; a user-supplied selector never competes with it
 
 #### Scenario: Identifier injection
 - **WHEN** an offered handle contains a flag-like prefix, control characters, path traversal, shell syntax or an overlong value outside the measured grammar

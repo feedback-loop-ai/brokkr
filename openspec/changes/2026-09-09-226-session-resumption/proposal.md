@@ -21,13 +21,15 @@ completed work needs a truthful task marker before the phase's final commit.
 - Assess Codex, Claude, DSH and LaneTally separately. Deliver working, measured
   resume for Claude's boxed workspace work shape and DSH's already-admitted
   headless work shape, preserving Codex work-site coverage after installed-version
-  remeasurement. DSH headless session-selection investigation and integration
-  through supported settings/extension interfaces are in scope; the deferred
-  hands/tools plugin remains separate. Implement every measured safe shape;
-  declare unsupported or unmeasured shapes honestly. Cold-only,
-  declaration-gated preparation does not close #226. Re-impose current
-  restrictions, hands and model/effort settings on every rejoin; inherited
-  permissions and argument parsing do not prove safety.
+  remeasurement. Qualify an isolated exact-version DSH route using official core
+  0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`
+  and `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, through the documented
+  extension and `agents.resume` APIs. The deferred hands/tools plugin remains
+  separate. Implement every measured safe shape; declare unsupported or
+  unmeasured shapes honestly. Cold-only, declaration-gated preparation does not
+  close #226. Re-impose current restrictions, hands and model/effort settings on
+  every rejoin; inherited permissions and argument parsing do not prove safety.
 - Report confirmed cold/resumed outcomes and bounded reasons for declined
   offers, preserving first-work acceptance and pre-session refusal semantics.
   Permit at most one proven pre-work cold replacement within the invocation's
@@ -151,10 +153,39 @@ current interface facts without establishing safe resume:
   session/settings/extension interfaces cannot rejoin: the capture explicitly
   leaves those interfaces for investigation.
 
-Neither capture measures resumed restriction enforcement, exact-root rejoin,
-current-only accounting or a safe pre-work rejection classifier. The complete
-Claude boxed fragment and the DSH supported session route still need that
-proof. LaneTally has no supplied wrapper measurement. Codex's accepted 0030
+- `.forge/tasks/controller-dsh-upstream-discovery.json` and
+  `controller-evidence-2026-09-10.md` correct that limited conclusion. Official
+  DSH **0.1.5-rc.1** at
+  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` exposes explicit persisted
+  identity through `ctx.agents.resume({ resumeSessionId, agentOptions, setup })`
+  and its agent loop. Source inspection of the community
+  `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` confirms a real extension
+  using `agents.resume`, an explicit `--session` selector, current model
+  selection and a pre-followup `firstSeq` boundary for output/usage collection.
+  Core source opens persistence by the exact requested ID and its tests continue
+  history under that ID. The plugin's peer range admits 0.1.5-rc.1, but its own
+  development dependencies test 0.1.0-rc.6; its emitted `session_id` copies the
+  normalized request rather than independently comparing the returned session,
+  and its latest in-range message usage is not proven noncumulative. This
+  establishes a concrete supported extension route for qualification, not
+  compatibility, exact-root confirmation or effective restriction/accounting
+  behavior for the integrated pair.
+- The four `controller-claude-*-probe.json` artifacts and accounting analysis dated
+  **2026-09-10** establish same-root continuity on Claude **2.1.266**, observed
+  Read-grant replacement, and partial native-tool and MCP removal. Three sample
+  pairs reconcile token usage to current provider message IDs. The Read-grant
+  and MCP resumes have exceptional visible-message/turn relationships, and the
+  MCP resume's total usage does not reconcile to its one visible completed
+  message. These are partial observations, not full boxed-fragment admission.
+
+The older captures alone measure none of resumed restriction enforcement,
+exact-root rejoin, current-only accounting or a safe pre-work rejection
+classifier. The later Claude probes resolve only the observations stated above;
+the complete boxed fragment and exceptional accounting attribution remain to be
+proved. The selected DSH route still requires isolated dependency compatibility,
+exact-root, restriction-precedence and current-sequence accounting proof before
+enablement. LaneTally has no supplied wrapper measurement. Codex's accepted 0030
 resume measurements identify **0.148.0**, while its separate shipped effort
 comment cites **0.153.0**; neither is a resume measurement of installed
 **0.153.4**. Installed-version remeasurement is required before delivery, per
@@ -191,11 +222,19 @@ without accessing its sibling worktree. Quota repair, DSH Git metadata repair,
 trust promotion, new boundaries, global provider settings and release work
 are outside this change.
 
+The DSH dependency/profile used for qualification is installed only under this
+worktree or task-owned temporary storage and is pinned to the core release and
+plugin commits above, with its resolved dependency identity recorded. It does
+not alter the live global DSH pin, profiles, credentials or other runs. Brokkr's
+production integration remains Rust under `crates/`; loading a provider plugin
+through DSH's documented extension API does not authorize a second Brokkr
+runner, a provider-package patch or UUID interception.
+
 ## Decisions
 
 These specification answers were recorded across the returns on 2026-09-09
-and 2026-09-10. Answers A–I remain settled; J answers the returned
-release-binary ambiguity without reopening them. Their observable answers are
+and 2026-09-10. Answers A–J remain settled; K adopts the new upstream DSH and
+partial Claude evidence without reopening them. Their observable answers are
 scenarios in the owning deltas. The council must carry these choices into
 `design.md` Decisions and the numbered rulings of proposed 0056; this is not a
 claim of operator acceptance.
@@ -250,11 +289,12 @@ claim of operator acceptance.
   forks and conflicting `--session-id` assignments. Unsupported DSH headless
   syntax is not inferred from the launcher's TUI example.
 - **F — The DSH headless minimum stands, with session extensions in scope.**
-  Choose finding F's first reading: investigate installed `dsh-headless`,
-  `dsh-session` and the agent/settings interfaces and implement a supported
-  headless session-selection route if that evidence establishes one. This is
-  part of #226, including a per-invocation settings/extension integration where
-  supported, not the deferred plugin that replaces native tools with hands.
+  Choose finding F's first reading: investigate DSH core, `dsh-headless`,
+  `dsh-session` and the agent/settings extension interfaces and implement a
+  supported headless session-selection route when evidence establishes one.
+  Answer K now identifies the exact route to qualify. This is part of #226,
+  including per-invocation session-extension integration, not the deferred
+  plugin that replaces native tools with hands.
   The required 0056 ruling must preserve that distinction and the minimum.
   Reducing the minimum to Claude or treating the absent headless flag as proof
   of impossibility is rejected: only the startup/runner surface has been
@@ -333,6 +373,44 @@ claim of operator acceptance.
   provides an exemption. This does not turn remote CI or final-head evidence
   into tracked work: those results can exist only after their immutable
   subject heads and remain controller-owned non-checkbox handoff conditions.
+
+- **K — Qualify the pinned DSH core/plugin extension route; do not preserve the
+  disproven global blocker.** Official DSH 0.1.5-rc.1 at
+  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` supplies explicit persisted-root
+  resume in core, and `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` is the selected headless CLI
+  extension candidate. Its inspected source calls the official `agents.resume`
+  API with an explicit session, selects the current model and bounds output and
+  usage from the current sequence. This is a documented extension mechanism,
+  not a patched installed package, UUID interception or a guessed TUI flag.
+
+  The source also bounds what can be claimed before the probe: the plugin's
+  declared peer range includes 0.1.5-rc.1, but its development matrix pins
+  0.1.0-rc.6; its printed `session_id` is derived from the request; and
+  `collectUsage` chooses the latest assistant usage after `firstSeq` without
+  establishing whether that payload is per-message or cumulative. Conversely,
+  official core opens persisted state by the exact requested ID and tests
+  continued history. These are focused compatibility, confirmation and
+  attribution questions, not grounds to reinstate the old global limitation.
+
+  The selected route is installed and exercised only in an isolated worktree or
+  task-owned profile with its complete dependency identity recorded. Admission
+  still requires proof that this plugin commit loads compatibly on that exact
+  core release, rejoins the offered provider-confirmed root, preserves the
+  admitted headless shape and current model/effort and restriction precedence,
+  and emits only current-sequence output and attributable usage. Until those
+  observations and the Rust adapter path agree, DSH remains disabled and AS1
+  incomplete. The official SDK is not selected for this change because it would
+  introduce a separate production runner/control surface where the documented
+  CLI extension path already exists; an incompatibility returns as the precise
+  unmet AS1 requirement rather than authorizing an unreviewed substitution.
+
+  The controller's Claude 2.1.266 probes likewise amend evidence status, not the
+  rule: same-root continuity and observed replacement restrictions count toward
+  qualification, while partial native-tool/MCP evidence and unreconciled
+  exceptional turn/usage cases keep full boxed admission pending. Neither a
+  worker-home write error nor these partial observations is a controller
+  blocker or a completed proof task.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -470,15 +548,23 @@ and implementation obligations:
   resume and the complete current boxed fragment, selector validation, root
   confirmation and current-event accounting. A shim proves the chosen protocol
   cases, not the as-yet-unmeasured provider confirmation or enforcement behavior.
-- Investigate installed `@deepseek-ai/dsh-headless`, `@deepseek-ai/dsh-session`
-  and their agent/settings/extension dependencies through controller-supplied
-  source with versions and hashes. Establish whether a supported per-invocation
-  route can select/load the existing root session instead of minting a new one,
-  retain model/effort and transcript scope, and separate historical events from
-  this followup. Implement the supported route when established. Do not invent
-  `dsh --profile headless --resume`; the supplied startup has no such flag.
-  Source/session-extension investigation and integration are in scope despite
-  the separate hands/tools-plugin deferral in `adapters/dsh.json`.
+- Use an isolated dependency/profile installation of official DSH 0.1.5-rc.1 at
+  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
+  `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Record the resolved dependency
+  graph, hashes and extension protocol; prove the plugin loads through the
+  documented API without altering the live DSH installation or profiles.
+  Qualify a bounded cold/resume pair in which cold work creates and confirms a
+  persisted root and private nonce, then `--session <owned-root>` rejoins that
+  exact root and recalls it while using the current invocation's headless
+  profile and model/effort. Verify that an alternate selector/profile cannot
+  override the adapter-owned values. Compare the plugin's `firstSeq` boundary,
+  raw sequence identities and usage so old output/tools/tokens are absent and
+  every reported current total is attributable; omission is required where it
+  is not. Implement and enable this route only after those observations pass.
+  Do not invent `dsh --profile headless --resume`, patch a package, intercept a
+  UUID, admit hands, or substitute TUI/SDK execution. The deferred hands/tools
+  plugin in `adapters/dsh.json` remains separate.
 - Obtain current `codex exec resume --help` and a bounded sandbox-enforcement
   cold/resume probe from the controller on 0.153.4 (or the actual installed
   replacement), recording exact invocation, allowed argv, class re-imposition,
@@ -710,3 +796,31 @@ the parser and source headings both remain at **20 requirements / 125
 scenarios**. The existing archived change validates strictly and
 `git diff --check` is clean. Cargo remains unavailable in this box, so this
 specification return claims no Rust or release-binary result.
+
+## Current successor specify return — upstream DSH route, 2026-09-10
+
+This visit adopts HEAD `80f7a32` and the dated change
+`2026-09-09-226-session-resumption`. Decision K corrects the earlier
+installed-entry-only DSH conclusion by selecting official core 0.1.5-rc.1 at
+`183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with
+`dsh-plugin-cli-session` 0.2.0 at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda` as the exact isolated
+headless route to qualify. It records why the official SDK is not selected,
+keeps Brokkr production Rust-only, and forbids global-pin/profile changes,
+package patches, UUID interception, TUI substitution and hands admission.
+
+AS1 and its existing scenarios now require dependency/API compatibility,
+provider-confirmed exact-root rejoin, current headless model/effort and
+restriction precedence, and sequence-bounded output/accounting before DSH can
+be enabled. The supplied Claude 2.1.266 root, grant, tool, MCP and accounting
+evidence is recorded as partial: it advances qualification without completing
+the full boxed restriction or exceptional-accounting proof. No task is ticked
+by this specification visit, and Codex and LaneTally obligations remain intact.
+
+Strict active validation passes and the parser and headings retain **20
+requirements / 125 scenarios** across all five deltas. OpenSpec status reports
+all planning artifacts present; strict archived validation and `git diff
+--check` pass. Frozen contracts, fixtures, policy, reference and living specs
+are unchanged. Cargo and Rust remain unavailable in the box, so no Rust gate is
+claimed. No workflow runner, archive, provider probe, global provider change,
+push, publication or issue action was invoked.
