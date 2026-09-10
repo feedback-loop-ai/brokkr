@@ -2302,3 +2302,68 @@ fn dsh_undeclared_blocks_alias_supplies_no_content() {
     assert_eq!(projection.turns.len(), 1);
     assert_eq!(projection.turns[0].blocks, vec![Block::text("declared")]);
 }
+
+/// Coverage companion for the remaining declared Codex response variants:
+/// the tool-search, shell/web action, custom-tool and compaction records
+/// each project their recorded data or stay recognized-quiet.
+#[test]
+fn codex_remaining_declared_variants_project_or_stay_quiet() {
+    let text = [
+        row(json!({"timestamp":"t1","type":"response_item","payload":{
+            "type":"tool_search_call","call_id":"s1","arguments":{"q":"x"}}})),
+        row(json!({"timestamp":"t2","type":"response_item","payload":{
+            "type":"tool_search_output","call_id":"s1","tools":[{"name":"read"}]}})),
+        row(json!({"timestamp":"t3","type":"response_item","payload":{
+            "type":"local_shell_call","call_id":"s2","action":{"command":"ls"}}})),
+        row(json!({"timestamp":"t4","type":"response_item","payload":{
+            "type":"web_search_call","call_id":"s3","action":{"query":"rust"}}})),
+        row(json!({"timestamp":"t5","type":"response_item","payload":{
+            "type":"custom_tool_call","call_id":"s4","name":"apply","input":"patch"}})),
+        row(json!({"timestamp":"t6","type":"response_item","payload":{
+            "type":"custom_tool_call_output","call_id":"s4","output":"done"}})),
+        row(json!({"timestamp":"t7","type":"response_item","payload":{"type":"additional_tools"}})),
+        row(json!({"timestamp":"t8","type":"response_item","payload":{"type":"compaction"}})),
+        row(json!({"timestamp":"t9","type":"response_item","payload":{"type":"compaction_summary"}})),
+        row(json!({"timestamp":"t10","type":"response_item","payload":{"type":"context_compaction"}})),
+        row(json!({"timestamp":"t11","type":"response_item","payload":{"type":"compaction_trigger"}})),
+        row(json!({"timestamp":"t12","type":"event_msg","payload":{"type":"user_message"}})),
+        row(json!({"timestamp":"t13","type":"event_msg","payload":{"type":"agent_message"}})),
+        row(json!({"timestamp":"t14","type":"event_msg","payload":{"type":"agent_reasoning"}})),
+    ]
+    .concat();
+    let projection = codex(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(
+        projection.unrecognized_records, 0,
+        "recognized variants and quiet metadata are not counted"
+    );
+    assert_eq!(projection.turns.len(), 6, "{:?}", projection.turns);
+
+    let kinds: Vec<BlockKind> = projection
+        .turns
+        .iter()
+        .flat_map(|turn| turn.blocks.iter().map(|block| block.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            BlockKind::Tool,
+            BlockKind::ToolResult,
+            BlockKind::Tool,
+            BlockKind::Tool,
+            BlockKind::Tool,
+            BlockKind::ToolResult,
+        ]
+    );
+    let rendered: Vec<&str> = projection
+        .turns
+        .iter()
+        .flat_map(|turn| turn.blocks.iter().map(|block| block.text.as_str()))
+        .collect();
+    assert!(rendered[0].contains("tool_search") && rendered[0].contains("[s1]"));
+    assert!(rendered[1].contains("read") && rendered[1].contains("[s1]"));
+    assert!(rendered[2].contains("ls") && rendered[2].contains("[s2]"));
+    assert!(rendered[3].contains("rust") && rendered[3].contains("[s3]"));
+    assert!(rendered[4].contains("apply") && rendered[4].contains("[s4]"));
+    assert!(rendered[5].contains("done") && rendered[5].contains("[s4]"));
+}
