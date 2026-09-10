@@ -41,6 +41,11 @@ implementation and review.
   existing journal and realm selection and the TUI's same derivation.
   JSON preserves a present common reference's recorded fields even when the
   reader rejects it, separately from validation, resolved paths and hints.
+  Current frozen seat-record versions admit only the four existing transcript
+  kinds, so an unknown kind is rejected at the journal contract fence before
+  this command can select it. `unsupported-kind` remains a defensive pure-view
+  result for a directly supplied reference, not a promised CLI result from a
+  valid current journal.
 - Make the TUI transcript pane, open-turn door and open-whole door work
   for all three readable kinds, including live file appearance/growth.
   Show the correct full-session location and measured command spelling:
@@ -119,6 +124,8 @@ implementation and review.
 
 ### New Capabilities
 
+The earlier fold introduced the following three capabilities into living truth:
+
 - `transcript-reading`: local identity and ownership checks, per-kind
   content projection into ordered turns, bounded reads, diagnostic counts,
   deterministic full-session information and privacy.
@@ -129,9 +136,15 @@ implementation and review.
 
 ### Modified Capabilities
 
-None. The current standing capabilities concern named execution boundaries;
-this change preserves their requirements and introduces transcript reading
-as separate capabilities.
+- `transcript-command`: on this returned visit, distinguish the references a
+  current frozen seat-record can carry into the CLI from the pure reader's
+  defensive handling of directly supplied unknown kinds.
+
+Because the premature archive already folded all three original additions, the
+reactivated deltas express the complete requirements as `MODIFIED` against that
+living truth. This preserves the original scope and permits the normal final
+archive to reconcile the returned repair instead of attempting duplicate
+`ADDED` requirements.
 
 ## Impact
 
@@ -810,3 +823,50 @@ the production-only `cargo check --workspace --locked` is insufficient.
 Neither repair changes a product requirement or council choice. Under S1 and
 the rendered dialect, this office records those downstream obligations but
 does not edit or commit `tasks.md` during specification.
+
+### S16 — Review return separates current CLI reachability from defensive view handling
+
+This visit adopts the same `read-every-transcript-kind` change at reviewed
+head `54a864b`; it does not author a successor identifier or reopen any settled
+answer through R24. The implementation archived the change before review had
+cleared it, so this office reactivates that complete directory and preserves
+its design and task history unchanged. The existing living specifications and
+their single provenance pointers remain the result of the earlier fold; the
+active deltas carry the complete requirements as `MODIFIED` against that living
+truth, including this returned repair, until the normal archive operation can
+fold them after the remaining implementation, verification and review work is
+complete. Keeping them as `ADDED` is rejected because OpenSpec reports that a
+second fold would collide with the requirements the premature archive already
+created.
+
+Review R11 is adopted as a specification defect in command C5. Its
+`future-session` row promised a `brokkr.transcript/v1` result that no valid
+current journal can contain: every frozen `seat-record.v1` through
+`seat-record.v4` contract closes `transcript.kind` to `claude-session`,
+`codex-thread`, `dsh-session` and `none`, and `Store::append_next` validates the
+seat record before sealing it. A future-kind row is therefore rejected by the
+journal contract fence before run/participant selection and before the command
+can construct its document. No frozen contract is edited and no hypothetical
+new contract version is specified here.
+
+Deleting `unsupported-kind` altogether is rejected because the pure view
+intentionally accepts a string-valued `Transcript` supplied directly by callers
+and preserves an unknown reference before validation. Reading R1 and its tests
+continue to require that defensive path to echo the three input strings and
+return `unsupported-kind`; this also avoids silently selecting an older
+reference if a future decoded view reaches the reader. Command C5 is narrowed
+only to contract-admitted persisted references, and its new fence scenario
+states that an invalid current journal produces no transcript command document.
+The stale implementation-test comment that said the fold drops unknown kinds
+is explicitly refuted: the view fold now preserves them; the earlier store
+contract validation is what makes the branch unreachable through the current
+CLI.
+
+Review R1–R10 remain implementation, security or task defects against already
+settled requirements, not new evidence that those requirements are wrong. R8
+specifically belongs to the downstream task record and must leave host exact
+coverage unchecked until controller evidence exists. R12's untrusted gate
+advocacy remains rejected by the review. This specification office changes no
+production file, decision, frozen byte, design or task content for those
+findings; subsequent phases must repair and prove them without narrowing the
+story.
