@@ -29,21 +29,47 @@ implementation and deterministic tests. LaneTally SHALL be assessed independentl
 
 The DSH minimum SHALL qualify the latest official core release,
 `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`,
-or a newer release published by qualification time, together with a
-repository-owned adaptation of the `dsh-plugin-cli-session` 0.2.0 extension at
-`0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The assessment SHALL record the
-exact core version and how it was resolved, and the complete resolved
-dependency identity. It SHALL establish that this exact pair loads through
-DSH's documented extension and `agents.resume` APIs. The adaptation SHALL
-differ from the upstream commit only by reading the plugin's post-turn event
-interval through the core's declared public session-event accessor in place of
-the removed `agent.session.events`. It SHALL keep the upstream CLI surface
-(`--new`, `--session <id>`, `--output-format stream-json`, the `agents.resume`
-path and the `firstSeq` interval) and SHALL add, widen or admit no tool. Its
-upstream commit, delta and byte digests SHALL be recorded and SHALL join the
-composite identity that admits the route. It is extension-boundary source this
-repository owns and pins, which Brokkr SHALL NOT build, load or execute outside
-DSH's plugin loader.
+or the release that resolution at qualification time selects in its place,
+together with a repository-owned adaptation of the `dsh-plugin-cli-session`
+0.2.0 extension at `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Resolution SHALL
+happen once, before the qualifying seat installs or verifies the core it
+measures, and SHALL select the version the registry's `latest` dist-tag names.
+A version named only by another tag, such as `next` or `alpha`, SHALL be
+recorded and SHALL NOT be selected without an operator ruling, even when its
+semver precedence or publish time is higher. A `latest` tag that names a
+version of lower precedence than 0.1.5-rc.1 SHALL NOT select it: 0.1.5-rc.1
+stays selected and the tag state is recorded. When the live registry is
+unreachable, resolution SHALL apply the same rule to the registry document
+cached by the task-owned installation, SHALL record the resolution as cached
+with that document's fetch time and the failed live attempt, and SHALL NOT
+claim that no newer release existed. The assessment SHALL record the exact core
+version, the dist-tags, versions and publish times it read, how and when it was
+resolved, and the complete resolved dependency identity. It SHALL establish
+that this exact pair loads through DSH's documented extension and
+`agents.resume` APIs.
+
+The adaptation SHALL be the plugin's published package file set at the
+upstream commit (`package.json`, `lib/index.js`, `lib/startup.js`,
+`cordis.patch.yml`, `README.md` and `LICENSE`), committed as those bytes and
+not rebuilt. Its delta SHALL be measured as the difference between that file
+set and the same files at the upstream commit. The delta SHALL consist only of
+the `lib/index.js` expression that reads the post-turn event interval, which
+uses the core's declared public session-event accessor in place of the removed
+`agent.session.events`. The upstream TypeScript source, tests, build
+configuration, lockfiles and CI files SHALL NOT be vendored. A provenance note
+SHALL record the upstream commit, the upstream source line the delta
+corresponds to, the delta and the digests; it SHALL live outside the file set
+and is not part of the delta. No Node or TypeScript build SHALL run for the
+adaptation, so no build toolchain joins its identity, and the upstream
+typecheck and test scripts need not pass against their 0.1.0-rc.6 development
+dependencies. The adaptation SHALL keep the upstream package manifest and CLI
+surface (`--new`, `--session <id>`, `--output-format stream-json`, the
+`agents.resume` path and the `firstSeq` interval) and SHALL add, widen or admit
+no tool. Its upstream commit, delta digest and per-file digests SHALL be
+recorded and SHALL join the composite identity that admits the route. The bytes
+installed into a DSH profile SHALL match them. It is extension-boundary source
+this repository owns and pins, which Brokkr SHALL NOT build, install, load or
+execute outside DSH's plugin loader.
 
 No older core SHALL be selected to avoid adapting to the latest one. Evidence
 measured on another core, including the superseded 0.1.0-rc.6 pin, SHALL NOT
@@ -62,10 +88,33 @@ boundary yields only current output and attributable usage.
 
 The installed 0.1.2-rc.1 headless runner's lack of a selector establishes only
 that its one-shot entry cannot forward the TUI example. It SHALL NOT be reported
-as a global DSH or extension limitation. The selected core/plugin pair SHALL be
-installed and exercised only under the worktree or task-owned temporary storage;
-the live global DSH pin, profiles, credentials and other runs SHALL remain
-unchanged. This session-selection work is independent of the deferred plugin
+as a global DSH or extension limitation. Qualifying and implementing seats SHALL
+install and exercise the selected core/plugin pair only under the worktree or
+task-owned storage, and SHALL leave the live global DSH installation, its
+profiles and credentials, and other runs byte-unchanged, proven by snapshots
+taken before and after.
+
+At run time the DSH adapter SHALL resolve its executable through its existing
+seam (`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH) and its DSH
+home as the shipped driver already does (`$DSH_HOME` when set and non-empty,
+otherwise `$HOME/.dsh`), and SHALL launch that home's admitted `headless`
+profile. Before provider work it SHALL recompute the composite identity of that
+executable, the Node runtime and resolved dependencies it loads, the installed
+plugin bytes, the Cordis patch and the composed `headless` profile, and compare
+it with the qualified composite. Only a match SHALL take an eligible offer or
+construct the plugin's `--new` and `--session` launches. A mismatch or an
+unreadable identity SHALL decline any offer as `unverified-harness`, run the
+shipped cold invocation unchanged and record no offerable root. Brokkr SHALL
+NOT install, compose, update or remove a DSH package, plugin or profile, and
+SHALL add no configuration surface for doing so; the per-seat model, effort and
+persistence overlay stays the only file it stages for DSH. Deploying the
+qualified pair into a DSH home that ordinary runs resolve is an operator action
+outside Brokkr, recorded as an operator ruling. It does not gate this change's
+delivery and is not a hidden precondition of it. The qualification and the Rust
+route's end-to-end proof SHALL reach the task-owned installation through the
+same seams, so they exercise the adapter's actual resolution and argv.
+
+This session-selection work is independent of the deferred plugin
 for replacing native tools with boxed hands. It SHALL preserve Rust-only Brokkr
 production, the admitted headless profile, existing trust and boundary
 restrictions, and per-invocation settings; it SHALL NOT patch provider packages,
@@ -118,7 +167,14 @@ read unrelated sessions, invent CLI syntax or telemetry, or use an unnecessary
 model experiment. Existing accepted measurements remain identified as historical
 rather than relabelled as current probes. A superseded measured pin SHALL remain
 recorded as dated history; its reversal SHALL be added as a new dated entry and
-SHALL NOT rewrite the earlier measurement.
+SHALL NOT rewrite the earlier measurement. In an adapter declaration, a resume
+shape's `status`, `identity`, `evidence` and `reason` SHALL describe the current
+pin, and its `limitations` list SHALL be the append-only dated ledger. Existing
+entries SHALL keep their bytes and order. A reversal SHALL be appended as a
+string that begins with its ISO date and names the ruling, the reversed pin and
+the superseded evidence file. The closed resume shape SHALL gain no history
+field for this purpose. A superseded entry followed by its dated reversal is
+read as history, not as a current claim.
 
 #### Scenario: An installed help flag without enforcement proof
 - **WHEN** installed Claude help lists explicit resume and permission controls but no observation establishes that the complete restriction set binds on resume
@@ -154,10 +210,50 @@ SHALL NOT rewrite the earlier measurement.
 - **AND** no older core, fabricated accessor, installed-package patch or global DSH limitation claim fills the gap
 
 #### Scenario: A newer DSH core is published before qualification
-- **GIVEN** registry resolution at qualification time finds a published core release newer than 0.1.5-rc.1
+- **GIVEN** registry resolution at qualification time finds that the `latest` dist-tag names a published core release newer than 0.1.5-rc.1
 - **WHEN** the DSH pair is qualified
-- **THEN** the newer release is selected and recorded with the dist-tags and time that resolved it
+- **THEN** that release is selected and recorded with the dist-tags, versions, publish times and resolution time that selected it
 - **AND** discovery and live evidence are repeated against its exact bytes; nothing measured on 0.1.5-rc.1 transfers to it by version proximity
+- **AND** a release published after that resolution does not reopen the completed qualification; an installed core that differs from the qualified one is version drift that declines offers as `unverified-harness` until it is qualified
+
+#### Scenario: Only a prerelease channel names a newer DSH core
+- **GIVEN** `latest` names 0.1.5-rc.1 while `next` or `alpha` names a different version, whether its semver precedence or its publish time is higher
+- **WHEN** resolution selects the core to qualify
+- **THEN** the version `latest` names is selected and every other tag's version is recorded as unselected
+- **AND** selecting another channel's version requires an operator ruling, and a `latest` tag moved back to an older version selects nothing older than 0.1.5-rc.1
+
+#### Scenario: The registry is unreachable at qualification time
+- **GIVEN** the qualifying seat cannot reach the live registry and the task-owned installation holds a cached registry document
+- **WHEN** the core version is resolved
+- **THEN** the version the cached document's `latest` names is selected under the same rule, and the record marks the resolution as cached with the document's fetch time and the failed live attempt
+- **AND** the record does not claim that no newer release existed
+
+#### Scenario: The adaptation is compared as the published file set
+- **GIVEN** the upstream plugin at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` publishes `package.json`, `lib/index.js`, `lib/startup.js`, `cordis.patch.yml`, `README.md` and `LICENSE`, and its development dependencies pin core 0.1.0-rc.6 types that declare no `snapshotEvents`
+- **WHEN** the repository-owned adaptation is committed and reviewed
+- **THEN** those six files are committed as bytes, five byte-identical to upstream and `lib/index.js` differing only in the accessor expression, with no rebuilt artifact, vendored source, lockfile or manifest change
+- **AND** the provenance note lives outside the file set, cites the corresponding upstream source line and records the upstream commit, delta digest and per-file digests
+- **AND** no Node or TypeScript toolchain runs for it or joins the composite identity, and upstream's typecheck and test scripts are not gates
+- **AND** any second difference in the file set, including in the manifest, means the bytes are not the qualified adaptation
+
+#### Scenario: An enabled DSH shape at ordinary run time
+- **GIVEN** the DSH `headless-work` shape is enabled on the qualified composite
+- **WHEN** an eligible DSH site launches through `BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on PATH, with its DSH home resolved from `$DSH_HOME` or `$HOME/.dsh`
+- **THEN** the adapter recomputes that executable's and home's composite identity before provider work, and takes the offer through `--session <owned-root>` on the `headless` profile only when it matches the qualified composite
+- **AND** Brokkr installs, composes, updates and removes no DSH package, plugin or profile, and stages only its per-seat overlay
+- **AND** the qualification and the end-to-end proof reach the task-owned installation through these same seams, while snapshots show the global DSH installation, profiles and credentials byte-unchanged
+
+#### Scenario: The resolved DSH home lacks the qualified composite
+- **GIVEN** the resolved executable and home are the global 0.1.2-rc.1 installation with its plugin-free `headless` profile, or any composite whose core, Node, dependency, plugin, patch or profile identity differs from the qualified one
+- **WHEN** an eligible DSH offer arrives or a cold DSH seat starts
+- **THEN** any offer is declined as `unverified-harness`, the shipped cold invocation runs unchanged and no offerable root is recorded
+- **AND** nothing is installed into that home, and whether the operator deploys the pair there is recorded as an operator ruling rather than assumed
+
+#### Scenario: A superseded DSH pin is reversed in the declaration
+- **GIVEN** `adapters/dsh.json` records the 0.1.0-rc.6 pin in its `headless-work` shape, whose closed resume shape has no history field
+- **WHEN** the 2026-09-10 ruling's reversal to 0.1.5-rc.1 is recorded
+- **THEN** `identity`, `evidence` and `reason` describe the 0.1.5-rc.1 pin, every existing `limitations` entry keeps its bytes and order, and a new entry beginning `2026-09-10` names the ruling, the reversed 0.1.0-rc.6 pin and the superseded `dsh-pair-qualification-010rc6.json`
+- **AND** the loader and the closed shape gain no field, and the `hands.unsupported` text is unchanged
 
 #### Scenario: A DSH current interval holds several messages, a tool call or a retried attempt
 - **GIVEN** a resumed DSH invocation whose interval from `firstSeq` onward contains more than one assistant message, a tool call and result, or a failed and retried model attempt, after historical sequences in the same root
@@ -233,7 +329,7 @@ an unsupported hands shape or change which adapters can hold a gate.
 #### Scenario: DSH remains in its declared headless shape
 - **WHEN** an eligible DSH site resumes under a measured supported path
 - **THEN** headless operation, the pinned model/effort overlay and the owned session/transcript relationship remain effective, without falling into an interactive or ambient profile
-- **AND** the isolated extension profile is composed for this invocation and cannot inherit a different global core, plugin, profile or selector, or plugin bytes that differ from the pinned repository-owned adaptation
+- **AND** the resolved home's `headless` profile verifies as the qualified composite before this invocation; a different core, plugin, profile or selector, or plugin bytes that differ from the pinned repository-owned adaptation, declines the offer instead of being inherited
 
 #### Scenario: Unsupported hands still refuse
 - **WHEN** a DSH or LaneTally site requests a hands shape its declaration does not support

@@ -23,13 +23,14 @@ completed work needs a truthful task marker before the phase's final commit.
   headless work shape, preserving Codex work-site coverage after installed-version
   remeasurement. Qualify an isolated exact-version DSH route using the latest
   official core release, `@deepseek-ai/dsh` 0.1.5-rc.1 at
-  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` (or a newer release published by
-  qualification time, recorded as such), with a repository-owned adaptation of
-  `dsh-plugin-cli-session` 0.2.0 at
+  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` (or the release the `latest`
+  dist-tag names at qualification time, recorded as such), with a
+  repository-owned adaptation of `dsh-plugin-cli-session` 0.2.0 at
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The adaptation's only delta moves
   the plugin's post-turn fold onto that core's public session-event accessor;
   it runs through the documented extension and `agents.resume` APIs and is
-  pinned by digest. No older core is selected. The deferred hands/tools plugin
+  pinned by digest. At run time Brokkr verifies that composite in the DSH home
+  it already resolves and never installs it. No older core is selected. The deferred hands/tools plugin
   remains separate. Implement every measured safe shape; declare unsupported or
   unmeasured shapes honestly. Cold-only, declaration-gated preparation does not
   close #226. Re-impose current restrictions, hands and model/effort settings on
@@ -205,7 +206,19 @@ current interface facts without establishing safe resume:
   2026-09-10T11:30:55Z tags `latest` and `next` as 0.1.5-rc.1 (published
   2026-09-10T03:12:53Z) and `alpha` as 0.1.5-alpha.2. The live registry is
   unreachable from this box, so the qualifying seat re-resolves the tags at
-  run time and records the result.
+  qualification time under answer N1 and records the result. This visit's
+  fetch attempt at 2026-09-10T13:47:19Z failed name resolution
+  (`curl: (6) Could not resolve host: registry.npmjs.org`).
+- The plugin tarball the isolated installs used,
+  `.forge/dsh-qualify/dsh-plugin-cli-session-0.2.0.tgz`, lists exactly
+  `package.json`, `lib/index.js`, `lib/startup.js`, `cordis.patch.yml`,
+  `README.md` and `LICENSE`, the upstream `files` set plus npm's always-included
+  manifest. This visit extracted it and compared each file with the checkout at
+  `0f487e74`, and all six are byte-identical. Upstream commits its built `lib/`
+  and publishes no sourcemap or declaration file. The only reader of the
+  removed getter in the published bytes is `lib/index.js:253`; its source
+  counterpart is `src/index.ts:252`, which casts the value to a local event
+  type. That settles answer N3.
 - The four `controller-claude-*-probe.json` artifacts and accounting analysis dated
   **2026-09-10** establish same-root continuity on Claude **2.1.266**, observed
   Read-grant replacement, and partial native-tool and MCP removal. Three sample
@@ -260,14 +273,18 @@ are outside this change.
 The DSH dependency/profile used for qualification is installed only under this
 worktree or task-owned temporary storage and is pinned to the core release
 above and to the repository-owned plugin adaptation's upstream commit and byte
-digests, with its resolved dependency identity recorded. It does not alter the
-live global DSH pin, profiles, credentials or other runs. Brokkr's production
+digests, with its resolved dependency identity recorded. Qualifying and
+implementing seats do not alter the live global DSH pin, profiles, credentials
+or other runs. At run time Brokkr verifies the composite in the DSH home it
+already resolves, and never installs, composes or updates one. Deploying the
+pair into an ordinary home is an operator ruling (answer N2). Brokkr's production
 integration remains Rust under `crates/`; loading a provider plugin through
 DSH's documented extension API does not authorize a second Brokkr runner, a
 provider-package patch or UUID interception. The adaptation is
 extension-boundary source, the side decision 0009 leaves language-neutral. It
 is tracked at a location design D6 names, outside `crates/` and every frozen
-tree, and keeps the upstream MIT licence and provenance. It runs only inside
+tree, as the six-file published set answer N3 defines, and keeps the upstream
+MIT licence and provenance. It runs only inside
 DSH's plugin loader and is never built into, loaded by or executed by Brokkr.
 Its bytes join the pinned composite identity; they do not become a Brokkr
 runtime.
@@ -277,7 +294,8 @@ runtime.
 These specification answers were recorded across the returns on 2026-09-09
 and 2026-09-10. Answers A–K remain settled; L corrects the delta operation for
 their new semantics without reopening them, and M applies the operator's
-2026-09-10 ruling to K's pinned core without reopening K's route. Their
+2026-09-10 ruling to K's pinned core without reopening K's route. N settles
+four rules M left open. Their
 observable answers are scenarios in the owning deltas. The council must carry
 these choices into `design.md` Decisions and the numbered rulings of proposed
 0056; this is not a claim of operator acceptance.
@@ -493,9 +511,9 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   plugin's development matrix pins it. The selected core is the latest
   published release, `@deepseek-ai/dsh` 0.1.5-rc.1 at
   `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, tagged `latest` and `next`. The
-  qualifying seat re-resolves the tags at run time. If a newer release has been
-  published, it is selected instead, and the evidence names the exact version
-  and how it was resolved. Evidence never transfers between core versions in
+  qualifying seat re-resolves the core at qualification time under N1's rule,
+  and the evidence names the exact version and how it was resolved. Evidence
+  never transfers between core versions in
   either direction. The 0.1.0-rc.6 measurement remains dated history, and
   records of it gain a new dated reversal entry instead of being rewritten.
 
@@ -510,8 +528,9 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   seed, which the plugin's own `firstSeq` already follows. The adaptation is
   therefore a repository-owned copy of the plugin at upstream commit
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda` whose only delta is that
-  accessor, in its source and built bytes, reviewable line for line against the
-  upstream. Its identity is the upstream commit plus the digests of the delta
+  accessor in the published built module `lib/index.js`, reviewable line for
+  line against the upstream. N3 fixes the compared unit and corrects this
+  answer's earlier "source and built bytes". Its identity is the upstream commit plus the digests of the delta
   and of the installed bytes. The composite identity and assessment admit that
   digest, never the unchanged package name or version. It keeps the upstream
   CLI surface: `--new`, `--session <id>`, `--output-format stream-json`, the
@@ -532,8 +551,9 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   adapter-owned Cordis extension only beside the maintained plugin, for a
   missing policy or pre-work signal. This fault is inside the runner's own
   fold, so an extension beside it cannot cure it without becoming a second
-  runner. Design D6 must name the adaptation's location, build, provenance and
-  digest inputs. D10 and proposed decision 0056 ruling 5 must record the
+  runner. Design D6 must name the adaptation's location, provenance and digest
+  inputs and the run-time verification N2 requires. N3 settles that nothing is
+  built. D10 and proposed decision 0056 ruling 5 must record the
   admission of a repository-owned plugin; only the operator accepts 0056.
   Rejected alternatives: re-pinning any older core (ruled out by the
   operator); patching the installed package in place, or a runtime shim that
@@ -546,6 +566,83 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   for DeepSeek. It neither downgrades nor claims a global DSH limitation.
   Discovery finds a lawful replacement, so that branch is a scenario, not the
   plan.
+
+- **N — Clarify return 2026-09-10: four rules M left open.** The clarifier's
+  Q1–Q4 are adopted as real ambiguities in M and AS1. Each answer below is an
+  AS1 scenario, and N2 also amends AS2's DSH scenario. None reopens A–M's
+  route, pin, accessor or safety rules.
+
+  - **N1 — "Latest release" is the version the `latest` dist-tag names,
+    resolved once at qualification.** The operator named the latest release,
+    and `latest` is the channel the publisher promotes. Resolution happens once,
+    before the qualifying seat installs or verifies the core it measures. A
+    version that only `next`, `alpha` or another tag names is recorded unselected
+    and needs an operator ruling. A `latest` moved back to an older version
+    selects nothing older than 0.1.5-rc.1, because M forbids a downgrade. An
+    unreachable registry falls back to the document cached by the task-owned
+    install. That resolution is marked cached, with the document's fetch time
+    and the failed live attempt, and never claims that no newer release existed.
+    A release published after resolution does not reopen a completed
+    qualification: an installed core that differs from the qualified one is
+    version drift under G and declines offers as `unverified-harness`.
+    Rejected: the highest semver across all tags, which would select a channel
+    the publisher has not promoted; the most recent publish time, which ranks
+    `0.1.5-alpha.2` against `0.1.5-rc.1` by clock although semver ranks the
+    alpha lower; and re-resolving at every Brokkr launch, which turns a pinned
+    qualification into a moving target and duplicates G.
+  - **N2 — Brokkr verifies a composite; it never installs one (the
+    clarifier's reading B).** At run time the adapter uses its shipped seams: the
+    executable from `BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on PATH, the home
+    from `$DSH_HOME` or `$HOME/.dsh`, and that home's admitted `headless`
+    profile. Before provider work it recomputes D6's composite identity (core,
+    Node, resolved dependencies, installed plugin bytes, patch and composed
+    profile). Only a match takes an offer or constructs `--new`/`--session`. A
+    mismatch declines any offer as `unverified-harness`, runs the shipped cold
+    invocation unchanged and records no offerable root. The global-unchanged
+    rule was a qualification-seat rule and is now scoped to seats. The
+    qualification and the Rust route's end-to-end proof point the same seams at
+    the task-owned home, so they exercise the adapter's real resolution and
+    argv. AS1's "DSH SHALL take eligible offers" is met by a measured, enabled
+    shape proven that way. Deploying the pair into an ordinary DSH home is an
+    operator action to record as a ruling. It is not a delivery gate or a hidden
+    precondition. Reading A is rejected: installing Node packages or composing a
+    profile at spawn would make Brokkr a plugin manager, which the commission's
+    framing excludes. It would put network and mutable-state steps inside D5's
+    per-invocation deadline and drive a Node toolchain from Rust-only production
+    (0009). D6 already selects a verify-before-spawn composite check.
+  - **N3 — The adaptation is the six-file published set, committed as bytes
+    and never rebuilt.** The unit of comparison is what DSH's plugin loader
+    installs: `package.json`, `lib/index.js`, `lib/startup.js`,
+    `cordis.patch.yml`, `README.md` and `LICENSE` at `0f487e74`. Five stay
+    byte-identical. `lib/index.js` differs only in the line-253 expression that
+    reads the event interval. Upstream commits that built module, publishes no
+    map or declaration that would also carry the line, and the tarball equals
+    the checkout (Evidence). The provenance note lives outside the set and cites
+    the upstream source counterpart, `src/index.ts:252`. No Node or TypeScript
+    build runs, so no toolchain joins the identity. Upstream's typecheck and
+    tests, which pin 0.1.0-rc.6 development dependencies, are not gates.
+    Rejected: vendoring the whole checkout, which carries a lockfile, tests and
+    CI that no realm gate runs; vendoring the source and rebuilding, which needs
+    either a source cast or a devDependency move (a second delta) and makes the
+    tsdown/TypeScript/Node toolchain part of the identity; and vendoring the
+    source beside the committed module, two copies whose agreement nothing
+    checks. M's "source and built bytes" is corrected to the built module.
+  - **N4 — The reversal entry is a dated `limitations` string; the closed
+    shape gains no field.** D5's closed shape and the loader in
+    `crates/brokkr-runtime/src/agents.rs` admit `status`, `identity`, `classes`,
+    `boundaries`, `hands`, `evidence`, `limitations` and `reason`. `limitations`
+    is the list of free-text measured facts, so it is the append-only dated
+    ledger. Existing entries keep their bytes and order, including the one that
+    states the 0.1.0-rc.6 pin. The reversal is appended as a string beginning
+    `2026-09-10` that names the ruling, the reversed pin and the superseded
+    `dsh-pair-qualification-010rc6.json`. `status`, `identity`, `evidence` and
+    `reason` describe the current pin. A superseded entry followed by its dated
+    reversal reads as history, not a current claim. Rejected: a closed `history`
+    field, which needs a loader, test, digest and packaged-copy change plus a D5
+    amendment for one entry, against D5's "no evidence database"; rewording the
+    old entry into the past tense, which rewrites measured history; and relying
+    on `evidence.interface` alone, which names current evidence and must move to
+    the 015rc1 file.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -1082,3 +1179,54 @@ modified exactly AS1–AS3 and PM4 and changed only those two living files. All
 five provenance sections stayed byte-identical, and strict validation of the
 twelve living specs passed. `git diff --check` is clean. Cargo is not on this
 box's PATH, so this return claims no Rust, bundle or release-binary result.
+
+## Current successor specify return — DSH clarify Q1–Q4, 2026-09-10
+
+This visit belongs to run `current-successor-operator-rulin-b83add73`. It
+adopts HEAD `eee1ce5` and the dated change `2026-09-09-226-session-resumption`,
+and answers the four questions clarify returned as answer N. N1 is the
+dist-tag resolution rule, N2 is run-time verification without installation, N3
+is the adaptation's compared unit and N4 is the home of the dated reversal
+entry. AS1 now states each rule and gains six scenarios. The newer-core
+scenario gains the drift clause, and AS2's DSH scenario verifies the resolved
+home instead of composing a profile per invocation. The global-unchanged rule
+is scoped to qualifying and implementing seats. M's "source and built bytes"
+is corrected to the published built module. Answers A–M and the delta
+operations of L are not reopened.
+
+This visit did not execute DSH or any model. It read the plugin checkout and
+tarball under `.forge/dsh-qualify/`, extracting the tarball into that tree's
+`tmp/` to compare it byte for byte with the checkout. It read the Rust DSH
+driver's executable and home resolution and the closed resume-shape loader.
+One registry fetch failed name resolution. The global DSH installation,
+profiles and credentials were not read or touched.
+
+These downstream artifacts still owe the reversal and N's consequences, and
+stay outside this office's commit:
+
+- design D6: the adaptation's location, its six-file provenance and digest
+  inputs, and N2's verify-before-spawn resolution and unverified cold path;
+  D10 row 5; and a dated design reconciliation section;
+- proposed decision 0056, ruling 5 and Consequences, still `proposed`,
+  including the operator's pending deployment ruling from N2;
+- `adapters/dsh.json`: `identity`, `evidence`, `reason` and an appended
+  `2026-09-10` `limitations` entry under N4, plus any packaged copy the loader
+  tests pin;
+- `docs/guides/provider-adapters.md`: the pin, the run-time seams and how an
+  operator deploys and verifies the pair;
+- tasks 1.1, 6.4, 10.3, 10.7, 11.3, 11.5 and 13.1, reopened or re-ticked
+  truthfully;
+- the Rust route in 8.8, 8.10 and 9.6, including N2's composite check.
+
+Task 11.3 is enabled only on measured
+`.forge/tasks/dsh-pair-qualification-015rc1.json` evidence. Codex 10.5, Claude
+10.6 and LaneTally 10.8 keep their recorded state.
+
+Strict active validation passes. The deltas parse as **20 requirements / 135
+scenarios**, still **15 ADDED and five MODIFIED**. In a scratch copy with
+tasks ticked only there, the normal dated archive modified exactly AS1–AS3 and
+PM4 and changed only those two living files. Each capability kept exactly one
+provenance pointer for this change, and strict validation of the twelve living
+specs passed. `git diff --check` is clean. Cargo is
+not on this box's PATH, so this return claims no Rust, bundle or release-binary
+result.
