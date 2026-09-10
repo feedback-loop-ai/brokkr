@@ -92,11 +92,19 @@ all-features switch that activates an unproved release binary.
 
 Low-level tests may reach explicitly selected experimental Seatbelt components
 while the production fence is closed. They cannot append a successful
-Seatbelt run record. The activation state changes only after both hands paths
-implement the complete policy, qualifying native evidence closes every
-activation residual, and the activation revision reruns the required native
-and host-independent suites. This combines the existing `Offer`, doctor, and
-refusal surfaces with one fail-closed authority rather than adding a registry.
+Seatbelt run record. D14 owns the canonical activation order and distinguishes
+two evidence-bearing revisions. The implementation revision keeps Seatbelt
+`unbuilt: ii`; qualifying native evidence must close every activation residual
+and host-independent validation must pass on that revision. That evidence
+authorizes only creation of a narrow activation candidate by flipping the
+single build-state authority. The complete native and host-independent matrix
+then reruns on that exact activation revision, including ordinary
+run/resume/rerun, gates, records, doctor, and readouts. Only the post-flip pass
+authorizes acceptance, integration, or a full-peer claim. Failure leaves or
+reinstates the unbuilt verdict and records the exact residual; evidence from
+the implementation revision cannot bless a failing activation revision. This
+combines the existing `Offer`, doctor, and refusal surfaces with one fail-closed
+authority rather than adding a registry.
 
 ### D2 — The native candidate is a transient launchd lifetime pair
 
@@ -462,9 +470,12 @@ The dependency order is fixed:
 3. if and only if it passes, implement the low-level planner, executor, both
    hands paths, and native cases behind the closed production fence;
 4. close R1–R4 and all remaining native obligations on the implementation
-   revision;
-5. flip the single activation state, then rerun the complete native matrix on
-   that exact revision, including run/resume/rerun and records/readouts; and
+   revision, and pass the host-independent validation suite on that same
+   closed-fence revision;
+5. flip only the single activation state to create the activation revision,
+   then rerun the complete native and host-independent matrix on that exact
+   revision, including run/resume/rerun, gates, records, doctor, and readouts;
+   and
 6. run format, clippy, all-features locked workspace tests, self/verify bundle
    compiles, release build where commissioned, and controller/CI exact coverage.
 
@@ -485,6 +496,7 @@ controller-owned and pending until their real results exist.
 | Simplicity: reuse `HandsSpec`, bind types, limits, `Offer`, engine composition, doctor, records, and readouts. | **Adopt.** | Slice I already owns those public seams; D1, D4 and D12 extend them instead of rebuilding them. |
 | Both: avoid a new crate, public trait/plugin system, vocabulary, CLI workflow, or pre-emptive contract. | **Adopt.** | D4 uses sealed internal types and at most one private module; D13 keeps existing wire versions unless measurement proves a gap. |
 | Simplicity: keep one private Seatbelt module and a small boundary-selected launcher. | **Adopt with a lifetime constraint.** | D4 uses at most one private module and a dispatcher, but D2 and D5 keep native lifetime and attempt ownership boundary-specific because direct-child/group kill cannot satisfy `setsid`, supervisor death, or overlay persistence. |
+| Simplicity: collapse D5–D13 and repeated pre-probe production detail into a short invariants-and-seams section. | **Reject the collapse; adopt the dependency constraint.** | The accepted deltas and design dialect require explicit ownership, mechanism, alternatives, and refusal choices for overlays, masks, Git, inputs, cancellation, transport, and records; removing them would leave downstream tasks to invent security semantics. D3 and D14 nevertheless prohibit implementing any dependent mechanism before the native lifetime probe passes, and observable scenarios remain owned by the deltas. |
 | Robustness: separate preparation, seat-attempt state, call state, and teardown. | **Adopt.** | Current `box_argv`, `session_dir`, and child-kill paths conflate lifetimes; D2, D4 and D5 give each required owner. |
 | Simplicity: use transient launchd state, not a resident daemon/XPC service. | **Adopt and strengthen.** | D2 chooses two transient jobs so the guard survives payload bootout; D3 requires public unprivileged proof before implementation. |
 | Robustness: launchd/process-coalition names are hypotheses until a separate observer proves detach and supervisor-death behavior. | **Adopt.** | D3 includes positive and group-kill negative controls, stable identities, heartbeat quiet, job cleanup, and fail-closed stop conditions. |
@@ -496,6 +508,7 @@ controller-owned and pending until their real results exist.
 | Simplicity: private hooks plus profile denial; no Git shim or loader injection. Robustness: discover the complete Git administration graph and narrow allowed mutations. | **Combine.** | D9 treats private routing as convenience and the normalized profile as independent protection, with primary and linked-worktree adversaries. |
 | Simplicity: protect and revalidate exact inputs directly, refusing conflicts by default. Robustness: a capsule can avoid mutable input spellings. | **Combine, favoring the smaller first mechanism.** | D10 uses direct read/execute grants plus independent mutation denial and pre-spawn refusal, which the delta explicitly permits. A verified capsule is reconsidered only if post-R3 native evidence shows a required non-conflicting shipped layout cannot work directly. |
 | Simplicity: reuse the existing availability table. Robustness: one evidence-gated activation authority must feed every verdict. | **Combine.** | D1 and D12 keep the table/readouts but derive their built state from one runtime authority; readiness remains separate. |
+| Both returned positions: implementation-revision evidence authorizes the activation edit; activation-revision evidence authorizes acceptance, and one canonical order must state both verdicts. | **Combine and adopt.** | D1 now names the two evidence-bearing revisions and their distinct verdicts; D14 owns the numbered sequence, including host-independent validation on both revisions, while the migration plan follows it. This removes the circular pre-flip demand without allowing stale evidence to bless the admission change. |
 | Simplicity: do not build crash recovery before proving the lease. Robustness: uncertain state must be quarantined and reaped only after identity and quiescence are re-established. | **Combine in dependency order.** | D2 preserves quarantine/recovery invariants required by the delta but explicitly defers any production reaper until D3 proves the native domain. |
 | Simplicity: use liveness EOF for controller loss and add an MCP supervisor only if cancellation is observable. Robustness: explicit cancellation cannot remain prose. | **Reject deferring the cancellation seam.** | The delta distinguishes explicit cancellation from server/wrapper loss, and the current synchronous loop cannot observe it while blocked. D11 therefore retains a narrow request supervisor/channel, implemented only after D3 passes. |
 | Both: one fail-closed native target can cover both entry paths; missing/zero/skipped cases must fail. | **Adopt and strengthen.** | D14 uses a checked obligation matrix, actual revision/host evidence, and a final post-activation rerun without inventing a bespoke framework. |
@@ -556,10 +569,12 @@ feasibility gate; a native failure requires the exact residual and any focused
    safe rollback is already-active `unbuilt: ii`.
 3. After a pass, land the sealed planner/executor, engine-owned attempt state,
    native matrix, both hands paths, guides, and host-independent tests while
-   the production activation fence remains closed.
-4. Close all native residuals on that candidate. Only then flip the single
-   activation state and rerun the complete evidence matrix and repository
-   validation on the exact activation revision.
+   the production activation fence remains closed. Close all native residuals
+   and pass host-independent validation on that implementation revision.
+4. Only then flip the single activation state to create the activation
+   revision and rerun the complete native and host-independent matrix on that
+   exact revision. Acceptance, integration, and a full-peer claim remain
+   forbidden until that post-flip verification passes.
 5. Refresh witness/compose pins only where measured identity changed. Add a
    contract version only if implementation measured a wire need. Do not edit
    frozen versions.
