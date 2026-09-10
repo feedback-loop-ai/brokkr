@@ -147,7 +147,10 @@ NOT:
 - change an existing `-wal`;
 - open the journal read-write, migrate, repair or checkpoint it.
 
-A missing journal SHALL gain no file of any kind.
+An existing `-shm` is SQLite's shared-memory index of the `-wal`. Readers
+coordinate through it, so its bytes may change during a read, and it carries
+no journal content. A missing journal SHALL gain no file of any kind: no
+database, no `-wal` and no `-shm`.
 
 #### Scenario: A tool output cannot become terminal control or a journal event
 - **WHEN** a transcript contains an ANSI escape, a shell command, a credential-shaped sentinel and tool output
@@ -163,5 +166,14 @@ A missing journal SHALL gain no file of any kind.
 - **AND** any `-wal` that appeared is empty or holds no frame; a `-shm` index may appear
 
 #### Scenario: A read leaves an existing write-ahead log as it found it
-- **WHEN** the same reads open a quiescent journal whose `-wal` already exists
-- **THEN** that `-wal` keeps its digest and the database bytes are unchanged
+- **WHEN** the same three reads open a quiescent journal whose `-wal` holds at least one committed frame, because the writer that appended the seat's transcript reference stays open and idle across the reads
+- **AND** the test has confirmed that the `-wal` holds a frame before the first read
+- **THEN** each read resolves that reference, that `-wal` keeps its digest and the database bytes are unchanged
+- **AND** the existing `-shm` is not compared, because it is SQLite's shared-memory index and not journal content
+
+#### Scenario: A missing journal gains no file on any read surface
+- **WHEN** the transcript command is given `--db` naming a journal that does not exist
+- **OR** the browser server answers `/api/runs`, `/api/run/<run>`, `/api/view/<run>` and `/api/presentation/<run>/<key>`, and one poll of its run stream `/sse/<run>`, over that path
+- **OR** the TUI is started with `--db` on that path
+- **THEN** the command and the TUI refuse, each route answers not found, and the run stream reports head sequence zero
+- **AND** after each of them that path, its `-wal` and its `-shm` still do not exist

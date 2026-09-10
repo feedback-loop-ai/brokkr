@@ -79,10 +79,12 @@ and this change makes them agree in the open.
 - Carry the proven journal invariant into the living "stays local and inert"
   requirement: a read writes no journal content. The design for this change
   supersedes the archived wording at `design.md:699-700`, and the privacy
-  tests compare an existing `-wal` by digest, not only by length. A missing
-  journal still gains no file of any kind. A proposed addendum to decision
-  0055 records the clarification and adds the seam to ruling 5's enforcement
-  binding. It stays `proposed`.
+  tests compare an existing `-wal` by digest, not only by length, over a
+  fixture whose `-wal` holds committed frames. A missing journal still gains
+  no file of any kind, and a scenario now binds that on the command, the
+  browser routes and the TUI. A proposed addendum to decision 0055 records
+  the clarification and adds the seam to ruling 5's enforcement binding. It
+  stays `proposed`.
 - Finish the rest of #222 on this branch:
   - name and re-run the tracked regression test for each of M1–M11 and
     L1–L11 on the final head;
@@ -124,27 +126,37 @@ and this change makes them agree in the open.
 The same local measurement at `5738889` leaves 189 lines, 31 branches and 9
 functions uncovered in total. The reader rows above account for 22 lines and
 19 branches. The other 167 lines, 12 branches and 9 functions are in files
-this change does not touch, and none of them is a seam matter:
+this change does not touch, and none of them is a seam matter. Each has a
+traced box cause (S11), so each is pending host proof, and none is owned by
+this change at `5738889`:
 
 | Site at `5738889` | Lines / branches / functions | Why this box misses it |
 |---|---|---|
 | `brokkr-cli/src/lib.rs:630-675`, `2560` | 35 / 0 / 3 (`hands` and its two closures) | the `brokkr hands serve` and `exec` routes; their tests return early under `HANDS_BOX_ENV` (`tests/hands.rs:34`, `src/tests.rs:3386`) |
 | `brokkr-protocol/src/hands.rs:778-779`, `926-1062` | 122 / 6 / 6 | `require_bwrap_for`, `execute`, `execute_in` and `run_boxed`; their tests need a new namespace and skip under `HANDS_BOX_ENV` (`hands/tests.rs:14`, `tests/hands.rs:34`) |
-| `brokkr-protocol/src/hands.rs:264` | 0 / 1 / 0 | the no-identity arm of `git_facts`, which depends on the git configuration the test process sees |
+| `brokkr-protocol/src/hands.rs:264` | 0 / 1 / 0 | the no-identity arm of `git_facts`, which depends on the git configuration the test process sees. The host covers it, and the only protocol tests that run differently in the box are the namespace-guarded ones in `hands/tests.rs` |
 | `brokkr-cli/src/doctor.rs:94-103` | 2 / 1 / 0 | `probe_in_box`; its test skips under `HANDS_BOX_ENV` (`doctor/tests.rs:458`) |
 | `brokkr-runtime/src/engine.rs:3745-3749` | 4 / 1 / 0 | the unboxed-dispatch layer re-walk at spawn; its tests skip under `HANDS_BOX_ENV` (`engine/boundary_tests.rs:933`, `1752`, `1854`) |
-| `brokkr-runtime/src/engine.rs:2281-2282`, `2266`, `2369` | 2 / 2 / 0 | the sequence fence for a malformed `change`. `engine/tests.rs:493` looks as though it reaches it and has no box guard, so the cause here is not established |
-| `brokkr-runtime/src/bundle.rs:2372` | 1 / 0 / 0 | a `walk_files` error inside `layer_drift`; the cause here is not established |
-| `brokkr-runtime/src/realms.rs:296-297` | 1 / 1 / 0 | `house_for` with no selected realm; the cause here is not established |
+| `brokkr-runtime/src/engine.rs:2281-2282`, `2266`, `2369` | 2 / 2 / 0 | the accepted arm of both `change` fences: a sequence step and a phase seat that return a well-formed `change`. `engine/tests.rs:493` drives only the malformed arm. The accepted arm is reached only in the `brokkr` binary, by `dialect_validate_expands_the_chiefs_change_and_records_tool_evidence`, which returns early under `HANDS_BOX_ENV` (`tests/machine_proof.rs:928`) |
+| `brokkr-runtime/src/bundle.rs:2372` | 1 / 0 / 0 | a `walk_files` error inside `layer_drift`, reached by the moved-layer boundary tests, which skip under `HANDS_BOX_ENV` (`engine/boundary_tests.rs:933`, `1752`, `1854`) |
+| `brokkr-runtime/src/realms.rs:296-297` | 1 / 1 / 0 | `house_for` for a repository the map does not name, reached through `engine.rs:960` only in the `brokkr` binary, by runs that the namespace-guarded CLI tests make. `realms/tests.rs:568` does not reach it: its repository still maps to a realm, and `house_for_realm` answers `None` |
 
 Host evidence: the host exact-coverage gaps at `9191336`
 (`controller-coverage-gaps.json`) list no line or branch gap in `hands.rs`,
 `engine.rs`, `doctor.rs`, `bundle.rs`, `realms.rs` or the `lib.rs` hands
-route. Each of those files, and the `lib.rs` region, is byte-identical
-between `9191336` and `5738889`. That artifact does not itemize functions,
-so no host evidence reachable here covers the 9 functions. All of these
-stay pending host proof on the final head. None of them is recorded as
-proved by a box run that skipped its test.
+route. The same host run's report is still in this worktree as
+`target/coverage/lcov.info` and `coverage-exact.json`. Its line and branch
+gaps equal that artifact's, and it counts the 13 uncovered functions the
+artifact's note reports, all 13 in `brokkr-view/src/transcript.rs`. So the
+9 local function misses (`lib.rs:630`, `632`, `634`; `hands.rs:938`, `968`,
+`969`, `999`, `1024`, `1038`) are covered on the host. Each of the files
+above is byte-identical between `9191336` and `5738889`. For `lib.rs`, the
+hands region and the dispatch line at `2560` are unchanged: the first
+`lib.rs` hunk between the two commits starts at line 731, and the last ends
+at line 1444. Even so, all of these stay pending host proof on the final head,
+because a host run on another commit is evidence of the cause and not proof
+of the final head. None of them is recorded as proved by a box run that
+skipped its test.
 
 ## Capabilities
 
@@ -157,15 +169,22 @@ None.
 - `transcript-reading`: add the requirement that the reader's failure
   handling is proved through a unit-test-only seam that holds no production
   fault switch and never bypasses the boundary. Restate "Transcript prose
-  stays local and inert" with the measured journal invariant and two
-  scenarios. No other settled requirement or scenario changes.
+  stays local and inert" with the measured journal invariant and three
+  scenarios: a read over a journal without sidecars, a read over a `-wal`
+  that holds committed frames, and a missing journal on every read surface.
+  No other settled requirement or scenario changes.
 
 ## Impact
 
 - Code: `crates/brokkr-cli/src/ui/safe_fs.rs`, `ui.rs`, `tui.rs` and their
   unit-test modules; `crates/brokkr-view/src/transcript.rs` tests;
-  `crates/brokkr-cli/tests/transcript_privacy.rs` for the digest check;
-  other `tests/transcript_*.rs` files only to bring over fixture repairs.
+  `crates/brokkr-cli/tests/transcript_privacy.rs` for the digest check and
+  the frame-bearing `-wal` fixture; `tests/transcript_command.rs` for the
+  missing-journal proof; other `tests/transcript_*.rs` files only to bring
+  over fixture repairs.
+- A miss that S11 makes owned extends this list to the file and test module
+  its repair needs, and the change records that extension where it lands.
+  None is owned at `5738889`.
 - No new production or registry dependency, no Cargo feature and no
   `Cargo.lock` change. `scripts/coverage-exact.sh` stays byte-identical.
 - Frozen surfaces stay byte-identical: `contracts/`,
@@ -340,18 +359,125 @@ through that same call (`ui.rs:90`, `1023`), and so do the TUI's views
 (`lib.rs:953`) and the command (`lib.rs:1388`). Proving it once per surface
 would re-prove one function, so the scenario does not multiply surfaces.
 
-### S11 — Every local miss is accounted for, and host proof is still owed (clarify Q4)
+### S11 — Every local miss is accounted for, and host proof is still owed (clarify Q4, second-pass F1)
 
 The first draft named only `lib.rs`. The table above now lists every
-non-reader local miss, with the guard named wherever the box cause was
-traced. Three sites have no established box cause (`engine.rs` sequence
-fence, `bundle.rs:2372`, `realms.rs:296-297`). Their files match `9191336`,
-whose host gaps list none of them. The implementation's first act is still a
-fresh measurement.
+non-reader local miss with its traced box cause. The second clarify pass
+found that three rows had no established cause, while this section also
+said that a miss with no box cause is owned. That made the three sites
+owned and pending at once. They are now traced, and the rule defines what
+a box cause is.
+
+A miss has a box cause when two things hold. First, a host measurement
+covers it on source that is byte-identical for the missed region. Second,
+every test whose executed regions differ between that host measurement and
+the box measurement returns early under `HANDS_BOX_ENV` or on a failed
+namespace probe. A test whose own source changed between the two commits
+is judged by whether it can reach the file at all, not by its region count.
+
+The trace compares the `9191336` host report (`target/coverage/coverage-exact.json`)
+with the `5738889` box report (`target/coverage/local-exact.json`). The
+`brokkr-runtime` crate is byte-identical between the two commits, and so
+are its tests.
+
+- In `brokkr-runtime`'s own unit-test build, the only tests whose executed
+  regions differ are the three moved-layer tests in `engine/boundary_tests.rs`
+  and their `pinned_layer` helper, all behind `HANDS_BOX_ENV`. `layer_drift`
+  runs 79 times on the host and 24 in the box. Its `walk_files` error arm,
+  `bundle.rs:2372`, runs 12 times on the host and never in the box.
+- In the build that the `brokkr` binary and the CLI tests link, the tests
+  that differ are the `HANDS_BOX_ENV` or namespace-guarded tests in
+  `tests/machine_proof.rs:928`, `tests/hands.rs:34`,
+  `tests/delivered_by_brokkr.rs:896`, `src/tests.rs:3386` and
+  `doctor/tests.rs:458`. Two `transcript_surfaces` functions also differ,
+  but they were rewritten between the commits. Neither version of them
+  dispatches a run or loads a realm map, so they cannot reach `engine.rs`
+  or `realms.rs`.
+  - `execute_sequence` runs 17 times on the host and 16 in the box. In
+    that build, the well-formed-`change` arms at `engine.rs:2266`,
+    `2281-2282` and `2369` run on the host and never in the box. Of the
+    guarded tests, only `machine_proof.rs:928` has a seat return a
+    `change` (`change-42` from its design sequence).
+  - `house_for` runs 42 times on the host and 30 in the box. Its no-realm
+    arm, `realms.rs:297`, runs twice on the host and never in the box.
+- In `brokkr-runtime`'s unit-test build, `engine/tests.rs:493` and
+  `realms/tests.rs:568` run completely in both measurements and take the
+  same arms. So neither covers the site the first draft linked it to, on
+  the host or in the box.
 
 Verification applies one rule to the fresh measurement:
 
-- A non-reader miss is recorded as pending host proof, with its box cause.
-- A non-reader miss with no box cause is owned by this change. So is one that
-  the final-head host exact-coverage run leaves uncovered. An owned miss is
-  repaired like a reader miss, and it is never deferred as a residual.
+- The implementation's verification establishes each non-reader box cause
+  again, by the same comparison against the newest host measurement whose
+  source is byte-identical for the missed region. It records that evidence
+  in its verification record. This table is where that check starts, and
+  it is not a substitute for the check.
+- A non-reader miss with a box cause is recorded as pending host proof with
+  that cause. A miss that is not traced this way has no box cause. Being
+  "not yet established" counts as having none.
+- A non-reader miss with no box cause is owned by this change. So is any
+  miss that the final-head host exact-coverage run leaves uncovered,
+  whatever its box cause. An owned miss is repaired like a reader miss. It
+  is never deferred as a residual, and the Impact extension above applies.
+
+At `5738889` every non-reader row has a traced box cause. So "files this
+change does not touch" and "pending host proof" hold now, and the
+final-head host run is what decides them.
+
+### S12 — The existing `-wal` holds committed frames (clarify second-pass F2)
+
+A digest check over a zero-byte `-wal` proves nothing. The command's own
+first read leaves exactly that file, and the risk the requirement names
+(changing, or checkpointing, a `-wal`) exists only when the `-wal` holds
+frames. The tracked fixtures drop every writer inside `world()`, and the
+last close checkpoints and removes the `-wal`. So no tracked test reaches
+the existing-`-wal` branch today.
+
+The scenario now fixes the fixture:
+
+- The writer that appends the seat's transcript reference stays open and
+  idle across the three reads. So the journal is quiescent, and that
+  reference exists only in the `-wal`'s committed frames. The fixture stays
+  below SQLite's autocheckpoint size.
+- Before the first read, the test confirms that the `-wal` holds a frame.
+  It checks this, and does not assume it.
+- Each read resolving that reference shows that it read the frames.
+- The digest comparison then shows that it neither changed nor checkpointed
+  them.
+
+A live run is shaped the same way, with an open writer and a
+frame-bearing `-wal`, so the fixture tests the case the requirement exists
+for.
+
+An existing `-shm` is not compared. It is SQLite's shared-memory index of
+the `-wal`, and readers coordinate through it, so its bytes may change on a
+read. It indexes frames and records reader marks. It holds no journal
+content. The requirement says so, so that a later reader of the tests does
+not mistake the missing comparison for an omission. A `-wal` left by a
+crashed writer, with no connection open, is not this scenario's fixture.
+The requirement's rule that a read leaves an existing `-wal` unchanged
+still applies to it.
+
+### S13 — A missing journal is proved on every read surface (clarify second-pass F3)
+
+The rule that a missing journal gains no file had no scenario, and the
+living command scenario names only the database. S10's invariant lives in
+one function. This guard does not: each surface has its own `is_file`
+check, or none, so one surface's proof cannot stand for another's. Each
+surface that opens a journal is now bound by one scenario, asserting the
+database path, its `-wal` and its `-shm`:
+
+- The command's run resolver skips a journal that is not a file, before
+  any open (`lib.rs:1137`).
+- The browser's journal routes answer 404 on `!db.is_file()`
+  (`ui.rs:85-88`). The run stream's poll opens read-only without that check
+  (`head_seq`, `ui.rs:1022-1027`) and reports sequence zero when the open
+  fails. SQLite's read-only open of a missing file refuses and creates
+  nothing. Because that route is the one without the `is_file` guard, the
+  scenario names it.
+- The TUI refuses through `tui::start`. `tests/machine_proof.rs:3429-3440`
+  already asserts all three suffixes for it.
+
+The command and browser proofs are new tests in the Impact list. The
+journal-independent `/api/session/<id>` route opens no journal and is not
+bound.
