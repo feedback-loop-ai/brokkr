@@ -1558,6 +1558,8 @@ fn codex_whole_token_variants_and_length_boundary() {
         .unwrap(),
         ambient
             .join("sessions/rollout-0199mine.jsonl")
+            .canonicalize()
+            .unwrap()
             .to_str()
             .unwrap()
     );
