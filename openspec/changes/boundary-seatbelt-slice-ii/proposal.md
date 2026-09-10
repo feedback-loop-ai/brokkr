@@ -135,6 +135,9 @@ measured, as accepted decision 0046 requires.
   `last exit code`) or inferred exits fail the startup measurement. An
   omitted `successive crashes` counter is recorded unknown with its raw
   sample, never synthesized as zero; a present nonzero counter fails.
+  Every launchd job fact is read from the print's top-level dictionary, never
+  from a nested coalition or other block and never by print order; a
+  duplicated top-level key is unknown and fails the cell.
   Diagnostic broad profiles never become candidates.
 - Split the helper's ordinary-child stage into stream-setup, spawn/exec and
   child-observed sub-stages with per-step OS errors. Discriminate a child-spawn
@@ -209,7 +212,8 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved starting HEAD `fa7ece5`; `225d2c7`, `8c53dce`, `9f4c2c9` and their
+preserved starting HEAD `098914c`, which is measured candidate `fa7ece5` plus
+its specification reconciliation; `225d2c7`, `8c53dce`, `9f4c2c9` and their
 native measurements remain historical evidence, not checkout targets. It answers the
 current findings in dependency order. The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
@@ -234,6 +238,7 @@ authored in this specify phase. No workflow runner is invoked.
 | Exact startup operation | **Partly answered.** The pre-stage abort is named as the root-inode read and fa7 moved past it. The child-spawn refusal that follows is still unattributed. Broad combination success alone authorizes nothing. | `seatbelt-execution`: Startup diagnosis names operations and targets |
 | Native CI `34457208029` at `fa7ece5` | **Adopt as a fourth failed Gate A prerequisite with measured progress.** S1 and S3 reach `executable`, then the child spawn fails with `EPERM` and exit 2. Three denial controls are observed denied. S2 reached `READY`, stages and a child. The report erased S2's and S3's printed terminal facts. Gate B was not run. | `seatbelt-execution`: Probe payload startup is established separately |
 | Launchd crash counter omitted by macOS | **Adopt as a specification inconsistency.** The measured terminal print omits `successive crashes` for exit 0 and exit 2, so failing an omitted counter makes every launchd cell unpassable. `state`, `runs` and `last exit code` are required. An absent counter stays unknown with its raw sample and is never zero; a present nonzero counter fails. The pass still needs the helper's authenticated facts. | `seatbelt-execution`: An omitted crash counter stays unknown; Required launchd terminal facts still fail closed |
+| Launchd print dictionary scope (clarify, fa7) | **Adopt top-level-only.** The fa7 S2 and S3 terminal prints repeat `state` and `active count` inside both coalition blocks, where they read `active` and 1 even for S3's never-spawned child. Job facts come only from the top-level dictionary of the single outermost block, independent of print order. Nested blocks never supply, complete or override a job fact. A missing top-level key stays unknown. A duplicated top-level key is unknown and fails the cell. Coalition fields are raw evidence only, never liveness, quiescence or survivor facts. First-match scanning, failing on any nested repeat and nested fallback are refuted. The fa7 samples become the parser's regression fixtures in the probe's test data. | `seatbelt-execution`: Launchd job facts come only from the top-level dictionary; The running fa7 sample is non-terminal; Nested or duplicated keys never manufacture a job fact |
 | Child-spawn authority | **Adopt as the next discriminating measurement.** Every failing cell withheld `file-write*` outside the payload, while null stdio opens `/dev/null` for writing before exec. That is the leading hypothesis, not a conclusion. Per-sub-stage errors plus no-spawn, inherited-stdio, null-stdio and single literal diagnostic cells decide it or move attribution to the exec. | `seatbelt-execution`: Child-spawn refusal is localized to its sub-stage |
 | Root-inode removal control unobserved | **Adopt as a blocking evidence gap.** Every fa7 cell reports `negative_controls: []`, so the admitted predicate is not proven load-bearing. An empty removal-control record fails a Seatbelt cell. | `seatbelt-execution`: A Seatbelt cell without an observed removal control fails |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
@@ -322,7 +327,13 @@ candidate is dispatched. The required terminal facts are `state = not running`,
 `successive crashes` is optional because macOS omits it from terminal jobs that
 exited 0 and 2. When absent it stays unknown with its raw sample and is never
 treated as zero; when present, a nonzero count fails. No launchd fact replaces
-the helper's nonce-authenticated `READY`, stages and ordinary child.
+the helper's nonce-authenticated `READY`, stages and ordinary child. Each fact
+comes only from the job's top-level dictionary. The fa7 prints repeat `state`
+and `active count` inside the resource and jetsam coalition blocks, where they
+read `active` and 1 even for S3's never-spawned child. Those nested entries
+are raw evidence, never job, liveness or survivor facts. A missing top-level
+key stays unknown despite a nested copy, and a duplicated top-level key is
+unknown and fails the cell.
 
 The helper records its ordinary-child stage as stream setup for each standard
 stream, spawn/exec and child observed, each with its OS error. A Seatbelt child

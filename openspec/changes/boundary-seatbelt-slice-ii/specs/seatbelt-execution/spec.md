@@ -421,6 +421,34 @@ the raw `launchctl` text that caused each parsed or unknown value. An order-
 dependent result, stale registration or failed bootstrap is a measurement
 failure, not a payload or lifetime verdict.
 
+Every job fact the probe derives from a `launchctl print` sample, in Gate A or
+Gate B, SHALL come from the job's top-level dictionary. That dictionary holds
+the entries at brace depth one inside the sample's single outermost
+`<service-target> = {` block. An entry inside any nested `key = {` block, such
+as `arguments`, an environment block, `resource coalition` or
+`jetsam coalition`, belongs to that block. Nested blocks SHALL NOT supply,
+complete or override a job fact. A top-level key that is missing stays unknown
+even when a nested block carries the same key. The measured fa7 prints show
+why: they repeat `state = active` and `active count = 1` inside both coalition
+blocks while the job's own top level reads `state = not running` and
+`active count = 0`. A key
+that appears more than once at top level SHALL make that fact unknown, whether
+or not the values agree. A duplicated required fact fails the cell, and so
+does a duplicated crash counter or terminating signal. A sample
+with no outermost block, more than one outermost block or unbalanced braces
+has no top-level dictionary, so every fact it would supply is unknown. The
+parse SHALL NOT depend on the order of keys or blocks: a first-match scan that
+is correct only because launchd prints the top-level `state` before the
+coalition blocks does not conform. Nested entries SHALL be recorded as raw
+evidence attributed to their block path. A coalition's `state` or
+`active count` SHALL NOT be treated as job state, liveness, quiescence or
+survivor evidence, and it neither passes nor fails a cell by itself. A
+top-level `active count` is recorded when present; it is not a required
+terminal fact and never replaces the external observer's survivor set. The
+retained fa7 raw samples (S2 while running, S2 terminal and S3 terminal) are
+copied verbatim into the probe's own test data, not into the frozen
+`fixtures/` corpus, and serve as the parser's regression fixtures.
+
 Native CI `34433461814` at candidate
 `6a19a6f4ab9bd30b47537de1a649949cd1099d01` is retained as a failed startup
 measurement on macOS 26.6.2 arm64: direct sandboxed `/usr/bin/python3`
@@ -515,6 +543,19 @@ verdict. Gate B was correctly not run.
 - **WHEN** a terminal print omits or cannot parse `state`, `runs` or `last exit code`, shows `last exit code = (never exited)`, shows a nonzero crash count or a terminating signal, or shows a run count other than one
 - **THEN** that fact stays unknown or failing and the launchd cell fails, while every other parsed field, helper stage and raw sample remains in the report
 
+#### Scenario: Launchd job facts come only from the top-level dictionary
+- **GIVEN** the verbatim fa7 S2 terminal sample and S3 terminal sample, each with top-level `state = not running`, `active count = 0` and `runs = 1`, and `state = active` and `active count = 1` inside both coalition blocks
+- **WHEN** the probe parses them
+- **THEN** S2 yields state `not running`, one run, exit 0 and an unknown crash counter, and S3 yields the same with exit 2; both record top-level `active count = 0`, and each coalition's `state = active` and `active count = 1` is kept only as raw evidence under its block path, with no job fact taken from it and no duplicate declared; S3's coalition `active count = 1` does not count as a live or surviving payload even though its child never spawned
+
+#### Scenario: The running fa7 sample is non-terminal
+- **WHEN** the probe parses the verbatim fa7 S2 sample taken while the job ran, with top-level `state = running`, `active count = 1`, `runs = 1` and `last exit code = (never exited)`
+- **THEN** it records a running, non-terminal observation with no exit fact and continues sampling; it does not treat that sample as terminal or clean
+
+#### Scenario: Nested or duplicated keys never manufacture a job fact
+- **WHEN** a sample lacks a top-level `state`, `runs` or `last exit code` while a nested block carries that key, repeats one of those keys at top level, puts the coalition blocks before the top-level keys, or has no single balanced outermost block
+- **THEN** a missing or duplicated fact stays unknown and fails the cell, a reordered but otherwise well-formed sample parses to the same facts as the original order, no nested value is promoted to a job fact, and the raw sample and every other independently parsed fact remain in the report
+
 #### Scenario: A launchd print never substitutes for helper facts
 - **WHEN** a launchd print shows a clean terminal run but the helper's nonce-authenticated `READY`, exact stages or ordinary child is absent
 - **THEN** the cell fails startup, and its exit fact comes only from the observed `last exit code`, never from the helper's directed intent
@@ -581,7 +622,11 @@ Verdict facts SHALL be captured before harness cleanup. Guard survival SHALL
 be observed after payload teardown and before guard unregister. Quiescence,
 guard state, cleanup ordering and the complete survivor set SHALL come from
 the external observer or guard-private state that the payload cannot write; a
-payload-writable heartbeat or marker may prove activity only. All observed
+payload-writable heartbeat or marker may prove activity only. A guard or
+payload job fact read from `launchctl print` follows the top-level dictionary
+rule of the startup requirement. A coalition block's `state` or `active count`
+SHALL NOT establish guard survival, payload quiescence or the survivor set.
+All observed
 children and helper processes, including a killed supervisor-liveness holder,
 SHALL be waited or reaped on every success and error path after their verdict
 facts have been preserved.
@@ -916,3 +961,17 @@ relevant change SHALL not be attributed to the final candidate.
   semantics, not an accepted-addendum guarantee: a pass still depends on the
   helper's authenticated facts, so no proposed decision is needed. The
   root-inode removal control remains unmeasured and blocks every passing cell.
+- **SEATBELT-R3-STARTUP at `fa7ece5`: which dictionary supplies launchd facts
+  (clarify).** Answer: only the job's top-level dictionary. The fa7 S2 and S3
+  terminal prints carry three `state =` lines and three `active count =`
+  lines, and the nested coalition copies read `active` and 1 even for S3, whose child
+  never spawned. Refute first-match scanning, because it conforms only by print
+  order. Refute failing on any repeated key anywhere in the sample, because
+  every measured print repeats keys in nested blocks and no launchd cell could
+  pass. Refute nested fallback for a missing top-level key, because that turns
+  a coalition fact into a job fact. A duplicated top-level key stays unknown and
+  fails closed, since launchd prints none and a duplicate would be an
+  unattributable observation. Coalition fields are raw evidence only and never
+  establish liveness, quiescence or survivors, which come from the external
+  observer. This is probe observation semantics, not an accepted-addendum
+  guarantee, so no proposed decision is needed.
