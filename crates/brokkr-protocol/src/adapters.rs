@@ -276,6 +276,11 @@ struct Invocation {
     /// report an error and then go on to work, and a session that worked
     /// is not one that refused to start.
     refusal: Option<String>,
+    /// How this invocation ended against the session it was launched for
+    /// (proposed decision 0056 ruling 7, design D7). `run_seat` refuses
+    /// to accept a successful seat from an unsettled rejoin even when the
+    /// child exited clean and wrote a result file.
+    launch: LaunchTerminal,
 }
 
 /// Provider-reported model ids are journal data, so admit only the
@@ -641,6 +646,38 @@ enum Confirmation {
     Mismatch,
 }
 
+/// How an invocation ended with respect to the session it was meant to
+/// rejoin. This is the fact `run_seat` needs and `Invocation` did not
+/// carry: a rejoin that never confirmed — or that confirmed a DIFFERENT
+/// root — must not be accepted as a successful seat merely because the
+/// process exited clean and wrote a result file. The result came from a
+/// session the engine did not offer, and D7 says a missing required
+/// exact-root confirmation makes the attempt failed/indeterminate, never
+/// a successful guessed rejoin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LaunchTerminal {
+    /// No rejoin was attempted: an ordinary cold launch, including one
+    /// whose fresh root the provider confirmed.
+    Cold,
+    /// A rejoin was attempted and provider evidence confirmed the exact
+    /// offered root before first work.
+    Resumed,
+    /// A rejoin was attempted and the provider never named the offered
+    /// root at all. The invocation's session is unknown.
+    Unconfirmed,
+    /// A rejoin was attempted and the provider named a different root.
+    /// That root is never relabelled as the requested session.
+    Mismatch,
+}
+
+impl LaunchTerminal {
+    /// Whether the invocation's session is uncertain enough that no
+    /// successful seat may be accepted from it.
+    fn is_unsettled(self) -> bool {
+        matches!(self, LaunchTerminal::Unconfirmed | LaunchTerminal::Mismatch)
+    }
+}
+
 /// Holds a launch's candidate facts until the provider confirms a root,
 /// and publishes exactly one launch row per executing model site.
 ///
@@ -795,6 +832,23 @@ impl LaunchHold {
     /// machine evidence that no session opened.
     fn unconfirmed_rejoin(&self) -> bool {
         self.plan.rejoining.is_some() && self.outcome.is_none()
+    }
+
+    /// The invocation's session outcome once the child has ended. A
+    /// rejoin with no outcome and a rejoin that named a different root
+    /// are both unsettled; only an exact match is a confirmed resume.
+    fn terminal(&self) -> LaunchTerminal {
+        if self.plan.rejoining.is_none() {
+            return LaunchTerminal::Cold;
+        }
+        match self.outcome {
+            Some(Confirmation::Resumed) => LaunchTerminal::Resumed,
+            Some(Confirmation::Mismatch) => LaunchTerminal::Mismatch,
+            // `Fresh` is unreachable for a rejoining plan (a fresh root is
+            // only ever observed beside `rejoining: None`); treating it as
+            // unconfirmed is the fail-closed reading if that ever changes.
+            Some(Confirmation::Fresh) | None => LaunchTerminal::Unconfirmed,
+        }
     }
 }
 
@@ -2070,6 +2124,7 @@ fn invoke_stream_json(
         stderr: stderr_thread.join().unwrap_or_default(),
         state: None,
         refusal,
+        launch: LaunchTerminal::Cold,
     })
 }
 
@@ -2410,6 +2465,77 @@ fn claude_selector_conflict(extra: &[String]) -> Option<String> {
         .cloned()
 }
 
+/// One authoritative claude restriction control, canonicalized across
+/// the spellings the installed 2.1.266 help gives it. The boolean says
+/// whether the measured grammar requires a value: `--strict-mcp-config`
+/// stands alone, while `--permission-mode`, `--model`, `--effort`,
+/// `--tools`, `--mcp-config` and the allowed/disallowed tool lists each
+/// take at least one. `--allowedTools`/`--allowed-tools` are ONE control
+/// under two names, so a second spelling is a duplicate rather than a
+/// companion.
+fn claude_restriction_control(part: &str) -> Option<(&'static str, bool)> {
+    let name = part.split_once('=').map_or(part, |(name, _)| name);
+    Some(match name {
+        "--permission-mode" => ("--permission-mode", true),
+        "--tools" => ("--tools", true),
+        "--strict-mcp-config" => ("--strict-mcp-config", false),
+        "--mcp-config" => ("--mcp-config", true),
+        "--allowedTools" | "--allowed-tools" => ("--allowedTools", true),
+        "--disallowedTools" | "--disallowed-tools" => ("--disallowedTools", true),
+        "--model" => ("--model", true),
+        "--effort" => ("--effort", true),
+        _ => return None,
+    })
+}
+
+/// The first authoritative claude restriction that is duplicated or
+/// malformed, if there is one (AS3; proposed decision 0056 ruling 6).
+///
+/// The controls are the ones the engine composes the current restriction
+/// plan from. A last-wins CLI resolves a second copy in the seat's own
+/// favour, which is how a permission mode, tool list, MCP document,
+/// allowed-tools list, model or effort could silently replace the plan
+/// the operator believes applies — so a duplicate is refused before any
+/// provider work rather than appended and gambled on. The same walk
+/// enforces the measured arity: a value-taking control with nothing after
+/// it, or with the next flag where its value belongs, is malformed.
+///
+/// `false` for a control that stands alone, `true` for one that takes a
+/// value. Only the flag's NAME decides; the value is never classified.
+fn claude_restriction_conflict(extra: &[String]) -> Option<String> {
+    let mut seen: Vec<&'static str> = Vec::new();
+    let mut index = 0;
+    while index < extra.len() {
+        let part = &extra[index];
+        if let Some((control, takes_value)) = claude_restriction_control(part) {
+            if seen.contains(&control) {
+                return Some(format!(
+                    "refusing to invoke the agent CLI: the seat's arguments carry '{control}' more \
+                     than once, and the CLI resolves a duplicate last-wins against the current \
+                     restriction plan the engine composed (proposed decision 0056 ruling 6)"
+                ));
+            }
+            seen.push(control);
+            if takes_value && !part.contains('=') {
+                match extra.get(index + 1) {
+                    // A value that starts with `-` is the next flag, not
+                    // this control's value; the empty string `--tools ""`
+                    // is the one admitted empty value and does not.
+                    Some(value) if !value.starts_with('-') => index += 1,
+                    _ => {
+                        return Some(format!(
+                            "refusing to invoke the agent CLI: the seat's arguments carry \
+                             '{control}' with no value, which the measured grammar requires"
+                        ))
+                    }
+                }
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
 /// The cold argv for the claude stream: the print/stream-json shape this
 /// driver has always used, then the seat's own composed passthrough —
 /// the permission mode, the model and effort, `--tools ""`, the strict
@@ -2479,6 +2605,9 @@ fn claude_launch(
              attempt rejoins (proposed decision 0056 ruling 4); an argument that decides it \
              instead is refused before any provider work rather than dropped in silence"
         ));
+    }
+    if let Some(conflict) = claude_restriction_conflict(extra) {
+        return Err(conflict);
     }
     // `--no-session-persistence` is admitted — it is a legitimate thing
     // for a seat to want — and it makes the shape nonresumable, which is
@@ -2635,6 +2764,7 @@ fn invoke_codex(
         stderr,
         state: None,
         refusal,
+        launch: LaunchTerminal::Cold,
     })
 }
 
@@ -2826,6 +2956,7 @@ fn invoke_dsh_with(
         stderr: redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default()),
         state: None,
         refusal: None,
+        launch: LaunchTerminal::Cold,
     })
 }
 
@@ -2905,8 +3036,9 @@ fn invoke_with_stager(
             let plan = claude_launch(&bin, extra, session, input, CLAUDE_SHAPE, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
-            let invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
             hold.finish(emit);
+            invocation.launch = hold.terminal();
             Ok(invocation)
         }
         // Same harness, same stream: LaneTally's wrapper is
@@ -2926,8 +3058,9 @@ fn invoke_with_stager(
             let plan = claude_launch(&bin, extra, session, input, LANETALLY_SHAPE, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
-            let invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation = invoke_stream_json(&command, prompt, &workdir, &mut hold, emit)?;
             hold.finish(emit);
+            invocation.launch = hold.terminal();
             Ok(invocation)
         }
         AdapterKind::Codex => {
@@ -2935,8 +3068,9 @@ fn invoke_with_stager(
             let plan = codex_launch(&bin, extra, &workdir, session, input);
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
-            let invocation = invoke_codex(&command, prompt, &workdir, &mut hold, emit)?;
+            let mut invocation = invoke_codex(&command, prompt, &workdir, &mut hold, emit)?;
             hold.finish(emit);
+            invocation.launch = hold.terminal();
             // Ruling 8's ONE pre-work replacement, and only on evidence
             // that no session opened at all: the rejoin was never
             // confirmed, no row proved the harness began work, the
@@ -2966,8 +3100,9 @@ fn invoke_with_stager(
                 );
                 let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
-                let outcome = invoke_codex(&command, prompt, &workdir, &mut replacement, emit)?;
+                let mut outcome = invoke_codex(&command, prompt, &workdir, &mut replacement, emit)?;
                 replacement.finish(emit);
+                outcome.launch = replacement.terminal();
                 // No recursion: a failed replacement reports its own
                 // outcome, whatever that is.
                 return Ok(outcome);
@@ -3038,6 +3173,7 @@ fn invoke_with_stager(
                 // an inline exec site carries an empty chain anyway, so
                 // there is no fallback for a refusal to reach.
                 refusal: None,
+                launch: LaunchTerminal::Cold,
             })
         }
     }
@@ -3602,6 +3738,7 @@ fn run_seat(
         stderr,
         state,
         refusal,
+        launch,
     } = invocation;
     // A provider refusal before the first turn is a determinate failure
     // to start (decision 0053): `result: failed`, no `accepted`, no
@@ -3657,6 +3794,33 @@ fn run_seat(
                 data: row,
             });
         }
+    }
+    // A rejoin that never confirmed the exact offered root — or that
+    // named a DIFFERENT one — has an unknown session, whatever the
+    // process exited with and whatever it wrote. Design D7: a missing
+    // required exact-root confirmation makes the attempt failed, never a
+    // successful guessed rejoin, and the adapter spends no cold
+    // replacement on it. The delivered file, if any, is left on disk for
+    // diagnosis; it is not this attempt's accepted work.
+    if launch.is_unsettled() {
+        let reason = match launch {
+            LaunchTerminal::Mismatch => {
+                "provider named a different session than the offered root; \
+                 refusing to accept the invocation"
+            }
+            _ => {
+                "provider never confirmed the offered session; \
+                 refusing to accept the invocation"
+            }
+        };
+        send(Body::Result {
+            effect_id,
+            attempt_id,
+            status: ResultStatus::Failed,
+            result: None,
+            error: Some(reason.to_string()),
+        });
+        return;
     }
     let served_model = if kind == AdapterKind::Exec {
         MODEL_NOT_APPLICABLE.to_string()

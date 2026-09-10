@@ -2702,6 +2702,117 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
     }
 }
 
+/// AS3's rule that invocation settings cannot weaken a resume: each
+/// authoritative claude restriction control is named at most once, with a
+/// value where the measured grammar requires one. A second spelling — or
+/// the alias pair `--allowedTools`/`--allowed-tools` — is how a last-wins
+/// CLI would silently replace the plan the engine composed, so it is
+/// refused before any provider work on cold and resume alike.
+#[test]
+fn claude_refuses_a_duplicate_or_valueless_authoritative_restriction() {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let enabled = enabled_input(CLAUDE_SHAPE, "2.1.266", std::path::Path::new("/w"));
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    for (case, extra) in [
+        (
+            "permission mode twice",
+            s(&[
+                "--permission-mode",
+                "acceptEdits",
+                "--permission-mode",
+                "plan",
+            ]),
+        ),
+        (
+            "joined and separate permission mode",
+            s(&["--permission-mode=acceptEdits", "--permission-mode", "plan"]),
+        ),
+        ("tools twice", s(&["--tools", "", "--tools", "Bash"])),
+        (
+            "strict mcp config twice",
+            s(&["--strict-mcp-config", "--strict-mcp-config"]),
+        ),
+        (
+            "mcp config twice",
+            s(&["--mcp-config", "a", "--mcp-config", "b"]),
+        ),
+        (
+            "allowed tools and its alias",
+            s(&["--allowedTools", "Bash", "--allowed-tools", "Edit"]),
+        ),
+        ("model twice", s(&["--model", "m", "--model", "n"])),
+        ("effort twice", s(&["--effort", "low", "--effort", "high"])),
+        ("permission mode with no value", s(&["--permission-mode"])),
+        (
+            "permission mode whose value is the next flag",
+            s(&["--permission-mode", "--model", "m"]),
+        ),
+        (
+            "mcp config with no value",
+            s(&["--strict-mcp-config", "--mcp-config"]),
+        ),
+    ] {
+        for offered in [None, Some(session)] {
+            let Err(error) = claude_launch("claude", &extra, offered, &enabled, CLAUDE_SHAPE, None)
+            else {
+                panic!("{case} must refuse before any provider work");
+            };
+            assert!(
+                error.contains("refusing to invoke the agent CLI"),
+                "{case}: {error}"
+            );
+        }
+    }
+    // Every control once, in both the separate and joined spellings,
+    // still builds a cold and a warm argv. A version shim stands behind
+    // the warm path so the probe answers the assessed version.
+    let dir = tempfile::tempdir().unwrap();
+    let bin = executable(
+        dir.path(),
+        "claude",
+        &format!(
+            "#!/bin/sh\n{}exit 1\n",
+            version_preamble("2.1.266 (Claude Code)")
+        ),
+    );
+    let bin = bin.to_str().unwrap();
+    for extra in [
+        s(&[
+            "--permission-mode",
+            "acceptEdits",
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "x",
+            "--allowedTools",
+            "Bash",
+            "--model",
+            "m",
+            "--effort",
+            "low",
+        ]),
+        s(&[
+            "--permission-mode=acceptEdits",
+            "--tools=",
+            "--mcp-config=x",
+            "--allowed-tools=Bash",
+            "--model=m",
+            "--effort=low",
+            "--strict-mcp-config",
+        ]),
+    ] {
+        let cold = claude_launch(bin, &extra, None, &enabled, CLAUDE_SHAPE, None).unwrap();
+        assert!(
+            cold.rejoining.is_none() && cold.refusal.is_none(),
+            "{extra:?}"
+        );
+        let warm = claude_launch(bin, &extra, Some(session), &enabled, CLAUDE_SHAPE, None).unwrap();
+        assert_eq!(warm.rejoining.as_deref(), Some(session), "{extra:?}");
+        assert!(warm.refusal.is_none(), "{extra:?}");
+    }
+}
+
 /// Proposed decision 0056 ruling 7's confirmation rule, and ruling 8's
 /// single replacement, driven through shim sequences.
 ///
@@ -2847,6 +2958,166 @@ fn a_rejoin_that_delivered_its_result_is_never_replaced_by_a_cold_spawn() {
         launch_rows(&emitted).is_empty(),
         "and nothing guessed a launch for it: {emitted:?}"
     );
+}
+
+/// Design D7's terminal rule, end to end through `run_seat`: a rejoin
+/// that never confirmed — or that named a DIFFERENT root — may not become
+/// an accepted successful seat just because the child exited clean and
+/// wrote the current attempt's result file. The provider's result is
+/// retained on disk for diagnosis, and no cold replacement is spent on
+/// the unsettled invocation.
+#[cfg(unix)]
+#[test]
+fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let version = version_preamble(&format!("codex-cli {CODEX_VERSION}"));
+    let other = "01a06183-0000-0000-0000-000000000000";
+    for (case, announced) in [("a different root", other), ("no root at all", "")] {
+        let dir = tempfile::tempdir().unwrap();
+        let result = dir.path().join("result.json");
+        let announce = if announced.is_empty() {
+            String::new()
+        } else {
+            format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{announced}\"}}\\n'\n")
+        };
+        let shim = executable(
+            dir.path(),
+            "codex",
+            &format!(
+                "#!/bin/sh\n{version}cat >/dev/null\n\
+                 case \"$*\" in *resume*)\n{announce}\
+                 printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":5,\
+                 \"cached_input_tokens\":1,\"output_tokens\":2}}}}\\n'\n\
+                 printf '{{\"result\":\"delivered\"}}' > {result}\n\
+                 exit 0 ;; esac\nexit 0\n",
+                result = result.display()
+            ),
+        );
+        let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+        input["result_path"] = json!(result);
+        let mut messages = Vec::new();
+        with_codex_bin(&shim, || {
+            run_seat(
+                AdapterKind::Codex,
+                &["--sandbox".to_string(), "read-only".into()],
+                &json!({
+                    "effect_id":"effect", "attempt_id":"attempt", "input": input
+                }),
+                Some(THREAD),
+                &mut |body| messages.push(body),
+            )
+        });
+        assert!(
+            std::fs::metadata(&result).is_ok(),
+            "{case}: the delivered file is retained for diagnosis"
+        );
+        let (status, error) = messages
+            .iter()
+            .find_map(|body| match body {
+                Body::Result { status, error, .. } => Some((*status, error.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{case}: one result: {messages:?}"));
+        assert_eq!(status, ResultStatus::Failed, "{case}: {messages:?}");
+        assert!(
+            error.unwrap_or_default().contains("offered"),
+            "{case}: the bounded refusal names the missing confirmation"
+        );
+        assert!(
+            !messages.iter().any(|body| matches!(
+                body,
+                Body::Result {
+                    status: ResultStatus::Succeeded,
+                    ..
+                }
+            )),
+            "{case}: never an accepted successful seat: {messages:?}"
+        );
+        assert!(
+            !messages.iter().any(|body| matches!(
+                body,
+                Body::Checkpoint { data, .. } if data["step"] == "harness-started"
+            )),
+            "{case}: no guessed launch: {messages:?}"
+        );
+    }
+}
+
+/// The same terminal rule on claude's stream, where the harness names its
+/// session through the transcript locator rather than codex's thread row.
+#[cfg(unix)]
+#[test]
+fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let version = version_preamble("2.1.266 (Claude Code)");
+    let offered = "019c4b7e-0000-7000-8000-000000000001";
+    let other = "019c4b7e-0000-7000-8000-0000000000ff";
+    for (case, announced) in [("a different root", other), ("no root at all", "")] {
+        let dir = tempfile::tempdir().unwrap();
+        let result = dir.path().join("result.json");
+        let announce = if announced.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "printf '{{\"type\":\"system\",\"subtype\":\"init\",\
+                 \"session_id\":\"{announced}\"}}\\n'\n"
+            )
+        };
+        let shim = executable(
+            dir.path(),
+            "claude",
+            &format!(
+                "#!/bin/sh\n{version}cat >/dev/null\n{announce}\
+                 printf '{{\"type\":\"assistant\",\"message\":{{\"content\":\
+                 [{{\"type\":\"text\",\"text\":\"work\"}}]}}}}\\n'\n\
+                 printf '{{\"type\":\"result\",\"subtype\":\"success\",\
+                 \"is_error\":false}}\\n'\n\
+                 printf '{{\"result\":\"delivered\"}}' > {result}\n\
+                 exit 0\n",
+                result = result.display()
+            ),
+        );
+        let mut input = enabled_input(CLAUDE_SHAPE, "2.1.266", dir.path());
+        input["result_path"] = json!(result);
+        let prior = std::env::var_os("BROKKR_CLAUDE_BIN");
+        std::env::set_var("BROKKR_CLAUDE_BIN", &shim);
+        let mut messages = Vec::new();
+        run_seat(
+            AdapterKind::Claude,
+            &["--permission-mode".to_string(), "acceptEdits".into()],
+            &json!({
+                "effect_id":"effect", "attempt_id":"attempt", "input": input
+            }),
+            Some(offered),
+            &mut |body| messages.push(body),
+        );
+        match prior {
+            Some(value) => std::env::set_var("BROKKR_CLAUDE_BIN", value),
+            None => std::env::remove_var("BROKKR_CLAUDE_BIN"),
+        }
+        let (status, error) = messages
+            .iter()
+            .find_map(|body| match body {
+                Body::Result { status, error, .. } => Some((*status, error.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{case}: one result: {messages:?}"));
+        assert_eq!(status, ResultStatus::Failed, "{case}: {messages:?}");
+        assert!(
+            error.unwrap_or_default().contains("offered"),
+            "{case}: bounded reason"
+        );
+        assert!(
+            !messages.iter().any(|body| matches!(
+                body,
+                Body::Result {
+                    status: ResultStatus::Succeeded,
+                    ..
+                }
+            )),
+            "{case}: never an accepted successful seat: {messages:?}"
+        );
+    }
 }
 
 /// Ruling 8's second and third terms, and ruling 9's accounting
