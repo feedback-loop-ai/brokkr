@@ -169,6 +169,19 @@ launchd-owned native-helper controls plus repaired lifetime observations,
 without reopening the already repaired git-metadata or `/usr/include` runner
 prerequisites.
 
+It SHALL also preserve native CI `34441725835` for candidate
+`8c53dcecaef414938b3abfb8911a77d9ec958f23` as a second failed startup
+measurement on the GitHub `macos-latest` arm64 runner. It SHALL distinguish
+the direct unboxed Rust-helper pass, exact-profile signal 6 before `READY`,
+and labelled non-passing `allow default` diagnostic. It SHALL report the
+launchd results as incoherent measurement evidence—alternating bootstrap
+failure and missing terminal counters across repeated Gate A execution—not as
+a launchd or lifetime verdict. The next action SHALL require unique labels and
+roots, pre/post label-absence checks, raw bootstrap/kickstart/print/bootout
+status and bounded output, a recorded host version, and one-authority-at-a-time
+profile diagnosis. The Windows helper link failure SHALL be reported as a
+portability repair, never as macOS enforcement evidence.
+
 While any SEATBELT-R1 through R4 evidence remains open, examples SHALL be
 labeled accepted target behavior and Seatbelt SHALL be described as unbuilt.
 Refusing shipped overlays is an unmet deliverable, not an optional limitation.
@@ -193,6 +206,10 @@ and historical examples and channel versions retain their meaning.
 #### Scenario: A failed startup run is reported at the layer it measured
 - **WHEN** the guide reports native CI `34433461814`
 - **THEN** it names candidate, host, direct `SIGABRT`, launchd crash state and absent ready signal, says no lifetime case ran, and directs the next run to prove startup before triggering teardown
+
+#### Scenario: The successor startup run preserves each distinct fact
+- **WHEN** the guide reports native CI `34441725835`
+- **THEN** it names candidate, runner/architecture, missing recorded host version, direct-unboxed success, exact-profile signal 6, non-admitting broad diagnostic, incoherent launchd observations, Gate B not run and the Windows portability failure without turning any of them into a containment verdict
 
 #### Scenario: Accepted observables and proof status stay adjacent
 - **WHEN** documentation describes private locator snapshots, denied masks or the private-hooks view

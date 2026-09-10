@@ -65,8 +65,8 @@ ruling 4; decision 0021 rulings 2 and 7; decision 0041 ruling 3).
 - **THEN** compilation pins the realm word, but start retains the unbuilt refusal before any journal row or seat; compile admission and accepted semantics do not authorize an unproved peer runtime
 
 #### Scenario: Experimental payload startup is not gate admission
-- **WHEN** a native feasibility payload aborts before its externally observed ready state, even though launchd registered the job and the bundle compiled under `seatbelt`
-- **THEN** no gate is admitted at runtime, no model or exec payload is spawned and no peer record is produced; the failure remains an R3 startup prerequisite rather than a lifetime verdict
+- **WHEN** a native feasibility payload aborts before its externally observed ready state, launchd bootstrap or terminal-state observation fails, or only a broad diagnostic starts, even though the bundle compiled under `seatbelt`
+- **THEN** no gate is admitted at runtime, no model or exec payload is spawned and no peer record is produced; every lifetime case remains not run and the failure stays an R3 startup or measurement prerequisite rather than a containment verdict
 
 #### Scenario: A harness work seat without a work fragment is refused
 - **WHEN** a work-class agent site with hands resolves to a provider whose adapter declares no `hands.harness.work`, under `harness`, in a bundle that seats no gate and binds no secret, so nothing but the hands law stands before the gate law's work-class early return (design DD22)

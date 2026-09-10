@@ -341,13 +341,26 @@ differential controls or denial/system-log evidence SHALL identify each
 filesystem, IPC or service dependency before a bounded allowance is added.
 Every added allowance SHALL preserve negative controls over guard/peer
 authority, credentials, host writes and undeclared network access. Broadening a
-class merely until startup succeeds is forbidden.
+class merely until startup succeeds is forbidden. A separately labelled
+`allow default` run MAY diagnose that the restrictive profile is the differing
+layer, but it SHALL never be a candidate observation or authorize an allowance.
 
 Startup and lifetime SHALL have separate verdicts. An abort, signal, nonzero
 exit, crash-only launchd state or absent ready token fails startup and marks
 every lifetime case not run. Registration, run/crash counters, empty output or
 a still heartbeat do not establish that payload code executed and SHALL NOT
 establish or reject containment.
+
+Every launchd startup cell and repeated Gate A invocation SHALL have a unique
+job label and private root. The observer SHALL prove the exact label absent
+before bootstrap, preserve raw bounded stdout/stderr and status separately for
+bootstrap, any explicit kickstart, `print`, payload exit and `bootout`, and
+prove the label absent again before another cell runs. Loaded state, `READY`,
+ordinary-child identity, terminal state, run/crash counters and cleanup are
+distinct observations. A missing or unparsable field SHALL remain unknown and
+fail the cell; it SHALL NOT be converted into a synthesized nonzero or clean
+exit. An order-dependent result, stale registration or failed bootstrap is a
+measurement failure, not a payload or lifetime verdict.
 
 Native CI `34433461814` at candidate
 `6a19a6f4ab9bd30b47537de1a649949cd1099d01` is retained as a failed startup
@@ -357,6 +370,17 @@ ran once, recorded one successive crash and produced no heartbeat. The cause is
 not established. No lifetime observation from that run is admissible and
 SEATBELT-R3 remains open.
 
+Native CI `34441725835` at candidate
+`8c53dcecaef414938b3abfb8911a77d9ec958f23` is retained as a second failed
+startup measurement on the GitHub `macos-latest` arm64 runner; the log does
+not record the macOS version. The committed native helper digest
+`e925083d55a9c8b0` passed direct unboxed startup, then the identical helper and
+argv aborted with signal 6 before `READY` under the exact profile. A labelled
+`allow default` diagnostic exited zero and authorizes nothing. Repeated
+launchd cells alternated between bootstrap error 5 and observations with
+missing run/crash facts, so neither launchd control is established. Gate B was
+not run; the startup cause and all lifetime properties remain unresolved.
+
 #### Scenario: Probe startup is established before lifetime triggers
 - **GIVEN** the exact helper, argv and experimental profile intended for the lifetime matrix
 - **WHEN** the outside-box, direct-sandbox and launchd-owned controls run in order
@@ -365,6 +389,14 @@ SEATBELT-R3 remains open.
 #### Scenario: A non-starting payload is not lifetime evidence
 - **WHEN** a direct sandbox payload aborts or a launchd job records a crashed run without the external ready observation
 - **THEN** evidence records candidate, host, command, policy, status or signal, bounded output and launchd state, marks lifetime cases not run and leaves R3 open without a containment verdict
+
+#### Scenario: A broad diagnostic never becomes an admitted profile
+- **WHEN** the exact profile aborts before `READY` but a separately labelled `allow default` run of the identical helper and argv exits cleanly
+- **THEN** evidence records only that the exact profile withheld some required authority, keeps every exact-profile cell failing, adds no broad allowance and requires a named one-authority differential plus preserved denial controls before retry
+
+#### Scenario: Launchd startup cells are isolated and fully observed
+- **WHEN** Gate A executes or repeats a direct/launchd and profile-off/on matrix
+- **THEN** every launchd cell uses a never-reused label/root, proves absence before bootstrap and after cleanup, preserves each command's raw bounded status/output and reports missing job fields as unknown; a bootstrap error, stale label, inferred exit or result that changes with cell order fails Gate A
 
 #### Scenario: Startup repair preserves least authority
 - **WHEN** a staged control identifies a startup dependency
@@ -631,7 +663,12 @@ compiled and executable on Linux through injected host, path/probe and
 process outcomes as recorded under Decisions below. No target-gated
 Seatbelt production module, coverage attribute, name-based exclusion or
 weakened denominator SHALL substitute for these tests. Actual Darwin
-execution remains the native suite's separate obligation. Any required
+execution remains the native suite's separate obligation. Probe-support
+binaries included in workspace targets SHALL compile and link on every
+supported workspace host; Unix system calls SHALL use target-correct
+implementations or be structurally excluded from unsupported targets without
+hiding the shared verdict model. A non-Darwin link failure is a test-harness
+defect and no native enforcement evidence. Any required
 native binding that cannot fit this seam SHALL be returned with its exact
 coverage gap and a proposed additional native measurement before adopting
 it; Linux coverage SHALL never be claimed as coverage of uncompiled code.
@@ -655,6 +692,10 @@ relevant change SHALL not be attributed to the final candidate.
 #### Scenario: The exact gate cannot be satisfied by hiding Seatbelt source
 - **WHEN** coverage is prepared for the candidate
 - **THEN** shared Seatbelt production logic is present in the Linux source denominator, the pinned script still demands all lines, branches and logical functions, and any native-only binding coverage is identified separately instead of counted as Linux-tested; a coverage failure or unavailable external run remains pending/failing, never passed by exclusion
+
+#### Scenario: Probe support does not break non-Darwin validation
+- **WHEN** the workspace suite compiles the native helper on Linux or Windows
+- **THEN** it links without unresolved Unix symbols and selects no native macOS case; platform gating does not remove the shared startup/lifetime verdict tests or turn their simulated pass into native evidence
 
 #### Scenario: Mac evidence remains pending after Linux preparation
 - **WHEN** implementation and Linux checks are prepared on this controller without any real Mac run
@@ -695,6 +736,16 @@ relevant change SHALL not be attributed to the final candidate.
   adversaries are required. No harness-grade branch is commissioned.
 - **R6 — shared decisions and explicit host adapters.** Policy construction,
   locator/environment composition, readiness verdicts and cleanup routing
-  SHALL be ordinary Rust compiled on Linux behind narrow fact adapters.
-  Darwin-only calls require separate native evidence; target-gating the whole
-  decision module or lowering exact coverage is refused.
+  SHALL be ordinary Rust compiled on Linux behind narrow fact adapters. Probe
+  helpers SHALL link on supported non-Darwin workspace hosts without resolving
+  Unix calls there. Darwin-only calls require separate native evidence;
+  target-gating the whole decision module or lowering exact coverage is
+  refused.
+- **SEATBELT-R3-STARTUP at `8c53dce` — narrow the fault, do not widen the
+  boundary.** Adopt direct-unboxed helper success and exact-profile signal 6 as
+  evidence that the restrictive profile is the differing layer. Reject the
+  passing `allow default` diagnostic as admission because it demonstrates no
+  bounded authority. Reject the launchd observations as a control because
+  repeated cells reused lifecycle state and returned bootstrap errors or
+  missing terminal facts. Unique-label isolation, raw lifecycle evidence and
+  one-authority profile diagnosis precede another lifetime attempt.

@@ -25,6 +25,21 @@ successive crash and was no longer running. Every payload heartbeat therefore
 remained still. This identifies a startup failure, not its cause and not
 evidence for or against launchd containment. SEATBELT-R3 remains open.
 
+Successor candidate `8c53dcecaef414938b3abfb8911a77d9ec958f23` was measured by
+native CI `34441725835` on the GitHub `macos-latest` arm64 runner. The
+committed Rust helper digest `e925083d55a9c8b0` reached `READY`, identified
+an ordinary child and exited cleanly in the direct unboxed control. The
+identical helper and argv aborted with signal 6 before `READY` under the exact
+Seatbelt profile; a separately labelled `allow default` diagnostic exited zero,
+which localizes the difference to authority withheld by the exact profile but
+does not identify or authorize an allowance. The launchd cells did not produce
+a coherent control: across the two Gate A executions, an unboxed job once
+reached `READY` but had no parseable run/crash facts and once failed bootstrap
+with error 5, while the sandboxed job alternated between bootstrap failure and
+a non-ready exit with no valid run/crash facts. Gate B was correctly not run.
+The run therefore proves neither launchd startup nor lifetime containment; it
+requires isolated launchd measurements and bounded profile diagnosis.
+
 # Change: Seatbelt on macOS — decision 0046 slice (ii)
 
 ## Why
@@ -67,6 +82,13 @@ measured, as accepted decision 0046 requires.
   the profile merely to make a payload start. Direct and launchd-owned startup
   controls must both reach an externally observed ready state before their
   observations enter the lifetime matrix.
+- Give every launchd startup cell and repeated Gate A invocation unique job
+  labels and private paths; prove the label absent before bootstrap and after
+  bootout, and preserve raw bootstrap, print, exit and cleanup outcomes.
+  Reused-label races, missing counters or inferred exits fail the startup
+  measurement. Diagnostic broad profiles never become candidates.
+- Keep probe helpers portable: non-Darwin workspace builds must compile and
+  link without unresolved Unix symbols even though native cases run on macOS.
 - Thread the compiled realm boundary through runtime composition, both
   hands CLI verbs and adapter MCP configurations, entry refusals and doctor.
   Test the existing manifest, effect, seat-record and readout contracts
@@ -122,8 +144,8 @@ reason recorded. No engine version bump is commissioned.
 
 ## Decisions
 This visit adopts the committed `boundary-seatbelt-slice-ii` change at the
-preserved current HEAD `6a19a6f`; `225d2c7` remains historical ancestry,
-not a checkout target. It answers the returned findings in dependency order.
+preserved starting HEAD `8c53dce`; `225d2c7` remains historical ancestry,
+not a checkout target. It answers the current findings in dependency order.
 The
 accepted 0046 addendum supersedes the old R1, R2 and R4 questions; it does
 not manufacture evidence. Only the proposal and five capability deltas are
@@ -138,6 +160,9 @@ authored in this specify phase. No workflow runner is invoked.
 | R3 — detached descendants | **Retain.** No surviving payload is mandatory. The per-invocation transient launchd lease pair uses a candidate payload job/process coalition plus a separately owned guard job; only native adversarial proof may establish feasibility. | `seatbelt-execution`: Native lifetime feasibility precedes full implementation |
 | SEATBELT-SPEC-LIFETIME-TOPOLOGY | **Adopt.** The guard cannot be inside the payload job it must boot out. It is a separately launchd-owned job in the same per-user bootstrap domain, remains alive through payload teardown, establishes quiescence before cleanup, and then unregisters itself. This repairs the specification without claiming that public launchd can contain detached descendants. | `seatbelt-execution`: The guard remains outside the payload job |
 | SEATBELT-R3-STARTUP — native CI `34433461814` | **Adopt as a failed prerequisite, not a lifetime verdict.** Candidate `6a19a6f` aborts direct sandboxed Python with `SIGABRT`; launchd records one crashed run and no heartbeat. The cause is not established. Diagnose startup with bounded controls before any trigger, survivor or quiescence observation is admissible. | `seatbelt-execution`: Payload startup is proved before lifetime is measured |
+| SEATBELT-R3-STARTUP — native CI `34441725835` | **Adopt as a narrower failed prerequisite.** Candidate `8c53dce` proves the committed Rust helper and argv work directly unboxed, then reproduces signal 6 only under the exact restrictive profile. The `allow default` diagnostic narrows the layer but authorizes nothing. Gate B correctly remains not run. | `seatbelt-execution`: A broad diagnostic never becomes an admitted profile |
+| Launchd startup measurement isolation | **Adopt as a probe defect.** S2/S3 results varied between the two Gate A runs and lacked reliable run/crash facts. Each cell and invocation therefore needs a unique label/root, pre-bootstrap absence, explicit kickstart/terminal observations, raw command evidence and confirmed post-bootout absence; inferred exits and label reuse cannot pass. | `seatbelt-execution`: Launchd startup cells are isolated and fully observed |
+| Windows helper link failure | **Adopt as probe portability, not native security evidence.** Unconditional `getuid`/`getpgid` references break the Windows workspace test link. The helper must use target-correct implementations or be structurally unavailable off Unix without hiding shared decision logic. | `seatbelt-execution`: Probe support does not break non-Darwin validation |
 | Probe measurement integrity | **Adopt every controller finding.** The negative control performs a real original-process-group kill without depending on the guard FIFO; guard liveness is sampled before unregister; peer registration is synchronized before an attempted attack; FIFO opening is nonblocking and bounded; killed holders are waited/reaped on all exits; each obligation has its own trigger; and guard/quiescence evidence is outside payload-writable state and covers every observed identity. | `seatbelt-execution`: The lifetime probe measures independent facts |
 | R4 — hooks view and peer status | **Adopt conditionally.** Denied host hooks plus an empty private hooks directory may qualify as full peer only after independent raw hook/config/routing write protection passes native primary and linked-worktree adversaries. | `seatbelt-execution`: Private hooks satisfy the accepted view only with independent protection |
 | R5 — system launcher | **Retain.** Only the literal trusted `/usr/bin/sandbox-exec` and a bounded real allow/deny probe establish launcher readiness; lookalikes never execute. | `boundary-availability`: The system pin ignores an earlier lookalike |
@@ -204,8 +229,21 @@ helper so interpreter startup is not confounded with lifetime. If an
 interpreter is retained, each additional filesystem, IPC or service allowance
 must be justified by staged differential controls or denial/system-log
 evidence and kept no broader than the named dependency; denial controls must
-still pass. A launchd registration, run count, crash count or missing heartbeat
+still pass. A successful `allow default` diagnostic says only that the exact
+restrictive profile withheld some required authority. It never supplies a
+candidate profile, identifies the missing authority or admits a lifetime case.
+A launchd registration, run count, crash count or missing heartbeat
 does not establish that payload code ran.
+
+Every launchd control uses a unique label and cell root, verifies the label is
+absent before bootstrap, explicitly starts the job when bootstrap does not
+itself prove execution, and captures the raw status and bounded output of
+bootstrap, kickstart, print, payload exit and bootout. It observes the exact job
+loaded, `READY`, ordinary child, terminal state and label absence as distinct
+facts. A missing field is unknown, not a synthesized exit; a label must be
+absent after cleanup before the next cell starts. Order-dependent results or a
+registration collision fail Gate A and are diagnosed before another native
+candidate is dispatched.
 
 This is a hypothesis, not evidence. If launchd exposes only process-group
 cleanup, requires private SPI, a privileged entitlement or global mutation,
@@ -266,6 +304,18 @@ demonstrates outside-sandbox, direct-sandbox and launchd startup with the same
 helper and bounded policy, then runs the repaired obligation-specific lifetime
 matrix. Git metadata and `/usr/include` setup repairs already present in the
 runner are accepted prerequisites and are not reopened by this specification.
+
+Native CI `34441725835` is retained as failed startup and probe-integrity
+evidence for candidate `8c53dcecaef414938b3abfb8911a77d9ec958f23` on the
+GitHub `macos-latest` arm64 runner. It proves the committed Rust helper works
+unboxed and that the exact-profile direct path aborts with signal 6 before
+`READY`; its passing broad diagnostic remains non-admitting. Its launchd facts
+are not coherent enough to establish either launchd-owned control, and Gate B
+was not run. The next candidate first repairs unique-label lifecycle
+measurement and captures the host version, then bisects only named profile
+authorities with denial controls intact. The same revision's Windows
+`getuid`/`getpgid` link failure is a portability defect to repair before the
+workspace suite can be evidence; it says nothing about native containment.
 
 Changing an accepted semantic needs a focused decision document with status
 `proposed`; only the operator can accept it. Frozen contracts, policy,

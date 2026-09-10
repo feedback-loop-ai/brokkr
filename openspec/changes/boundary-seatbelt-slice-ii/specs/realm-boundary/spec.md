@@ -51,4 +51,4 @@ ruling 1; the resume rule of decision 0042 ruling 1's enactment).
 
 #### Scenario: Native startup failure does not rewrite portable identity
 - **WHEN** the bounded Seatbelt feasibility probe fails before payload readiness on a particular macOS host
-- **THEN** compiled manifests continue to pin only `seatbelt` and the declared hands inputs, while the candidate, host, startup status and launchd crash observation remain evidence metadata and the unbuilt runtime fence stays closed
+- **THEN** compiled manifests continue to pin only `seatbelt` and the declared hands inputs, while candidate, runner, host version, architecture, helper/profile digests, startup status, raw launchd observations and missing evidence remain non-portable evidence metadata and the unbuilt runtime fence stays closed

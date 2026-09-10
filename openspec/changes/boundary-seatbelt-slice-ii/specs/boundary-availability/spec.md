@@ -88,8 +88,8 @@ boundary or execute the payload after a failed preflight.
 - **THEN** the missing expected nonce or successful forbidden read makes the result unusable and no payload starts; an actual native launcher must pass both controls within five seconds
 
 #### Scenario: A crashing probe payload is not launcher readiness
-- **WHEN** `/usr/bin/sandbox-exec` starts the readiness helper but the helper aborts before returning the permitted nonce, including an interpreter `SIGABRT` with empty output
-- **THEN** readiness refuses with the startup status and bounded diagnostics; launcher existence, launchd registration or a prior allow-only smoke test cannot make Seatbelt available
+- **WHEN** `/usr/bin/sandbox-exec` starts the readiness helper but the helper aborts before returning the permitted nonce, including the committed native helper exiting by signal 6 under the exact restrictive profile
+- **THEN** readiness refuses with the startup status and bounded diagnostics; launcher existence, launchd registration, direct unboxed success or a labelled `allow default` diagnostic cannot make Seatbelt available
 
 #### Scenario: Readiness does not widen namespace lookup
 - **WHEN** existing namespace lookup and overlay-version fixtures run with their supplied PATHs
@@ -226,7 +226,7 @@ hands SHALL not be refused merely for its realm's boundary word.
 - **THEN** Seatbelt activation remains fenced and the missing proof is recorded as an open residual; survivors or reduced grade require a new upstream ruling; no successful Seatbelt gate, peer marker or completion claim is produced
 
 #### Scenario: A non-starting native payload proves no lifetime property
-- **WHEN** the direct sandbox control aborts or the launchd job registers and crashes before its externally observed ready state
+- **WHEN** the direct sandbox control aborts, launchd bootstrap fails, or a registered job has no externally observed ready state and reliable terminal facts
 - **THEN** the R3 run stops before lifetime triggers, records startup separately with its exit and job state, leaves SEATBELT-R3 open and keeps the production fence intact
 
 #### Scenario: container with either engine present still refuses
