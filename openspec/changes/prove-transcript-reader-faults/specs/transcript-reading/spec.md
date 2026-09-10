@@ -4,10 +4,12 @@
 
 Tests SHALL prove how the shared local reader handles filesystem failures and
 races by driving the production handling itself and asserting the outcome
-that the other `transcript-reading` requirements already fix. An ordinary
-input or a deterministic real filesystem change SHALL be used wherever one
-reaches the handling. Where neither does, a test SHALL use one narrow fault
-seam at the handle-based reader boundary. The seam's targets SHALL be:
+that the other `transcript-reading` requirements already fix. A test SHALL
+prefer, in this order: an ordinary input; a deterministic real filesystem
+change; an injected I/O error. It SHALL use an injected error only where no
+ordinary input and no real change reaches the handling. A real change that
+must fall between two reader operations SHALL be timed through one narrow
+fault seam at the handle-based reader boundary. The seam's targets SHALL be:
 
 - directory enumeration;
 - child open;
@@ -17,16 +19,28 @@ seam at the handle-based reader boundary. The seam's targets SHALL be:
   attempt;
 - the point before the read-boundary acquisition re-walk.
 
-A scripted entry SHALL name one target and the occurrence at which it fires
-on the installing thread. It SHALL perform exactly one action: return an I/O
-error in place of that operation's result without performing the operation,
-or run a test-owned filesystem change inside the test's synthetic home before
-the real operation proceeds. The seam SHALL NOT give the reader a handle,
-path, name, file type or identity value. It SHALL NOT change the canonical
-root, the handle-relative opening, the no-follow and non-blocking flags, or
-the regular-file and reparse checks that any real operation applies. Absence,
-replacement and a changed identity SHALL come only from real filesystem
-changes that the production code then observes.
+A scripted entry SHALL name one target and the occurrence at which it fires.
+Occurrences SHALL count that target's operations or points on the installing
+thread since the plan was installed, starting at one. Each entry SHALL perform
+exactly one action, and each target SHALL accept only its own action:
+
+- Directory enumeration, handle identity and bounded read accept only an
+  injected I/O error. The error is returned in place of that operation's
+  result, and the operation is not performed. It SHALL carry
+  `std::io::ErrorKind::Other`, a kind that no reader caller maps to absence.
+- Child open and both points accept only a test-owned filesystem change
+  inside the test's synthetic home. The change runs there, before the real
+  child open or the reader's next real operation, and that real operation
+  then classifies what it finds.
+
+No other pairing SHALL be expressible. Because child open and both points
+accept no error, no injected error reaches the platform code that classifies
+absence, unsafety or a file type. The seam
+SHALL NOT give the reader a handle, path, name, file type or identity value.
+It SHALL NOT change the canonical root, the handle-relative opening, the
+no-follow and non-blocking flags, or the regular-file and reparse checks that
+any real operation applies. Absence, replacement and a changed identity SHALL
+come only from real filesystem changes that the production code then observes.
 
 The seam SHALL exist only in the `brokkr-cli` unit-test configuration. No
 environment variable, command argument, configuration key, file, journal
@@ -35,7 +49,8 @@ contain none of it, so a reference to the seam in such a build is a compile
 error. That covers the release binary, packages and integration-test builds.
 A scripted plan SHALL be visible only to the thread that installed it and
 SHALL end with the test that installed it. An entry that never fires SHALL
-fail that test. The unix and Windows implementations SHALL share the seam
+fail that test. No entry SHALL be disarmed, and no test SHALL be exempted from
+that check. The unix and Windows implementations SHALL share the seam
 through the platform-independent helper, and each SHALL carry the point
 between its directory and file attempts. No pathname fallback implementation
 exists to carry it.
@@ -84,9 +99,17 @@ thresholds, or edits to `scripts/coverage-exact.sh`.
 - **WHEN** a test scripts an entry for an occurrence of an operation that the reader never reaches
 - **THEN** that test fails instead of passing on a path it did not exercise
 
+#### Scenario: A scripted entry accepts only its target's action
+- **WHEN** a test tries to script an I/O error at a child open, at the point between a child open's directory and file attempts or at the point before the re-walk, or a filesystem change at an enumeration, an identity check or a bounded read
+- **THEN** the seam offers no constructor for that pairing, so the entry cannot be written and no read runs under it
+- **AND** a scripted error at enumeration, identity or bounded read carries `std::io::ErrorKind::Other`, and no read reports `not-found` or `unsafe-path` because of it
+
 #### Scenario: The seam leaves the boundary's checks in force
-- **WHEN** the reader runs with a plan installed whose entries target other occurrences, over a symlinked project, a symlinked or FIFO candidate, and a regular candidate
-- **THEN** each real operation keeps its canonical root, handle-relative opening, no-follow, non-blocking and regular-file checks, and those fixtures keep their `unsafe-path` and readable outcomes
+- **WHEN** a test installs a plan whose only entry is an enumeration error at the occurrence that falls in a separate, otherwise valid lookup made after the asserted reads
+- **AND** the reader first reads a symlinked project, a symlinked candidate, a FIFO candidate and a regular candidate
+- **THEN** each asserted read keeps its canonical root, handle-relative opening, no-follow, non-blocking and regular-file checks, and those fixtures keep their `unsafe-path` and readable outcomes
+- **AND** the later lookup returns discovery-stage `unreadable`, so the entry fired and the unfired-entry check passes unchanged
+- **AND** an occurrence that drifts into an asserted read changes that read's outcome, and one that drifts past the later lookup never fires, so either drift fails the test
 
 #### Scenario: A release build has no fault switch
 - **WHEN** brokkr is built without the unit-test configuration, as for the release binary, a package or an integration-test build
@@ -135,7 +158,7 @@ A missing journal SHALL gain no file of any kind.
 - **THEN** its common reference and existing accounting remain unchanged and no transcript body is attached to the journal-derived view
 
 #### Scenario: A read-only open leaves no journal content behind
-- **WHEN** a successful transcript read, a refusal and a growth watch each open a quiescent write-ahead-log journal that has no `-wal` or `-shm`
+- **WHEN** the transcript command's successful read, its refusal, and its repeated read after the retained source grows each open a quiescent write-ahead-log journal that has no `-wal` or `-shm`
 - **THEN** the database bytes, event count and hash are unchanged, and no event, checkpoint or migration was written
 - **AND** any `-wal` that appeared is empty or holds no frame; a `-shm` index may appear
 

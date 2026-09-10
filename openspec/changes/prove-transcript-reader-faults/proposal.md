@@ -48,19 +48,26 @@ and this change makes them agree in the open.
     file attempt, present in both the unix and the Windows implementation;
   - the point before the read-boundary acquisition re-walk.
 
-  A scripted entry names one operation or point and the occurrence at which
-  it fires. It does one of two things. Either it returns an I/O error in
-  place of that operation's result, or it runs a test-owned filesystem change
-  inside the test's synthetic home before the real operation proceeds.
+  A scripted entry names one target and the occurrence at which it fires,
+  counted per target on the installing thread from one. Each target accepts
+  exactly one kind of action:
+  - enumeration, identity and bounded read accept only an injected I/O
+    error of kind `Other`, returned in place of the operation's result;
+  - child open and both points accept only a test-owned filesystem change
+    inside the test's synthetic home, after which the real operation runs.
+
   Absence, replacement and a changed identity are produced only by real
-  changes, so the production code classifies a genuine OS answer. The seam
-  never hands the reader a handle, path, name, file type or identity.
+  changes, so the production code classifies a genuine OS answer. No
+  injected error reaches the code that classifies absence or a file type.
+  The seam never hands the reader a handle, path, name, file type or
+  identity.
 - Compile the seam only in the `brokkr-cli` unit-test configuration. It
   reads no environment variable, argument, configuration key, file or
   journal value. A reference to it outside that configuration fails to
   compile, which the release binary, clippy's non-test targets and the
   integration-test builds all exercise. A plan is scoped to the thread that
-  installed it. A scripted entry that never fires fails its test.
+  installed it. A scripted entry that never fires fails its test, and no
+  entry can be disarmed or exempted from that check.
 - Drive every listed miss through the route that really reaches it, and
   assert the specified outcome, not merely the line. Re-measure first; the
   table below is the local measurement at `5738889` with each arm's route as
@@ -112,9 +119,32 @@ and this change makes them agree in the open.
 | `tui.rs:3330-3334` | open transcript door when the fresh read is not readable and invalidation did not fire | a state transition, not I/O. Reach it through `drive`'s existing `source` parameter, or prove it unreachable and restructure. |
 | `brokkr-view/src/transcript.rs:1974` branch | quiet DSH row without `seq` | ordinary fixture |
 
-The `lib.rs` hands-route lines (35 lines, 3 functions) are skipped only
-because this nested box sets `BROKKR_HANDS_BOX`. They stay pending host
-proof. They are not a seam matter.
+### Local misses outside the reader
+
+The same local measurement at `5738889` leaves 189 lines, 31 branches and 9
+functions uncovered in total. The reader rows above account for 22 lines and
+19 branches. The other 167 lines, 12 branches and 9 functions are in files
+this change does not touch, and none of them is a seam matter:
+
+| Site at `5738889` | Lines / branches / functions | Why this box misses it |
+|---|---|---|
+| `brokkr-cli/src/lib.rs:630-675`, `2560` | 35 / 0 / 3 (`hands` and its two closures) | the `brokkr hands serve` and `exec` routes; their tests return early under `HANDS_BOX_ENV` (`tests/hands.rs:34`, `src/tests.rs:3386`) |
+| `brokkr-protocol/src/hands.rs:778-779`, `926-1062` | 122 / 6 / 6 | `require_bwrap_for`, `execute`, `execute_in` and `run_boxed`; their tests need a new namespace and skip under `HANDS_BOX_ENV` (`hands/tests.rs:14`, `tests/hands.rs:34`) |
+| `brokkr-protocol/src/hands.rs:264` | 0 / 1 / 0 | the no-identity arm of `git_facts`, which depends on the git configuration the test process sees |
+| `brokkr-cli/src/doctor.rs:94-103` | 2 / 1 / 0 | `probe_in_box`; its test skips under `HANDS_BOX_ENV` (`doctor/tests.rs:458`) |
+| `brokkr-runtime/src/engine.rs:3745-3749` | 4 / 1 / 0 | the unboxed-dispatch layer re-walk at spawn; its tests skip under `HANDS_BOX_ENV` (`engine/boundary_tests.rs:933`, `1752`, `1854`) |
+| `brokkr-runtime/src/engine.rs:2281-2282`, `2266`, `2369` | 2 / 2 / 0 | the sequence fence for a malformed `change`. `engine/tests.rs:493` looks as though it reaches it and has no box guard, so the cause here is not established |
+| `brokkr-runtime/src/bundle.rs:2372` | 1 / 0 / 0 | a `walk_files` error inside `layer_drift`; the cause here is not established |
+| `brokkr-runtime/src/realms.rs:296-297` | 1 / 1 / 0 | `house_for` with no selected realm; the cause here is not established |
+
+Host evidence: the host exact-coverage gaps at `9191336`
+(`controller-coverage-gaps.json`) list no line or branch gap in `hands.rs`,
+`engine.rs`, `doctor.rs`, `bundle.rs`, `realms.rs` or the `lib.rs` hands
+route. Each of those files, and the `lib.rs` region, is byte-identical
+between `9191336` and `5738889`. That artifact does not itemize functions,
+so no host evidence reachable here covers the 9 functions. All of these
+stay pending host proof on the final head. None of them is recorded as
+proved by a box run that skipped its test.
 
 ## Capabilities
 
@@ -150,7 +180,8 @@ None.
 - Pending outside this branch: host exact coverage with `TMPDIR=/var/tmp`
   and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, remote CI on the final head,
   integration and publication. These stay controller handoff and are never
-  recorded as done in tracked checkboxes.
+  recorded as done in tracked checkboxes. The host run is also the proof
+  still owed for every non-reader miss listed above.
 
 ## Decisions
 
@@ -176,7 +207,8 @@ flow through the production classification. That covers:
 
 These work on unix, macOS and Windows: the reader's handles are opened with
 `FILE_SHARE_DELETE` on Windows, so renames succeed while the handles are
-held.
+held. Each of these changes has to fall between two reader operations, so the
+seam times it. The seam does not replace it.
 
 Errors from enumeration, identity and bounded read are injected because no
 portable deterministic real fault exists:
@@ -211,9 +243,9 @@ would leak into a concurrently running read. The reader is sequential on its
 calling thread, so a selector made of an operation or point and its
 occurrence on that thread is deterministic. Enumeration order is set by the
 filesystem, so a fixture whose selected occurrence would depend on that order
-keeps one entry in each enumerated directory, or restricts a child-open
-selector to a name. The guard fails the test if any entry never fired, so an
-ordinal that drifts cannot pass silently.
+keeps one entry in each enumerated directory. An entry names no file, so the
+seam holds no name to match. The guard fails the test if any entry never
+fired, so an ordinal that drifts cannot pass silently.
 
 ### S5 — The journal invariant is amended to what is proved
 
@@ -257,3 +289,69 @@ decision 0050, that the machine proves what it promises: the reader promises
 to fail closed on I/O errors and races, and after this change a test proves
 each promise. Decision 0050 is still proposed and rules on the phase machine.
 It is cited here for its principle, not as authority.
+
+### S8 — Each target accepts one action (clarify Q1)
+
+The re-walk point has no operation result to replace:
+`acquisition_is_current` returns a `bool`. The operation after the point
+inside a child open is the file attempt. The platform code classifies that
+attempt's raw error into `Absent` (`ENOENT`, the absent NT statuses) or
+`Unsafe` (`ELOOP`, `EMLINK`, `EISDIR` and the matching NT statuses)
+(`safe_fs.rs:190-197`, `476-483`). An error injected there would forge the
+very absence or file type that S2 forbids. So both points and child open take
+only a real change. Enumeration, identity and bounded read take only an
+error. That is exactly the set S2 argues has no portable real fault. No
+listed miss needs an error at child open: the measurement already covers
+its non-absent error arms. The injected kind is `Other` because no reader
+caller maps it to absence. `root_error` maps `NotFound`, and the root open is
+not a seam target anyway. The seam's constructors carry the pairing, so a
+wrong pairing cannot be written at all. It is not checked when the test
+runs. The spec's opening paragraph now orders the routes as a preference:
+ordinary input, then real change, then injected error. It no longer calls the
+seam a fallback, because the race changes need the seam to time them.
+
+### S9 — The boundary-in-force proof fires its entry after the asserted reads (clarify Q2)
+
+The scenario could not be met as first written. An entry that never fires
+fails its test. An entry that fires inside an asserted read changes that
+read's outcome: a fired identity error sets `io_seen`, which outranks the
+sole candidate (`ui.rs:269-271`). The scenario now puts the entry's
+occurrence in a separate, otherwise valid lookup made after the asserted
+reads, and asserts that lookup's `unreadable`. The unfired-entry check runs
+unchanged. A drift in either direction fails the test. The requirement also
+states that no entry can be disarmed or exempted, so the proof cannot be
+bought with a guard exemption.
+
+### S10 — The WAL scenario names the command's reads, not a growth watch (clarify Q3)
+
+The browser's growth watch is the Claude `/sse/session/<id>` stream. It polls
+`claude_source_size` and never opens the store (`ui.rs:1100-1139`), so a
+journal scenario over it would prove nothing. The surface meant, and the one
+the tracked proofs exercise, is the transcript command:
+
+- a successful read and a refusal:
+  `reading_leaves_the_journal_and_the_retained_file_unchanged`;
+- a repeated read after the retained source grows:
+  `growth_reads_keep_the_tree_config_and_journal_inert`.
+
+The scenario now names those three reads. The invariant belongs to
+`Store::open_read_only`. The browser server's routes open the journal
+through that same call (`ui.rs:90`, `1023`), and so do the TUI's views
+(`lib.rs:953`) and the command (`lib.rs:1388`). Proving it once per surface
+would re-prove one function, so the scenario does not multiply surfaces.
+
+### S11 — Every local miss is accounted for, and host proof is still owed (clarify Q4)
+
+The first draft named only `lib.rs`. The table above now lists every
+non-reader local miss, with the guard named wherever the box cause was
+traced. Three sites have no established box cause (`engine.rs` sequence
+fence, `bundle.rs:2372`, `realms.rs:296-297`). Their files match `9191336`,
+whose host gaps list none of them. The implementation's first act is still a
+fresh measurement.
+
+Verification applies one rule to the fresh measurement:
+
+- A non-reader miss is recorded as pending host proof, with its box cause.
+- A non-reader miss with no box cause is owned by this change. So is one that
+  the final-head host exact-coverage run leaves uncovered. An owned miss is
+  repaired like a reader miss, and it is never deferred as a residual.
