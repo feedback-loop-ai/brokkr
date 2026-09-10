@@ -1,23 +1,23 @@
 ## Context
 
-Adopt **read-every-transcript-kind** at current planning HEAD `d9ac098`,
-including commissioned task checkpoint `9298e8d`, checkpoint `73797a6` and
-their subsequent specification/design/task repairs, for
+Adopt **read-every-transcript-kind** through preserved implementation
+checkpoint `48739c6`, including commissioned checkpoint `73797a6`, task
+repairs `c03aafc`/`c4ceb78` and all preceding specification/design repairs, for
 issue #222 on shipped main `5bc8cf305aaef9af269866cbf83f094939691399`.
 See [proposal.md](proposal.md) for motivation and the three capability deltas
 for requirements. This sitting belongs to run
-`current-successor-commission-com-8e9313f6`; clarification is `clear`.
+`current-successor-prior-run-curr-e4e66eb1`; clarification is `clear`.
 
 The successor commission supplies findings F1-F3. F1 is valid at its earliest
 owner: R20 had assigned every `unreadable` outcome to a body route even though
 shared discovery can establish `unreadable` before admission and DSH has no
-browser body route. Commit `d9ac098` already repairs proposal S15, the owning
-admission requirement/scenario and R24; D2, D9-D11 and proposed 0055 below now
-carry that stage distinction so the repair is not lost downstream. F2 and F3
-are valid task-owned defects: the test-mutation prohibition must be scoped to
-the reader/system under test and real operator evidence, and the Rust 1.88
-gate must compile the Boa-bearing test target. This artifact records the exact
-dependent repairs without editing `tasks.md` out of dialect order.
+browser body route. Commit `d9ac098` repairs proposal S15, the owning admission
+requirement/scenario and R24; `3d7d4ae` carries the distinction through D2,
+D9-D11 and proposed 0055. F2 and F3 were valid task-owned defects: `c03aafc`
+scopes the mutation prohibition to the reader/system under test and real
+operator evidence, and makes the Rust 1.88 gate compile the Boa-bearing test
+target; `c4ceb78` keeps post-commit controller evidence outside the tracked
+checkboxes. These repairs are landed and are not reopened here.
 
 The inherited design's earlier `returned_from` was the second analyze visit and
 reported two planning defects. First, D11 requires executable traces of the embedded browser controller but
@@ -27,8 +27,8 @@ operator selects the already active subject. Both findings are valid and are
 answered here: D9/D11 select exact served-controller execution through a
 pinned dev-only Rust ECMAScript engine, D10 carries that proof and dependency
 into proposed 0055, and D9 makes every operator selection an unconditional
-new generation and re-check interval. The dependent task repair is stated in
-D11 for the tasks office that follows this artifact in the dialect graph.
+new generation and re-check interval. Their dependent task repairs are already
+present in the adopted `tasks.md`.
 
 The historical design at `6ece1ea` returned U1/U2 to specification. Those
 findings are **answered**, not outstanding: reading R14/R15, command C6/C7
@@ -42,32 +42,38 @@ than perpetually missing. This revision preserves all of those answers and
 all earlier reference, compatibility, fallback and diagnostic answers. No
 requirement or scenario is removed.
 
-The existing code has the needed surface seams but the wrong transcript
-boundary. `ui.rs:167-316` owns Claude `Block`, `Turn`, discovery and parsing;
-`tui.rs:420-451` admits only Claude; `lib.rs:734-886` refreshes by file
-length. `brokkr-view::Transcript` already carries the three recorded strings.
-The browser still trusts a flat session id. Move interpretation into the
-pure view crate and make these callers consume one local result.
+The preserved WIP adds the pure `brokkr-view::transcript` module and 23 focused
+tests, but it is not yet wired to the required surfaces and does not establish
+the full association, DSH or safe-I/O matrices. `ui.rs:167-316` still owns the
+shipped Claude discovery/parser, `tui.rs:420-451` still admits only Claude,
+`lib.rs:734-886` still refreshes by file length, and the browser still trusts a
+flat session id. The implementation must complete D2-D11 rather than treating
+the partial green view suite as design conformance.
 
 Decisions 0004/0005, 0009, 0013/0014, 0030, 0032, 0034 and 0042 bind this
 work: explicit refusals, Rust production, shared derivation, read-only
 surfaces, retained ownership, prose-free journals and separate phase
-judgments. The registry ends at 0053 in this worktree. The controller's
-0054/0055/0056 reservations stand; no sibling integration is assumed.
+judgments. Proposed 0055 and its number-ordered registry row are filed at the
+adopted checkpoint and remain unaccepted; the controller's 0054/0056 sibling
+reservations stand and no sibling integration is assumed.
 
 ### Evidence and its limits
 
 Both current positions were read completely:
-`.forge/design/positions/robustness.md` (338 lines) and
-`.forge/design/positions/simplicity.md` (299 lines), each against `d9ac098`.
+`.forge/design/positions/robustness.md` (331 lines) and
+`.forge/design/positions/simplicity.md` (237 lines), each against `48739c6`.
 They are run-local evidence, not artifacts to commit. D1 reconciles every
 material claim; the earlier sitting's rejected scope cuts remain recorded in
 proposal S9 and git history.
 
-The workspace tool exposes OpenSpec, Python and Node, but no Cargo, rustup,
-Codex, DSH or Claude executable. The current simplicity position reports those
-tools from its harness, but they are not reachable through this office's only
-authorized workspace boundary and therefore are not fresh chief validation.
+The workspace tool exposes OpenSpec but no Cargo, rustup, Codex, DSH or Claude
+executable. Both positions report a 108/108 `brokkr-view` run, including 23
+transcript tests, from their harnesses. This chief attempted the commissioned
+rerun through the authorized workspace boundary and received exit 127 because
+Cargo is absent, so 108/108 remains verified council history and partial
+baseline, not current chief validation or completion. The simplicity
+position's host-visible toolchain is likewise not reachable through this
+office's boundary.
 Provider help reported by councils remains council-reported evidence. Accepted
 0030 independently records the Codex resume spelling. No hint is live
 resumption, credential, session-ownership or sandbox-reimposition proof for
@@ -158,21 +164,20 @@ new provider or production-runtime dependency is needed.
 | Robustness: separate selected-reference, presentation and body result types. | **Combine the invariant with simplicity's smaller public surface.** Keep one public `TranscriptRead`; use a CLI-private, prose-free browser presentation payload whose constructor accepts only selection, validation and discovery facts. This makes a body or read-level reason unavailable at the transport boundary without adding a second public view-crate result. |
 | Robustness: model browser recovery as explicit states; simplicity: keep five private facts rather than a public state framework. | **Combine.** D9 defines the transition machine and its invariants, while implementation stores the key, generation, body-success/refusal state, exact watch handle and re-check budget as private client fields. No new crate, public taxonomy or generalized browser transport follows. |
 | Robustness: isolate a dependency-injected controller and execute the exact served JavaScript with pinned, default-feature-free Boa. | **Adopt.** Promise ordering, generation capture and exact `EventSource` ownership live in the JavaScript applier, so executing only a policy description cannot prove the shipped controller. Boa 0.21.1 is Rust, matches the workspace MSRV and has a compatible license; D9/D11 confine it to a dev-only harness over exact `PAGE` bytes. |
-| Simplicity: ship a Rust-owned JSON transition table, execute it with Rust and leave a generic JavaScript applier unexecuted. | **Reject with reason.** It reduces the dependency graph but proves neither the applier's first-match behavior nor its async generation/handle capture. Executing a second Rust applier duplicates semantics; not executing the JavaScript applier leaves the returned finding open. The source-string-only fallback is rejected for the same reason. |
+| Earlier simplicity alternative: ship a Rust-owned JSON transition table, execute it with Rust and leave a generic JavaScript applier unexecuted. | **Reject with reason; the current simplicity position withdraws it.** It reduces the dependency graph but proves neither the applier's first-match behavior nor its async generation/handle capture. Executing a second Rust applier duplicates semantics; not executing the JavaScript applier leaves the returned finding open. The source-string-only fallback is rejected for the same reason. |
 | Both: same-subject operator reselection is an event, not an equivalence no-op. | **Adopt.** Every explicit selection starts a fresh generation and interval even when the full subject key is equal; D9 fixes the reset order and D11 requires the adversarial stale-callback trace. |
 | Both: admission and drill eligibility are independent, and every label/body/watch needs both. | **Adopt R22.** Admission remains the shared kind-agnostic discovery result; drill eligibility remains the Claude-kind/local-home client gate. Widening either fact into the other would make Codex, DSH or foreign-home sources call a Claude-only route. |
 | Both: a successful zero-turn body is received. | **Adopt R23.** Body state is independent of `turns.length`; HTTP 200 with `turns: []` ends the deferred repair until an explicit clear or refusal. |
 | Robustness: make R24's discovery/body `unreadable` distinction structural; simplicity: add no new public outcome, route, state or token. | **Combine.** Discovery can yield the existing `unreadable` token before admission; only an admitted arm can proceed to a body-stage failure. Private constructors enforce that split, while `TranscriptRead` remains the only public result and the browser presentation remains prose-free. D2, D7 and D9 state the legal construction and D11 proves both traces. |
-| Both: scope the no-mutation convention to the system under test and real operator evidence while allowing synthetic fixture creation and mutation. | **Adopt as a downstream task repair.** The reader/hints/renderers never create or mutate retained evidence; test setup may create and mutate only its own synthetic homes/files between reader invocations. This preserves the production read-only boundary and makes the required append, shrink, disappearance, replacement and same-length rewrite tests possible. |
-| Robustness: use Rust 1.88 `cargo test --no-run`; simplicity: add `--all-targets` to the existing MSRV check. | **Combine on the smaller sufficient gate.** Run `cargo check --workspace --all-targets --all-features --locked` under the CI-installed Rust 1.88 toolchain, locally as `cargo +1.88.0 ...` when available. `--all-targets` compiles the CLI test target and its dev-only Boa dependency; `--all-features` matches the workspace admission surface. The existing remote MSRV job receives the same arguments, so no second job is needed. A production-only check is rejected because it never compiles the promised harness. |
+| Both: scope the no-mutation convention to the system under test and real operator evidence while allowing synthetic fixture creation and mutation. | **Adopt; landed in `tasks.md` at `c03aafc`.** The reader/hints/renderers never create or mutate retained evidence; test setup may create and mutate only its own synthetic homes/files between reader invocations. This preserves the production read-only boundary and makes the required append, shrink, disappearance, replacement and same-length rewrite tests possible. |
+| Robustness: use Rust 1.88 `cargo test --no-run`; simplicity: add `--all-targets` to the existing MSRV check. | **Combine on the smaller sufficient gate; landed in task 13.6 at `c03aafc`.** Run `cargo check --workspace --all-targets --all-features --locked` under the CI-installed Rust 1.88 toolchain, locally as `cargo +1.88.0 ...` when available. `--all-targets` compiles the CLI test target and its dev-only Boa dependency; `--all-features` matches the workspace admission surface. The existing remote MSRV job receives the same arguments, so no second job is needed. A production-only check is rejected because it never compiles the promised harness. |
 | Simplicity: treat host-visible Cargo/rustup/provider executables as current design evidence. | **Reject for this sitting.** Direct checks through the authorized workspace tool return command-not-found for each executable. Outside-harness availability cannot turn an unperformed workspace/MSRV/provider proof green; the tasks may run those gates when their execution boundary supplies the tools. |
 | Robustness: defeat both JavaScript and HTTP stale caches; simplicity: keep this as a route/fetch detail. | **Adopt the behavior at the narrow boundary.** Presentation and body responses use `Cache-Control: no-store` (and fetches request equivalent freshness); no persistent cache or new contract field is introduced. |
-| Both: author and file 0055 in this council commit. | **Adopt authorship; decline out-of-scope filing in this commit.** The rendered dialect names only `design.md`, and the office must commit exactly its artifacts. D10 supplies the full chief-authored decision and registry row for mechanical filing before any semantic production edit. This preserves the commission's proposed-decision prerequisite without adding an undeclared artifact to this phase. |
+| Both: preserve filed proposed 0055 and avoid changing its status. | **Adopt.** Checkpoint `48739c6` contains the chief-authored decision and registry row, both still `proposed`. This sitting edits only the dialect-declared `design.md`; only the operator may accept the proposal. |
 
-The last distinction concerns artifact placement, not an unanswered behavior
-or a claimed acceptance. Tasks must make filing a prerequisite, not leave it
-until documentation cleanup. No semantic production change is authorized to
-precede the filed proposal. Decisions 0054/0056 remain the controller's.
+Decision filing is no longer pending. It remains an architectural prerequisite
+and an unaccepted proposal, not proof of implementation or operator approval.
+Decisions 0054/0056 remain the controller's.
 
 A Node/headless-browser job is rejected because the normal Cargo and release
 paths promise no Node or service and #222 does not own a new CI runtime. V8,
@@ -717,18 +722,15 @@ the prior generation's refusal floor or recovery budget.
 This design preserves the existing Claude routes without adding a Codex/DSH
 body route, durable cache, watcher service or general transcript transport.
 
-### D10 — Chief-authored proposed decision 0055 and filing prerequisite
+### D10 — Proposed decision 0055 is filed and remains unaccepted
 
-This phase's rendered output is `design.md` only. The following is the
-complete proposed decision text, with its index row, ready to file as
-`docs/decisions/0055-read-every-transcript-kind.md` before production edits.
-The tasks office must make that mechanical filing and registry check its first
-prerequisite; it must not change these rulings while copying them. It must also
-carry the exact test-only dependency and controller-harness work below into the
-implementation breakdown. This supplies authorship within the declared
-artifact and explicitly leaves filing pending. No accepted decision is amended
-and no acceptance is claimed. The dependency bindings below are proposed with
-the rest of 0055.
+This phase's rendered output is `design.md` only. Checkpoint `48739c6`
+materialized the complete chief-authored text below as
+`docs/decisions/0055-read-every-transcript-kind.md` and inserted its
+number-ordered registry row. The task prerequisite is therefore satisfied; no
+accepted decision is amended and no acceptance is claimed. The exact test-only
+dependency and controller-harness bindings remain part of proposed 0055 and
+the adopted task breakdown.
 
 <!-- proposed-decision-0055:start -->
 
@@ -915,18 +917,17 @@ controller host/remote gates.
 
 <!-- proposed-decision-0055:end -->
 
-Filing changes the decision heading above to level one and Context, Rulings
-and Consequences to the registry's ordinary section headings, without changing
-its text. The registry row to insert in number order is:
+The filed decision changes the decision heading above to level one and uses
+the registry's ordinary Context and Consequences section headings without
+changing the rulings. Its number-ordered registry row is:
 
 ```text
 | [0055](0055-read-every-transcript-kind.md) | Read every retained transcript kind | One bounded local projection of Claude, Codex and DSH transcripts, with recorded-reference authority, safe discovery, explicit format refusals and shared CLI/TUI/browser presentation; retained prose stays out of the journal. | proposed |
 ```
 
-The decision/index exactness suite proves that materialization. This design
-commit does not falsely report that the numbered file or registry row already
-exists. Analysis must check that the task prerequisite covers both before
-implementation proceeds.
+The decision file and registry row are present at the adopted checkpoint.
+Their exactness and `proposed` status remain implementation-gate assertions;
+this design commit does not modify either artifact.
 
 ### D11 — Verification proves boundaries through the shared implementation
 
@@ -1004,24 +1005,12 @@ fresh bounded presentation discovery. Table cases apply the same result to
 directory I/O that defeats Claude or Codex uniqueness. This is distinct from
 the admitted-Claude body-unreadable trace above.
 
-The current `tasks.md` at checkpoint `9298e8d` already carries the R17-R23,
-A5-A7 and truncation/absent-partner repairs. It remains the dependent artifact
-of the next dialect office and must now receive exactly these successor
-repairs in addition to preserving its settled controller work:
-
-- scope the preamble's mutation prohibition to the reader/system under test
-  and real operator evidence, explicitly permitting test setup to create and
-  mutate only synthetic test-owned homes/files between calls;
-- change task 10.2's exclusion from every "read-level reason" to every
-  body-stage outcome, allowing the discovery refusal constructor to carry
-  `unreadable`, and add the discovery-refusal trace above to task 10.6; and
-- change task 13.6 and the implementation-owned CI MSRV step to Rust 1.88
-  `cargo check --workspace --all-targets --all-features --locked`, retaining
-  the license, audit, release-graph and all-platform obligations.
-
-These repairs change no product requirement or settled decision. Editing
-`tasks.md` in this office would violate the rendered artifact boundary and
-dependency order.
+The current `tasks.md` at `c4ceb78` carries R17-R24, A5-A7, the
+truncation/absent-partner repairs, the scoped synthetic-fixture rule, the
+discovery-refusal constructor and trace, and the Rust 1.88 all-targets Boa
+compilation gate. Its controller-only post-commit evidence remains outside
+tracked checkboxes. These repairs change no product requirement or settled
+decision; this sitting preserves `tasks.md` byte-for-byte.
 
 Implementation owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
 `cargo fmt --all -- --check`, clippy for all workspace targets/features with
@@ -1052,8 +1041,9 @@ proof, PR/remote CI, publication, merging and issue closure.
   proposed 0055 and the read-surfaces guide, with operator-owned remediation.
 - **[A hint is mistaken for launch evidence]** → Show recorded-home and
   unavailable facts verbatim; no clickable execution or new command is added.
-- **[Decision filing is forgotten]** → D10 is a named pre-implementation task
-  prerequisite, checked by analysis and the existing decision/index suite.
+- **[Filed decision drifts or is treated as accepted]** → D10 records the
+  present file and registry row; implementation checks exactness and preserves
+  `Status: proposed` until the operator rules.
 - **[The test engine expands the dependency and platform risk]** → Pin
   `boa_engine` exactly at 0.21.1, disable default features and keep it in
   `brokkr-cli` dev-dependencies only. Require the changed lockfile to pass Rust
@@ -1081,11 +1071,10 @@ proof, PR/remote CI, publication, merging and issue closure.
 
 ## Migration Plan
 
-1. The tasks office first includes filing the chief-authored proposed 0055
-   and its index row before production edits, then applies D11's F1-F3
-   dependent repairs and keeps the remaining admitted breakdown in dependency
-   order. Independent analysis judges that breakdown; this sitting does not
-   supply its verdict or author `tasks.md`.
+1. Proposed 0055, its registry row and D11's F1-F3 dependent task repairs are
+   already present. Implementation verifies their exactness and proposed
+   status before continuing the remaining admitted breakdown; it does not
+   reinterpret or accept the decision.
 2. Implementation extracts the pure Claude projection, adds the typed reader
    and Codex/DSH decoding, completes safe filesystem acquisition, adds the
    command, then connects TUI/browser presentation and the proving suites.
@@ -1125,29 +1114,26 @@ be disguised as downstream success.
 Read the dialect manifest, design and return instructions and rendered
 `openspec instructions design --change read-every-transcript-kind --json`.
 It declares `design.md`; no workflow runner was invoked. Proposal, all three
-deltas, the existing task breakdown and both current council positions were
-read completely. The deltas contain 20 requirements and 176 scenarios. Only
-the declared design artifact is changed and committed; proposed 0055 remains
-chief-authored between D10's markers with its registry row and mandatory
-pre-production filing explicit.
+deltas, the adopted task breakdown and both current council positions were
+read. The deltas contain 20 requirements and 176 scenarios. D1 explicitly
+adopts, rejects or combines every material position based on repository and
+tool-boundary evidence.
 
 `openspec validate read-every-transcript-kind --strict --no-interactive`
 passes (exit 0), and status reports every planning artifact present. That
-presence is structural evidence, not an analyze verdict. All 20 requirements,
-176 scenarios, the proposal, three deltas and 73 unchecked tasks remain
-byte-for-byte unchanged from the adopted current HEAD `d9ac098`.
-`git diff --check` passes;
-the frozen set, accepted decisions, `crates/`, `bundles/` and `scripts/` remain
-unchanged from the commissioned shipped base. The exact sitting diff is
-`design.md` only.
+presence is structural evidence, not an analyze verdict. The proposal, three
+deltas and 73 unchecked tasks remain byte-for-byte unchanged from adopted
+checkpoint `48739c6`; the exact sitting diff is `design.md` only. `git
+diff --check` passes, and the frozen set and accepted decisions are untouched
+by this sitting.
 
-Formatting, clippy, workspace tests and both bundle compilations were
-attempted with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`; each exited
-127 because Cargo is absent. The unchanged exact-coverage gate was attempted
-with those limits, `TMPDIR=/var/tmp` and
-`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`; it exited 1 at `mktemp` because
-`/var/tmp` is absent, before coverage or boundary tests ran. These delivery
-checks remain pending and no unavailable or skipped check is counted as
-passing evidence. Drafting claims neither implementation nor full-story
+The commissioned `brokkr-view` rerun was attempted with
+`CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`; it exited 127 because Cargo is
+not exposed inside the authorized workspace boundary. The two council
+positions' matching 108/108 result, including 23 transcript tests, is retained
+as historical partial evidence and not promoted to completion. Formatting,
+clippy, workspace tests, bundles, exact coverage, MSRV, license/audit,
+all-platform and controller/remote evidence remain implementation or
+controller gates. Drafting claims neither implementation nor full-story
 completion. The phase result carries
 `inputs.change: read-every-transcript-kind` for the next declared office.
