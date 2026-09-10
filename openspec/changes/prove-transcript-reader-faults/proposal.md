@@ -80,7 +80,9 @@ and this change makes them agree in the open.
   requirement: a read writes no journal content. The design for this change
   supersedes the archived wording at `design.md:699-700`, and the privacy
   tests compare an existing `-wal` by digest, not only by length, over a
-  fixture whose `-wal` holds committed frames. A missing journal still gains
+  fixture whose `-wal` holds committed frames. In a sequence of reads, the
+  empty `-wal` an earlier read left is compared by digest across each later
+  read (S14). A missing journal still gains
   no file of any kind, and a scenario now binds that on the command, the
   browser routes and the TUI. A proposed addendum to decision 0055 records
   the clarification and adds the seam to ruling 5's enforcement binding. It
@@ -178,8 +180,9 @@ None.
 
 - Code: `crates/brokkr-cli/src/ui/safe_fs.rs`, `ui.rs`, `tui.rs` and their
   unit-test modules; `crates/brokkr-view/src/transcript.rs` tests;
-  `crates/brokkr-cli/tests/transcript_privacy.rs` for the digest check and
-  the frame-bearing `-wal` fixture; `tests/transcript_command.rs` for the
+  `crates/brokkr-cli/tests/transcript_privacy.rs` for the digest check, the
+  per-read comparison of a `-wal` an earlier read left, and the
+  frame-bearing `-wal` fixture; `tests/transcript_command.rs` for the
   missing-journal proof; other `tests/transcript_*.rs` files only to bring
   over fixture repairs.
 - A miss that S11 makes owned extends this list to the file and test module
@@ -353,7 +356,9 @@ the tracked proofs exercise, is the transcript command:
 - a repeated read after the retained source grows:
   `growth_reads_keep_the_tree_config_and_journal_inert`.
 
-The scenario now names those three reads. The invariant belongs to
+The scenario now names those three reads. S14 fixes when their
+before-state is taken and what a later read owes the `-wal` an earlier read
+left. The invariant belongs to
 `Store::open_read_only`. The browser server's routes open the journal
 through that same call (`ui.rs:90`, `1023`), and so do the TUI's views
 (`lib.rs:953`) and the command (`lib.rs:1388`). Proving it once per surface
@@ -481,3 +486,43 @@ database path, its `-wal` and its `-shm`:
 The command and browser proofs are new tests in the Impact list. The
 journal-independent `/api/session/<id>` route opens no journal and is not
 bound.
+
+### S14 — Later reads leave the `-wal` an earlier read left (clarify third-pass G1)
+
+The first write-ahead-log scenario said each named read opens a journal
+with no `-wal` or `-shm`. Only the first read in each tracked proof meets
+that. The first read-only read leaves an empty `-wal` and a `-shm`, and a
+read-only connection can neither checkpoint nor remove them on close. So the
+refusal after the successful read, and every growth read after the first,
+opens a journal that already has both files. The tests take their
+before-state once, before the first read, and check the later reads through
+the branch for a `-wal` that appeared, not through "unchanged".
+
+Measured for this answer (`.forge/tmp/specify-g1`, SQLite 3.46.1): a WAL
+journal closed by its writer, then three read-only reads. After the first
+read the `-wal` is 0 bytes and the `-shm` 32,768 bytes. The second and third
+reads leave the `-wal` at 0 bytes with the same digest, and the database
+digest never moves. The store links rusqlite's bundled SQLite
+(`libsqlite3-sys` 0.30.1), so the tracked test on the real store is the
+proof, and this probe is only the evidence that the rule can hold.
+
+The answer is reading (b). The before-state is taken once, before the first
+read, while the journal has no sidecars. The first read may leave a `-wal`
+that is empty or holds no frame. That `-wal` is an existing `-wal` for every
+later read, so the requirement's rule that a read does not change an
+existing `-wal` governs it: each later read leaves it with the digest it had
+just before that read. The requirement now says this in one sentence, and
+the scenario says it in its last clause. The `-shm` stays uncompared, as
+S12 explains.
+
+Reading (a) is rejected. It would give every read a fresh fixture, or remove
+the sidecars between reads. Either way the proofs would never read a journal
+that already has the sidecars an earlier read left. That is the state every
+repeated read by an operator meets, and the requirement's existing-`-wal`
+rule exists for it.
+
+The tests follow the answer. `assert_journal_inert` keeps the database
+comparison against the before-state and the empty-or-frame-free check for
+the first read. Before each later read, the test records the `-wal` digest,
+and after that read it asserts the digest is the same. This makes the check
+stricter, and it adds no allowance.

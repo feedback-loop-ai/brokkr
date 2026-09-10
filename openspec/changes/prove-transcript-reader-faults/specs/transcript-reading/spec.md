@@ -147,10 +147,11 @@ NOT:
 - change an existing `-wal`;
 - open the journal read-write, migrate, repair or checkpoint it.
 
-An existing `-shm` is SQLite's shared-memory index of the `-wal`. Readers
-coordinate through it, so its bytes may change during a read, and it carries
-no journal content. A missing journal SHALL gain no file of any kind: no
-database, no `-wal` and no `-shm`.
+A `-wal` that an earlier read left behind is an existing `-wal`, so a later
+read SHALL leave it as it found it. An existing `-shm` is SQLite's
+shared-memory index of the `-wal`. Readers coordinate through it, so its
+bytes may change during a read, and it carries no journal content. A missing
+journal SHALL gain no file of any kind: no database, no `-wal` and no `-shm`.
 
 #### Scenario: A tool output cannot become terminal control or a journal event
 - **WHEN** a transcript contains an ANSI escape, a shell command, a credential-shaped sentinel and tool output
@@ -161,9 +162,11 @@ database, no `-wal` and no `-shm`.
 - **THEN** its common reference and existing accounting remain unchanged and no transcript body is attached to the journal-derived view
 
 #### Scenario: A read-only open leaves no journal content behind
-- **WHEN** the transcript command's successful read, its refusal, and its repeated read after the retained source grows each open a quiescent write-ahead-log journal that has no `-wal` or `-shm`
-- **THEN** the database bytes, event count and hash are unchanged, and no event, checkpoint or migration was written
-- **AND** any `-wal` that appeared is empty or holds no frame; a `-shm` index may appear
+- **WHEN** a test runs the transcript command's reads in sequence over one quiescent write-ahead-log journal, either a successful read and then a refusal or repeated reads after the retained source grows
+- **AND** the test takes its before-state once, before the first read, when the journal has no `-wal` or `-shm`
+- **THEN** after each read the database bytes, event count and hash equal that before-state, and no event, checkpoint or migration was written
+- **AND** a `-wal` that appears during the first read is empty or holds no frame, and a `-shm` index may appear
+- **AND** each later read finds the `-wal` an earlier read left and leaves it with the digest it had just before that read, so it still holds no frame; the `-shm` is not compared
 
 #### Scenario: A read leaves an existing write-ahead log as it found it
 - **WHEN** the same three reads open a quiescent journal whose `-wal` holds at least one committed frame, because the writer that appended the seat's transcript reference stays open and idle across the reads
