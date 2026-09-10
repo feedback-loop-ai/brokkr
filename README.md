@@ -98,7 +98,7 @@ The [full quickstart](docs/guides/quickstart.md) covers `init` per stack, parks,
 
 The standing-overseer concept reached this product by way of the lieutenant in Robert C. Martin's [SwarmForge](https://github.com/unclebob/swarm-forge), as [decision 0019 ruling 7](docs/decisions/0019-brokkr.md#rulings) records. The idea is credited here and nothing else is taken: SwarmForge carries no license, which means all rights reserved, so no code, scripts, prompts or prose from it has entered — or may enter — this tree.
 
-**Muninn** is an independent design with an inverted authority model, described in decision 0020 and built as `brokkr muninn`: it reads the journal, proposes to the operator, and rules nothing.
+**Muninn** is an independent design with an inverted authority model, described in decision 0020 (amended for the crossings a map draws by decision 0059) and built as `brokkr muninn`: it reads the journal and the world's crossings, proposes to the operator, and rules nothing.
 
 ## License
 

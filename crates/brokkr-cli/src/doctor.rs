@@ -517,10 +517,7 @@ fn report_realm_crossings(report: &mut Report, world: &brokkr_runtime::realms::W
         for pin in &crossings.unchecked {
             report.warn(
                 &format!("{what} '{}'", pin.crossing),
-                format!(
-                    "pin not checked: realm '{}' publishes it and its file could not be read",
-                    pin.publisher
-                ),
+                format!("pin not checked: {pin}"),
             );
         }
     }

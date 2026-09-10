@@ -1,12 +1,14 @@
 //! Muninn's own record: append-only NDJSON, beside the run journals and
 //! inside none of them.
 //!
-//! Decision 0020 ruling 3 puts two demands on this file, and the module
-//! surface is how they are met rather than remembered. Proposals are
-//! DURABLE, so they go to a file the operator keeps, not to a buffer. And
-//! proposals are never written into a run's journal, because the run
-//! engine is the single writer of those — so this module holds its own
-//! path and its own format, and shares no code with `brokkr-store` at all.
+//! Decision 0020 ruling 3 — whose citation rule decision 0059 amends,
+//! while its durability and single-writer demands stand — puts two
+//! demands on this file, and the module surface is how they are met
+//! rather than remembered. Proposals are DURABLE, so they go to a file
+//! the operator keeps, not to a buffer. And proposals are never written
+//! into a run's journal, because the run engine is the single writer of
+//! those — so this module holds its own path and its own format, and
+//! shares no code with `brokkr-store` at all.
 //!
 //! Append-only is a property of the surface: there is one write verb, it
 //! opens with `append`, and there is no update or delete verb to reach

@@ -33,7 +33,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use brokkr_core::fold::{fold, RunState, Status};
-use brokkr_runtime::realms::{Hearth, World};
+use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
@@ -1551,15 +1551,47 @@ fn same_journal(left: &std::path::Path, right: &std::path::Path) -> bool {
     located(left) == located(right)
 }
 
+/// How an invocation opens the map it found: refusing a moved crossing
+/// ([`World::discover`]) or reporting one ([`World::inspect`]).
+type OpenWorld =
+    fn(&std::path::Path, Option<&std::path::Path>) -> Result<Option<World>, WorldError>;
+
 impl Invocation {
+    /// The world as every verb that STARTS or CONTINUES a run reads it: a
+    /// crossing that has moved refuses here, before a store is opened
+    /// (decision 0057, `b9b2ee6`).
     fn resolve(
         workspace: &std::path::Path,
         realms: Option<PathBuf>,
         db: Option<PathBuf>,
     ) -> Result<Invocation> {
+        Invocation::open(workspace, realms, db, World::discover)
+    }
+
+    /// The world as a READ surface reads it: a crossing that has moved is
+    /// a line in the readout rather than the end of it. `brokkr realms`
+    /// and `brokkr muninn run` read this way for the same reason `brokkr
+    /// doctor` does — a surface that only looks refuses nothing, and
+    /// refusing here would blank the readout in exactly the world an
+    /// operator opened it to see (decision 0046's Addendum; decision 0023
+    /// ruling 6, which makes `realms` a read surface with no writes).
+    fn inspect(
+        workspace: &std::path::Path,
+        realms: Option<PathBuf>,
+        db: Option<PathBuf>,
+    ) -> Result<Invocation> {
+        Invocation::open(workspace, realms, db, World::inspect)
+    }
+
+    fn open(
+        workspace: &std::path::Path,
+        realms: Option<PathBuf>,
+        db: Option<PathBuf>,
+        open: OpenWorld,
+    ) -> Result<Invocation> {
         let named = realms.is_some();
         let overridden = db.is_some();
-        let world = World::discover(workspace, realms.as_deref())?;
+        let world = open(workspace, realms.as_deref())?;
         let mapped = world.as_ref().map(World::journal);
         let journal = db
             .or_else(|| mapped.clone())
@@ -1712,19 +1744,46 @@ fn hearths_of(
     realms: Option<PathBuf>,
     db: Option<PathBuf>,
 ) -> Result<Vec<Hearth>> {
+    Ok(fleet_of(workspace, realms, db, Invocation::resolve)?.1)
+}
+
+/// The same fleet, with the WORLD it was read from kept — what a surface
+/// needs when it states facts about the map itself and not only about the
+/// journals the map names, which is `brokkr muninn run` and its crossings
+/// (decision 0057; decision 0026 ruling 3).
+///
+/// Opened with [`Invocation::inspect`]: the raven reports a moved
+/// crossing as a finding, so a moved crossing must not be the end of the
+/// reading. `hearths_of` keeps [`Invocation::resolve`] — its callers
+/// include verbs that go on to open a store the world named.
+fn world_and_hearths(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+) -> Result<(Option<World>, Vec<Hearth>)> {
+    fleet_of(workspace, realms, db, Invocation::inspect)
+}
+
+fn fleet_of(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+    open: fn(&std::path::Path, Option<PathBuf>, Option<PathBuf>) -> Result<Invocation>,
+) -> Result<(Option<World>, Vec<Hearth>)> {
     let overridden = db.is_some();
-    let invocation = Invocation::resolve(workspace, realms, db)?.announce();
+    let invocation = open(workspace, realms, db)?.announce();
     let hearths = match (&invocation.world, overridden) {
         (Some(world), false) => world.hearths(),
         _ => Vec::new(),
     };
-    Ok(match hearths.is_empty() {
+    let hearths = match hearths.is_empty() {
         true => vec![Hearth {
             realms: Vec::new(),
             journal: invocation.journal,
         }],
         false => hearths,
-    })
+    };
+    Ok((invocation.world, hearths))
 }
 
 /// One hearth's runs, folded. A journal that will not open at all is the
@@ -2534,8 +2593,13 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Realms(RealmsArgs { realms, db, json }) => {
+            // `inspect`, not `resolve`: `realms` is a read surface with no
+            // writes (decision 0023 ruling 6), and a readout that refuses
+            // to describe the world because one contract moved is at its
+            // least useful in exactly the world an operator typed it in.
+            // The crossing lines below say which pin moved instead.
             let Invocation { world, journal, .. } =
-                Invocation::resolve(workspace, realms, db)?.announce();
+                Invocation::inspect(workspace, realms, db)?.announce();
             let world = world.ok_or_else(|| {
                 anyhow::anyhow!(
                     "no map: this workspace has no {} and none was named with --realms",
@@ -2702,9 +2766,14 @@ fn run_with(
                 adapters_dir,
                 record,
             } => {
-                let hearths = hearths_of(workspace, realms, db)?;
+                // `world_and_hearths`, not `hearths_of`: the raven reports
+                // a moved crossing as a finding, so it reads the world
+                // with `inspect` and keeps the resolved map beside the
+                // journals it names (decision 0057).
+                let (world, hearths) = world_and_hearths(workspace, realms, db)?;
                 muninn::run(
                     &hearths,
+                    world.as_ref(),
                     &agents_dir,
                     &adapters_dir,
                     &record,
