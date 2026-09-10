@@ -1,6 +1,6 @@
 ## Context
 
-Adopt **read-every-transcript-kind** through current checkpoint `30206b3`,
+Adopt **read-every-transcript-kind** through entry checkpoint `4e596fe`,
 including preserved implementation checkpoint `48739c6`, commissioned
 checkpoint `73797a6`, task repairs `c03aafc`/`c4ceb78` and all preceding
 specification/design repairs, for issue #222 on shipped main
@@ -9,8 +9,8 @@ See [proposal.md](proposal.md) for motivation and the three capability deltas
 for requirements. This sitting belongs to run
 `current-successor-prior-run-curr-e4e66eb1`; clarification is `clear`.
 
-The successor commission supplies findings F1-F3. F1 is valid at its earliest
-owner: R20 had assigned every `unreadable` outcome to a body route even though
+An earlier successor commission supplied findings F1-F3. F1 was valid at
+its earliest owner: R20 had assigned every `unreadable` outcome to a body route even though
 shared discovery can establish `unreadable` before admission and DSH has no
 browser body route. Commit `d9ac098` repairs proposal S15, the owning admission
 requirement/scenario and R24; `3d7d4ae` carries the distinction through D2,
@@ -58,15 +58,22 @@ be quadratic within the byte bound. D2-D11 make these repair constraints
 explicit. They are implementation/proof defects, not new specification
 ambiguities, and do not reopen R1-R24.
 
-The active change was restored after a premature archive. The three
-`openspec/specs/transcript-*` folds remain stale copies of an archive directory
-that no longer exists, while the active deltas are the current source of truth.
-Archive must therefore wait for repaired implementation and final review, then
-run once from the active final deltas. Likewise, all 73 task boxes are checked
-although task 13.5 itself records missing host exact-coverage proof and current
-review findings remain. The next task office must reopen the owning
-implementation/proof, archive and final-commit items; this design sitting does
-not turn absent controller evidence into a tracked success.
+The current `returned_from` is analyze sequence 706 and carries three valid
+artifact defects. F1's earliest owner is this design: the premature archive
+already folded the three `openspec/specs/transcript-*` capabilities, so those
+living specifications are accumulated truth and the required base for every
+active `MODIFIED` delta, not stale copies to delete. Their existing provenance
+lines are append-only under decision 0042. Preserve the three specifications
+through implementation and review, reconcile the final deltas into them with
+one normal archive fold under the already-recorded destination
+`2026-09-10-read-every-transcript-kind`, and neither rewrite nor duplicate the
+existing pointer. F2 and F3 begin in `tasks.md`: the closing gates omit the
+distinct locked release-profile build, and task 8.9 conflates four
+contract-admitted CLI refusal documents with the future-kind journal fence and
+the pure reader's defensive `unsupported-kind` arm. D1, D11 and the Migration
+Plan record the design constraints; the next task office must repair those
+task-owned lines. At entry the ledger has 45 checked and 29 unchecked tasks;
+no council or historical gate result changes those boxes in this sitting.
 
 Decisions 0004/0005, 0009, 0013/0014, 0030, 0032, 0034 and 0042 bind this
 work: explicit refusals, Rust production, shared derivation, read-only
@@ -78,8 +85,8 @@ reservations stand and no sibling integration is assumed.
 ### Evidence and its limits
 
 Both current positions were read completely:
-`.forge/design/positions/robustness.md` (360 lines) and
-`.forge/design/positions/simplicity.md` (265 lines), each against `30206b3`.
+`.forge/design/positions/robustness.md` (353 lines) and
+`.forge/design/positions/simplicity.md` (318 lines), each against `4e596fe`.
 They are run-local evidence, not artifacts to commit. D1 reconciles every
 material claim; the earlier sitting's rejected scope cuts remain recorded in
 proposal S9 and git history.
@@ -198,11 +205,14 @@ selected in D3 and present in the lock graph.
 | Both: admission and drill eligibility are independent, and every label/body/watch needs both. | **Adopt R22.** Admission remains the shared kind-agnostic discovery result; drill eligibility remains the Claude-kind/local-home client gate. Widening either fact into the other would make Codex, DSH or foreign-home sources call a Claude-only route. |
 | Both: a successful zero-turn body is received. | **Adopt R23.** Body state is independent of `turns.length`; HTTP 200 with `turns: []` ends the deferred repair until an explicit clear or refusal. |
 | Robustness: make R24's discovery/body `unreadable` distinction structural; simplicity: add no new public outcome, route, state or token. | **Combine.** Discovery can yield the existing `unreadable` token before admission; only an admitted arm can proceed to a body-stage failure. Private constructors enforce that split, while `TranscriptRead` remains the only public result and the browser presentation remains prose-free. D2, D7 and D9 state the legal construction and D11 proves both traces. |
+| Both current positions: living capability specifications are the base for the active `MODIFIED` deltas, not disposable generated output. | **Adopt.** Proposal S16 and decision 0042 are controlling evidence: the previous fold accumulated these requirements into living truth, and every current delta modifies that truth. Pre-archive deletion, conversion back to `ADDED`, a fabricated archive directory and provenance exemptions are rejected. Preserve the specifications and their existing append-only pointers; the final archive operation reconciles the deltas once under `2026-09-10-read-every-transcript-kind`, making the existing pointers resolvable without rewriting or duplicating them. |
+| Both current positions: production dependency inspection and MSRV all-target compilation do not prove the release artifact builds. | **Adopt as a distinct downstream gate.** D11 requires `cargo build --release --locked -p brokkr-cli` with the house's job bound in addition to, and not instead of, the Boa production-graph assertion and Rust 1.88 all-targets check. This is task-owned F2; no new dependency or architecture follows. |
+| Both current positions: current CLI refusal documents and defensive unknown-kind handling are different reachability classes. | **Combine into three proofs.** Command tests cover the four contract-admitted rejected common references and preserve their documents; a journal-boundary test proves `future-session` is refused before selection with no transcript document or stdout; a pure-view test retains direct `unsupported-kind` handling. Widening frozen seat-record kinds for test convenience and deleting the defensive arm are both rejected. This is task-owned F3 and changes no requirement. |
 | Both: scope the no-mutation convention to the system under test and real operator evidence while allowing synthetic fixture creation and mutation. | **Adopt; landed in `tasks.md` at `c03aafc`.** The reader/hints/renderers never create or mutate retained evidence; test setup may create and mutate only its own synthetic homes/files between reader invocations. This preserves the production read-only boundary and makes the required append, shrink, disappearance, replacement and same-length rewrite tests possible. |
 | Robustness: use Rust 1.88 `cargo test --no-run`; simplicity: add `--all-targets` to the existing MSRV check. | **Combine on the smaller sufficient gate; landed in task 13.6 at `c03aafc`.** Run `cargo check --workspace --all-targets --all-features --locked` under the CI-installed Rust 1.88 toolchain, locally as `cargo +1.88.0 ...` when available. `--all-targets` compiles the CLI test target and its dev-only Boa dependency; `--all-features` matches the workspace admission surface. The existing remote MSRV job receives the same arguments, so no second job is needed. A production-only check is rejected because it never compiles the promised harness. |
 | Simplicity: current-head local gates show the architecture is implemented; robustness: green local suites do not close the returned faults or absent host proof. | **Combine by evidence class.** The simplicity seat's format/clippy/test/bundle runs are retained as historical current-head evidence from its boundary. Direct source inspection and the controller's failed exact-coverage record keep the eight repairs and host gate open. Neither council report is promoted into chief-executed proof. |
 | Robustness: defeat both JavaScript and HTTP stale caches; simplicity: keep this as a route/fetch detail. | **Adopt the behavior at the narrow boundary.** Presentation and body responses use `Cache-Control: no-store` (and fetches request equivalent freshness); no persistent cache or new contract field is introduced. |
-| Simplicity: resolve factual drift without adding architecture; robustness: reopen dishonest completion state. | **Combine.** Refresh this design and preserve the small public shape. The next task office must reopen the exact implementation/proof items, task 13.5, archive and final commit; a checked box cannot substitute for missing evidence. The premature living-spec fold is removed or replaced only by one final archive operation after review, never hand-maintained beside the active deltas. |
+| Simplicity: resolve factual drift without adding architecture; robustness: reopen dishonest completion state. | **Combine.** Refresh this design and preserve the small public shape. The next task office must keep open the exact implementation/proof items, task 13.5, archive and final commit; a checked box cannot substitute for missing evidence. The living-spec fold is preserved as accumulated truth and updated only by one final archive operation after review, never deleted or hand-maintained beside the active deltas. |
 | Simplicity: keep `docs/guides/read-surfaces.md` rather than the intake's stale filename. | **Adopt.** That is the implemented and designed guide. Changing `journal-and-verification.md` would create unrelated overlap, not repair #222. |
 | Both: preserve filed proposed 0055 and avoid changing its status. | **Adopt.** Checkpoint `48739c6` contains the chief-authored decision and registry row, both still `proposed`. This sitting edits only the dialect-declared `design.md`; only the operator may accept the proposal. |
 
@@ -1033,6 +1043,15 @@ comparison of the same serialized `Turn` and metadata.
 | TUI pane/doors; hints; notices; live refresh | D8; headless keys, scrolling and buffers, late appearance, pure append, assembly replacement, same-size rewrite, refusal/recovery, final/manual reads. |
 | Browser presentation, eligibility and recovery | D9; HTTP/adapter tests plus Boa execution of the exact marker-delimited controller bytes extracted from `PAGE`, with the common reference painted separately, injected presentation/body promises, discovery-stage and body-stage unreadability, watch callbacks, timer ticks, both real click paths, selections and out-of-order responses. |
 
+Command refusal proof must respect actual boundary reachability. Exercise JSON
+and text documents for the four rejected common references admitted by the
+frozen seat-record vocabulary: `none`, `unannounced`, `missing-home` and
+`invalid-reference`. Separately prove that a `future-session` row is refused at
+journal append or verification before command selection, producing neither a
+`brokkr.transcript/v1` document nor stdout. Keep a direct pure-view case for an
+unknown supplied kind returning `unsupported-kind` with all three strings
+preserved. No one test is counted across those three boundaries.
+
 Provider tests must include event-only Codex, completed-item-only Codex,
 response/counterpart id pairs, id-less legacy records, repeated words and
 capped/incomplete counterparts, exact wire casing, audit-visible distinct ids,
@@ -1096,10 +1115,13 @@ the admitted-Claude body-unreadable trace above.
 The current `tasks.md` still carries R17-R24, A5-A7, the
 truncation/absent-partner repairs, the scoped synthetic-fixture rule, the
 discovery-refusal constructor and trace, and the Rust 1.88 all-targets Boa
-compilation gate. It is no longer an honest completion ledger: every one of its
-73 items is checked although host exact coverage is pending, the change is
-active after the premature archive, and the current-head defects above remain.
-The next task office must reopen the owning safe-I/O/native-path, DSH
+compilation gate. Its 45 checked and 29 unchecked items honestly retain landed
+work while leaving current implementation/proof and host gates open, but three
+instructions remain inconsistent with this returned design. The next task
+office must replace the living-spec deletion/seed instructions with preservation
+and final `MODIFIED` reconciliation, split task 8.9 into the four CLI documents,
+the fence/no-document proof and the pure-view defense, and add the locked
+release-profile build. It must also retain the open safe-I/O/native-path, DSH
 format/association, provider projection, world resolver, browser
 presentation/selection, cross-surface proof, gate, archive and final-commit
 items. Controller-only post-commit evidence stays outside tracked checkboxes.
@@ -1109,7 +1131,10 @@ sitting preserves `tasks.md` because the rendered artifact is `design.md` only.
 Implementation still owes, with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`:
 `cargo fmt --all -- --check`, clippy for all workspace targets/features with
 `--locked -- -D warnings`, workspace tests with `--all-features --locked`,
-and locked compilation of both `bundles/self` and `bundles/verify`.
+locked compilation of both `bundles/self` and `bundles/verify`, and the distinct
+house release build `cargo build --release --locked -p brokkr-cli`. The release
+build does not replace Rust 1.88 all-target compilation of the Boa-bearing test
+target or the proof that Boa is absent from the production graph.
 Run the unchanged `scripts/coverage-exact.sh`; host proof requires
 `TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, consuming the same
 `rust-nightly-version.txt` pin as CI/release admission. A skipped nested
@@ -1165,6 +1190,13 @@ proof, PR/remote CI, publication, merging and issue closure.
 - **[MSRV passes without compiling the controller harness]** → Add
   `--all-targets --all-features` to the Rust 1.88 workspace check locally and
   in CI so the dev-only Boa graph and controller test source are compiled.
+- **[Premature archive cleanup destroys accumulated truth]** → Retain the three
+  living capability specs as the base for the active `MODIFIED` deltas. Fold
+  once into that state under the existing provenance destination; never delete
+  the base, rewrite the pointer or convert the deltas back to `ADDED`.
+- **[Dependency admission is mistaken for a release build]** → Keep the
+  production-graph/MSRV checks and separately build the locked release-profile
+  `brokkr-cli` target before final archive and commit.
 
 ## Migration Plan
 
@@ -1193,9 +1225,15 @@ proof, PR/remote CI, publication, merging and issue closure.
    Claude body/SSE envelopes remain compatible. Rollback restores the old
    browser client and routes together and removes the test-only dependency/lock
    delta, so neither side observes half of the recovery protocol.
-5. Remove the stale premature living-spec fold while the change remains active,
-   complete local checks and final review, then archive the active final deltas
-   exactly once. Controller host proof validates the fixed candidate without
+5. Preserve the three existing living capability specifications and their
+   append-only provenance lines throughout implementation and review. After all
+   repaired implementation, proofs, the distinct locked release build and local
+   checks are complete, archive the final `MODIFIED` deltas exactly once into
+   that existing state under the recorded destination
+   `2026-09-10-read-every-transcript-kind`; do not seed an absent tree, rewrite
+   or duplicate the existing provenance pointer. Run the final workspace and
+   archived-change validations against the folded head before the candidate
+   commit. Controller host proof validates that fixed candidate without
    changing tracked checkboxes. The controller resolves shared-file overlap
    with #226; this work does not modify or import that sibling's worktree.
    Remote CI, publication, PR/merge and issue closure remain handoff actions.
@@ -1215,25 +1253,26 @@ be disguised as downstream success.
 
 Read the dialect manifest, design and return instructions and rendered
 `openspec instructions design --change read-every-transcript-kind --json`.
-It declares `design.md`; no workflow runner was invoked. Read the proposal, all
-three deltas, the existing task breakdown and both current council positions in
-full. The deltas contain 20 requirements and 177 scenarios. D1 explicitly
-adopts, rejects or combines every material current-council claim based on
-repository and tool-boundary evidence.
+It declares `design.md`; no workflow runner was invoked. Re-read proposal S16,
+the delta kinds and affected command requirements, the task sections that own
+F1-F3, and both current council positions in full. Strict validation reports 20
+requirements and 177 scenarios. D1 explicitly adopts, rejects or combines every
+material current-council claim based on repository and tool-boundary evidence.
 
-At entry checkpoint `30206b3`,
+At entry checkpoint `4e596fe`,
 `openspec validate read-every-transcript-kind --strict --no-interactive`
 passes and status reports all four planning artifacts present. That is
 structural validation, not implementation or archive completion. The active
-change, stale premature living-spec fold and 73 checked task items are reported
-honestly above; downstream offices must repair them in dependency order rather
-than treating their presence as proof.
+change, preserved living-spec base and 45 checked / 29 unchecked task split are
+reported honestly above; the task office must repair its three owning defects
+in dependency order rather than treating prior results as proof.
 
-This sitting directly inspected every robustness claim against current source
-and found each material implementation gap reproducible in the owning code.
-The design keeps simplicity's existing small architecture while adding the
-missing native-path, identity, format-order, audit-identity, complexity,
-world-selection and real-browser-entry-point constraints. Proposal, capability
+The adopted prior sitting directly inspected the implementation findings against
+current source. This returned visit independently checked F1 against proposal
+S16, the 20 `MODIFIED` deltas, the living provenance lines and decision 0042,
+and checked F2/F3 against the house release configuration, frozen-kind boundary,
+command scenarios and owning task text. The design keeps simplicity's existing
+small architecture and robustness's staged safety constraints unchanged. Proposal, capability
 deltas, tasks, decision 0055, accepted decisions and the frozen set remain
 unchanged by this sitting; the declared tracked artifact is `design.md` only.
 
