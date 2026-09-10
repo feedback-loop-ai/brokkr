@@ -945,7 +945,10 @@ into capability truth (`progress / PM4`). Run them with
       requirement of this change.
 - [ ] 15.4 `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
       and `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`
-      — every requirement of this change.
+      both pass, then run `cargo build --release --locked -p brokkr-cli` and
+      require its own successful result on the same final active bytes. Tests,
+      debug builds and bundle compiles do not substitute for the commissioned
+      release-profile build — every requirement of this change, progress / PM4.
 - [x] 15.5 Preserve the **completed original fold and dated same-change
       identity**. The five living capabilities already carry exactly one
       `2026-09-09-226-session-resumption` provenance line from commit
@@ -1607,3 +1610,26 @@ Active strict validation passes under the dated identifier, OpenSpec status is
 complete, the existing archive validates strictly, and `git diff --check` is
 clean. Cargo is unavailable in the box; no real archive, Rust/provider proof,
 host gate or shipping action is claimed here.
+
+## Current tasks return — J release-binary gate, 2026-09-10
+
+This returned visit adopts proposal answer J and the corresponding D9/D11
+design reconciliation at `52a743c`. The earlier breakdown omitted the
+commissioned repository-local release-profile proof even though it can run
+before the final artifact operation. Pending task 15.4 now names
+`cargo build --release --locked -p brokkr-cli` after both bundle compiles and
+requires its own successful result on the same final active bytes; tests, debug
+builds and bundle compiles cannot stand in for it. No task is added,
+renumbered or ticked, and no release versioning, packaging or publication work
+enters this change.
+
+The identifiers and task truth remain **101 tasks in 15 groups, 82 complete /
+19 pending**. Task 15.4 continues to serve every requirement of the change and
+now explicitly serves `progress / PM4`'s per-commission command scenario. All
+20 requirements / 125 scenarios retain coverage, while exact-head host
+coverage, integration, remote CI, publication, merge and issue closure remain
+mandatory non-checkbox controller evidence.
+
+This tasks-only repair claims no Rust, provider, bundle or release-binary
+result. Those checks remain pending in dependency order before active-change
+reconciliation and pre-archive readiness.
