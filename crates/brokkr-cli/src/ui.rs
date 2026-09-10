@@ -530,8 +530,11 @@ enum HeaderCheck {
 /// it only as an opening `session` object with absent or unsigned-zero
 /// depth. The version field neither qualifies nor vetoes ownership.
 fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
+    // The header budget is DSH_HEADER_CAP bytes; read one further byte so
+    // a newline that immediately follows a header of exactly the cap is
+    // seen instead of being discarded as the overflow probe.
     let (bytes, overflow, _eof) =
-        match file.read_bounded(brokkr_view::transcript::DSH_HEADER_CAP as u64) {
+        match file.read_bounded(brokkr_view::transcript::DSH_HEADER_CAP as u64 + 1) {
             Ok(read) => read,
             Err(_) => return HeaderCheck::Io,
         };
@@ -715,6 +718,10 @@ fn read_with_home(
             )
         }
         Discovery::Admitted(source) => {
+            let source_identity = brokkr_view::transcript::SourceIdentity {
+                device: source.identity.device,
+                inode: source.identity.inode,
+            };
             let hint = brokkr_view::transcript::full_session(&valid, Some(&source.path));
             // Recheck the held leaf's checked lossless identity at the read
             // boundary. The handle is already the verified source, so this
@@ -762,7 +769,7 @@ fn read_with_home(
             // truncation, exactly as the failure-stage matrix fixes.
             let projection = brokkr_view::transcript::project(valid.kind, &snapshot);
             if let Some(reason) = projection.unavailable {
-                return TranscriptRead::refused(
+                let mut read = TranscriptRead::refused(
                     selection.reference.clone(),
                     selection.legacy,
                     reason,
@@ -773,8 +780,10 @@ fn read_with_home(
                     projection.unrecognized_records,
                     hint,
                 );
+                read.source_identity = Some(source_identity);
+                return read;
             }
-            TranscriptRead::readable(
+            let mut read = TranscriptRead::readable(
                 selection.reference.clone(),
                 selection.legacy,
                 valid.kind,
@@ -783,7 +792,9 @@ fn read_with_home(
                 projection.truncated,
                 projection.skipped_lines,
                 projection.unrecognized_records,
-            )
+            );
+            read.source_identity = Some(source_identity);
+            read
         }
     }
 }

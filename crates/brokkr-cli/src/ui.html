@@ -233,10 +233,19 @@ const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
 const NODE_CLASS = { 'on-phosphor': 'on-phosphor', 'in-active': 'in-active',
                      'on-halt': 'on-halt', 'on-park': 'on-park' };
 
+// The browser twin of the terminal Safe(): a text node is inert, but the
+// bidi/directional formatting characters reorder visible text without
+// being control characters, so they are removed at the display boundary.
+// Machine JSON keeps the original strings.
+const DISPLAY_REORDERS = /[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+function displayText(value) {
+  return String(value).replace(DISPLAY_REORDERS, '');
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined && text !== null) node.textContent = String(text);
+  if (text !== undefined && text !== null) node.textContent = displayText(text);
   return node;
 }
 
@@ -245,7 +254,7 @@ function el(tag, className, text) {
 function svgEl(tag, className, text) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
   if (className) node.setAttribute('class', className);
-  if (text !== undefined && text !== null) node.textContent = String(text);
+  if (text !== undefined && text !== null) node.textContent = displayText(text);
   return node;
 }
 
@@ -288,7 +297,7 @@ function cell(model, className) {
   if (model.absent) {
     td.appendChild(absentMark(model.text, model.note));
   } else {
-    td.textContent = model.text;
+    td.textContent = displayText(model.text);
   }
   return td;
 }
@@ -1238,7 +1247,7 @@ function renderDetail(id, view) {
   for (const notice of view.notices ?? []) {
     const note = el('p', 'ruling');
     note.appendChild(badge(notice.kind, ''));
-    note.appendChild(document.createTextNode(' ' + notice.text));
+    note.appendChild(document.createTextNode(' ' + displayText(notice.text)));
     detail.appendChild(note);
   }
 
@@ -1273,7 +1282,7 @@ function renderDetail(id, view) {
       const act = part.activity;
       const activity = el('td', 'target');
       if (act.tool !== null) {
-        activity.appendChild(document.createTextNode(act.tool));
+        activity.appendChild(document.createTextNode(displayText(act.tool)));
         if (act.target_short !== null) {
           activity.appendChild(document.createTextNode(' · '));
           activity.appendChild(targetSpan(act.target_short, act.target_full));
@@ -1281,12 +1290,12 @@ function renderDetail(id, view) {
       } else if (act.absent) {
         activity.appendChild(absentMark(act.text, act.note));
       } else {
-        activity.textContent = act.text;
+        activity.textContent = displayText(act.text);
       }
       // The agent resolution that selected this invocation, rendered
       // separately from the provider-reported model cell.
       const label = el('td');
-      label.appendChild(document.createTextNode(part.label));
+      label.appendChild(document.createTextNode(displayText(part.label)));
       if (part.provenance) {
         label.appendChild(el('div', 'target', part.provenance.line));
       }
@@ -1327,7 +1336,7 @@ function renderDetail(id, view) {
     back.appendChild(link);
     detail.appendChild(back);
     const header = el('p');
-    header.appendChild(document.createTextNode(part.label + ' '));
+    header.appendChild(document.createTextNode(displayText(part.label) + ' '));
     header.appendChild(badge(part.status, part.status_class));
     detail.appendChild(header);
     const [model, boundary] = served(part);
@@ -1402,7 +1411,7 @@ function renderDetail(id, view) {
         what.appendChild(el('span', 'arrow', e.what.arrow));
       }
       if (e.what.badge === null && e.what.arrow === null) {
-        what.appendChild(document.createTextNode(e.what.text));
+        what.appendChild(document.createTextNode(displayText(e.what.text)));
       }
       if (e.what.problem !== null) {
         what.appendChild(el('div', 'problem', e.what.problem));

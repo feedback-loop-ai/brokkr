@@ -159,7 +159,15 @@ fn write_dsh_body(world: &World, locator: &str, body: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, body).unwrap();
-    file.to_str().unwrap().to_string()
+    // The reader canonicalizes the recorded home before joining the
+    // relative source path, so the confirmed path carries the canonical
+    // root on every platform (macOS `/var` is `/private/var`). Build the
+    // fixture's expectation the same way rather than from a path that
+    // may still hold a symlinked component.
+    format!(
+        "{}/{locator}/project/seat/session.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
 }
 
 fn claude_reference(world: &World, id: &str) -> Value {
@@ -209,7 +217,10 @@ fn write_claude(world: &World, id: &str, body: &str) -> String {
     std::fs::create_dir_all(&project).unwrap();
     let file = project.join(format!("{id}.jsonl"));
     std::fs::write(&file, body).unwrap();
-    file.to_str().unwrap().to_string()
+    format!(
+        "{}/project/{id}.jsonl",
+        world.projects().canonicalize().unwrap().display()
+    )
 }
 
 /// The id guard rejects a leading hyphen before any path is formed.
@@ -386,7 +397,10 @@ fn write_codex(world: &World, id: &str, body: &str) -> String {
     std::fs::create_dir_all(&sessions).unwrap();
     let file = sessions.join(format!("rollout-{id}.jsonl"));
     std::fs::write(&file, body).unwrap();
-    file.to_str().unwrap().to_string()
+    format!(
+        "{}/sessions/rollout-{id}.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
 }
 
 fn write_dsh(world: &World, locator: &str, header: &str) -> String {
@@ -394,7 +408,10 @@ fn write_dsh(world: &World, locator: &str, header: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, format!("{header}\n")).unwrap();
-    file.to_str().unwrap().to_string()
+    format!(
+        "{}/{locator}/project/seat/session.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
 }
 
 /// A Codex rollout needs no header: a `turn_context`-only file is a
@@ -424,8 +441,9 @@ fn a_headerless_codex_rollout_is_readable() {
     assert_eq!(
         document["full_session"],
         format!(
-            "full session: path \"{path}\", codex exec resume 0199mine, home \"{}\"",
-            world.home.to_str().unwrap()
+            "full session: path {}, codex exec resume 0199mine, home {}",
+            brokkr_view::transcript::portable_display_literal(&path),
+            brokkr_view::transcript::portable_display_literal(world.home.to_str().unwrap())
         )
     );
 }
@@ -434,10 +452,14 @@ fn a_headerless_codex_rollout_is_readable() {
 #[test]
 fn a_missing_codex_rollout_has_its_fixed_hint() {
     let world = world();
+    // A real (absent) directory beside the fixture, not a Unix-shaped
+    // literal: the recorded home travels into the portable literal on
+    // every platform.
+    let missing_home = world.home.join("missing-codex");
     record(
         &world,
         json!({"kind": "codex-thread", "locator": "019c-222a",
-               "home": "/retained/codex"}),
+               "home": missing_home.to_str().unwrap()}),
     );
     let output = run(
         &world,
@@ -449,7 +471,10 @@ fn a_missing_codex_rollout_has_its_fixed_hint() {
     assert!(document["path"].is_null());
     assert_eq!(
         document["full_session"],
-        "full session: rollout unavailable, codex exec resume 019c-222a, home \"/retained/codex\""
+        format!(
+            "full session: rollout unavailable, codex exec resume 019c-222a, home {}",
+            brokkr_view::transcript::portable_display_literal(missing_home.to_str().unwrap())
+        )
     );
 }
 
@@ -515,7 +540,10 @@ fn a_foreign_dsh_version_refuses_with_its_document() {
     assert_eq!(document["unrecognized_records"], 0);
     assert_eq!(
         document["full_session"],
-        format!("full session: path \"{path}\"")
+        format!(
+            "full session: path {}",
+            brokkr_view::transcript::portable_display_literal(&path)
+        )
     );
 }
 
@@ -1069,6 +1097,71 @@ fn json_retains_every_rejected_common_reference() {
     }
 }
 
+/// Task 8.9's text half: each rejected common reference keeps stdout
+/// empty, writes the exact reason and sanitized explanation to stderr,
+/// and exits one.
+#[test]
+fn text_mode_reports_every_rejected_common_reference() {
+    for (reference, reason) in [
+        (json!({"kind": "none", "locator": "", "home": ""}), "none"),
+        (
+            json!({"kind": "codex-thread", "locator": "", "home": "/retained/codex"}),
+            "unannounced",
+        ),
+        (
+            json!({"kind": "codex-thread", "locator": "0199mine", "home": ""}),
+            "missing-home",
+        ),
+        (
+            json!({"kind": "codex-thread", "locator": "-abc", "home": "/retained/codex"}),
+            "invalid-reference",
+        ),
+    ] {
+        let world = world_effects(&[("eff1", "review", None)]);
+        checkpoint(
+            &world,
+            "eff1",
+            "att0",
+            json!({"step": "session-finished", "transcript": reference}),
+        );
+        let output = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+        assert!(!output.status.success(), "{reason}");
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "exact exit code for {reason}"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "text refusals write no stdout body: {reason}"
+        );
+        let explanation = match reason {
+            "none" => {
+                brokkr_view::transcript::explanation_for(brokkr_view::transcript::Unavailable::None)
+            }
+            "unannounced" => brokkr_view::transcript::explanation_for(
+                brokkr_view::transcript::Unavailable::Unannounced,
+            ),
+            "missing-home" => brokkr_view::transcript::explanation_for(
+                brokkr_view::transcript::Unavailable::MissingHome,
+            ),
+            "invalid-reference" => brokkr_view::transcript::explanation_for(
+                brokkr_view::transcript::Unavailable::InvalidReference,
+            ),
+            other => panic!("unexpected rejection reason {other}"),
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("transcript unavailable: {reason}: {explanation}")),
+            "{reason}: {stderr:?}"
+        );
+        assert!(
+            !stderr.contains('\u{1b}'),
+            "{reason}: terminal control must be sanitized: {stderr:?}"
+        );
+    }
+}
+
 /// An empty valid file is readable; a missing file is `not-found` with
 /// no fabricated path.
 #[test]
@@ -1413,7 +1506,10 @@ fn dsh_event_refusal_carries_all_three_notices() {
     assert_eq!(document["path"], path);
     assert_eq!(
         document["full_session"],
-        format!("full session: path \"{path}\"")
+        format!(
+            "full session: path {}",
+            brokkr_view::transcript::portable_display_literal(&path)
+        )
     );
     assert_eq!(document["truncated"], true);
     assert_eq!(document["skipped_lines"], 2);
@@ -1476,7 +1572,10 @@ fn a_rejected_dsh_header_version_has_fixed_documents() {
         assert_eq!(document["path"], path);
         assert_eq!(
             document["full_session"],
-            format!("full session: path \"{path}\"")
+            format!(
+                "full session: path {}",
+                brokkr_view::transcript::portable_display_literal(&path)
+            )
         );
         assert_eq!(document["truncated"], false);
         assert_eq!(document["skipped_lines"], 0);
@@ -1568,7 +1667,10 @@ fn one_invalid_packed_row_counts_once() {
     assert_eq!(document["path"], path);
     assert_eq!(
         document["full_session"],
-        format!("full session: path \"{path}\"")
+        format!(
+            "full session: path {}",
+            brokkr_view::transcript::portable_display_literal(&path)
+        )
     );
     assert_eq!(document["skipped_lines"], 0);
     assert_eq!(document["unrecognized_records"], 1);
@@ -1727,9 +1829,15 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
 #[test]
 fn hostile_confirmed_paths_stay_portable_display_data() {
     let mut world = world();
-    let hostile_home = world
-        .path()
-        .join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    // Windows forbids the operator, quote and backslash characters in a
+    // path component, so the hostile fixture keeps the portable-display
+    // alphabet there; the Unix fixture carries the complete shell
+    // fragment. Both exercise the same escaping proof.
+    let hostile_home = world.path().join(if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    });
     std::fs::create_dir_all(&hostile_home).unwrap();
     world.home = hostile_home;
     let home_text = world.home.to_str().unwrap().to_string();

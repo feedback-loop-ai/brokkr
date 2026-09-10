@@ -142,6 +142,95 @@ fn digest(path: &Path) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
+/// One journal's bytes and the length of its `-wal` sidecar. `None` means
+/// the file does not exist.
+///
+/// SQLite's plain read-only open of a clean WAL journal creates an empty
+/// `-wal` (and a `-shm` shared-memory index) on first access. That is
+/// SQLite's documented shared-memory behavior, not Brokkr writing
+/// evidence: the living `transcript-reading` spec ("Transcript prose stays
+/// local and inert") requires the journal to open read-only and append no
+/// events or checkpoints and the event count/hash to be unchanged, which
+/// means the database bytes never move and a newly appeared WAL carries no
+/// frame. Only immutable mode avoids the sidecars, and that is unsafe for a
+/// live journal a run may still be writing.
+fn journal_and_wal(journal: &Path) -> (Option<[u8; 32]>, Option<u64>) {
+    let db = std::fs::read(journal)
+        .ok()
+        .map(|bytes| Sha256::digest(bytes).into());
+    let wal = std::fs::metadata(format!("{}-wal", journal.display()))
+        .ok()
+        .map(|meta| meta.len());
+    (db, wal)
+}
+
+/// Whether a WAL file holds at least one complete frame. The 32-byte
+/// header carries the page size at offset 8 (big-endian); a frame is a
+/// 24-byte frame header plus one page. A zero-length or header-only WAL
+/// carries no journal content, which is exactly what a read-only open
+/// leaves behind.
+fn wal_has_frames(journal: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(format!("{}-wal", journal.display())) else {
+        return false;
+    };
+    if bytes.len() < 32 {
+        return false;
+    }
+    let page_size = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+    if !(512..=65_536).contains(&page_size) {
+        return false;
+    }
+    bytes.len() >= 32 + 24 + page_size
+}
+
+/// Assert one read left a journal inert under the living spec: identical
+/// database bytes and existence; an existing WAL unchanged; a WAL that
+/// appeared during the read empty or frame-free (SQLite's own zero-byte
+/// file, never a journalled page). A new `-shm` is the shared-memory
+/// index, not evidence, and the other surfaces are asserted separately.
+fn assert_journal_inert(journal: &Path, before: (Option<[u8; 32]>, Option<u64>), context: &str) {
+    let (after_db, after_wal) = journal_and_wal(journal);
+    assert_eq!(
+        after_db, before.0,
+        "{context}: the journal bytes or existence changed"
+    );
+    match before.1 {
+        None => {
+            if let Some(length) = after_wal {
+                assert!(
+                    length == 0 || !wal_has_frames(journal),
+                    "{context}: the read journalled a WAL frame ({length} bytes)"
+                );
+            }
+        }
+        Some(length) => assert_eq!(
+            after_wal,
+            Some(length),
+            "{context}: the read changed the existing WAL sidecar"
+        ),
+    }
+}
+
+/// Every string value anywhere inside a JSON document. Used to prove a
+/// journal-derived readout carries no transcript prose in any nested
+/// telemetry or result field, not only in its top-level text.
+fn json_strings<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+    match value {
+        Value::String(text) => out.push(text),
+        Value::Array(items) => {
+            for item in items {
+                json_strings(item, out);
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values() {
+                json_strings(item, out);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
 /// The journal gains nothing and the retained file keeps its bytes across
 /// a successful read, a refusal and a re-read.
 #[test]
@@ -151,6 +240,7 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     let config = write_config(&world);
     let journal = world.db.clone();
     let before_journal = digest(&journal);
+    let before_journal_state = journal_and_wal(&journal);
     let before_file = digest(&file);
     let before_config = digest(&config);
     let before_tree = snapshot_tree(&world.home);
@@ -161,6 +251,7 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     );
     assert!(output.status.success());
     assert_eq!(digest(&journal), before_journal, "no journal write");
+    assert_journal_inert(&journal, before_journal_state, "a successful read");
     assert_eq!(digest(&file), before_file, "no retained-byte change");
     assert_eq!(digest(&config), before_config, "no provider-config change");
     assert_eq!(
@@ -187,6 +278,7 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     let document: Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(document["unavailable"], "turn-not-retained");
     assert_eq!(digest(&journal), before_journal);
+    assert_journal_inert(&journal, before_journal_state, "a refusal");
     assert_eq!(digest(&file), before_file);
     assert_eq!(digest(&config), before_config);
     assert_eq!(snapshot_tree(&world.home), before_tree);
@@ -283,7 +375,11 @@ fn the_reader_starts_no_provider_process() {
 fn hostile_paths_are_portable_and_retained_inert() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
-    let home = dir.path().join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    let home = dir.path().join(if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    });
     std::fs::create_dir_all(home.join("sessions")).unwrap();
     let file = home.join("sessions/rollout-0199mine.jsonl");
     std::fs::write(&file, "{\"type\":\"turn_context\"}\n").unwrap();
@@ -340,7 +436,10 @@ fn hostile_paths_are_portable_and_retained_inert() {
     let hint = document["full_session"].as_str().expect("the shared hint");
     let expected = format!(
         "full session: path {}, codex exec resume 0199mine, home {}",
-        brokkr_view::transcript::portable_display_literal(file.to_str().unwrap()),
+        brokkr_view::transcript::portable_display_literal(&format!(
+            "{}/sessions/rollout-0199mine.jsonl",
+            home.canonicalize().unwrap().display()
+        )),
         brokkr_view::transcript::portable_display_literal(home.to_str().unwrap()),
     );
     assert_eq!(hint, expected);
@@ -357,4 +456,298 @@ fn hostile_paths_are_portable_and_retained_inert() {
         before_tree,
         "the retained root keeps every byte and its existence"
     );
+}
+
+/// Every hearth the run resolver consults — the selected one and a
+/// sibling the map names — is opened read-only: no journal and no WAL
+/// sidecar gains a byte or an existence change.
+#[test]
+fn every_hearth_and_wal_sidecar_stay_inert() {
+    let world = world();
+    write_transcript(&world);
+    let config = write_config(&world);
+
+    // A second hearth the resolver must list but never select.
+    let decoy = world.path().join("decoy.db");
+    {
+        let mut store = Store::open(&decoy).unwrap();
+        store
+            .create_run("decoy", "decoy-feature", "self", &json!({"files": {}}))
+            .unwrap();
+        store
+            .append_next(
+                "decoy",
+                EventType::RunStarted,
+                json!({"feature": "decoy-feature", "manifest": {}}),
+                None,
+                None,
+            )
+            .unwrap();
+    }
+    let map = world.path().join("realms.json");
+    std::fs::write(
+        &map,
+        r#"{
+  "schema": "forge.realms/v2",
+  "realms": [
+    {"name": "alpha", "path": ".", "default_branch": "main", "journal": "forge.db"},
+    {"name": "beta", "path": ".", "default_branch": "main", "journal": "decoy.db"}
+  ],
+  "journal": "forge.db"
+}"#,
+    )
+    .unwrap();
+
+    let before_primary = journal_and_wal(&world.db);
+    let before_decoy = journal_and_wal(&decoy);
+    let before_config = digest(&config);
+    let before_tree = snapshot_tree(&world.home);
+
+    let output = Command::new(brokkr_bin())
+        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .arg("--realms")
+        .arg(&map)
+        .env("HOME", &world.home)
+        .current_dir(world.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["run_id"], "r222");
+    // The decoy journal was listed, so the resolver really consulted both.
+    assert!(before_decoy.0.is_some(), "the decoy journal exists");
+
+    assert_journal_inert(&world.db, before_primary, "the selected hearth");
+    assert_journal_inert(&decoy, before_decoy, "the sibling hearth");
+    assert_eq!(digest(&config), before_config, "provider config changed");
+    assert_eq!(
+        snapshot_tree(&world.home),
+        before_tree,
+        "retained tree changed"
+    );
+}
+
+/// The fleet dossier and the run's result telemetry keep their
+/// path/id-only boundary: a transcript read derives no dossier and every
+/// nested string in the journal-derived readouts is prose-free.
+#[test]
+fn dossier_and_result_telemetry_keep_their_boundary() {
+    let world = world();
+    write_transcript(&world);
+    let record = world.path().join(".forge/muninn.ndjson");
+
+    let transcript = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(transcript.status.success());
+    assert!(
+        !record.exists(),
+        "a transcript read must not derive or write a muninn dossier record"
+    );
+
+    // Parsed, not substring-scanned: every nested result/telemetry string
+    // in the journal-derived readouts is prose-free.
+    for args in [
+        vec!["inspect", "--run", "r222", "--json"],
+        vec!["seats", "--run", "r222", "--json"],
+        vec!["runs", "--json"],
+    ] {
+        let output = run(&world, &args);
+        let text = String::from_utf8_lossy(&output.stdout);
+        let document: Value = serde_json::from_str(&text).unwrap_or_else(|error| {
+            panic!(
+                "{args:?} did not emit one JSON document: {error}; stderr {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+        let mut strings = Vec::new();
+        json_strings(&document, &mut strings);
+        for value in strings {
+            assert!(
+                !value.contains(SENTINEL),
+                "{args:?} leaked prose into a nested string: {value:?}"
+            );
+        }
+    }
+
+    // The dossier derivation runs read-only with the sentinel transcript
+    // present, stops at the missing seat library and writes no record.
+    let agents = world.path().join("no-agents");
+    let adapters = world.path().join("no-adapters");
+    let derived = run(
+        &world,
+        &[
+            "muninn",
+            "run",
+            "--record",
+            record.to_str().unwrap(),
+            "--agents-dir",
+            agents.to_str().unwrap(),
+            "--adapters-dir",
+            adapters.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        !derived.status.success(),
+        "a missing seat library is a refusal"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&derived.stdout),
+        String::from_utf8_lossy(&derived.stderr)
+    );
+    assert!(
+        !combined.contains(SENTINEL),
+        "the dossier derivation leaked prose: {combined}"
+    );
+    assert!(!record.exists(), "a failed dossier run writes no record");
+
+    // The record reader names no prose either.
+    let listed = run(
+        &world,
+        &[
+            "muninn",
+            "list",
+            "--record",
+            record.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&listed.stdout),
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert!(!combined.contains(SENTINEL), "{combined}");
+}
+
+/// A bounded growth read re-derives the grown source without rewriting
+/// it, and leaves the retained tree, provider configuration and journal
+/// bytes/existence unchanged. (SQLite's read-only open may create an empty
+/// `-wal`; no journal page is written — see `journal_and_wal`.)
+#[test]
+fn growth_reads_keep_the_tree_config_and_journal_inert() {
+    let world = world();
+    let file = write_transcript(&world);
+    let config = write_config(&world);
+    let before_journal = journal_and_wal(&world.db);
+    let before_config = digest(&config);
+    let before_paths: Vec<_> = snapshot_tree(&world.home)
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
+
+    for step in 0..3 {
+        // The writer (never the reader) grows the retained source.
+        let mut body = std::fs::read_to_string(&file).unwrap();
+        body.push_str(&format!(
+            "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{SENTINEL}-growth-{step}\"}}}}\n"
+        ));
+        std::fs::write(&file, &body).unwrap();
+        let grown = std::fs::read(&file).unwrap();
+
+        let output = run(
+            &world,
+            &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            grown,
+            "the growth read must not rewrite the retained source"
+        );
+        assert_journal_inert(&world.db, before_journal, "a growth read");
+        assert_eq!(digest(&config), before_config, "provider config changed");
+        let after_paths: Vec<_> = snapshot_tree(&world.home)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(after_paths, before_paths, "the retained tree changed");
+    }
+}
+
+/// Terminal controls in prompt, tool argument and stamp survive only as
+/// JSON data; the text face and every refusal are sanitized, and the
+/// journal is untouched.
+#[test]
+fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
+    let world = world();
+    let project = world.projects().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let file = project.join("abcd-1234.jsonl");
+    std::fs::write(
+        &file,
+        format!(
+            "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"\\u001b[2J{SENTINEL}-output\"}},{{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"\\u001b[33m{SENTINEL}-arg\"}}}}]}},\"timestamp\":\"\\u001b[0mT\"}}\n"
+        ),
+    )
+    .unwrap();
+    let before_journal = journal_and_wal(&world.db);
+
+    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(
+        text.status.success(),
+        "{}",
+        String::from_utf8_lossy(&text.stderr)
+    );
+    let rendered = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        !rendered.contains('\u{1b}'),
+        "the text face leaked a terminal control: {rendered:?}"
+    );
+    assert!(
+        rendered.contains(SENTINEL),
+        "the explicit read still carries its requested prose"
+    );
+
+    let json = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(json.status.success());
+    let document: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(
+        document["turns"][0]["blocks"][0]["text"],
+        format!("\u{1b}[2J{SENTINEL}-output")
+    );
+    assert!(
+        document["turns"][0]["blocks"][1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("\u{1b}[33m"),
+        "{}",
+        document["turns"][0]["blocks"][1]["text"]
+    );
+    // The raw document still carries the control as escaped JSON data.
+    let raw = String::from_utf8_lossy(&json.stdout);
+    assert!(raw.contains("\\u001b[2J"), "{raw}");
+
+    // A refusal stays sanitized on stderr too.
+    let refused = run(
+        &world,
+        &[
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--turn",
+            "99",
+        ],
+    );
+    assert!(!refused.status.success());
+    assert!(refused.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&refused.stderr).contains('\u{1b}'));
+
+    assert_journal_inert(&world.db, before_journal, "the control read");
 }

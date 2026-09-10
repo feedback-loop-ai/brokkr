@@ -13,6 +13,16 @@ use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead};
 use serde_json::{json, Value};
 
+/// `HOME` is process-global and `read_local` reads it (for legacy
+/// synthesis) even when the selected reference carries its own home, so
+/// every test in this file takes its turn. This is the integration-test
+/// twin of `crate::tests::HOME`.
+static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn home_lock() -> std::sync::MutexGuard<'static, ()> {
+    HOME.lock().unwrap_or_else(|error| error.into_inner())
+}
+
 struct World {
     dir: tempfile::TempDir,
     db: PathBuf,
@@ -41,7 +51,10 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                     locator: locator.to_string(),
                     home: projects.to_str().unwrap().to_string(),
                 },
-                file.to_str().unwrap().to_string(),
+                format!(
+                    "{}/project/{locator}.jsonl",
+                    projects.canonicalize().unwrap().display()
+                ),
             )
         }
         "codex-thread" => {
@@ -55,7 +68,10 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                     locator: locator.to_string(),
                     home: home.to_str().unwrap().to_string(),
                 },
-                file.to_str().unwrap().to_string(),
+                format!(
+                    "{}/sessions/rollout-{locator}.jsonl",
+                    home.canonicalize().unwrap().display()
+                ),
             )
         }
         "dsh-session" => {
@@ -69,7 +85,10 @@ fn source(home: &Path, kind: &str, locator: &str, body: &str) -> (brokkr_view::T
                     locator: locator.to_string(),
                     home: home.to_str().unwrap().to_string(),
                 },
-                file.to_str().unwrap().to_string(),
+                format!(
+                    "{}/{locator}/project/seat/session.jsonl",
+                    home.canonicalize().unwrap().display()
+                ),
             )
         }
         other => panic!("unknown kind {other}"),
@@ -196,14 +215,17 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     }
 
     // The TUI pane enumerates the same turns; both doors carry the same
-    // turn text, notices and hint through the real renderers.
+    // turn text, one-based numbering, notices and hint through the real
+    // renderers.
     let (keys, selected_door, whole_door) =
         brokkr_cli::transcript_surfaces_for_test(read, selected);
     assert_eq!(keys.len(), read.turns.len());
     for index in 0..read.turns.len() {
         assert!(keys.contains(&index.to_string()));
     }
-    for turn in &read.turns {
+    for (index, turn) in read.turns.iter().enumerate() {
+        let header = format!("#{} {}  {}", index + 1, turn.role, turn.ts);
+        assert!(whole_door.contains(&header), "{whole_door}");
         for block in &turn.blocks {
             assert!(whole_door.contains(&block.text), "{whole_door}");
         }
@@ -215,7 +237,10 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
         assert!(whole_door.contains(hint), "{whole_door}");
     }
     if let Some(index) = selected.filter(|index| *index < read.turns.len()) {
-        for block in &read.turns[index].blocks {
+        let turn = &read.turns[index];
+        let header = format!("#{} {}  {}", index + 1, turn.role, turn.ts);
+        assert!(selected_door.contains(&header), "{selected_door}");
+        for block in &turn.blocks {
             assert!(selected_door.contains(&block.text), "{selected_door}");
         }
         for notice in &read.notices {
@@ -244,8 +269,35 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     );
     assert_eq!(document["path"], json!(read.path));
     assert_eq!(document["full_session"], json!(read.full_session));
+    // A readable derivation is never an unavailable one.
+    assert_eq!(document["unavailable"], Value::Null);
 
-    // The selected command changes only the turn.
+    // The text command carries the same one-based numbering, roles,
+    // stamps, blocks, notices and hint as the pane and the JSON face.
+    let whole_text = command(world, &[]);
+    assert!(
+        whole_text.status.success(),
+        "{}",
+        String::from_utf8_lossy(&whole_text.stderr)
+    );
+    let rendered = String::from_utf8_lossy(&whole_text.stdout);
+    for (index, turn) in read.turns.iter().enumerate() {
+        let header = format!("turn {} · {} · {}", index + 1, turn.role, turn.ts);
+        assert!(rendered.contains(header.trim_end()), "{rendered}");
+        for block in &turn.blocks {
+            assert!(rendered.contains(&block.text), "{rendered}");
+        }
+    }
+    for notice in &read.notices {
+        assert!(rendered.contains(notice), "{rendered}");
+    }
+    if let Some(hint) = &read.full_session {
+        assert!(rendered.contains(hint), "{rendered}");
+    }
+
+    // The selected command changes only the turn and keeps the whole
+    // read's numbering, metadata and notices; its text face carries only
+    // the requested turn's prose.
     if let Some(index) = selected.filter(|index| *index < read.turns.len()) {
         let selected_command = command(world, &["--json", "--turn", &(index + 1).to_string()]);
         assert!(selected_command.status.success());
@@ -260,30 +312,119 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
             document["notices"],
             serde_json::to_value(&read.notices).unwrap()
         );
+
+        let selected_text = command(world, &["--turn", &(index + 1).to_string()]);
+        assert!(selected_text.status.success());
+        let rendered = String::from_utf8_lossy(&selected_text.stdout);
+        let turn = &read.turns[index];
+        let header = format!("turn {} · {} · {}", index + 1, turn.role, turn.ts);
+        assert!(rendered.contains(header.trim_end()), "{rendered}");
+        for block in &turn.blocks {
+            assert!(rendered.contains(&block.text), "{rendered}");
+        }
+        for notice in &read.notices {
+            assert!(rendered.contains(notice), "{rendered}");
+        }
+        for (other_index, other) in read.turns.iter().enumerate() {
+            if other_index == index {
+                continue;
+            }
+            for block in &other.blocks {
+                if !turn.blocks.iter().any(|own| own.text == block.text) {
+                    assert!(
+                        !rendered.contains(&block.text),
+                        "the selected read leaked turn {}: {rendered}",
+                        other_index + 1
+                    );
+                }
+            }
+        }
     }
+}
+
+/// One unavailable read reaches the TUI seam and the command with the
+/// same unavailability, path, hint, notices and counts — the refusal half
+/// of the one-derivation proof (task 11.2).
+fn compare_refusal(world: &World, read: &TranscriptRead, expected: &str) {
+    assert_eq!(
+        read.unavailable.map(|reason| reason.as_str()),
+        Some(expected),
+        "the shared read carries the expected refusal"
+    );
+
+    // The TUI seam: no turn key and no selected door, and the openable
+    // whole-transcript explanation carries the retained notices and hint
+    // without any refused source prose.
+    let (keys, selected_door, whole_door) = brokkr_cli::transcript_surfaces_for_test(read, None);
+    assert!(keys.is_empty(), "{expected}: a refusal has no turn keys");
+    assert!(
+        selected_door.is_empty(),
+        "{expected}: a refusal has no selected door"
+    );
+    for notice in &read.notices {
+        assert!(whole_door.contains(notice), "{expected}: {whole_door}");
+    }
+    if let Some(hint) = &read.full_session {
+        assert!(whole_door.contains(hint), "{expected}: {whole_door}");
+    }
+
+    // The command's whole read agrees on every failure-state field.
+    let whole = command(world, &["--json"]);
+    assert!(
+        !whole.status.success(),
+        "{expected}: a refusal exits nonzero"
+    );
+    assert_eq!(whole.status.code(), Some(1), "{expected}: exact exit code");
+    let document = parse(&whole);
+    assert_eq!(document["unavailable"], expected);
+    assert_eq!(document["turns"], json!([]));
+    assert_eq!(document["path"], json!(read.path));
+    assert_eq!(document["full_session"], json!(read.full_session));
+    assert_eq!(document["truncated"], read.truncated);
+    assert_eq!(document["skipped_lines"], read.skipped_lines);
+    assert_eq!(document["unrecognized_records"], read.unrecognized_records);
+    assert_eq!(
+        document["notices"],
+        serde_json::to_value(&read.notices).unwrap()
+    );
+
+    // Text mode writes no body and names the same sanitized reason.
+    let text = command(world, &[]);
+    assert!(!text.status.success());
+    assert_eq!(text.status.code(), Some(1), "{expected}: exact exit code");
+    assert!(
+        text.stdout.is_empty(),
+        "{expected}: text refusals write no body"
+    );
+    let stderr = String::from_utf8_lossy(&text.stderr);
+    assert!(stderr.contains(expected), "{expected}: {stderr:?}");
 }
 
 /// One synthetic source of each kind flows through every surface, plus a
 /// readable zero-turn source, a truncated source, a counted omission and
-/// a DSH header refusal.
+/// each DSH refusal.
 #[test]
 fn one_derivation_reaches_every_surface() {
+    let _home = home_lock();
     for (kind, locator, body) in [
         (
             "claude-session",
             "abcd-1234",
-            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"claude says hi\"}}\n",
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"claude says hi\"}}\n\
+             {\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"claude says bye\"}}\n",
         ),
         (
             "codex-thread",
             "0199mine",
-            "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"codex asks\"}]}}\n",
+            "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"codex asks\"}]}}\n\
+             {\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"codex answers\"}]}}\n",
         ),
         (
             "dsh-session",
             "sessions/one",
             "{\"type\":\"session\",\"version\":0}\n\
-             {\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"dsh asks\"}]},\"time\":1000}\n",
+             {\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"dsh asks\"}]},\"time\":1000}\n\
+             {\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"dsh answers\"}]}},\"time\":2000}\n",
         ),
     ] {
         let world = make_world(kind, locator, body);
@@ -357,12 +498,7 @@ fn one_derivation_reaches_every_surface() {
     assert_eq!(presentation["hint"], json!(read.full_session));
     assert!(presentation["reason"].is_null());
     assert!(!response.body.contains("hidden"), "{presentation}");
-    let whole = command(&world, &["--json"]);
-    assert!(!whole.status.success());
-    let document = parse(&whole);
-    assert_eq!(document["unavailable"], "unsupported-format");
-    assert_eq!(document["turns"], json!([]));
-    assert_eq!(document["notices"], json!([]));
+    compare_refusal(&world, &read, "unsupported-format");
 
     // A DSH ownership refusal is a lookup refusal every surface shares.
     let world = make_world(
@@ -386,52 +522,167 @@ fn one_derivation_reaches_every_surface() {
     );
     assert!(presentation["path"].is_null());
     assert!(presentation.get("turns").is_none(), "{presentation}");
-    let whole = command(&world, &["--json"]);
-    assert!(!whole.status.success());
-    let document = parse(&whole);
-    assert_eq!(document["unavailable"], "not-found");
-    assert_eq!(document["turns"], json!([]));
+    compare_refusal(&world, &read, "not-found");
 }
 
-/// Distinct recorded tool ids and the measured MCP/dynamic context reach
-/// every surface in the one centralized block text (design D5/D11).
+/// A DSH semantic refusal after a readable-looking prefix, and the
+/// ambiguity between two safe roots, travel the same TUI seam as every
+/// other refusal: no reading door, the retained counts/notices/hint and
+/// the same command document.
+#[test]
+fn dsh_semantic_refusals_reach_the_tui_seam() {
+    let _home = home_lock();
+    // A DSH semantic refusal after a readable-looking prefix is the same
+    // unavailability through every surface, with its counts and notices
+    // intact and no refused prose anywhere.
+    let world = make_world(
+        "dsh-session",
+        "sessions/one",
+        "{\"type\":\"session\",\"version\":0}\n\
+         not json\n\
+         {\"type\":\"future/required\"}\n",
+    );
+    std::env::set_var("HOME", &world.home);
+    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    assert_eq!(
+        read.unavailable,
+        Some(brokkr_view::transcript::Unavailable::UnsupportedFormat)
+    );
+    assert_eq!(read.skipped_lines, 1, "{read:?}");
+    assert_eq!(read.unrecognized_records, 1, "{read:?}");
+    compare_refusal(&world, &read, "unsupported-format");
+
+    // A present common reference with two safe roots of different
+    // versions is ambiguous, not a preference for the supported one.
+    let world = make_world(
+        "dsh-session",
+        "sessions/one",
+        "{\"type\":\"session\",\"version\":0}\n",
+    );
+    let other = world.home.join("sessions/one/other/seat");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(
+        other.join("session.jsonl"),
+        "{\"type\":\"session\",\"version\":1}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", &world.home);
+    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    assert_eq!(
+        read.unavailable,
+        Some(brokkr_view::transcript::Unavailable::AmbiguousSource)
+    );
+    compare_refusal(&world, &read, "ambiguous-source");
+}
+
+/// The complete recorded tool identity and MCP/dynamic/DSH context reach
+/// every surface in the one centralized block text (design D5/D11), for
+/// every readable kind.
 #[test]
 fn recorded_tool_identity_and_context_reach_every_surface() {
-    let body = concat!(
-        "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
-        "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
-        "{\"timestamp\":\"t3\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
-        "{\"timestamp\":\"t4\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
-    );
-    let world = make_world("codex-thread", "0199mine", body);
-    // The recorded common reference needs no ambient HOME, so this test
-    // never mutates the process environment another test may be reading.
-    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
-    assert!(read.is_readable(), "{read:?}");
-    let texts: Vec<String> = read
-        .turns
-        .iter()
-        .flat_map(|turn| turn.blocks.iter().map(|block| block.text.clone()))
-        .collect();
-    for needle in ["[c1]", "[c2]", "[m1]", "[d1]"] {
+    let _home = home_lock();
+    let cases: [(&str, &str, &str, Vec<&str>); 3] = [
+        (
+            "claude-session",
+            "abcd-1234",
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"file_path\":\"src/lib.rs\"}}]}}\n",
+            vec!["Read · src/lib.rs"],
+        ),
+        (
+            "codex-thread",
+            "0199mine",
+            concat!(
+                "{\"timestamp\":\"t1\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c1\",\"arguments\":\"{}\"}}\n",
+                "{\"timestamp\":\"t2\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"F\",\"call_id\":\"c2\",\"arguments\":\"{}\"}}\n",
+                "{\"timestamp\":\"t3\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_begin\",\"call_id\":\"m1\",\"invocation\":{\"server\":\"srv\",\"tool\":\"search\",\"arguments\":\"{}\"}}}\n",
+                "{\"timestamp\":\"t4\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"d1\",\"content_items\":[{\"type\":\"inputText\",\"text\":\"done\"}],\"error\":\"boom\"}}\n",
+            ),
+            vec!["[c1]", "[c2]", "srv", "search", "[m1]", "[d1]", "done", "boom"],
+        ),
+        (
+            "dsh-session",
+            "sessions/one",
+            concat!(
+                "{\"type\":\"session\",\"version\":0}\n",
+                "{\"type\":\"tool/call\",\"data\":{\"name\":\"bash\",\"arguments\":{\"cmd\":\"ls\"},\"callId\":\"dshtool1\",\"turn\":1,\"step\":1},\"time\":1000}\n",
+                "{\"type\":\"tool/result\",\"data\":{\"message\":{\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"dshtool1\",\"content\":\"tool output here\"}]},\"callId\":\"dshtool1\",\"turn\":1,\"step\":1},\"time\":2000}\n",
+            ),
+            vec!["bash", "dshtool1", "tool output here"],
+        ),
+    ];
+
+    for (kind, locator, body, needles) in cases {
+        let world = make_world(kind, locator, body);
+        // The common reference needs no ambient HOME, but `read_local`
+        // still reads HOME, so this test holds the file's HOME lock.
+        let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+        assert!(read.is_readable(), "{kind}: {read:?}");
+        let texts: Vec<&str> = read
+            .turns
+            .iter()
+            .flat_map(|turn| turn.blocks.iter().map(|block| block.text.as_str()))
+            .collect();
+        for needle in &needles {
+            assert!(
+                texts.iter().any(|text| text.contains(needle)),
+                "{kind}: the centralized block text lost {needle}: {texts:?}"
+            );
+        }
+
+        // The command's JSON document serializes that exact block text.
+        let document = parse(&command(&world, &["--json"]));
+        let serialized: Vec<String> = document["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|turn| {
+                turn["blocks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|block| block["text"].as_str().unwrap().to_string())
+            })
+            .collect();
+        for needle in &needles {
+            assert!(
+                serialized.iter().any(|text| text.contains(needle)),
+                "{kind}: the command document lost {needle}: {serialized:?}"
+            );
+        }
+
+        // The text face renders the same context.
+        let text = command(&world, &[]);
         assert!(
-            texts.iter().any(|text| text.contains(needle)),
-            "the recorded id {needle} is missing: {texts:?}"
+            text.status.success(),
+            "{kind}: {}",
+            String::from_utf8_lossy(&text.stderr)
         );
+        let rendered = String::from_utf8_lossy(&text.stdout);
+        for needle in &needles {
+            assert!(
+                rendered.contains(needle),
+                "{kind}: the text face lost {needle}: {rendered}"
+            );
+        }
+
+        // The TUI pane and whole door carry the same centralized text.
+        let (_, _, whole_door) = brokkr_cli::transcript_surfaces_for_test(&read, None);
+        for needle in &needles {
+            assert!(
+                whole_door.contains(needle),
+                "{kind}: the TUI door lost {needle}: {whole_door}"
+            );
+        }
+
+        // The browser presentation transports no tool prose.
+        let response = brokkr_cli::handle(&world.db, "/api/presentation/r222/eff1");
+        for text in &texts {
+            assert!(
+                !response.body.contains(*text),
+                "{kind}: the browser transport leaked {text:?}"
+            );
+        }
     }
-    assert!(
-        texts
-            .iter()
-            .any(|text| text.contains("srv") && text.contains("search")),
-        "the MCP context is missing: {texts:?}"
-    );
-    assert!(
-        texts
-            .iter()
-            .any(|text| text.contains("done") && text.contains("boom")),
-        "the dynamic response context is missing: {texts:?}"
-    );
-    compare(&world, &read, None);
 }
 
 /// R25: one completed portable-display hint is byte-identical across the
@@ -440,7 +691,12 @@ fn recorded_tool_identity_and_context_reach_every_surface() {
 /// surface reconstructing a fragment.
 #[test]
 fn r25_portable_hint_is_identical_across_every_surface() {
-    let hostile = "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀";
+    let _home = home_lock();
+    let hostile = if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    };
     for (kind, locator, body) in [
         ("codex-thread", "0199mine", "{\"type\":\"turn_context\"}\n"),
         (
@@ -450,8 +706,8 @@ fn r25_portable_hint_is_identical_across_every_surface() {
         ),
     ] {
         let world = make_world_named(kind, locator, body, hostile);
-        // The recorded common reference needs no ambient HOME, so this test
-        // never mutates the process environment another test may be reading.
+        // The common reference needs no ambient HOME, but `read_local`
+        // still reads HOME, so this test holds the file's HOME lock.
         let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
         assert!(read.is_readable(), "{kind}: {read:?}");
         let hint = read

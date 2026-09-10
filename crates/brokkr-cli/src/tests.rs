@@ -1617,6 +1617,133 @@ fn a_selector_that_several_hearths_answer_is_refused_and_latest_is_the_newest() 
     assert_eq!(newest_answer(Vec::new()), None);
 }
 
+/// M1: an ambiguous prefix in one hearth is preserved even when another
+/// hearth answers the same selector uniquely. A guess in one journal is
+/// still a guess about which run the operator meant.
+#[test]
+fn a_unique_hearth_does_not_discard_another_hearths_ambiguous_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    let beta = dir.path().join("beta.db");
+    running_store(&alpha, "target-alone");
+    running_store(&beta, "target-one");
+    running_store(&beta, "target-two");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &alpha), hearth("beta", &beta)];
+
+    let refusal = resolve_in_hearths(&world, "target".to_string()).unwrap_err();
+    let said = refusal.to_string();
+    assert!(
+        said.contains("matches 2 runs"),
+        "the ambiguous hearth's refusal survives: {said}"
+    );
+
+    // A fully distinct exact id still resolves where only one hearth
+    // answers it.
+    assert_eq!(
+        resolve_in_hearths(&world, "target-alone".to_string()).unwrap(),
+        (0, "target-alone".to_string())
+    );
+}
+
+/// L8: a `--turn` selector wider than `usize` must not wrap into an
+/// unrelated retained turn on a 32-bit target.
+#[test]
+fn a_huge_turn_selector_cannot_wrap_into_a_retained_turn() {
+    let turn = |text: &str| brokkr_view::transcript::Turn {
+        role: "assistant".to_string(),
+        ts: String::new(),
+        blocks: vec![brokkr_view::transcript::Block::text(text)],
+    };
+    let read = TranscriptRead::readable(
+        None,
+        false,
+        brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        None,
+        vec![turn("one"), turn("two")],
+        false,
+        0,
+        0,
+    );
+    let selected = select_transcript_turn(read, Some(4_294_967_297));
+    assert_eq!(
+        selected.unavailable,
+        Some(brokkr_view::transcript::Unavailable::TurnNotRetained),
+        "2^32 + 1 must not narrow to turn 1"
+    );
+}
+
+/// L4: the top-level error display is sanitized while the chain's own
+/// line breaks survive and recorded strings are untouched.
+#[test]
+fn a_hostile_error_display_is_sanitized_line_by_line() {
+    let raw = "error: bad \u{1b}[2Jpath\u{061c}name\ncaused by: \u{202e}reversed";
+    let safe = safe_lines(raw);
+    assert!(!safe.contains('\u{1b}'));
+    assert!(!safe.contains('\u{061c}'));
+    assert!(!safe.contains('\u{202e}'));
+    assert_eq!(
+        safe.lines().count(),
+        2,
+        "the chain's own line breaks survive"
+    );
+}
+
+/// L6: a participant that vanished from the fresh view clears its
+/// transcript in the same frame rather than lingering until a later
+/// refresh.
+#[test]
+fn a_vanished_participant_clears_the_same_frames_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    // The run must still list a participant, so the vanished subject is a
+    // genuine disappearance rather than an absent-participant view.
+    Store::open(&db)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "work", "phase": "work"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let clock = || "2026-01-01T00:07:03Z".to_string();
+    let mut head = None;
+    let mut seen = None;
+    let ask = tui::Ask {
+        tab: 0,
+        run: Some("r1"),
+        subject: Some(tui::Subject {
+            tab: 0,
+            realm: None,
+            run: "r1".to_string(),
+            key: "gone-seat".to_string(),
+            reference: None,
+            provenance: LegacyProvenance::Absent,
+            legacy_id: None,
+            working: false,
+        }),
+        force: true,
+        fleet: false,
+    };
+    let views = tui_views(&db, true, ask, &mut head, &mut seen, clock)
+        .unwrap()
+        .expect("the forced frame is built");
+    assert!(
+        views.transcript.is_none(),
+        "a participant absent from the fresh view leaves no transcript"
+    );
+    assert!(
+        seen.is_none(),
+        "the stamp is cleared in the same frame as the content"
+    );
+}
+
 /// The lookup reads every hearth it passes READ-ONLY (ruling 5): a
 /// console asked about ONE run must not migrate the journals of the
 /// realms it merely walked past. An empty file is the proof — a
@@ -1900,7 +2027,12 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
                 reference: Some(brokkr_view::Transcript {
                     kind: "claude-session".to_string(),
                     locator: "9999-9999".to_string(),
-                    home: "/no/such/home".to_string(),
+                    home: dir
+                        .path()
+                        .join("missing-home")
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
                 }),
                 provenance: brokkr_view::transcript::LegacyProvenance::Claude,
                 legacy_id: None,
@@ -2082,6 +2214,24 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     )
     .unwrap()
     .expect("the transcript was re-derived");
+    assert_eq!(views.transcript.unwrap().turns.len(), 2);
+
+    // M11: a same-content replacement is a new inode. Every projected
+    // field is identical, but the source identity differs, so the frame
+    // must be re-derived rather than treated as unchanged.
+    let bytes = std::fs::read(&file).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    std::fs::write(&file, &bytes).unwrap();
+    let views = tui_views(
+        &db,
+        true,
+        poll("abcd-1234", true),
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .expect("a replaced source inode re-derives the frame");
     assert_eq!(views.transcript.unwrap().turns.len(), 2);
 
     // A different seat is a different subject: the stamp's identity
@@ -3111,7 +3261,8 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     // reverse what follows it, a zero-width space to split a word past
     // a filter, and a newline forging a second citation of its own.
     let operator = "root\u{1b}[31m";
-    let reason = "closed\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
+    let reason =
+        "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
     let mut store = Store::open(&db).unwrap();
     let state = conclude(&mut store, run_id, operator, reason).unwrap();
     assert_eq!(state.status, Status::Stopped);
@@ -3137,7 +3288,8 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         .filter(|c| {
             (c.is_control() && *c != '\n')
                 || matches!(c,
-                    '\u{200B}'..='\u{200F}'
+                    '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
                     | '\u{202A}'..='\u{202E}'
                     | '\u{2060}'..='\u{2064}'
                     | '\u{2066}'..='\u{2069}'

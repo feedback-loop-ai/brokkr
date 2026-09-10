@@ -315,9 +315,21 @@ mod imp {
 
     fn nt_open(root: &impl AsRawHandle, name: &OsStr, directory: bool) -> io::Result<OwnedHandle> {
         let wide: Vec<u16> = name.encode_wide().collect();
+        // The NT `UNICODE_STRING` length is a u16 byte count; validate the
+        // representability before NtCreateFile rather than truncating.
+        let byte_len = wide
+            .len()
+            .checked_mul(2)
+            .filter(|len| *len <= u16::MAX as usize)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "a direct locator component exceeds the NT name length",
+                )
+            })? as u16;
         let unicode = UNICODE_STRING {
-            Length: (wide.len() * 2) as u16,
-            MaximumLength: (wide.len() * 2) as u16,
+            Length: byte_len,
+            MaximumLength: byte_len,
             Buffer: wide.as_ptr() as *mut u16,
         };
         let attributes = OBJECT_ATTRIBUTES {

@@ -50,14 +50,16 @@ const FEATURE_FLOOR: usize = 8;
 pub struct Safe(String);
 
 /// The formatting characters that reorder or hide a line without being
-/// control characters: the zero-width and bidi marks (U+200B–U+200F),
-/// the embedding and override controls (U+202A–U+202E), the invisible
-/// operators (U+2060–U+2064), the directional isolates (U+2066–U+2069)
-/// and the byte-order mark (U+FEFF). Enumerated explicitly — a
-/// Unicode-properties dependency is not on the table.
+/// control characters: the Arabic letter mark (U+061C), the zero-width
+/// and bidi marks (U+200B–U+200F), the embedding and override controls
+/// (U+202A–U+202E), the invisible operators (U+2060–U+2064), the
+/// directional isolates (U+2066–U+2069) and the byte-order mark
+/// (U+FEFF). Enumerated explicitly — a Unicode-properties dependency is
+/// not on the table.
 fn reorders(character: char) -> bool {
     matches!(character,
-        '\u{200B}'..='\u{200F}'
+        '\u{061C}'
+        | '\u{200B}'..='\u{200F}'
         | '\u{202A}'..='\u{202E}'
         | '\u{2060}'..='\u{2064}'
         | '\u{2066}'..='\u{2069}'

@@ -230,6 +230,10 @@ pub(crate) struct Tui {
     /// otherwise be unreadable — truncation with no way through is a
     /// dead end, not evidence.
     pub reading: Option<String>,
+    /// True when the open reader is the transcript pane's door, so a
+    /// notice-only refresh recomposes it from the shared read instead of
+    /// leaving a stale notice set behind.
+    pub reading_transcript: bool,
     /// Scroll within the reader, in wrapped lines.
     pub read_offset: usize,
     pub status: Option<String>,
@@ -288,6 +292,7 @@ impl Tui {
             typing: false,
             help: false,
             reading: None,
+            reading_transcript: false,
             read_offset: 0,
             status: None,
             ticks: 0,
@@ -349,6 +354,7 @@ fn switch(tui: &mut Tui, index: usize) {
     tui.turn = None;
     tui.typing = false;
     tui.reading = None;
+    tui.reading_transcript = false;
     tui.read_offset = 0;
     // This hearth's journal has not been read yet; the shell asks for it
     // on the next frame, which is when its store is first opened at all.
@@ -494,6 +500,12 @@ fn transcript_invalidates(old: Option<&TranscriptRead>, new: Option<&TranscriptR
         return old.is_some() != new.is_some();
     };
     if new.unavailable.is_some() || old.unavailable.is_some() {
+        return true;
+    }
+    // D8's source-identity rule: a same-content replacement (a new inode
+    // or changed member provenance) invalidates the cursor and overlay
+    // even when every projected field is identical.
+    if new.source_identity != old.source_identity {
         return true;
     }
     if new.reference != old.reference || new.path != old.path || new.kind != old.kind {
@@ -962,10 +974,12 @@ fn enter(tui: &mut Tui, views: &Views) {
                 match selected_turn(tui, views) {
                     Some((index, turn)) => {
                         tui.reading = Some(turn_overlay_text(index + 1, turn, read));
+                        tui.reading_transcript = true;
                         tui.read_offset = 0;
                     }
                     None => {
                         tui.reading = Some(transcript_text(read));
+                        tui.reading_transcript = true;
                         tui.read_offset = 0;
                     }
                 }
@@ -1013,6 +1027,7 @@ fn enter(tui: &mut Tui, views: &Views) {
                         safe(&row.what.text),
                         safe(&row.payload_json),
                     ));
+                    tui.reading_transcript = false;
                     tui.read_offset = 0;
                 }
             }
@@ -1140,6 +1155,7 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
             Key::Char('q') => return Flow::Quit,
             Key::Escape | Key::Backspace | Key::Enter | Key::Char('?') => {
                 tui.reading = None;
+                tui.reading_transcript = false;
                 tui.read_offset = 0;
             }
             Key::Down | Key::Char('j') => tui.read_offset = tui.read_offset.saturating_add(1),
@@ -3269,6 +3285,7 @@ where
     let mut failures = 0usize;
     for _ in 0..max_iterations {
         let subject = subject_of(tui, &views);
+        let vanishing_key = subject.as_ref().map(|subject| subject.key.clone());
         let ask = Ask {
             run: tui.run.as_deref(),
             subject,
@@ -3279,7 +3296,15 @@ where
             tab: tui.tab,
         };
         match source(ask) {
-            Ok(Some(fresh)) => {
+            Ok(Some(mut fresh)) => {
+                // L6: when the fresh fold no longer lists the participant
+                // this frame was reading — even when it lists none at all
+                // — the stale transcript is cleared in this same frame.
+                if let (Some(key), Some(run)) = (vanishing_key.as_deref(), fresh.run.as_ref()) {
+                    if !run.participants.iter().any(|part| part.key == key) {
+                        fresh.transcript = None;
+                    }
+                }
                 // A refreshed read that replaced, removed or reordered a
                 // displayed turn clears the cursor and closes an open
                 // overlay BEFORE the new indices are shown; a pure append
@@ -3287,7 +3312,27 @@ where
                 if transcript_invalidates(views.transcript.as_ref(), fresh.transcript.as_ref()) {
                     tui.turn = None;
                     tui.reading = None;
+                    tui.reading_transcript = false;
                     tui.read_offset = 0;
+                }
+                // A notice-only refresh leaves the turns alone but still
+                // changes what a door must say: recompose an open
+                // transcript door from the fresh shared read so the pane
+                // and the door report the same notices.
+                if tui.reading_transcript {
+                    match fresh.transcript.as_ref().filter(|read| read.is_readable()) {
+                        Some(read) => {
+                            tui.reading = Some(match selected_turn(tui, &fresh) {
+                                Some((index, turn)) => turn_overlay_text(index + 1, turn, read),
+                                None => transcript_text(read),
+                            });
+                        }
+                        None => {
+                            tui.reading = None;
+                            tui.reading_transcript = false;
+                            tui.read_offset = 0;
+                        }
+                    }
                 }
                 // A frame that arrived says whatever it has to say — a
                 // hearth with no journal yet says so — and a frame with
