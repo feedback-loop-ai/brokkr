@@ -108,6 +108,10 @@ long path clipped in the participant header remains readable. The CLI JSON
 - **WHEN** the operator opens the whole-transcript overlay of a Codex seat that ran with boxed hands
 - **THEN** the hint is readable data only, no `codex` process starts, no sandbox setting changes and the recorded boundary remains the journal's original fact
 
+#### Scenario: Agent-controlled path syntax stays inert in every TUI door
+- **WHEN** a selected Codex or DSH source has a confirmed path or recorded home containing shell substitutions, backticks, quotes, whitespace or operator characters
+- **THEN** the pane and whole-transcript overlay render the identical shared portable-display hint required by `transcript-reading`, preserve its reversible escapes after terminal sanitization, and expose no raw path/home fragment as shell syntax; opening either door starts no command
+
 #### Scenario: Claude discovery refusals retain the shared hint
 - **WHEN** a valid Claude reference has duplicate qualifying files, an exhausted discovery bound or only a symlink candidate below its canonical home
 - **THEN** the TUI shows `ambiguous-source`, `discovery-limit` or `unsafe-path` respectively beside its common transcript fact and shared Claude full-session line, clears previous turns and offers no reading door into a former candidate

@@ -664,21 +664,27 @@ lookup; file-read failure after confirmation does not erase that path.
 | Kind and resolution | Exact `full_session` value |
 |---|---|
 | Valid `claude-session`, with or without a confirmed path | `full session: claude --resume <id>` |
-| Valid `codex-thread`, confirmed path | `full session: <quoted-path>; codex exec resume <id>; home: <quoted-home>` |
-| Valid `codex-thread`, no confirmed path | `full session: rollout unavailable; codex exec resume <id>; home: <quoted-home>` |
-| Valid `dsh-session`, confirmed path | `full session: <quoted-path>` |
+| Valid `codex-thread`, confirmed path | `full session: path <display-path>, codex exec resume <id>, home <display-home>` |
+| Valid `codex-thread`, no confirmed path | `full session: rollout unavailable, codex exec resume <id>, home <display-home>` |
+| Valid `dsh-session`, confirmed path | `full session: path <display-path>` |
 | Valid `dsh-session`, no confirmed path | null |
 | Absent, `none`, unsupported, unannounced, missing-home or invalid reference | null |
 
-The quoted path/home placeholders SHALL be double-quoted JSON string
-literals: escape quotation marks and reverse solidus, encode ASCII controls
-using the usual JSON short escapes where available and lowercase `\u00xx`
-otherwise, and leave other Unicode characters literal. No optional slash or
-ASCII-to-Unicode escaping SHALL be added. This encoding introduces no shell
-escaping, expansion or command syntax. The complete line is an ordinary string, then JSON-escaped
-again only when serialized as a JSON member. Paths SHALL never be guessed
-from a date or interpolated into a command; the recorded home is informational
-and is not an assertion that an ambient resume command uses that home.
+The display path/home placeholders SHALL be reversible portable display
+literals. Each is a valid double-quoted JSON string literal whose content
+emits only ASCII letters, digits, `/`, `.`, `_`, `-` and `:` directly. Every
+other Unicode scalar SHALL use JSON `\u` escapes with lowercase hexadecimal digits, with a surrogate
+pair for a scalar outside the basic multilingual plane; JSON short escapes
+SHALL NOT be used. Decoding that literal as JSON SHALL recover the exact
+Unicode path/home. In particular, whitespace, quotation marks, reverse
+solidus, `$`, backtick, `%`, `!` and ASCII shell operators SHALL never occur
+raw inside a path/home literal. Fixed fields SHALL use the exact comma
+separators in the table and SHALL introduce no semicolon, pipe, ampersand or
+redirection operator. The complete line is ordinary display data, then
+JSON-escaped again only when serialized as a JSON member. It is not a shell
+literal or a pasteable command. Paths SHALL never be guessed from a date or
+interpolated into a command; the recorded home is informational and is not an
+assertion that an ambient resume command uses that home.
 Unavailability remains explicit beside a hint; a valid id is not evidence
 that credentials, live resumption or sandbox re-imposition work.
 
@@ -699,6 +705,11 @@ The common transcript fact SHALL remain visible independently of the hint.
 #### Scenario: Invalid references cannot form a command
 - **WHEN** an id contains a semicolon, command substitution or leading hyphen, or its required home is missing or malformed
 - **THEN** `full_session` is null in CLI, TUI and browser participant presentation, and the matching reference failure is returned without invoking a provider
+
+#### Scenario: Agent-controlled paths remain reversible inert display data
+- **WHEN** a valid Codex or DSH reference resolves to a safe owned path or recorded home containing spaces, quotes, reverse solidus, `$()`, backticks, semicolons, pipes, percent signs, exclamation marks, non-ASCII text or a line break
+- **THEN** the shared `full_session` value uses the exact table framing and portable display literals, JSON-decoding each literal recovers the exact path/home, and no path/home-supplied substitution, quote, command separator, redirection or line boundary remains raw in the complete hint
+- **AND** CLI text and JSON, the TUI pane and whole-transcript door, and browser participant presentation consume that identical shared value; submitting the complete displayed hint to a shell cannot evaluate or split any path/home-supplied fragment, and no surface invokes a provider
 
 ### Requirement: Claude content preserves the existing projection
 
@@ -1805,3 +1816,23 @@ the DSH opening header is only the already-required discovery metadata.
 The scenario above pins both the DSH no-body case and the directory-discovery
 case, while preserving R20's admitted-Claude body trace. Proposed 0055 must
 carry this stage distinction and the browser presentation proof must cover it.
+
+### R25 / review return R1 — Paths are reversible data, never shell fragments
+
+The former JSON-string-literal rule claimed that ordinary JSON quoting
+introduced no shell expansion. The review's harmless probe disproved that
+claim: `$()` and backticks remain active inside JSON's double quotes, and DSH
+descendant names can be agent-controlled. This is a defect in this requirement,
+not permission for the implementation to invent a different encoder.
+
+Adopt the portable display literal defined above and replace the Codex
+semicolon separators with commas. Its conservative direct alphabet makes the
+path/home round-trip explicit while excluding every raw substitution,
+quotation, whitespace and operator character supplied by the path. POSIX
+single quoting is rejected because one cross-platform value serves Unix,
+Windows and JSON. Lossy redaction is rejected because a confirmed path must
+remain recoverable. Terminal sanitization alone is rejected because `$`,
+backtick and shell operators are printable characters, not terminal controls.
+The adversarial cross-surface scenario is the enforcement boundary. Proposed
+0055, council design and tasks must carry this exact choice before production
+repair resumes.
