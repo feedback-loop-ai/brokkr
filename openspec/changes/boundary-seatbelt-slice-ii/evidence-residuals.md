@@ -4,7 +4,7 @@ Recorded 2026-09-09 after the operator accepted the 0046 Seatbelt addendum.
 This is a documentation inventory, not a mutation of the run journal or a
 claim that native tests ran on the recording host (Linux). The dated audits
 below track subsequently supplied macOS evidence. All four guarantees remain
-OPEN; the native process-group attempt is incomplete and records survivors.
+OPEN; the corrected native process-group baseline is complete and records survivors.
 
 | ID | Required demonstration | Current status | Next action |
 | --- | --- | --- | --- |
@@ -171,3 +171,61 @@ The original-process-group experiment is separate from draft #259's launchd
 lease-pair candidate. Neither this attempted run nor its runner fixes establish
 R1/R2/R4, integrated MCP/exec lifetime, arbitrary descendants or activation.
 R3 remains OPEN and a complete native rerun is the next evidence step.
+
+
+## Corrected native process-group rerun reviewed — 2026-09-10
+
+Reviewed [operator rerun](https://github.com/feedback-loop-ai/brokkr/issues/253#issuecomment-5614915948)
+at evidence commit `030e8888b7297768df907442978ec43139306a0b`, directory
+`docs/evidence/issue-253/native-process-group-8b4a390-2026-09-10-arm64/`.
+Exact source: `8b4a3906d3daa033e0aa9b7f2d55697391803db1`; host log records a
+clean checkout, macOS 26.6.2 (25G83) arm64 and Rust stable 1.98.1. Command:
+`bash scripts/validate-seatbelt-macos.sh --lifetime`.
+
+Archive SHA-256 verified:
+`5c4c72b0ce529148d0f7b90c36084400c1746e1f3e485a18b8b783c2317ad3d0`.
+All **180 committed expanded text files** match archive contents and Git blobs.
+The archive contains **181 non-AppleDouble regular files**: those 180 plus the
+Mach-O arm64 executable, whose recorded SHA-256 also matches. Both recorded
+source hashes match the exact candidate's Git blobs. Archive metadata was not
+credited as measurement evidence; no archived executable or script was run.
+
+Original host, transcript, summary, all 13 case results, identities/groups,
+signal/action records and cleanup records were inspected. Measurement and
+runner exit records both report **1**. Summary: `native:true`,
+`valid_measurement:true`, `cases:12`, `residual_cases:9`, `errors:[]`,
+`r3_closed:false`, `seatbelt_activation_authorized:false`.
+
+| Cases | Native observation |
+| --- | --- |
+| Ordinary timeout, cancellation, parent exit | 3 no-survivor observations; no heartbeat advance. |
+| setsid and double-fork, all four triggers | 8 surviving leaves with advancing heartbeats. |
+| Ordinary supervisor death | Root and leaf survive with advancing leaf heartbeat. |
+| Separate no-cleanup negative control | Root and leaf survive; control detected. |
+
+Both detached parent-exit cases now retain attempted group SIGKILL with
+`candidate_signal_errno:1` (EPERM), followed by complete survivor observations.
+All other attempted group signals record zero errno; supervisor-death and
+control cases correctly record no candidate signal. Positive liveness and
+requested-topology checks gate case results in the pinned source. All 13
+identity/group records agree with their case results; all 13 fixtures have
+post-verdict cleanup verification, with no expiry markers. Every fixture's
+stdout/stderr is empty; the complete runner transcript has no previous wait
+error. The available logs do not separately record the Bash version or outer
+shell exit, so those are not independently attested beyond the operator report
+and runner exit file.
+
+**Verdict:** the corrected baseline/falsification matrix is complete on this
+Mac. The original-process-group candidate fails R3 in nine measured cases;
+fixture cooperation and self-expiry are cleanup safeguards, not containment.
+The earlier incomplete attempt remains preserved above. No further rerun of
+this unchanged baseline is required to establish its observed failure.
+
+Next requirement is a separately pinned replacement lifetime mechanism with
+its own native evidence, including detached/double-fork payloads, retained
+pipes, hostile lifetime races and both MCP/exec paths. Draft #259's launchd
+lease-pair mechanism is not evaluated by this evidence. Intel, R1/R2/R4 and
+full integrated native acceptance remain unproven; R1–R4 remain OPEN and
+Seatbelt activation, full peer status and story completion remain blocked.
+This audit changes documentation only; validation is evidence consistency
+and `git diff --check`, with no broad production suite rerun.
