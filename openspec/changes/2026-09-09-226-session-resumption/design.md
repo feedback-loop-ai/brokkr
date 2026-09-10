@@ -45,10 +45,13 @@ The implementation at this head already contains the reusable architecture:
 ConfirmedSession}`, `Store::started_here`, negotiated `Body::Resume` with a
 correlated `PendingOffer`, provider-specific planners, `LaunchHold`, and
 `SeatRecordVersion::of_engine`. Its task record at this design input truthfully
-shows **85 of 101** tracked tasks complete. The 16 pending tasks are 10.5–10.8,
-11.1–11.4, 14.1–14.2, 15.1–15.4 and 15.6–15.7. D10 identifies three completed
-DSH-dependent tasks whose claims the new route invalidates and which the tasks
-return must reopen. Host exact coverage and
+shows **82 of 101** tracked tasks complete after 8.8, 8.10 and 9.6 were reopened.
+The 19 pending tasks are those three plus 10.5–10.8, 11.1–11.4, 14.1–14.2,
+15.1–15.4 and 15.6–15.7. D10 identifies four more checked records—1.1, 6.4,
+11.5 and 13.1—whose decision, declaration and guide claims the new route also
+invalidates. The tasks return must reopen them, moving the truthful ledger to
+**78 complete / 23 pending**, and repair all four before DSH production
+semantics proceed. Host exact coverage and
 controller integration, CI, publication, merge and closure are mandatory
 post-commit handoff evidence, deliberately outside that checkbox count. Codex
 and Claude remain `unmeasured`, LaneTally remains independently `unmeasured`,
@@ -746,11 +749,14 @@ tracked artifact to its exact subject head.
 
 The implementation already added
 `docs/decisions/0056-same-instance-session-resumption.md` and its registry row
-with **Status: proposed**; only the operator accepts it. The F10 return requires
-ruling 10 to be reconciled before finalization, so its checked task must be
-reopened until the proposed record carries the exact-head separation below.
-Context/alternatives cite this design and preserve historical accepted decision
-text. The required numbered rulings and enforcement bindings are:
+with **Status: proposed**; only the operator accepts it. Its ruling 10 already
+carries F10's exact-head separation. The upstream DSH evidence now invalidates
+ruling 5's old unsupported-route premise and the consequences paragraph that
+left a supported headless route deliberately unknown. Task 1.1 must therefore
+be reopened until the proposed record selects the exact pair while keeping its
+admission conditional and status `proposed`. Context/alternatives cite this
+design and preserve historical accepted decision text. The required numbered
+rulings and enforcement bindings are:
 
 | Ruling | Required content | Enforcement binding |
 |---|---|---|
@@ -758,7 +764,7 @@ text. The required numbered rulings and enforcement bindings are:
 | 2 | Same run/site/instance and local origin; newest owner, no older-owner resurrection. | D2/D3 pure query, stamps, manifest/origin tests. |
 | 3 | Provider-confirmed root; generated or fresh assigned ID; intent proves nothing. | D3/D4 root latch, fence, assignment/kill-window tests. |
 | 4 | Negotiated, correlated, one-use offer in existing wire vocabulary. | D5 protocol/conformance tests. |
-| 5 | Required measured provider shapes; current-version qualification; DSH session integration separate from hands. | D5/D6 loader, runtime identity check, dated provider evidence. |
+| 5 | Required measured provider shapes; current-version qualification; the exact DSH 0.1.5-rc.1/plugin 0.2.0 route selected but unmeasured and separate from hands until its complete admission proof passes. | D5/D6 loader, runtime identity check, declaration gate and dated provider evidence. |
 | 6 | Re-impose current restrictions, model/effort, grant and result door; no alternate selectors. | D5/D6 composition and enforcement proof. |
 | 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
@@ -768,8 +774,8 @@ text. The required numbered rulings and enforcement bindings are:
 The current sitting's sources are the two run-local positions named in Context,
 recorded here so the reasoning survives their replacement on a future visit:
 
-- Robustness SHA-256: `35014f3d4db1a31f87e59fa0828bdb591d0663c8bc419737c1df163a09255553`.
-- Simplicity SHA-256: `b123a8752e0d8bdff13f2e4dc0f8eb6f5301af7049d2fc3caefee1213bae3d75`.
+- Robustness SHA-256: `78a39c1e4662502332b446e41a8662e6977bbe596836b3dc7ff0d72725cedf95`.
+- Simplicity SHA-256: `0bb9b6501d0460b27834afb04f98bc2171ddbfdd6122fca28de1d597409c35a5`.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -796,6 +802,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Both: provider-specific selectors, current restriction reconstruction and cold/gate selector protection. | Adopt D5/D6. Generated hands provenance and captured CLI precedence require exact parsing; a cold fallback cannot carry ambient continue or competing settings. LaneTally cannot inherit Claude qualification or substitute plain Claude. |
 | Robustness: Claude's selector-only guard does not reject duplicate or last-wins permission/tool/MCP controls; simplicity §4/cut 3: keep explicit provider planners, not a generic grammar engine. | Combine under D5/D6. Each planner performs closed, measured arity, duplicate and precedence validation for every authoritative restriction. For Claude, a second permission mode, tools list, strictness/MCP document, allowed-tools list, model or effort control is a pre-work refusal on cold and resume paths; merely constructing warm argv as cold argv plus `--resume` is insufficient. This is an adapter-local parser and test matrix, not a cross-provider DSL. |
 | Both: select official core 0.1.5-rc.1 plus `dsh-plugin-cli-session` 0.2.0 in an isolated profile and keep it disabled until measured. | Adopt D6. The exact commits supply the supported caller route; 0.1.2-rc.1's one-shot result remains bounded history. Keep 10.7/11.3 incomplete until the resolved pair, headless composition, exact root, restrictions and current accounting pass. |
+| Robustness: reopen 1.1, 6.4, 11.5 and 13.1 because their checked artifacts retain the disproved premise; simplicity: make the same focused reopening without adding task IDs or a new capability. | Adopt. Task truth must follow current evidence under PM2. Proposed 0056 must select the exact route while retaining `proposed`; `adapters/dsh.json`, every packaged equivalent and the guide must call it `unmeasured`, disabled and awaiting 10.7 rather than `unsupported` or enabled. Complete all four corrections before 8.8, so the exact route is truthful in the decision, fail-closed assessment, packaged declarations and guide before Rust relies on it; 11.3 remains additionally gated on 10.7. The old 0.1.2 trace remains only version-bounded evidence. |
 | Robustness: bind provider ID, persistence root and exact executable/profile identity; simplicity: reuse v5/private context and avoid new machinery. | Combine in D3/D5/D6. Publish root and transcript together on the stamped DSH launch checkpoint, carry a richer private offer while leaving `Body::Resume` unchanged, and use the existing wrapper digest/assessment/instance digest for the pinned composite identity. Reject a new contract, protocol version, store or plugin manager. |
 | Robustness: request echo and latest usage are insufficient; simplicity: qualify first and omit unattributable totals. | Combine in D6/D8. Confirmation is the pinned plugin's successful post-`agents.resume` init plus validated originating root and continuity, never the echoed value alone. Prove first-sequence usage semantics; omit numeric totals if they cannot be attributed and disable the shape if the current interval itself is uncertain. |
 | Robustness: allow a documented adapter-owned extension if setup/observability is insufficient; simplicity: do not build one speculatively. | Combine in D6. Measure the exact maintained plugin first. A thin Cordis extension is permitted only for a demonstrated missing policy or pre-work signal and becomes part of the pinned composite identity; no second runner, package patch, SDK substitution or generic extension framework is authorized. |
@@ -824,16 +831,22 @@ settlements; robustness's explicit gate is adopted and simplicity's stable task
 identity is retained. Task 15.5 records the completed identity repair, 15.7
 remains readiness, and all 101 identifiers are preserved. The later safety-delta
 commits validly completed 8.10's prior planner scope and 9.7's generic terminal
-guard; 9.7 remains valid. The selected DSH route, however, adds concrete CLI
-controls and retained-root/current-sequence behavior that the completed 8.8,
-8.10 and 9.6 implementations do not contain, so the tasks return must reopen
-those three. It must amend 10.3 in place while retaining its checked state: the
-old one-shot trace is still complete and the supplied official/plugin inspection
-now supplies its supported route. Amend pending 10.7 and 11.3 for the exact
-pair. Keep 9.1/9.2 checked because their generic measured-boundary and
-omit-unattributable rules already govern the new fold. This preserves 101 task
-IDs and moves the downstream ledger from its current 85/16 state to 82/19 for
-real new implementation, without reopening unrelated settled work.
+guard; 9.7 remains valid. The first tasks return already reopened 8.8, 8.10 and
+9.6 because the selected DSH route adds concrete CLI controls and
+retained-root/current-sequence behavior their completed implementations did not
+contain. That moved the current ledger from 85/16 to 82/19, but it did not
+reopen every checked artifact invalidated by the same evidence. Reopen 1.1,
+6.4, 11.5 and 13.1 as well, producing 78 complete / 23 pending without changing
+the 101 identifiers. Correct proposed 0056 and the fail-closed DSH declaration
+before implementing 8.8: preserve `proposed`, name the exact selected pair and
+its composite identity, declare the shape `unmeasured` with unknown assessed
+identity, and keep enablement gated on 10.7. Complete every packaged declaration
+and the guide in the same pre-8.8 correction. Amend 10.3 in place while retaining
+its checked state: the old one-shot trace is still complete and the
+supplied official/plugin inspection now supplies its supported route. Amend
+pending 10.7 and 11.3 for the exact pair. Keep 9.1/9.2 checked because their
+generic measured-boundary and omit-unattributable rules already govern the new
+fold. No other settled task, decision, requirement or scenario is reopened.
 
 ### D11 — Verify transitions and trace every requirement
 
@@ -1016,27 +1029,31 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 1. The smith adopts this design for numbered requirement-linked tasks with
    separate unchecked evidence/enablement/delivery obligations. Tasks validation
    and the normal analyze-to-zero loop precede implementation.
-2. Add proposed 0056/registry, then v5 contract/embedding/dispatch and tests before
-   emitting new fields. Accepted decisions and existing frozen bytes do not move.
-3. Add structural contexts/stamps, correlated offers and provider planning/
-   confirmation. Enable measured shapes only; keep declarations, packaged copies,
-   guides and instruction identities coherent. No private-run migration or global
+2. Retain proposed 0056/registry, v5 contract/embedding/dispatch and their tests.
+   Before new DSH production semantics, complete reopened 1.1, 6.4, 11.5 and
+   13.1: proposed 0056 selects the exact route without claiming acceptance, and
+   the declaration, every packaged equivalent and the guide mark its unknown
+   composite identity `unmeasured`, disabled and awaiting 10.7. Accepted
+   decisions and existing frozen bytes do not move.
+3. Add or complete structural contexts/stamps, correlated offers and provider
+   planning/confirmation, including D6's private DSH target carrying the
+   provider ID and originating persistence locator. Enable measured shapes only;
+   keep instruction identities coherent. No private-run migration or global
    provider settings change.
 4. Obtain the pre-archive live provider evidence and deliver measured Claude
    and preserved Codex support. Install the exact DSH 0.1.5-rc.1/plugin 0.2.0
-   pair only in task-owned storage, record its resolved composite identity,
-   qualify D6's root/storage/restriction/current-sequence protocol, then
-   implement and enable only that measured headless shape. If the maintained
-   plugin demonstrably needs a policy or pre-work observation hook, compose the
-   narrow documented Cordis extension and include it in the same identity;
-   otherwise add none. A failed qualification returns the exact unmet AS1
-   condition and does not authorize SDK/TUI substitution or a global pin
-   change. Finish the repository-local tests, house validation,
-   both bundle compiles and
-   `cargo build --release --locked -p brokkr-cli`, then specification review,
-   task reconciliation and the final progress account while the change is
-   active. The task phase adds the release build to still-pending 15.4 rather
-   than creating or renumbering a task.
+   pair only in task-owned storage and record its resolved composite identity.
+   Implement its fail-closed route, then qualify D6's root/storage/restriction/
+   current-sequence protocol under 10.7 and enable only after every admission
+   axis passes. If the maintained plugin demonstrably needs a policy or pre-work
+   observation hook, compose the narrow documented Cordis extension and include
+   it in the same identity; otherwise add none. A failed qualification returns
+   the exact unmet AS1 condition and does not authorize SDK/TUI substitution or
+   a global pin change. Finish the repository-local tests, house validation,
+   both bundle compiles and `cargo build --release --locked -p brokkr-cli`, then
+   specification review, task reconciliation and the final progress account
+   while the change is active. The task phase adds the release build to
+   still-pending 15.4 rather than creating or renumbering a task.
 5. Preserve the restored active identity
    `2026-09-09-226-session-resumption` through every current command and
    artifact. After every real tracked task is complete and readiness is
@@ -1288,11 +1305,15 @@ Write and MCP positive controls, explicit resumed attempts at removed Read,
 Write and MCP authority, a positive new grant, and raw-ID/transcript accounting.
 No worker-home failure is used as a controller blocker.
 
-The current task artifact has 101 identifiers at 85 complete / 16 pending.
-Because the new DSH route changes completed implementation claims, the tasks
-return must reopen 8.8, 8.10 and 9.6; amend checked 10.3 without reopening it;
-and amend pending 10.7/11.3. Generic 9.1/9.2 and terminal guard 9.7 remain
-valid. No other settled task, decision, requirement or scenario is reopened.
+At this returned design input the task artifact has 101 identifiers at 82
+complete / 19 pending: the first tasks return already reopened 8.8, 8.10 and
+9.6. The analyze finding correctly identifies D10 as the earliest remaining
+fault because it undernamed the checked decision/declaration/guide work made
+false by the same upstream evidence. This correction therefore also requires
+reopening 1.1, 6.4, 11.5 and 13.1, producing 78 complete / 23 pending. It keeps
+10.3 checked but amended in place, keeps 10.7/11.3 pending, and retains generic
+9.1/9.2 and terminal guard 9.7. The dependency order and exact artifact truth
+required before 8.8 and 11.3 are now explicit in D10 and Migration Plan.
 
 `openspec instructions design --change
 2026-09-09-226-session-resumption --json` rendered this artifact's
@@ -1303,4 +1324,5 @@ only `design.md`; it does not qualify or enable a provider, run Rust/host
 gates, archive, edit frozen bytes or accepted decisions, alter provider
 settings, or perform controller publication/merge/closure work. The design is
 drafted rather than `upstream`: proposal/spec already own and contain K/L, and
-this design was the earliest remaining stale artifact.
+this returned correction repairs the earliest stale artifact identified by
+analyze without disguising a downstream fault.
