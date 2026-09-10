@@ -104,8 +104,10 @@ is the mistake to avoid.
   result vocabularies; `v9` pins the selected boundary per hands site.
   These are bundle identity. The current compiler writes v9; older
   contract files remain available for their readers.
-- Realm maps now reach `forge.realms/v4`: v3 added house and dialect
-  declarations, and v4 adds the realm's boundary. House content and its
+- Realm maps now reach `forge.realms/v5`: v3 added house and dialect
+  declarations, v4 adds the realm's boundary, and v5 adds the crossings a
+  realm publishes and the ones it consumes, each pinned by a sha256 over
+  the published file's raw bytes (decision 0057). House content and its
   digest are pinned in the run's realms record.
 
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its
