@@ -344,7 +344,10 @@ fn hostile_paths_are_portable_and_retained_inert() {
     let hint = document["full_session"].as_str().expect("the shared hint");
     let expected = format!(
         "full session: path {}, codex exec resume 0199mine, home {}",
-        brokkr_view::transcript::portable_display_literal(file.to_str().unwrap()),
+        brokkr_view::transcript::portable_display_literal(&format!(
+            "{}/sessions/rollout-0199mine.jsonl",
+            home.canonicalize().unwrap().to_str().unwrap()
+        )),
         brokkr_view::transcript::portable_display_literal(home.to_str().unwrap()),
     );
     assert_eq!(hint, expected);
