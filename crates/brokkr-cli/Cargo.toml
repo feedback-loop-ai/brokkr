@@ -92,4 +92,7 @@ sha2 = { workspace = true }
 # engine so the CLI can execute the exact marker-delimited controller
 # bytes served from `ui.html` under ordinary `cargo test`. Dev-only: it is
 # not linked into the release binary and adds no Node or browser service.
+# Admitted consequence (review L2): Boa's `~2.0.0` icu_normalizer
+# requirement forces the production `url -> idna` edge to
+# idna_adapter 1.2.1 / icu_normalizer 2.0.1. Recorded in CONTRIBUTING.md.
 boa_engine = { version = "=0.21.1", default-features = false }

@@ -1938,3 +1938,367 @@ fn codex_unassociated_user_mirrors_are_both_preserved() {
     assert_eq!(projection.turns[1].role, "user");
     assert_eq!(projection.turns[1].blocks, vec![Block::text("question")]);
 }
+
+// -------------------------------- review-repair regression evidence
+// (controller-chief-review-7505: M2, M3, M4, M5, L1, L7, L11)
+
+#[test]
+fn codex_declared_content_arrays_project_text_and_named_media_omissions() {
+    let mcp_end = row(json!({
+        "type": "event_msg",
+        "payload": {
+            "type": "mcp_tool_call_end",
+            "call_id": "m1",
+            "result": {"Ok": {"content": [
+                {"type": "text", "text": "body"},
+                {"type": "image", "data": "BASE64-MEDIA"}
+            ]}}
+        }
+    }));
+    let dynamic_response = row(json!({
+        "type": "event_msg",
+        "payload": {
+            "type": "dynamic_tool_call_response",
+            "call_id": "d1",
+            "content_items": [
+                {"type": "inputText", "text": "done"},
+                {"type": "inputImage", "data": "BASE64-MEDIA"}
+            ],
+            "error": "boom"
+        }
+    }));
+    let completed_mcp = row(json!({
+        "type": "event_msg",
+        "payload": {"type": "item_completed", "item": {
+            "type": "McpToolCall",
+            "id": "m2",
+            "server": "srv",
+            "tool": "read",
+            "result": {"content": [
+                {"type": "text", "text": "body2"},
+                {"type": "image", "data": "BASE64-MEDIA"}
+            ]}
+        }}
+    }));
+    let completed_dynamic = row(json!({
+        "type": "event_msg",
+        "payload": {"type": "item_completed", "item": {
+            "type": "DynamicToolCall",
+            "id": "d2",
+            "tool": "run",
+            "content_items": [
+                {"type": "inputText", "text": "done2"},
+                {"type": "inputAudio", "data": "BASE64-MEDIA"}
+            ]
+        }}
+    }));
+    let text = [mcp_end, dynamic_response, completed_mcp, completed_dynamic].concat();
+    let projection = codex(&text);
+    assert!(projection.unavailable.is_none());
+    let rendered: Vec<String> = projection
+        .turns
+        .iter()
+        .flat_map(|turn| turn.blocks.iter())
+        .map(|block| block.text.clone())
+        .collect();
+    for text in &rendered {
+        assert!(
+            !text.contains("BASE64-MEDIA"),
+            "an encoded media body never reaches tool text: {text}"
+        );
+    }
+    assert!(
+        rendered
+            .iter()
+            .any(|text| text.contains("body") && text.contains("[image omitted]")),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered
+            .iter()
+            .any(|text| text.contains("done") && text.contains("boom")),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered
+            .iter()
+            .any(|text| text.contains("body2") && text.contains("[image omitted]")),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered
+            .iter()
+            .any(|text| text.contains("done2") && text.contains("[audio omitted]")),
+        "{rendered:?}"
+    );
+}
+
+#[test]
+fn dsh_nested_tool_result_content_names_media_omissions() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        row(json!({"type":"tool/result","seq":10,"time":1000,
+            "data":{"turn":1,"step":1,"message":{"role":"tool","content":[
+                {"type":"tool-result","toolCallId":"c1","content":[
+                    {"type":"text","text":"read"},
+                    {"type":"image","data":"BASE64-MEDIA"}]}]}}})),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 1);
+    let text = &projection.turns[0].blocks[0].text;
+    assert!(
+        text.contains("read") && text.contains("[image omitted]"),
+        "{text}"
+    );
+    assert!(!text.contains("BASE64-MEDIA"), "{text}");
+}
+
+#[test]
+fn dsh_omission_only_assembly_does_not_suppress_cited_chunks() {
+    let text = format!(
+        "{}{}{}{}",
+        row(json!({"type":"session","version":0})),
+        dsh_chunk(10, 1000, 1, 1, "kept-a"),
+        dsh_chunk(11, 1001, 1, 1, "kept-b"),
+        row(json!({"type":"assistant/message","seq":12,"time":1002,
+            "data":{"message":{"content":[{"type":"image","data":"x"}]},"turn":1,"step":1},
+            "sourceEventSeqs":[[10,11]]})),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(
+        projection.turns.len(),
+        3,
+        "an omission-only assembly is not readable projected content"
+    );
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("kept-a")]);
+    assert_eq!(projection.turns[1].blocks, vec![Block::text("kept-b")]);
+    assert_eq!(
+        projection.turns[2].blocks,
+        vec![Block::omitted("[image omitted]")]
+    );
+}
+
+#[test]
+fn wrong_typed_text_members_count_once_and_keep_supported_siblings() {
+    let message = row(json!({"timestamp":"t1","type":"response_item","payload":{
+        "type":"message","role":"assistant","id":"m1",
+        "content":[{"type":"output_text","text":"kept"},{"type":"output_text","text":7}]}}));
+    let projection = codex(&message);
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("kept")]);
+
+    let reasoning = row(json!({"timestamp":"t2","type":"response_item","payload":{
+        "type":"reasoning","id":"r1",
+        "summary":[{"type":"summary_text","text":"kept"},{"type":"summary_text","text":7}]}}));
+    let projection = codex(&reasoning);
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::reasoning("kept")]);
+
+    let completed = row(
+        json!({"type":"event_msg","payload":{"type":"item_completed","item":{
+        "type":"AgentMessage","id":"a1",
+        "content":[{"type":"output_text","text":"kept"},{"type":"output_text","text":7}]}}}),
+    );
+    let projection = codex(&completed);
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("kept")]);
+
+    let dsh_text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        row(json!({"type":"user/message","seq":10,"time":1000,
+            "data":{"turn":1,"step":1,"content":[{"type":"text","text":"kept"},
+                                                 {"type":"text","text":7}]}})),
+    );
+    let projection = dsh(&dsh_text);
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("kept")]);
+}
+
+#[test]
+fn dsh_nonzero_underflow_version_is_foreign() {
+    let projection = dsh("{\"type\":\"session\",\"version\":1e-400}\n");
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.skipped_lines, 0);
+
+    for spelling in ["0", "0.0", "-0.0", "0e0", "0.000"] {
+        let text = format!("{{\"type\":\"session\",\"version\":{spelling}}}\n");
+        let projection = dsh(&text);
+        assert!(
+            projection.unavailable.is_none(),
+            "an exact zero spelling admits: {spelling}"
+        );
+    }
+}
+
+#[test]
+fn dsh_nonzero_underflow_time_is_invalid_not_zero() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        "{\"type\":\"assistant/chunk\",\"seq\":10,\"time\":1e-400,\
+         \"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"a\"}}}\n",
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(
+        projection.turns[0].ts, "",
+        "an underflowed nonzero time is invalid, not a zero millisecond stamp"
+    );
+}
+
+#[test]
+fn dsh_exact_integral_time_spellings_render_the_integer() {
+    let text = format!(
+        "{}{}{}{}",
+        row(json!({"type":"session","version":0})),
+        "{\"type\":\"assistant/chunk\",\"seq\":10,\"time\":1e3,\
+         \"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"a\"}}}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":11,\"time\":1000.0,\
+         \"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"b\"}}}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":12,\"time\":-0.0,\
+         \"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"c\"}}}\n",
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 3);
+    assert_eq!(projection.turns[0].ts, "1000");
+    assert_eq!(projection.turns[1].ts, "1000");
+    assert_eq!(projection.turns[2].ts, "0");
+}
+
+#[test]
+fn dsh_packed_nonzero_underflow_time0_refuses() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1e-400,\
+         \"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[],\"texts\":[\"a\"]}}\n",
+    );
+    let projection = dsh(&text);
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 1);
+}
+
+#[test]
+fn dsh_packed_positions_accept_fractional_numbers() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\
+         \"data\":{\"turn\":0.5,\"step\":0.25,\"index\":2.5,\"dt\":[],\"texts\":[\"a\"]}}\n",
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("a")]);
+}
+
+#[test]
+fn dsh_integral_float_positions_match_their_integer_spelling() {
+    let text = format!(
+        "{}{}{}",
+        row(json!({"type":"session","version":0})),
+        dsh_chunk(10, 1000, 1, 1, "kept"),
+        row(json!({"type":"assistant/message","seq":11,"time":1001,
+            "data":{"message":{"content":[{"type":"text","text":"assembled"}]},
+                    "turn":1.0,"step":1.0},
+            "sourceEventSeqs":[10]})),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(
+        projection.turns.len(),
+        1,
+        "an integral float position is the same recorded position"
+    );
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("assembled")]);
+}
+
+#[test]
+fn packed_empty_members_allocate_no_events_but_stay_observed() {
+    let object = json!({"type":"text-chunks","seq0":5,"time0":100,
+        "data":{"turn":1,"step":1,"index":0,"dt":[0,0],"texts":["","",""]}});
+    let map = object.as_object().expect("object");
+    match dsh_packed("text-chunks", map, object.get("data").unwrap(), "") {
+        DshRow::Packed(events, observed) => {
+            assert!(
+                events.is_empty(),
+                "empty text members allocate no projected events"
+            );
+            assert_eq!(observed, vec![5, 6, 7]);
+        }
+        _ => panic!("a complete packed row is Packed"),
+    }
+
+    let object = json!({"type":"tool-call-chunks","seq0":5,"time0":100,
+        "data":{"turn":1,"step":1,"index":0,"dt":[0],"args":["a","b"],"id":"c1"}});
+    let map = object.as_object().expect("object");
+    match dsh_packed("tool-call-chunks", map, object.get("data").unwrap(), "") {
+        DshRow::Packed(events, observed) => {
+            assert!(
+                events.is_empty(),
+                "argument fragments never allocate a projected call"
+            );
+            assert_eq!(observed, vec![5, 6]);
+        }
+        _ => panic!("a complete packed row is Packed"),
+    }
+}
+
+#[test]
+fn codex_quiet_top_level_without_payload_is_not_counted() {
+    for kind in [
+        "session_meta",
+        "turn_context",
+        "compacted",
+        "token_usage_record",
+        "world_state",
+        "security_risk_score",
+    ] {
+        let text = row(json!({"timestamp":"t","type":kind}));
+        let projection = codex(&text);
+        assert_eq!(projection.unrecognized_records, 0, "{kind}");
+        assert!(projection.turns.is_empty());
+    }
+    let projection = codex(&row(json!({"timestamp":"t","type":"future-top"})));
+    assert_eq!(projection.unrecognized_records, 1);
+}
+
+#[test]
+fn dsh_undeclared_blocks_alias_supplies_no_content() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        row(json!({"type":"assistant/message","seq":10,"time":1000,
+            "data":{"turn":1,"step":1,
+                    "message":{"blocks":[{"type":"text","text":"alias"}]}}})),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert!(
+        projection.turns.is_empty(),
+        "an undeclared content alias supplies no prose"
+    );
+    assert_eq!(projection.unrecognized_records, 0);
+
+    let declared = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        row(json!({"type":"assistant/message","seq":10,"time":1000,
+            "data":{"turn":1,"step":1,
+                    "message":{"content":[{"type":"text","text":"declared"}]}}})),
+    );
+    let projection = dsh(&declared);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("declared")]);
+}

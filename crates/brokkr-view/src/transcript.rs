@@ -476,6 +476,19 @@ pub struct TranscriptRead {
     pub unavailable: Option<Unavailable>,
     pub explanation: Option<String>,
     pub full_session: Option<String>,
+    /// The stable handle identity of the retained source behind this read,
+    /// when it came from an opened file. It is deliberately not part of
+    /// the wire document: it exists so a refresh can see a same-content
+    /// replacement (a new inode, or changed member provenance) even when
+    /// every projected field is identical.
+    pub source_identity: Option<SourceIdentity>,
+}
+
+/// The platform-neutral, lossless identity of an opened source handle.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SourceIdentity {
+    pub device: i128,
+    pub inode: i128,
 }
 
 impl TranscriptRead {
@@ -520,9 +533,9 @@ impl TranscriptRead {
             unavailable: None,
             explanation: None,
             full_session: full,
+            source_identity: None,
         }
     }
-
     /// A refused result. `path`, counts, truncation and the hint are
     /// supplied only where the failure-stage matrix establishes them.
     #[allow(clippy::too_many_arguments)]
@@ -550,6 +563,7 @@ impl TranscriptRead {
             unavailable: Some(reason),
             explanation: Some(explanation.into()),
             full_session,
+            source_identity: None,
         }
     }
 
@@ -725,15 +739,17 @@ impl Projection {
 }
 
 /// Parse the complete physical rows of an admitted snapshot one at a
-/// time, handing each decoded value to `visit` and releasing it before
-/// the next row is parsed. Neither the row text nor its decoded JSON is
-/// retained for the whole file (design D4). A newline-less final fragment
-/// that does not parse is provisional and uncounted; any other complete
-/// row that does not parse is malformed and counted. Returns the
-/// malformed count.
+/// time, handing each decoded value and its raw recorded text to `visit`
+/// and releasing it before the next row is parsed. Neither the row text
+/// nor its decoded JSON is retained for the whole file (design D4). The
+/// raw text preserves the recorded numeric spelling that `serde_json`'s
+/// `f64` collapse would otherwise lose (`1e-400` parses as `0.0`). A
+/// newline-less final fragment that does not parse is provisional and
+/// uncounted; any other complete row that does not parse is malformed
+/// and counted. Returns the malformed count.
 fn for_each_parsed_row<F>(admitted: &Admitted<'_>, mut visit: F) -> u64
 where
-    F: FnMut(usize, Value),
+    F: FnMut(usize, Value, &str),
 {
     let text = admitted.text;
     let bytes = text.as_bytes();
@@ -745,7 +761,7 @@ where
             continue;
         }
         match serde_json::from_str::<Value>(&text[start..end]) {
-            Ok(value) => visit(index, value),
+            Ok(value) => visit(index, value, &text[start..end]),
             Err(_) => skipped += 1,
         }
         index += 1;
@@ -755,7 +771,7 @@ where
         // A newline-less tail at true EOF is provisional: it participates
         // only when it parses, and an unparseable tail is never counted.
         if let Ok(value) = serde_json::from_str::<Value>(&text[start..]) {
-            visit(index, value);
+            visit(index, value, &text[start..]);
         }
     }
     skipped
@@ -806,7 +822,7 @@ pub fn project(kind: TranscriptKind, snapshot: &Snapshot<'_>) -> Projection {
 
 fn project_claude(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut turns = Vec::new();
-    projection.skipped_lines = for_each_parsed_row(admitted, |_, value| {
+    projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
         let (blocks, role, ts, unrecognized) = claude_row(&value);
         if unrecognized {
             projection.unrecognized_records += 1;
@@ -978,9 +994,9 @@ struct CodexRecord {
 }
 
 /// A Codex media part stays visible as an omission that names its class,
-/// never the bytes.
+/// never the bytes. Provider type discriminants are snake_case or camelCase.
 fn media_omission(kind: &str) -> &'static str {
-    if kind.ends_with("image") {
+    if kind.to_ascii_lowercase().contains("image") {
         "[image omitted]"
     } else {
         "[audio omitted]"
@@ -994,6 +1010,57 @@ fn payload_text(value: Option<&Value>) -> Option<String> {
         None | Some(Value::Null) => None,
         Some(Value::String(text)) => Some(text.clone()),
         Some(value) => Some(value.to_string()),
+    }
+}
+
+/// Render a declared content value in recorded order. A string is its
+/// recorded text. An array is a content list: a recognized text member
+/// supplies its recorded text, a recognized media member supplies a
+/// class-named omission, and an unrecognized member keeps its
+/// deterministic JSON. Any other value keeps its deterministic JSON.
+/// This never descends into or echoes an encoded media body.
+fn content_text(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => {
+            let rendered: Vec<String> = parts.iter().map(content_member).collect();
+            rendered
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<String>>()
+                .join(" ")
+        }
+        other => other.to_string(),
+    }
+}
+
+/// One declared content member: recognized text, a class-named media
+/// omission, or deterministic JSON for an unrecognized shape.
+fn content_member(part: &Value) -> String {
+    let Some(object) = part.as_object() else {
+        return match part {
+            Value::Null => String::new(),
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        };
+    };
+    let Some(kind) = object.get("type").and_then(Value::as_str) else {
+        return part.to_string();
+    };
+    match kind {
+        "text" | "input_text" | "output_text" | "inputText" | "outputText" => object
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        "image" | "input_image" | "output_image" | "inputImage" | "outputImage" | "image_url" => {
+            media_omission(kind).to_string()
+        }
+        "audio" | "input_audio" | "output_audio" | "inputAudio" | "outputAudio" => {
+            media_omission(kind).to_string()
+        }
+        _ => part.to_string(),
     }
 }
 
@@ -1023,7 +1090,7 @@ fn compose(parts: &[&str]) -> String {
 
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut records: Vec<CodexRecord> = Vec::new();
-    projection.skipped_lines = for_each_parsed_row(admitted, |_, value| {
+    projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
         records.push(codex_row(&value));
     });
     for record in &records {
@@ -1115,11 +1182,11 @@ fn codex_row(value: &Value) -> CodexRecord {
     let Some(kind) = object.get("type").and_then(Value::as_str) else {
         return quiet(ts, true);
     };
-    let Some(payload) = object.get("payload") else {
-        return quiet(ts, true);
-    };
     match kind {
         "response_item" => {
+            let Some(payload) = object.get("payload") else {
+                return quiet(ts, true);
+            };
             let (blocks, role, unrecognized) = codex_response_item(payload);
             CodexRecord {
                 blocks,
@@ -1130,6 +1197,9 @@ fn codex_row(value: &Value) -> CodexRecord {
             }
         }
         "event_msg" => {
+            let Some(payload) = object.get("payload") else {
+                return quiet(ts, true);
+            };
             let (blocks, role, unrecognized) = codex_event_msg(payload);
             CodexRecord {
                 blocks,
@@ -1167,12 +1237,13 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                     for part in parts {
                         match part.get("type").and_then(Value::as_str) {
                             Some("input_text" | "output_text") => {
-                                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    blocks.push(CodexBlock::identified(
+                                match part.get("text").and_then(Value::as_str) {
+                                    Some(text) => blocks.push(CodexBlock::identified(
                                         Block::text(text),
                                         CodexFact::Message,
                                         id,
-                                    ));
+                                    )),
+                                    None => unrecognized = true,
                                 }
                             }
                             Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
@@ -1200,12 +1271,13 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                     for part in parts {
                         match part.get("type").and_then(Value::as_str) {
                             Some("summary_text") => {
-                                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    blocks.push(CodexBlock::identified(
+                                match part.get("text").and_then(Value::as_str) {
+                                    Some(text) => blocks.push(CodexBlock::identified(
                                         Block::reasoning(text),
                                         CodexFact::Reasoning,
                                         id,
-                                    ));
+                                    )),
+                                    None => unrecognized = true,
                                 }
                             }
                             _ => unrecognized = true,
@@ -1236,7 +1308,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             )
         }
         "function_call_output" | "custom_tool_call_output" => {
-            let output = payload_text(payload.get("output")).unwrap_or_default();
+            let output = payload.get("output").map(content_text).unwrap_or_default();
             let id = payload.get("call_id").and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
@@ -1400,7 +1472,9 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                     CodexFact::Call,
                 )
             } else {
-                let result = payload_text(payload.pointer("/result/Ok/content"))
+                let result = payload
+                    .pointer("/result/Ok/content")
+                    .map(content_text)
                     .or_else(|| payload_text(payload.pointer("/result/Err")))
                     .unwrap_or_default();
                 (result, "tool", CodexFact::Result)
@@ -1427,7 +1501,10 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
                 (format!("{tool} {arguments}"), "assistant", CodexFact::Call)
             } else {
-                let content = payload_text(payload.get("content_items")).unwrap_or_default();
+                let content = payload
+                    .get("content_items")
+                    .map(content_text)
+                    .unwrap_or_default();
                 let error = payload_text(payload.get("error")).unwrap_or_default();
                 (format!("{content} {error}"), "tool", CodexFact::Result)
             };
@@ -1487,12 +1564,13 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                     for part in parts {
                         match part.get("type").and_then(Value::as_str) {
                             Some("input_text" | "output_text" | "text") => {
-                                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                                    blocks.push(CodexBlock::identified(
+                                match part.get("text").and_then(Value::as_str) {
+                                    Some(text) => blocks.push(CodexBlock::identified(
                                         Block::text(text),
                                         CodexFact::Message,
                                         id,
-                                    ));
+                                    )),
+                                    None => unrecognized = true,
                                 }
                             }
                             Some(kind @ ("input_image" | "input_audio" | "image" | "audio")) => {
@@ -1519,25 +1597,27 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
         "Reasoning" => {
             let id = item.get("id").and_then(Value::as_str);
             let mut blocks = Vec::new();
+            let mut unrecognized = false;
             match item.get("summary_text") {
                 Some(Value::Array(parts)) => {
                     for part in parts {
-                        if let Some(text) = part.as_str() {
-                            blocks.push(CodexBlock::identified(
+                        match part.as_str() {
+                            Some(text) => blocks.push(CodexBlock::identified(
                                 Block::reasoning(text),
                                 CodexFact::Reasoning,
                                 id,
-                            ));
+                            )),
+                            None => unrecognized = true,
                         }
                     }
                 }
                 None | Some(Value::Null) => {}
-                Some(_) => {}
+                Some(_) => unrecognized = true,
             }
-            (blocks, "assistant".to_string(), false)
+            (blocks, "assistant".to_string(), unrecognized)
         }
         "FunctionCallOutput" => {
-            let output = payload_text(item.get("output")).unwrap_or_default();
+            let output = item.get("output").map(content_text).unwrap_or_default();
             let id = item.get("call_id").and_then(Value::as_str);
             (
                 vec![CodexBlock::identified(
@@ -1582,12 +1662,18 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
             let call = compose(&[prefix, tool, &arguments]);
             let output = if mcp {
                 compose(&[
-                    &payload_text(item.pointer("/result/content")).unwrap_or_default(),
+                    &item
+                        .pointer("/result/content")
+                        .map(content_text)
+                        .unwrap_or_default(),
                     &payload_text(item.pointer("/error/message")).unwrap_or_default(),
                 ])
             } else {
                 compose(&[
-                    &payload_text(item.get("content_items")).unwrap_or_default(),
+                    &item
+                        .get("content_items")
+                        .map(content_text)
+                        .unwrap_or_default(),
                     &payload_text(item.get("error")).unwrap_or_default(),
                 ])
             };
@@ -1683,6 +1769,96 @@ fn dsh_quiet_event(kind: &str) -> bool {
 
 const DSH_SAFE_MAX: i64 = 9_007_199_254_740_991;
 
+/// The raw recorded JSON number token for a key of a top-level object
+/// row, when present. `serde_json` stores `f64` values, so a nonzero
+/// literal such as `1e-400` collapses to `0.0`; the raw token preserves
+/// the recorded spelling for the exact-zero checks the version and time
+/// contracts require.
+fn raw_top_level_token<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
+    let bytes = raw.as_bytes();
+    let mut index = 0usize;
+    let mut depth = 0i32;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                let start = index + 1;
+                let mut end = start;
+                while end < bytes.len() {
+                    match bytes[end] {
+                        b'\\' => end += 2,
+                        b'"' => break,
+                        _ => end += 1,
+                    }
+                }
+                if end >= bytes.len() {
+                    return None;
+                }
+                let name = &raw[start..end];
+                let mut cursor = end + 1;
+                while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                    cursor += 1;
+                }
+                if depth == 1 && name == key && bytes.get(cursor) == Some(&b':') {
+                    cursor += 1;
+                    while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                        cursor += 1;
+                    }
+                    let value_start = cursor;
+                    while cursor < bytes.len()
+                        && (bytes[cursor].is_ascii_digit()
+                            || matches!(bytes[cursor], b'-' | b'+' | b'.' | b'e' | b'E'))
+                    {
+                        cursor += 1;
+                    }
+                    return (cursor > value_start).then(|| &raw[value_start..cursor]);
+                }
+                index = end + 1;
+                continue;
+            }
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// True when the recorded token is an exact numeric zero: only zero
+/// mantissa digits and, if present, an exponent. `1e-400` is a nonzero
+/// literal whose `f64` collapses to zero, so it is not a zero spelling.
+fn zero_number_token(token: &str) -> bool {
+    let unsigned = token.strip_prefix(['-', '+']).unwrap_or(token);
+    let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
+        Some(position) => (&unsigned[..position], Some(&unsigned[position + 1..])),
+        None => (unsigned, None),
+    };
+    if mantissa.is_empty()
+        || !mantissa.chars().all(|c| c.is_ascii_digit() || c == '.')
+        || !mantissa.chars().any(|c| c == '0')
+    {
+        return false;
+    }
+    if let Some(exponent) = exponent {
+        let digits = exponent.strip_prefix(['-', '+']).unwrap_or(exponent);
+        if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+    }
+    true
+}
+
+/// A recorded millisecond count that also rejects a nonzero literal
+/// whose `f64` spelling underflows to zero. The raw token is only
+/// consulted for a parsed zero.
+fn dsh_millis_exact(value: &Value, raw: Option<&str>) -> Option<i64> {
+    let millis = dsh_millis(value)?;
+    if millis == 0 && raw.is_some_and(|token| !zero_number_token(token)) {
+        return None;
+    }
+    Some(millis)
+}
+
 fn dsh_numeric_zero(value: &Value) -> bool {
     value.as_f64() == Some(0.0)
 }
@@ -1690,7 +1866,7 @@ fn dsh_numeric_zero(value: &Value) -> bool {
 /// Admit the opening DSH ownership header. Ownership was established by
 /// discovery; this validates the version and reports the projection
 /// refusal when it is not numeric zero.
-fn dsh_header(value: &Value) -> bool {
+fn dsh_header(value: &Value, raw: &str) -> bool {
     let Some(object) = value.as_object() else {
         return false;
     };
@@ -1702,29 +1878,34 @@ fn dsh_header(value: &Value) -> bool {
         Some(depth) if depth.as_u64() != Some(0) => return false,
         Some(_) => {}
     }
-    object.get("version").is_some_and(dsh_numeric_zero)
+    // A nonzero literal whose `f64` spelling underflows to zero is not an
+    // exact numeric-zero version.
+    object.get("version").is_some_and(|version| {
+        dsh_numeric_zero(version)
+            && raw_top_level_token(raw, "version").is_none_or(zero_number_token)
+    })
 }
 
 /// The first participating physical row of a DSH snapshot, before any
 /// format admission decision.
-enum FirstRow {
+enum FirstRow<'a> {
     /// No participating row at all (empty source, or a cap-only prefix
     /// with no newline-terminated row).
     Absent,
     /// The first participating row did not parse as JSON.
     Malformed,
-    /// The first participating row parsed.
-    Value(Value),
+    /// The first participating row parsed, with its raw text.
+    Value(Value, &'a str),
 }
 
 /// Parse only the opening participating physical row. A header refusal
 /// must return before any later row is decoded, counted or retained.
-fn first_physical_row(admitted: &Admitted<'_>) -> FirstRow {
+fn first_physical_row<'a>(admitted: &'a Admitted<'_>) -> FirstRow<'a> {
     let text = admitted.text;
     let bytes = text.as_bytes();
     match bytes.iter().position(|byte| *byte == b'\n') {
         Some(end) => match serde_json::from_str::<Value>(&text[..end]) {
-            Ok(value) => FirstRow::Value(value),
+            Ok(value) => FirstRow::Value(value, &text[..end]),
             Err(_) => FirstRow::Malformed,
         },
         None => {
@@ -1732,7 +1913,7 @@ fn first_physical_row(admitted: &Admitted<'_>) -> FirstRow {
                 FirstRow::Absent
             } else {
                 match serde_json::from_str::<Value>(text) {
-                    Ok(value) => FirstRow::Value(value),
+                    Ok(value) => FirstRow::Value(value, text),
                     Err(_) => FirstRow::Malformed,
                 }
             }
@@ -1745,8 +1926,8 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // opening header returns before any later physical row is decoded,
     // counted or retained (design D4).
     match first_physical_row(admitted) {
-        FirstRow::Value(header) if dsh_header(&header) => {}
-        FirstRow::Value(_) | FirstRow::Malformed | FirstRow::Absent => {
+        FirstRow::Value(header, raw) if dsh_header(&header, raw) => {}
+        FirstRow::Value(_, _) | FirstRow::Malformed | FirstRow::Absent => {
             projection.skipped_lines = 0;
             projection.unrecognized_records = 0;
             projection.unavailable = Some(Unavailable::UnsupportedFormat);
@@ -1760,12 +1941,12 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     let mut observed: Vec<i64> = Vec::new();
     let mut refused = false;
     let mut unrecognized = 0u64;
-    let skipped = for_each_parsed_row(admitted, |index, value| {
+    let skipped = for_each_parsed_row(admitted, |index, value, raw| {
         // The admitted opening header is quiet.
         if index == 0 {
             return;
         }
-        match dsh_row(&value) {
+        match dsh_row(&value, raw) {
             DshRow::Events(mut rows, row_unrecognized) => {
                 if row_unrecognized {
                     unrecognized += 1;
@@ -1775,6 +1956,10 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                         observed.push(seq);
                     }
                 }
+                events.append(&mut rows);
+            }
+            DshRow::Packed(mut rows, member_seqs) => {
+                observed.extend(member_seqs);
                 events.append(&mut rows);
             }
             DshRow::Quiet => {
@@ -1822,17 +2007,23 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // `(turn, step, seq)` is swept in source order, so each observed
     // chunk and each citation range costs one logarithmic lookup and no
     // integer range is ever expanded.
-    let mut chunk_index: std::collections::BTreeMap<(i64, i64, i64), usize> =
+    let mut chunk_index: std::collections::BTreeMap<(Position, Position, i64), usize> =
         std::collections::BTreeMap::new();
     let mut suppressed = std::collections::HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        if event.assembly && !event.cited.is_empty() && !event.blocks.is_empty() {
+        if event.assembly
+            && !event.cited.is_empty()
+            && event
+                .blocks
+                .iter()
+                .any(|block| block.block.kind != BlockKind::Omitted)
+        {
             if let (Some(turn), Some(step)) = (event.turn, event.step) {
                 for (start, end) in &event.cited {
                     if start > end {
                         continue;
                     }
-                    let keys: Vec<(i64, i64, i64)> = chunk_index
+                    let keys: Vec<(Position, Position, i64)> = chunk_index
                         .range((turn, step, *start)..=(turn, step, *end))
                         .map(|(key, _)| *key)
                         .collect();
@@ -1905,7 +2096,7 @@ impl DshBlock {
 /// absent, colliding or disagreeing identity keeps both copies.
 fn associate_dsh_tools(events: &mut [DshEvent]) {
     use std::collections::{HashMap, HashSet};
-    let mut dedicated: HashMap<(String, DshDirection, i64, i64), usize> = HashMap::new();
+    let mut dedicated: HashMap<(String, DshDirection, Position, Position), usize> = HashMap::new();
     for event in events.iter() {
         if !event.dedicated {
             continue;
@@ -1913,7 +2104,7 @@ fn associate_dsh_tools(events: &mut [DshEvent]) {
         let (Some(turn), Some(step)) = (event.turn, event.step) else {
             continue;
         };
-        let mut seen: HashSet<(String, DshDirection, i64, i64)> = HashSet::new();
+        let mut seen: HashSet<(String, DshDirection, Position, Position)> = HashSet::new();
         for block in &event.blocks {
             let Some(tool) = &block.tool else { continue };
             let key = (tool.id.clone(), tool.direction, turn, step);
@@ -1944,13 +2135,53 @@ fn dsh_ignorable(value: &Value) -> bool {
         == Some(true)
 }
 
+/// A recorded numeric DSH position (turn, step or chunk index),
+/// canonicalized so numerically equal JSON numbers compare equal. The
+/// positions are pure JSON numbers, not the safe-integer sequence/time
+/// contract: an exact integral spelling (`1`, `1.0`, `1e0`) collapses
+/// onto the same position, and a fraction like `0.5` is a distinct
+/// valid position.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum Position {
+    Int(i64),
+    UInt(u64),
+    Float(u64),
+}
+
+impl Position {
+    fn parse(value: &Value) -> Option<Position> {
+        if let Some(unsigned) = value.as_u64() {
+            if unsigned > i64::MAX as u64 {
+                return Some(Position::UInt(unsigned));
+            }
+        }
+        if let Some(integer) = value.as_i64() {
+            return Some(Position::Int(integer));
+        }
+        let float = value.as_f64()?;
+        if !float.is_finite() {
+            return None;
+        }
+        if float == float.trunc() {
+            if float >= i64::MIN as f64 && float <= i64::MAX as f64 {
+                return Some(Position::Int(float as i64));
+            }
+            if float >= 0.0 && float <= u64::MAX as f64 {
+                return Some(Position::UInt(float as u64));
+            }
+        }
+        let float = if float == 0.0 { 0.0 } else { float };
+        Some(Position::Float(float.to_bits()))
+    }
+}
+
 struct DshEvent {
     blocks: Vec<DshBlock>,
     role: String,
     ts: String,
     seq: Option<i64>,
-    turn: Option<i64>,
-    step: Option<i64>,
+    turn: Option<Position>,
+    step: Option<Position>,
     chunk: bool,
     assembly: bool,
     cited: Vec<(i64, i64)>,
@@ -1960,6 +2191,11 @@ struct DshEvent {
 
 enum DshRow {
     Events(Vec<DshEvent>, bool),
+    /// A complete packed storage row. Only members with projected blocks
+    /// allocate an event; every member sequence is still observed so a
+    /// duplicate identity stays ambiguous for citation uniqueness. The
+    /// second value is the complete member sequence list.
+    Packed(Vec<DshEvent>, Vec<i64>),
     Quiet,
     /// A recognized envelope with an unsupported or absent nested
     /// variant: counted once, no content, never a whole-read refusal.
@@ -1969,21 +2205,27 @@ enum DshRow {
 }
 
 /// A recorded DSH millisecond number, including the floating-point `-0`
-/// spelling, which is still zero milliseconds. Non-integer fractions are
-/// not a millisecond count.
+/// spelling, which is still zero milliseconds, and an exact integral
+/// decimal/exponent spelling such as `1000.0` or `1e3`. Non-integer
+/// fractions are not a millisecond count.
 fn dsh_millis(value: &Value) -> Option<i64> {
     if let Some(integer) = value.as_i64() {
         return Some(integer);
     }
-    if value.as_f64() == Some(0.0) {
-        return Some(0);
+    let float = value.as_f64()?;
+    if !float.is_finite() {
+        return None;
+    }
+    if float == float.trunc() && float >= i64::MIN as f64 && float <= i64::MAX as f64 {
+        return Some(float as i64);
     }
     None
 }
 
-/// The signed epoch-millisecond string DSH turns carry, or empty.
-fn dsh_time(value: Option<&Value>) -> String {
-    match value.and_then(dsh_millis) {
+/// The signed epoch-millisecond string DSH turns carry, or empty. The
+/// raw token rejects a nonzero literal that collapsed to a zero `f64`.
+fn dsh_time(value: Option<&Value>, raw: Option<&str>) -> String {
+    match value.and_then(|value| dsh_millis_exact(value, raw)) {
         Some(millis) if millis.unsigned_abs() <= DSH_SAFE_MAX as u64 => millis.to_string(),
         _ => String::new(),
     }
@@ -1994,21 +2236,19 @@ fn dsh_time(value: Option<&Value>) -> String {
 fn dsh_message_blocks(data: &Value) -> (Vec<DshBlock>, bool) {
     let mut blocks = Vec::new();
     let mut unrecognized = false;
-    let content = data.get("content").or_else(|| data.get("blocks"));
+    let content = data.get("content");
     match content {
         Some(Value::Array(parts)) => {
             for part in parts {
                 match part.get("type").and_then(Value::as_str) {
-                    Some("text") => {
-                        if let Some(text) = part.get("text").and_then(Value::as_str) {
-                            blocks.push(DshBlock::plain(Block::text(text)));
-                        }
-                    }
-                    Some("reasoning") => {
-                        if let Some(text) = part.get("text").and_then(Value::as_str) {
-                            blocks.push(DshBlock::plain(Block::reasoning(text)));
-                        }
-                    }
+                    Some("text") => match part.get("text").and_then(Value::as_str) {
+                        Some(text) => blocks.push(DshBlock::plain(Block::text(text))),
+                        None => unrecognized = true,
+                    },
+                    Some("reasoning") => match part.get("text").and_then(Value::as_str) {
+                        Some(text) => blocks.push(DshBlock::plain(Block::reasoning(text))),
+                        None => unrecognized = true,
+                    },
                     Some("tool-call") => {
                         let name = part.get("name").and_then(Value::as_str).unwrap_or("?");
                         let arguments = payload_text(part.get("arguments")).unwrap_or_default();
@@ -2025,7 +2265,9 @@ fn dsh_message_blocks(data: &Value) -> (Vec<DshBlock>, bool) {
                         });
                     }
                     Some("tool-result") => {
-                        let output = payload_text(part.get("content"))
+                        let output = part
+                            .get("content")
+                            .map(content_text)
                             .or_else(|| payload_text(part.get("text")))
                             .unwrap_or_default();
                         let id = part
@@ -2107,13 +2349,14 @@ fn dsh_seq(value: &Value) -> Option<i64> {
         .and_then(Value::as_i64)
 }
 
-fn dsh_row(value: &Value) -> DshRow {
+fn dsh_row(value: &Value, raw: &str) -> DshRow {
     let Some(object) = value.as_object() else {
         return DshRow::Unrecognized;
     };
     let Some(kind) = object.get("type").and_then(Value::as_str) else {
         return DshRow::Unrecognized;
     };
+    let raw_time = raw_top_level_token(raw, "time");
     let data = object.get("data").unwrap_or(&Value::Null);
     match kind {
         "user/message" | "assistant/message" => {
@@ -2128,7 +2371,7 @@ fn dsh_row(value: &Value) -> DshRow {
                 Ok(cited) => cited,
                 Err(()) => return DshRow::Refused,
             };
-            let ts = dsh_time(object.get("time"));
+            let ts = dsh_time(object.get("time"), raw_time);
             let role = if kind == "user/message" {
                 "user"
             } else {
@@ -2139,8 +2382,8 @@ fn dsh_row(value: &Value) -> DshRow {
                 role: role.to_string(),
                 ts,
                 seq: owning,
-                turn: data.get("turn").and_then(Value::as_i64),
-                step: data.get("step").and_then(Value::as_i64),
+                turn: data.get("turn").and_then(Position::parse),
+                step: data.get("step").and_then(Position::parse),
                 chunk: false,
                 assembly: kind == "assistant/message",
                 cited,
@@ -2170,10 +2413,10 @@ fn dsh_row(value: &Value) -> DshRow {
                         }),
                     }],
                     role: "assistant".to_string(),
-                    ts: dsh_time(object.get("time")),
+                    ts: dsh_time(object.get("time"), raw_time),
                     seq: dsh_seq(value),
-                    turn: data.get("turn").and_then(Value::as_i64),
-                    step: data.get("step").and_then(Value::as_i64),
+                    turn: data.get("turn").and_then(Position::parse),
+                    step: data.get("step").and_then(Position::parse),
                     chunk: false,
                     assembly: false,
                     cited: Vec::new(),
@@ -2194,10 +2437,10 @@ fn dsh_row(value: &Value) -> DshRow {
                 vec![DshEvent {
                     blocks,
                     role: "tool".to_string(),
-                    ts: dsh_time(object.get("time")),
+                    ts: dsh_time(object.get("time"), raw_time),
                     seq: owning,
-                    turn: data.get("turn").and_then(Value::as_i64),
-                    step: data.get("step").and_then(Value::as_i64),
+                    turn: data.get("turn").and_then(Position::parse),
+                    step: data.get("step").and_then(Position::parse),
                     chunk: false,
                     assembly: false,
                     cited,
@@ -2223,10 +2466,10 @@ fn dsh_row(value: &Value) -> DshRow {
                         vec![DshEvent {
                             blocks: vec![DshBlock::plain(Block::text(text))],
                             role: "assistant".to_string(),
-                            ts: dsh_time(object.get("time")),
+                            ts: dsh_time(object.get("time"), raw_time),
                             seq: dsh_seq(value),
-                            turn: data.get("turn").and_then(Value::as_i64),
-                            step: data.get("step").and_then(Value::as_i64),
+                            turn: data.get("turn").and_then(Position::parse),
+                            step: data.get("step").and_then(Position::parse),
                             chunk: true,
                             assembly: false,
                             cited: Vec::new(),
@@ -2244,10 +2487,10 @@ fn dsh_row(value: &Value) -> DshRow {
                         vec![DshEvent {
                             blocks: vec![DshBlock::plain(Block::reasoning(text))],
                             role: "assistant".to_string(),
-                            ts: dsh_time(object.get("time")),
+                            ts: dsh_time(object.get("time"), raw_time),
                             seq: dsh_seq(value),
-                            turn: data.get("turn").and_then(Value::as_i64),
-                            step: data.get("step").and_then(Value::as_i64),
+                            turn: data.get("turn").and_then(Position::parse),
+                            step: data.get("step").and_then(Position::parse),
                             chunk: true,
                             assembly: false,
                             cited: Vec::new(),
@@ -2264,7 +2507,9 @@ fn dsh_row(value: &Value) -> DshRow {
                 _ => DshRow::Omission,
             }
         }
-        "text-chunks" | "reasoning-chunks" | "tool-call-chunks" => dsh_packed(kind, object, data),
+        "text-chunks" | "reasoning-chunks" | "tool-call-chunks" => {
+            dsh_packed(kind, object, data, raw)
+        }
         _ if dsh_quiet_event(kind) => DshRow::Quiet,
         _ => DshRow::Unrecognized,
     }
@@ -2291,7 +2536,12 @@ fn exact_keys(
 /// the whole read and counts the physical row once. The envelope and
 /// data shapes are validated exactly before any member can supply
 /// content or association.
-fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value) -> DshRow {
+fn dsh_packed(
+    kind: &str,
+    object: &serde_json::Map<String, Value>,
+    data: &Value,
+    raw: &str,
+) -> DshRow {
     if !exact_keys(object, &["type", "seq0", "time0", "data"], &[]) {
         return DshRow::Refused;
     }
@@ -2311,13 +2561,15 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
     if !shape_ok {
         return DshRow::Refused;
     }
-    let Some(turn) = data.get("turn").and_then(Value::as_i64) else {
+    // The three position fields are numeric, not safe integers: a
+    // fractional or exponent spelling is a valid recorded position.
+    let Some(turn) = data.get("turn").and_then(Position::parse) else {
         return DshRow::Refused;
     };
-    let Some(step) = data.get("step").and_then(Value::as_i64) else {
+    let Some(step) = data.get("step").and_then(Position::parse) else {
         return DshRow::Refused;
     };
-    let Some(index) = data.get("index").and_then(Value::as_i64) else {
+    let Some(_index) = data.get("index").and_then(Position::parse) else {
         return DshRow::Refused;
     };
     let Some(seq0) = object.get("seq0").and_then(Value::as_i64) else {
@@ -2327,7 +2579,10 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
     if !(0..=DSH_SAFE_MAX).contains(&seq0) {
         return DshRow::Refused;
     }
-    let Some(time0) = object.get("time0").and_then(dsh_millis) else {
+    let Some(time0) = object
+        .get("time0")
+        .and_then(|value| dsh_millis_exact(value, raw_top_level_token(raw, "time0")))
+    else {
         return DshRow::Refused;
     };
     if time0.unsigned_abs() > DSH_SAFE_MAX as u64 {
@@ -2365,7 +2620,12 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
         }
         gaps.push(gap);
     }
+    // A member that supplies no projected block allocates no event, so an
+    // adversarial row of empty members cannot amplify one physical row
+    // into that many logical-event allocations. Every member sequence is
+    // still observed so duplicate identity stays ambiguous.
     let mut events = Vec::new();
+    let mut observed = Vec::with_capacity(members.len());
     let mut time = time0;
     for (member_index, member) in members.iter().enumerate() {
         if member_index > 0 {
@@ -2378,6 +2638,7 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
             Some(seq) if (0..=DSH_SAFE_MAX).contains(&seq) => seq,
             _ => return DshRow::Refused,
         };
+        observed.push(seq);
         let text = member.as_str().unwrap_or("");
         let blocks = match kind {
             "text-chunks" if !text.is_empty() => vec![DshBlock::plain(Block::text(text))],
@@ -2387,6 +2648,9 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
             // Argument fragments are recognized quiet omissions.
             _ => Vec::new(),
         };
+        if blocks.is_empty() {
+            continue;
+        }
         events.push(DshEvent {
             blocks,
             role: "assistant".to_string(),
@@ -2400,8 +2664,7 @@ fn dsh_packed(kind: &str, object: &serde_json::Map<String, Value>, data: &Value)
             dedicated: false,
         });
     }
-    let _ = index;
-    DshRow::Events(events, false)
+    DshRow::Packed(events, observed)
 }
 
 #[cfg(test)]

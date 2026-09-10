@@ -159,6 +159,11 @@ fn write_dsh_body(world: &World, locator: &str, body: &str) -> String {
     std::fs::create_dir_all(&session).unwrap();
     let file = session.join("session.jsonl");
     std::fs::write(&file, body).unwrap();
+    // The reader canonicalizes the recorded home before joining the
+    // relative source path, so the confirmed path carries the canonical
+    // root on every platform (macOS `/var` is `/private/var`). Build the
+    // fixture's expectation the same way rather than from a path that
+    // may still hold a symlinked component.
     format!(
         "{}/{locator}/project/seat/session.jsonl",
         world.home.canonicalize().unwrap().display()
@@ -447,6 +452,9 @@ fn a_headerless_codex_rollout_is_readable() {
 #[test]
 fn a_missing_codex_rollout_has_its_fixed_hint() {
     let world = world();
+    // A real (absent) directory beside the fixture, not a Unix-shaped
+    // literal: the recorded home travels into the portable literal on
+    // every platform.
     let missing_home = world.home.join("missing-codex");
     record(
         &world,
@@ -1086,6 +1094,71 @@ fn json_retains_every_rejected_common_reference() {
         assert_eq!(document["skipped_lines"], 0);
         assert_eq!(document["unrecognized_records"], 0);
         assert!(document["notices"].as_array().unwrap().is_empty());
+    }
+}
+
+/// Task 8.9's text half: each rejected common reference keeps stdout
+/// empty, writes the exact reason and sanitized explanation to stderr,
+/// and exits one.
+#[test]
+fn text_mode_reports_every_rejected_common_reference() {
+    for (reference, reason) in [
+        (json!({"kind": "none", "locator": "", "home": ""}), "none"),
+        (
+            json!({"kind": "codex-thread", "locator": "", "home": "/retained/codex"}),
+            "unannounced",
+        ),
+        (
+            json!({"kind": "codex-thread", "locator": "0199mine", "home": ""}),
+            "missing-home",
+        ),
+        (
+            json!({"kind": "codex-thread", "locator": "-abc", "home": "/retained/codex"}),
+            "invalid-reference",
+        ),
+    ] {
+        let world = world_effects(&[("eff1", "review", None)]);
+        checkpoint(
+            &world,
+            "eff1",
+            "att0",
+            json!({"step": "session-finished", "transcript": reference}),
+        );
+        let output = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+        assert!(!output.status.success(), "{reason}");
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "exact exit code for {reason}"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "text refusals write no stdout body: {reason}"
+        );
+        let explanation = match reason {
+            "none" => {
+                brokkr_view::transcript::explanation_for(brokkr_view::transcript::Unavailable::None)
+            }
+            "unannounced" => brokkr_view::transcript::explanation_for(
+                brokkr_view::transcript::Unavailable::Unannounced,
+            ),
+            "missing-home" => brokkr_view::transcript::explanation_for(
+                brokkr_view::transcript::Unavailable::MissingHome,
+            ),
+            "invalid-reference" => brokkr_view::transcript::explanation_for(
+                brokkr_view::transcript::Unavailable::InvalidReference,
+            ),
+            other => panic!("unexpected rejection reason {other}"),
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!("transcript unavailable: {reason}: {explanation}")),
+            "{reason}: {stderr:?}"
+        );
+        assert!(
+            !stderr.contains('\u{1b}'),
+            "{reason}: terminal control must be sanitized: {stderr:?}"
+        );
     }
 }
 
@@ -1756,6 +1829,10 @@ fn a_future_transcript_kind_is_fenced_at_the_journal() {
 #[test]
 fn hostile_confirmed_paths_stay_portable_display_data() {
     let mut world = world();
+    // Windows forbids the operator, quote and backslash characters in a
+    // path component, so the hostile fixture keeps the portable-display
+    // alphabet there; the Unix fixture carries the complete shell
+    // fragment. Both exercise the same escaping proof.
     let hostile_home = world.path().join(if cfg!(windows) {
         "home $(x) `t` ;a&b%c!d é😀"
     } else {

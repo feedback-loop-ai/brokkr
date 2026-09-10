@@ -792,10 +792,20 @@ fn report(error: &anyhow::Error) -> ExitCode {
             ExitCode::from(CONTENDED_EXIT)
         }
         None => {
-            eprintln!("error: {error:#}");
+            eprintln!("error: {}", safe_lines(&format!("{error:#}")));
             ExitCode::from(1)
         }
     }
+}
+
+/// Sanitize an error display line by line, keeping the chain's own line
+/// breaks: every rendered line loses control and directional characters
+/// while the recorded error strings stay untouched.
+fn safe_lines(text: &str) -> String {
+    text.split('\n')
+        .map(|line| render::Safe::new(line).as_str().to_string())
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 /// The binary's entry: one parse, one command set, one set of exit
@@ -1103,9 +1113,19 @@ fn tui_views(
     let transcript = match (ask.subject.as_ref(), run.as_ref()) {
         (Some(prior), Some(view)) => match refreshed_subject(prior, view) {
             Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen).0,
-            // No participant, or an unchanged one: the read resolved from
-            // the selected subject still speaks for it.
-            _ => transcript,
+            // An unchanged participant: the resolved read still speaks for
+            // it.
+            Some(_) => transcript,
+            // The participant is gone from a view that still lists
+            // participants: its content and any open overlay are cleared
+            // in this same frame rather than lingering until a later
+            // refresh. A view with no participants at all is the shell's
+            // own absent-subject frame, cleared there.
+            None if !view.participants.is_empty() => {
+                *seen = None;
+                None
+            }
+            None => transcript,
         },
         _ => transcript,
     };
@@ -1214,6 +1234,10 @@ fn resolve_in_hearths_with(
 ) -> Result<(usize, String)> {
     let sole = hearths.len() < 2;
     let mut refusal: Option<anyhow::Error> = None;
+    // An ambiguous prefix in any hearth is preserved even when another
+    // hearth answers the same selector uniquely: a guess there would
+    // still be a guess about which run the operator meant.
+    let mut ambiguous: Option<anyhow::Error> = None;
     // The hearths that answered: index, the id it resolved to, and when
     // that run was created — which is what `latest` compares.
     let mut answered: Vec<(usize, String, String)> = Vec::new();
@@ -1247,9 +1271,14 @@ fn resolve_in_hearths_with(
                     .map_or(String::new(), |candidate| candidate.created_at.to_string());
                 answered.push((index, id, created));
             }
-            Err(error) => {
-                refusal.get_or_insert(error);
-            }
+            Err(error) => match selector::refusal_kind(&error) {
+                Some(selector::Refusal::Ambiguous) => {
+                    ambiguous.get_or_insert(error);
+                }
+                _ => {
+                    refusal.get_or_insert(error);
+                }
+            },
         }
     }
     if run == selector::LATEST {
@@ -1260,6 +1289,9 @@ fn resolve_in_hearths_with(
                 None => Ok((0, run)),
             },
         };
+    }
+    if let Some(error) = ambiguous {
+        return Err(error);
     }
     match answered.len() {
         1 => {
@@ -1396,10 +1428,12 @@ fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> Transcript
     if !read.is_readable() {
         return read;
     }
-    let index = index as usize;
-    if index >= 1 && index <= read.turns.len() {
+    // Compare and index in the recorded width: a u64-to-usize narrowing
+    // could wrap on a 32-bit target and select an unrelated retained turn.
+    if index >= 1 && index <= read.turns.len() as u64 {
+        let position = (index - 1) as usize;
         let mut selected = read;
-        selected.turns = vec![selected.turns[index - 1].clone()];
+        selected.turns = vec![selected.turns[position].clone()];
         return selected;
     }
     let explanation = if read.truncated {

@@ -351,6 +351,25 @@ fn the_page_paints_and_derives_nothing() {
     }
 }
 
+#[test]
+fn the_page_strips_directional_formatting_at_the_display_boundary() {
+    // L3: the browser is a display boundary too. Its text nodes are
+    // inert, but bidi/directional formatting characters reorder visible
+    // text, so the page removes them without touching machine JSON.
+    assert!(
+        PAGE.contains("\\u061C"),
+        "the Arabic letter mark is named in the browser sanitizer"
+    );
+    assert!(
+        PAGE.contains("function displayText"),
+        "one browser display sanitizer exists"
+    );
+    assert!(
+        PAGE.contains("node.textContent = displayText(text)"),
+        "el() and svgEl() route their text through it"
+    );
+}
+
 // -------------------------------------------------------- the road back
 //
 // A reforging is a road, and roads are drawn — the TUI's rail has drawn
@@ -1408,6 +1427,40 @@ fn dsh_discovery_accepts_a_header_at_eof_without_newline() {
     let read = read_common(&reference);
     assert!(read.is_readable(), "{read:?}");
     assert!(read.turns.is_empty());
+}
+
+/// L5: a newline immediately after a header of exactly the bounded
+/// header cap is part of the header, not the overflow probe.
+#[test]
+fn dsh_discovery_admits_a_header_exactly_at_the_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+
+    let base = r#"{"type":"session","delegationDepth":0,"version":0"#;
+    let cap = brokkr_view::transcript::DSH_HEADER_CAP;
+    let pad = cap - base.len() - 1;
+    let header = format!("{base}{}}}", " ".repeat(pad));
+    assert_eq!(header.len(), cap);
+    std::fs::write(session.join("session.jsonl"), format!("{header}\n")).unwrap();
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "a cap-length header before a newline is admitted: {read:?}"
+    );
+    assert!(read.turns.is_empty());
+
+    // One byte past the cap is still beyond the bounded header.
+    let header = format!("{base}{}}}", " ".repeat(pad + 1));
+    assert_eq!(header.len(), cap + 1);
+    std::fs::write(session.join("session.jsonl"), format!("{header}\n")).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::DiscoveryLimit)
+    );
 }
 
 /// Every file below `root`, relative path -> bytes, with symlinks

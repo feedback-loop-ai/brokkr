@@ -5690,6 +5690,47 @@ fn the_unknown_record_notice_reaches_the_pane_and_both_doors() {
     assert!(all.contains("unrecognized transcript records: 3"), "{all}");
 }
 
+/// M6: a notice-only refresh leaves the turns alone but must recompose an
+/// open transcript door, so the pane and the door always report the same
+/// snapshot. This drives the real `drive` transition, not `apply` alone.
+#[test]
+fn a_notice_only_refresh_recomposes_the_open_transcript_door() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let saved = std::panic::take_hook();
+    let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+
+    let mut first = views();
+    let mut first_read = read_of(turns_of(2), false);
+    first_read.notices = vec!["first notice".to_string()];
+    first.transcript = Some(first_read);
+
+    let mut second = views();
+    let mut second_read = read_of(turns_of(2), false);
+    second_read.notices = vec!["second notice".to_string()];
+    second.transcript = Some(second_read);
+
+    script(&[Key::Enter, Key::Quit]);
+    let mut tui = at_transcript(&first);
+    let mut answers: Vec<Option<Views>> = vec![Some(first), Some(second)];
+    let mut source = move |_: Ask| {
+        if answers.is_empty() {
+            return Ok(None);
+        }
+        Ok(answers.remove(0))
+    };
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 4).unwrap();
+    let reading = tui.reading.expect("the door stays open across the refresh");
+    assert!(
+        reading.contains("second notice"),
+        "the door carries the fresh notice: {reading}"
+    );
+    assert!(
+        !reading.contains("first notice"),
+        "the stale notice is gone: {reading}"
+    );
+    std::panic::set_hook(saved);
+}
+
 #[test]
 fn an_oversized_first_turn_keeps_its_capped_explanation_openable() {
     let mut views = views();
@@ -6195,6 +6236,39 @@ fn replacement_shrink_and_disappearance_invalidate_the_turn_cursor() {
     assert!(
         transcript_invalidates(Some(&three), None),
         "disappearance clears"
+    );
+}
+
+/// M11: a same-content replacement carries a different source identity,
+/// so it invalidates the cursor/overlay even when every turn, path and
+/// count is identical.
+#[test]
+fn a_same_content_source_replacement_invalidates_identical_turns() {
+    let mut old = read_of(turns_of(2), false);
+    old.source_identity = Some(brokkr_view::transcript::SourceIdentity {
+        device: 1,
+        inode: 10,
+    });
+    let mut replaced = read_of(turns_of(2), false);
+    replaced.source_identity = Some(brokkr_view::transcript::SourceIdentity {
+        device: 1,
+        inode: 11,
+    });
+    assert_eq!(old.turns, replaced.turns);
+    assert_eq!(old.path, replaced.path);
+    assert!(
+        transcript_invalidates(Some(&old), Some(&replaced)),
+        "a new inode after a same-content replacement invalidates"
+    );
+
+    let mut same = read_of(turns_of(2), false);
+    same.source_identity = Some(brokkr_view::transcript::SourceIdentity {
+        device: 1,
+        inode: 10,
+    });
+    assert!(
+        !transcript_invalidates(Some(&old), Some(&same)),
+        "the same source identity keeps navigation"
     );
 }
 

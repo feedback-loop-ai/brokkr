@@ -344,8 +344,8 @@ fn bidi_and_zero_width_formatting_characters_never_reach_the_terminal() {
     assert_eq!(safe.width(), 18, "width is computed on the sanitized text");
     // Every enumerated range, at both of its ends and inside.
     for stripped in [
-        '\u{200B}', '\u{200D}', '\u{200F}', '\u{202A}', '\u{202C}', '\u{202E}', '\u{2060}',
-        '\u{2062}', '\u{2064}', '\u{2066}', '\u{2068}', '\u{2069}', '\u{FEFF}',
+        '\u{061C}', '\u{200B}', '\u{200D}', '\u{200F}', '\u{202A}', '\u{202C}', '\u{202E}',
+        '\u{2060}', '\u{2062}', '\u{2064}', '\u{2066}', '\u{2068}', '\u{2069}', '\u{FEFF}',
     ] {
         assert!(reorders(stripped), "{stripped:?} reorders a line");
         assert_eq!(Safe::new(&format!("a{stripped}b")).as_str(), "ab");

@@ -89,6 +89,22 @@ escape-hatch label, and only where no landing can stand (decision 0051).
 
 Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit.
 
+## 6. Dependency admission
+
+One production consequence of a dev-only edge is admitted here.
+`boa_engine = "=0.21.1"`, the CLI's browser-controller test dependency,
+requires `icu_normalizer = "~2.0.0"`; the production `url -> idna` edge
+resolves `idna_adapter 1.2.2`, which requires `icu_normalizer = "2.2"`.
+Cargo unifies semver-compatible versions, so the whole workspace —
+including the release-linked graph — carries `icu_normalizer 2.0.1` and
+`idna_adapter 1.2.1` instead of the `icu_normalizer 2.3.0` and
+`idna_adapter 1.2.2` that `main` carried. No known vulnerability is
+asserted for either version: both remain on the `deny.toml` licence
+allowlist, and cargo-deny and the RustSec audit read this same lockfile.
+Removal is blocked while Boa stays pinned at `=0.21.1` for the MSRV and
+the exact-served-code proof; this admission is revisited when Boa's icu
+range admits the newer normalizer.
+
 Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the nine exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; the verify seat runs them, so contributors do not need to.
 
 Contributions are dual licensed under Apache-2.0 OR MIT unless you say
