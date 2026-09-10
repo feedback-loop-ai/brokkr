@@ -5,7 +5,7 @@ invocation's restrictions can be re-imposed, with measured provider behavior
 and bounded cold recovery (decision 0030; proposed extension reserved as
 decision 0056).
 
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: AS1 Resume support is measured per adapter and execution shape
 
@@ -105,7 +105,7 @@ rather than relabelled as current probes.
 - **THEN** it uses each positive observation for explicit-handle construction, restriction planning and deterministic validation without relabelling partial evidence as full admission
 - **AND** explicit removed-tool/MCP enforcement, the complete filesystem boundary and exceptional visible-message/turn/usage attribution remain separate missing observations; the absence of a local executable or a worker-home write failure is not a controller blocker
 
-#### Scenario: The pinned DSH extension candidate is qualified
+#### Scenario: Headless startup lacks a resume selector
 - **GIVEN** installed DSH 0.1.2-rc.1's one-shot headless runner mints a fresh root, while official core 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and `dsh-plugin-cli-session` 0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` expose explicit resume through the documented extension API
 - **WHEN** the DSH headless minimum is qualified and implemented
 - **THEN** an isolated installation records and verifies that exact resolved pair, and `--session <owned-root>` demonstrably rejoins the provider-confirmed root under the current headless profile, model/effort and restriction settings
@@ -252,6 +252,8 @@ SHALL be respected and reflected in support and session-eligibility evidence.
 #### Scenario: Identifier injection
 - **WHEN** an offered handle contains a flag-like prefix, control characters, path traversal, shell syntax or an overlong value outside the measured grammar
 - **THEN** it is never passed to the CLI as a selector, never truncated into another handle, and never echoed into the journal
+
+## ADDED Requirements
 
 ### Requirement: AS4 A refused resume permits only one proven pre-work cold replacement
 

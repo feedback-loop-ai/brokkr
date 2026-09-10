@@ -233,8 +233,8 @@ runner, a provider-package patch or UUID interception.
 ## Decisions
 
 These specification answers were recorded across the returns on 2026-09-09
-and 2026-09-10. Answers A–J remain settled; K adopts the new upstream DSH and
-partial Claude evidence without reopening them. Their observable answers are
+and 2026-09-10. Answers A–K remain settled; L corrects the delta operation for
+their new semantics without reopening them. Their observable answers are
 scenarios in the owning deltas. The council must carry these choices into
 `design.md` Decisions and the numbered rulings of proposed 0056; this is not a
 claim of operator acceptance.
@@ -345,9 +345,11 @@ claim of operator acceptance.
   copied the current tree, used the dated active identifier, ticked tasks only
   in that scratch copy, and observed active strict validation, the normal
   archive command and strict archived validation all exit zero. The archive
-  remained `2026-09-09-226-session-resumption`; only PM4 changed semantically,
-  and all five existing provenance sections remained byte-for-byte unchanged
-  with their single pointers resolving in both directions.
+  remained `2026-09-09-226-session-resumption`; at that time only PM4 changed
+  semantically, and all five existing provenance sections remained byte-for-byte
+  unchanged with their single pointers resolving in both directions. That probe
+  predates K's material AS1–AS3 amendments, so it proves identity preservation
+  but not the current fold; L supplies the corrected operation and evidence.
 
   The real change therefore remains active and its real tasks remain at their
   truthful states until their work and evidence complete. After every tracked
@@ -411,6 +413,24 @@ claim of operator acceptance.
   exceptional turn/usage cases keep full boxed admission pending. Neither a
   worker-home write error nor these partial observations is a controller
   blocker or a completed proof task.
+
+- **L — Fold the amended existing safety rules as MODIFIED requirements.** The
+  living `adapter-resume-safety` capability already contains AS1–AS5 with this
+  change's singular provenance. K materially amends the complete AS1 rule and
+  adds obligations to existing AS2 and AS3 scenarios. Keeping those three
+  requirements under `ADDED` would misstate the operation and cause the normal
+  archive to refuse the already-existing AS1; strict active validation alone
+  does not detect that collision. AS1, AS2 and AS3 are therefore complete
+  `MODIFIED Requirements`, while byte-identical AS4 and AS5 retain their
+  historical `ADDED` classification. PM4 remains MODIFIED from F10.
+
+  The eventual normal dated archive must apply the complete AS1–AS3 and PM4
+  replacements, no-op the other sixteen unchanged requirements, preserve all
+  five existing provenance sections byte-for-byte and singularly, and pass
+  strict archived plus bidirectional-provenance verification. PM4's normal
+  rearchive scenario owns this observable answer. Retaining AS1–AS3 as ADDED
+  merely because they originated in this change is rejected: after the earlier
+  fold, the living capability—not historical origin—determines the operation.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -500,7 +520,8 @@ tracked repository-local task and progress edit is complete while it is active,
 the smith performs `openspec archive
 2026-09-09-226-session-resumption --yes` after the final artifact task. The
 normal operation preserves the date-prefixed identity, applies repaired PM4,
-no-ops the identical deltas and retains each of the five existing provenance
+applies the complete amended AS1–AS3 requirements, no-ops the other sixteen
+unchanged requirements and retains each of the five existing provenance
 pointers exactly once. It is not replaced by a manual archive move or
 `--skip-specs`. Strict archived validation and Rust bidirectional-provenance
 checks remain mandatory and precede the delivery commit.
@@ -824,3 +845,31 @@ all planning artifacts present; strict archived validation and `git diff
 are unchanged. Cargo and Rust remain unavailable in the box, so no Rust gate is
 claimed. No workflow runner, archive, provider probe, global provider change,
 push, publication or issue action was invoked.
+
+## Current successor specify return — AS1–AS3 archive operation, 2026-09-10
+
+This visit adopts the clarifier's finding. Decision L corrects the earliest
+owning artifacts: AS1, AS2 and AS3 are complete MODIFIED requirements because
+their living counterparts already exist and the upstream DSH/partial Claude
+evidence changed their semantics. AS4 and AS5 remain unchanged historical
+ADDED requirements. PM4's existing normal-rearchive scenario now encodes the
+same answer without adding or removing a scenario. The current archive
+postcondition is therefore four replacements—AS1–AS3 and PM4—with the other
+sixteen requirements treated as no-ops and all provenance preserved once.
+
+This correction does not reopen the selected DSH route, provider minima,
+restriction boundaries, ownership, accounting, progress, release-build or
+dated-identity decisions. The deterministic record that called the active
+delta clear while warning that archive would refuse AS1 is rejected as clean
+archive evidence; strict active validation alone cannot prove foldability.
+
+The corrected five deltas retain **20 requirements / 125 scenarios**, now
+classified as **15 ADDED and five MODIFIED requirements**. In a fresh isolated
+copy, active strict validation, the normal dated archive and strict archived
+validation all exited zero with no refusal warning. OpenSpec reported exactly
+three modified safety requirements and one modified progress requirement; only
+those two living capability files changed. AS4–AS5 remained byte-identical,
+every other living capability was unchanged, and all five provenance sections
+remained byte-identical, singular and bidirectional. The real archive, tasks,
+provider proof, Rust gates and delivery remain pending; this simulation proves
+only the corrected fold mechanism.

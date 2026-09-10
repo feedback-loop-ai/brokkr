@@ -224,6 +224,6 @@ either kind of evidence.
 #### Scenario: Normal rearchive preserves identity and provenance
 - **GIVEN** the same date-prefixed active change has every real tracked repository-local task truthfully complete
 - **WHEN** the smith invokes the dialect's normal archive operation on that dated identifier
-- **THEN** the archive keeps the exact identifier, applies only changed requirement semantics and treats identical deltas as no-ops
+- **THEN** the archive keeps the exact identifier, applies the complete MODIFIED AS1, AS2, AS3 and PM4 requirements, and treats AS4, AS5 and every other unchanged requirement as a no-op
 - **AND** each existing provenance pointer remains byte-for-byte unchanged and singular, strict archived validation passes, and bidirectional provenance resolves
 - **AND** a prior scratch success is not reported as completion of the real archive, tasks, provider proof or delivery
