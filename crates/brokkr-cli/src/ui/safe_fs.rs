@@ -176,9 +176,9 @@ mod imp {
             match openat(&self.fd, name, dir_flags(), Mode::empty()) {
                 Ok(fd) => return Ok(Child::Dir(Dir { fd })),
                 Err(error) if absent(&error) => return Ok(Child::Absent),
-                Err(rustix::io::Errno::LOOP)
-                | Err(rustix::io::Errno::MLINK)
-                | Err(rustix::io::Errno::ISDIR) => return Ok(Child::Unsafe),
+                // Any other directory-open failure falls through to the
+                // file open, which classifies the same child (and yields
+                // `Unsafe` for a symlink, FIFO or other non-regular node).
                 Err(_) => {}
             }
             match openat(&self.fd, name, file_flags(), Mode::empty()) {

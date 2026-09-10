@@ -1803,7 +1803,7 @@ fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
     // A FIFO is not a transcript file and cannot block the read.
     std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
     let fifo = std::ffi::CString::new(root.join("one/abcd-1234.jsonl").to_str().unwrap()).unwrap();
-    let fifo_rc = unsafe { libc_mkfifo(fifo.as_ptr()) };
+    let fifo_rc = unsafe { libc_mkfifo(fifo.as_ptr(), 0o644) };
     assert_eq!(fifo_rc, 0, "the test can create a FIFO");
     let before = snapshot_tree(&root);
     let read = read_common(&reference);
@@ -1831,7 +1831,7 @@ fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
 #[cfg(unix)]
 unsafe extern "C" {
     #[link_name = "mkfifo"]
-    fn libc_mkfifo(path: *const std::os::raw::c_char) -> std::os::raw::c_int;
+    fn libc_mkfifo(path: *const std::os::raw::c_char, mode: u32) -> std::os::raw::c_int;
 }
 
 /// 7.6 — a held handle keeps the verified bytes when the leaf or an
@@ -1912,9 +1912,13 @@ fn a_replaced_leaf_or_ancestor_fails_the_acquisition_recheck() {
     );
 
     // Replace the leaf with an identical copy: a new inode is a new
-    // acquisition even though every displayed byte matches.
-    std::fs::remove_file(&file).unwrap();
-    std::fs::write(&file, original).unwrap();
+    // acquisition even though every displayed byte matches. The copy is
+    // staged outside the root and renamed over the target, so the new
+    // inode is allocated while the old one still exists; remove-then-write
+    // can reuse the freed inode on filesystems that do so.
+    let replacement = dir.path().join("replacement.jsonl");
+    std::fs::write(&replacement, original).unwrap();
+    std::fs::rename(&replacement, &file).unwrap();
     assert!(
         !acquisition_is_current(&valid, &source),
         "a replaced leaf inode is not the retained acquisition"
@@ -3520,4 +3524,339 @@ fn claude_discovery_counts_each_project_once() {
         read.is_readable(),
         "6,000 projects are 6,000 examined entries, not 12,000: {read:?}"
     );
+}
+
+// ------------------------------------- discovery boundaries and refusals
+
+#[test]
+fn discovery_helper_predicates_cover_their_boundaries() {
+    assert!(!codex_filename_matches("session.jsonl", "abc"));
+    assert!(!codex_filename_matches("rollout-abc.txt", "abc"));
+    assert!(codex_filename_matches("rollout-abc.jsonl", "abc"));
+    assert!(!codex_filename_matches("rollout-.jsonl", ""));
+    assert!(!codex_filename_matches("rollout-abc.jsonl", "abcd"));
+    assert!(!codex_filename_matches("rolloutxabc.jsonl", "abc"));
+    assert!(!codex_filename_matches("rollout-abcX.jsonl", "abc"));
+    assert!(codex_filename_matches("rollout-abc-.jsonl", "abc"));
+}
+
+#[test]
+fn discover_of_the_none_kind_selects_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let valid = brokkr_view::transcript::ValidReference {
+        kind: brokkr_view::transcript::TranscriptKind::None,
+        locator: "x".to_string(),
+        home: dir.path().to_str().unwrap().to_string(),
+    };
+    assert!(matches!(discover(&valid), Discovery::Refused(_, _)));
+}
+
+#[test]
+fn a_boundary_refusal_reports_the_recorded_path_and_hint() {
+    let selection = brokkr_view::transcript::Selection {
+        reference: Some(common("claude-session", "abcd-1234", "/h")),
+        legacy: false,
+        outcome: Err(brokkr_view::transcript::Unavailable::Unreadable),
+    };
+    let read = refused_source(
+        &selection,
+        "/h/one/abcd-1234.jsonl".to_string(),
+        Some("hint".to_string()),
+    );
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    assert_eq!(read.path.as_deref(), Some("/h/one/abcd-1234.jsonl"));
+    assert_eq!(read.full_session.as_deref(), Some("hint"));
+}
+
+#[test]
+fn a_non_directory_home_is_unreadable_not_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("not-a-dir");
+    std::fs::write(&file, "x").unwrap();
+    let reference = common("claude-session", "abcd-1234", file.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_non_unicode_canonical_home_is_unreadable() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir
+        .path()
+        .join(std::ffi::OsString::from_vec(vec![b'b', 0xff]));
+    std::fs::create_dir_all(&bad).unwrap();
+    let link = dir.path().join("home");
+    std::os::unix::fs::symlink(&bad, &link).unwrap();
+    let reference = common("claude-session", "abcd-1234", link.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+}
+
+#[test]
+fn a_dsh_header_that_is_not_an_object_is_not_a_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(session.join("session.jsonl"), "[1]\n").unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_codex_sessions_root_is_unsafe() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("elsewhere"), home.join("sessions")).unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::UnsafePath)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_dsh_locator_component_is_unsafe() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("elsewhere"), home.join("sessions")).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::UnsafePath)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_walk_skips_non_unicode_names_and_symlinks() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::create_dir_all(sessions.join(std::ffi::OsString::from_vec(vec![b'x', 0xff]))).unwrap();
+    std::os::unix::fs::symlink(
+        dir.path().join("outside.jsonl"),
+        sessions.join("rollout-thread-1.jsonl"),
+    )
+    .unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(!read.is_readable(), "{read:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_walk_skips_non_unicode_projects_sessions_and_symlinked_leaves() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let base = home.join("sessions/one");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::create_dir_all(base.join(std::ffi::OsString::from_vec(vec![b'p', 0xff]))).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("out"), base.join("plink")).unwrap();
+
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(project.join(std::ffi::OsString::from_vec(vec![b's', 0xff]))).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("out"), project.join("slink")).unwrap();
+
+    let session = project.join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("out"), session.join("session.jsonl")).unwrap();
+
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(!read.is_readable(), "{read:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_claude_project_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    let locked = projects.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    std::fs::write(
+        locked.join("abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"x\"}}\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_codex_sessions_root_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_dsh_locator_component_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_dsh_projects_sessions_and_leaves_count_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let base = home.join("sessions/one");
+    std::fs::create_dir_all(&base).unwrap();
+    let locked_project = base.join("locked");
+    std::fs::create_dir_all(&locked_project).unwrap();
+    std::fs::set_permissions(&locked_project, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&locked_project, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let project = base.join("project");
+    let locked_session = project.join("locked-session");
+    std::fs::create_dir_all(&locked_session).unwrap();
+    std::fs::set_permissions(&locked_session, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&locked_session, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let session = project.join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let leaf = session.join("session.jsonl");
+    std::fs::write(&leaf, "{\"type\":\"session\",\"version\":0}\n").unwrap();
+    std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[test]
+fn dsh_walk_ignores_regular_files_and_directory_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let base = home.join("sessions/one");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(base.join("stray"), "x").unwrap();
+
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("stray-session"), "x").unwrap();
+    std::fs::create_dir_all(project.join("dirleaf/session.jsonl")).unwrap();
+
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn safe_fs_classifies_non_regular_children_as_unsafe() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(&root).unwrap();
+    let fifo = root.join("pipe.jsonl");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc_mkfifo(c.as_ptr(), 0o644) }, 0);
+    let handle = safe_fs::Dir::open_root(root.to_str().unwrap()).unwrap();
+    let name = std::ffi::OsStr::from_bytes(b"pipe.jsonl");
+    let got = handle.child(name).expect("child open");
+    assert!(matches!(got, safe_fs::Child::Unsafe), "classification");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_claude_candidate_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let file = projects.join("one/abcd-1234.jsonl");
+    std::fs::write(
+        &file,
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"x\"}}\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_codex_rollout_candidate_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let file = sessions.join("rollout-thread-1.jsonl");
+    std::fs::write(&file, "{}\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
 }

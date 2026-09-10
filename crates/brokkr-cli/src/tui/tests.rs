@@ -6559,3 +6559,130 @@ fn a_codex_canonical_arrival_replaces_only_its_associated_fallback() {
     );
     assert!(transcript_invalidates(Some(&old), Some(&new)));
 }
+
+#[test]
+fn transcript_invalidates_compares_every_identity_member() {
+    use brokkr_view::transcript::{SourceIdentity, TranscriptKind, TranscriptRead, Unavailable};
+
+    let base = || {
+        TranscriptRead::readable(
+            None,
+            false,
+            TranscriptKind::ClaudeSession,
+            Some("/p".to_string()),
+            Vec::new(),
+            false,
+            0,
+            0,
+        )
+    };
+    let old = base();
+    let refused = TranscriptRead::refused(
+        None,
+        false,
+        Unavailable::Unreadable,
+        "x",
+        None,
+        false,
+        0,
+        0,
+        None,
+    );
+    assert!(transcript_invalidates(Some(&old), Some(&refused)));
+    assert!(transcript_invalidates(Some(&refused), Some(&old)));
+
+    let mut other = base();
+    other.reference = Some(brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: "a".to_string(),
+        home: "/h".to_string(),
+    });
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    let mut other = base();
+    other.path = Some("/q".to_string());
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    let mut other = base();
+    other.kind = Some(TranscriptKind::CodexThread);
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    let mut other = base();
+    other.source_identity = Some(SourceIdentity {
+        device: 1,
+        inode: 2,
+    });
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    assert!(transcript_invalidates(None, Some(&old)));
+    assert!(transcript_invalidates(Some(&old), None));
+    assert!(!transcript_invalidates(None, None));
+    assert!(!transcript_invalidates(Some(&old), Some(&base())));
+}
+
+/// The `drive` loop's own L6/M6 transition: an open turn door is
+/// recomposed from a notice-only refresh, and a participant that vanishes
+/// from the fresh fold closes the door in the same frame.
+#[test]
+fn drive_recomposes_a_turn_door_then_clears_a_vanished_subject() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let saved = std::panic::take_hook();
+    let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+
+    let mut first = views();
+    first.transcript = Some(read_of(turns_of(2), false));
+    let mut refreshed = views();
+    refreshed.transcript = Some(read_of(turns_of(2), false));
+    let mut readable_again = views();
+    readable_again.transcript = Some(read_of(turns_of(2), false));
+    let mut vanished = views_with("absent");
+    if let Some(run) = vanished.run.as_mut() {
+        run.participants.clear();
+    }
+    vanished.transcript = Some(read_of(turns_of(2), false));
+
+    let mut tui = at_transcript(&first);
+    script(&[Key::Down, Key::Enter, Key::Char('x'), Key::Quit]);
+
+    let mut answers: Vec<Option<Views>> = vec![
+        Some(first),
+        Some(refreshed),
+        Some(readable_again),
+        Some(vanished),
+    ];
+    let mut source = move |_: Ask| {
+        if answers.is_empty() {
+            return Ok(None);
+        }
+        Ok(answers.remove(0))
+    };
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
+    assert!(
+        tui.reading.is_none(),
+        "the vanished subject's door is closed"
+    );
+    assert!(!tui.reading_transcript);
+    assert_eq!(tui.read_offset, 0);
+    std::panic::set_hook(saved);
+}
+
+#[test]
+fn refused_lines_carry_the_reason_and_an_optional_explanation() {
+    let mut read = brokkr_view::transcript::TranscriptRead::refused(
+        None,
+        false,
+        brokkr_view::transcript::Unavailable::NotFound,
+        "no retained transcript file was found",
+        None,
+        false,
+        0,
+        0,
+        None,
+    );
+    let with_explanation = refused_lines(&read);
+    assert!(with_explanation.len() >= 2);
+
+    read.explanation = None;
+    let without_explanation = refused_lines(&read);
+    assert!(without_explanation.len() < with_explanation.len());
+}

@@ -284,7 +284,9 @@ fn valid_home(home: &str) -> bool {
     {
         return true;
     }
-    (home.starts_with("\\\\") || home.starts_with("//")) && home.len() > 2
+    // A Unix root (`/`) already returned above, so only the Windows UNC
+    // spelling (`\\server\share`) remains here.
+    home.starts_with("\\\\") && home.len() > 2
 }
 
 /// Validate one present common reference under the reading delta's
@@ -305,13 +307,7 @@ pub fn validate_common(reference: &Transcript) -> Result<ValidReference, Unavail
     if !valid_home(&reference.home) || !clean_path(&reference.locator) {
         return Err(Unavailable::InvalidReference);
     }
-    let locator_ok = match kind {
-        TranscriptKind::ClaudeSession => valid_claude_id(&reference.locator),
-        TranscriptKind::CodexThread => valid_codex_id(&reference.locator),
-        TranscriptKind::DshSession => valid_dsh_locator(&reference.locator),
-        TranscriptKind::None => unreachable!("none returned above"),
-    };
-    if !locator_ok {
+    if !locator_matches_kind(kind, &reference.locator) {
         return Err(Unavailable::InvalidReference);
     }
     Ok(ValidReference {
@@ -319,6 +315,18 @@ pub fn validate_common(reference: &Transcript) -> Result<ValidReference, Unavail
         locator: reference.locator.clone(),
         home: reference.home.clone(),
     })
+}
+
+/// The locator language one supported kind requires. `None` has no
+/// locator language and is refused before this point; spelling that arm
+/// as a plain refusal keeps the table total without an unreachable panic.
+fn locator_matches_kind(kind: TranscriptKind, locator: &str) -> bool {
+    match kind {
+        TranscriptKind::ClaudeSession => valid_claude_id(locator),
+        TranscriptKind::CodexThread => valid_codex_id(locator),
+        TranscriptKind::DshSession => valid_dsh_locator(locator),
+        TranscriptKind::None => false,
+    }
 }
 
 /// Select the effective reference before validating it. A present
@@ -2019,18 +2027,17 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                 .any(|block| block.block.kind != BlockKind::Omitted)
         {
             if let (Some(turn), Some(step)) = (event.turn, event.step) {
+                // `dsh_citations` already refuses a reversed range, so
+                // every cited interval here is ordered.
                 for (start, end) in &event.cited {
-                    if start > end {
-                        continue;
-                    }
                     let keys: Vec<(Position, Position, i64)> = chunk_index
                         .range((turn, step, *start)..=(turn, step, *end))
                         .map(|(key, _)| *key)
                         .collect();
                     for key in keys {
-                        if let Some(candidate_index) = chunk_index.remove(&key) {
-                            suppressed.insert(candidate_index);
-                        }
+                        let candidate_index =
+                            chunk_index.remove(&key).expect("a swept key is indexed");
+                        suppressed.insert(candidate_index);
                     }
                 }
             }
@@ -2159,9 +2166,8 @@ impl Position {
             return Some(Position::Int(integer));
         }
         let float = value.as_f64()?;
-        if !float.is_finite() {
-            return None;
-        }
+        // A `serde_json` number is always finite: `Number::from_f64`
+        // refuses a non-finite value, so no separate guard is needed.
         if float == float.trunc() {
             if float >= i64::MIN as f64 && float <= i64::MAX as f64 {
                 return Some(Position::Int(float as i64));
@@ -2170,7 +2176,6 @@ impl Position {
                 return Some(Position::UInt(float as u64));
             }
         }
-        let float = if float == 0.0 { 0.0 } else { float };
         Some(Position::Float(float.to_bits()))
     }
 }
@@ -2213,9 +2218,8 @@ fn dsh_millis(value: &Value) -> Option<i64> {
         return Some(integer);
     }
     let float = value.as_f64()?;
-    if !float.is_finite() {
-        return None;
-    }
+    // A `serde_json` number is always finite: `Number::from_f64` refuses a
+    // non-finite value, so no separate guard is needed.
     if float == float.trunc() && float >= i64::MIN as f64 && float <= i64::MAX as f64 {
         return Some(float as i64);
     }
