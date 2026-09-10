@@ -27,20 +27,38 @@ minimum requires dated provider evidence of exact root-session rejoin, current
 restriction enforcement and current-invocation accounting, alongside the
 implementation and deterministic tests. LaneTally SHALL be assessed independently.
 
-The DSH minimum SHALL qualify official core 0.1.0-rc.6
-(`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's own development
-matrix pins) together with the `dsh-plugin-cli-session` 0.2.0 extension at
-`0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The assessment SHALL record
-the complete resolved dependency identity and SHALL establish that this exact
-pair loads through DSH's documented extension and `agents.resume` APIs. Core
-0.1.5-rc.1 removed the `agent.session.events` accessor the plugin reads; that
-measured pair incompatibility SHALL NOT be restated as a global DSH or
-extension limitation. A different resolved core or plugin revision SHALL NOT
-inherit its evidence. Enablement SHALL additionally establish that `--session`
-selects the owned provider-confirmed root, the invocation remains in the
-admitted headless shape, current model/effort and restriction settings take
-precedence, and the plugin's sequence boundary yields only current output and
-attributable usage.
+The DSH minimum SHALL qualify the latest official core release,
+`@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`,
+or a newer release published by qualification time, together with a
+repository-owned adaptation of the `dsh-plugin-cli-session` 0.2.0 extension at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda`. The assessment SHALL record the
+exact core version and how it was resolved, and the complete resolved
+dependency identity. It SHALL establish that this exact pair loads through
+DSH's documented extension and `agents.resume` APIs. The adaptation SHALL
+differ from the upstream commit only by reading the plugin's post-turn event
+interval through the core's declared public session-event accessor in place of
+the removed `agent.session.events`. It SHALL keep the upstream CLI surface
+(`--new`, `--session <id>`, `--output-format stream-json`, the `agents.resume`
+path and the `firstSeq` interval) and SHALL add, widen or admit no tool. Its
+upstream commit, delta and byte digests SHALL be recorded and SHALL join the
+composite identity that admits the route. It is extension-boundary source this
+repository owns and pins, which Brokkr SHALL NOT build, load or execute outside
+DSH's plugin loader.
+
+No older core SHALL be selected to avoid adapting to the latest one. Evidence
+measured on another core, including the superseded 0.1.0-rc.6 pin, SHALL NOT
+transfer, and a different resolved core, plugin revision or adaptation digest
+SHALL NOT inherit evidence. Core 0.1.5-rc.1's removal of the accessor the
+upstream plugin reads is a measured pair incompatibility and SHALL NOT be
+restated as a global DSH or extension limitation. If the selected core exposes
+no lawful replacement for a surface the plugin needs, the assessment SHALL
+record the missing module, symbol and version with the probe that proves it,
+keep the shape disabled and report the unmet requirement with that upstream
+ask. It SHALL NOT fabricate the surface. Enablement SHALL additionally
+establish that `--session` selects the owned provider-confirmed root, the
+invocation remains in the admitted headless shape, current model/effort and
+restriction settings take precedence, and the adapted plugin's sequence
+boundary yields only current output and attributable usage.
 
 The installed 0.1.2-rc.1 headless runner's lack of a selector establishes only
 that its one-shot entry cannot forward the TUI example. It SHALL NOT be reported
@@ -52,9 +70,11 @@ for replacing native tools with boxed hands. It SHALL preserve Rust-only Brokkr
 production, the admitted headless profile, existing trust and boundary
 restrictions, and per-invocation settings; it SHALL NOT patch provider packages,
 intercept UUID generation, introduce a second non-Rust Brokkr runner, substitute
-TUI or SDK execution, or admit DSH hands. Selecting an owned session through a
-documented provider extension does not replace or authorize more tools
-(decisions 0009 and 0030).
+TUI or SDK execution, or admit DSH hands. Installing the digest-pinned,
+repository-owned adaptation into the isolated profile is not a patch of an
+installed provider package. Selecting an owned session through a documented
+provider extension does not replace or authorize more tools (decisions 0009 and
+0030).
 
 Previously supported Codex work-site shapes SHALL remain delivery requirements,
 subject to installed-version remeasurement. A CLI/wrapper version change SHALL
@@ -96,7 +116,9 @@ Measurements SHALL use installed help/source first and only necessary bounded
 probes with temporary test data. They SHALL NOT change global provider settings,
 read unrelated sessions, invent CLI syntax or telemetry, or use an unnecessary
 model experiment. Existing accepted measurements remain identified as historical
-rather than relabelled as current probes.
+rather than relabelled as current probes. A superseded measured pin SHALL remain
+recorded as dated history; its reversal SHALL be added as a new dated entry and
+SHALL NOT rewrite the earlier measurement.
 
 #### Scenario: An installed help flag without enforcement proof
 - **WHEN** installed Claude help lists explicit resume and permission controls but no observation establishes that the complete restriction set binds on resume
@@ -109,13 +131,39 @@ rather than relabelled as current probes.
 - **AND** explicit removed-tool/MCP enforcement, the complete filesystem boundary and exceptional visible-message/turn/usage attribution remain separate missing observations; the absence of a local executable or a worker-home write failure is not a controller blocker
 
 #### Scenario: Headless startup lacks a resume selector
-- **GIVEN** installed DSH 0.1.2-rc.1's one-shot headless runner mints a fresh root, while core 0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's supported generation) and `dsh-plugin-cli-session` 0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` expose explicit resume through the documented extension API, and a live isolated probe shows the 0.1.5-rc.1 pair breaks on the removed `agent.session.events` accessor
+- **GIVEN** installed DSH 0.1.2-rc.1's one-shot headless runner mints a fresh root, while official core 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` and a repository-owned adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` expose explicit resume through the documented extension API
 - **WHEN** the DSH headless minimum is qualified and implemented
-- **THEN** an isolated installation records and verifies that exact resolved pair, and `--session <owned-root>` demonstrably rejoins the provider-confirmed root under the current headless profile, model/effort and restriction settings
+- **THEN** an isolated installation records and verifies that exact resolved pair, including the adaptation's upstream commit and byte digests, and `--session <owned-root>` demonstrably rejoins the provider-confirmed root under the current headless profile, model/effort and restriction settings
 - **AND** the plugin's request-derived `session_id` echo and post-`firstSeq` last-wins usage selection are treated as interface evidence only; independent root identity and attributable current-usage observations are required
 - **AND** the plugin's sequence boundary demonstrably excludes historical output, tools and usage from current invocation evidence; any unattributable total remains absent and keeps the shape disabled where the boundary itself is uncertain
 - **AND** the live global DSH pin and profiles remain unchanged, the deferred hands/tools plugin does not exclude session integration, and no TUI flag, SDK runner, package patch, UUID interception or unsupported hands shape substitutes for the selected route
 - **AND** incompatibility or failed enforcement is reported as the exact unmet AS1 requirement; the older one-shot limitation is never repeated as a global DSH limitation
+
+#### Scenario: The latest DSH core removed an accessor the plugin reads
+- **GIVEN** the unmodified plugin runs both model turns on core 0.1.5-rc.1 and then fails its post-turn fold with `dsh: events is not iterable`, and that core's `@deepseek-ai/dsh-session` declares `Session.snapshotEvents(fromSeq?, toSeqExclusive?)` and no `events` member
+- **WHEN** the DSH route is adapted and qualified
+- **THEN** the repository-owned adaptation reads the interval from `firstSeq` onward through that declared accessor, and this accessor change is its only delta from the upstream plugin
+- **AND** the evidence names the module, symbol, signature and relation to `firstSeq`, with the hashes of the bytes that declare and implement it
+- **AND** the route is not re-pinned to 0.1.0-rc.6 or any older core, the installed package is not patched, and no runtime shim restores the removed member
+- **AND** any change to the adaptation's bytes gives `unverified-harness` before provider work, exactly as a core change does
+
+#### Scenario: The selected DSH core offers no lawful replacement
+- **GIVEN** the selected core's declared surface cannot supply a fact the plugin's fold needs, and a bounded probe reproduces the gap
+- **WHEN** the DSH route is assessed
+- **THEN** the shape stays disabled, and the record names the missing module, symbol and version, the reproducing probe and the residual, with that upstream ask for the provider
+- **AND** no older core, fabricated accessor, installed-package patch or global DSH limitation claim fills the gap
+
+#### Scenario: A newer DSH core is published before qualification
+- **GIVEN** registry resolution at qualification time finds a published core release newer than 0.1.5-rc.1
+- **WHEN** the DSH pair is qualified
+- **THEN** the newer release is selected and recorded with the dist-tags and time that resolved it
+- **AND** discovery and live evidence are repeated against its exact bytes; nothing measured on 0.1.5-rc.1 transfers to it by version proximity
+
+#### Scenario: A DSH current interval holds several messages, a tool call or a retried attempt
+- **GIVEN** a resumed DSH invocation whose interval from `firstSeq` onward contains more than one assistant message, a tool call and result, or a failed and retried model attempt, after historical sequences in the same root
+- **WHEN** its output and usage are folded for the invocation's evidence
+- **THEN** only events at or after `firstSeq` contribute, usage is taken per assistant message with each message counted once, and raw sequence and message identities support every contribution
+- **AND** a numeric total is reported only when every contributing message and attempt is attributable; otherwise it is omitted, and the plugin's last-wins usage is never reported as the total of a multi-message interval
 
 #### Scenario: An installed version differs from historical Codex evidence
 - **GIVEN** the accepted resume measurement identifies codex-cli 0.148.0 and supplied installed-version evidence identifies 0.153.4
@@ -185,7 +233,7 @@ an unsupported hands shape or change which adapters can hold a gate.
 #### Scenario: DSH remains in its declared headless shape
 - **WHEN** an eligible DSH site resumes under a measured supported path
 - **THEN** headless operation, the pinned model/effort overlay and the owned session/transcript relationship remain effective, without falling into an interactive or ambient profile
-- **AND** the isolated extension profile is composed for this invocation and cannot inherit a different global core, plugin, profile or selector
+- **AND** the isolated extension profile is composed for this invocation and cannot inherit a different global core, plugin, profile or selector, or plugin bytes that differ from the pinned repository-owned adaptation
 
 #### Scenario: Unsupported hands still refuse
 - **WHEN** a DSH or LaneTally site requests a hands shape its declaration does not support
