@@ -1899,3 +1899,62 @@ named requirement plus verification. The preceding 82/19 account remains
 historical truth for its own visit and is superseded by this returned-design
 correction. No provider proof, Rust implementation test, release build, archive,
 publication, merge or issue closure is claimed here.
+
+## Implement visit — DSH pair measured incompatible, 2026-09-10
+
+This implement visit completed the four pre-8.8 truth repairs and then qualified
+the exact selected DSH pair. Tasks **1.1, 6.4, 11.5 and 13.1 are now complete**:
+proposed 0056 selects core 0.1.5-rc.1 at
+`183f08e9c6dde7e36cd2318eaee70b0da08fb35e` with `dsh-plugin-cli-session` 0.2.0 at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda` while remaining `Status: proposed`;
+`adapters/dsh.json`, `docs/guides/provider-adapters.md` and every shipped or
+packaged declaration call that shape `unmeasured`, disabled and waiting on 10.7;
+and the installed 0.1.2-rc.1 one-shot result stays bounded history, never a
+global limitation. Task truth is therefore **82 complete / 19 pending across the
+same 101 unique tasks**.
+
+Task 10.7's isolated qualification is measured and **fails the exact pair's
+compatibility**. Under an isolated `DSH_HOME` the pair composes, loads, runs a
+cold `--new` turn and a same-root warm `--session <owned-id>` turn, and recalls
+the cold nonce — but then both invocations throw `dsh: events is not iterable`,
+exit nonzero and emit no `stream-json` result envelope. Cause: plugin
+`lib/index.js` reads `agent.session.events`, while core 0.1.5-rc.1's `Session`
+no longer exposes a public `events` member (it now provides `eventAt()`,
+`snapshotEvents()`, `ownEvents()` and `firstLiveSeq`). The static counter-check
+confirms the API moved between generations: `@deepseek-ai/dsh-session`
+0.1.0-rc.6 still has `get events()`, so the plugin's own dev pin is the
+supported one. The live 0.1.0-rc.6 re-run did not finish in this visit; it is a
+candidate re-pin, not a qualified route. Evidence:
+`.forge/tasks/dsh-pair-qualification.json` and
+`.forge/tasks/dsh-pair-incompatibility.json`. Per answer K this is the precise
+unmet AS1 condition, not the disproven global DSH limitation; no package patch,
+UUID interception, Cordis shim, SDK or TUI substitution was performed. Tasks
+**8.8, 8.10, 9.6, 10.7 and 11.3 remain unchecked**, and the route needs an
+owning specification/design re-rule (a plugin revision that supports core
+0.1.5-rc.1, or an explicit re-pin to the plugin's supported core) before they
+can proceed.
+
+The other provider proofs advanced but stay partial. Codex 10.5
+(`.forge/tasks/codex-proof-2026-09-10.json`) observed the 0.153.4 resume
+grammar, same-thread cold/resume continuity, nonce recall, same-root, the
+pre-work `thread/resume` rejection shape and per-invocation current-only
+accounting; OS-level read-only enforcement stays unmeasured because the host
+blocks unprivileged user namespaces and codex's `bwrap` cannot start. Claude
+10.6 (`.forge/tasks/claude-proof-2026-09-10.json`) ran one bounded same-root
+pair on pinned 2.1.266 with real cold Write and MCP controls, resumed denial of
+the expired Read grant, the removed Write and the removed MCP tool, an operating
+new Read grant, observed precedence and exact per-message accounting, but
+Brokkr's adapter normalization is not yet cross-checked, so the task is not
+ticked. LaneTally 10.8 remains unmeasured. No provider is enabled.
+
+Local gates on the current active bytes: `cargo fmt --all -- --check` clean;
+`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+clean; both bundle compiles exit 0; and `cargo build --release --locked -p
+brokkr-cli` exits 0. The workspace suite is green except the known transient
+`provenance::every_capability_names_the_archived_changes_that_wrote_it`, which
+fails only because this change is active and its five living capability pointers
+resolve again after the final archive, and the nested-box
+`machine_proof::dialect_validate_expands_the_chiefs_change_and_records_tool_evidence`,
+which requires a host that can open the box. The real archive, exact-head
+controller coverage, integration, CI, publication, merge and issue closure
+remain pending and unclaimed.
