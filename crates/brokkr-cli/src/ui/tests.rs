@@ -1667,7 +1667,16 @@ fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
     // A non-Unicode directory name makes uniqueness unknowable.
     std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
     let bad = root.join(std::ffi::OsString::from_vec(vec![b'b', 0xff, b'd']));
-    std::fs::create_dir_all(&bad).unwrap();
+    if let Err(error) = std::fs::create_dir_all(&bad) {
+        // macOS filesystems reject this byte sequence before a directory
+        // can exist. Assert that native refusal; the reader cannot encounter
+        // an entry the filesystem cannot represent. Other errors still fail.
+        assert!(
+            cfg!(target_vendor = "apple") && error.raw_os_error() == Some(92),
+            "unexpected failure creating the non-Unicode fixture: {error}"
+        );
+        return;
+    }
     std::fs::write(bad.join("abcd-1234.jsonl"), body).unwrap();
     let before = snapshot_tree(&root);
     assert_eq!(
