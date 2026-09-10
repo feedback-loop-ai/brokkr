@@ -19,10 +19,12 @@ change and say so, because a filing prerequisite and a gate are not
 requirements of their own.
 
 Checked boxes retain independently established work. This returned task
-sitting reopens only work whose completion evidence was invalidated by the
-current design review: the eight owning implementation/proof areas, the
-closing gates, the final archive and the candidate commit. Controller-only
-host and remote evidence remains outside this pre-commit ledger.
+sitting preserves the eight robustness repairs completed through `bde819a`
+but reopens every item whose completion evidence predates R25: proposed
+decision wording, shared hint encoding/framing, each dependent local surface,
+the adversarial and cross-surface proofs, affected guide text, every closing
+gate, the final archive and the candidate commit. Controller-only host and
+remote evidence remains outside this pre-commit ledger.
 
 Conventions binding on every task below, restated once rather than per
 task:
@@ -43,7 +45,7 @@ task:
   own synthetic test-owned homes and files between reader invocations so the
   required appearance, append, shrink, disappearance, replacement and
   same-length-rewrite transitions are exercised.
-- Related cases are grouped into table-driven tests rather than 175
+- Related cases are grouped into table-driven tests rather than 179
   bespoke functions (D11); a mark repeated at several call sites is one
   helper, because the coverage gate is literal.
 - Cargo commands run with `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
@@ -80,6 +82,17 @@ task:
       exactly once, and `openspec validate read-every-transcript-kind --strict
       --no-interactive` remains green before production repair resumes — every
       requirement of this change.
+- [ ] 1.6 Before any reopened production task, replace only proposed decision
+      0055 ruling 4's superseded ordinary-JSON path/home sentence with the
+      exact D10 portable-display rule: the restricted direct alphabet,
+      lowercase four-digit `\u` escapes and surrogate pairs, exact JSON
+      round-trip, comma-separated fixed framing with no shell operator, outer
+      JSON's separate escaping layer, and verbatim consumption by CLI, TUI and
+      browser. Keep `Status: proposed`, the date, every other ruling and the
+      existing single registry row unchanged; verify the decision diff and
+      rerun `cargo test -p brokkr-cli --test decisions_index` — every
+      requirement of this change (the semantic-decision prerequisite).
+
 
 ## 2. The pure result model, the reference and the hint (D2, D3, D7)
 
@@ -125,13 +138,21 @@ task:
       refused, and decision 0032's 80-character recording clamp is not
       re-imposed as a reader guard — transcript-reading / Local lookup
       rejects paths that escape ownership.
-- [x] 2.5 Implement the `full_session` table and its shared quoting
-      helper: Claude's `full session: claude --resume <id>` with or
+- [ ] 2.5 Implement the `full_session` table and one pure
+      `portable_display_literal` helper in `brokkr-view`: inside a valid
+      double-quoted JSON string literal emit only ASCII letters, digits,
+      `/`, `.`, `_`, `-` and `:` directly, encode every other Unicode scalar
+      with lowercase four-digit `\u` escapes (a UTF-16 surrogate pair for a
+      non-BMP scalar), never use JSON short escapes, and preserve the exact
+      Rust string on JSON decoding. Use the exact fixed framing with commas,
+      not semicolons: Claude's `full session: claude --resume <id>` with or
       without a path, Codex's confirmed-rollout and `rollout unavailable`
       forms with `codex exec resume <id>` and the recorded home, DSH's
       confirmed file alone and null without one, null for every rejected
-      or absent reference; paths and homes are double-quoted JSON string
-      literals with no added shell or slash escaping — transcript-reading /
+      or absent reference. Let validated ids be the only raw variable fields;
+      no path/home whitespace, quotation mark, reverse solidus, `$`, backtick,
+      `%`, `!`, operator or line boundary remains raw, and no renderer
+      reconstructs a fragment — transcript-reading /
       Full-session information belongs to the shared local read result.
 - [x] 2.6 Generate notices once, in the order truncation, malformed
       lines, unrecognized records, with the exact strings
@@ -145,7 +166,7 @@ task:
       the exact shared notice —
       transcript-reading / Every kind obeys the same source and display
       caps; transcript-tui / Notices survive every reading surface.
-- [x] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
+- [ ] 2.7 Tests in `crates/brokkr-view/src/transcript/tests.rs`, table
       driven: each of the five pure-view reference refusals keeps its three
       recorded strings, `legacy: false`, null path and null hint, including a
       directly supplied `future-session` returning `unsupported-kind`
@@ -155,8 +176,15 @@ task:
       and 65 characters, `-abc` and `a-bC09`; Codex ids of 1, 64, 80, 81,
       128 and 129 characters, `-abc`, `ab_cd` and a non-ASCII letter;
       DSH `../other-seat`, a drive-qualified locator and a relative home;
-      the six `full_session` rows; and quoting of a path containing a
-      quotation mark, a reverse solidus and an ASCII control character —
+      the six `full_session` rows; and the R25 path/home matrix containing
+      space, quotation mark, reverse solidus, newline and other controls,
+      `$()`, backtick, `;`, `&`, `|`, `<`, `>`, `%`, `!`, one BMP non-ASCII
+      scalar and one non-BMP scalar. Assert every exact lowercase escape and
+      four-digit/surrogate width, absence of JSON short escapes, exact JSON
+      round-trip, the restricted direct alphabet, comma framing, and absence
+      of raw hostile fragments or fixed command separators from the complete
+      hint. A shell probe may supplement but cannot replace this portable
+      direct proof —
       transcript-reading / The recorded reference selects the harness
       home; Local lookup rejects paths that escape ownership; Full-session
       information belongs to the shared local read result.
@@ -544,19 +572,25 @@ task:
       truncated projection saying the bounded read does not establish
       whether that turn exists later — transcript-command / Turn selection
       addresses the displayed sequence.
-- [x] 8.5 Emit the `brokkr.transcript/v1` document with exactly the
+- [ ] 8.5 Emit the `brokkr.transcript/v1` document with exactly the
       delta's members, each present even when null or empty, serialized
-      directly from the shared result and adding no field to
-      `RunView`, inspect or seats JSON — transcript-command / JSON exposes
-      a distinct local transcript document.
-- [x] 8.6 Render default text through `crates/brokkr-cli/src/render.rs`:
+      directly from the shared result and adding no field to `RunView`,
+      inspect or seats JSON. Preserve the completed `full_session` string
+      exactly: normal document serialization supplies the separate outer JSON
+      escaping layer, and decoding that member recovers the exact shared
+      value — transcript-command / JSON exposes a distinct local transcript
+      document.
+- [ ] 8.6 Render default text through `crates/brokkr-cli/src/render.rs`:
       run, participant, kind and confirmed source, then one-based turn
       numbers, roles, stamps and every retained block, with the shared
       hint and notices, `no readable turns` for a valid empty projection
       and a truncated zero-turn projection saying so; apply `Safe` to
       content, references, paths, roles, stamps, hints and explanations
-      while JSON keeps its escaped originals — transcript-command / Text
-      output and errors report the same bounded result.
+      while JSON keeps its escaped originals. Render the complete portable
+      hint verbatim after terminal sanitization without decoding its
+      `\u` escapes or reconstructing a path/home fragment —
+      transcript-command / Text output and errors report the same bounded
+      result.
 - [x] 8.7 Fix the exit and stream rules: a readable result including
       empty, skipped-line, counted-omission and truncated results exits
       zero; the thirteen unavailable reasons exit one with a sanitized
@@ -565,7 +599,7 @@ task:
       failures exit nonzero with empty stdout even under `--json` —
       transcript-command / Text output and errors report the same bounded
       result.
-- [x] 8.8 Tests in `crates/brokkr-cli/src/render/tests.rs` and a new
+- [ ] 8.8 Tests in `crates/brokkr-cli/src/render/tests.rs` and a new
       `crates/brokkr-cli/tests/transcript_command.rs`: `--run latest
       --seat review:chief`; a repeated label listing both keys; a panel
       parent reporting `no-reference` while the member key reads its
@@ -576,9 +610,15 @@ task:
       result; turn one skipping metadata and malformed lines; a selected
       turn keeping the truncation and unrecognized notices; `--turn` past
       a truncated and past a complete projection; `--turn 2` and `--turn
-      4` over a packed row's members and its ordinary equivalent — transcript-command /
+      4` over a packed row's members and its ordinary equivalent; and
+      exact CLI text versus decoded JSON `full_session` equality for
+      confirmed/unresolved Codex and confirmed DSH hostile paths/homes, with
+      comma framing in the value and doubled reverse-solidus escaping only in
+      the raw enclosing JSON document — transcript-command /
       The transcript command selects one run and participant; Turn
-      selection addresses the displayed sequence.
+      selection addresses the displayed sequence; JSON exposes a distinct
+      local transcript document; Text output and errors report the same
+      bounded result.
 - [x] 8.9 Command tests exercise each of the four rejected common references
       admitted by the frozen seat-record vocabulary — `none`, `unannounced`,
       `missing-home` and `invalid-reference` — under `--json` and text mode;
@@ -595,7 +635,7 @@ task:
       widen a frozen contract to manufacture command reachability —
       transcript-command / JSON exposes a distinct local transcript document;
       The transcript command selects one run and participant.
-- [x] 8.11 JSON and text state tests in the same file: a header-less Codex
+- [ ] 8.11 JSON and text state tests in the same file: a header-less Codex
       rollout of only `turn_context` exiting zero with
       its confirmed path and hint; empty versus missing; five ignorable
       unknown records with `unrecognized_records: 5`; the shipped Claude
@@ -608,9 +648,12 @@ task:
       event-refusal document with all three notices; the header-version
       document with zero counts and both `--turn` variants; ambiguity
       between a version-zero and a version-one root; and one invalid
-      packed row counting once — transcript-command / JSON exposes a
-      distinct local transcript document; Text output and errors report
-      the same bounded result.
+      packed row counting once; and exact confirmed/unresolved comma-framed
+      Codex plus confirmed DSH hints from the R25 matrix, proving no
+      semicolon framing, raw hostile fragment or short JSON escape survives
+      in text while decoded JSON carries the identical completed hint —
+      transcript-command / JSON exposes a distinct local transcript document;
+      Text output and errors report the same bounded result.
 
 ## 9. The terminal pane and both doors (D8)
 
@@ -638,11 +681,13 @@ task:
       happens when the participant concludes, automatic polling then
       stops and an explicit refresh still re-resolves the reference —
       transcript-tui / Live refresh follows the selected reference.
-- [x] 9.4 Render the pane and both doors from the shared result: turns
+- [ ] 9.4 Render the pane and both doors from the shared result: turns
       numbered from one in the command's sequence including each packed
       member, preview clipping that removes nothing from either door, the
       shared notices in the pane and both overlays, the `full_session`
       value rendered verbatim when non-null and no line at all when null,
+      preserving every portable-display `\u` escape and never decoding or
+      reconstructing a path/home fragment,
       the whole-transcript overlay carrying that hint, a readable
       zero-turn result keeping its openable explanation, and an
       unavailable or refused result showing the reference, reason,
@@ -652,7 +697,7 @@ task:
       transcript-tui / Every readable kind reaches the pane and both
       doors; transcript-tui / Full-session information is truthful for its
       kind; transcript-tui / Notices survive every reading surface.
-- [x] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
+- [ ] 9.5 Headless tests in `crates/brokkr-cli/src/tui/tests.rs`: Codex
       and DSH turns browsed and opened with the existing keys; a turn
       taller than the pane opened whole and scrolled; the highlighted
       index agreeing with `--turn`; moving from a readable Claude seat to
@@ -663,7 +708,11 @@ task:
       the three Claude lookup refusals keeping the Claude hint; the
       shared truncation notice for Claude and Codex with no suffix; the
       unknown-record notice in pane and both doors; the shipped Claude
-      fixture's counts after selection; and an oversized first turn —
+      fixture's counts after selection; an oversized first turn; and
+      confirmed Codex/DSH R25 hostile paths/homes whose pane and whole-door
+      hints exactly equal the shared value, retain its reversible escapes,
+      contain comma rather than semicolon framing and expose no raw hostile
+      fragment or shell operator —
       transcript-tui / Every readable kind reaches the pane and both
       doors; transcript-tui / Full-session information is truthful for its
       kind; transcript-tui / Notices survive every reading surface.
@@ -703,7 +752,7 @@ task:
       closes on loss without reporting another size — transcript-reading /
       Discovery identifies one owned local file; Browser participant
       drills obey shared eligibility.
-- [x] 10.2 Add one GET participant-presentation route in
+- [ ] 10.2 Add one GET participant-presentation route in
       `crates/brokkr-cli/src/ui.rs`, keyed by full run id and an encoded
       participant key, decoding each path component exactly once and
       rejecting malformed or extra components, resolving that exact
@@ -713,22 +762,27 @@ task:
       validation, bounded safe discovery and hint helpers only, without
       reading body bytes or running a content projector; serialize only the
       selected reference, legacy and admission facts, lookup-unavailability
-      reason and explanation, shared hint and Claude drill eligibility, carry
-      no turns, blocks, transcript prose or body-stage outcome; allow the
+      reason and explanation, shared hint and Claude drill eligibility. Keep
+      that completed hint byte-for-byte in the response's decoded JSON value,
+      applying only ordinary outer document escaping and no route-local
+      path/home encoder; carry no turns, blocks, transcript prose or body-stage
+      outcome; allow the
       discovery-refusal constructor to carry `unreadable` when directory I/O
       or the bounded DSH opening-header I/O/UTF-8 check prevents discovery
       from establishing a safe unique source, and send `Cache-Control:
       no-store` —
       transcript-reading / Browser participant drills obey shared
       eligibility.
-- [x] 10.3 Rewrite the page's participant block in
+- [ ] 10.3 Rewrite the page's participant block in
       `crates/brokkr-cli/src/ui.html`: consume that result instead of
       `part.session_id`, delete the
       `full session: <id> · held by <holder>, no resume verb yet`
       sentence, render the authoritative common `kind`, `locator` and
       recorded `home` as one distinct local-reference fact through
       `textContent`, render the shared hint separately and verbatim through
-      `textContent` or no hint line when null, and require both kind-agnostic
+      `textContent` or no hint line when null, without decoding escapes,
+      interpolating markup or reconstructing any path/home fragment, and
+      require both kind-agnostic
       source admission and
       the independent Claude-kind/canonical-local-home drill eligibility for
       every `· session <id>` label, id-only body request and growth watch;
@@ -798,7 +852,7 @@ task:
       the extracted served bytes and the release dependency tree excludes Boa
       — transcript-reading / Browser participant drills obey shared
       eligibility.
-- [x] 10.5 HTTP and thin-adapter tests in
+- [ ] 10.5 HTTP and thin-adapter tests in
       `crates/brokkr-cli/src/ui/tests.rs`: a legacy Codex
       participant ineligible on the page while `/api/session/abcd-1234`
       still answers 200 or 404 on its own; a common reference defeating a
@@ -819,7 +873,12 @@ task:
       mid-watch; `Cache-Control: no-store` on presentation and every API
       body response with no-store presentation/body refetches; and the retired
       holder sentence and both retired truncation suffixes absent from the
-      page. Assert the production adapter constructs the controller exactly
+      page. Add the R25 hostile path/home matrix to the participant route and
+      rendered page assertions: decoded JSON carries the exact shared hint,
+      the displayed text node matches it, reversible `\u` escapes remain
+      literal, comma framing replaces semicolons and no raw hostile fragment,
+      markup or shell operator is introduced. Assert the production adapter
+      constructs the controller exactly
       once, percent-encodes path components, requests no-store presentation
       and body reads, owns exact `EventSource` and timer handles, routes both
       the real seat-row and graph-node click paths through `operator_select`,
@@ -863,7 +922,7 @@ task:
 
 ## 11. Inertness and one result across the surfaces (D11)
 
-- [x] 11.1 Prove locality and inertness in
+- [ ] 11.1 Prove locality and inertness in
       `crates/brokkr-cli/tests/transcript_privacy.rs`: every hearth consulted
       by transcript run selection is opened read-only and gains no event,
       checkpoint, migration, WAL sidecar, byte change or existence change;
@@ -873,11 +932,17 @@ task:
       or journal-derived output; the retained file, its root and the
       provider configuration keep their bytes and existence across a
       successful read, a refusal and a growth watch; no provider process
-      is started by any read or hint; and terminal output is sanitized
-      while JSON keeps escaped strings — transcript-reading / Transcript
+      is started by any read or hint; terminal output is sanitized while JSON
+      keeps escaped strings; and an R25 hostile path/home matrix proves each
+      untrusted fragment is losslessly represented only by the portable
+      literal, with no raw substitution, quote, operator, redirection or line
+      boundary. A harmless isolated shell probe may supplement that direct
+      matrix where available, but the portable alphabet/framing assertions
+      remain the required proof and no shell's availability is required —
+      transcript-reading / Transcript
       prose stays local and inert; transcript-command / The transcript command
       selects one run and participant.
-- [x] 11.2 Prove one derivation in
+- [ ] 11.2 Prove one derivation in
       `crates/brokkr-cli/tests/transcript_surfaces.rs`, comparing each
       surface only where it is authorized to carry content: for one
       synthetic source of each kind, the command's whole read, its
@@ -894,7 +959,13 @@ task:
       metadata it transports — selected reference, `legacy` and admission
       facts, lookup-unavailability reason, explanation, hint and Claude drill
       eligibility — with the common kind, locator and recorded home painted as
-      a distinct authoritative fact rather than inferred from the hint — and is
+      a distinct authoritative fact rather than inferred from the hint. For
+      confirmed/unresolved Codex and confirmed DSH values over the complete
+      R25 matrix, compare the exact completed `full_session` string across
+      the view result, CLI text, decoded CLI JSON, TUI pane, whole overlay,
+      participant-presentation response and browser text node; separately
+      prove the raw JSON document's outer escaping layer and that no consumer
+      decodes or reconstructs a path/home fragment. The presentation is
       asserted to carry no turns, blocks or
       transcript prose for any of the three kinds, so this proof cannot
       be satisfied by widening that transport (10.2, D9) —
@@ -905,26 +976,33 @@ task:
 
 ## 12. The guide
 
-- [x] 12.1 Add a third-level `brokkr transcript` section to
+- [ ] 12.1 Add a third-level `brokkr transcript` section to
       `docs/guides/read-surfaces.md`, in the heading style of the verb
       sections beside it: the selectors and their `inspect` precedence, the
       one-based snapshot indices and that they are not durable message
       ids, the text and `brokkr.transcript/v1` faces, the closed
       unavailable vocabulary and exit rules, the shared notices, and the
       per-kind full-session lines as inert information that executes
-      nothing — transcript-command / Text output and errors report the
+      nothing. Explain that path/home placeholders are reversible portable
+      display literals, not shell quoting or pasteable commands; name the
+      restricted direct alphabet and `\u` behavior, comma framing and
+      separate outer JSON escaping layer, and warn that a hint is not
+      resumption, credential or sandbox-reimposition evidence —
+      transcript-command / Text output and errors report the
       same bounded result; JSON exposes a distinct local transcript
       document.
-- [x] 12.2 State the Claude compatibility costs in that guide's
+- [ ] 12.2 State the Claude compatibility costs in that guide's
       transcript and `brokkr ui` sections — leading-hyphen ids now
       invalid everywhere, duplicate candidates, the discovery bound and
       below-home symlinks now refused, and the 32 MiB source limit — with
       the operator-owned remediation and a pointer to proposed 0055, and
-      say that the TUI, the command and the browser read the same result —
+      say that the TUI, the command and the browser consume the exact same
+      completed portable-display hint without independently quoting a
+      path/home fragment —
       transcript-reading / Local lookup rejects paths that escape
       ownership; Discovery identifies one owned local file; Browser
       participant drills obey shared eligibility.
-- [x] 12.3 Keep `cargo test -p brokkr-cli --test contributing` green: the
+- [ ] 12.3 Keep `cargo test -p brokkr-cli --test contributing` green: the
       guide keeps every section
       `crates/brokkr-cli/tests/contributing.rs:362-369` pins and gains
       the new one — transcript-command / Text output and errors report the
@@ -932,18 +1010,18 @@ task:
 
 ## 13. Gates, the fold and the commit
 
-- [x] 13.1 `cargo fmt --all -- --check` clean — every requirement of this
+- [ ] 13.1 `cargo fmt --all -- --check` clean — every requirement of this
       change (the house rule that gates the work).
-- [x] 13.2 `cargo clippy --workspace --all-targets --all-features
+- [ ] 13.2 `cargo clippy --workspace --all-targets --all-features
       --locked -- -D warnings` clean — every requirement of this change.
-- [x] 13.3 `cargo test --workspace --all-features --locked` green as one
+- [ ] 13.3 `cargo test --workspace --all-features --locked` green as one
       whole-workspace run with `RUST_TEST_THREADS=2`; a crate-scoped run
       may precede it while iterating and never stands in for it — every
       requirement of this change.
-- [x] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
+- [ ] 13.4 `cargo run --locked -p brokkr-cli -- compile --bundle
       bundles/self` and the same for `bundles/verify` both compile —
       every requirement of this change.
-- [x] 13.5 Run `scripts/coverage-exact.sh` unchanged and never lowered,
+- [ ] 13.5 Run `scripts/coverage-exact.sh` unchanged and never lowered,
       with `TMPDIR=/var/tmp` and
       `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`. Require literal 100% lines and
       branches when this execution boundary can create the namespace; inside a
@@ -951,29 +1029,34 @@ task:
       record host exact-coverage proof as pending in the controller handoff,
       outside tracked checkboxes. Never treat skipped boundary tests as green
       evidence — every requirement of this change.
-- [x] 13.6 Before the commit, validate the changed dependency graph with Rust
+- [ ] 13.6 Before the commit, validate the changed dependency graph with Rust
       1.88 using
       `cargo check --workspace --all-targets --all-features --locked`, so the
       CLI test target and its dev-only Boa harness are compiled, plus
-      `cargo deny check licenses` and `cargo audit`; confirm `boa_engine` is
-      exactly 0.21.1 with default
+      `cargo deny check licenses` and a successful `cargo audit` against a
+      usable current advisory database (a failed read-only-database update is
+      not evidence); confirm `boa_engine` is exactly 0.21.1 with default
       features disabled, appears only in `brokkr-cli`'s development graph,
-      and is absent from the release binary's production graph; if a local
+      and is absent from the release binary's production graph. Explicitly
+      admit Boa's resolved transitive packages and licenses in the shared
+      lockfile as dev-harness consequences without claiming that their
+      lockfile presence links them into the release binary; if a local
       admission gate rejects Boa, return upstream to design instead of
       weakening the exact-served-code proof — every requirement
       of this change.
-- [x] 13.7 Build the distinct locked release-profile artifact with
+- [ ] 13.7 Build the distinct locked release-profile artifact with
       `cargo build --release --locked -p brokkr-cli` under
       `CARGO_BUILD_JOBS=2`, and verify the command exits zero and produces the
       release CLI target; neither the production-graph inspection nor the
       Rust 1.88 all-targets compilation in 13.6 substitutes for this build —
       every requirement of this change.
-- [x] 13.8 Confirm the frozen set is untouched — `contracts/`,
+- [ ] 13.8 Confirm the frozen set is untouched — `contracts/`,
       `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
       `fixtures/` — and that the only decision file added is proposed
       0055 with its single registry row — every requirement of this
       change.
-- [x] 13.9 After 1.5 preserved the living base and every repaired
+- [ ] 13.9 After 1.6 repaired proposed 0055, 1.5 preserved the living base
+      and every repaired
       implementation, proof and local gate above is complete, fold the active
       final `MODIFIED` deltas into that existing truth exactly once with the
       dialect's archive operation, `openspec archive
@@ -984,7 +1067,7 @@ task:
       active change has moved to that archive directory, and both the living
       specifications and archived change pass strict validation — every
       requirement of this change.
-- [x] 13.10 Commit the work unsigned in the repository's message style,
+- [ ] 13.10 Commit the work unsigned in the repository's message style,
       and never push, merge, close the issue or start another run: the
       controller owns integration, host proof, PR, CI and delivery —
       every requirement of this change.
