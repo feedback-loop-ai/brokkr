@@ -18,17 +18,18 @@ and F10's ordering: finish all tracked edits while active, use the normal
 dialect archive operation as the final artifact operation, then keep exact-head
 controller proof outside the tracked task state. Robustness additionally asks
 for explicit recoverable finalization states; simplicity rejects a new runtime
-lifecycle, capability or evidence store. D9 combines them as an artifact-level
-transaction with failure recovery and no new production mechanism. D12
-preserves the resolved F7 return. Controller integration of PR250 and #222
-remains separate.
+lifecycle, capability or evidence store. D9 combines them as a small
+artifact-level recovery protocol: pre-archive readiness is the last tracked
+task, and archive is a later non-checkbox effect with explicit recovery
+postconditions and no new production mechanism. D12 preserves the resolved F7
+return. Controller integration of PR250 and #222 remains separate.
 
 The implementation at this head already contains the reusable architecture:
 `engine/resume.rs::{eligible_offer, SiteContext, InstanceKey,
 ConfirmedSession}`, `Store::started_here`, negotiated `Body::Resume` with a
 correlated `PendingOffer`, provider-specific planners, `LaunchHold`, and
-`SeatRecordVersion::of_engine`. Its task record truthfully shows **83 of 101**
-tracked tasks complete. The 18 pending tasks are 8.10, 9.7, 10.5–10.8,
+`SeatRecordVersion::of_engine`. Its task record truthfully shows **82 of 101**
+tracked tasks complete. The 19 pending tasks are 1.1, 8.10, 9.7, 10.5–10.8,
 11.1–11.4, 14.1–14.2, 15.1–15.4 and 15.6–15.7. Host exact coverage and
 controller integration, CI, publication, merge and closure are mandatory
 post-commit handoff evidence, deliberately outside that checkbox count. Codex
@@ -571,28 +572,44 @@ non-SDD charter does not change and judges remain read-only.
 
 PM4 applies the same separation to finalization. Repository-local completion,
 archive, delivery commit, exact-head host validation, integrated-head
-validation, publication, merge and issue closure are distinct facts. An
-observation cannot be recorded by mutating the Git object it claims to prove.
-Use this recoverable artifact-level state machine, implemented by the existing
-OpenSpec and Git operations rather than a new runtime lifecycle:
+validation, publication, merge and issue closure are distinct facts. A checked
+task can assert only work and task-level verification that already completed,
+and an observation cannot be recorded by mutating the Git object it claims to
+prove. Use this artifact-level recovery protocol over the existing task file,
+OpenSpec operation and Git state; it is not a new runtime lifecycle or durable
+state machine:
 
 | State | Allowed tracked writes | Evidence and failure behavior |
 |---|---|---|
 | Active / working | Implementation, declarations, tests and truthful progress edits. | Keep incomplete or failed work unchecked and remain active. |
-| Active / reconciled | Only the final task tick and progress account remain. | All other repository-local tasks are complete; strict active validation and the staged-diff review pass. A failure reopens the affected task and remains active. |
-| Archive transaction | Tick the archive task and set the final progress account, then immediately run the normal dialect archive operation. | The tick and archive are one transaction with no intervening artifact edit. A failed or partial archive is restored to this same active change; the archive task becomes pending before repair. |
+| Active / ready to mark | Only the pre-archive readiness tick and final progress account remain. | Every ordinary repository-local task is complete; strict active validation and the intended-path staged-diff review pass. A failure reopens its owning task and remains active. |
+| Active / archive-ready | None after the readiness tick and final progress edit. | Every checkbox truthfully describes completed repository-local work. Progress says archive and commit have not occurred. A death here leaves an all-ticked active change whose next action is the archive effect. |
+| Archive effect in doubt | None until the actual namespace, living truth, provenance, index and HEAD are classified. | If all archive postconditions already hold, treat the fold as complete rather than repeating it. If the change is wholly active and living truth is unchanged, revalidate before invoking archive. If state is partial or inconsistent, restore this identifier to one active authoritative copy before repair; invalidate readiness if repair changes its premises. |
 | Archived / uncommitted | None. Archived validation, provenance assertions and staged-diff review are read-only. | A failed check reopens the same change before any repair; never patch the archived task file. |
-| Delivery commit | None after commit. | The unsigned commit contains the all-ticked archive and a clean tree. A failed commit is not handoff and must be repaired from the appropriate earlier state. |
+| Commit outcome in doubt | None until HEAD, its tree and worktree cleanliness are inspected. | If HEAD already contains the exact intended all-ticked archive, do not commit again. Otherwise repair from the appropriate earlier state. No dirty or wrong head is handed off. |
 | Controller evidence | None to the subject head or archived artifact. | Missing or failed evidence blocks only the claim it serves and stays pending outside the task artifact. |
 
-The final archive uses `openspec archive 226-session-resumption --yes`, not a
-manual move and not `--skip-specs`. The operation applies PM4's one repaired
-`MODIFIED` requirement, treats the other identical deltas as no-ops, preserves
-each existing `2026-09-09-226-session-resumption` provenance pointer exactly
-once, and preserves `boundary-record`'s earlier provenance and historical
-examples. Strict archived validation and bidirectional provenance checks follow
-without edits. This reconciles proposal answers C/I and the returned PM4
-scenarios with accepted decision 0042's archive and archived-verification rules.
+Task 15.7 is therefore **pre-archive readiness**, not an archive task. Its
+acceptance work completes while the change is active: all earlier tracked
+obligations and their evidence are complete, active strict validation passes,
+the final progress account distinguishes repository-local completion from the
+still-pending archive and commit, the intended paths are staged and reviewed,
+and the archive command and exact postconditions below are selected. Ticking it
+is the last task-artifact edit; the tick does not claim that archive ran.
+
+After every tracked task is complete, run
+`openspec archive 226-session-resumption --yes` as the final non-checkbox
+artifact mutation, not a manual move and not `--skip-specs`. The operation
+applies PM4's one repaired `MODIFIED` requirement, treats the other identical
+deltas as no-ops, preserves each existing
+`2026-09-09-226-session-resumption` provenance pointer exactly once, and
+preserves `boundary-record`'s earlier provenance and historical examples.
+Strict archived validation, bidirectional provenance checks and complete
+staged-diff inspection follow read-only. A lost success acknowledgement is
+recognized from those postconditions and is neither undone nor folded again; a
+partial fold is repaired only after restoring the same active authoritative
+change. This reconciles proposal answers C/I and the returned PM4 scenarios
+with accepted decision 0042's archive and archived-verification rules.
 
 After the delivery commit, the controller records host coverage and later
 integration/CI/publication/merge/closure evidence in its journal or evidence
@@ -604,21 +621,26 @@ proves the integrated object. Evidence is not transferred between changed heads
 without an explicit byte-identity basis. These requirements add no tracked
 evidence schema or new capability.
 
-**Alternatives:** combine robustness's explicit recovery states with
-simplicity's refusal of new production machinery. Adopt the state distinctions
-as design constraints, but implement them with the existing task artifact,
-normal archive operation, Git commit and controller journal. Reject tracked
-post-commit checkboxes because their ticks change the exact head they claim to
-validate. Reject a manual move or `--skip-specs` because either bypasses the
-dialect operation or strands PM4. Reject a second archive, duplicate provenance,
-a handoff capability, an evidence database and a public lifecycle type because
-PM4 and the existing owners already express the required facts.
+**Alternatives:** combine robustness's explicit interruption recovery with
+simplicity's refusal of new production machinery. Adopt only observable
+artifact distinctions as design constraints, implemented by the existing task
+artifact, normal archive operation, Git commit and controller journal. Reject
+the old “tick archive, then run archive” transaction because the two writes
+cannot be atomic and the tick would be false under PM1 before the operation and
+its archived checks complete. Reject tracked post-commit checkboxes because
+their ticks change the exact head they claim to validate. Reject a manual move
+or `--skip-specs` because either bypasses the dialect operation or strands PM4.
+Reject blind restore/retry because it can overwrite a completed fold whose
+acknowledgement was lost or duplicate provenance. Reject a second archive,
+duplicate provenance, a handoff capability, an evidence database and a public
+lifecycle type because PM4 and the existing owners already express the required
+facts.
 
 **Bindings:** PM1–PM4; `library_data.rs` charter/roster/identity tests, both
 dialects' implement/return prompt tests, a deterministic recovery exercise,
-proposal answers C/I, the normal archive transaction, read-only archived
-validation/provenance, and controller evidence keyed outside the tracked
-artifact to its exact subject head.
+proposal answers C/I, pre-archive readiness, the normal archive effect and its
+postconditions, read-only archived validation/provenance, and controller
+evidence keyed outside the tracked artifact to its exact subject head.
 
 ### D10 — Proposed 0056 and explicit council reconciliation
 
@@ -641,13 +663,13 @@ text. The required numbered rulings and enforcement bindings are:
 | 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
 | 9 | Current-only accounting, unchanged transcript/privacy limits, narrow legacy compatibility. | D8 accounting/export/verify/legacy tests. |
-| 10 | Persist truthful progress before the next group; finish tracked edits while active, archive last, and keep exact-head controller evidence external to the task state. | D9 instruction/identity tests, archive transaction and content-addressed handoff. Actual completion is judgment guidance, not an automatic guarantee. |
+| 10 | Persist truthful progress before the next group; finish and mark all tracked repository-local work while active; then run archive as the final non-checkbox artifact effect, verify the archived result read-only, commit, and keep exact-head controller evidence external to the task state. | D9 instruction/identity tests, readiness and archive recovery postconditions, and content-addressed handoff. Actual completion is judgment guidance, not an automatic guarantee. |
 
 The current sitting's sources are the two run-local positions named in Context,
 recorded here so the reasoning survives their replacement on a future visit:
 
-- Robustness SHA-256: `28d4e57b455ebab053d90617b7d25f0a14bfa8060e09331868165e5f1e548913`.
-- Simplicity SHA-256: `7085ad94bff993ea9ac9b6c1551deb5b137eacfc0d779415f7a39b9ca4d83985`.
+- Robustness SHA-256: `68d44f914426bdb006a1c3f8e250b29d88a00b35c292d3c6a5b81ebe3c9170bb`.
+- Simplicity SHA-256: `3fe6c1812c79246e844cb44dcc2f7e5e9441cc98d6fc3060c3e03106dca1d4bf`.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -657,9 +679,10 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Current position / claim | Disposition and evidence |
 |---|---|
 | Both: the full Claude boxed, DSH headless and remeasured Codex minimum; all work topologies and fresh gates. | Adopt D1/D6. AS1/SR1 and accepted 0042 define the minimum. A support declaration or quota failure cannot narrow it. |
-| Robustness: finalization needs recoverable states; simplicity: F10 adds no runtime lifecycle, capability or evidence store. | Combine in D9. Make the archive/tick sequence an explicit recoverable artifact transaction, but use only the existing task artifact, OpenSpec operation, Git commit and controller journal. No production type or new capability follows. |
-| Both: every tracked edit finishes active, the normal archive is the final artifact operation, and exact-head controller proof stays outside checkboxes. | Adopt D9. Answer C, answer I, PM4 and accepted 0042 make this the only attainable all-ticked archived state. Reject the stale manual-move/`--skip-specs` path and any post-archive task edit. |
+| Robustness: finalization needs explicit interruption recovery; simplicity: F11 adds no runtime lifecycle, capability or evidence store. | Combine in D9. Make pre-archive readiness truthful and classify observable archive/commit outcomes before recovery, using only the existing task artifact, OpenSpec operation, Git commit and controller journal. No production type or new capability follows. |
+| Both: every tracked edit finishes active, the normal archive is the final non-checkbox artifact operation, and exact-head controller proof stays outside checkboxes. | Adopt D9. Answer C, answer I, PM1/PM4 and accepted 0042 make this the only attainable all-ticked archived state. Reject the stale archive checkbox, manual-move/`--skip-specs` path and any post-archive task edit. |
 | Robustness: external evidence is content-addressed and not transferable across changed heads; simplicity: no tracked evidence database. | Combine in D9. The controller's existing journal/evidence owner records the exact subject and outcome; no repository schema or task is added. |
+| Robustness: harden the generic rendered archive instruction; simplicity: keep this repair within the returned change and treat a broader decision amendment separately. | Reject the shared instruction edit in this design return. F11's earliest owner is this design, the rendered design instruction names only `design.md`, and PM1/PM4 already supply the governing truth semantics. Bind this change's implement/return rendering tests to the non-checkbox order in D9; a repository-wide wording or accepted-decision amendment requires its own owning specification and evidence, not an opportunistic #226 production edit. |
 | Robustness: typed structural ownership; simplicity §1: private structural values, equality digests and one pure reverse scan. | Combine D2/D3. The pre-change `Site` and `seat_session` lost ancestry/root kind; the implemented `SiteKey`, `InstanceKey`, checkpoint stamp and existing journal/manifest/origin guards close that gap without a second store. Keep per-site candidate projection so sibling chain movement does not change the owner. |
 | Robustness: effect-start site table and numbered extension; simplicity §1/cut 1: confirmed checkpoints suffice. | Adopt the checkpoint association, reject the duplicate start table. Engine stamps plus the validated attempt/start link prove the originating site and instance without another store, reducer field or migration (D3). |
 | Both: newest incompatible/nonpersistent owner stops the query; no resurrection or aggregate/child borrowing. | Adopt D3/D8. Ownership is checked after choosing the latest confirmed root, with the narrow existing single-Codex compatibility path only. |
@@ -683,13 +706,14 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Both: keep scope within #226; simplicity cut 8 rejects release work, #222 readers, provider patches and new hands/boundaries. | Adopt the existing Non-Goals. No sibling tree or assumed PR250 integration; controller evidence and later integration remain the only coordination path. |
 
 F7's upstream defect and F10's proposal/PM4 ambiguity are repaired at their
-owners. The remaining inconsistency is downstream: task 15.5 forbids the normal
-archive and task 15.7 prescribes a manual move, while proposed 0056 ruling 10
-still omits the exact-head separation. The tasks return must amend the existing
-rows, reopen any checked task whose promised decision/prose no longer satisfies
-PM4, and keep the 101 identifiers stable. Existing tasks 8.10 and 9.7 already
-own the two runtime conformance gaps. No production architecture or new task is
-created by this design return; all 18 pending tracked tasks remain pending.
+owners. F11's owning design defect is repaired here. The remaining inconsistency
+is downstream: task 15.7 still combines a pre-archive tick with the archive and
+archived checks. The tasks return must repurpose that identifier as the
+attainable readiness task D9 defines, move archive/check/commit/handoff into
+non-checkbox action prose, and keep the 101 identifiers stable. Existing tasks
+8.10 and 9.7 already own the two runtime conformance gaps. No production
+architecture or new task is created by this design return; all 19 pending
+tracked tasks remain pending.
 
 ### D11 — Verify transitions and trace every requirement
 
@@ -714,7 +738,7 @@ modify frozen evaluator fixtures.
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
 | LE4 | Only current turns/tools/targets/usage, replay, unknown baseline, rotated/truncated source, completion deduplication and LaneTally capture. Retain transcript caps. |
-| PM1/PM2/PM3/PM4 | Both dialects' SDD instruction/rendering/identity suites and returns; completed uncommitted group plus interrupted partial group; missing-edit/failed-check reconciliation; pending workspace proof; all-ticked normal archive with only PM4 updated; failed archived-check reopen; exact-head controller evidence remains external and judges do not mutate. |
+| PM1/PM2/PM3/PM4 | Both dialects' SDD instruction/rendering/identity suites and returns; completed uncommitted group plus interrupted partial group; missing-edit/failed-check reconciliation; pending workspace proof; death after the readiness tick leaves a truthful all-ticked active change; lost archive or commit acknowledgement is recognized without duplicate fold/commit; a partial fold refuses blind retry and repairs only after reopening; the archived result has all ticks, only PM4 updated and singular provenance; exact-head controller evidence remains external and judges do not mutate. |
 
 Run the proposal's exact commands with `CARGO_BUILD_JOBS=2` and
 `RUST_TEST_THREADS=2`: format, clippy with all targets/features and warnings as
@@ -781,9 +805,14 @@ amendment; D10 records this sitting's dispositions without reopening F7.
   retain the matching verifier for new journals.
 - [A model ignores markers or trusts stale memory] → Explicit durable recovery
   instructions plus review; tests prove distribution/exercise, not obedience.
-- [Archive fails after its task is ticked or the change is partly moved] → Treat
-  tick plus normal archive as one transaction; restore this same active change,
-  return the task to pending, and repair before another artifact operation.
+- [Archive succeeds but acknowledgement is lost, or leaves a partial fold] →
+  Classify active/archive namespaces, living truth, provenance, index and HEAD
+  before recovery. Accept an already-complete fold without repeating it; restore
+  one active authoritative copy before repairing a partial fold and invalidate
+  readiness when its premises change. Never patch the archived task file.
+- [Commit succeeds but acknowledgement is lost] → Inspect HEAD, its tree and
+  worktree cleanliness; do not create a duplicate commit for an already-present
+  exact archive.
 - [Evidence is attached to the wrong or later-mutated head] → Record each result
   outside the tracked artifact with its exact Git object. Rerun the applicable
   proof for a changed subject unless explicit byte identity makes it transferable.
@@ -806,13 +835,18 @@ amendment; D10 records this sitting's dispositions without reopening F7.
    claiming completion. Finish the repository-local tests, house validation,
    specification review, task reconciliation and final progress account while
    the change is active.
-5. As one recoverable final artifact transaction, tick the archive task and run
-   `openspec archive 226-session-resumption --yes`. It applies only PM4's repaired
-   MODIFIED requirement, no-ops the identical deltas and retains each existing
+5. Establish and tick pre-archive readiness while the change is active: every
+   other tracked obligation is complete, active strict validation passes, the
+   final progress account is truthful and the intended staged paths are
+   reviewed. Then run `openspec archive 226-session-resumption --yes` as the
+   final non-checkbox artifact action. It applies only PM4's repaired MODIFIED
+   requirement, no-ops the identical deltas and retains each existing
    provenance pointer once. Run strict archived validation, bidirectional
-   provenance and staged-diff checks read-only. On failure, reopen this same
-   change before repair; do not edit an archived task file. This design visit
-   does not archive.
+   provenance and staged-diff checks read-only. If completion is uncertain,
+   classify the actual postconditions before retry; on a failed check or partial
+   fold, reopen this same change before repair and invalidate readiness if its
+   premises changed. Never edit an archived task file. This design visit does
+   not archive.
 6. Commit the all-ticked archive unsigned in repository style, verify the exact
    head and clean tree, then hand it to the controller. Host exact coverage of
    the delivery commit and integration, remote validation, publication, merge
@@ -940,38 +974,39 @@ The reconciled design is drafted. Full delivery remains blocked on the exact
 DSH upstream caller seam and on the pending provider/host evidence; neither is
 converted into a smaller requirement.
 
-## Current successor design reconciliation — F10, 2026-09-10
+## Current successor design reconciliation — F11, 2026-09-10
 
 This returned visit adopts proposal answers C/I and the repaired PM4 scenarios,
-then answers F10's design dependency in D9–D12. Both current council positions
-were read in full and pinned by their current digests. Their common one-archive,
-external-evidence order is adopted; robustness's recoverability concern is
-combined with simplicity's minimality by expressing finalization as an artifact
-transaction over existing OpenSpec/Git/controller owners, not as new production
-state. The design rejects the stale manual move, `--skip-specs`, repeated fold,
-duplicate provenance, tracked post-commit checkboxes and any new evidence
-capability or store.
+then answers F11 at its earliest owning artifact. Both current council positions
+were read in full and pinned by their current digests. Their common
+pre-archive-readiness and external-evidence order is adopted. Robustness's
+interruption recovery is combined with simplicity's minimality as an
+artifact-level protocol over existing OpenSpec/Git/controller facts, not a new
+production state machine. The design rejects the false archive checkbox, blind
+retry, stale manual move, `--skip-specs`, repeated fold, duplicate provenance,
+tracked post-commit checkboxes and any new evidence capability or store.
 
 - `openspec` 1.12.0 rendered the design instructions. No workflow runner was
   invoked. `openspec validate 226-session-resumption --strict --no-interactive`
   passes, and `openspec status --change 226-session-resumption --json` reports
   all four planning artifacts complete.
 - The five deltas contain 20 requirements / 125 scenarios. The current task
-  artifact contains 101 identifiers at 83 complete / 18 pending, matching
-  Context, D10 and D11. The tasks phase must reconcile the stale archive rows
-  and the checked proposed-decision row in dependency order; this design does
-  not edit its downstream artifact.
+  artifact contains 101 identifiers at 82 complete / 19 pending, matching
+  Context, D10 and D11. The tasks phase must reconcile task 15.7's stale archive
+  checkbox in dependency order; this design does not edit its downstream
+  artifact.
 - Exact bare `codex --version`, `claude --version`, `dsh --version`,
-  `claude-lanetally --version`, `cargo --version` and `rustc --version` remain
-  unavailable in the boxed workspace. This supplies no provider enforcement,
-  Rust-suite or host-coverage proof and enables no shape. The DSH headless
-  upstream requirement and the full provider minimum remain unwaived.
-- `git diff --check` passes. This visit changes only `design.md`; it does not
+  `claude-lanetally --version`, `cargo --version` and `rustc --version` are
+  unavailable in the boxed workspace; `openspec --version` reports 1.12.0.
+  This supplies no provider enforcement, Rust-suite or host-coverage proof and
+  enables no shape. The DSH headless upstream requirement and full provider
+  minimum remain unwaived.
+- `git diff --check` passes, and only `design.md` differs. This visit does not
   modify production code, proposed or accepted decisions, tasks, living specs,
-  frozen contracts/fixtures/policy/reference, provider settings or sibling
+  frozen contracts, fixtures, policy, reference, provider settings or sibling
   worktrees, and it performs no archive, push, merge, publication or closure.
 
-The reconciled design is drafted. No earlier artifact remains at fault: the
-specification owns and now answers the exact-head ambiguity. The known remaining
-inconsistency is in the downstream task/decision reconciliation named above, so
-an `upstream` result would misstate dependency order.
+The reconciled design is drafted. No earlier artifact is newly at fault: F11 is
+the design's own ordering error. The known remaining inconsistency is the
+downstream task reconciliation named above, so an `upstream` result would
+misstate dependency order.
