@@ -332,3 +332,35 @@ conformance. No design or tasks artifacts exist in this change yet.
 guarantees are not demonstrated, remain OPEN and block Seatbelt activation
 and completion. The full workspace suite and exact coverage were not run in
 this focused audit, and no native macOS test was run or claimed.
+
+### SEATBELT-R3-STARTUP, fourth failed prerequisite (CI 34693664540, head `00d4664`)
+
+OPEN, and tracked as issue #268. On the macOS runner with
+`/usr/bin/sandbox-exec` present, S3 registers with launchd and the staged
+helper digest equals the committed build digest (`814ac8535776fff9`), so
+instantiation, staging and identity are correct. The payload then aborts
+before any authenticated stage with `failed to allocate a guard page:
+Invalid argument (os error 22)` and `fatal runtime error: initialization or
+cleanup bug`. `launchctl print` reports `state = not running`, `runs = 1`,
+`successive crashes = 1`, `last terminating signal = Abort trap: 6`, and the
+removal control is `NotDue` because the cell never reached READY.
+
+The denial log is `available: true` and empty: no Sandbox denial event
+matched the helper's image path or name, and the failure is `EINVAL` rather
+than `EPERM`. This names the cause more precisely than the three earlier
+records: it is the Rust standard library failing to establish the main
+thread's stack guard page under the profile, not an operation the candidate
+ledger could admit. Earlier measurements are not rewritten; the seven
+one-class differentials that still aborted before the first stage are
+consistent with this reading.
+
+**Operator ruling, 2026-09-12.** The two R3 steps run inside the `engine`
+job, which is the required `test (macos-latest)` check. Held as hard gates
+they would fail every subsequent pull request's macOS job and block all
+merges into `main`. They are therefore `continue-on-error` until #268
+closes. The probe still runs on every macOS job, the verdict is printed, the
+report content is still checked and `r3-native-diagnostics` is still
+uploaded. This narrows what CI refuses; it does not narrow what the slice
+must prove. Acceptance remains gated by the unticked section 6 and 8 tasks
+and by Seatbelt staying unbuilt, and a passing startup measurement restores
+both steps to hard gates.
