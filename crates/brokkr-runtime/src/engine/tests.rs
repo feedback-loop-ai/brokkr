@@ -3919,6 +3919,38 @@ fn every_seat_input_carries_the_realms_house_and_an_unhoused_realm_carries_nothi
     assert!(plain.get("house_rules").is_none());
 }
 
+/// `--repo .` is the common spelling, and every seat script reads its
+/// result path by matching an absolute `/*.json` line — so a relative
+/// repo must not reach the seat as one, or the seat refuses its own
+/// result path before it runs a gate.
+#[test]
+fn seat_input_spells_the_workdir_and_result_path_absolutely() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let mut engine = engine_in(dir.path(), None, std::path::Path::new("."));
+
+    let input = engine
+        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .unwrap();
+    let workdir = input["workdir"].as_str().unwrap();
+    let result_path = input["result_path"].as_str().unwrap();
+    assert!(workdir.starts_with('/'), "{workdir}");
+    assert!(
+        result_path.starts_with('/') && result_path.ends_with("/.forge/results/effect.json"),
+        "{result_path}"
+    );
+
+    // A path that cannot be made absolute at all is threaded as written:
+    // the driver receives what it would have received anyway, and the
+    // refusal belongs to the driver rather than to this composition.
+    engine.repo = Some(std::path::PathBuf::new());
+    let unresolvable = engine
+        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .unwrap();
+    assert_eq!(unresolvable["workdir"], json!(""));
+}
+
 /// Pinned AND embedded (decision 0023 ruling 4): the manifest carries
 /// the map's content hash and the map itself, and the manifest rides
 /// inside run/started — so the world a run believed in is answerable
