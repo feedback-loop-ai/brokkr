@@ -1,17 +1,19 @@
 ## Context
 
-This specify re-entry adopts `b049224e2968d0df22d25a7a77139b12278cce59`,
-including all work at `cf06034`, for `current-successor-operator-rulin-eef1e666`
-under the same change identifier. Proposal P governs the whole-change and
-provider ruling. The returned triage finding correctly classifies this as
-engine work; it identifies no earlier specification defect. The two
-commissioned D6 findings, A1–A5/B1–B5 and the later F1 archive-ordering repair
-remain settled. D10 records their evidence-based revalidation and this visit's
-bounded downstream corrections before the tasks are reconciled. The September
-12 Codex host precondition remains measured true; this seat's own
-`codex --version` returns 127 and supplies no host version. Task 10.5 remains
-pending, with its installed-version reconciliation and full resume proof owed.
-The following dated design history retains its original evidence boundaries.
+This council visit adopts `02e6771`, including all committed work at
+`cf06034`, for `current-successor-operator-rulin-eef1e666` under the unchanged
+`2026-09-09-226-session-resumption` identifier. Proposal P governs the whole
+change and provider ruling. Returned clarify reports `clear`: no unanswered
+specification ambiguity or earlier artifact fault. Both fresh positions are
+read and reconciled under D10. The two commissioned D6 answers, A1–A5/B1–B5
+and F1 remain settled. The new source finding concerns canonical profile
+containment in the partial Rust composite; D6 specifies its invariant before
+the existing AS1 scenario and pending 8.8(b)/8.10 clauses follow. All 101 task
+IDs and ticks remain at 81 complete / 20 pending. The September 12 Codex host
+precondition remains measured true; this seat's own boxed `codex --version`
+returns 127 and supplies no host version. Task 10.5 still owes the exercised
+binary's version reconciliation and complete resume proof. The following
+history retains each prior visit's evidence boundary.
 
 This design adopts the existing
 **2026-09-09-226-session-resumption** change at `7178895`, over its
@@ -88,7 +90,7 @@ report. Source presence and inherited check reports do not complete the whole
 string, and the DSH refusal/planner has not acquired D6's private provider-ID
 and persistence-locator target.
 
-The inherited task ledger is 82 complete / 19 pending. The forward-pin work
+The specify re-entry inherited 82 complete / 19 pending. The forward-pin work
 completed 1.1, 6.4, 11.5 and the DSH portion of 13.1; this visit keeps the first
 three checked and reopens 13.1 because its current Codex/Claude table still
 denies supplied partial observations. The resulting 20 pending tasks are
@@ -863,6 +865,21 @@ every input from the two seams and nothing else:
   the core root or in a global folder would otherwise load in place of the
   adaptation the composite hashed. The function emulates this one documented
   lookup over the file system; it spawns no resolver.
+- *Canonical containment (council return, 2026-09-13).* Canonicalize the
+  complete `<home>/profiles/headless` directory once when reading the profile,
+  and retain that value as the containment boundary. Preserve the original
+  profile lookup anchor separately: the loader's Node search order above is
+  unchanged. Compare each first-hit canonical bundle directory against the
+  canonical core root or canonical profile boundary with path-component
+  containment; the plugin and conditional extension must be inside that same
+  canonical profile. If either the trusted boundary or the selected candidate
+  cannot be canonicalized, the identity is unreadable. Never fall back to a raw
+  path, use a string prefix, or skip an outside first hit to find a later
+  inside candidate. A symlink in the home's ancestry is therefore not itself
+  a refusal when the loader selects the same contained bundles. This changes
+  no composite line or byte form, hashes no absolute path, and leaves the
+  existing rejection of symlinks inside either hashed runtime set intact.
+  Pending 8.8(b)/8.10 own the correction and synthetic-home acceptance cases.
 - *Profile lock.* `<home>/profiles/headless/pnpm-lock.yaml` is read by a bounded
   line reader; no YAML crate is added, so deny, audit, licence and MSRV stay
   unchanged. The recognized grammar is the measured one. The first non-blank
@@ -1666,6 +1683,40 @@ meaning. No upstream artifact is at fault; do not return `upstream` for these
 downstream implementation/prose gaps. Preserve A1–A5/B1–B5 and the whole-change
 minimum, retain proposed 0056, and amend tasks only after this reconciliation.
 
+#### Council re-entry reconciliation — 2026-09-13, inherited head `02e6771`
+
+Read both fresh positions in full. These pins supersede the retained F1 files
+for this sitting; their earlier hashes and dispositions remain history:
+
+- `.forge/design/positions/robustness.md`: SHA-256
+  `ea3b0d47f5c9986a43004c8277ad985d51dbcadc8b3107cdcc9d1e2f5a3cd896`.
+- `.forge/design/positions/simplicity.md`: SHA-256
+  `c611b86e441d2b8ceb335212f11386b3d8c840f3e08bdfa948746e82c11d8916`.
+
+| Position or returned claim | Disposition and evidence |
+|---|---|
+| Returned clarify: clear specification, 20 requirements / 141 scenarios and 81/20 of 101 tasks; no open ambiguity finding. | Adopt after the complete reread. No finding in `returned_from` requires an upstream repair. The new council observation below is about implementing D6's existing containment and location-independence obligations. |
+| Both: the two commissioned D6 findings and A1–A5/B1–B5 remain settled. | Adopt the terminal-package/same-entry triple, hidden-lock-only source, depth vectors, conditional four-file extension ownership and sole Rust producer unchanged. Qualify robustness's statement that both are implemented: code exists, but its whitespace and containment acceptance remains incomplete under 8.8(b)/8.10; the real extension remains conditional. Finding 1 is reproducibility MEDIUM, finding 2 ownership LOW, with no newly demonstrated admission bypass. |
+| Both: F1 is closed, including the rejection of a source comment. | Adopt their explicit agreement. D9/PM4/15.3 retain the unique-match and single-filter checks; 15.6/15.7 keep archived validation pending; the full unfiltered suite must pass after archive before delivery. Robustness withdraws its old comment request. Simplicity's anticipated renewed request is not an actual disagreement in this sitting. |
+| Both: preserve the stricter npm version rule and finish its whitespace rejection in pending 8.8(b)/8.10. Simplicity suggests the existing whitespace predicate. | Adopt that bounded implementation correction without editing D6's npm grammar. `npm_dependencies` still checks empty/NUL/LF, while `valid_component` already uses `char::is_whitespace`; space/tab/CR rejection remains owed. Simplicity's incidental suggestion to apply it to integrity too does not establish a new integrity grammar; retain the owning rules and require concrete evidence before widening them. |
+| Robustness: canonical bundle paths are compared against a raw profile boundary at three sites; canonicalize that trusted boundary once and test a symlinked home. Simplicity: adopt the design unchanged because remaining defects are implementation work. | Combine their implementation scope with a precise D6 invariant and existing-task acceptance, rejecting only the blanket no-clause-edit conclusion. `read_profile` derives its raw directory from `dsh_home_from`; `resolve_bundle` and the plugin/extension checks compare canonical candidates against it. A synthetic symlinked ancestor reproduces false containment on the raw boundary and true containment on the canonical boundary, while an escaping target remains outside. This is a false-refusal case, not observed false admission or provider qualification. It needs no new task or mechanism. |
+| Robustness: make all three containment checks canonical-to-canonical; replace `profile.dir` when it is built. | Adopt the invariant, refine the suggested implementation to preserve the lookup anchor separately. The pinned `dsh-app-boot` `packageDirFromAnchor` uses `createRequire(anchor).resolve.paths`; a synthetic Node v22.23.2 observation shows different search paths for raw and canonical profile anchors. Reusing the canonical boundary as the lookup anchor would silently change the already-settled loader order. Canonicalization errors must be unreadable, without a raw-path fallback or relaxed prefix check. General bundles may lie in either canonical root; plugin/extension must lie in the canonical profile. |
+| Simplicity: no new capability, decision, task ID, public/wire field, dependency, parser framework, store, second producer, raw-manifest/whole-install hashing, resolver/`dump-config` subprocess, live cargo test, probe framework, continuous verifier, speculative extension or reopened `cordis.yml`. | Adopt these mechanism cuts. The private target, existing loader/doctor and hermetic synthetic-home suites already carry the work. Reject the suggestion that a bounded design clause would itself violate all-edits-before-archive: this change is active and PM2 requires dependent acceptance to follow current evidence. New checks use existing 8.8/8.10, with no tick or count change. |
+| Both: keep the whole delivery minimum, current provider assignments and measured-evidence gates. Simplicity accepts temporary disabled/prose/lookup risks while implementation is pending. | Adopt only as preparation, never as completed delivery. Keep 13.1's partial Codex/Claude guide correction before remaining 8.8 work, all provider proofs and enablement pending, LaneTally's sole 11.4 exception, and proposed 0056. Missing boxed tools neither erase the supplied host evidence nor prove a controller blocker. No Fable/Opus or historical no-Codex instruction becomes live. |
+
+Source evidence: `composite.rs` SHA-256
+`919870544666407ecdf9b1f977814fc77acd3def892135e073ec2bfac35888b9`,
+`transcript.rs` SHA-256
+`216cf47ad057f048ea0b9a533e43970351343baea99d1afad4def5667311e559`, and
+the task-owned core's `dsh-app-boot/lib/index.js` SHA-256
+`d8fdfe41996a4fefcff63af4982787924b0ae651f24bb1402f775b70202529bb`.
+The disposable filesystem/Node observation is recorded under
+`.forge/design-chief-cd9d8f77/path-observation.json`; it runs no provider,
+computes no composite and is not a Rust regression pass. The Rust acceptance
+remains pending. D6 is amended first, then the existing AS1 ordinary-runtime
+scenario and tasks 8.8(b)/8.10; the other deltas, settled grammar, 101 IDs and
+all ticks stay unchanged. No earlier artifact fault warrants `upstream`.
+
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
@@ -1685,7 +1736,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. A symlinked home ancestor resolving the same selected bundles yields the same composite, using canonical containment while preserving the original lookup anchor; an unresolvable boundary, escaped plugin/extension or outside first hit stays unreadable without raw-path fallback, near-prefix acceptance or later-candidate search. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -1845,6 +1896,12 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
   `startup` evidence does not enable `live`. AS1/AS2's restored-state restriction
   proof remains required. A later invocation detects a change that is still
   present; no continuous verification or retroactive enforcement is claimed.
+- [A canonical bundle is compared against a raw symlinked profile boundary]
+  → D6 canonicalizes the containment boundary once while preserving the
+  loader's lookup anchor and first-hit order. Synthetic-home cases must prove
+  alias equality, canonicalization failure and outside-target refusal before
+  8.8/8.10 complete. A false refusal is not cured by a raw-path fallback or
+  relaxed string comparison; no lifetime mutation guarantee is added.
 - [The bounded pnpm reader meets a lock construct it does not know] → It
   declines as `unverified-harness`, so the failure is a false decline and
   never an admission. Synthetic vectors pin the recognized grammar, and a pnpm
@@ -2494,3 +2551,46 @@ absent. Only proposal, design and tasks change; this is specification
 preparation with 81/20 tasks, no upstream defect and no activation or provider
 proof claim. The inherited council pins, D6 answers, D9/F1 validation order,
 full provider minimum and proposed status of 0056 remain binding.
+
+## Council re-entry validation — 2026-09-13, inherited head `02e6771`
+
+Adopted the whole `2026-09-09-226-session-resumption` change and verified
+`cf06034` is an ancestor of this visit's head. Read the dialect's own design,
+return and tasks instructions and the rendered OpenSpec design/specs/tasks
+instructions through the workspace tool, without a workflow runner. Read the
+commissioned evidence and both probe scripts, proposed 0056, the complete
+change and both fresh positions. D10 answers returned clarify's clear result
+and reconciles every position with source evidence. D6 records canonical
+profile containment with the original lookup anchor retained; its existing
+AS1 scenario and pending tasks 8.8(b)/8.10 follow in dependency order.
+
+Strict active OpenSpec validation, artifact status, delta parsing, structural
+checks and `git diff --check` pass. The deltas retain 20 requirements / 141
+scenarios, 15 ADDED and five MODIFIED operations. A read-only prospective-fold
+comparison still identifies exactly AS1–AS3 and PM4 as semantic replacements,
+with every ADDED block identical to standing truth. All 101 task IDs and ticks
+remain unchanged at 81 complete / 20 pending. Proposal, AS2–AS5, the other four
+deltas, prior dated returns, living specifications, production and frozen paths
+retain their adopted bytes. Exactly design, the safety delta and tasks are
+prepared for this unsigned design commit; no archive ran.
+
+The disposable filesystem/Node check establishes the symlinked-boundary false
+comparison and differing raw/canonical lookup paths on Node v22.23.2. It is
+mechanism evidence, not a Rust test or provider proof, and computes no plugin
+or composite value. The existing Rust suite must gain and pass the stated
+acceptance cases before 8.8/8.10 can complete.
+
+With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, all six commissioned Cargo gates
+failed to launch with `ENOENT`: Cargo is absent in this box. The own boxed
+`codex --version` attempt also finds no binary, supplying no controller version
+or renewed host blocker. No Rust, bundle, release-build, provider, readiness or
+activation pass is claimed. Exact coverage stays pending on the final delivery
+head outside the box; CI, release admission and coverage retain their shared
+`rust-nightly-version.txt` pin. Command, source-mechanism and structural evidence
+is under `.forge/design-chief-cd9d8f77/`.
+
+This is drafted design preparation. Proposed 0056 remains proposed, all provider
+proofs and enablement stay pending, and the full unfiltered archived suite is
+still mandatory before activation/delivery. The controller owns final-head
+coverage, remote CI, publication, integration and closure. No provider model
+call, workflow runner, new Brokkr run, push or merge was performed.

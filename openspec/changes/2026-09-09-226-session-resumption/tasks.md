@@ -6,6 +6,9 @@ Current commission: the 2026-09-12 operator ruling adopts all work at
 adopts the inherited 82-complete/19-pending ledger and reopens only 13.1 on
 D10's concrete guide evidence: the current ledger is **81 complete / 20 pending**
 across the same 101 identifiers. No implementation/proof task is ticked here.
+The council re-entry at `02e6771` preserves that count and all ticks; D6/D10
+add the canonical-containment invariant and existing-task acceptance on new
+source evidence, with the original loader lookup order retained.
 Proposal P governs provider assignments: Astra (`gpt-6-astra`, `xhigh`) holds
 the specified gates, chiefs and judges; DeepSeek Flash implements; Sonnet
 retains the task planner and specified design/review positions. The historical
@@ -802,8 +805,16 @@ saved for the phase commit.
       with no search over other profiles, yielding `bundles` (a non-empty
       string array) and `patchReload` (`live` or `startup`); each listed bundle resolves by the
       loader's order (the core package's lookup paths, Node's global folders,
-      then the profile's) to a canonical directory inside the core root or the
-      profile, the plugin inside the profile; the pnpm lock is read by D6's
+      then the profile's). Canonicalize the complete profile directory once
+      for containment when reading it, retaining the original profile lookup
+      anchor separately so that order does not change. Compare each first-hit
+      canonical bundle directory against the canonical core root or canonical
+      profile boundary; the plugin and conditional extension must lie inside
+      that same canonical profile. A boundary or candidate that cannot be
+      canonicalized is unreadable; no raw-path fallback, string-prefix check
+      or search past an outside first hit is permitted. The inherited raw
+      profile comparison and its symlinked-home false refusal remain pending
+      correction under this task. The pnpm lock is read by D6's
       bounded, fail-closed line reader with no YAML crate; and the plugin
       lines are in bytewise path order. `cordis.yml`, the raw `package.json`,
       `pnpm-workspace.yaml`, `.env` layers, persisted state and the per-seat
@@ -925,7 +936,17 @@ saved for the phase commit.
       unreadable. Add one vector for the plugin component's bytewise path
       order, the exclusion of the plugin's own tarball entry, and an equal
       composite for the same pair staged in two homes at different absolute
-      paths and under different per-seat overlays. A profile bundle added,
+      paths and under different per-seat overlays. In the existing synthetic-home
+      suite, also reach the same home through a symlinked ancestor and require
+      equal plugin/composite values when the same bundles resolve. Exercise
+      general bundle, plugin and synthetic conditional-extension containment
+      against the canonical profile, and prove the original lookup anchor/order
+      is retained. An unresolvable profile boundary, a symlink target outside
+      the allowed canonical roots, a near-prefix sibling such as
+      `headless-extra`, and an outside first hit with a later inside candidate
+      must each stay unreadable; no fallback or weakened comparison cures the
+      false refusal. These cases add no provider support or real extension.
+      A profile bundle added,
       dropped or reordered, a changed `patchReload` and an added home-level
       `cordis.patch.yml` each move the composite, and a rewritten `cordis.yml`
       does not. A listed bundle resolving outside the core root and the
@@ -2897,3 +2918,36 @@ in [proposal.md](proposal.md#specify-re-entry-validation--2026-09-13-inherited-h
 Cargo is absent, so none of the six commissioned Cargo gates could launch.
 No delivery checkbox is ticked on these specification checks, and exact
 coverage plus remote final-head evidence remain pending with the controller.
+
+## Council re-entry reconciliation — 2026-09-13, inherited head `02e6771`
+
+The chief adopted returned clarify's `clear` result and read both fresh council
+positions in full. Design D10 pins and explicitly reconciles their claims.
+F1, both commissioned D6 answers and A1–A5/B1–B5 remain settled. The new
+robustness observation is confirmed in `composite.rs`: three containment
+checks compare canonical candidates against a raw profile boundary. A
+synthetic filesystem observation demonstrates a legitimate symlinked home's
+false refusal, not false admission or a Rust/provider pass.
+
+D6 now requires one canonical profile containment boundary and canonical
+candidate comparisons, without changing the loader's original lookup anchor
+or first-hit order. The existing AS1 ordinary-runtime scenario follows, then
+8.8(b)'s correction and 8.10's synthetic alias/escape/error cases here. The
+Node observation shows why simply reusing a canonicalized directory as the
+lookup anchor is insufficient: its ancestor search paths differ. No digest
+line, npm grammar, new task or speculative extension follows; the one Rust
+producer and existing synthetic-home suite remain the implementation owners.
+
+All 101 IDs and ticks remain **81 complete / 20 pending**. Pending work remains
+8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.4, 13.1, 14.1–14.2, 15.1–15.4 and
+15.6–15.7. Preserve the inherited loader/composite/doctor work and completed
+truth repairs. Correct 13.1's partial-evidence prose before remaining 8.8 work;
+finish the existing npm whitespace and new containment acceptance within
+8.8/8.10 before claiming those tasks complete. The September 12 Codex startup
+precondition remains true, and 10.5 still owes its own binary-version read and
+full resume proof. No provider is enabled, proposed 0056 stays proposed, and
+the full archived suite and controller evidence on the final commit remain mandatory.
+
+This is dependent-artifact preparation, not implementation or activation.
+[This visit's design validation](design.md#council-re-entry-validation--2026-09-13-inherited-head-02e6771)
+records the actual checks and their limits. No tick is awarded for them.

@@ -280,6 +280,7 @@ read as history, not as a current claim.
 - **AND** the qualification and the end-to-end proof reach the task-owned installation through these same seams, while snapshots show the global DSH installation, profiles and credentials byte-unchanged
 - **AND** the end-to-end proof is a recorded exchange with the built DSH driver over that installation, while the committed test suite proves the same decisions over synthetic homes and reads no provider installation
 - **AND** the composite match concerns the inputs read for launch and only the qualified patch-reload mode can match; it does not attest to later mid-invocation patch changes or replace AS2's current-restriction proof
+- **AND** resolving that same home through a symlinked ancestor does not itself change the composite or cause a refusal when the loader selects the same contained bundles; an unresolvable profile boundary or a first bundle target outside its allowed canonical roots makes the identity unreadable, without falling back to a later candidate
 
 #### Scenario: The resolved DSH home lacks the qualified composite
 - **GIVEN** the resolved executable and home are the global 0.1.2-rc.1 installation with its plugin-free `headless` profile, or any composite whose core, Node, dependency, plugin, patch or profile identity differs from the qualified one, including a profile bundle added, dropped or reordered, a different patch-reload mode, a home-level patch layer the qualified composite lacked, or a listed bundle that resolves outside the core installation and the profile
