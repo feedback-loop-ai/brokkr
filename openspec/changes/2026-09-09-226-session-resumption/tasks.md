@@ -2377,3 +2377,62 @@ and D10, because the findings sat in the design and in five tasks here:
 
 No identifier was added, removed or renumbered. The record still reads 78
 complete / 23 pending across 101 tasks. No task was ticked and none reopened.
+
+## Current tasks visit — B1–B5 breakdown confirmation, 2026-09-12
+
+This visit belongs to run `current-successor-operator-rulin-b83add73` and
+follows design's `85b743b` (the second analyze-drift return above). It
+adopts HEAD `85b743b` and the dated change `2026-09-09-226-session-resumption`
+and checks the task breakdown against that settled design input before
+implementation resumes, as the dialect's return rule requires.
+
+The design seat's own return already edited 1.1, 6.4, 8.8, 8.10, 9.6, 10.7
+and 11.3 in place to carry B1–B5 (`profile-bundle`/`profile-patch-reload`/
+`home-patch` lines and the bundle-resolution rule; the `env node` executable,
+hidden core lock, child-`PATH` `node`, two-member profile manifest, bounded
+pnpm reader and bytewise plugin-path-order locators; the end-to-end driver
+exchange recorded as 11.3's proof with the "no test reads `.forge/`"
+statement carried into 8.10 and 9.6; 6.4's `evidence.interface` repoint; and
+1.1's citation of decision 0009 and answer M). This visit re-reads all seven
+tasks in full against design D6 section-by-section and finds no further
+drift: every locator, line name and ordering rule D6 states for the
+composite appears in 8.8(b) and 8.10's vectors; 10.7's raw-input list and
+its "recording step runs after 8.8's function" gate match D6's qualification
+section; 11.3's driver-exchange description matches D6's "end-to-end proof"
+section exactly, including the reversible `cordis.patch.yml` drift case and
+the unsafe-locator case.
+
+Independent re-derivation, not just trust of the design's citations,
+confirms three of B1/B2's facts against the task-owned `.forge/dsh-qualify/core`
+0.1.5-rc.1 install, which this visit only read: `dsh-package-manifest`
+`lib/types/types.d.ts` hashes to
+`5d9bdce33121eb6831d2981f3e91f5a932f7db58cea96f722a913b3be26cef93` and
+declares `export type ProfilePatchReload = 'live' | 'startup'`, confirming
+B1's typed-boolean correction; `@deepseek-ai/dsh`
+`lib/profile-boot-Dk-7KqJc.js` hashes to
+`8b79b5c70281f23153ecc1828ba9b6e7b48364cc71409c90f12bde4cc4d7cde0` and its
+`composeProfile` applies bundle layers, then the profile's own patch, then
+the home-level patch (documented as outranking the profile layer), then
+`--patch` overlays, then telemetry — confirming D6's layering order line for
+line; and `dsh-app-boot` `lib/index.js` hashes to
+`d8fdfe41996a4fefcff63af4982787924b0ae651f24bb1402f775b70202529bb`, whose
+`resolveBundleDir` tries `packageDirFromAnchor` against the install anchor
+then the profile directory, each call walking `require.resolve.paths` —
+Node's own ancestor-`node_modules`-then-global-folder order — confirming B2's
+bundle-resolution locator.
+
+The checkbox count is unchanged at 78 complete / 23 pending across the same
+101 tasks (recounted directly against the file), no identifier was added,
+removed or renumbered, and every task still names the requirement it serves.
+No production code, contract, decision, adapter declaration, doctor output,
+guide or evidence file was read as authoritative or edited by this visit;
+the independent re-derivation above used only the read-only task-owned
+install already present under `.forge/dsh-qualify/`, no install, fetch or
+model call ran, and the global DSH pin, profiles and credentials were not
+touched.
+
+`openspec validate 2026-09-09-226-session-resumption --strict` exit 0:
+`Change '2026-09-09-226-session-resumption' is valid`. This breakdown is
+ready for the next implement visit in the order this file states: 10.7's
+live half, then 1.1 → 6.4 → 11.5 → 13.1, then 8.8, then 10.7's recording
+step, then 8.10, 9.6 and 11.3.
