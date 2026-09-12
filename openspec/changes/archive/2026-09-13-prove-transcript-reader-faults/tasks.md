@@ -194,7 +194,7 @@ task:
       entry's occurrence as the sum of each named read's enumeration count
       plus one, with a comment naming the read it points at, so a drift is
       traceable to a named read — same requirement.
-- [ ] 3.11 Add the release-build proof: confirm that clippy's
+- [x] 3.11 Add the release-build proof: confirm that clippy's
       `--all-targets`, the workspace tests, both bundle compiles and the
       release build already exercise a build without the unit-test
       configuration, in which any unguarded `fault::` reference is a
@@ -326,12 +326,12 @@ task:
 
 ## 8. Coverage re-trace, review-finding regression map, and every gate (D8, D11)
 
-- [ ] 8.1 Re-measure local exact coverage and confirm the 22 reader-owned
+- [x] 8.1 Re-measure local exact coverage and confirm the 22 reader-owned
       lines and 19 branch records from the design's table are now covered,
       and that every arm in the D8 seam-coverage table is reached by a
       named test — transcript-reading / Reader failure handling is proved
       through a test-only fault seam.
-- [ ] 8.2 Re-trace S11 against the newest host measurement whose source is
+- [x] 8.2 Re-trace S11 against the newest host measurement whose source is
       byte-identical for each non-reader missed region, using the same two
       conditions the proposal states (host coverage of the region, and
       every test whose executed regions differ returns early under
@@ -339,15 +339,15 @@ task:
       miss, any non-reader miss this re-trace does not establish a box
       cause for, or that the final-head host run leaves uncovered — every
       requirement of this change.
-- [ ] 8.3 For each of chief review 7505's M1-M11 and L1-L11, name or add the
+- [x] 8.3 For each of chief review 7505's M1-M11 and L1-L11, name or add the
       tracked regression test proving its repair, and record its result on
       the final head in the verification record; where a repair has no
       tracked test, add one rather than recording an absence — every
       requirement of this change.
-- [ ] 8.4 Carry `has_security_residual` (review 7505, medium) in every
+- [x] 8.4 Carry `has_security_residual` (review 7505, medium) in every
       result until an independent review clears it on evidence — every
       requirement of this change.
-- [ ] 8.5 Run D7's four-clause seam boundary inspection on the final head
+- [x] 8.5 Run D7's four-clause seam boundary inspection on the final head
       and write it into the verification record, quoting each command and
       the output it produced, not the conclusion drawn from it: (1) every
       `fault::` reference under `crates/brokkr-cli/src` sits in the `fault`
@@ -362,7 +362,7 @@ task:
       that lint, and the clippy gate ran clean with it. Record clause 3 as
       review and clauses 1, 2 and 4 as mechanical, as D7 and D4.5 state —
       every requirement of this change.
-- [ ] 8.6 Run and leave green: `cargo fmt --all -- --check`; `cargo clippy
+- [x] 8.6 Run and leave green: `cargo fmt --all -- --check`; `cargo clippy
       --workspace --all-targets --all-features --locked -- -D warnings`;
       `cargo test --workspace --all-features --locked`; `cargo run -p
       brokkr-cli -- compile --bundle bundles/self`; `cargo run -p
@@ -393,7 +393,7 @@ task:
       Check that this task, design D10 and the proposal's Impact line name
       the same file and section in the same words — every requirement of
       this change.
-- [ ] 9.2 Fold the change into `openspec/specs/transcript-reading/spec.md`
+- [x] 9.2 Fold the change into `openspec/specs/transcript-reading/spec.md`
       with one normal archive: replace the modified "Transcript prose stays
       local and inert" requirement and append the new "Reader failure
       handling is proved through a test-only fault seam" requirement,
@@ -403,7 +403,7 @@ task:
       the living `transcript-reading` specification and the archived change
       pass: 8.6's run validated the pre-fold tree and does not speak for
       this one — every requirement of this change.
-- [ ] 9.3 Commit the completed, ticked task list and its code together,
+- [x] 9.3 Commit the completed, ticked task list and its code together,
       tagged `(#222)`, unsigned, and never pushed — every requirement of
       this change.
 
