@@ -1,5 +1,20 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
+Current commission: the 2026-09-12 operator ruling adopts all work at
+`cf06034` for `current-successor-operator-rulin-eef1e666`. The change stays
+whole and the ledger remains 78 complete / 23 pending across 101 identifiers.
+Proposal P governs provider assignments: Astra (`gpt-6-astra`, `xhigh`) holds
+the specified gates, chiefs and judges; DeepSeek Flash implements; Sonnet
+retains the task planner and specified design/review positions. The historical
+no-Codex instruction is superseded and no Fable/Opus pin is restored.
+
+The September 12 controller Codex sandbox evidence makes 10.5's startup
+precondition true; the resume measurement itself remains pending. This seat's
+boxed version attempt returned command-not-found, while the supplied triage
+read reports 0.153.4. Task 10.5 re-reads its exercised binary and reconciles
+that result with accepted 0.148.0 and supplied 0.153.4 evidence. Earlier dated
+host-blocker accounts below remain history, never current controller blockers.
+
 Groups are the design's landing order (Migration Plan 1–6): the proposed
 ruling before any production semantic edit, the record version before
 anything emits its fields, the site identity before the query that keys
@@ -21,8 +36,9 @@ help, installed source and packages, the dated captures under
 accounting boundaries (9.1–9.3), whose argv, routes and cursors are their
 output — 8.8's DSH route is 10.3's exact forward-pinned core/plugin-adaptation candidate,
 and 9.1's current-work cursor is measured, not assumed.
-**10.5–10.8 are live enforcement proof**: they need dated controller
-host evidence that does not exist in this worktree, they run after
+**10.5–10.8 are live enforcement proof**: they need complete dated
+provider evidence; supplied partial captures and September 12 Codex startup
+evidence do not complete them. They run after
 groups 8 and 9, and they gate group 11 and nothing else. Every task that
 depends on one of the eight names it, and the `## Progress` foot of this
 file records the dependency as it actually binds rather than by group
@@ -735,12 +751,30 @@ saved for the phase commit.
       (name, version, registry integrity), `node`, one deduplicated,
       bytewise-sorted `dependency` line per lock-metadata
       `name version integrity` triple normalized from npm's hidden
-      `node_modules/.package-lock.json` and pnpm `pnpm-lock.yaml` (the core's and the plugin's own entries
-      excluded), `plugin`, `plugin-patch`, `profile-patch`, one
+      `node_modules/.package-lock.json` and pnpm `pnpm-lock.yaml`. Apply D6's
+      complete npm path grammar: parse every `node_modules/<package>` group,
+      take the final unscoped or complete `@scope/name` package spelling, and
+      take version and integrity verbatim from that same entry. Ignore an
+      optional `name` field; reject malformed paths and missing, mistyped or
+      invalid version fields. Deduplicate only equal complete triples, retain
+      different versions/integrities, then sort their value bytes. Exclude the
+      core's own entry and the plugin's local-tarball entry (also the local
+      `brokkr-dsh-resume-policy` entry only when its composed bytes enter the
+      conditional extension component). Follow those lines with `plugin`,
+      `plugin-patch`, `profile-patch`, one
       `profile-bundle` line per `dsh.profile.bundles` entry in declared order,
       `profile-patch-reload`, `home-patch` (the home-level
       `$DSH_HOME/cordis.patch.yml` SHA-256 or `absent`) and, only if D6's
-      conditional extension exists, `extension`. It reaches its inputs only
+      conditional extension is named in the profile's bundles, `extension`.
+      That package is `brokkr-dsh-resume-policy`, authored only after a
+      demonstrated missing hook under `extensions/dsh/resume-policy/`, with
+      `package.json`, `index.js`, `cordis.patch.yml` and `LICENSE` and its
+      separate section of `extensions/dsh/PROVENANCE.md` as D6 specifies.
+      Resolve its installed directory through the same bundle lookup, require
+      it inside the profile, and hash that exact installed set with the same
+      file-line function; missing/extra entries, symlinks or unsafe resolution
+      are unreadable. No repository provenance is read at runtime and no
+      second digest producer is added. It reaches its inputs only
       through D6's locators: the canonical executable must be the core
       package's `bin.dsh` script with the `#!/usr/bin/env node` first line;
       the core lock is `<core root>/node_modules/.package-lock.json`, whose
@@ -787,8 +821,11 @@ saved for the phase commit.
       an SDK runner or admit hands. If 10.7 demonstrates that the documented
       setup or pre-work observation hook is still insufficient after the
       adaptation, return this task to pending and add only the narrow Cordis
-      extension D6 permits through the documented API, include it in the
-      composite identity, then rerun 10.7; do not patch provider packages,
+      extension D6 permits through the documented API at
+      `extensions/dsh/resume-policy/`, record its authorship, missing-fact probe,
+      documented hook/core version, limited behavior, licence and exhaustive
+      per-file digests in the sibling provenance note, include its installed
+      set in the composite identity, then rerun 10.7; do not patch provider packages,
       fork the plugin a second time outside this adaptation or intercept
       UUIDs. Verify with the DSH planner/storage shim cases in 8.10 and 9.6;
       the loader cases in `crates/brokkr-runtime/src/agents/tests.rs` (a
@@ -844,7 +881,15 @@ saved for the phase commit.
       recompute and no `--new` or `--session`. Pin the canonical composite's
       byte form with one worked vector per lock dialect (the npm lockfile-3
       hidden lock and pnpm lockfile 9.0, as committed synthetic excerpts in the
-      measured grammar), one vector for the plugin component's bytewise path
+      measured grammar). The npm vector includes top-level and nested
+      unscoped names, scoped names under unscoped and scoped parents, no
+      `name` fields and a conflicting optional `name` field, with versions
+      taken from the selected entries. Assert exact normalized value bytes,
+      equality with equivalent pnpm entries, complete-triple deduplication and
+      retention of same-name entries with different versions or integrities.
+      Empty, absolute, incomplete, traversal, backslash or trailing-separator
+      keys and missing, non-string, empty or whitespace-bearing versions are
+      unreadable. Add one vector for the plugin component's bytewise path
       order, the exclusion of the plugin's own tarball entry, and an equal
       composite for the same pair staged in two homes at different absolute
       paths and under different per-seat overlays. A profile bundle added,
@@ -861,7 +906,13 @@ saved for the phase commit.
       ambiguity, traversal and symlink escape; a retained directory is never a
       handle. Beside these drift shims, keep 8.8's committed-bytes test pinning
       the repository-owned adaptation's exact six-file set against its
-      provenance block. Retain the exact resume argv and complete current class/model/
+      provenance block. Cover the conditional extension with synthetic absent
+      and present sets, exact four-file path order, changed bytes, missing or
+      extra files, symlinks and resolution outside the profile; absence emits
+      no extension line. If the extension is required, also compare its
+      committed set to its own provenance block through the same function.
+      No speculative extension is created merely to exercise these cases.
+      Retain the exact resume argv and complete current class/model/
       effort cases for every other adapter, generated-fragment versus passthrough
       distinction, no ambient cold/gate continuation, nonpersistent refusal,
       identifier injection, unsupported hands and cold/resume inability to
@@ -1035,10 +1086,25 @@ itself (`safety / AS1`).
       Claude, how the underlying Claude version is read through a
       measured interface, and the capture marker's attribution point. No
       LaneTally version command is invented. Prerequisite of 8.7 — safety / AS1.
-- [ ] 10.5 Codex proof: a bounded cold/resume probe on the installed
-      version recording the exact invocation, class re-imposition,
-      same-root confirmation, current-only accounting and the pre-work
-      rejection shape — safety / AS1.
+- [ ] 10.5 Codex proof: first read
+      `.forge/tasks/controller-codex-sandbox-host-2026-09-12.md` and retain
+      `codex-proof-2026-09-10.json` and `.md` as dated partial evidence. The
+      controller's working bubblewrap/AppArmor route and actual cold
+      read-only denial establish the startup precondition; raw `unshare -Ur`
+      refusal is not a live Codex blocker. Re-read and record the actual
+      exercised binary's version and identity, reconcile accepted 0030's
+      0.148.0 with supplied 0.153.4 and any installed replacement, then run a
+      bounded cold/resume probe for every previously supported material work
+      shape. Record exact invocation and allowed argv, effective class and
+      applicable current fragment re-imposed across resume, exact same-root
+      confirmation, current-only accounting and the pre-work rejection shape.
+      Each claimed axis needs its own attributable observation; a cold
+      sandbox check, policy record or absent file caused by sandbox startup
+      failure cannot complete resumed enforcement. Tick only when those
+      observations and the adapter assertions agree. Missing boxed PATH access
+      does not erase supplied host evidence or become a controller blocker;
+      11.1 remains pending until this proof passes — safety / AS1,
+      safety / AS2, evidence / LE4.
 - [ ] 10.6 Finish Claude proof on the pinned 2.1.266 binary without
       repeating the supplied same-root and Read-grant observations. Preserve
       `controller-claude-root-probe.json`,
@@ -1083,8 +1149,12 @@ itself (`safety / AS1`).
       `patchReload`, each listed bundle's resolved directory relative to the
       core root or the profile, and the home-level patch's SHA-256 or its
       absence — with the composed profile and extension protocol, but no
-      plugin-component or composite digest,
-      while proving the live global DSH pin, profiles, credentials and other
+      plugin-component or composite digest. If D6's measured missing-hook
+      condition applies, record `extensions/dsh/resume-policy/`'s separate
+      provenance, installed four-file digests and resolved profile-relative
+      directory as raw inputs too; verify them against the note before a
+      model call. Obtain its component only in the recording step through
+      8.8's function. Prove the live global DSH pin, profiles, credentials and other
       runs are unchanged. Keep the task-owned home in place.
       Write the result to `.forge/tasks/dsh-pair-qualification-015rc1.json`
       beside the superseded `.forge/tasks/dsh-pair-qualification-010rc6.json`,
@@ -1117,7 +1187,9 @@ itself (`safety / AS1`).
       agree. If a required policy or
       pre-work fact is unavailable even with the adapted accessor, identify
       the exact documented hook needed and return 8.8 to pending for D6's
-      narrow digest-bound Cordis extension, then rerun this proof;
+      narrow digest-bound Cordis extension at
+      `extensions/dsh/resume-policy/` with its separate provenance section,
+      then rerun this proof;
       incompatibility of this exact route is the precise unmet AS1 condition,
       not a global limitation and not authority for SDK/TUI substitution or a
       second adaptation delta. If the resolved release genuinely exposes no
@@ -1132,7 +1204,7 @@ itself (`safety / AS1`).
       version, root confirmation, capture attribution and the applicable
       restrictions on resume. Unsupported hands stay unsupported — safety / AS1.
 
-## 11. Enablement — one task per shape, unchecked until 10.5–10.8 supply their proof
+## 11. Enablement — evidence-gated provider dispositions
 
 - [ ] 11.1 Enable Codex's previously supported work shapes on the
       remeasured installed version, flip `adapters/codex.json` to
@@ -1181,9 +1253,11 @@ itself (`safety / AS1`).
       leave this task unchecked and report that exact AS1 gap upstream
       rather than flipping the declaration — safety / AS1, safety / AS2,
       safety / AS3, site / SR3, evidence / LE4.
-- [ ] 11.4 Enable or leave declared-unsupported LaneTally on 10.4's
-      interface and 10.8's proof, with its measured reason. Never mark it
-      supported by analogy — safety / AS1.
+- [ ] 11.4 Enable LaneTally only on 10.4's interface and 10.8's proof,
+      or leave it declared-unsupported on 10.4's measured evidence with that
+      reason. This is the operator's one lawful unsupported disposition;
+      it does not waive Codex, Claude or DSH delivery. Never mark it supported
+      by analogy — safety / AS1.
 - [ ] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
       support representation with 6.4's corrected preparatory truth. DSH's
       forward-pinned latest core (`@deepseek-ai/dsh` 0.1.5-rc.1, or the
@@ -2436,3 +2510,32 @@ touched.
 ready for the next implement visit in the order this file states: 10.7's
 live half, then 1.1 → 6.4 → 11.5 → 13.1, then 8.8, then 10.7's recording
 step, then 8.10, 9.6 and 11.3.
+
+## Current specify adoption — operator ruling 2026-09-12
+
+Run `current-successor-operator-rulin-eef1e666` adopts `cf06034` and the whole
+change. The two new findings were answered first in design D6, then in AS1
+scenarios, then in this breakdown. Tasks 8.8(b) and 8.10 now name npm terminal
+package extraction, same-entry version/integrity, complete-triple sorting and
+deduplication, nested/scoped vectors and malformed-input refusals. Task 8.8
+names the conditional extension's location and provenance; 8.10 tests its
+identity, and 10.7 records its raw inputs only if the measured need arises.
+The first finding costs reproducibility, not a demonstrated safety bypass;
+8.8 remains the only digest producer. The second supplies ownership without
+commissioning a speculative extension. A1–A5 and B1–B5 remain settled.
+
+Task 10.5 now consumes the September 12 host evidence: startup is measured
+true, resumed enforcement/root/accounting are still pending, and the installed
+version must be re-read and reconciled. The September 10 host-blocker account
+is preserved above solely as history. Task 11.4 states the operator's existing
+LaneTally exception explicitly; no provider disposition is completed here.
+The current provider instruction supersedes the former quota restriction.
+
+All 101 task identifiers and every checkbox retain their adopted state:
+**78 complete / 23 pending**. The five deltas now contain **20 requirements /
+141 scenarios**. The two new AS1 scenarios map to 8.8/8.10 and, conditionally,
+10.7/11.3; the amended Codex scenario maps to 10.5/11.1. Existing truth repairs,
+provider proof and enablement, re-pins, local gates and readiness remain
+pending. This artifact-only commit is preparation, not activation, archive or
+delivery. The controller owns exact-head coverage, CI, integration,
+publication and closure, with real results pending outside this artifact.

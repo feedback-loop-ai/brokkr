@@ -140,6 +140,16 @@ delivery and is not a hidden precondition of it. The qualification and the Rust
 route's end-to-end proof SHALL reach the task-owned installation through the
 same seams, so they exercise the adapter's actual resolution and argv.
 
+A conditional adapter-owned Cordis extension for a demonstrated missing
+policy or pre-work observation SHALL have a declared repository location and
+provenance tied to that measurement and the documented hook it uses. Its
+committed runtime file set, licence and per-file digests SHALL be recorded
+outside the hashed file set; the installed bytes SHALL match them and SHALL
+join the same composite through the delivered Rust canonicalization. No such
+extension SHALL be authored or composed merely because it is permitted. It
+SHALL NOT expand the session plugin's single-expression adaptation, add a
+second runner or admit more tools.
+
 This session-selection work is independent of the deferred plugin
 for replacing native tools with boxed hands. It SHALL preserve Rust-only Brokkr
 production, the admitted headless profile, existing trust and boundary
@@ -283,6 +293,20 @@ read as history, not as a current claim.
 - **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
 
+#### Scenario: npm nested and scoped keys produce reproducible dependency values
+- **GIVEN** a hidden npm lock with no `name` fields, including `node_modules/debug`, nested `node_modules/parent/node_modules/debug` and `node_modules/@parent/pkg/node_modules/@scope/child` entries
+- **WHEN** qualification and runtime compute the same composite through the delivered Rust canonicalization
+- **THEN** each dependency value uses the terminal package name (`debug` or `@scope/child`) and that entry's exact `version` and `integrity`, joined by single ASCII spaces; parent paths and optional `name` fields never supply these values
+- **AND** identical complete triples produce one dependency line, different versions or integrities remain distinct, and equivalent npm and pnpm entries yield identical value bytes before bytewise sorting
+- **AND** malformed paths or missing, mistyped or invalid version fields make the identity unreadable and an offer declines as `unverified-harness`; the name is never guessed from a URL or another entry
+
+#### Scenario: A measured missing hook requires the conditional Cordis extension
+- **GIVEN** a dated probe demonstrates a missing policy or pre-work fact on the adapted DSH route and a documented Cordis hook can supply that fact
+- **WHEN** the conditional extension is prepared at its design-declared repository location
+- **THEN** its separate provenance identifies repository authorship, the measured gap, documented hook and core version, limited behavior, licence and complete runtime file digests, and its installed file set contributes the extension component to the qualified composite
+- **AND** missing or changed installed bytes or unsafe resolution cannot match that qualification; a changed composite requires re-qualification before enablement
+- **AND** without the demonstrated gap no extension is authored or composed, and neither the session plugin's one-expression delta nor the admitted tool surface is widened
+
 #### Scenario: Before enablement a home holding the pair still runs cold
 - **GIVEN** the DSH shape is still `unmeasured`, its identity carries no `wrapper_digest`, and the resolved home holds the qualified pair
 - **WHEN** a DSH seat starts cold or an eligible DSH offer arrives
@@ -316,7 +340,8 @@ read as history, not as a current claim.
 #### Scenario: An installed version differs from historical Codex evidence
 - **GIVEN** the accepted resume measurement identifies codex-cli 0.148.0 and supplied installed-version evidence identifies 0.153.4
 - **WHEN** the new adapter's support is assessed for delivery
-- **THEN** 0.148.0 remains historical evidence and resume on 0.153.4 stays disabled until current resume-subcommand interface and bounded restriction, root-confirmation and accounting evidence qualify that shape
+- **THEN** the exercised binary's version is re-read and reconciled with those dated measurements, 0.148.0 remains historical evidence, and resume on the installed version stays disabled until current resume-subcommand interface and bounded restriction, root-confirmation and accounting evidence qualify that shape
+- **AND** supplied later evidence that the host starts the sandbox and enforces a cold read-only class supersedes a prior startup blocker, but does not establish restriction re-imposition, exact root or current accounting across resume
 - **AND** preserving Codex support requires completing that remeasurement and delivering its previously supported work shapes; a disabled regression is not full delivery
 
 #### Scenario: The measured installed version still applies

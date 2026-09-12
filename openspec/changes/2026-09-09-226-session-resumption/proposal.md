@@ -1,5 +1,11 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit adopts all committed work at `cf06034` under the same
+change identifier, `2026-09-09-226-session-resumption`, for run
+`current-successor-operator-rulin-eef1e666`. The operator's 2026-09-12
+ruling keeps the change whole. Earlier dated returns below remain history;
+answer P is the current commission and evidence boundary.
+
 ## Why
 
 Eligible Claude and DSH retries lose their session's reasoning while retaining
@@ -722,6 +728,48 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
     unshipped and untracked. It would also make that file an evidence
     database.
 
+- **P — Operator ruling 2026-09-12: adopt the whole change and the new host
+  evidence.** Adopt `cf06034` and all preceding committed work without a split,
+  new change or weakened AS1 minimum. Leaving previously supported Codex shapes
+  disabled is incomplete delivery. LaneTally alone may remain
+  declared-unsupported on 10.4's measured evidence under 11.4; enabling it still
+  requires 10.8. Tasks retain their 101 identifiers and 78-complete/23-pending
+  state until their own work and checks pass.
+
+  The current provider instruction supersedes the historical quota instruction:
+  `gpt-6-astra` at `xhigh` holds triage, clarify, chief architect, analyze and
+  review chief, with Astra at every gate, chief and judge. DeepSeek Flash
+  implements; Sonnet retains the task planner and the specified design and
+  sonnet-side review positions. No Fable or Opus pin is reintroduced. These are
+  the supplied recipe's assignments, not provider support evidence or a recipe
+  edit by this office.
+
+  `.forge/tasks/controller-codex-sandbox-host-2026-09-12.md` supersedes the
+  September 10 conclusion that this controller cannot start Codex's sandbox.
+  Bubblewrap's `--unshare-all` and `--unshare-user` probes exit zero under the
+  host's `bwrap-userns-restrict` AppArmor profile. The supplied Codex cold
+  `workspace-write` write succeeds, while the identical read-only write fails
+  with `Read-only file system` and its target is absent. Raw `unshare -Ur`
+  refusal therefore is no longer a live Codex blocker. The dated September 10
+  JSON/Markdown evidence remains unchanged. Task 10.5's sandbox-startup
+  precondition is measured true, but this new evidence measures no resume,
+  root, accounting or restriction re-imposition across resume.
+
+  This seat's own `codex --version` attempt through the workspace tool returns
+  command-not-found (exit 127); it does not replace a host version observation.
+  The current triage capture in `.forge/tasks/current-successor-triage.md`
+  reports its own `codex-cli 0.153.4` read. Task 10.5 must re-read the binary it
+  actually exercises, reconcile accepted 0030's 0.148.0 with supplied 0.153.4
+  and any installed replacement, and establish the full resume proof before
+  11.1. Neither host startup nor a policy record discharges runtime enforcement.
+
+  The two newly commissioned findings belong first to design D6: npm
+  hidden-lock key normalization (MEDIUM, reproducibility rather than an
+  established safety bypass) and the conditional Cordis extension's location
+  and provenance (LOW). Answer them there before reconciling their AS1
+  scenarios and tasks. A1–A5 and B1–B5 remain settled; these findings neither
+  create another digest producer nor authorize a speculative extension.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -873,8 +921,8 @@ and implementation obligations:
   older core; if no lawful replacement exists, record the missing surface with
   its probe and park with the upstream ask. Write the live evidence to
   `.forge/tasks/dsh-pair-qualification-015rc1.json`, beside the superseded
-  0.1.0-rc.6 file. Qualifying and implementing seats use Claude and Flash only,
-  with no Codex/OpenAI model call or fallback.
+  0.1.0-rc.6 file. Seats use the operator's 2026-09-12 provider assignment
+  in answer P; the earlier Claude/Flash-only, no-Codex restriction is superseded.
   Qualify a bounded cold/resume pair in which cold work creates and confirms a
   persisted root and private nonce, then `--session <owned-root>` rejoins that
   exact root and recalls it while using the current invocation's headless
@@ -1358,3 +1406,42 @@ and changed only those two living files. Each capability kept exactly one
 provenance pointer for this change, and strict validation of the twelve living
 specs passed. `git diff --check` is clean. Cargo is not on this box's PATH, so
 this return claims no Rust, bundle or release-binary result.
+
+## Successor specify validation — 2026-09-13 (Europe/Sofia)
+
+Run `current-successor-operator-rulin-eef1e666` adopts every committed artifact
+at `cf06034` under `2026-09-09-226-session-resumption`. The repository dialect
+instructions and OpenSpec-rendered proposal, specs, design and tasks
+instructions were read through the workspace hands. Both retained council
+positions were read in full and their hashes still match D10. The two new
+findings were repaired in D6 before their AS1 scenarios and task clauses;
+proposal P records the whole-change/provider ruling and superseding host
+evidence. No upstream defect or reduced delivery minimum was inferred.
+
+Strict active validation, artifact status and delta parsing pass. The five
+deltas contain 20 requirements / 141 scenarios, with 15 ADDED and five MODIFIED
+operations. A read-only prospective-fold comparison finds the same four
+semantic replacements (AS1–AS3 and PM4); every ADDED block is still identical
+to standing truth. No archive operation ran. All 101 task IDs and ticks match
+`cf06034`: 78 complete / 23 pending. The other four deltas and every prior
+dated return section retain their bytes. All 521 measured npm keys fit the
+selected grammar; their nine debug paths yield two distinct triples. This
+checks the design against supplied data, not the pending Rust implementation
+or a provider proof, and computes no composite digest.
+
+With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, launches of format, all-target/
+all-feature clippy, workspace tests, both bundle compiles and the release build
+all fail with `ENOENT` because Cargo is absent. The unchanged exact-coverage
+command exits 1 before running coverage because `/var/tmp` is absent. No Rust,
+release, boundary or coverage pass is claimed. CI, release admission and
+coverage still consume `rust-nightly-version.txt`. The command records are
+under `.forge/specify-eef1e666/`; final-head host coverage and remote delivery
+remain pending controller evidence.
+
+`git diff --check` passes. Exactly four planning artifacts are prepared for
+this unsigned specification commit: proposal, design, the safety delta and
+tasks. Frozen paths, living capabilities, production, decisions, declarations,
+provider homes and settings remain unchanged from the adopted head. No provider
+model call, workflow runner, archive, push, merge or new Brokkr run was invoked.
+This is a drafted specification; provider proofs, implementation, activation,
+readiness and delivery remain pending.

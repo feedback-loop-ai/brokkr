@@ -1,5 +1,11 @@
 ## Context
 
+The 2026-09-12 specify seat adopts `cf06034` for
+`current-successor-operator-rulin-eef1e666`, including this entire design.
+Proposal P records the current whole-change and provider ruling. This visit
+repairs only the two new D6 findings and carries the superseding Codex host
+evidence into the proof plan; the earlier council dispositions remain settled.
+
 This design adopts the existing
 **2026-09-09-226-session-resumption** change at `7178895`, over its
 implementation commit `75ae68e`, while retaining the commissioned shipped base
@@ -466,10 +472,24 @@ and measured confirmation/accounting rules.
 
 | Adapter | Construction decision | Proof still required before enabling |
 |---|---|---|
-| Codex | Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort and safe passthrough. Admit exact engine-generated MCP fragments separately from arbitrary `-c`. | Current 0.153.4 resume help, class/boxed-fragment enforcement, exact root, current events and pre-work rejection semantics. 0030's 0.148.0 measurement remains historical regression scope. |
+| Codex | Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort and safe passthrough. Admit exact engine-generated MCP fragments separately from arbitrary `-c`. | Re-read the exercised installed version and reconcile 0030's 0.148.0 with supplied 0.153.4; prove resumed class/boxed-fragment enforcement, exact root, current events and pre-work rejection semantics. September 12 host startup/enforcement evidence establishes only 10.5's precondition. |
 | Claude | Known print/stream-json path with exactly `--resume <owned-id>` and the current restriction plan: permission mode, model/effort, `--tools ""`, strict MCP config, current MCP document and allowed workspace tool where boxed. Current prompt stays on stdin. | Root-opening semantics, complete effective restrictions/precedence, persistent identity and current-only stream/accounting on 2.1.266. |
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
 | DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay; use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
+
+**Codex host evidence, 2026-09-12.** The controller's
+`.forge/tasks/controller-codex-sandbox-host-2026-09-12.md` supersedes the
+September 10 host-blocker conclusion. Bubblewrap starts through its admitted
+AppArmor profile despite raw `unshare -Ur` refusal, and the supplied cold
+Codex probes distinguish a successful workspace-write write from an actual
+read-only filesystem denial with the target absent. This establishes task
+10.5's startup precondition, not any resume axis. Its next action is the
+bounded installed-version cold/resume measurement, with the exact root,
+current accounting and class re-imposition across resume established on that
+binary. Keep the older probe as dated partial evidence. This seat's boxed
+`codex --version` attempt returns 127; triage's supplied September 12 read
+reports 0.153.4. Neither observation substitutes for re-reading the executable
+used by 10.5, and no host namespace blocker is inferred from this box.
 
 Claude creates with its harvested provider ID by default. Bare `-r`, continue,
 fork, user `--session-id`, `--from-pr`, `--teleport`, background/cloud selectors
@@ -660,13 +680,17 @@ so the whole value has a byte-exact form (analyze A2):
 8. `home-patch`: the hexadecimal SHA-256 of the home-level
    `$DSH_HOME/cordis.patch.yml`, or the literal `absent` when no such file
    exists;
-9. `extension`, only when D6's conditional extension exists: computed over its
-   committed files as the plugin component is.
+9. `extension`, only when the profile's bundle list names
+   `brokkr-dsh-resume-policy`: computed over the installed four-file set
+   defined below with the same file-line computation as `plugin`.
 
 The core's own lock entry supplies the `core` line and is not repeated among
 the dependencies. The plugin's own lock entry is excluded: its integrity
 describes the local tarball it was installed from and its key carries that
-tarball's relative path, while its bytes already enter as `plugin`. Any other
+tarball's relative path, while its bytes already enter as `plugin`. The
+conditional `brokkr-dsh-resume-policy` entry is likewise excluded only when
+that extension is composed and its installed bytes enter as `extension`;
+its local tarball integrity is not registry identity. Any other
 entry without a registry integrity, a value containing a NUL or newline, and a
 component that cannot be read each make the identity unreadable, which declines
 as `unverified-harness`. Both lock dialects normalize to the same
@@ -675,10 +699,61 @@ task-owned 0.1.5-rc.1 install. The core's hidden npm lock
 `node_modules/.package-lock.json` (lockfile version 3) keys 521 `packages`
 entries by `node_modules/` path, each with `version` and `integrity`. The
 profile's pnpm `pnpm-lock.yaml` (lockfile version 9.0) keys `packages` as
-`name@version`, with `resolution.integrity`. Names come from those keys, never from a resolved URL or importer specifier: the pnpm
-importer's `specifier` records the plugin tarball's absolute path and is not
-read. 8.10 carries one worked vector per dialect, so tests pin the
-normalization rather than two authors' readings of it.
+`name@version`, with `resolution.integrity`. Names come from the terminal
+package portion of npm's path keys and from pnpm's package keys by the rules
+below, never from a resolved URL or importer specifier: the pnpm importer's
+`specifier` records the plugin tarball's absolute path and is not read.
+
+**npm key-to-triple rule (2026-09-12 finding 1).** Read the hidden lock's
+`packages` object, with JSON decoding but no filesystem, URL or case
+normalization of its keys. A key consists of one or more
+`node_modules/<package>` groups separated by `/`. Each `<package>` is either
+one unscoped component or exactly `@<scope>/<name>`. Scope and name components
+are non-empty, are neither `.` nor `..`, and contain no `/`, `@`, backslash,
+NUL or whitespace. An unscoped component obeys the same rule. Reject an empty
+key, absolute path, incomplete group, trailing separator or any other shape
+as unreadable; do not skip it or guess a name. Parse every group, then take
+only the final group's complete package spelling as `name`, preserving its
+scope. Ancestor packages and every `node_modules/` segment are not part of
+that name. Take `version` verbatim from that same entry's required non-empty
+JSON string `version`, never from the key, an ancestor, a `name` field, a URL
+or an installed manifest. Do not trim or normalize it; a version containing
+NUL or whitespace is unreadable. Take `integrity` from that entry's required
+registry `integrity` under the existing rule. An optional `name` field is
+ignored. Missing or mistyped fields make the identity unreadable. The core
+line's separate package-version equality check still applies.
+
+Examples below are normalization vectors, not provider qualification:
+
+| npm key | Entry version | Normalized name / version |
+|---|---|---|
+| `node_modules/debug` | `2.6.9` | `debug` / `2.6.9` |
+| `node_modules/body-parser/node_modules/debug` | `4.4.3` | `debug` / `4.4.3` |
+| `node_modules/express/node_modules/debug` | `4.4.3` | `debug` / `4.4.3` |
+| `node_modules/@smithy/node-http-handler` | `4.12.1` | `@smithy/node-http-handler` / `4.12.1` |
+| `node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler` | `4.12.1` | `@smithy/node-http-handler` / `4.12.1` |
+
+Each resulting dependency value is exactly `name`, one ASCII space,
+`version`, one ASCII space, then that entry's `integrity`. Deduplicate only
+identical complete triples across both locks, then sort those complete value
+bytes bytewise. Thus equal nested/top-level triples yield one line, while
+same-name entries with different versions or integrities remain separate.
+No installation path enters the triple. 8.10 uses synthetic excerpts to pin
+these outcomes alongside the existing pnpm vector and malformed-key/version
+refusals; its npm/pnpm equivalent entries must yield identical value bytes.
+
+This visit re-read the hidden lock (SHA-256
+`581a4c461f72e968a190bbfb50d991aa89a39e62ec32ef9f224cc4773c8a02bb`):
+521 entries, 335 scoped keys, 32 nested keys and zero `name` fields. Its nine
+`debug` keys represent two distinct version/integrity triples (2.6.9 and
+4.4.3). The path-literal alternative would produce nine lines. Reject that
+reading because the declared value is a package name/version/integrity triple
+shared with pnpm, and reject optional-name-field lookup because no measured
+entry supplies one. The finding is **MEDIUM: reproducibility**, not an
+established safety bypass. 8.8's sole producer supplies qualification and
+runtime values, and failed comparisons fail closed; no second implementation
+or measured false admission was found. The clarification makes the selected
+byte form reproducible without changing those safety claims.
 
 Dependencies enter by lock metadata rather than as hashed bytes: the measured
 core install holds 25,418 files in 305 MB, and hashing that tree inside D5's
@@ -914,6 +989,46 @@ limits to the accessor expression; a need that only such a delta could meet
 returns to the specification. The adaptation is not such an extension: the
 accessor fault sits inside the runner's own fold, which an extension beside it
 could not reach without becoming a second runner (answer M).
+
+**Conditional extension ownership (2026-09-12 finding 2).** If that measured
+missing policy or pre-work fact requires the extension, its repository home is
+`extensions/dsh/resume-policy/`, beside the adapted plugin. It is the package
+`brokkr-dsh-resume-policy`, with exactly four committed runtime files:
+`package.json`, `index.js`, `cordis.patch.yml` and `LICENSE`. The manifest
+names that package and `index.js` as its entry. These are repository-authored
+JavaScript extension bytes under the repository's MIT option, committed as
+executed, with no build step or runtime dependency of their own; reference
+upstream interfaces without copying their implementation. They run only in
+DSH's documented Cordis loader and join no Brokkr crate or release package.
+The plugin's six-file set and one-expression delta remain unchanged.
+
+A separate conditional-extension section in the sibling
+`extensions/dsh/PROVENANCE.md` records repository authorship under this #226
+change, the dated probe demonstrating the exact missing fact, the documented
+module/hook and core version that supply it, the source/evidence references,
+its limited behavior, licence, and a `sha256sum`-format block over the complete
+four-file set. It records no hand-computed extension component or composite.
+The provenance note remains outside both hashed runtime sets. If no missing
+fact is demonstrated, create neither the directory nor that provenance
+section and compose no extension. This is **LOW: missing location and
+provenance**, not evidence that another restriction mechanism is needed.
+
+Qualification installs only the committed set into the task-owned profile,
+checks installed bytes against its per-file provenance block, and records that
+set among the raw inputs. The profile lists `brokkr-dsh-resume-policy` in
+`dsh.profile.bundles`; D6's existing bundle lookup must resolve it inside the
+profile directory. Its four installed files enter composite line 9 in bytewise
+path order (`LICENSE`, `cordis.patch.yml`, `index.js`, `package.json`), using
+8.8's same file-line function. Missing/extra entries, symlinks, unreadable
+files or resolution outside the profile make the identity unreadable. Doctor
+and runtime read this installed set, never repository provenance. Omitting or
+adding the bundle changes the profile lines as well as line 9. A test covers
+the absent extension and synthetic present, changed-byte, missing-file and
+unsafe-resolution cases; if the real extension is needed, the same test also
+compares its committed set with the provenance block. No speculative live
+extension is authored merely to satisfy a test. An unowned external extension,
+a second runner or a second delta inside the session plugin is rejected for
+the reasons above.
 
 Treat the plugin's `firstSeq` boundary and latest assistant usage as candidate
 evidence, not established accounting. The pinned-pair probe must determine
@@ -1281,6 +1396,25 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Both, B5: 1.1 cites 0009 and states answer M's admission obligation. | Adopt in task 1.1 and in this section's opening obligation. |
 | Simplicity: refresh the pins; no YAML crate, `dump-config` walker, raw `package.json` hash, committed live test or second implementation. | Adopt the refreshed pins and every cut. The resolution rule emulates one documented lookup over the file system; it is not a tree walker and spawns no resolver. |
 
+*Successor adoption — two new D6 findings, 2026-09-12:*
+
+Both retained positions were read in full and their hashes above still match.
+They are the B1–B5 sitting, not new opinions about these two findings. Adopt
+their common single-producer, bounded-reader, synthetic-test and conditional
+extension constraints. Their earlier disagreements remain explicitly resolved
+in the existing rows; no A1–A5 or B1–B5 finding is reopened.
+
+| New finding / claim | Disposition and owning evidence |
+|---|---|
+| MEDIUM: npm path keys do not determine the claimed name/version triple. | Adopt in D6 before tasks 8.8(b)/8.10. The measured hidden lock has no `name` fields and includes nested/scoped keys. Use the terminal package spelling and the same entry's version/integrity, then deduplicate complete triples. Reject path-literal names and name-field lookup. The cost is reproducibility; the existing sole producer and fail-closed comparison do not establish a safety bypass. |
+| LOW: the conditional Cordis extension has no repository location or provenance rule. | Adopt in D6 before its consumers. Reserve `extensions/dsh/resume-policy/` and a separate section of `extensions/dsh/PROVENANCE.md`, with the fixed installed set joining line 9 through the same function. Combine robustness's conditional hook with simplicity's refusal to build one speculatively: only a demonstrated missing fact activates this work. |
+| September 10 host startup blocker versus September 12 controller measurements. | Adopt the later host evidence in D6/10.5. Raw unshare refusal is not a Codex blocker; startup is measured, while installed-version resume enforcement/root/accounting remain required. Reject both carrying the blocker forward and ticking 10.5 from a cold sandbox probe. |
+
+These are design repairs within the adopted specification. AS1 gains scenarios
+for the two answered ambiguities; tasks reconcile afterward without new IDs or
+ticks. Proposed 0056 and the declaration/guide truth repairs remain pending in
+1.1/6.4/11.5/13.1 before 8.8; this planning commit enables no provider.
+
 **Forward-pin reconciliation.** The tasks return reconciles the artifacts
 `a86eca1` pointed at 0.1.0-rc.6, in this order, and adds no identifier:
 
@@ -1333,8 +1467,9 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
    (analyze B3), then writes the appended composite as `wrapper_digest` in the
    same edit that sets `supported`.
 
-Codex 10.5, Claude 10.6 and LaneTally 10.8 keep their recorded state. The
-proposal and specification already carry answers M–O and are not edited.
+Codex 10.5, Claude 10.6 and LaneTally 10.8 keep their recorded state.
+Proposal/specification answers M–O remain adopted; the September 12 successor
+adds proposal P and AS1's two design-answer scenarios without reopening them.
 
 F7's upstream defect and F10's proposal/PM4 ambiguity are repaired at their
 owners. F11's owning design defect is repaired here. F12 supplies later evidence
@@ -1374,8 +1509,8 @@ fold. No other settled task, decision, requirement or scenario is reopened.
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 139 scenarios (AS1 gained
-14 DSH scenarios from answers M–O); the 101
+The current five deltas contain 20 requirements and 141 scenarios (AS1 gained
+14 DSH scenarios from answers M–O and two for the September 12 design answers); the 101
 surviving task IDs keep their coverage and evidence dependencies. A parameterized
 test may cover several scenarios only when it exercises their independent
 outcomes. The topology, ownership, wire, record, provider and recovery axes in
@@ -1388,7 +1523,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has one worked vector per lock dialect, as committed synthetic excerpts in the measured grammar, and one for the plugin component's bytewise path order. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
