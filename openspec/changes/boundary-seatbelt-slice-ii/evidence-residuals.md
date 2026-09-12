@@ -427,3 +427,56 @@ that the same unit recorded as a device-set baseline fails the operation
 anchor. The removal-entry law is now proved against the committed entry by
 dropping its removal control, instead of against a duplicate pushed onto the
 ledger.
+
+### SEATBELT-R3-STARTUP closes: Gate A passes (CI 34695285134, head `c3daedf`)
+
+**Gate A startup verdict: PASS.** All four cells — both unboxed controls and
+both Seatbelt cells — reached a nonce-authenticated `READY` through the exact
+required stage sequence with a clean exit, on the same staged helper digest
+`814ac8535776fff9`.
+
+The pass is proved, not asserted. Every removal control was observed blocking
+in both Seatbelt cells, six observations across the three admitted rules:
+strip the root-inode read, the page-size sysctl or the child's null-device
+write and the identical payload fails closed. No admitted rule rides along.
+The denial controls held in the same run: `credential-read`,
+`data-volume-credential-read` and `host-write` were each observed and denied,
+so the boundary refuses what it must while admitting what the payload needs.
+The bounded `log show` collection for the passing cells is empty: no Sandbox
+denial event names the helper at all.
+
+The candidate's authority remains narrow. Three diagnosis-admitted units, each
+one operation on one named target, each with its own removal control; no
+`/dev` subpath, no unfiltered `file-write*`, no blanket `sysctl-read`, no
+wider process, Mach, IPC, service or network grant, and every device-set
+baseline unit still a read. `SEATBELT-R3-STARTUP` is closed.
+
+### SEATBELT-R3-LIFETIME, first measurement (same run)
+
+Gate A passing let Gate B execute for the first time. It fails, as the plan
+expects: tasks 1.29 through 1.33 own the lease-pair lifetime model and all
+five are unticked.
+
+Four cells pass: `ordinary-child`, `guard-interference`, `peer-bootout` and
+`escape-job` each end with zero survivors, the transient labels gone and the
+guard alive. An authenticated attacker booted out neither the guard nor a
+peer, and registered no escape job.
+
+Four cells fail identically, which makes them one defect: `cancellation`,
+`supervisor-death`, `ignored-signals` and `retained-pipes` each record the
+lifecycle `[Prepared, GuardRegistered, PayloadStarted, Terminating]` where
+`[... Terminating, PayloadQuiescent, PrivateStateRemoved, GuardUnregistered]`
+is required. One payload descendant outlives the teardown bound, its heartbeat
+moves during the one-second quiet window, the transient label survives, and
+private state is removed before quiescence rather than after. The ordering
+inversion is the first thing to repair, because removing state under a live
+payload is what makes the other three unobservable.
+
+Four cells never armed: `timeout`, `double-fork` and `parent-exit` skipped
+because the payload heartbeat had not advanced before the trigger, and
+`group-kill-negative-control` skipped for the helper's heartbeat. They measure
+nothing yet, which is exactly what task 1.30's requirement that every B1 fact
+be observational rather than assigned is for.
+
+Recorded as issue #269. `SEATBELT-R3` stays open, Seatbelt stays unbuilt, and
+the lifetime step reports rather than gates until that issue closes.
