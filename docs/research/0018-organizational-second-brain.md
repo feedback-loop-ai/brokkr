@@ -10,8 +10,8 @@ Intake: research intake, run research-intake-of-the-articles--386e1dfb, 2026-09-
 
 Meta's engineering post describes an internal agent that stands in for
 a domain expert in assessment work (the named domains are regulatory
-compliance, financial risk, security review, engineering-standards
-compliance and procurement evaluation). The design has four layers: a
+compliance, protocol adherence, financial risk assessment, security
+review, engineering standards compliance and procurement evaluation). The design has four layers: a
 knowledge system, a reasoning layer, an evaluation framework and an
 improvement loop. The stated principle is that the whole system's
 complexity lives "in text files that are readable by both humans and
