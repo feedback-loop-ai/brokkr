@@ -615,21 +615,36 @@ pub(crate) mod fault {
             )
         }
 
-        fn matches_change(&self, target: ChangeAt, occurrence: usize) -> bool {
-            matches!(
-                self,
+        /// Mark the matching `Change` entry as fired and take its action.
+        /// Any other entry, including a `Fail` entry or a different target
+        /// or occurrence, is `None`.
+        ///
+        /// The `fired` flag is deliberately not part of the match guard:
+        /// the occurrence counter visits each `(target, occurrence)` at most
+        /// once per plan, so a matching entry can never already be fired.
+        /// Guarding on `!fired` would add a branch no input can reach, which
+        /// the exact-coverage gate forbids (spec: unreachable handling is
+        /// removed with its proof). An already-fired entry's action is
+        /// `None`, so `action.take()` still yields `None` if it were ever
+        /// revisited, and a duplicate entry at one occurrence still never
+        /// fires because `find_map` stops at the first match and the guard's
+        /// unfired check then fails the test.
+        fn take_change_action(
+            &mut self,
+            target: ChangeAt,
+            occurrence: usize,
+        ) -> Option<Box<dyn FnOnce()>> {
+            match self {
                 Entry::Change {
                     target: entry_target,
                     occurrence: entry_occurrence,
-                    ..
-                } if *entry_target == target && *entry_occurrence == occurrence
-            )
-        }
-
-        fn take_action(&mut self) -> Option<Box<dyn FnOnce()>> {
-            match self {
-                Entry::Change { action, .. } => action.take(),
-                Entry::Fail { .. } => None,
+                    action,
+                    fired,
+                } if *entry_target == target && *entry_occurrence == occurrence => {
+                    *fired = true;
+                    action.take()
+                }
+                _ => None,
             }
         }
 
@@ -765,26 +780,30 @@ pub(crate) mod fault {
         fn drop(&mut self) {
             PLAN.with(|cell| {
                 let mut slot = cell.borrow_mut();
-                let Some(state) = slot.take() else {
-                    return;
-                };
-                // A panic inside `Drop` while unwinding aborts the whole
-                // test binary, so the plan is cleared and the check skipped
-                // when the test is already failing.
-                if std::thread::panicking() {
-                    return;
-                }
-                let unfired: Vec<String> = state
-                    .entries
-                    .iter()
-                    .filter(|entry| !entry.fired())
-                    .map(Entry::describe)
-                    .collect();
-                assert!(
-                    unfired.is_empty(),
-                    "fault seam entries never fired: {}",
-                    unfired.join(", ")
-                );
+                // The guard exists only after a successful install on this
+                // thread, and `install` refuses a second live plan, so the
+                // thread-local always holds this guard's plan. `inspect`
+                // leaves the "no plan" arm in the standard library instead
+                // of adding an unreachable branch to the seam's own code.
+                let _ = slot.take().inspect(|state| {
+                    // A panic inside `Drop` while unwinding aborts the whole
+                    // test binary, so the plan is cleared and the check
+                    // skipped when the test is already failing.
+                    if std::thread::panicking() {
+                        return;
+                    }
+                    let unfired: Vec<String> = state
+                        .entries
+                        .iter()
+                        .filter(|entry| !entry.fired())
+                        .map(Entry::describe)
+                        .collect();
+                    assert!(
+                        unfired.is_empty(),
+                        "fault seam entries never fired: {}",
+                        unfired.join(", ")
+                    );
+                });
             });
         }
     }
@@ -814,12 +833,10 @@ pub(crate) mod fault {
             let mut slot = cell.borrow_mut();
             let state = slot.as_mut()?;
             let occurrence = state.counts.bump_change(target);
-            let entry = state
+            state
                 .entries
                 .iter_mut()
-                .find(|entry| !entry.fired() && entry.matches_change(target, occurrence))?;
-            entry.set_fired();
-            entry.take_action()
+                .find_map(|entry| entry.take_change_action(target, occurrence))
         });
         if let Some(action) = action {
             action();

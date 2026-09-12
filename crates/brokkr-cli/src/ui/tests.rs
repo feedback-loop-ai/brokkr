@@ -3978,6 +3978,12 @@ fn a_plan_whose_entry_never_fires_fails_its_test() {
 }
 
 #[test]
+#[should_panic(expected = "fault seam entries never fired: Child occurrence 1")]
+fn a_change_entry_that_never_fires_names_itself() {
+    let _guard = Plan::new().change(ChangeAt::Child, 1, || {}).install();
+}
+
+#[test]
 #[should_panic(expected = "a fault plan is already installed on this thread")]
 fn a_nested_install_is_refused_and_its_unwinding_clears_the_plan() {
     let _outer = Plan::new().fail(FailAt::Entries, 1).install();
