@@ -4480,3 +4480,39 @@ fn an_unknown_presentation_run_is_not_found() {
     );
     drop(dir);
 }
+
+/// A missing journal gains no file of any kind on any browser route: each
+/// journal route answers 404, one poll of the run stream opens read-only and
+/// reports head sequence zero, and the database path, its `-wal` and its
+/// `-shm` still do not exist afterward.
+#[test]
+fn a_missing_journal_gains_no_file_on_every_browser_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("missing").join("forge.db");
+    for path in [
+        "/api/runs",
+        "/api/run/r222",
+        "/api/view/r222",
+        "/api/presentation/r222/key",
+    ] {
+        let response = handle(&db, path);
+        assert_eq!(response.status, "404 Not Found", "{path}: {}", response.body);
+    }
+
+    let request = b"GET /sse/r222 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_vec();
+    let mut reader = std::io::Cursor::new(request);
+    let mut out: Vec<u8> = Vec::new();
+    serve_io(&db, &mut reader, &mut out, Some(1));
+    let text = String::from_utf8_lossy(&out);
+    assert!(text.contains("\"seq\":0"), "{text}");
+
+    assert!(!db.exists(), "no database was created");
+    assert!(
+        !PathBuf::from(format!("{}-wal", db.display())).exists(),
+        "no -wal was created"
+    );
+    assert!(
+        !PathBuf::from(format!("{}-shm", db.display())).exists(),
+        "no -shm was created"
+    );
+}

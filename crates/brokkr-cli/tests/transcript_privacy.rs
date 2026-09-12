@@ -142,8 +142,11 @@ fn digest(path: &Path) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-/// One journal's bytes and the length of its `-wal` sidecar. `None` means
-/// the file does not exist.
+/// One journal's database bytes and its `-wal` sidecar digest. `None` means
+/// the file does not exist. A `-wal` is recorded by digest, not length: a
+/// length check over the zero-byte `-wal` the first read leaves proves
+/// nothing, while a digest proves a read neither changed nor checkpointed a
+/// frame-bearing log (S12).
 ///
 /// SQLite's plain read-only open of a clean WAL journal creates an empty
 /// `-wal` (and a `-shm` shared-memory index) on first access. That is
@@ -154,14 +157,18 @@ fn digest(path: &Path) -> [u8; 32] {
 /// means the database bytes never move and a newly appeared WAL carries no
 /// frame. Only immutable mode avoids the sidecars, and that is unsafe for a
 /// live journal a run may still be writing.
-fn journal_and_wal(journal: &Path) -> (Option<[u8; 32]>, Option<u64>) {
+fn journal_and_wal(journal: &Path) -> (Option<[u8; 32]>, Option<[u8; 32]>) {
     let db = std::fs::read(journal)
         .ok()
         .map(|bytes| Sha256::digest(bytes).into());
-    let wal = std::fs::metadata(format!("{}-wal", journal.display()))
+    (db, wal_digest(journal))
+}
+
+/// The `-wal` sidecar digest, or `None` when it does not exist.
+fn wal_digest(journal: &Path) -> Option<[u8; 32]> {
+    std::fs::read(format!("{}-wal", journal.display()))
         .ok()
-        .map(|meta| meta.len());
-    (db, wal)
+        .map(|bytes| Sha256::digest(bytes).into())
 }
 
 /// Whether a WAL file holds at least one complete frame. The 32-byte
@@ -183,29 +190,38 @@ fn wal_has_frames(journal: &Path) -> bool {
     bytes.len() >= 32 + 24 + page_size
 }
 
-/// Assert one read left a journal inert under the living spec: identical
-/// database bytes and existence; an existing WAL unchanged; a WAL that
-/// appeared during the read empty or frame-free (SQLite's own zero-byte
-/// file, never a journalled page). A new `-shm` is the shared-memory
-/// index, not evidence, and the other surfaces are asserted separately.
-fn assert_journal_inert(journal: &Path, before: (Option<[u8; 32]>, Option<u64>), context: &str) {
+/// Assert one read left a journal inert under the living spec: the database
+/// digest equals the before-state; a `-wal` that did not exist before the
+/// read and appeared during it is empty or frame-free (SQLite's own file,
+/// never a journalled page); an existing `-wal` keeps the digest it had
+/// immediately before the read. A new `-shm` is the shared-memory index, not
+/// evidence, and is not compared. `before_db` is the original database
+/// digest, taken once before the first read, so an earlier read cannot
+/// launder a change into the per-read baseline.
+fn assert_journal_inert(
+    journal: &Path,
+    before_db: [u8; 32],
+    before_wal: Option<[u8; 32]>,
+    context: &str,
+) {
     let (after_db, after_wal) = journal_and_wal(journal);
     assert_eq!(
-        after_db, before.0,
+        after_db,
+        Some(before_db),
         "{context}: the journal bytes or existence changed"
     );
-    match before.1 {
+    match before_wal {
         None => {
-            if let Some(length) = after_wal {
+            if after_wal.is_some() {
                 assert!(
-                    length == 0 || !wal_has_frames(journal),
-                    "{context}: the read journalled a WAL frame ({length} bytes)"
+                    !wal_has_frames(journal),
+                    "{context}: the read journalled a WAL frame"
                 );
             }
         }
-        Some(length) => assert_eq!(
+        Some(before_wal) => assert_eq!(
             after_wal,
-            Some(length),
+            Some(before_wal),
             "{context}: the read changed the existing WAL sidecar"
         ),
     }
@@ -251,7 +267,12 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     );
     assert!(output.status.success());
     assert_eq!(digest(&journal), before_journal, "no journal write");
-    assert_journal_inert(&journal, before_journal_state, "a successful read");
+    assert_journal_inert(
+        &journal,
+        before_journal_state.0.unwrap(),
+        before_journal_state.1,
+        "a successful read",
+    );
     assert_eq!(digest(&file), before_file, "no retained-byte change");
     assert_eq!(digest(&config), before_config, "no provider-config change");
     assert_eq!(
@@ -260,7 +281,14 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
         "the retained root keeps every byte and its existence"
     );
 
-    // A refusal is equally inert.
+    // A refusal is equally inert. The successful read left a `-wal` (empty,
+    // no frame); that `-wal` is now existing, so the refusal must leave its
+    // digest exactly as it found it.
+    let refusal_wal = wal_digest(&journal);
+    assert!(
+        refusal_wal.is_some(),
+        "the first read-only open leaves the shared-memory `-wal`"
+    );
     let refused = run(
         &world,
         &[
@@ -278,7 +306,12 @@ fn reading_leaves_the_journal_and_the_retained_file_unchanged() {
     let document: Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(document["unavailable"], "turn-not-retained");
     assert_eq!(digest(&journal), before_journal);
-    assert_journal_inert(&journal, before_journal_state, "a refusal");
+    assert_journal_inert(
+        &journal,
+        before_journal_state.0.unwrap(),
+        refusal_wal,
+        "a refusal",
+    );
     assert_eq!(digest(&file), before_file);
     assert_eq!(digest(&config), before_config);
     assert_eq!(snapshot_tree(&world.home), before_tree);
@@ -521,8 +554,18 @@ fn every_hearth_and_wal_sidecar_stay_inert() {
     // The decoy journal was listed, so the resolver really consulted both.
     assert!(before_decoy.0.is_some(), "the decoy journal exists");
 
-    assert_journal_inert(&world.db, before_primary, "the selected hearth");
-    assert_journal_inert(&decoy, before_decoy, "the sibling hearth");
+    assert_journal_inert(
+        &world.db,
+        before_primary.0.unwrap(),
+        before_primary.1,
+        "the selected hearth",
+    );
+    assert_journal_inert(
+        &decoy,
+        before_decoy.0.unwrap(),
+        before_decoy.1,
+        "the sibling hearth",
+    );
     assert_eq!(digest(&config), before_config, "provider config changed");
     assert_eq!(
         snapshot_tree(&world.home),
@@ -635,7 +678,10 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
     let world = world();
     let file = write_transcript(&world);
     let config = write_config(&world);
-    let before_journal = journal_and_wal(&world.db);
+    let before_read = journal_and_wal(&world.db);
+    let before_db = before_read
+        .0
+        .expect("the journal exists before the first growth read");
     let before_config = digest(&config);
     let before_paths: Vec<_> = snapshot_tree(&world.home)
         .into_iter()
@@ -651,6 +697,10 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
         std::fs::write(&file, &body).unwrap();
         let grown = std::fs::read(&file).unwrap();
 
+        // The before-state for the `-wal` is taken immediately before this
+        // read: the first read begins with none, and each later read begins
+        // with the `-wal` the previous read left behind.
+        let before_wal = wal_digest(&world.db);
         let output = run(
             &world,
             &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
@@ -666,7 +716,8 @@ fn growth_reads_keep_the_tree_config_and_journal_inert() {
             grown,
             "the growth read must not rewrite the retained source"
         );
-        assert_journal_inert(&world.db, before_journal, "a growth read");
+        assert_eq!(digest(&world.db), before_db, "no journal write");
+        assert_journal_inert(&world.db, before_db, before_wal, "a growth read");
         assert_eq!(digest(&config), before_config, "provider config changed");
         let after_paths: Vec<_> = snapshot_tree(&world.home)
             .into_iter()
@@ -749,5 +800,152 @@ fn control_sequences_are_sanitized_in_text_and_preserved_in_json() {
     assert!(refused.stdout.is_empty());
     assert!(!String::from_utf8_lossy(&refused.stderr).contains('\u{1b}'));
 
-    assert_journal_inert(&world.db, before_journal, "the control read");
+    assert_journal_inert(
+        &world.db,
+        before_journal.0.unwrap(),
+        before_journal.1,
+        "the control read",
+    );
+}
+
+/// A frame-bearing `-wal`: the writer that appended the transcript reference
+/// stays open and idle across the three command reads, so the reference
+/// exists only in committed WAL frames. Each read resolves it, proving it
+/// read the frames, and leaves the `-wal` digest and the database bytes
+/// unchanged (S12-S14).
+#[test]
+fn a_read_leaves_an_existing_frame_bearing_wal_as_it_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let home = dir.path().join("home");
+    let projects = home.join(".claude/projects");
+    std::fs::create_dir_all(projects.join("project")).unwrap();
+    let file = projects.join("project/abcd-1234.jsonl");
+    std::fs::write(
+        &file,
+        format!(
+            "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\
+             \"content\":\"{SENTINEL}-wal\"}}}}\n"
+        ),
+    )
+    .unwrap();
+
+    // The writer stays open and idle across all three reads. Its committed
+    // frames, not a checkpointed database, carry the reference.
+    let mut writer = Store::open(&db).unwrap();
+    writer
+        .create_run("r222", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    for (event_type, payload) in [
+        (
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "intake"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "eff1", "seat": "review", "phase": "intake"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "eff1", "attempt_id": "att1"}),
+        ),
+    ] {
+        writer
+            .append_next("r222", event_type, payload, None, None)
+            .unwrap();
+    }
+    writer
+        .append_next(
+            "r222",
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff1", "attempt_id": "att1",
+                   "checkpoint": {"step": "session-finished",
+                     "transcript": {"kind": "claude-session", "locator": "abcd-1234",
+                       "home": projects.to_str().unwrap()}}}),
+            None,
+            None,
+        )
+        .unwrap();
+
+    // Check the frames, do not assume them.
+    assert!(
+        wal_has_frames(&db),
+        "the writer's committed reference must still be in the -wal"
+    );
+    let before_db = digest(&db);
+    let before_wal = wal_digest(&db).expect("the frame-bearing -wal exists");
+
+    let read = |args: &[&str]| {
+        Command::new(brokkr_bin())
+            .args(args)
+            .arg("--db")
+            .arg(&db)
+            .env("HOME", &home)
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+    };
+
+    // A successful read resolves the reference only by reading the frames.
+    let success = read(&["transcript", "--run", "r222", "--seat", "eff1", "--json"]);
+    assert!(
+        success.status.success(),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let document: Value = serde_json::from_slice(&success.stdout).unwrap();
+    assert_eq!(document["run_id"], "r222");
+    assert!(
+        document["turns"]
+            .as_array()
+            .is_some_and(|turns| !turns.is_empty()),
+        "the read resolved the reference from the frames: {document}"
+    );
+    assert!(String::from_utf8_lossy(&success.stdout).contains(SENTINEL));
+    assert_eq!(digest(&db), before_db, "no database write");
+    assert_eq!(
+        wal_digest(&db),
+        Some(before_wal),
+        "the successful read changed or checkpointed the -wal"
+    );
+
+    // A refusal over the same frame-bearing journal is equally inert.
+    let refusal = read(&[
+        "transcript",
+        "--run",
+        "r222",
+        "--seat",
+        "eff1",
+        "--json",
+        "--turn",
+        "99",
+    ]);
+    assert!(!refusal.status.success());
+    let document: Value = serde_json::from_slice(&refusal.stdout).unwrap();
+    assert_eq!(document["unavailable"], "turn-not-retained");
+    assert_eq!(digest(&db), before_db);
+    assert_eq!(wal_digest(&db), Some(before_wal));
+
+    // A growth read after the retained file grew still reads the same frames
+    // and leaves the -wal alone.
+    let mut body = std::fs::read_to_string(&file).unwrap();
+    body.push_str(&format!(
+        "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{SENTINEL}-wal-growth\"}}}}\n"
+    ));
+    std::fs::write(&file, &body).unwrap();
+    let growth = read(&["transcript", "--run", "r222", "--seat", "eff1", "--json"]);
+    assert!(
+        growth.status.success(),
+        "{}",
+        String::from_utf8_lossy(&growth.stderr)
+    );
+    assert_eq!(digest(&db), before_db, "no database write");
+    assert_eq!(
+        wal_digest(&db),
+        Some(before_wal),
+        "the growth read changed or checkpointed the -wal"
+    );
+
+    drop(writer);
 }

@@ -1921,3 +1921,36 @@ fn hostile_confirmed_paths_stay_portable_display_data() {
         String::from_utf8_lossy(&text.stdout)
     );
 }
+
+/// A missing journal gains no file of any kind on the command surface: the
+/// run resolver skips a journal that is not a file before any open, and the
+/// database path, its `-wal` and its `-shm` still do not exist afterward.
+#[test]
+fn a_missing_journal_gains_no_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("missing").join("forge.db");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let output = Command::new(brokkr_bin())
+        .args(["transcript", "--run", "r222", "--seat", "eff1", "--json"])
+        .arg("--db")
+        .arg(&db)
+        .env("HOME", &home)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "a missing journal is a refusal, not an initialized store"
+    );
+    assert!(!db.exists(), "no database was created");
+    assert!(
+        !PathBuf::from(format!("{}-wal", db.display())).exists(),
+        "no -wal was created"
+    );
+    assert!(
+        !PathBuf::from(format!("{}-shm", db.display())).exists(),
+        "no -shm was created"
+    );
+}

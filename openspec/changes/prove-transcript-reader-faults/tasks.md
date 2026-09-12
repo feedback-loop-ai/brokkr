@@ -269,22 +269,22 @@ task:
 
 ## 6. Journal inertness: text and tests agree (D9)
 
-- [ ] 6.1 In `crates/brokkr-cli/tests/transcript_privacy.rs`, change
+- [x] 6.1 In `crates/brokkr-cli/tests/transcript_privacy.rs`, change
       `journal_and_wal` to record the database digest and the `-wal`
       digest, and stop recording the `-wal`'s length — transcript-reading /
       Transcript prose stays local and inert.
-- [ ] 6.2 Take the before-state once, before the first read, in both
+- [x] 6.2 Take the before-state once, before the first read, in both
       `reading_leaves_the_journal_and_the_retained_file_unchanged` and
       `growth_reads_keep_the_tree_config_and_journal_inert`; assert the
       database digest equals that before-state after every read in each
       test — same requirement.
-- [ ] 6.3 For each read: when it began with no `-wal`, assert the `-wal`
+- [x] 6.3 For each read: when it began with no `-wal`, assert the `-wal`
       afterward is absent, empty, or frame-free by `wal_has_frames`; when it
       began with an existing `-wal`, record that `-wal`'s digest immediately
       before the read and assert the same digest afterward. Apply this to
       the refusal in the first test and to every read after the first in the
       growth test — same requirement.
-- [ ] 6.4 Add a frame-bearing fixture: keep the writer `Store` that appended
+- [x] 6.4 Add a frame-bearing fixture: keep the writer `Store` that appended
       the seat's transcript reference open and idle across the three
       command reads (success, refusal, growth), staying well below SQLite's
       1000-page autocheckpoint. Before the first read, assert
@@ -292,7 +292,7 @@ task:
       reference (proving the frames were read), the `-wal` digest is
       unchanged, and the database digest is unchanged. Do not compare the
       `-shm`. Drop the writer only after the assertions — same requirement.
-- [ ] 6.5 Add the missing-journal proofs on every surface, each asserting the
+- [x] 6.5 Add the missing-journal proofs on every surface, each asserting the
       database path, its `-wal` and its `-shm` still do not exist afterward:
       a new test in `tests/transcript_command.rs` with `--db` naming a
       nonexistent path; a new test in `ui/tests.rs` calling `ui::handle` for
