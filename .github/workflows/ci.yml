@@ -141,6 +141,64 @@ jobs:
           # other operating systems have no namespace to open, so they
           # are left to skip.
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
+      # Decision 0046 slice II, design D3/D14: Gate A (startup) executes first
+      # and its durable report survives even when it fails. Gate B (lifetime)
+      # is a separate step that only runs after Gate A succeeds, and the gated
+      # driver marks the lifetime matrix `not run` if the startup verdict is
+      # not a pass for the exact helper/profile candidate. Both use real
+      # /usr/bin/sandbox-exec and real per-user launchctl; a missing tool, an
+      # outer box, zero selected cells or any unmet observation fails the job
+      # and never skips into success.
+      #
+      # The destructive launchd adapter is `#[ignore]`d so the generic parallel
+      # workspace suite runs only the host-independent model; these steps select
+      # it explicitly with `--ignored --exact`. The report-content checks make a
+      # mis-selection or an empty report a failure rather than a silent pass.
+      - name: R3 native startup gate
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -m
+          test -x /usr/bin/sandbox-exec
+          cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
+            -- --ignored --exact --nocapture \
+            seatbelt_probe::native::native_startup_feasibility_probe \
+            2>&1 | tee target/r3-startup.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
+          grep -q 'Gate A startup verdict' target/r3-startup-report.txt
+      # Gate A is a hard gate: it passes, so it protects a solved property.
+      # Gate B reports while #269 is open. The launchd lease-pair teardown is
+      # tasks 1.29-1.33 of boundary-seatbelt-slice-ii and all five are
+      # unticked, so this step measures work the slice has not built yet. It
+      # ran for the first time only once Gate A passed. Held as a hard gate in
+      # the required `test (macos-latest)` check it would fail every pull
+      # request's macOS job and block merges on unbuilt work. The verdict is
+      # still printed, the report is still content-checked and the
+      # r3-native-diagnostics artifact still carries every cell, so nothing is
+      # lost. Seatbelt stays unbuilt either way; closing #269 restores the gate.
+      - name: R3 native lifetime feasibility probe
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo test --locked -p brokkr-protocol --test seatbelt_lifetime_probe \
+            -- --ignored --exact --nocapture \
+            seatbelt_probe::native::native_lifetime_feasibility_probe \
+            2>&1 | tee target/r3-lifetime.log
+          grep -Eq 'test result: ok\. 1 passed' target/r3-lifetime.log
+          grep -q 'Gate A startup verdict' target/r3-lifetime-report.txt
+      - name: R3 native diagnostics
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3-native-diagnostics
+          path: |
+            target/r3-startup.log
+            target/r3-lifetime.log
+            target/r3-startup-report.txt
+            target/r3-lifetime-report.txt
+          if-no-files-found: warn
       - name: self and verify bundles compile under the constitutional lint
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle bundles/self

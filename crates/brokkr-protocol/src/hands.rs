@@ -368,6 +368,45 @@ pub fn namespace_join(root: &str, relative: &Path) -> String {
     )
 }
 
+/// The host toolchain the box binds read-only, at the same path, where it
+/// exists. `box_argv` iterates exactly this item for its host-toolchain
+/// `--ro-bind-try` binds, and the Seatbelt startup-rule ledger reads the same
+/// item as its one fixed source set (decision 0046 slice II, design D3). It is
+/// a single list so the two cannot drift: a path added here is bound by
+/// bubblewrap and is in the ledger's host-toolchain set.
+///
+/// It lists toolchain paths only. A declared `ro`, `rw` or `overlay` bind a
+/// `HandsSpec` names, and the git common `config`, are bound by `box_argv` too
+/// but are never toolchain binds and never appear here.
+pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
+    "/usr/bin",
+    "/usr/lib",
+    "/usr/lib64",
+    // The libc headers belong to the toolchain as much as `cc` does.
+    // Without them a boxed gate holds only as long as something else
+    // already compiled the C in the dependency tree: `cargo test`
+    // against a warm target directory passes, and a gate that builds
+    // into a fresh one dies on `libsqlite3-sys` with "stdio.h: No such
+    // file or directory" — a C compiler failure in a seat that reads
+    // as the branch's fault. Headers are read-only declarations, so
+    // binding them grants no capability the bound `/usr/lib` beside
+    // them does not already imply.
+    "/usr/include",
+    "/usr/share",
+    "/usr/local",
+    "/usr/libexec",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib64",
+    "/etc/ssl",
+    "/etc/ca-certificates",
+    "/etc/alternatives",
+    "/etc/ld.so.cache",
+    "/etc/ld.so.conf",
+    "/etc/ld.so.conf.d",
+];
+
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
 /// the environment, then `--` and the command. `scratch` holds this
 /// call's generated identity files and private home and tmp; `session`
@@ -455,34 +494,7 @@ pub fn box_argv(
     // The host toolchain, read-only, where it exists (`-try`: an absent
     // source is skipped, never an error — /lib64 is a Debian fact, not
     // a law).
-    for host in [
-        "/usr/bin",
-        "/usr/lib",
-        "/usr/lib64",
-        // The libc headers belong to the toolchain as much as `cc` does.
-        // Without them a boxed gate holds only as long as something else
-        // already compiled the C in the dependency tree: `cargo test`
-        // against a warm target directory passes, and a gate that builds
-        // into a fresh one dies on `libsqlite3-sys` with "stdio.h: No such
-        // file or directory" — a C compiler failure in a seat that reads
-        // as the branch's fault. Headers are read-only declarations, so
-        // binding them grants no capability the bound `/usr/lib` beside
-        // them does not already imply.
-        "/usr/include",
-        "/usr/share",
-        "/usr/local",
-        "/usr/libexec",
-        "/bin",
-        "/sbin",
-        "/lib",
-        "/lib64",
-        "/etc/ssl",
-        "/etc/ca-certificates",
-        "/etc/alternatives",
-        "/etc/ld.so.cache",
-        "/etc/ld.so.conf",
-        "/etc/ld.so.conf.d",
-    ] {
+    for host in HOST_TOOLCHAIN_BINDS {
         argv.extend([s("--ro-bind-try"), s(host), s(host)]);
     }
     for (name, target) in [
