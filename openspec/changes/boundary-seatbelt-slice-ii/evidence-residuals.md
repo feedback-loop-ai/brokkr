@@ -382,3 +382,48 @@ the same set in both directions.
 Earlier measurements are not rewritten. The seven one-class differentials that
 still aborted before the first stage stand as recorded, and they are what
 makes this reading the only one left.
+
+### SEATBELT-R3-STARTUP, fifth measurement: the child-spawn attribution (CI 34694964853, head `20b1a78`)
+
+With the page-size sysctl admitted, both Seatbelt cells started. S1 and S3
+advanced from `stages=[]` and signal 6 to `["entry", "payload-dir",
+"executable"]` and a clean `exit 2`: the payload now runs and refuses at a
+named step instead of dying before its first. The guard-page reading is
+therefore confirmed by construction, not only by inference.
+
+The cell named its own failing sub-stage: `child streams: stdout /dev/null:
+Operation not permitted (os error 1)`, and the denial collection recorded
+`deny(1) file-write-data /dev/null` throughout. The discriminating cells the
+specification requires then separated the stdio hypothesis from an exec-side
+refusal, and they agree:
+
+| Discriminating cell | Added authority | Result |
+| --- | --- | --- |
+| `child-probe-open` (opens the null device write-only, no spawn) | none | stopped at `executable` |
+| `child-probe-null` (spawns with null stdio) | none | stopped at `executable` |
+| `child-probe-inherit` (spawns with inherited stdio) | none | reached `child-observed` |
+| `dev-null-write` (candidate plus exactly one literal) | `(allow file-write-data (literal "/dev/null"))` | reached `READY`, all seven stages, clean exit |
+
+No exec-side refusal appears: nothing in the collection names a `process-exec`
+or a read of the resolved helper path. The attribution is one operation,
+`file-write-data`, on one target, the literal `/dev/null`, which is exactly
+the shape `A named child-spawn predicate is literal-scoped and removable`
+requires. The eighth diagnostic, the previously untested `sysctl-read` class,
+also ran and stopped at `executable`, confirming it carries nothing further.
+
+**The repair (task 1.35).** `(allow file-write-data (literal "/dev/null"))`
+enters as the child-spawn attribution's own diagnosis-admitted unit with the
+removal control `child-spawn-dev-null-write`. No `/dev` subpath, no
+unfiltered `file-write*`, and no wider process, Mach, IPC, service or network
+grant enters with it. The device-set baseline still reads and never writes:
+the attribution owns this write, as spec.md:907-909 already provided. A cell
+that reaches `READY` now owes three observed removals rather than one.
+
+Host-independent tests were retargeted rather than deleted. The test that
+required the candidate to carry no null-device write recorded the state before
+any attribution existed; it now requires the write to be present, to be
+diagnosis-admitted and never a device-set baseline, and it keeps its proof
+that the same unit recorded as a device-set baseline fails the operation
+anchor. The removal-entry law is now proved against the committed entry by
+dropping its removal control, instead of against a duplicate pushed onto the
+ledger.

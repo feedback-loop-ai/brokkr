@@ -826,7 +826,7 @@ pub struct StartupNegativeAllowance {
 
 /// The complete bounded removal set. Every entry must be observed blocking the
 /// exact payload before a Seatbelt startup cell may pass.
-pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 2] = [
+pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 3] = [
     StartupNegativeAllowance {
         name: "root-inode-read",
         removed_rule: "(allow file-read* (literal \"/\"))",
@@ -836,6 +836,11 @@ pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 2] = [
         name: "page-size-sysctl-read",
         removed_rule: "(allow sysctl-read (sysctl-name \"hw.pagesize_compat\"))",
         consumer: "Rust runtime page-size query for the main thread's stack guard",
+    },
+    StartupNegativeAllowance {
+        name: "child-spawn-dev-null-write",
+        removed_rule: "(allow file-write-data (literal \"/dev/null\"))",
+        consumer: "the ordinary child's stdout and stderr redirect to the null device",
     },
 ];
 

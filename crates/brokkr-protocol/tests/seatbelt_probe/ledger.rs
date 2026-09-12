@@ -600,6 +600,19 @@ fn build_ledger() -> Vec<LedgerEntry> {
          still aborted, and `allow default` reached `READY`.",
         "page-size-sysctl-read",
     ));
+    ledger.push(diagnosis(
+        unit("file-write-data", "literal", "/dev/null"),
+        "the helper, spawning its ordinary child",
+        "the child's stdout and stderr redirect to the null device",
+        "Native CI `34694964853` attributed the child-spawn refusal to one \
+         operation and one target: the cell reported `child streams: stdout \
+         /dev/null: Operation not permitted (os error 1)` at `executable`, the \
+         no-spawn open and null-stdio cells stopped at the same stage, the \
+         inherited-stdio cell reached `child-observed`, and the candidate plus \
+         exactly `(allow file-write-data (literal \"/dev/null\"))` reached \
+         `READY` through all seven stages.",
+        "child-spawn-dev-null-write",
+    ));
     ledger
 }
 

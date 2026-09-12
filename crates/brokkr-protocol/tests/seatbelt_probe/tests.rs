@@ -1053,7 +1053,7 @@ fn every_ledger_entry_carries_its_typed_justification() {
 }
 
 #[test]
-fn the_ledger_has_the_named_baseline_entries_and_two_diagnoses() {
+fn the_ledger_has_the_named_baseline_entries_and_three_diagnoses() {
     let baseline = STARTUP_RULE_LEDGER
         .iter()
         .filter(|entry| matches!(entry.class, LedgerClass::Baseline(_)))
@@ -1063,7 +1063,7 @@ fn the_ledger_has_the_named_baseline_entries_and_two_diagnoses() {
         .filter(|entry| matches!(entry.class, LedgerClass::DiagnosisAdmitted(_)))
         .count();
     assert_eq!(baseline, 23, "twenty-three baseline entries");
-    assert_eq!(diagnosis, 2, "two diagnosis-admitted entries");
+    assert_eq!(diagnosis, 3, "three diagnosis-admitted entries");
 }
 
 #[test]
@@ -1266,6 +1266,48 @@ fn the_page_size_admission_names_one_sysctl_and_never_the_whole_class() {
         "the candidate must never grant the whole sysctl class"
     );
     assert!(profile.contains(&entry.unit.render()));
+}
+
+#[test]
+fn the_child_spawn_admission_is_one_literal_and_never_a_dev_subpath() {
+    // spec.md: only the literal-scoped predicate the discriminating cells
+    // attribute may enter the candidate, and no `/dev` subpath or broad
+    // `file-write*` is admitted with it. The device-set baseline still never
+    // writes: this write is the child-spawn attribution's own unit.
+    let entry = STARTUP_RULE_LEDGER
+        .iter()
+        .find(|entry| entry.unit.operation == "file-write-data")
+        .expect("the candidate admits the child's null-device write");
+    let filter = entry
+        .unit
+        .filter
+        .as_ref()
+        .expect("it names one device node");
+    assert_eq!(filter.name, "literal");
+    assert_eq!(filter.target, "/dev/null");
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    assert!(
+        !profile.contains("(subpath \"/dev\")"),
+        "no /dev subpath may enter the candidate"
+    );
+    assert!(
+        !profile.contains("(allow file-write*)"),
+        "no unfiltered file-write* may enter the candidate"
+    );
+    for entry in &*STARTUP_RULE_LEDGER {
+        if let LedgerClass::Baseline(baseline) = &entry.class {
+            if matches!(
+                baseline.kind,
+                BaselineKind::HandsElement(HandsElement::DeviceSet)
+            ) {
+                assert_eq!(
+                    entry.unit.operation, "file-read*",
+                    "no device-set unit writes"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -2130,12 +2172,25 @@ fn a_respelled_toolchain_denial_event_is_detected_and_admits_nothing() {
 }
 
 #[test]
-fn the_candidate_carries_no_dev_null_write_unit() {
+fn the_dev_null_write_is_diagnosis_admitted_and_never_a_device_set_baseline() {
+    // Native CI 34694964853 attributed the child-spawn refusal, so the write is
+    // in the candidate now. It may only ever be there as the child-spawn
+    // attribution's own diagnosis-admitted literal: the device set reads and
+    // never writes, and the operation anchor refuses the same unit recorded as
+    // a device-set baseline.
     let inputs = fixed_inputs();
     let profile = fixed_profile(&inputs);
     assert!(
-        !profile.contains("(allow file-write-data (literal \"/dev/null\"))"),
-        "a /dev/null write enters only through a measured attribution"
+        profile.contains("(allow file-write-data (literal \"/dev/null\"))"),
+        "the attributed child-spawn write is in the candidate"
+    );
+    let entry = STARTUP_RULE_LEDGER
+        .iter()
+        .find(|entry| entry.unit.render() == "(allow file-write-data (literal \"/dev/null\"))")
+        .expect("the ledger accounts for it");
+    assert!(
+        matches!(entry.class, LedgerClass::DiagnosisAdmitted(_)),
+        "it is the child-spawn attribution, never a hands element"
     );
     check_startup_candidate(
         &profile,
@@ -2143,9 +2198,8 @@ fn the_candidate_carries_no_dev_null_write_unit() {
         &STARTUP_NEGATIVE_ALLOWANCES,
         &inputs,
     )
-    .expect("the candidate carries no /dev/null write");
-    // If it entered the baseline as a device-set unit, the operation anchor
-    // refuses it.
+    .expect("the attributed candidate passes its own check");
+    // Recorded instead as a device-set baseline, the operation anchor refuses it.
     let mut ledger = STARTUP_RULE_LEDGER.clone();
     ledger[0].unit = unit("file-write-data", "literal", "/dev/null");
     ledger[0].class = LedgerClass::Baseline(Baseline {
@@ -2162,57 +2216,22 @@ fn the_candidate_carries_no_dev_null_write_unit() {
     );
 }
 
-/// An attributed `/dev/null` write enters only as the diagnosis-admitted
-/// literal with its own removal entry: the equality passes only with both, and
-/// as a baseline it fails the device-set operation anchor.
+/// The attributed `/dev/null` write is admitted only while its own removal
+/// entry stands beside it: drop the removal and the disjoint-union equality
+/// fails, because a diagnosis-admitted unit no removal control strips is an
+/// allowance nobody proved load-bearing.
 #[test]
-fn an_attributed_dev_null_write_is_admitted_only_with_its_own_removal_entry() {
+fn the_attributed_dev_null_write_needs_its_own_removal_entry() {
     let inputs = fixed_inputs();
-    let dev_null = unit("file-write-data", "literal", "/dev/null");
-    let mut ledger = STARTUP_RULE_LEDGER.clone();
-    ledger.push(LedgerEntry {
-        unit: dev_null.clone(),
-        class: LedgerClass::DiagnosisAdmitted(DiagnosisAdmission {
-            process: "the ordinary child stream setup".to_string(),
-            consumer: "the child's /dev/null write handle".to_string(),
-            evidence: "the child-probe-open cell advanced past the failing cell's stages"
-                .to_string(),
-            removal: "dev-null-write".to_string(),
-        }),
-    });
-    let mut removals = STARTUP_NEGATIVE_ALLOWANCES.to_vec();
-    removals.push(StartupNegativeAllowance {
-        name: "dev-null-write",
-        removed_rule: "(allow file-write-data (literal \"/dev/null\"))",
-        consumer: "the ordinary child stream setup",
-    });
-    let profile = render_candidate_profile(&ledger, &inputs);
-    check_startup_candidate(&profile, &ledger, &removals, &inputs)
-        .expect("the attributed /dev/null write passes with its own removal entry");
-    // Without the removal entry the diagnosis-admitted half and the removal set
-    // no longer match, so the equality fails.
-    check_startup_candidate(&profile, &ledger, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
+    let profile = fixed_profile(&inputs);
+    let without: Vec<StartupNegativeAllowance> = STARTUP_NEGATIVE_ALLOWANCES
+        .iter()
+        .copied()
+        .filter(|allowance| allowance.name != "child-spawn-dev-null-write")
+        .collect();
+    assert_eq!(without.len(), STARTUP_NEGATIVE_ALLOWANCES.len() - 1);
+    check_startup_candidate(&profile, &STARTUP_RULE_LEDGER, &without, &inputs)
         .expect_err("the attributed /dev/null write needs its own removal entry");
-
-    // Recorded instead as a baseline device-set unit, the operation anchor
-    // refuses it by name.
-    let mut baseline = STARTUP_RULE_LEDGER.clone();
-    baseline.push(LedgerEntry {
-        unit: dev_null,
-        class: LedgerClass::Baseline(Baseline {
-            kind: BaselineKind::HandsElement(HandsElement::DeviceSet),
-            justification: "smuggled".to_string(),
-            correction: None,
-        }),
-    });
-    let profile = render_candidate_profile(&baseline, &inputs);
-    let error = check_startup_candidate(&profile, &baseline, &STARTUP_NEGATIVE_ALLOWANCES, &inputs)
-        .expect_err("a baseline /dev/null write fails the device-set anchor");
-    assert!(
-        render_refusals(&error).contains("device set"),
-        "{}",
-        render_refusals(&error)
-    );
 }
 
 #[test]
