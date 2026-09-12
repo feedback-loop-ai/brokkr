@@ -2720,3 +2720,54 @@ failed to launch with `ENOENT`; no local gate is discharged. The chief's
 run-local evidence is under `.forge/design-chief-eef1e666-f1/`. Full archived
 validation and the unfiltered suite remain mandatory before delivery, with
 exact-head host coverage and remote results still owned by the controller.
+
+
+## Current tasks visit — post-F1 breakdown reconfirmation, 2026-09-13
+
+This visit belongs to run `current-successor-operator-rulin-eef1e666` under
+the operator's 2026-09-12 ruling that the change stays whole with Astra
+holding triage/clarify/chief/analyze/review and Codex capacity restored; it
+adopts HEAD `72c8332` and all work at `cf06034`. It re-read the full required
+evidence set — the September 12 controller sandbox note (superseding the
+September 10 host blocker), both codex proof records, both DSH pair-
+measurement records, the upstream-discovery record, both probe scripts,
+`adapters/dsh.json`, proposed 0056, design D5/D6/D9/D10/D11/D12/D13, all five
+deltas' AS1–AS3 scenarios and this file including every dated return section —
+against the commission's restated instructions, none of which supplies new
+facts beyond what `72c8332` already encodes.
+
+The design return already answered at `72c8332` (F1, archive-dependent test
+ordering) is reflected in this file exactly: task 15.3 defers only the one
+named provenance assertion with unique-match/single-filter evidence, 15.6/15.7
+keep that assertion and the full archived suite pending, and the post-task
+archive action runs the complete unfiltered suite before delivery. The two
+2026-09-12 D6 findings remain fully carried: the npm key-to-triple rule
+(terminal-group extraction, verbatim entry version/integrity, no `name`-field
+fallback, hidden-lock-only source, the three-group and malformed-intermediate-
+group vectors) in 8.8(b) and 8.10, and the conditional Cordis extension's
+`extensions/dsh/resume-policy/` location, four-file set and provenance rule in
+8.8's return-to-pending clause and 8.10's synthetic cases. Task 10.5 still
+carries the September 12 host evidence as a measured precondition only, never
+upgraded into a resume proof; 11.4 still states the operator's LaneTally
+exception without completing a disposition. A1–A5 and B1–B5 remain settled
+and are not reopened.
+
+Recounted directly against this file: **78 complete / 23 pending** across the
+same 101 identifiers, unchanged. `openspec validate 2026-09-09-226-session-
+resumption --strict` exits 0: `Change '2026-09-09-226-session-resumption' is
+valid`. `git status --short` was clean before this visit's edit. This seat's
+box has no `cargo`, `npx` or `npm`; only the installed `openspec` binary was
+run, consistent with prior visits' own reports. No production code, contract,
+decision, adapter declaration, doctor output, guide or evidence file was
+written by this visit; only this planning artifact was read and appended to.
+No task was ticked and none reopened.
+
+The restated provider instruction (Astra at xhigh for triage/clarify/chief/
+analyze/review-chief, DeepSeek Flash implementing, Sonnet holding the task
+planner and sonnet-side review/design) governs seat assignment for this
+change's remaining phases and requires no edit to this artifact. This
+breakdown names, for every pending task, the requirement it serves and the
+concrete artifact it produces, and needs no repair before implementation
+resumes. `upstream` is not reported: no design, proposal or spec defect was
+found on this re-read. The next visit should implement in the stated order,
+starting with 10.7's live half.
