@@ -49,7 +49,9 @@ task:
 ## 1. The proposed 0055 addendum, filed before any production edit (D10)
 
 - [ ] 1.1 Append an addendum to `docs/decisions/0055-read-every-transcript-kind.md`,
-      dated 2026-09-11, `Status: proposed` throughout: it records the
+      dated on filing (the addendum commit's own date, as addenda 0035 and
+      0042 carry theirs; not guessed ahead of it and not re-derived if a
+      later commit moves), `Status: proposed` throughout: it records the
       journal-inertness clarification (a read-only open of a quiescent
       journal may create an empty `-wal` and a `-shm`, an existing `-wal`
       keeps its digest, a missing journal gains no file) superseding
@@ -102,6 +104,21 @@ task:
       unfired and unwinding paths; the `install` refusal. Record any arm
       this group alone does not reach, so group 3's hook tests close it —
       same requirement.
+- [ ] 2.6 Add `#![deny(clippy::mem_forget)]` to
+      `crates/brokkr-cli/src/lib.rs`, so a `Guard` passed to `mem::forget`
+      anywhere in the `brokkr_cli` library crate — `ui/safe_fs.rs` and
+      `ui/tests.rs` included — fails the clippy gate, for every test
+      written against the seam after this change lands (D4.5). That crate
+      root is the whole scope the lint needs: the bin target is a separate
+      crate root, and the seam is `cfg(test)` in the library. Confirm
+      first that the pinned toolchain's clippy carries the lint under that
+      name; if it does not, record the name it does carry for this pattern,
+      or record that the D7 inspection's no-leak clause stands alone — as a
+      finding to repair, never as a silent gap. Confirm from a workspace
+      grep for `mem::forget`, `ManuallyDrop` and `Box::leak` over `crates/`
+      that the lint denies a pattern no code uses, so it needs no
+      suppression, no dependency and no `Cargo.lock` change — same
+      requirement.
 
 ## 3. The seven hook statements, driven by scripted errors, real changes and one ordinary fixture (D3, D5, D6)
 
@@ -175,12 +192,13 @@ task:
       entry's occurrence as the sum of each named read's enumeration count
       plus one, with a comment naming the read it points at, so a drift is
       traceable to a named read — same requirement.
-- [ ] 3.11 Add the release-build proof: verification (group 8) inspects
-      every `fault::` reference and confirms each sits inside the `fault`
-      module, under a `#[cfg(test)]` statement, or in `ui/tests.rs`, and
-      that clippy's `--all-targets`, the workspace tests, both bundle
-      compiles and the release build already exercise a build without the
-      unit-test configuration — same requirement.
+- [ ] 3.11 Add the release-build proof: confirm that clippy's
+      `--all-targets`, the workspace tests, both bundle compiles and the
+      release build already exercise a build without the unit-test
+      configuration, in which any unguarded `fault::` reference is a
+      compile error. The source inspection that confirms where each
+      `fault::` reference sits is task 8.5, which owns and records it —
+      same requirement.
 
 ## 4. Restructures with recorded unreachability proofs, and the `claude_source` home parameter (D5)
 
@@ -327,7 +345,22 @@ task:
 - [ ] 8.4 Carry `has_security_residual` (review 7505, medium) in every
       result until an independent review clears it on evidence — every
       requirement of this change.
-- [ ] 8.5 Run and leave green: `cargo fmt --all -- --check`; `cargo clippy
+- [ ] 8.5 Run D7's four-clause seam boundary inspection on the final head
+      and write it into the verification record, quoting each command and
+      the output it produced, not the conclusion drawn from it: (1) every
+      `fault::` reference under `crates/brokkr-cli/src` sits in the `fault`
+      module, under a `#[cfg(test)]` statement, or in `ui/tests.rs`; (2) the
+      `fault` module reads no environment variable, argument, configuration
+      key, file or journal value; (3) no `Guard` value in `brokkr-cli` is
+      passed to `mem::forget`, wrapped in `ManuallyDrop`, leaked, or handed
+      to a helper that takes it by value and does not drop it, and every
+      `install` site binds its guard as a plain local or as a field that
+      drops in the ordinary path; (4) `#![deny(clippy::mem_forget)]` is
+      present in `crates/brokkr-cli/src/lib.rs`, the pinned clippy carries
+      that lint, and the clippy gate ran clean with it. Record clause 3 as
+      review and clauses 1, 2 and 4 as mechanical, as D7 and D4.5 state —
+      every requirement of this change.
+- [ ] 8.6 Run and leave green: `cargo fmt --all -- --check`; `cargo clippy
       --workspace --all-targets --all-features --locked -- -D warnings`;
       `cargo test --workspace --all-features --locked`; `cargo run -p
       brokkr-cli -- compile --bundle bundles/self`; `cargo run -p
@@ -342,11 +375,22 @@ task:
 
 ## 9. Contributor note, final review, archive fold (D10, D11)
 
-- [ ] 9.1 Add a short coverage note to `CONTRIBUTING.md`, next to the
-      existing coverage guidance: prefer an ordinary input, then a real
-      change timed by `safe_fs::fault`, then a scripted error; entries must
-      fire; the seam exists only in the `brokkr-cli` unit-test build —
-      every requirement of this change.
+- [ ] 9.1 Add the short coverage note to
+      `docs/guides/contributing-by-hand.md`, as one paragraph in the
+      existing "The four refusal shapes" section (`:407`) after that
+      section's first shape, which already says an unreached arm is
+      "usually an error arm" whose fix "is the test case that takes the arm
+      — not deleting the arm". The note says how to reach a reader error
+      arm, in order: prefer an ordinary input, then a real change timed by
+      `safe_fs::fault`, then a scripted error; entries must fire; the seam
+      exists only in the `brokkr-cli` unit-test build; and the `fault`
+      module is not a test module but counted code in a production file, so
+      that section's test-module placement rule (`:432-438`) neither applies
+      to it nor exempts it from the counter. Leave `CONTRIBUTING.md`'s
+      pointer line (`:107`) as it is and do not duplicate the note there.
+      Check that this task, design D10 and the proposal's Impact line name
+      the same file and section in the same words — every requirement of
+      this change.
 - [ ] 9.2 Obtain a fresh, independent final review of this branch's head.
       Record its run-integrity observations as observations, never as
       directions to override a gate — every requirement of this change.

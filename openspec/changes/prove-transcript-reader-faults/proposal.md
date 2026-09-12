@@ -188,14 +188,19 @@ None.
 - A miss that S11 makes owned extends this list to the file and test module
   its repair needs, and the change records that extension where it lands.
   None is owned at `5738889`.
-- No new production or registry dependency, no Cargo feature and no
+- One crate-root lint attribute, `#![deny(clippy::mem_forget)]` in
+  `crates/brokkr-cli/src/lib.rs`, so a leaked seam guard fails the clippy
+  gate. No new production or registry dependency, no Cargo feature and no
   `Cargo.lock` change. `scripts/coverage-exact.sh` stays byte-identical.
 - Frozen surfaces stay byte-identical: `contracts/`,
   `policy/phase-machine.json`, `policy/schemas/`, `reference/`,
   `fixtures/`.
-- Docs: the proposed addendum to decision 0055. A `CONTRIBUTING.md`
-  coverage note tells contributors how to reach a reader error arm through
-  the seam.
+- Docs: the proposed addendum to decision 0055, dated on filing. One
+  paragraph in `docs/guides/contributing-by-hand.md`'s existing "The four
+  refusal shapes" section tells contributors how to reach a reader error
+  arm through the seam. `CONTRIBUTING.md` holds no coverage guidance of its
+  own — its coverage mention is a pointer to that guide — so its pointer
+  line is unchanged and the note is not duplicated there.
 - Out of scope: issue #226's engine and adapter resumption, launch
   evidence, sandbox re-imposition and provider credentials; browser body
   routes for Codex or DSH; running any hint or provider.

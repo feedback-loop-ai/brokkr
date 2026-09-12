@@ -110,9 +110,10 @@ design does not repeat them.
 
 ### D1 — The council is reconciled claim by claim
 
-Two positions were written for this sitting: simplicity and robustness. Both
-pass the settled contract. Where they differ, each claim is settled on
-evidence, not by averaging.
+Two positions were written for the first sitting: simplicity and robustness.
+Both pass the settled contract. Where they differ, each claim is settled on
+evidence, not by averaging. A second sitting, on the return from analyze,
+is reconciled after this table.
 
 | Claim | Seat | Ruling | Evidence and result |
 |---|---|---|---|
@@ -133,6 +134,32 @@ evidence, not by averaging.
 | Write the triage aid for the boundary-in-force test into the design | robustness | **Adopted** | D5 requires a message on each asserted read, and the entry's occurrence written as a sum of named per-read counts. |
 | An append-only builder and an opaque guard, so "disarm" cannot be written | robustness | **Adopted** | D2. |
 | Name the existing `HOME` pattern as a residual | robustness | **Adopted; count corrected** | Eight `ui/tests.rs` and `tui/tests.rs` sites take `crate::tests::HOME`, so mutation among lock holders is serialized. The residual is that restoring `HOME` is not unwind-safe, and readers that do not take the lock can see the mutation. It is out of scope and not copied: no test in this change mutates any environment variable. |
+
+#### Second sitting: the return from analyze (F1-F4)
+
+Analyze returned `drift` with four low findings, three owned by this design
+and one by the tasks. Two positions were written again. They agree on the
+direction of all four and differ on one thing: F1's enforcement. Simplicity
+holds that a named review rule in D7 is the whole answer and refuses any
+mechanism; robustness holds that a promise this design states as
+unconditional cannot rest on review alone when a mechanical check is
+available for nothing.
+
+| Claim | Seat | Ruling | Evidence and result |
+|---|---|---|---|
+| F1: close the `mem::forget` hole with a review rule in D7 and nothing else; a drop-watcher, a global live-plan registry, a thread-exit hook or a `trybuild` negative test are all larger than the seam they protect | simplicity | **Adopted in part** | The refusals are adopted whole: each of those mechanisms needs its own code, its own tests and its own shared state, and none can see a guard already moved into `forget`. The "and nothing else" is rejected — see the next row. |
+| F1: add `clippy::mem_forget` as a mechanical backstop, and extend D7's inspection to cover `Guard` leak patterns | robustness | **Adopted** | The seat's own workspace grep (`mem::forget`, `ManuallyDrop` over `crates/`) returns nothing, re-run here with `Box::leak` added and still empty. So the lint denies a pattern no code uses: no noise, no suppression, no dependency, no lockfile change, one attribute line. It is the same shape of guarantee D7 already gives the seam's absence from release builds, and unlike review it holds for tests nobody has written yet. D4.5 adopts it. |
+| F1: the lint's scope, left open between "the `ui` module tree" and "crate-wide in `brokkr-cli`" | robustness | **Fixed** | An open scope is the drift F3 was raised about. The scope is one crate-root attribute, `#![deny(clippy::mem_forget)]` in `crates/brokkr-cli/src/lib.rs`: it covers `ui/safe_fs.rs` and `ui/tests.rs`, the only places a `Guard` can exist, and needs no manifest edit (each crate's `[lints]` already inherits the workspace table). |
+| F1: the lint alone is not the whole closure | robustness | **Adopted, and stated** | `clippy::mem_forget` fires on `mem::forget` of a `Drop` type. It does not see `ManuallyDrop`, `Box::leak`, or a helper that takes a `Guard` by value and drops nothing. D4.5 names what the lint closes and what only review closes, rather than implying one mechanism covers both. |
+| F1: the lint name must be checked against the pinned toolchain, not assumed | robustness | **Adopted** | This box has no `cargo` (`which cargo` fails), and the pinned toolchain is `nightly-2026-09-05`, so the check cannot run here. D7 clause 4 makes it an implementation check with a recorded result, and a missing lint is a finding, not a silent gap. |
+| F4: the inspection needs an owning group-8 task whose record quotes the grep output, not a checkbox asserting a conclusion | robustness | **Adopted** | An unfalsifiable checkbox is the same defect analyze found in the dangling cross-reference. D7 now requires the command and its output; task 8.5 owns it and 3.11 cites it by number. |
+| F4: no new tool, script or task group for the inspection | simplicity | **Adopted** | It is four text clauses over `grep` and the clippy result. It needed an owner, not machinery. |
+| F2: date the addendum on filing | both | **Adopted** | Matches addenda 0035 and 0042. Robustness's condition is adopted: the date is fixed at the commit that lands it, and is not re-derived if a later commit moves. |
+| F3: land the note in `docs/guides/contributing-by-hand.md`, not `CONTRIBUTING.md`, and do not duplicate it | both | **Adopted** | `CONTRIBUTING.md` has no coverage guidance; `:107` is a pointer. |
+| F3: the section is "Exact coverage" (`:190`) | both | **Corrected** | `:190` is the section that gives the command. The note is guidance for a contributor holding an uncovered error arm, and that guidance already lives in "The four refusal shapes" (`:407`), whose first shape reads "usually an error arm. The fix is the test case that takes the arm — not deleting the arm." The note extends that sentence, so it lands there. Both seats named the weaker anchor; the evidence overrides both. |
+| F3: proposal Impact, D10 and task 9.1 must name the same place in the same words | robustness | **Adopted** | All three are repaired together in this visit. |
+| The two `tui.rs` restructures are the largest code motion; prefer the smallest form that removes the arm | simplicity | **Adopted as a caution** | D5 already fixes the form and requires the existing `transcript_invalidates` expectations to move unchanged. No reopening of the settled reach-or-remove ruling. |
+| Neither seat reopens D2-D9's seam shape, the S1-S14 clarify record, or the six targets | both | **Held** | Nothing in F1-F4 bears on them, and no new evidence was offered. |
 
 ### D2 — One test-only module, a builder plan and an opaque guard
 
@@ -225,9 +252,34 @@ their error arms are already reached by real conditions.
    message names each unfired target and occurrence.
 4. A guard discarded with `let _ =` drops at once. Its entries are then
    unfired and the test fails. That failure is loud, not silent.
-5. `mem::forget` on a guard leaves its plan stored. The next `install` on
-   that thread refuses it. The seam offers no way to clear a plan other
-   than dropping its guard.
+5. A guard that is never dropped leaves its plan stored with entries
+   unfired, and nothing fails. No `install`-time refusal saves it: D1's
+   own premise is that libtest spawns a thread per test, so in the normal
+   case there is no next `install` on that thread, and the thread-local
+   dies with the thread. This is the one route by which a test could
+   exempt itself from the unfired check that `spec.md:51-53` forbids
+   exempting any test from, so the design closes it outside the guard,
+   and says which part is mechanical and which is review.
+   - `crates/brokkr-cli/src/lib.rs` carries
+     `#![deny(clippy::mem_forget)]`. `mem::forget` of a value that
+     implements `Drop` — a `Guard` — then fails the clippy gate anywhere
+     in the `brokkr_cli` library crate, `ui/safe_fs.rs` and `ui/tests.rs`
+     included, for every test written against the seam after this change
+     lands. That crate root is the whole scope that needs the lint: the
+     bin target is a separate crate root, and the seam is `cfg(test)` in
+     the library, so no `Guard` value can exist outside it. A
+     workspace-wide grep over `crates/` for `mem::forget`, `ManuallyDrop`
+     and `Box::leak` returns nothing at `5738889`, so the lint denies a
+     pattern no code uses: no noise, no suppression, no lockfile or
+     dependency change. Implementation confirms the lint's name against
+     the pinned toolchain before relying on it (D7).
+   - The lint does not see `ManuallyDrop`, `Box::leak`, or a helper that
+     takes a `Guard` by value and never drops it. Those are closed by the
+     no-leak clause of the D7 source inspection, which is review. The
+     design records that plainly instead of claiming a mechanism it does
+     not have.
+   The seam still offers no way to clear a plan other than dropping its
+   guard.
 
 The seam's own tests live in `ui/tests.rs`, whose `#[should_panic]` tails
 are not counted:
@@ -391,11 +443,28 @@ The gates already build all of them: clippy `--all-targets`, the workspace
 tests, both bundle compiles, the release build and the Rust 1.88
 all-targets check.
 
-Verification adds a source inspection: every `fault::` reference under
-`crates/brokkr-cli/src` sits in the `fault` module, under a `#[cfg(test)]`
-statement, or in `ui/tests.rs`. The module reads no environment variable,
-argument, configuration key, file or journal value, and review confirms it
-from the module's source.
+Verification adds one source inspection, owned by task 8.5, with four
+clauses. The verification record quotes the command it ran and the output
+it read, not the conclusion it drew, so a later reader can re-run it.
+
+1. Every `fault::` reference under `crates/brokkr-cli/src` sits in the
+   `fault` module, under a `#[cfg(test)]` statement, or in `ui/tests.rs`.
+2. The `fault` module reads no environment variable, argument,
+   configuration key, file or journal value.
+3. No `Guard` value anywhere in `crates/brokkr-cli` is passed to
+   `mem::forget`, wrapped in `ManuallyDrop`, leaked, or handed to a helper
+   that takes it by value and does not drop it. Every `install` site binds
+   its guard as a plain local, or as a field of a value that drops in the
+   ordinary path (D4.5).
+4. `#![deny(clippy::mem_forget)]` is present in
+   `crates/brokkr-cli/src/lib.rs`, the pinned toolchain's clippy carries
+   that lint under that name, and the clippy gate ran clean with it. If the
+   pinned clippy does not carry it, the record names the lint it does
+   carry for this pattern, or records that clause 3 stands alone as review
+   — as a finding to repair, never as a silent gap.
+
+Clause 3 is review, and the design says so (D4.5). Clauses 1, 2 and 4 are
+mechanical facts the inspection reads off the source and the gate.
 
 **Alternatives rejected:**
 - a `trybuild` compile-fail test, which needs a new dev-dependency;
@@ -485,9 +554,11 @@ hold. The tracked tests are the proof.
 
 ### D10 — A proposed addendum to 0055, and a contributor note
 
-`docs/decisions/0055-read-every-transcript-kind.md` gains an addendum dated
-2026-09-11 with status `proposed`, filed before any production edit. It
-records two things:
+`docs/decisions/0055-read-every-transcript-kind.md` gains an addendum with
+status `proposed`, filed before any production edit and dated on filing:
+the date is the addendum commit's own date, matching how addenda 0035 and
+0042 carry theirs. It is not guessed ahead of the commit, and it is not
+re-derived afterwards if a later commit moves. It records two things:
 
 1. The journal-inertness clarification. The read-only open writes no
    journal content. SQLite's own empty `-wal` and its `-shm` may appear. A
@@ -498,11 +569,31 @@ records two things:
 
 No other ruling changes. Only the operator accepts the addendum.
 
-`CONTRIBUTING.md` gains a short coverage note next to the existing coverage
-guidance. It says how to reach a reader error arm: prefer an ordinary input,
-then a real change timed by `safe_fs::fault`, then a scripted error. It
-says that entries must fire, and that the seam exists only in the
-`brokkr-cli` unit-test build.
+The contributor note lands in `docs/guides/contributing-by-hand.md`, in the
+existing section **"The four refusal shapes"** under "The coverage gate,
+practically" (`:407`), as one short paragraph after that section's first
+shape. That shape already carries the guidance this note extends: "A new
+`if` or `match` arm no test reaches. The most common one, and usually an
+error arm. The fix is the test case that takes the arm — not deleting the
+arm." `CONTRIBUTING.md` holds no coverage guidance of its own — its single
+coverage mention (`:107`) is a pointer to this guide — so its pointer line
+stays as it is, and the note is not duplicated there.
+
+The note says how to reach a reader error arm, in order: prefer an ordinary
+input, then a real change timed by `safe_fs::fault`, then a scripted error.
+It says that entries must fire, and that the seam exists only in the
+`brokkr-cli` unit-test build. It also says that the `fault` module is not a
+test module: it is counted code in a production file, reached by tests, so
+the same section's test-module placement rule (`:432-438`, sibling file or
+`crates/<crate>/tests/`) does not apply to it and does not exempt it from
+the counter. `safe_fs.rs` already carries an inline, counted
+`#[cfg(test)] mod tests` (`:514`), so the `fault` module sets no precedent
+in that file.
+
+The proposal's Impact line, this decision and task 9.1 name that file and
+that section in the same words. F3 was raised because two artifacts
+described one landing place differently and one of them pointed nowhere;
+repairing them separately would recreate it.
 
 ### D11 — The rest of #222 closes on this branch
 
@@ -530,6 +621,9 @@ says that entries must fire, and that the seam exists only in the
 - **Coverage re-trace.** Verification re-measures and re-traces S11 against
   the newest byte-identical host measurement. A non-reader miss without a
   box cause is owned and repaired.
+- **Seam boundary inspection.** D7's four-clause inspection runs on the
+  final head as task 8.5, and the verification record quotes the command
+  and the output, not the conclusion.
 - **Gates.** The gates are:
   - `cargo fmt --check`;
   - clippy with `-D warnings`;
@@ -578,9 +672,13 @@ says that entries must fire, and that the seam exists only in the
 - [A change closure touches files outside its tempdir] → Closures live in
   `ui/tests.rs` and are built from the fixture's own paths. Review checks
   this, because the seam cannot.
-- [A `mem::forget` guard or a harness fallback leaves a plan on a thread] →
-  The next `install` refuses it loudly, and a plan never affects another
-  thread.
+- [A leaked guard — `mem::forget`, `ManuallyDrop`, `Box::leak`, or a helper
+  that swallows ownership — leaves a plan whose entries never fire, and
+  nothing fails] → `#![deny(clippy::mem_forget)]` on `brokkr-cli` closes the
+  mechanical pattern at the clippy gate; the D7 inspection's no-leak clause
+  closes the rest by review; D4.5 says which is which and claims no
+  `install`-time refusal for a leaked guard. A plan never affects another
+  thread, and libtest's run-on-caller fallback does meet the refusal.
 - [The box cannot run the namespace-guarded tests] → Those misses stay
   pending host proof with their S11 causes, and a skipped test is never
   recorded as proof.
@@ -603,8 +701,9 @@ Each step is a commit tagged `(#222)`, unsigned and never pushed.
 7. Port the integration fixtures and record each disposition (D11).
 8. Re-measure, re-trace S11 and run every gate. Write the verification
    record with the M/L regression map and the security residual.
-9. Add the `CONTRIBUTING.md` note. Get the final independent review. Fold
-   the archive.
+9. Add the contributor note to `docs/guides/contributing-by-hand.md`'s
+   "The four refusal shapes" section. Get the final independent review.
+   Fold the archive.
 
 There is no data or contract migration: the journal format, frozen
 surfaces, CLI and routes are unchanged. Rollback is reverting the commits.
