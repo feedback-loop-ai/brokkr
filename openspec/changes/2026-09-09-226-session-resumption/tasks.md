@@ -2951,3 +2951,66 @@ the full archived suite and controller evidence on the final commit remain manda
 This is dependent-artifact preparation, not implementation or activation.
 [This visit's design validation](design.md#council-re-entry-validation--2026-09-13-inherited-head-02e6771)
 records the actual checks and their limits. No tick is awarded for them.
+
+## Current tasks visit — post-containment breakdown confirmation, 2026-09-13
+
+This visit belongs to run `current-successor-operator-rulin-eef1e666` and
+holds the tasks phase after design's own `ab3012a` council re-entry return
+above, which reconciled the canonical DSH profile containment finding (a
+symlinked profile ancestor producing a false refusal against a raw boundary).
+It adopts HEAD `ab3012a` and the whole dated change, restated in this run's
+commission as CURRENT SUCCESSOR with the change kept whole under Astra/
+DeepSeek Flash/Sonnet seat assignment, and re-reads the commissioned evidence
+set — the two D6 findings, A1–A5, B1–B5, F1, the September 12 controller
+sandbox note, both codex proof records, the DSH pair-measurement and
+upstream-discovery records, `adapters/dsh.json` and proposed 0056 — against
+D6/D9/D10/D11 and this file.
+
+The containment fix is confirmed already carried into this breakdown, not
+merely into design: task 8.8(b) states canonicalizing the complete profile
+directory once for containment while retaining the original raw lookup
+anchor and order, comparing each first-hit canonical bundle directory against
+the canonical core root or canonical profile boundary, refusing an
+uncanonicalizable boundary or candidate, and it names the inherited raw
+comparison's symlinked-home false refusal as the correction still pending
+under this task. Task 8.10 adds the matching synthetic acceptance and refusal
+vectors: a symlinked ancestor resolving the same contained bundles, an
+unresolvable boundary, a symlink target outside the allowed canonical roots,
+a near-prefix sibling (`headless-extra`), and an outside first hit with a
+later inside candidate, each staying unreadable with no fallback. Both tasks
+still cite `safety / AS1`, matching the amended AS1 scenario in
+`specs/adapter-resume-safety/spec.md`. The two 2026-09-12 D6 findings (npm
+key-to-triple rule, conditional Cordis extension location/provenance) and
+A1–A5/B1–B5 remain settled and unre-derived; no new finding reopens them.
+
+Recounted directly against this file: **81 complete / 20 pending** across the
+same 101 identifiers — 8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.4, 13.1, 14.1–14.2,
+15.1–15.4 and 15.6–15.7 — none added, removed or renumbered. The five deltas
+parse at **20 requirements / 141 scenarios** (`grep` count over
+`specs/*/spec.md` matches design's own recount exactly).
+`openspec validate 2026-09-09-226-session-resumption --strict` exits 0:
+`Change '2026-09-09-226-session-resumption' is valid`. `git diff --check`
+reports no whitespace errors. This seat's box has no `cargo`, `npm`, `npx` or
+`codex` on `PATH`, consistent with every predecessor visit's own report from
+this box; only the installed `openspec` binary was run, and no production
+code, contract, decision, adapter declaration, doctor output, guide or
+evidence file was written by this visit — only this planning artifact was
+read and appended to. No task was ticked and none reopened.
+
+Ordering is unchanged and still consistent: 10.7's live half already landed
+(recorded above at the `current-successor-operator-rulin-eef1e666` implement
+visit); the remaining order is 1.1/6.4/11.5/13.1's already-complete truth
+repair (13.1 reopened for its Codex/Claude row correction per the specify
+re-entry visit above), then 8.8's remaining seam/locator/doctor/planner work
+including this visit's confirmed containment clause, then 8.10 and 9.6, then
+10.5–10.8's provider proofs, 11.1–11.4's evidence-gated enablement (LaneTally
+per 11.4's sole exception), 14.1–14.2's re-pins, and 15.x's gates and
+pre-archive readiness last.
+
+This breakdown names, for every pending task, the requirement it serves and
+the concrete artifact it produces, and needs no repair before implementation
+resumes. `upstream` is not reported: no design, proposal or spec defect was
+found on this re-read; design's own containment fix at `ab3012a` was already
+propagated into this file's task text and needed no further edit here. The
+next visit should resume implementation at 13.1's reopened Codex/Claude row,
+then 8.8's remaining work in the stated order.
