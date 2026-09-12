@@ -305,19 +305,19 @@ task:
 
 ## 7. Read-only integration fixture ports (D11)
 
-- [ ] 7.1 Compare this branch's files against each of `c2a7da4`, `fcd3b93`,
+- [x] 7.1 Compare this branch's files against each of `c2a7da4`, `fcd3b93`,
       `49ef15d`, `8d2211d`, `c7ff0fa`, `10908b6`, `82c802a`, `05ab44b` and
       `bfd677b` in `../brokkr-222-integration`, reading that worktree only.
       Check `c2a7da4`'s production change against the lossless `i128`
       identity `widen` this branch already carries — every requirement of
       this change.
-- [ ] 7.2 Check whether `bfd677b`'s
+- [x] 7.2 Check whether `bfd677b`'s
       `a_working_seats_transcript_is_re_resolved_without_a_journal_move`
       inode-reuse purpose is already covered by this branch's
       stage-then-rename-over-the-unopened-target fixture
       (`src/tests.rs:2222-2229`); port the commit's test content if it is
       not — every requirement of this change.
-- [ ] 7.3 Port, by content, any other test-only repair from the inspected
+- [x] 7.3 Port, by content, any other test-only repair from the inspected
       set whose unrepaired form is still present in this branch's files.
       Record each commit's disposition (ported, already subsumed, or not
       applicable) in the verification record built in group 8. Do not write
@@ -377,7 +377,7 @@ task:
 
 ## 9. Contributor note, archive fold, commit (D10, D11)
 
-- [ ] 9.1 Add the short coverage note to
+- [x] 9.1 Add the short coverage note to
       `docs/guides/contributing-by-hand.md`, as one paragraph in the
       existing "The four refusal shapes" section (`:407`) after that
       section's first shape, which already says an unreached arm is

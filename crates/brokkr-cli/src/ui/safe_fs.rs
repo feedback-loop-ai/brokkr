@@ -636,10 +636,14 @@ pub(crate) mod fault {
         /// Name an unfired entry for the guard's panic message.
         fn describe(&self) -> String {
             match self {
-                Entry::Fail { target, occurrence, .. } => {
+                Entry::Fail {
+                    target, occurrence, ..
+                } => {
                     format!("{target:?} occurrence {occurrence}")
                 }
-                Entry::Change { target, occurrence, .. } => {
+                Entry::Change {
+                    target, occurrence, ..
+                } => {
                     format!("{target:?} occurrence {occurrence}")
                 }
             }

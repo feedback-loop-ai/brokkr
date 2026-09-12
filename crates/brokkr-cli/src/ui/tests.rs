@@ -1157,7 +1157,12 @@ fn claude_discovery_is_scoped_and_refuses_symlinks() {
     assert!(read.is_readable(), "the safe regular file wins: {read:?}");
     assert_eq!(
         read.path.as_deref().unwrap(),
-        projects.join("one/abcd-1234.jsonl").to_str().unwrap()
+        projects
+            .join("one/abcd-1234.jsonl")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
     );
 
     // A symlink-only lookup that also hides the real file is unsafe-path.
@@ -1638,7 +1643,7 @@ fn codex_whole_token_variants_and_length_boundary() {
         .path
         .as_deref()
         .unwrap()
-        .starts_with(recorded.to_str().unwrap()));
+        .starts_with(recorded.canonicalize().unwrap().to_str().unwrap()));
     assert_eq!(
         read_with_home(
             Some(&ambient_only),
@@ -1816,7 +1821,16 @@ fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
     // A non-Unicode directory name makes uniqueness unknowable.
     std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
     let bad = root.join(std::ffi::OsString::from_vec(vec![b'b', 0xff, b'd']));
-    std::fs::create_dir_all(&bad).unwrap();
+    if let Err(error) = std::fs::create_dir_all(&bad) {
+        // macOS filesystems reject this byte sequence before a directory can
+        // exist. Assert that native refusal; the reader cannot encounter an
+        // entry the filesystem cannot represent. Other errors still fail.
+        assert!(
+            cfg!(target_vendor = "apple") && error.raw_os_error() == Some(92),
+            "unexpected failure creating the non-Unicode fixture: {error}"
+        );
+        return;
+    }
     std::fs::write(bad.join("abcd-1234.jsonl"), body).unwrap();
     let before = snapshot_tree(&root);
     assert_eq!(
@@ -2870,7 +2884,11 @@ fn the_presentation_route_decodes_each_component_exactly_once() {
 #[test]
 fn a_hostile_recorded_home_reaches_the_page_only_as_portable_display_data() {
     let dir = tempfile::tempdir().unwrap();
-    let hostile_home = dir.path().join("home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀");
+    let hostile_home = dir.path().join(if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    });
     std::fs::create_dir_all(hostile_home.join("sessions")).unwrap();
     std::fs::write(
         hostile_home.join("sessions/rollout-0199mine.jsonl"),
@@ -3497,7 +3515,7 @@ fn a_symlinked_home_is_canonicalized_and_readable() {
         read.path
             .as_deref()
             .unwrap()
-            .starts_with(real.to_str().unwrap()),
+            .starts_with(real.canonicalize().unwrap().to_str().unwrap()),
         "the confirmed path is canonical: {read:?}"
     );
 }
@@ -4370,7 +4388,11 @@ fn the_seam_leaves_the_boundary_checks_in_force() {
     // occurrence: it fires here, so the unfired-entry check passes unchanged
     // and the lookup returns discovery-stage unreadable.
     let later = read_common(&regular_ref);
-    assert_eq!(later.unavailable, Some(Unavailable::Unreadable), "{later:?}");
+    assert_eq!(
+        later.unavailable,
+        Some(Unavailable::Unreadable),
+        "{later:?}"
+    );
     assert_eq!(later.path, None);
 }
 
@@ -4404,7 +4426,11 @@ fn a_discovery_limit_with_two_candidates_is_ambiguous_not_limited() {
     .unwrap();
     let reference = common("dsh-session", locator, root.to_str().unwrap());
     let read = read_common(&reference);
-    assert_eq!(read.unavailable, Some(Unavailable::AmbiguousSource), "{read:?}");
+    assert_eq!(
+        read.unavailable,
+        Some(Unavailable::AmbiguousSource),
+        "{read:?}"
+    );
 }
 
 #[test]
@@ -4458,10 +4484,7 @@ fn an_empty_presentation_run_component_is_refused() {
         None,
         None,
     );
-    let response = handle(
-        &db,
-        &format!("/api/presentation//{}", percent_encode(&key)),
-    );
+    let response = handle(&db, &format!("/api/presentation//{}", percent_encode(&key)));
     assert_eq!(response.status, "404 Not Found");
     assert_eq!(
         response.body,
@@ -4496,7 +4519,11 @@ fn a_missing_journal_gains_no_file_on_every_browser_route() {
         "/api/presentation/r222/key",
     ] {
         let response = handle(&db, path);
-        assert_eq!(response.status, "404 Not Found", "{path}: {}", response.body);
+        assert_eq!(
+            response.status, "404 Not Found",
+            "{path}: {}",
+            response.body
+        );
     }
 
     let request = b"GET /sse/r222 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_vec();
