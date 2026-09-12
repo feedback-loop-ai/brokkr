@@ -9,6 +9,8 @@
 //! and touches no filesystem — decision 0013's separation is a compile
 //! property, not a convention.
 
+use std::rc::Rc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -970,11 +972,24 @@ enum CodexFact {
     Result,
 }
 
+/// A recorded Codex identity, held once per record and shared by every
+/// block that cites it. One row carries one id however many content
+/// members it declares, so the reader allocates the id once and counts
+/// references: cloning the bytes per member would let a row of many
+/// empty members and one long id amplify far beyond the source cap.
+type CodexId = Rc<str>;
+
+/// The shared identity for one record, or none when the row records no
+/// nonempty id.
+fn codex_id(id: Option<&str>) -> Option<CodexId> {
+    id.filter(|id| !id.is_empty()).map(Rc::from)
+}
+
 /// One projected Codex block and the optional association fact it shares
 /// with a canonical `response_item` counterpart.
 struct CodexBlock {
     block: Block,
-    fact: Option<(CodexFact, String)>,
+    fact: Option<(CodexFact, CodexId)>,
 }
 
 impl CodexBlock {
@@ -982,12 +997,10 @@ impl CodexBlock {
         CodexBlock { block, fact: None }
     }
 
-    fn identified(block: Block, fact: CodexFact, id: Option<&str>) -> CodexBlock {
+    fn identified(block: Block, fact: CodexFact, id: Option<&CodexId>) -> CodexBlock {
         CodexBlock {
             block,
-            fact: id
-                .filter(|id| !id.is_empty())
-                .map(|id| (fact, id.to_string())),
+            fact: id.map(|id| (fact, Rc::clone(id))),
         }
     }
 }
@@ -1144,15 +1157,17 @@ fn collect_codex(admitted: &Admitted<'_>, projection: &mut Projection) -> Vec<Co
 /// actually covers disappear.
 fn associate_codex(records: &mut [CodexRecord]) {
     use std::collections::{HashMap, HashSet};
-    let mut canonical: HashMap<(CodexFact, String), usize> = HashMap::new();
-    let mut fallback: HashMap<(CodexFact, String), usize> = HashMap::new();
+    // Keys share each record's id allocation: a key is a reference count,
+    // never a copy of the recorded bytes.
+    let mut canonical: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
+    let mut fallback: HashMap<(CodexFact, CodexId), usize> = HashMap::new();
     for record in records.iter() {
-        let mut seen: HashSet<(CodexFact, String)> = HashSet::new();
+        let mut seen: HashSet<(CodexFact, CodexId)> = HashSet::new();
         for block in &record.blocks {
             let Some((fact, id)) = &block.fact else {
                 continue;
             };
-            let key = (*fact, id.clone());
+            let key = (*fact, Rc::clone(id));
             if !seen.insert(key.clone()) {
                 continue;
             }
@@ -1169,7 +1184,7 @@ fn associate_codex(records: &mut [CodexRecord]) {
         }
         record.blocks.retain(|block| match &block.fact {
             Some((fact, id)) => {
-                let key = (*fact, id.clone());
+                let key = (*fact, Rc::clone(id));
                 canonical.get(&key) != Some(&1) || fallback.get(&key) != Some(&1)
             }
             None => true,
@@ -1247,7 +1262,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 .unwrap_or("assistant")
                 .to_string();
             let id = if role == "assistant" {
-                payload.get("id").and_then(Value::as_str)
+                codex_id(payload.get("id").and_then(Value::as_str))
             } else {
                 None
             };
@@ -1262,7 +1277,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                                     Some(text) => blocks.push(CodexBlock::identified(
                                         Block::text(text),
                                         CodexFact::Message,
-                                        id,
+                                        id.as_ref(),
                                     )),
                                     None => unrecognized = true,
                                 }
@@ -1271,7 +1286,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                                 blocks.push(CodexBlock::identified(
                                     Block::omitted(media_omission(kind)),
                                     CodexFact::Message,
-                                    id,
+                                    id.as_ref(),
                                 ));
                             }
                             _ => unrecognized = true,
@@ -1284,7 +1299,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             (blocks, role, unrecognized)
         }
         "reasoning" => {
-            let id = payload.get("id").and_then(Value::as_str);
+            let id = codex_id(payload.get("id").and_then(Value::as_str));
             let mut blocks = Vec::new();
             let mut unrecognized = false;
             match payload.get("summary") {
@@ -1296,7 +1311,7 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                                     Some(text) => blocks.push(CodexBlock::identified(
                                         Block::reasoning(text),
                                         CodexFact::Reasoning,
-                                        id,
+                                        id.as_ref(),
                                     )),
                                     None => unrecognized = true,
                                 }
@@ -1317,12 +1332,12 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 Some(arguments) => format!("{name} {arguments}"),
                 None => name.to_string(),
             };
-            let id = payload.get("call_id").and_then(Value::as_str);
+            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
             (
                 vec![CodexBlock::identified(
-                    Block::tool(tool_text(id, context)),
+                    Block::tool(tool_text(id.as_deref(), context)),
                     CodexFact::Call,
-                    id,
+                    id.as_ref(),
                 )],
                 "assistant".to_string(),
                 false,
@@ -1330,12 +1345,12 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
         }
         "function_call_output" | "custom_tool_call_output" => {
             let output = payload.get("output").map(content_text).unwrap_or_default();
-            let id = payload.get("call_id").and_then(Value::as_str);
+            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
             (
                 vec![CodexBlock::identified(
-                    Block::tool_result(tool_text(id, output)),
+                    Block::tool_result(tool_text(id.as_deref(), output)),
                     CodexFact::Result,
-                    id,
+                    id.as_ref(),
                 )],
                 "tool".to_string(),
                 false,
@@ -1343,15 +1358,17 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
         }
         "local_shell_call" | "web_search_call" => {
             let action = payload_text(payload.get("action")).unwrap_or_default();
-            let id = payload
-                .get("call_id")
-                .or_else(|| payload.get("id"))
-                .and_then(Value::as_str);
+            let id = codex_id(
+                payload
+                    .get("call_id")
+                    .or_else(|| payload.get("id"))
+                    .and_then(Value::as_str),
+            );
             (
                 vec![CodexBlock::identified(
-                    Block::tool(tool_text(id, action)),
+                    Block::tool(tool_text(id.as_deref(), action)),
                     CodexFact::Call,
-                    id,
+                    id.as_ref(),
                 )],
                 "assistant".to_string(),
                 false,
@@ -1359,15 +1376,17 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
         }
         "tool_search_call" => {
             let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
-            let id = payload
-                .get("call_id")
-                .or_else(|| payload.get("id"))
-                .and_then(Value::as_str);
+            let id = codex_id(
+                payload
+                    .get("call_id")
+                    .or_else(|| payload.get("id"))
+                    .and_then(Value::as_str),
+            );
             (
                 vec![CodexBlock::identified(
-                    Block::tool(tool_text(id, format!("tool_search {arguments}"))),
+                    Block::tool(tool_text(id.as_deref(), format!("tool_search {arguments}"))),
                     CodexFact::Call,
-                    id,
+                    id.as_ref(),
                 )],
                 "assistant".to_string(),
                 false,
@@ -1375,15 +1394,17 @@ fn codex_response_item(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
         }
         "tool_search_output" => {
             let tools = payload_text(payload.get("tools")).unwrap_or_default();
-            let id = payload
-                .get("call_id")
-                .or_else(|| payload.get("id"))
-                .and_then(Value::as_str);
+            let id = codex_id(
+                payload
+                    .get("call_id")
+                    .or_else(|| payload.get("id"))
+                    .and_then(Value::as_str),
+            );
             (
                 vec![CodexBlock::identified(
-                    Block::tool_result(tool_text(id, tools)),
+                    Block::tool_result(tool_text(id.as_deref(), tools)),
                     CodexFact::Result,
-                    id,
+                    id.as_ref(),
                 )],
                 "tool".to_string(),
                 false,
@@ -1451,13 +1472,13 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
         }
         "exec_command_begin" | "exec_command_end" => {
             let command = payload_text(payload.get("command")).unwrap_or_default();
-            let id = payload.get("call_id").and_then(Value::as_str);
+            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
             if kind == "exec_command_begin" {
                 (
                     vec![CodexBlock::identified(
-                        Block::tool(tool_text(id, command)),
+                        Block::tool(tool_text(id.as_deref(), command)),
                         CodexFact::Call,
-                        id,
+                        id.as_ref(),
                     )],
                     "assistant".to_string(),
                     false,
@@ -1465,9 +1486,9 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             } else {
                 (
                     vec![CodexBlock::identified(
-                        Block::tool_result(tool_text(id, codex_command_output(payload))),
+                        Block::tool_result(tool_text(id.as_deref(), codex_command_output(payload))),
                         CodexFact::Result,
-                        id,
+                        id.as_ref(),
                     )],
                     "tool".to_string(),
                     false,
@@ -1475,7 +1496,7 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
             }
         }
         "mcp_tool_call_begin" | "mcp_tool_call_end" => {
-            let id = payload.get("call_id").and_then(Value::as_str);
+            let id = codex_id(payload.get("call_id").and_then(Value::as_str));
             let (context, role, fact) = if kind == "mcp_tool_call_begin" {
                 let server = payload
                     .pointer("/invocation/server")
@@ -1501,22 +1522,22 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 (result, "tool", CodexFact::Result)
             };
             let block = if kind == "mcp_tool_call_begin" {
-                Block::tool(tool_text(id, context))
+                Block::tool(tool_text(id.as_deref(), context))
             } else {
-                Block::tool_result(tool_text(id, context))
+                Block::tool_result(tool_text(id.as_deref(), context))
             };
             (
-                vec![CodexBlock::identified(block, fact, id)],
+                vec![CodexBlock::identified(block, fact, id.as_ref())],
                 role.to_string(),
                 false,
             )
         }
         "dynamic_tool_call_request" | "dynamic_tool_call_response" => {
-            let id = if kind == "dynamic_tool_call_request" {
+            let id = codex_id(if kind == "dynamic_tool_call_request" {
                 payload.get("callId").and_then(Value::as_str)
             } else {
                 payload.get("call_id").and_then(Value::as_str)
-            };
+            });
             let (context, role, fact) = if kind == "dynamic_tool_call_request" {
                 let tool = payload.get("tool").and_then(Value::as_str).unwrap_or("?");
                 let arguments = payload_text(payload.get("arguments")).unwrap_or_default();
@@ -1530,12 +1551,12 @@ fn codex_event_msg(payload: &Value) -> (Vec<CodexBlock>, String, bool) {
                 (format!("{content} {error}"), "tool", CodexFact::Result)
             };
             let block = if kind == "dynamic_tool_call_request" {
-                Block::tool(tool_text(id, context))
+                Block::tool(tool_text(id.as_deref(), context))
             } else {
-                Block::tool_result(tool_text(id, context))
+                Block::tool_result(tool_text(id.as_deref(), context))
             };
             (
-                vec![CodexBlock::identified(block, fact, id)],
+                vec![CodexBlock::identified(block, fact, id.as_ref())],
                 role.to_string(),
                 false,
             )
@@ -1574,7 +1595,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
             let assistant = kind == "AgentMessage";
             let role = if assistant { "assistant" } else { "user" };
             let id = if assistant {
-                item.get("id").and_then(Value::as_str)
+                codex_id(item.get("id").and_then(Value::as_str))
             } else {
                 None
             };
@@ -1589,7 +1610,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                                     Some(text) => blocks.push(CodexBlock::identified(
                                         Block::text(text),
                                         CodexFact::Message,
-                                        id,
+                                        id.as_ref(),
                                     )),
                                     None => unrecognized = true,
                                 }
@@ -1598,7 +1619,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                                 blocks.push(CodexBlock::identified(
                                     Block::omitted(media_omission(kind)),
                                     CodexFact::Message,
-                                    id,
+                                    id.as_ref(),
                                 ));
                             }
                             _ => unrecognized = true,
@@ -1608,7 +1629,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                 Some(Value::String(text)) => blocks.push(CodexBlock::identified(
                     Block::text(text.clone()),
                     CodexFact::Message,
-                    id,
+                    id.as_ref(),
                 )),
                 None | Some(Value::Null) => {}
                 Some(_) => unrecognized = true,
@@ -1616,7 +1637,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
             (blocks, role.to_string(), unrecognized)
         }
         "Reasoning" => {
-            let id = item.get("id").and_then(Value::as_str);
+            let id = codex_id(item.get("id").and_then(Value::as_str));
             let mut blocks = Vec::new();
             let mut unrecognized = false;
             match item.get("summary_text") {
@@ -1626,7 +1647,7 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                             Some(text) => blocks.push(CodexBlock::identified(
                                 Block::reasoning(text),
                                 CodexFact::Reasoning,
-                                id,
+                                id.as_ref(),
                             )),
                             None => unrecognized = true,
                         }
@@ -1639,12 +1660,12 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
         }
         "FunctionCallOutput" => {
             let output = item.get("output").map(content_text).unwrap_or_default();
-            let id = item.get("call_id").and_then(Value::as_str);
+            let id = codex_id(item.get("call_id").and_then(Value::as_str));
             (
                 vec![CodexBlock::identified(
-                    Block::tool_result(tool_text(id, output)),
+                    Block::tool_result(tool_text(id.as_deref(), output)),
                     CodexFact::Result,
-                    id,
+                    id.as_ref(),
                 )],
                 "tool".to_string(),
                 false,
@@ -1653,18 +1674,18 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
         "CommandExecution" => {
             let command = payload_text(item.get("command")).unwrap_or_default();
             let output = codex_command_output(item);
-            let id = item.get("id").and_then(Value::as_str);
+            let id = codex_id(item.get("id").and_then(Value::as_str));
             (
                 vec![
                     CodexBlock::identified(
-                        Block::tool(tool_text(id, command)),
+                        Block::tool(tool_text(id.as_deref(), command)),
                         CodexFact::Call,
-                        id,
+                        id.as_ref(),
                     ),
                     CodexBlock::identified(
-                        Block::tool_result(tool_text(id, output)),
+                        Block::tool_result(tool_text(id.as_deref(), output)),
                         CodexFact::Result,
-                        id,
+                        id.as_ref(),
                     ),
                 ],
                 "assistant".to_string(),
@@ -1698,14 +1719,18 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
                     &payload_text(item.get("error")).unwrap_or_default(),
                 ])
             };
-            let id = item.get("id").and_then(Value::as_str);
+            let id = codex_id(item.get("id").and_then(Value::as_str));
             (
                 vec![
-                    CodexBlock::identified(Block::tool(tool_text(id, call)), CodexFact::Call, id),
                     CodexBlock::identified(
-                        Block::tool_result(tool_text(id, output)),
+                        Block::tool(tool_text(id.as_deref(), call)),
+                        CodexFact::Call,
+                        id.as_ref(),
+                    ),
+                    CodexBlock::identified(
+                        Block::tool_result(tool_text(id.as_deref(), output)),
                         CodexFact::Result,
-                        id,
+                        id.as_ref(),
                     ),
                 ],
                 "assistant".to_string(),

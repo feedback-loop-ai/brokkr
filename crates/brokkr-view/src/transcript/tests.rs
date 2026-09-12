@@ -2538,10 +2538,11 @@ fn codex_row_edges_and_duplicate_identity() {
     assert!(codex_row(&json!({"type":"session_meta"})).blocks.is_empty());
     assert!(codex_response_item(&json!({})).2);
 
+    let dup = codex_id(Some("dup")).expect("a nonempty id is shared");
     let mut records = vec![CodexRecord {
         blocks: vec![
-            CodexBlock::identified(Block::tool("a"), CodexFact::Call, Some("dup")),
-            CodexBlock::identified(Block::tool("b"), CodexFact::Call, Some("dup")),
+            CodexBlock::identified(Block::tool("a"), CodexFact::Call, Some(&dup)),
+            CodexBlock::identified(Block::tool("b"), CodexFact::Call, Some(&dup)),
         ],
         role: String::new(),
         ts: String::new(),
@@ -2554,6 +2555,74 @@ fn codex_row_edges_and_duplicate_identity() {
         2,
         "no canonical counterpart removes nothing"
     );
+}
+
+/// A row's recorded id is held once and shared by every block that cites
+/// it: a row of many empty content members and one long id costs one id
+/// allocation, not one copy per member and another per association key,
+/// so the bounded source cannot amplify through identity.
+#[test]
+fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
+    assert!(codex_id(None).is_none());
+    assert!(
+        codex_id(Some("")).is_none(),
+        "an empty id identifies nothing"
+    );
+
+    let long = "x".repeat(32 * 1024);
+    let members: Vec<serde_json::Value> = (0..1000)
+        .map(|_| json!({"type":"output_text","text":""}))
+        .collect();
+    let message = json!({
+        "type":"response_item",
+        "payload":{"type":"message","role":"assistant","id":long,"content":members}
+    });
+    let record = codex_row(&message);
+    assert_eq!(record.blocks.len(), 1000);
+    let (fact, first) = record.blocks[0].fact.as_ref().expect("identified");
+    assert_eq!(*fact, CodexFact::Message);
+    assert_eq!(&**first, long.as_str());
+    assert!(
+        record.blocks.iter().all(|block| block
+            .fact
+            .as_ref()
+            .is_some_and(|(_, id)| Rc::ptr_eq(id, first))),
+        "every block cites the same allocation"
+    );
+    assert_eq!(
+        Rc::strong_count(first),
+        1000,
+        "one count per block, no copies"
+    );
+
+    // Association keys borrow the same allocation and release it after
+    // the pass: the projection is unchanged and nothing was copied.
+    let mut records = vec![record];
+    associate_codex(&mut records);
+    let (_, shared) = records[0].blocks[0].fact.as_ref().expect("identified");
+    assert_eq!(records[0].blocks.len(), 1000);
+    assert_eq!(Rc::strong_count(shared), 1000);
+    let full = codex(&row(message));
+    assert_eq!(full.turns.len(), 1);
+    assert_eq!(full.turns[0].blocks.len(), 1000);
+    assert!(!full.truncated);
+
+    // The completed-item mirror and the two-block tool families share
+    // the same way.
+    let (blocks, _, _) = codex_completed_item(&json!({
+        "type":"AgentMessage","id":"i1",
+        "content":[{"type":"text","text":""},{"type":"text","text":""},{"type":"image"}]
+    }));
+    let (_, mirror) = blocks[0].fact.as_ref().expect("identified");
+    assert_eq!(&**mirror, "i1");
+    assert_eq!(Rc::strong_count(mirror), 3);
+    let (blocks, _, _) =
+        codex_completed_item(&json!({"type":"CommandExecution","id":"c1","command":"ls"}));
+    let (call, call_id) = blocks[0].fact.as_ref().expect("identified");
+    let (result, result_id) = blocks[1].fact.as_ref().expect("identified");
+    assert_eq!((*call, *result), (CodexFact::Call, CodexFact::Result));
+    assert!(Rc::ptr_eq(call_id, result_id));
+    assert_eq!(Rc::strong_count(call_id), 2);
 }
 
 /// A row that projects no block is counted and released, never retained
