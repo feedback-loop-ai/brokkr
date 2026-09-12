@@ -2156,18 +2156,26 @@ fn the_shipped_codex_adapter_says_why_it_cannot_restrict_tools() {
 
 #[test]
 fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
-    // The dsh pin task re-probed the installed `dsh 0.1.5-rc.1`
+    // The dsh pin task re-probed the installed launcher `dsh 0.1.5-rc.1`
     // (2026-09-12) for every stale version note and moved only what it
     // re-measured: the launcher flags
     // (`-V/--profile/--patch/--dump-config/--dump-default-config`,
     // `web`/`plugin`) and the headless flags (`-h` alone, reasoning
     // streamed to stderr) are unchanged since 0.1.2-rc.1, still no CLI
-    // flag swaps the shell and file tools or adds an MCP server, and
-    // the tools row still reads `DSH_TOOLS_MODE` with no documented
-    // vocabulary. So the capability stays absent and the refusal is
-    // unchanged; what moves is the REASON, which now names the release
-    // the tree is pinned to. An edit that drops the measurement back to
-    // an older release trips here, as does one that invents a flag.
+    // flag swaps the shell and file tools or adds an MCP server. The
+    // tools row reads `DSH_TOOLS_MODE` into `tools.mode`
+    // (`dsh-headless/cordis.patch.yml:16`, the same seam as
+    // `dsh-web-app/cordis.patch.yml:34`) with documented vocabulary
+    // `native|ptc|both` (`@deepseek-ai/dsh-tools/README.md:64-74`); those
+    // are presentation modes for the visible schemas, not a restriction
+    // of the underlying shell and file tools, so the capability stays
+    // absent and `hands` stays unsupported. The installed components
+    // behind the launcher identify as 0.1.5-rc.2
+    // (`@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-headless`), so the
+    // reason names both identities. What moves is the REASON, which now
+    // names the release the tree is pinned to. An edit that drops the
+    // measurement back to an older release trips here, as does one that
+    // invents a flag or reverts the vocabulary to undocumented.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     let dsh = adapters.adapter("dsh").expect("a shipped adapter");
     assert!(dsh.hands.is_none(), "dsh still expresses no tool surface");
@@ -2176,9 +2184,15 @@ fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
         .as_deref()
         .expect("and still records why, rather than leaving it to be guessed");
     assert!(gap.contains("0.1.5-rc.1"), "{gap}");
+    assert!(gap.contains("0.1.5-rc.2"), "{gap}");
     assert!(gap.contains("no CLI flag"), "{gap}");
     assert!(gap.contains("presentAs"), "{gap}");
     assert!(gap.contains("DSH_TOOLS_MODE"), "{gap}");
+    assert!(gap.contains("tools.mode"), "{gap}");
+    assert!(gap.contains("native"), "{gap}");
+    assert!(gap.contains("ptc"), "{gap}");
+    assert!(gap.contains("both"), "{gap}");
+    assert!(gap.contains("presentation"), "{gap}");
     // The spark effort refusal was already measured on this release
     // (decision 0035 addendum 2026-09-11, same binary), so it stands —
     // pinned here so a re-pin that drops the route or its version trips
@@ -3836,7 +3850,10 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // Sixteen with release preparation: its boxed work office reaches the
     // missing claude harness.work fragment before its reviewer.
     // Seventeen with GPT/Flash, which inherits triage's dialect steps.
-    assert_eq!(dirs.len(), 17, "{dirs:?}");
+    // Eighteen with review-first (decision 0060): fast's constitution
+    // entered at verify, boxed exec gates only, so it compiles under
+    // harness like `fast`.
+    assert_eq!(dirs.len(), 18, "{dirs:?}");
     let dialect_bundles = ["recipes/gpt-flash", "recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
@@ -3899,7 +3916,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 14, "{compiled:?}");
+    assert_eq!(compiled.len(), 15, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();

@@ -171,6 +171,11 @@ fn workspace() -> PathBuf {
 /// The dsh pin to the installed 0.1.5-rc.1 moves it once more for one
 /// named reason: `hands.unsupported` re-measured on that release, which
 /// moves the dsh adapter digest every Flash resolution witnesses.
+/// The review-first remediation corrects that reason once more for one
+/// named reason: `DSH_TOOLS_MODE` is documented (`native|ptc|both` into
+/// `tools.mode`), those are presentation modes rather than a capability
+/// restriction, and the installed tools/headless components identify as
+/// 0.1.5-rc.2 behind launcher 0.1.5-rc.1 — which moves the same digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -206,8 +211,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "b1469d14d1965e39d3a9e8962fb69f225c8ba76365eec7000cadc8c36b4182ae",
-        "79a58a05bce6236a3a9d1d5b124499673a9400acf78352735c88b7261d02d1cc",
+        "74d09bb4da22b6a895835746a63e388d0738efb59296ee2cf4b8b280c7b86a79",
     ),
     (
         "bundles/verify",
