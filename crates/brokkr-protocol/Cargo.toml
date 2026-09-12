@@ -16,3 +16,14 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tempfile = { workspace = true }
+
+# Decision 0046 slice II design D3: one committed test-support executable
+# provides the probe's payload, descendant, guard, supervisor and startup
+# roles so the native feasibility path has no interpreter dependency. Its
+# source lives beside the probe under `tests/`, which also keeps it out of
+# the exact-coverage production denominator.
+[[bin]]
+name = "seatbelt-probe-helper"
+path = "tests/seatbelt_probe/helper.rs"
+test = false
+bench = false

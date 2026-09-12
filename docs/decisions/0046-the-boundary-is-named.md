@@ -262,3 +262,60 @@ machine that has its tool, naming the slice.
 ## Erratum
 
 Rulings 3 and 6 name `seat-record.v3` for the boundary field; v3 already exists (landed by #202 under decision 0034 rulings 6 and 7, the dialect state), so the field lands as `seat-record.v4`, additive on v3, and nothing else is renumbered.
+
+
+## Accepted addendum — Seatbelt observables and proof obligations
+
+Status: accepted — operator ruled 2026-09-09.
+
+The operator accepted the four recommendations returned by
+`boundary-seatbelt-slice-ii`, with the explicit condition: “make sure those
+guarantees are demonstrated, otherwise we have residuals”. This is acceptance
+of the following semantics, not evidence of their implementation or enforcement.
+These Seatbelt-specific amendments govern the R1–R4 questions in that change;
+the namespace implementation retains its existing observables.
+
+1. **R1 — private overlay snapshots are permitted.** Seatbelt may expose a
+   seat-private snapshot through explicitly supplied replacement paths rather
+   than the original absolute paths. Design must define the locator contract
+   for arbitrary declared overlays, not only Cargo, including identity and
+   link/mask handling. Later host-source changes are invisible to the snapshot.
+   Writes persist across calls within the seat, never modify the host source,
+   and are isolated from other seats and attempts. This does not authorize
+   silently refusing the shipped overlay users or calling that reduced slice built.
+2. **R2 — mask denial is permitted.** A present masked file may return a
+   permission error instead of a successful empty read. Its contents remain
+   inaccessible and host bytes protected, including through aliases,
+   overlapping grants and replacement attempts. Tool configuration and guides
+   must describe the actual behavior; denial is not described as an empty read.
+3. **R3 — no surviving payload remains mandatory.** Cancellation, timeout
+   and supervisor death must leave no surviving payload, including descendants
+   using setsid or double-fork. A named native mechanism and adversarial macOS
+   measurements are required. Killing the original process group, a mock, or
+   source reasoning alone does not demonstrate this guarantee. Establish this
+   feasibility proof before proceeding with the full implementation.
+4. **R4 — private hooks may qualify for full peer status.** Denying access
+   to host hooks and directing ordinary Git to an empty private hooks directory
+   is permitted, conditional on independent protection against raw hook,
+   configuration and routing writes. Real primary and linked-worktree
+   adversaries must pass. Environment overrides or successful commits alone
+   are insufficient. No reduced harness-grade Seatbelt is authorized.
+5. **Evidence controls activation and completion.** Demonstrate these
+   guarantees through real macOS enforcement on both workspace MCP and boxed
+   exec paths. Record candidate revision, host/OS, command, result and durable
+   evidence for each obligation, with positive controls. A skipped native
+   suite, zero tests, Linux-only tests, or a launcher smoke test cannot close
+   the obligations. Preserve the other filesystem, network, pinned-input,
+   record and regression requirements of this slice.
+6. **Missing proof is an open residual.** Record each failed, unavailable or
+   unmeasured guarantee by name with the missing evidence and next action.
+   Do not mark it fixed merely because the ruling is accepted, code exists,
+   or unrelated tests pass. Any unproven required guarantee blocks Seatbelt
+   activation, full peer claims and slice completion; the existing unavailable
+   boundary refusal remains. Close recorded findings through the established
+   finding lifecycle (0047), without rewriting historical run evidence.
+
+The current evidence inventory is
+[the Seatbelt evidence residuals](../../openspec/changes/boundary-seatbelt-slice-ii/evidence-residuals.md).
+The earlier specify artifacts document the upstream return; their old R1/R2/R4
+observables must be reconciled to this addendum before dependent implementation.
