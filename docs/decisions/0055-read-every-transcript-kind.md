@@ -191,3 +191,42 @@ enter the released binary or permit Node, a browser service or an additional
 production language. Only the operator accepts this proposal. Filing it does
 not certify dependency admission, live resumption, implementation tests or
 controller host/remote gates.
+
+## Addendum — 2026-09-12, proposed: a read writes no journal content, and one test-only seam proves the reader's failures
+
+Status: proposed throughout; only the operator accepts this addendum.
+
+The archived design read ruling 5's "inert" as "a read must not create WAL
+sidecars" (`openspec/changes/archive/2026-09-10-read-every-transcript-kind/design.md:699-700`).
+A read-only open of a quiescent write-ahead-log journal contradicts that
+sentence: SQLite creates a zero-byte `-wal` and a 32,768-byte `-shm` when
+neither existed, while the database bytes and hash stay unchanged
+(`.forge/tmp/specify-g1`, SQLite 3.46.1; the store links rusqlite's bundled
+SQLite, `libsqlite3-sys` 0.30.1). `immutable=1`, exclusive locking, a VFS
+that refuses the files, deleting the sidecars after the read and reading a
+copy are each rejected, so ruling 5's invariant is restated to what holds and
+what the tracked tests assert: a read writes no journal content; SQLite's own
+empty `-wal` and its `-shm` may appear; an existing `-wal` keeps its digest,
+and a `-wal` an earlier read left is an existing `-wal`; a missing journal
+gains no file of any kind. This addendum supersedes the archived design's
+sidecar sentence; that archived file's bytes are not edited.
+
+Ruling 5's enforcement binding gains one unit-test-only reader fault seam at
+the handle-based boundary in `crates/brokkr-cli/src/ui/safe_fs.rs` and its
+`ui.rs` callers. It is declared and called only under `#[cfg(test)]`, so no
+release binary, package or integration-test build compiles it, and a
+reference to it in such a build is a compile error. It reads no environment
+variable, argument, configuration key, file or journal value, and it never
+hands the reader a handle, path, name, file type or identity. A plan names
+one target and the occurrence at which it fires on the installing thread;
+directory enumeration, handle identity and bounded read accept only an
+injected `std::io::ErrorKind::Other`; child open and the two timed points
+accept only a test-owned filesystem change inside the test's synthetic home.
+An entry that never fires fails its test, and no entry can be disarmed. The
+seam replaces no boundary check: absence, replacement and a changed identity
+come only from real changes that the production code classifies.
+
+**Enforcement binding:** the `fault` module's own tests, the scripted-error
+and real-change reader tests in `ui/tests.rs`, the seam boundary inspection
+recorded in the change's verification record, and the unchanged exact-coverage
+gate.

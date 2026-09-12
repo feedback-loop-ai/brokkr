@@ -50,7 +50,7 @@ task:
 
 ## 1. The proposed 0055 addendum, filed before any production edit (D10)
 
-- [ ] 1.1 Append an addendum to `docs/decisions/0055-read-every-transcript-kind.md`,
+- [x] 1.1 Append an addendum to `docs/decisions/0055-read-every-transcript-kind.md`,
       dated on filing (the addendum commit's own date, as addenda 0035 and
       0042 carry theirs; not guessed ahead of it and not re-derived if a
       later commit moves), `Status: proposed` throughout: it records the
@@ -61,9 +61,9 @@ task:
       unit-test-only reader fault seam (bounded as this change's D2-D4 and
       D7) to ruling 5's enforcement binding. No other ruling or the
       registry row's status changes — every requirement of this change.
-- [ ] 1.2 Run `cargo test -p brokkr-cli --test decisions_index` and leave it
+- [x] 1.2 Run `cargo test -p brokkr-cli --test decisions_index` and leave it
       green — every requirement of this change.
-- [ ] 1.3 Land 1.1-1.2 before the first production edit of group 2, and do
+- [x] 1.3 Land 1.1-1.2 before the first production edit of group 2, and do
       not revisit 0055's rulings later in this change to match an
       implementation that drifted — every requirement of this change.
 
