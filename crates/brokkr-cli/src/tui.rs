@@ -48,7 +48,7 @@ use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap}
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
-use brokkr_view::transcript::{BlockKind, LegacyProvenance, TranscriptRead, Turn};
+use brokkr_view::transcript::{BlockKind, LegacyProvenance, TranscriptRead, Turn, Unavailable};
 
 /// Below this the frame cannot hold its panes, and a drawn frame would
 /// be a corrupted one.
@@ -1586,49 +1586,15 @@ fn draw_runs(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
 
 fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunView) {
     let lens = lens_of(tui, views);
-    let [graph, seats, trail] =
-        Layout::vertical(estate(view, lens.as_ref(), usize::from(area.height))).areas(area);
+    let [graph, seats, trail] = Layout::vertical([
+        Constraint::Percentage(34),
+        Constraint::Percentage(33),
+        Constraint::Percentage(33),
+    ])
+    .areas(area);
     draw_graph(frame, graph, tui, views, view, lens.as_ref());
     draw_seats(frame, seats, tui, view, lens.as_ref());
     draw_trail(frame, trail, tui, view, lens.as_ref());
-}
-
-/// The graph may take at most this share of the run level, however
-/// deep its forks: the seats and the trail are where a run is read.
-const GRAPH_SHARE_MAX: usize = 45;
-
-/// How the run level's rows are dealt between its three panes: each
-/// pane gets the rows its content needs, and the trail gets the rest.
-///
-/// Three equal thirds was the first cut, and it read badly the moment
-/// a real run was under it: a one-lane rail floated in a third of the
-/// screen of air while the seats below it clipped at the bottom and
-/// the trail showed a dozen of its hundreds of rows. The graph's need
-/// is exact — [`rows_wanted`] is the same arithmetic [`plan`] deals
-/// its rows by — and the seats' need is one row per line it lists.
-/// Both are capped, the graph at [`GRAPH_SHARE_MAX`] and the seats at
-/// half of what the graph leaves, so a deep fork or a long roster
-/// degrades the way the thirds did rather than starving the trail.
-fn estate(view: &RunView, lens: Option<&render::Lens>, height: usize) -> [Constraint; 3] {
-    let head = usize::from(!view.boundary.text.is_empty()) + view.notices.len();
-    let graph = (2 + head + rows_wanted(&view.phases)).min(height * GRAPH_SHARE_MAX / 100);
-    let seats = (3 + seat_lines(view, lens)).min(height.saturating_sub(graph) / 2);
-    [
-        Constraint::Length(u16::try_from(graph).unwrap_or(u16::MAX)),
-        Constraint::Length(u16::try_from(seats).unwrap_or(u16::MAX)),
-        Constraint::Min(0),
-    ]
-}
-
-/// The lines the seats pane lists under its header: one per seat the
-/// lens keeps, and one more under each seat that carries a provenance
-/// sentence.
-fn seat_lines(view: &RunView, lens: Option<&render::Lens>) -> usize {
-    view.participants
-        .iter()
-        .filter(|part| render::keeps_participant(lens, part))
-        .map(|part| 1 + usize::from(part.provenance.is_some()))
-        .sum()
 }
 
 // --------------------------------------------------------------- the graph
@@ -2370,28 +2336,6 @@ fn window(built: &[Built], anchor: usize, connector: usize, budget: usize) -> (u
 /// lists **every** phase whether scoped or not — the lens marks, it does
 /// not hide, here — and returns a layout that fits by construction.
 #[allow(clippy::too_many_arguments)]
-/// The deepest fork's lane pairs: how many rows the rail needs on EACH
-/// side of itself to draw every lane in full.
-fn lane_pairs(phases: &[Phase]) -> usize {
-    phases
-        .iter()
-        .flat_map(|phase| phase.columns.iter())
-        .map(|column| column.nodes.len() / 2)
-        .max()
-        .unwrap_or(0)
-}
-
-/// The rows a full drawing of these phases takes, and not one more:
-/// the lanes either side of the rail, the rail itself, the row the
-/// selection box's upper edge rides above the topmost lane, the name
-/// baseline, the box's lower edge, and the road back when the journal
-/// recorded one. [`plan`] deals its rows from the bottom and calls the
-/// rest headroom; this is the height at which that headroom is zero,
-/// so [`estate`] can give the graph its drawing and nothing else.
-fn rows_wanted(phases: &[Phase]) -> usize {
-    2 * lane_pairs(phases) + 4 + usize::from(!returns_of(phases).is_empty())
-}
-
 fn plan(
     phases: &[Phase],
     lens: Option<&render::Lens>,
@@ -2401,7 +2345,12 @@ fn plan(
     width: usize,
     height: usize,
 ) -> Plan {
-    let needed = lane_pairs(phases);
+    let needed = phases
+        .iter()
+        .flat_map(|phase| phase.columns.iter())
+        .map(|column| column.nodes.len() / 2)
+        .max()
+        .unwrap_or(0);
     let mode = mode_for(height, needed);
     // Row allocation is fixed and ordered: the name baseline is the last
     // row, the rail sits one row above the deepest lane it needs, and
@@ -2908,19 +2857,27 @@ fn draw_seats(
 ) {
     let cursor = tui.cursor[1].as_deref();
     let header = Row::new(
-        SEAT_COLUMNS
-            .iter()
-            .map(|name| cell(name, header_style()))
-            .collect::<Vec<Cell>>(),
+        [
+            "participant",
+            "status",
+            "attempts",
+            "turns",
+            "cost",
+            "tokens",
+            "model",
+            "boundary",
+            "activity",
+        ]
+        .iter()
+        .map(|name| cell(name, header_style()))
+        .collect::<Vec<Cell>>(),
     );
-    let kept: Vec<&Participant> = view
+    let mut rows: Vec<Row> = Vec::new();
+    for part in view
         .participants
         .iter()
         .filter(|part| render::keeps_participant(lens, part))
-        .collect();
-    let texts: Vec<[String; 8]> = kept.iter().map(|part| seat_texts(part)).collect();
-    let mut rows: Vec<Row> = Vec::new();
-    for (part, fixed) in kept.iter().zip(&texts) {
+    {
         // `activity.text` IS the model's composition of `tool` and
         // `target_short` while a seat works, and its result-and-duration
         // once it concludes. The live/concluded distinction is a model
@@ -2932,22 +2889,21 @@ fn draw_seats(
         };
         // The model and the boundary its hands stood behind, through the
         // one pair helper (decision 0046 ruling 3): two cells, one read.
-        let mut cells: Vec<Cell> = fixed
-            .iter()
-            .enumerate()
-            .map(|(index, text)| {
-                cell(
-                    text,
-                    if index == 1 {
-                        tone_style(&part.status)
-                    } else {
-                        plain()
-                    },
-                )
-            })
-            .collect();
-        cells.push(cell(&part.activity.text, live));
-        rows.push(Row::new(cells).style(selected_style(cursor == Some(part.key.as_str()))));
+        let pair = render::served_text(&part.served);
+        rows.push(
+            Row::new(vec![
+                cell(&part.label, plain()),
+                cell(&part.status, tone_style(&part.status)),
+                cell(&part.attempts.to_string(), plain()),
+                cell(&part.turns_cell.text, plain()),
+                cell(&part.cost_cell.text, plain()),
+                cell(&part.usage_cell.text, plain()),
+                cell(pair.model.as_str(), plain()),
+                cell(pair.boundary.as_str(), plain()),
+                cell(&part.activity.text, live),
+            ])
+            .style(selected_style(cursor == Some(part.key.as_str()))),
+        );
         // Which agent, model and provider actually served this seat
         // (decision 0016). The sentence is the model's; this pane only
         // places it, so a fallback cannot go unmentioned here while it
@@ -2969,71 +2925,23 @@ fn draw_seats(
             ]));
         }
     }
+    let widths = [
+        Constraint::Length(22),
+        Constraint::Length(13),
+        Constraint::Length(8),
+        Constraint::Length(6),
+        Constraint::Length(10),
+        Constraint::Length(18),
+        Constraint::Length(22),
+        Constraint::Length(14),
+        Constraint::Min(10),
+    ];
     frame.render_widget(
-        Table::new(rows, seat_widths(&texts))
+        Table::new(rows, widths)
             .header(header)
             .block(pane("seats", tui.pane == 1)),
         area,
     );
-}
-
-/// The seats pane's columns, in order. The first eight are fitted to
-/// their content; the last takes what remains.
-const SEAT_COLUMNS: [&str; 9] = [
-    "participant",
-    "status",
-    "attempts",
-    "turns",
-    "cost",
-    "tokens",
-    "model",
-    "boundary",
-    "activity",
-];
-
-/// No fitted column grows past this, so one runaway label cannot push
-/// the activity column off the pane.
-const SEAT_COLUMN_MAX: usize = 40;
-
-/// A seat's fitted cells, in [`SEAT_COLUMNS`] order minus the activity
-/// column. Every text is the model's own; this pane places it.
-fn seat_texts(part: &Participant) -> [String; 8] {
-    let pair = render::served_text(&part.served);
-    [
-        part.label.clone(),
-        part.status.clone(),
-        part.attempts.to_string(),
-        part.turns_cell.text.clone(),
-        part.cost_cell.text.clone(),
-        part.usage_cell.text.clone(),
-        pair.model.as_str().to_string(),
-        pair.boundary.as_str().to_string(),
-    ]
-}
-
-/// Each fitted column is exactly as wide as its widest cell, header
-/// included, and the activity column takes the rest. Fixed widths were
-/// the first cut, and a real run clipped them at once — `Σ 1.25M tok`
-/// lost its unit at ten columns and `namespace, not applicable` its
-/// second half at fourteen — while the activity column beside them held
-/// most of a wide screen of air. Fitting is a measurement of what is
-/// listed, so no cell is clipped that the pane had room to show, and
-/// the provenance line under a seat keeps the widest column it needs.
-fn seat_widths(texts: &[[String; 8]]) -> Vec<Constraint> {
-    let mut widths: Vec<Constraint> = (0..8)
-        .map(|index| {
-            let widest = texts
-                .iter()
-                .map(|fixed| width_of(&fixed[index]))
-                .chain(std::iter::once(width_of(SEAT_COLUMNS[index])))
-                .max()
-                .unwrap_or(0)
-                .min(SEAT_COLUMN_MAX);
-            Constraint::Length(u16::try_from(widest).unwrap_or(u16::MAX))
-        })
-        .collect();
-    widths.push(Constraint::Min(10));
-    widths
 }
 
 fn draw_trail(
@@ -3162,15 +3070,17 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         stream,
     );
 
+    // A refused or unavailable read replaces the previous prose
+    // atomically: the pane carries the selected reference, the reason, the
+    // explanation, the retained path and the counts, and neither door is
+    // active. Dispatching on `read.unavailable` removes the former
+    // `is_readable` guard and its reason-less arm: a readable read is
+    // exactly one whose `unavailable` is `None`.
     let (lines, scroll) = match &views.transcript {
-        Some(read) if read.is_readable() => {
-            transcript_lines(read, selected_turn(tui, views).map(|(index, _)| index))
-        }
-        // A refused or unavailable read replaces the previous prose
-        // atomically: the pane carries the selected reference, the
-        // reason, the explanation, the retained path and the counts, and
-        // neither door is active.
-        Some(read) => (refused_lines(read), 0),
+        Some(read) => match read.unavailable {
+            None => transcript_lines(read, selected_turn(tui, views).map(|(index, _)| index)),
+            Some(reason) => (refused_lines(read, reason), 0),
+        },
         None => (
             vec![line(
                 "no local session transcript on this machine — the transcript line above names it",
@@ -3236,7 +3146,7 @@ fn transcript_lines(read: &TranscriptRead, selected: Option<usize>) -> (Vec<Line
 /// closed reason token, its explanation, the retained path and hint, its
 /// source-cap/count notices and its two counts. Nothing here is derived
 /// from a previous frame, so no stale prose can survive a refusal.
-fn refused_lines(read: &TranscriptRead) -> Vec<Line<'static>> {
+fn refused_lines(read: &TranscriptRead, reason: Unavailable) -> Vec<Line<'static>> {
     let reference = match &read.reference {
         Some(reference) => format!(
             "{} · {} · {}",
@@ -3245,12 +3155,10 @@ fn refused_lines(read: &TranscriptRead) -> Vec<Line<'static>> {
         None => "—".to_string(),
     };
     let mut lines = vec![line(&format!("reference  {reference}"), plain())];
-    if let Some(reason) = read.unavailable {
-        lines.push(line(
-            &format!("reason     {}", reason.as_str()),
-            header_style(),
-        ));
-    }
+    lines.push(line(
+        &format!("reason     {}", reason.as_str()),
+        header_style(),
+    ));
     if let Some(explanation) = &read.explanation {
         lines.push(line(explanation, plain()));
     }
@@ -3361,6 +3269,38 @@ pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option
 
 /// The bounded shell: draw, poll, apply, repeat. Everything impure it
 /// touches arrives as a parameter, so the whole loop — its quit arm, its
+/// How a refreshed frame relates the displayed transcript to the fresh one.
+///
+/// Invariant: in `drive`, `tui.reading_transcript` implies that
+/// `views.transcript` is `Some` and readable. It starts false; it is set
+/// true only inside the `is_readable` filter on `views.transcript`; every
+/// other write clears it; and `views` changes only to a fresh frame whose
+/// recompose keeps the door open only over a readable read. Given that
+/// invariant, a missing or unavailable fresh read makes
+/// `transcript_invalidates` return true and closes the door before any
+/// recompose runs, so the former `None` arm of the door recompose could
+/// never execute. The classification below carries the fresh read in the
+/// one arm that is allowed to recompose the door.
+enum Refresh<'a> {
+    /// Neither the displayed frame nor the fresh one holds a transcript.
+    Absent,
+    /// The fresh read is present and not invalidated, so it is readable.
+    Continuing(&'a TranscriptRead),
+    /// The fresh read replaced, removed or reordered the displayed one.
+    Invalidated,
+}
+
+fn classify_refresh<'a>(
+    displayed: Option<&TranscriptRead>,
+    fresh: Option<&'a TranscriptRead>,
+) -> Refresh<'a> {
+    match (displayed, fresh) {
+        (None, None) => Refresh::Absent,
+        (_, Some(read)) if !transcript_invalidates(displayed, fresh) => Refresh::Continuing(read),
+        _ => Refresh::Invalidated,
+    }
+}
+
 /// error arm and its transient-busy arms — runs under `TestBackend`.
 fn drive<B: Backend>(
     terminal: &mut Terminal<B>,
@@ -3400,29 +3340,27 @@ where
                 // A refreshed read that replaced, removed or reordered a
                 // displayed turn clears the cursor and closes an open
                 // overlay BEFORE the new indices are shown; a pure append
-                // or a notice-only change leaves navigation alone.
-                if transcript_invalidates(views.transcript.as_ref(), fresh.transcript.as_ref()) {
-                    tui.turn = None;
-                    tui.reading = None;
-                    tui.reading_transcript = false;
-                    tui.read_offset = 0;
-                }
-                // A notice-only refresh leaves the turns alone but still
-                // changes what a door must say: recompose an open
-                // transcript door from the fresh shared read so the pane
-                // and the door report the same notices.
-                if tui.reading_transcript {
-                    match fresh.transcript.as_ref().filter(|read| read.is_readable()) {
-                        Some(read) => {
+                // or a notice-only change leaves navigation alone. Classify
+                // once, then recompose the door only in the continuing arm,
+                // from that arm's fresh read (see `classify_refresh`).
+                match classify_refresh(views.transcript.as_ref(), fresh.transcript.as_ref()) {
+                    Refresh::Absent => {}
+                    Refresh::Invalidated => {
+                        tui.turn = None;
+                        tui.reading = None;
+                        tui.reading_transcript = false;
+                        tui.read_offset = 0;
+                    }
+                    // A notice-only refresh leaves the turns alone but still
+                    // changes what a door must say: recompose an open
+                    // transcript door from the fresh shared read so the pane
+                    // and the door report the same notices.
+                    Refresh::Continuing(read) => {
+                        if tui.reading_transcript {
                             tui.reading = Some(match selected_turn(tui, &fresh) {
                                 Some((index, turn)) => turn_overlay_text(index + 1, turn, read),
                                 None => transcript_text(read),
                             });
-                        }
-                        None => {
-                            tui.reading = None;
-                            tui.reading_transcript = false;
-                            tui.read_offset = 0;
                         }
                     }
                 }

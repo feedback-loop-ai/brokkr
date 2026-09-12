@@ -3,6 +3,13 @@
 //! database. The compatibility shim that kept the old name working for
 //! a release is gone; one bin target enters here (ruling 9).
 
+// A leaked fault-seam guard would leave its plan's entries unfired with
+// nothing to fail the test (change `prove-transcript-reader-faults` D4.5).
+// `mem::forget` of the `Drop`-implementing `Guard` fails the clippy gate
+// anywhere in this crate; the D7 inspection's no-leak clause covers
+// `ManuallyDrop`, `Box::leak` and a helper that swallows ownership.
+#![deny(clippy::mem_forget)]
+
 mod agents;
 mod boundary;
 mod cli_args;

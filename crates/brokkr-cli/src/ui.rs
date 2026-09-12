@@ -371,6 +371,11 @@ fn discover(reference: &ValidReference) -> Discovery {
 /// header or a newly ambiguous root fails closed before any byte of the
 /// retained handle is read.
 fn acquisition_is_current(reference: &ValidReference, admitted: &AdmittedSource) -> bool {
+    // The point before the read-boundary acquisition re-walk. A test-owned
+    // change is timed here so the real re-walk observes it; the seam never
+    // replaces the re-walk's answer.
+    #[cfg(test)]
+    safe_fs::fault::point(safe_fs::fault::ChangeAt::BeforeRewalk);
     matches!(
         discover(reference),
         Discovery::Admitted(recheck)
@@ -585,32 +590,51 @@ fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
     HeaderCheck::Valid
 }
 
-fn discover_dsh(root: &safe_fs::Dir, home: &str, reference: &ValidReference, lookup: &mut Lookup) {
-    let mut current: Option<safe_fs::Dir> = None;
-    let mut base_path = home.to_string();
-    for component in reference.locator.split('/') {
-        lookup.note_entry();
-        let child = match &current {
-            Some(dir) => dir.child(std::ffi::OsStr::new(component)),
-            None => root.child(std::ffi::OsStr::new(component)),
-        };
-        match child {
-            Ok(safe_fs::Child::Dir(dir)) => {
-                base_path = join_path(&base_path, component);
-                current = Some(dir);
-            }
-            Ok(safe_fs::Child::Unsafe) => {
-                lookup.unsafe_seen = true;
-                return;
-            }
-            Ok(_) => return,
-            Err(_) => {
-                lookup.io_seen = true;
-                return;
-            }
+/// Open one locator component from the previous directory, charging it to
+/// the discovery budget and resolving the shared child arms. `None` ends
+/// the lookup: an unsafe child, a non-directory child or an I/O failure.
+fn dsh_step(parent: &safe_fs::Dir, component: &str, lookup: &mut Lookup) -> Option<safe_fs::Dir> {
+    lookup.note_entry();
+    match parent.child(std::ffi::OsStr::new(component)) {
+        Ok(safe_fs::Child::Dir(dir)) => Some(dir),
+        Ok(safe_fs::Child::Unsafe) => {
+            lookup.unsafe_seen = true;
+            None
+        }
+        Ok(_) => None,
+        Err(_) => {
+            lookup.io_seen = true;
+            None
         }
     }
-    let Some(base) = current else { return };
+}
+
+fn discover_dsh(root: &safe_fs::Dir, home: &str, reference: &ValidReference, lookup: &mut Lookup) {
+    // The recorded locator is a relative component path. `split_once`
+    // separates the first component, which opens from the root; each later
+    // component opens from the previous step's directory. The base is
+    // always the last directory a step opened, so nothing is left unset:
+    // `split_once` yields at least one component for any string, and once
+    // the loop starts it either returns or stores the next directory. The
+    // removed post-walk `else` was unreachable for exactly that reason.
+    let mut base_path = home.to_string();
+    let (first, rest) = match reference.locator.split_once('/') {
+        Some((first, rest)) => (first, Some(rest)),
+        None => (reference.locator.as_str(), None),
+    };
+    let Some(mut base) = dsh_step(root, first, lookup) else {
+        return;
+    };
+    base_path = join_path(&base_path, first);
+    if let Some(rest) = rest {
+        for component in rest.split('/') {
+            let Some(next) = dsh_step(&base, component, lookup) else {
+                return;
+            };
+            base_path = join_path(&base_path, component);
+            base = next;
+        }
+    }
     let Some(projects) = bounded_entries(&base, lookup) else {
         return;
     };
@@ -823,8 +847,11 @@ fn refused_source(
 /// lookup the API, SSE and browser routes share. Each call revalidates
 /// unique safe discovery rather than trusting an earlier spelling.
 #[allow(dead_code)] // consumed by the SSE/watch and browser routes as they land
-pub(crate) fn claude_source(id: &str) -> Discovery {
-    let Some(home) = local_projects_home() else {
+pub(crate) fn claude_source(id: &str, home: Option<&str>) -> Discovery {
+    // The projects home arrives as a parameter, the same split
+    // `read_local`/`read_with_home` already uses, so the missing-home arm is
+    // testable without mutating the process environment.
+    let Some(home) = home else {
         return Discovery::Refused(Unavailable::MissingHome, None);
     };
     if !brokkr_view::transcript::valid_claude_id(id) {
@@ -833,7 +860,7 @@ pub(crate) fn claude_source(id: &str) -> Discovery {
     let valid = ValidReference {
         kind: TranscriptKind::ClaudeSession,
         locator: id.to_string(),
-        home,
+        home: home.to_string(),
     };
     discover(&valid)
 }
@@ -843,7 +870,7 @@ pub(crate) fn claude_source(id: &str) -> Discovery {
 /// The size event keeps its shipped `{"size": n}` shape; the size is
 /// measured through the retained handle, never a reopened pathname.
 fn claude_source_size(id: &str) -> Option<u64> {
-    match claude_source(id) {
+    match claude_source(id, local_projects_home().as_deref()) {
         Discovery::Admitted(source) => Some(source.file.len()),
         Discovery::Refused(..) => None,
     }
@@ -995,9 +1022,11 @@ fn participant_presentation(store: &Store, rest: &str) -> Response {
     else {
         return not_found("participant");
     };
-    if run_id.is_empty() || participant_key.is_empty() {
-        return not_found("participant");
-    }
+    // The post-decode emptiness check is removed as unreachable:
+    // `decode_component` appends exactly one byte per input byte or `%XX`
+    // triple, so a non-empty component decodes to a non-empty byte string;
+    // `String::from_utf8` of a non-empty vector is non-empty or `None`; and
+    // the pre-decode check above already refused an empty component.
     let events = match store.load(&run_id) {
         Ok(events) => events,
         Err(_) => return not_found("participant"),
