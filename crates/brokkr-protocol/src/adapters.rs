@@ -21,8 +21,9 @@ use serde_json::{json, Map, Value};
 
 mod composite;
 pub use composite::{
-    canonical_composite, npm_dependencies, npm_name, plugin_component, plugin_file_digests,
-    pnpm_dependencies, CompositeError, EXTENSION_FILES, PLUGIN_FILES,
+    canonical_composite, dsh_composite, dsh_composite_with, npm_dependencies, npm_name,
+    plugin_component, plugin_file_digests, pnpm_dependencies, spawn_node_runtime, CompositeError,
+    DshComposite, DshSeams, NodeRuntime, EXTENSION_FILES, PLUGIN_FILES,
 };
 
 use crate::secret;

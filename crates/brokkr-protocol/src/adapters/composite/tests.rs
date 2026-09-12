@@ -356,3 +356,197 @@ fn the_canonical_composite_orders_lines_and_moves_with_its_inputs() {
     )
     .is_err());
 }
+
+/// A synthetic qualified install: the task-owned core with its hidden
+/// lock, the `headless` profile with its manifest, patch and pnpm lock,
+/// and the committed plugin set under the profile. Everything is built
+/// in a temporary directory; nothing here reads `.forge/`.
+struct Synthetic {
+    dir: tempfile::TempDir,
+    seams: DshSeams,
+}
+
+impl Synthetic {
+    fn new() -> Synthetic {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let core = root.join("core");
+        let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
+        write(
+            &pkg,
+            "package.json",
+            br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.1","bin":{"dsh":"lib/bin.js"}}"#,
+        );
+        write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+        write(
+            &core,
+            "node_modules/.package-lock.json",
+            br#"{"lockfileVersion":3,"packages":{
+              "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.1","integrity":"sha512-CORE"},
+              "node_modules/dsh-plugin-cli-session":{"version":"0.2.0","resolved":"file:plugin.tgz","link":true},
+              "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+            }}"#,
+        );
+        let home = root.join("home");
+        let profile = home.join("profiles").join("headless");
+        write(
+            &profile,
+            "package.json",
+            br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+        );
+        write(&profile, "cordis.patch.yml", b"[]\n");
+        write(
+            &profile,
+            "pnpm-lock.yaml",
+            b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n",
+        );
+        write(
+            &profile,
+            "node_modules/@deepseek-ai/dsh-base/package.json",
+            br#"{"name":"@deepseek-ai/dsh-base","version":"0.1.5-rc.1"}"#,
+        );
+        for file in PLUGIN_FILES {
+            write(
+                &profile.join("node_modules").join("dsh-plugin-cli-session"),
+                file,
+                file.as_bytes(),
+            );
+        }
+        let executable = pkg.join("lib/bin.js").to_string_lossy().into_owned();
+        Synthetic {
+            seams: DshSeams {
+                executable,
+                home: home.clone(),
+            },
+            dir,
+        }
+    }
+
+    fn profile(&self) -> std::path::PathBuf {
+        self.seams.home.join("profiles").join("headless")
+    }
+
+    fn node(&self) -> NodeRuntime {
+        NodeRuntime {
+            path: self.dir.path().join("node/bin/node"),
+            version: "v22.23.2".to_string(),
+        }
+    }
+
+    fn composite(&self) -> DshComposite {
+        dsh_composite_with(&self.seams, &self.node(), &[]).unwrap()
+    }
+}
+
+#[test]
+fn the_dsh_composite_reads_the_qualified_locators_and_moves_with_them() {
+    let install = Synthetic::new();
+    let base = install.composite();
+    assert_eq!(base.canonical.len(), 64);
+    assert_eq!(base.core, "@deepseek-ai/dsh 0.1.5-rc.1 sha512-CORE");
+    assert_eq!(base.node, "v22.23.2");
+    assert_eq!(
+        base.profile_bundles,
+        vec!["@deepseek-ai/dsh-base", "dsh-plugin-cli-session"]
+    );
+    assert_eq!(base.profile_patch_reload, "startup");
+    assert_eq!(base.home_patch, "absent");
+    assert_eq!(
+        base.dependencies,
+        vec!["debug 2.6.9 sha512-DEBUG".to_string()]
+    );
+    assert!(base.extension.is_none());
+
+    // A changed plugin byte moves the plugin component and the composite.
+    write(
+        &install
+            .profile()
+            .join("node_modules")
+            .join("dsh-plugin-cli-session"),
+        "lib/index.js",
+        b"changed\n",
+    );
+    let moved = install.composite();
+    assert_ne!(base.plugin, moved.plugin);
+    assert_ne!(base.canonical, moved.canonical);
+
+    // A home-level patch moves the home-patch line, and the composite.
+    write(&install.seams.home, "cordis.patch.yml", b"[]\n");
+    let patched = install.composite();
+    assert_ne!(patched.home_patch, "absent");
+    assert_ne!(moved.canonical, patched.canonical);
+}
+
+#[test]
+fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
+    // A first bundle hit outside the core root and the profile is
+    // unreadable rather than silently skipped.
+    let install = Synthetic::new();
+    let outside = install.dir.path().join("global/@deepseek-ai/dsh-base");
+    write(
+        &outside,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh-base"}"#,
+    );
+    assert!(dsh_composite_with(
+        &install.seams,
+        &install.node(),
+        &[install.dir.path().join("global")],
+    )
+    .is_err());
+
+    // A core package whose shebang is not `env node` is refused.
+    let install = Synthetic::new();
+    write(
+        std::path::Path::new(&install.seams.executable)
+            .parent()
+            .unwrap(),
+        "bin.js",
+        b"#!/bin/sh\n",
+    );
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+
+    // A profile that does not list the plugin is refused.
+    let install = Synthetic::new();
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"],"patchReload":"live"}}}"#,
+    );
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+}
+
+#[test]
+fn the_dsh_composite_composes_the_conditional_extension_only_when_listed() {
+    let install = Synthetic::new();
+    let base = install.composite();
+    assert!(base.extension.is_none());
+
+    // The bundle is named but does not resolve: unreadable, not an
+    // absent line.
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
+    );
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+
+    // Once it resolves inside the profile it joins the composite.
+    for file in EXTENSION_FILES {
+        write(
+            &install
+                .profile()
+                .join("node_modules")
+                .join("brokkr-dsh-resume-policy"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    let extended = install.composite();
+    assert!(extended.extension.is_some());
+    assert_ne!(base.canonical, extended.canonical);
+    assert!(extended
+        .profile_bundles
+        .iter()
+        .any(|b| b == "brokkr-dsh-resume-policy"));
+}

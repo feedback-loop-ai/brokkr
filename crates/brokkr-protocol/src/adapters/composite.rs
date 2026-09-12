@@ -15,7 +15,7 @@
 //! probe script or evidence file computes either value by hand.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -45,6 +45,8 @@ pub enum CompositeError {
     PnpmLock(String),
     #[error("a composite value contains a NUL or newline")]
     Value,
+    #[error("the DSH layout is unreadable: {0}")]
+    Config(String),
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -440,6 +442,490 @@ pub fn canonical_composite(
         push("extension", extension);
     }
     Ok(sha256_text(&lines))
+}
+
+/// The two seams the DSH adapter resolves, exactly as it resolves them:
+/// the executable through `BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then
+/// `dsh` on `PATH`, and the home through `$DSH_HOME` when set and
+/// non-empty, otherwise `$HOME/.dsh`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshSeams {
+    pub executable: String,
+    pub home: PathBuf,
+}
+
+impl DshSeams {
+    pub fn resolve() -> Result<DshSeams, CompositeError> {
+        let executable = super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+        let home = crate::transcript::dsh_home()
+            .ok_or_else(|| CompositeError::Config("no dsh home: set DSH_HOME or HOME".into()))?;
+        Ok(DshSeams { executable, home })
+    }
+}
+
+/// The Node runtime the executable's `env node` shebang looks up: the
+/// first `node` on the child environment's `PATH`, and the single line
+/// `node --version` prints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeRuntime {
+    pub path: PathBuf,
+    pub version: String,
+}
+
+/// The canonical composite and the raw component values that produced
+/// it, so a caller can report the drifted component rather than only the
+/// final digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshComposite {
+    pub canonical: String,
+    pub core: String,
+    pub node: String,
+    pub plugin: String,
+    pub dependencies: Vec<String>,
+    pub plugin_patch: String,
+    pub profile_patch: String,
+    pub profile_bundles: Vec<String>,
+    pub profile_patch_reload: String,
+    pub home_patch: String,
+    pub extension: Option<String>,
+    pub core_root: PathBuf,
+    pub profile: PathBuf,
+}
+
+fn read_json(path: &Path) -> Result<Value, CompositeError> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| CompositeError::Config(format!("{}: not JSON: {error}", path.display())))
+}
+
+fn read_text(path: &Path) -> Result<String, CompositeError> {
+    std::fs::read_to_string(path)
+        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))
+}
+
+fn canonicalize(path: &Path) -> Result<PathBuf, CompositeError> {
+    std::fs::canonicalize(path)
+        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))
+}
+
+fn required_string<'a>(
+    value: &'a Value,
+    key: &str,
+    where_: &str,
+) -> Result<&'a str, CompositeError> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| CompositeError::Config(format!("{where_}: missing string '{key}'")))
+}
+
+fn first_line(path: &Path) -> Result<String, CompositeError> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))?;
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .unwrap_or(bytes.len());
+    let mut line = &bytes[..end];
+    if line.ends_with(b"\r") {
+        line = &line[..line.len() - 1];
+    }
+    String::from_utf8(line.to_vec())
+        .map_err(|_| CompositeError::Config(format!("{}: first line is not UTF-8", path.display())))
+}
+
+/// Resolve `command` to a canonical path: a command carrying a separator
+/// is used directly, otherwise the first executable on `PATH` wins.
+fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
+    if command.contains('/') || command.contains('\\') {
+        return canonicalize(Path::new(command));
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let candidate = dir.join(command);
+        if candidate.is_file() {
+            return canonicalize(&candidate);
+        }
+    }
+    Err(CompositeError::Config(format!(
+        "'{command}' is not on PATH"
+    )))
+}
+
+struct CorePackage {
+    root: PathBuf,
+    dir: PathBuf,
+    version: String,
+    integrity: String,
+}
+
+/// Find the core package from the canonical executable: the nearest
+/// ancestor whose `package.json` names `@deepseek-ai/dsh`, whose
+/// `bin.dsh` target is that executable with an `env node` first line and
+/// which sits at `<core root>/node_modules/@deepseek-ai/dsh`. The core
+/// lock is the hidden `<core root>/node_modules/.package-lock.json`.
+fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
+    let canonical = resolve_executable(executable)?;
+    let mut package_dir = None;
+    for ancestor in canonical.ancestors().skip(1) {
+        let manifest = ancestor.join("package.json");
+        if !manifest.is_file() {
+            continue;
+        }
+        if let Ok(value) = read_json(&manifest) {
+            if value.get("name").and_then(Value::as_str) == Some("@deepseek-ai/dsh") {
+                package_dir = Some(ancestor.to_path_buf());
+                break;
+            }
+        }
+    }
+    let dir = package_dir.ok_or_else(|| {
+        CompositeError::Config(format!(
+            "{}: no ancestor package.json names @deepseek-ai/dsh",
+            canonical.display()
+        ))
+    })?;
+    let manifest = read_json(&dir.join("package.json"))?;
+    let bin = manifest
+        .get("bin")
+        .and_then(|bin| bin.get("dsh"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| CompositeError::Config("core package has no bin.dsh".into()))?;
+    let bin_path = canonicalize(&dir.join(bin))?;
+    if bin_path != canonical {
+        return Err(CompositeError::Config(format!(
+            "{} is not the core package's bin.dsh ({})",
+            canonical.display(),
+            bin_path.display()
+        )));
+    }
+    if first_line(&canonical)? != "#!/usr/bin/env node" {
+        return Err(CompositeError::Config(format!(
+            "{}: first line is not the env node shebang",
+            canonical.display()
+        )));
+    }
+    let scope = dir
+        .parent()
+        .filter(|parent| {
+            parent
+                .file_name()
+                .is_some_and(|name| name == "@deepseek-ai")
+        })
+        .ok_or_else(|| {
+            CompositeError::Config("core package is not under node_modules/@deepseek-ai".into())
+        })?;
+    let node_modules = scope
+        .parent()
+        .filter(|parent| {
+            parent
+                .file_name()
+                .is_some_and(|name| name == "node_modules")
+        })
+        .ok_or_else(|| CompositeError::Config("core package is not under node_modules".into()))?;
+    let root = node_modules
+        .parent()
+        .ok_or_else(|| CompositeError::Config("core root is missing".into()))?;
+    if root.join("node_modules").join("@deepseek-ai").join("dsh") != dir {
+        return Err(CompositeError::Config(
+            "core package is not at <core root>/node_modules/@deepseek-ai/dsh".into(),
+        ));
+    }
+    let package_version = required_string(&manifest, "version", "core package")?;
+    let lock = read_json(&root.join("node_modules").join(".package-lock.json"))?;
+    let entry = lock
+        .get("packages")
+        .and_then(|packages| packages.get("node_modules/@deepseek-ai/dsh"))
+        .ok_or_else(|| {
+            CompositeError::Config("core lock has no node_modules/@deepseek-ai/dsh entry".into())
+        })?;
+    let version = required_string(entry, "version", "core lock")?;
+    if version != package_version {
+        return Err(CompositeError::Config(format!(
+            "core lock version {version} differs from package version {package_version}"
+        )));
+    }
+    let integrity = required_string(entry, "integrity", "core lock")?;
+    if integrity.contains('\0') || integrity.contains('\n') {
+        return Err(CompositeError::Config(
+            "core integrity carries a NUL or newline".into(),
+        ));
+    }
+    Ok(CorePackage {
+        root: root.to_path_buf(),
+        dir,
+        version: version.to_string(),
+        integrity: integrity.to_string(),
+    })
+}
+
+struct Profile {
+    dir: PathBuf,
+    bundles: Vec<String>,
+    patch_reload: String,
+}
+
+/// `<home>/profiles/headless/package.json`, of which only
+/// `dsh.profile.bundles` (a non-empty string array) and
+/// `dsh.profile.patchReload` (`live` or `startup`) are read.
+fn read_profile(home: &Path) -> Result<Profile, CompositeError> {
+    let dir = home.join("profiles").join("headless");
+    let manifest = read_json(&dir.join("package.json"))?;
+    let profile = manifest
+        .get("dsh")
+        .and_then(|dsh| dsh.get("profile"))
+        .ok_or_else(|| CompositeError::Config("profile manifest has no dsh.profile".into()))?;
+    let bundles = profile
+        .get("bundles")
+        .and_then(Value::as_array)
+        .filter(|array| !array.is_empty())
+        .ok_or_else(|| {
+            CompositeError::Config("dsh.profile.bundles must be a non-empty array".into())
+        })?;
+    let mut names = Vec::with_capacity(bundles.len());
+    for bundle in bundles {
+        let name = bundle
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                CompositeError::Config(
+                    "a dsh.profile.bundles entry is not a non-empty string".into(),
+                )
+            })?;
+        names.push(name.to_string());
+    }
+    let patch_reload = required_string(profile, "patchReload", "dsh.profile")?;
+    if patch_reload != "live" && patch_reload != "startup" {
+        return Err(CompositeError::Config(format!(
+            "dsh.profile.patchReload '{patch_reload}' is neither live nor startup"
+        )));
+    }
+    Ok(Profile {
+        dir,
+        bundles: names,
+        patch_reload: patch_reload.to_string(),
+    })
+}
+
+/// Node's `NODE_MODULES_PATHS` from a package directory: every ancestor
+/// `node_modules/` candidate, deepest first, skipping a component that is
+/// itself named `node_modules`.
+fn node_modules_paths(start: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for ancestor in start.ancestors() {
+        if ancestor
+            .file_name()
+            .is_some_and(|name| name == "node_modules")
+        {
+            continue;
+        }
+        paths.push(ancestor.join("node_modules"));
+    }
+    paths
+}
+
+/// The runtime prefix of a `node` executable sitting in a `bin/`
+/// directory; `None` when the layout is not the standard one.
+fn node_prefix(node: &Path) -> Option<PathBuf> {
+    let bin = node.parent()?;
+    if bin.file_name().is_some_and(|name| name == "bin") {
+        bin.parent().map(Path::to_path_buf)
+    } else {
+        None
+    }
+}
+
+/// Node's global folders, as the child environment names them:
+/// `NODE_PATH` entries, `$HOME/.node_modules`, `$HOME/.node_libraries`
+/// and `lib/node` under the runtime's prefix.
+fn global_folders(node: &NodeRuntime) -> Vec<PathBuf> {
+    let mut folders = Vec::new();
+    if let Some(path) = std::env::var_os("NODE_PATH") {
+        folders.extend(std::env::split_paths(&path).filter(|entry| !entry.as_os_str().is_empty()));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        folders.push(home.join(".node_modules"));
+        folders.push(home.join(".node_libraries"));
+    }
+    if let Some(prefix) = node_prefix(&node.path) {
+        folders.push(prefix.join("lib").join("node"));
+    }
+    folders
+}
+
+/// Emulate `resolveBundleDir`: the core package's Node lookup, the
+/// global folders, then the profile's Node lookup. The first candidate
+/// holding a `package.json` wins, and its canonical directory must lie
+/// inside the core root or the profile.
+fn resolve_bundle(
+    name: &str,
+    core_dir: &Path,
+    profile_dir: &Path,
+    globals: &[PathBuf],
+    core_root: &Path,
+) -> Result<PathBuf, CompositeError> {
+    let mut candidates = node_modules_paths(core_dir);
+    candidates.extend(globals.iter().cloned());
+    candidates.extend(node_modules_paths(profile_dir));
+    candidates.extend(globals.iter().cloned());
+    for candidate in candidates {
+        let dir = candidate.join(name);
+        if !dir.join("package.json").is_file() {
+            continue;
+        }
+        let canonical = canonicalize(&dir)?;
+        if canonical.starts_with(core_root) || canonical.starts_with(profile_dir) {
+            return Ok(canonical);
+        }
+        return Err(CompositeError::Config(format!(
+            "bundle '{name}' resolves outside the core root and the profile ({})",
+            canonical.display()
+        )));
+    }
+    Err(CompositeError::Config(format!(
+        "bundle '{name}' does not resolve"
+    )))
+}
+
+/// Spawn the first `node` on `PATH` once for its version line.
+pub fn spawn_node_runtime() -> Result<NodeRuntime, CompositeError> {
+    let path = resolve_executable("node")?;
+    let output = std::process::Command::new(&path)
+        .arg("--version")
+        .output()
+        .map_err(|error| CompositeError::Config(format!("node --version: {error}")))?;
+    if !output.status.success() {
+        return Err(CompositeError::Config(
+            "node --version exited nonzero".into(),
+        ));
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if version.is_empty() || version.contains('\0') || version.contains('\n') {
+        return Err(CompositeError::Config(
+            "node --version printed no single readable line".into(),
+        ));
+    }
+    Ok(NodeRuntime { path, version })
+}
+
+/// The home-level `$DSH_HOME/cordis.patch.yml` digest, or the literal
+/// `absent`.
+fn home_patch(home: &Path) -> Result<String, CompositeError> {
+    let path = home.join("cordis.patch.yml");
+    if !path.exists() {
+        return Ok("absent".to_string());
+    }
+    sha256_file(&path)
+}
+
+/// Compute the canonical composite over the resolved seams, with the
+/// Node runtime and global folders injected so every branch is a plain
+/// test. This is the only producer of either the plugin component or the
+/// canonical composite.
+pub fn dsh_composite_with(
+    seams: &DshSeams,
+    node: &NodeRuntime,
+    globals: &[PathBuf],
+) -> Result<DshComposite, CompositeError> {
+    let core = resolve_core(&seams.executable)?;
+    let profile = read_profile(&seams.home)?;
+    let mut resolved: Vec<(String, PathBuf)> = Vec::new();
+    for name in &profile.bundles {
+        let dir = resolve_bundle(name, &core.dir, &profile.dir, globals, &core.root)?;
+        if name == "dsh-plugin-cli-session" && !dir.starts_with(&profile.dir) {
+            return Err(CompositeError::Config(
+                "the plugin resolves outside the profile".into(),
+            ));
+        }
+        resolved.push((name.clone(), dir));
+    }
+    let plugin_dir = resolved
+        .iter()
+        .find(|(name, _)| name == "dsh-plugin-cli-session")
+        .map(|(_, dir)| dir.clone())
+        .ok_or_else(|| {
+            CompositeError::Config("the profile does not list dsh-plugin-cli-session".into())
+        })?;
+    let plugin = plugin_component(&plugin_dir, &PLUGIN_FILES)?;
+    let extension = if profile
+        .bundles
+        .iter()
+        .any(|bundle| bundle == "brokkr-dsh-resume-policy")
+    {
+        let dir = resolved
+            .iter()
+            .find(|(name, _)| name == "brokkr-dsh-resume-policy")
+            .map(|(_, dir)| dir.clone())
+            .ok_or_else(|| {
+                CompositeError::Config("the extension bundle was not resolved".into())
+            })?;
+        if !dir.starts_with(&profile.dir) {
+            return Err(CompositeError::Config(
+                "the extension resolves outside the profile".into(),
+            ));
+        }
+        Some(plugin_component(&dir, &EXTENSION_FILES)?)
+    } else {
+        None
+    };
+    let mut excluded = vec!["@deepseek-ai/dsh", "dsh-plugin-cli-session"];
+    if extension.is_some() {
+        excluded.push("brokkr-dsh-resume-policy");
+    }
+    let npm = npm_dependencies(
+        &read_text(&core.root.join("node_modules").join(".package-lock.json"))?,
+        &excluded,
+    )?;
+    let pnpm = pnpm_dependencies(&read_text(&profile.dir.join("pnpm-lock.yaml"))?, &excluded)?;
+    let core_line = format!("@deepseek-ai/dsh {} {}", core.version, core.integrity);
+    let plugin_patch = sha256_file(&plugin_dir.join("cordis.patch.yml"))?;
+    let profile_patch = sha256_file(&profile.dir.join("cordis.patch.yml"))?;
+    let home_patch = home_patch(&seams.home)?;
+    let canonical = canonical_composite(
+        &core_line,
+        &node.version,
+        &npm,
+        &pnpm,
+        &plugin,
+        &plugin_patch,
+        &profile_patch,
+        &profile.bundles,
+        &profile.patch_reload,
+        &home_patch,
+        extension.as_deref(),
+    )?;
+    let mut dependencies: BTreeSet<String> = BTreeSet::new();
+    dependencies.extend(npm);
+    dependencies.extend(pnpm);
+    Ok(DshComposite {
+        canonical,
+        core: core_line,
+        node: node.version.clone(),
+        plugin,
+        dependencies: dependencies.into_iter().collect(),
+        plugin_patch,
+        profile_patch,
+        profile_bundles: profile.bundles,
+        profile_patch_reload: profile.patch_reload,
+        home_patch,
+        extension,
+        core_root: core.root,
+        profile: profile.dir,
+    })
+}
+
+/// `dsh_composite_with` over the real seams and a real `node --version`
+/// probe.
+pub fn dsh_composite(seams: &DshSeams) -> Result<DshComposite, CompositeError> {
+    let node = spawn_node_runtime()?;
+    let globals = global_folders(&node);
+    dsh_composite_with(seams, &node, &globals)
 }
 
 #[cfg(test)]

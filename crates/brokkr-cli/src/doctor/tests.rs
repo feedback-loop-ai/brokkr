@@ -1334,6 +1334,7 @@ fn doctor_names_the_boundaries_this_machine_offers_and_judges_hands_by_the_realm
             never_ambient,
             boundary,
             None,
+            no_composite,
         )
         .render()
     };
@@ -1472,4 +1473,67 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
 #[test]
 fn the_posix_shell_probe_executes_a_portable_shell_operation() {
     assert_eq!(tool_version("sh").as_deref(), Some("POSIX shell"));
+}
+
+#[test]
+fn the_dsh_composite_detail_reports_each_disposition() {
+    let digest = "a".repeat(64);
+    let other = "b".repeat(64);
+
+    // No declared digest at all: informational, never a warning.
+    let (warning, line) = composite_detail(None, false, Ok(&digest));
+    assert!(!warning);
+    assert!(line.contains("no declared wrapper_digest"), "{line}");
+
+    // A matching digest is informational even when the shape is supported.
+    let (warning, line) = composite_detail(Some(&digest), true, Ok(&digest));
+    assert!(!warning);
+    assert!(
+        line.contains("matches the declared wrapper_digest"),
+        "{line}"
+    );
+
+    // A differing digest warns only when a supported shape declares one.
+    let (warning, line) = composite_detail(Some(&digest), true, Ok(&other));
+    assert!(warning);
+    assert!(line.contains("differs from the declared"), "{line}");
+    assert!(!composite_detail(Some(&digest), false, Ok(&other)).0);
+
+    // An unreadable composite warns only when a supported shape declares
+    // a digest; the detail names the unreadable component.
+    let (warning, line) =
+        composite_detail(Some(&digest), true, Err("plugin component is unreadable"));
+    assert!(warning);
+    assert!(line.contains("unreadable"), "{line}");
+    assert!(!composite_detail(Some(&digest), false, Err("plugin component is unreadable")).0);
+    assert!(!composite_detail(None, true, Err("plugin component is unreadable")).0);
+}
+
+#[test]
+fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
+    let dir = tempfile::tempdir().unwrap();
+    fn fake_composite(_: &Adapter) -> (bool, String) {
+        (
+            false,
+            "composite deadbeef (no declared wrapper_digest)".to_string(),
+        )
+    }
+    let rendered = doctor_in(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_present,
+        never_ambient,
+        Boundary::Namespace,
+        None,
+        fake_composite,
+    )
+    .render();
+    assert!(
+        rendered.contains("ok       dsh:")
+            && rendered.contains("composite deadbeef (no declared wrapper_digest)"),
+        "{rendered}"
+    );
 }

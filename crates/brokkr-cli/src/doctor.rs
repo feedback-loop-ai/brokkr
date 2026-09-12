@@ -9,7 +9,9 @@ use std::process::Command;
 use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
+use brokkr_protocol::adapters::{dsh_composite, DshSeams};
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
 use brokkr_store::Store;
 
@@ -166,6 +168,64 @@ impl Surface {
     }
 }
 
+/// How doctor reads the DSH composite: a warning flag and the detail
+/// appended to the provider's line. Injected so the shipped tests build
+/// synthetic homes instead of resolving the operator's real one.
+type CompositeProbe = fn(&Adapter) -> (bool, String);
+
+/// The composite detail for the DSH provider line (task 8.8(c)): the
+/// digest the adapter's own seam resolution reads, or the component that
+/// made it unreadable, and whether it equals, differs from or has no
+/// declared `wrapper_digest`. The detail is informational while no
+/// `supported` shape declares one; it is a warning when a supported
+/// shape's composite differs or is unreadable.
+fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
+    // The DSH work shape's name, one spelling in Rust so the guide
+    // sample and this line cannot drift apart silently.
+    const DSH_SHAPE: &str = "headless-work";
+    let shape = adapter.resume.shape(DSH_SHAPE);
+    let declared = shape.and_then(|shape| match &shape.identity {
+        ResumeIdentity::Measured { wrapper_digest, .. } => wrapper_digest.clone(),
+        ResumeIdentity::Unknown { .. } => None,
+    });
+    let supported = shape.is_some_and(|shape| shape.status == ResumeStatus::Supported);
+    match DshSeams::resolve().and_then(|seams| dsh_composite(&seams)) {
+        Ok(composite) => composite_detail(declared.as_deref(), supported, Ok(&composite.canonical)),
+        Err(error) => composite_detail(declared.as_deref(), supported, Err(&error.to_string())),
+    }
+}
+
+/// The pure classifier behind `dsh_composite_line`, so every disposition
+/// is a plain test: informational while no `supported` shape declares a
+/// digest; a warning flag only when one does and the composite differs
+/// or is unreadable.
+fn composite_detail(
+    declared: Option<&str>,
+    supported: bool,
+    composite: Result<&str, &str>,
+) -> (bool, String) {
+    match composite {
+        Ok(digest) => match declared {
+            Some(declared) if declared == digest => (
+                false,
+                format!("composite {digest} matches the declared wrapper_digest"),
+            ),
+            Some(declared) => (
+                supported,
+                format!("composite {digest} differs from the declared wrapper_digest {declared}"),
+            ),
+            None => (
+                false,
+                format!("composite {digest} (no declared wrapper_digest)"),
+            ),
+        },
+        Err(error) => (
+            supported && declared.is_some(),
+            format!("composite unreadable: {error}"),
+        ),
+    }
+}
+
 /// Probe every provider an adapter file declares, reporting its binary,
 /// the probe result and the abstract models it serves — and collecting
 /// the availability facts the resolver's non-`Unknown` arms exist for.
@@ -175,6 +235,7 @@ fn probe_providers(
     report: &mut Report,
     adapters_root: &Path,
     probe: fn(&str) -> Option<String>,
+    composite: CompositeProbe,
 ) -> Availability {
     let mut availability = Availability::unspecified();
     let adapters = match Adapters::load(adapters_root) {
@@ -193,7 +254,19 @@ fn probe_providers(
         match probe(&adapter.binary) {
             Some(version) => {
                 availability.record(&adapter.provider, Presence::Available);
-                report.ok(&adapter.provider, format!("{version} · {serves}"));
+                let (warning, suffix) = match adapter.provider.as_str() {
+                    "dsh" => composite(adapter),
+                    _ => (false, String::new()),
+                };
+                let detail = match suffix.is_empty() {
+                    true => format!("{version} · {serves}"),
+                    false => format!("{version} · {serves} · {suffix}"),
+                };
+                if warning {
+                    report.warn(&adapter.provider, detail);
+                } else {
+                    report.ok(&adapter.provider, detail);
+                }
             }
             None => {
                 availability.record(&adapter.provider, Presence::Unavailable);
@@ -410,6 +483,7 @@ pub fn doctor(
                 &workspace,
             )
         }),
+        dsh_composite_line,
     );
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
@@ -578,6 +652,11 @@ fn report_realm_dialects(
 /// The machine's report in no realm: what every unit test asks, and
 /// what `doctor` asks under the boundary the discovered realm declares.
 #[cfg(test)]
+fn no_composite(_: &Adapter) -> (bool, String) {
+    (false, String::new())
+}
+
+#[cfg(test)]
 fn doctor_with_probe(
     bundle: Option<&Path>,
     db: &Path,
@@ -597,6 +676,7 @@ fn doctor_with_probe(
         ambient,
         Boundary::Namespace,
         None,
+        no_composite,
     )
 }
 
@@ -611,6 +691,7 @@ fn doctor_in(
     ambient: fn(&str) -> bool,
     boundary: Boundary,
     compiled: Option<anyhow::Result<Bundle>>,
+    composite: CompositeProbe,
 ) -> Report {
     let mut report = Report {
         healthy: true,
@@ -669,7 +750,7 @@ fn doctor_in(
     // THE ADAPTER FILES (decision 0016), so a sixth provider shows up in
     // doctor without a rebuild — the same property that makes "adding a
     // provider is not a release" true.
-    let availability = probe_providers(&mut report, adapters_root, probe);
+    let availability = probe_providers(&mut report, adapters_root, probe, composite);
     // Python is not a provider; it is what the `exec` driver's script
     // templates usually invoke, so it stays a named warning of its own.
     match probe("python3") {
