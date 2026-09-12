@@ -1,16 +1,17 @@
 ## Context
 
-This returned council visit adopts `663c84a`, including all work at `cf06034`,
-for `current-successor-operator-rulin-eef1e666` under the same change identifier.
-Proposal P governs the whole-change and provider ruling. The only live analyze
-finding, F1, is D9's circular pre-archive test gate: an existing provenance
-assertion requires this returned change's archive directory while readiness
-requires that assertion to pass before the directory can exist. D9 repairs the
-order, D10 reconciles both fresh positions, and the existing PM4 scenario and
-tasks follow. The two commissioned D6 findings and A1–A5/B1–B5 remain settled.
-The September 12 Codex host precondition remains measured true; this seat's
+This specify re-entry adopts `b049224e2968d0df22d25a7a77139b12278cce59`,
+including all work at `cf06034`, for `current-successor-operator-rulin-eef1e666`
+under the same change identifier. Proposal P governs the whole-change and
+provider ruling. The returned triage finding correctly classifies this as
+engine work; it identifies no earlier specification defect. The two
+commissioned D6 findings, A1–A5/B1–B5 and the later F1 archive-ordering repair
+remain settled. D10 records their evidence-based revalidation and this visit's
+bounded downstream corrections before the tasks are reconciled. The September
+12 Codex host precondition remains measured true; this seat's own
 `codex --version` returns 127 and supplies no host version. Task 10.5 remains
 pending, with its installed-version reconciliation and full resume proof owed.
+The following dated design history retains its original evidence boundaries.
 
 This design adopts the existing
 **2026-09-09-226-session-resumption** change at `7178895`, over its
@@ -76,32 +77,30 @@ that searches beyond the core root before the profile. D6 adds them together
 with the bundle list and patch-reload mode, names every locator, and records
 the end-to-end proof as a recorded exchange with the built driver.
 
-The implementation at this head already contains the reusable architecture:
+The inherited implementation contains the reusable architecture:
 `engine/resume.rs::{eligible_offer, SiteContext, InstanceKey,
 ConfirmedSession}`, `Store::started_here`, negotiated `Body::Resume` with a
 correlated `PendingOffer`, provider-specific planners, `LaunchHold`, and
-`SeatRecordVersion::of_engine`. Its task record at this design input shows
-**78 of 101** tracked tasks complete. Four records—1.1, 6.4, 11.5 and 13.1—were
-completed by `a86eca1` for the 0.1.0-rc.6 pin the operator has since reversed,
-and the forward-pin tasks return (`095dd21`) reopened them. The 23 pending
-tasks are 1.1, 6.4, 8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.5, 13.1, 14.1–14.2,
-15.1–15.4 and 15.6–15.7. The four reopened records must be repaired before DSH
-production semantics proceed. Host exact coverage and
-controller integration, CI, publication, merge and closure are mandatory
-post-commit handoff evidence, deliberately outside that checkbox count. Codex
-and Claude remain `unmeasured`, LaneTally remains independently `unmeasured`,
-and the selected DSH core/plugin route remains disabled pending qualification;
-none is delivery evidence.
+`SeatRecordVersion::of_engine`. At `b049224` it also contains 8.8(a)'s optional
+identity loader, 8.8(b)'s Rust composite and locator work, and 8.8(c)'s doctor
+report. Source presence and inherited check reports do not complete the whole
+8.8/8.10/9.6 acceptance. In particular, `eligible_offer` still returns an ID
+string, and the DSH refusal/planner has not acquired D6's private provider-ID
+and persistence-locator target.
 
-Current code inspection also confirms the two council seams. A different-root
-`LaunchHold` outcome suppresses a launch row, but the adapter invocation can
-still return its ordinary exit/result outcome; D7 requires that mismatch to
-prevent successful acceptance. Claude rejects competing conversation selectors,
-but otherwise appends `extra` wholesale; D5 requires adapter-specific duplicate,
-arity and precedence checks for every authoritative restriction before the
-shape can be enabled. These are downstream conformance gaps already owned by
-D5/D7/D11 and the existing tasks, not grounds for a second lifecycle subsystem
-or a generic provider grammar.
+The inherited task ledger is 82 complete / 19 pending. The forward-pin work
+completed 1.1, 6.4, 11.5 and the DSH portion of 13.1; this visit keeps the first
+three checked and reopens 13.1 because its current Codex/Claude table still
+denies supplied partial observations. The resulting 20 pending tasks are
+8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.4, 13.1, 14.1–14.2, 15.1–15.4 and
+15.6–15.7, across the same 101 identifiers. Correct that guide evidence before
+continuing 8.8's remaining work; preserve the inherited implementation and
+valid forward-pin repairs. D10 records the concrete source evidence and the
+already-pending npm version-validation gap. Neither finding reopens settled
+planning or changes the provider minimum. All four provider shapes remain
+unmeasured and disabled. Host exact coverage and controller integration, CI,
+publication, merge and closure remain mandatory handoff evidence outside the
+checkbox count.
 
 Read: README, house rules, decisions 0004/0005/0009/0030/0034/0042, applicable
 0043/0046 rulings and shipped 0053 behavior; runtime dispatch/ownership,
@@ -412,11 +411,14 @@ unknown form refuses it, a shape without it still loads, and the loader stays
 adapter-neutral. It is the gate's compared fact for a composite that a version
 string cannot express, not stored evidence; the shape gains no history field
 (answer N4). Checked 6.1, 6.2 and 6.6 built the closed shape before answer O
-and stay checked. Today's measured branch in
-`crates/brokkr-runtime/src/agents/load.rs` admits only `version` and
-`applies_to`, so a declaration carrying the member is a loader refusal until
-the amendment lands. Pending 8.8 owns the amendment as its first step, before
-any code reads the member and before 11.3 writes it (analyze A3).
+and stay checked. At analyze A3 the measured branch in
+`crates/brokkr-runtime/src/agents/load.rs` admitted only `version` and
+`applies_to`; 8.8 therefore owns the amendment as its first step, before any
+reader and before 11.3 writes the member. The inherited implementation at
+`b049224` now admits that optional member and contains the loader cases below;
+preserve this completed portion while 8.8 remains pending for its full route
+and acceptance. No declaration digest or support status is enabled by that
+loader change.
 `ResumeIdentity::Measured` gains the optional member, and the measured branch's
 closed key list admits it. The member's grammar is checked at load, so an
 authoring typo is refused naming the field instead of loading as a digest that
@@ -1353,15 +1355,13 @@ tracked artifact to its exact subject head.
 The implementation already added
 `docs/decisions/0056-same-instance-session-resumption.md` and its registry row
 with **Status: proposed**; only the operator accepts it. Its ruling 10 already
-carries F10's exact-head separation. The upstream DSH evidence now invalidates
-ruling 5's old unsupported-route premise and the consequences paragraph that
-left a supported headless route deliberately unknown. Task 1.1 must therefore
-be reopened until the proposed record selects the latest core with the
-repository-owned adaptation, records the admission of a repository-owned plugin
-(answer M) on decision 0009's extension boundary, cites 0009 beside the other
-decisions its rulings stand on, and keeps its admission conditional and status
-`proposed`. Context/alternatives cite this
-design and preserve historical accepted decision text. The required numbered
+carries F10's exact-head separation. The upstream DSH evidence invalidated
+ruling 5's old unsupported-route premise and required reopening 1.1. The
+inherited forward-pin repair now selects the latest core with the
+repository-owned adaptation, records its admission (answer M) on decision
+0009's extension boundary, cites 0009, and keeps admission conditional and
+status `proposed`. Task 1.1 therefore stays checked. Context/alternatives cite
+this design and preserve historical accepted decision text. The required numbered
 rulings and enforcement bindings are:
 
 | Ruling | Required content | Enforcement binding |
@@ -1565,9 +1565,11 @@ scenario and tasks without reopening settled planning or ticking delivery work.
    `sha256sum -c`. It installs the pair into the task-owned home's `headless`
    profile, records the composite's raw inputs as D6 lists them (analyze B1,
    B2), not its digest, and keeps the task-owned home for steps 6 and 7.
-2. Reopen 1.1, 6.4, 11.5 and 13.1 (82/19 becomes 78/23) and complete them
-   before 8.8. `adapters/dsh.json` sets `version`/`applies_to` to the resolved
-   core with no `wrapper_digest`; `evidence.interface` names the 015rc1 record,
+2. Preserve the completed forward-pin repairs in 1.1, 6.4 and 11.5. Reopen
+   only 13.1 for D10's partial-evidence correction (82/19 becomes 81/20).
+   The original four-task repair order remains the dependency; complete the
+   outstanding guide correction before continuing 8.8. `adapters/dsh.json`
+   sets `version`/`applies_to` to the resolved core with no `wrapper_digest`; `evidence.interface` names the 015rc1 record,
    or, if it does not exist yet, the discovery and incompatibility records
    with the qualification named pending, and 6.4's verify clause checks that
    member (analyze B4); `reason` names the adapted pair and the
@@ -1625,11 +1627,11 @@ guard; 9.7 remains valid. The first tasks return already reopened 8.8, 8.10 and
 9.6 because the selected DSH route adds concrete CLI controls and
 retained-root/current-sequence behavior their completed implementations did not
 contain. That moved the current ledger from 85/16 to 82/19, but it did not
-reopen every checked artifact invalidated by the same evidence. Reopen 1.1,
-6.4, 11.5 and 13.1 as well, producing 78 complete / 23 pending without changing
-the 101 identifiers. Correct proposed 0056 and the fail-closed DSH declaration
-before implementing 8.8: preserve `proposed`, name the selected core and
-adaptation and their composite identity, declare the shape `unmeasured` with
+reopen every checked artifact invalidated by the same evidence. That return
+also reopened 1.1, 6.4, 11.5 and 13.1, producing 78 complete / 23 pending
+without changing the 101 identifiers. It required correcting proposed 0056
+and the fail-closed DSH declaration before implementing 8.8: preserve
+`proposed`, name the selected core and adaptation and their composite identity, declare the shape `unmeasured` with
 the measured version identity and no `wrapper_digest`, and keep enablement
 gated on 10.7. Complete every packaged declaration
 and the guide in the same pre-8.8 correction. Amend 10.3 in place while retaining
@@ -1639,6 +1641,30 @@ pending 10.7 and 11.3 for the selected route, now as the forward-pin
 reconciliation above orders. Keep 9.1/9.2 checked because their
 generic measured-boundary and omit-unattributable rules already govern the new
 fold. No other settled task, decision, requirement or scenario is reopened.
+
+#### Specify re-entry reconciliation — 2026-09-13, inherited head `b049224`
+
+Read both retained position files in full. Their hashes still equal the F1
+pins above: robustness `728328aaf78ae8f05d2929b84f48d9e000202018cfe56ebbc6abe8fbe4f0fded`
+and simplicity `faae5333cdf499174387024a8591060a515bdef767fefc203d31895e8af3fa90`.
+These are the retained council's positions, not newly commissioned opinions.
+Every disposition above stands, with the current implementation state below
+superseding only earlier descriptions of work still absent.
+
+| Claim or finding | Disposition and evidence |
+|---|---|
+| Returned triage: engine classification, whole-change adoption and 82/19 inherited ledger. | Adopt the classification and inherited count from `.forge/tasks/226-resume-engine-intake.md`, checked against the tree and ancestry from `cf06034` to `b049224`. Correct the current count to 81/20 only for the evidenced 13.1 false tick below. |
+| Both retained positions: the commissioned npm ambiguity is resolved by D6. | Adopt unchanged. D6 consumes every complete `node_modules/<package>` group, validates scoped and unscoped ancestors, takes the terminal spelling and that entry's exact version/integrity, ignores `name`, and deduplicates whole triples. The supplied hidden lock has 521 entries, no `name` fields and nine debug paths yielding two triples. The MEDIUM finding concerns reproducibility, not a demonstrated bypass: the one Rust producer and fail-closed comparison already bound the safety claim. Existing AS1 scenarios and 8.8/8.10 remain the acceptance contract. |
+| Both retained positions: D6 answers the conditional extension's location/provenance gap. | Adopt unchanged. Only a demonstrated missing hook permits `extensions/dsh/resume-policy/`, its four declared files and separate authored provenance in `extensions/dsh/PROVENANCE.md`; installed bytes enter line 9 through the same Rust file function. The LOW finding does not prove that an extension is needed, authorize speculative runtime code or introduce a second digest producer. |
+| Both retained positions: F1 requires a bounded pre-archive deferral and the full suite after archive; robustness also asks for a source comment. | Keep the combined D9 order and the existing rejection of a source comment. PM4, D9 and tasks preserve the reason durably. Before archive, only the named assertion may be deferred with exactly one matching/filtered test; after archive, full unfiltered tests and strict archived validation remain mandatory before activation/delivery. No test is deleted, weakened or claimed passed by this visit. |
+| Inherited progress says the seam/locator and doctor work are absent. | Supersede that dated progress claim using `adapters/composite.rs`, `doctor.rs` and their tests at `b049224`. Preserve the optional loader, canonicalization, locator and doctor implementation. The 015rc1 qualification record also contains a doctor-produced composite recording step. None completes the private DSH target/planner, live driver exchange, restriction proof or multi-message accounting: keep 8.8, 8.10, 9.6 and 10.7 pending. |
+| Checked 13.1 says the guide retains partial provider evidence. | Reject the tick on new tree evidence. `docs/guides/provider-adapters.md` currently says no Codex accounting evidence exists on any version and nothing about a resumed Claude invocation is measured. The September 10 Codex JSON establishes current-only accounting for its sampled cold/warm pair; the retained controller evidence establishes partial Claude root/Read observations, with broader enforcement/accounting still incomplete. Reopen only 13.1 to state these bounded facts, preserve its valid DSH correction, and keep all support disabled. Startup enforcement from September 12 does not complete Codex resume proof. |
+| The inherited deterministic-core report implies all D6 normalization cases are enforced. | Limit that claim on source evidence. `npm_dependencies` rejects empty versions, NUL and LF but does not reject other whitespace as D6 requires. Its current tests do not cover that rejection. Pending 8.8(b)/8.10 already own the correction and meaningful space/tab/CR rejection vectors; do not change the grammar, digest format or safety severity to fit incomplete code. |
+
+The governing proposal and all five deltas remain coherent and unchanged in
+meaning. No upstream artifact is at fault; do not return `upstream` for these
+downstream implementation/prose gaps. Preserve A1–A5/B1–B5 and the whole-change
+minimum, retain proposed 0056, and amend tasks only after this reconciliation.
 
 ### D11 — Verify transitions and trace every requirement
 
@@ -1882,9 +1908,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    separate unchecked evidence/enablement/delivery obligations. Tasks validation
    and the normal analyze-to-zero loop precede implementation.
 2. Retain proposed 0056/registry, v5 contract/embedding/dispatch and their tests.
-   Before new DSH production semantics, complete reopened 1.1, 6.4, 11.5 and
-   13.1: proposed 0056 selects the exact route without claiming acceptance, and
-   the declaration, every packaged equivalent and the guide mark it
+   Preserve completed 1.1, 6.4 and 11.5 and the valid DSH part of 13.1; complete
+   reopened 13.1's partial-provider-evidence correction before continuing 8.8.
+   The resulting truth remains: proposed 0056 selects the exact route without
+   claiming acceptance, and the declaration, every packaged equivalent and the
+   guide mark it
    `unmeasured`, disabled and awaiting 10.7. Its identity is the measured form,
    `version` and `applies_to` set to the resolved core, with no
    `wrapper_digest` until 11.3 (analyze A1). Accepted decisions and existing
@@ -1898,11 +1926,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    and preserved Codex support. Resolve the latest DSH core under N1, commit
    the six-file adaptation with its provenance, install both only in
    task-owned storage and record the live qualification with the composite's
-   raw inputs in `dsh-pair-qualification-015rc1.json`. Correct
-   1.1/6.4/11.5/13.1, then implement 8.8 in D10's order: the loader amendment,
-   the composite function, the doctor line and the fail-closed route. Append
-   the doctor-reported composite to the qualification record, complete 10.7's
-   root/storage/restriction/current-sequence protocol and Brokkr assertions,
+   raw inputs in `dsh-pair-qualification-015rc1.json`. Preserve the inherited
+   pair qualification, truth repairs, loader, composite/locator implementation,
+   doctor line and doctor-produced recording step; correct 13.1 and finish
+   8.8's remaining acceptance and fail-closed route in D10's order. Complete
+   10.7's root/storage/restriction/current-sequence protocol and Brokkr assertions,
    record D6's end-to-end driver exchange against the retained home, and
    enable only after every admission axis passes, writing that value as
    `wrapper_digest` in the same edit. If the adapted plugin demonstrably needs
@@ -2454,3 +2482,15 @@ This is a design preparation commit. Proposed 0056 remains proposed, all 23
 pending tasks stay pending, and the full unfiltered archived suite remains
 mandatory before the activation/delivery commit. Remote CI, publication,
 integration and closure remain with the controller.
+
+
+## Specify re-entry validation — 2026-09-13, inherited head `b049224`
+
+D10 records this visit's dispositions before dependent task amendments.
+[Proposal validation](proposal.md#specify-re-entry-validation--2026-09-13-inherited-head-b049224)
+records the strict OpenSpec and structural passes, preserved deltas and dated
+history, and the six Cargo commands that could not launch because Cargo is
+absent. Only proposal, design and tasks change; this is specification
+preparation with 81/20 tasks, no upstream defect and no activation or provider
+proof claim. The inherited council pins, D6 answers, D9/F1 validation order,
+full provider minimum and proposed status of 0056 remain binding.

@@ -1,10 +1,13 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
-This specify visit adopts all committed work at `cf06034` under the same
-change identifier, `2026-09-09-226-session-resumption`, for run
-`current-successor-operator-rulin-eef1e666`. The operator's 2026-09-12
-ruling keeps the change whole. Earlier dated returns below remain history;
-answer P is the current commission and evidence boundary.
+This specify visit adopts `b049224e2968d0df22d25a7a77139b12278cce59`, which
+contains all committed work at `cf06034`, under the same change identifier,
+`2026-09-09-226-session-resumption`, for run
+`current-successor-operator-rulin-eef1e666`. The operator's 2026-09-12 ruling
+keeps the change whole. Earlier dated returns below remain history; answer P
+is the current commission and evidence boundary. The returned triage finding
+in `.forge/tasks/226-resume-engine-intake.md` correctly classifies the durable
+ownership, provider enforcement and v5/store semantics as engine work.
 
 ## Why
 
@@ -733,8 +736,12 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   new change or weakened AS1 minimum. Leaving previously supported Codex shapes
   disabled is incomplete delivery. LaneTally alone may remain
   declared-unsupported on 10.4's measured evidence under 11.4; enabling it still
-  requires 10.8. Tasks retain their 101 identifiers and 78-complete/23-pending
-  state until their own work and checks pass.
+  requires 10.8. Retain all 101 task identifiers. The inherited ledger at
+  `b049224` has 82 complete / 19 pending after forward-pin truth repairs and
+  partial DSH implementation. This visit reopens only 13.1 on concrete guide
+  evidence, yielding 81 complete / 20 pending; no implementation or proof task
+  is completed by this specification visit. D10 and the current tasks entry
+  explain that correction before work resumes.
 
   The current provider instruction supersedes the historical quota instruction:
   `gpt-6-astra` at `xhigh` holds triage, clarify, chief architect, analyze and
@@ -757,18 +764,29 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
 
   This seat's own `codex --version` attempt through the workspace tool returns
   command-not-found (exit 127); it does not replace a host version observation.
-  The current triage capture in `.forge/tasks/current-successor-triage.md`
+  The current triage capture in `.forge/tasks/226-resume-engine-intake.md`
   reports its own `codex-cli 0.153.4` read. Task 10.5 must re-read the binary it
   actually exercises, reconcile accepted 0030's 0.148.0 with supplied 0.153.4
   and any installed replacement, and establish the full resume proof before
   11.1. Neither host startup nor a policy record discharges runtime enforcement.
 
-  The two newly commissioned findings belong first to design D6: npm
-  hidden-lock key normalization (MEDIUM, reproducibility rather than an
+  The two commissioned findings are already answered in inherited design D6:
+  npm hidden-lock key normalization (MEDIUM, reproducibility rather than an
   established safety bypass) and the conditional Cordis extension's location
-  and provenance (LOW). Answer them there before reconciling their AS1
-  scenarios and tasks. A1–A5 and B1–B5 remain settled; these findings neither
-  create another digest producer nor authorize a speculative extension.
+  and provenance (LOW). Adopt those answers and their AS1 scenarios and task
+  clauses. D10 records their revalidation before this visit's task correction;
+  the later F1 archive-ordering answer also stands. A1–A5 and B1–B5 remain
+  settled; these findings neither create another digest producer nor authorize
+  a speculative extension.
+
+  Reject treating the inherited partial implementation as full acceptance.
+  The guide's current Codex and Claude rows deny observations the supplied
+  dated captures actually contain; 13.1 must retain that partial evidence
+  without enabling either shape. The existing npm version rule also rejects
+  whitespace, which the inherited reader does not fully enforce; 8.8/8.10
+  already own that implementation and test gap. These are downstream
+  corrections against sound requirements, not an upstream specification fault
+  or a reason to narrow AS1. All five capability deltas remain adopted unchanged.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -1445,3 +1463,42 @@ provider homes and settings remain unchanged from the adopted head. No provider
 model call, workflow runner, archive, push, merge or new Brokkr run was invoked.
 This is a drafted specification; provider proofs, implementation, activation,
 readiness and delivery remain pending.
+
+
+## Specify re-entry validation — 2026-09-13, inherited head `b049224`
+
+Adopted `b049224e2968d0df22d25a7a77139b12278cce59` and verified that it contains
+`cf06034`. Read the commissioned host/provider evidence, both probe scripts,
+the whole change, the current intake and retained council positions through
+the workspace hands; read the dialect's own instructions and the rendered
+OpenSpec proposal/specs/design/tasks instructions without invoking a workflow
+runner. Proposal P answers returned triage and preserves the whole-change and
+provider ruling. Design D10 revalidates the settled D6/F1 answers and records
+the source-based reasons for correcting dependent tasks. No upstream
+specification defect or provider exemption is inferred.
+
+Strict active OpenSpec validation, artifact status and delta parsing pass.
+The five deltas retain their exact adopted bytes: 20 requirements / 141
+scenarios, 15 ADDED and five MODIFIED operations. Structural checks confirm
+101 unchanged task IDs, 81 complete / 20 pending, with only 13.1 reopened;
+D6, D9 and D11–D13, the prior dated return sections and both council pins are
+unchanged. The existing AS1–AS3/PM4 archive obligations remain in force. No
+archive ran. `git diff --check` passes and the diff contains only proposal,
+design and tasks. Production code, frozen paths, declarations, decisions and
+living specifications remain unchanged from the adopted head.
+
+With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, all six commissioned Cargo gates
+(format, all-target/all-feature clippy, workspace tests, both bundle compiles
+and release build) fail to launch with `ENOENT`: Cargo is absent in this box.
+The workspace `codex --version` attempt also finds no binary and supplies no
+installed controller version. No Rust, provider, readiness or activation pass
+is claimed. Exact coverage remains pending outside the box on the final
+candidate; CI, release admission and coverage still consume
+`rust-nightly-version.txt`. The unchanged full post-archive test requirement
+and all remote CI/publication/integration/closure obligations remain pending.
+Command and structural evidence is under `.forge/specify-cff27e9f/`.
+
+This is a drafted specification preparation commit of exactly three planning
+artifacts. Proposed 0056 remains proposed; the DSH route, full provider proofs,
+enablement and delivery gates remain incomplete. No provider model call,
+workflow runner, push, merge or new Brokkr run was started.

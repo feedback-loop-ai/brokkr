@@ -1,8 +1,11 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
 Current commission: the 2026-09-12 operator ruling adopts all work at
-`cf06034` for `current-successor-operator-rulin-eef1e666`. The change stays
-whole and the ledger remains 78 complete / 23 pending across 101 identifiers.
+`cf06034`, inherited through `b049224`, for
+`current-successor-operator-rulin-eef1e666`. The change stays whole. This visit
+adopts the inherited 82-complete/19-pending ledger and reopens only 13.1 on
+D10's concrete guide evidence: the current ledger is **81 complete / 20 pending**
+across the same 101 identifiers. No implementation/proof task is ticked here.
 Proposal P governs provider assignments: Astra (`gpt-6-astra`, `xhigh`) holds
 the specified gates, chiefs and judges; DeepSeek Flash implements; Sonnet
 retains the task planner and specified design/review positions. The historical
@@ -48,8 +51,12 @@ depends on one of the eight names it, and the `## Progress` foot of this
 file records the dependency as it actually binds rather than by group
 number.
 
-The operator's 2026-09-10 ruling reverses `a86eca1`'s re-pin to core
-0.1.0-rc.6 and reopens the four truth-repair tasks it had completed. The
+The operator's 2026-09-10 ruling reversed `a86eca1`'s re-pin to core
+0.1.0-rc.6 and reopened its four truth-repair tasks. The inherited work repairs
+that pin: 1.1, 6.4 and 11.5 stay checked; 13.1's DSH correction is preserved,
+but its Codex/Claude evidence correction is pending before remaining 8.8 work.
+The following order describes the original repair dependency, not a request to
+repeat the completed pair qualification, loader, locator or doctor work. The
 correction adds one earlier evidence seam without renumbering settled task
 identities: **10.7's live half runs first, then 1.1 -> 6.4 -> 11.5 -> 13.1,
 then 8.8, then 10.7's recording step**. 10.7 first commits the repository-owned six-file adaptation of
@@ -743,9 +750,9 @@ saved for the phase commit.
       creating a substitute root. Land the digest work first, in design
       D10's order. (a) Amend the loader in
       `crates/brokkr-runtime/src/agents/load.rs`, whose measured branch
-      admits only `version` and `applies_to` today: `ResumeIdentity::Measured`
-      gains an optional `wrapper_digest`, the measured branch's closed key
-      list admits it with seat record v5's 64-lowercase-hex grammar checked
+      originally admitted only `version` and `applies_to`: preserve the inherited
+      implementation in which `ResumeIdentity::Measured` gains an optional
+      `wrapper_digest`, the measured branch's closed key list admits it with seat record v5's 64-lowercase-hex grammar checked
       at load, the unknown branch still admits `unknown` alone, and the
       member travels with the selected assessment into the private start
       context. (b) Implement one Rust function in `brokkr-protocol`, beside
@@ -764,8 +771,10 @@ saved for the phase commit.
       package, then take only the final complete package spelling, and
       take version and integrity verbatim from that same entry. Ignore an
       optional `name` field; reject malformed paths and missing, mistyped or
-      invalid version fields. Deduplicate only equal complete triples, retain
-      different versions/integrities, then sort their value bytes. Exclude the
+      invalid version fields. The inherited reader checks empty/NUL/LF but
+      still needs D6's complete whitespace rejection, including space, tab and
+      CR; keep that correction and its 8.10 rejection vectors pending.
+      Deduplicate only equal complete triples, retain different versions/integrities, then sort their value bytes. Exclude the
       core's own entry and the plugin's local-tarball entry (also the local
       `brokkr-dsh-resume-policy` entry only when its composed bytes enter the
       conditional extension component). Follow those lines with `plugin`,
@@ -1349,7 +1358,7 @@ itself (`safety / AS1`).
 
 ## 13. Prose
 
-- [x] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
+- [ ] 13.1 Before continuing 8.8, correct `docs/guides/provider-adapters.md` while
       preserving its offer, assessment and held-window guidance. The current
       adapter table must call the forward-pinned latest DSH core
       (`@deepseek-ai/dsh` 0.1.5-rc.1 at
@@ -1364,6 +1373,14 @@ itself (`safety / AS1`).
       `dsh-pair-qualification-010rc6.json` record as dated history, and keep
       the hands plugin deferral independent. Also retain the supplied Claude
       observations as partial and the other declarations' current truth.
+      Reopened on 2026-09-13 at `b049224`: preserve the completed DSH row,
+      but replace the false claims that Codex has no accounting evidence on
+      any version and that no resumed Claude behavior has been measured.
+      Cite the September 10 Codex current-only accounting/root sample and the
+      controller's partial Claude root/Read observations, with their version
+      and enforcement/accounting limits; retain September 12 Codex startup
+      enforcement as startup evidence only. Neither partial capture enables
+      a shape or completes 10.5/10.6. This is the sole tick reversal on this visit.
       Verify the guide and declarations agree line by line on status,
       identities, evidence class and limitations, and that no current prose
       repeats the disproven global DSH limitation or the superseded
@@ -2833,3 +2850,50 @@ commissioned full gates, provider proofs 10.5/10.6/10.8, the DSH recording
 step, enablement 11.1–11.4, re-pins and readiness remain pending. The next
 visit should implement 8.8(b)'s seam/locator layer, then 8.8(c)–(d), 8.10 and
 9.6.
+
+
+## Specify re-entry progress reconciliation — 2026-09-13, inherited head `b049224`
+
+Adopt all committed work through `b049224`, including `cf06034`, without a
+split or re-authoring. D10 first revalidates both commissioned D6 answers and
+the retained council's F1 reconciliation; the AS1 and PM4 scenarios stay
+unchanged. A1–A5/B1–B5 remain settled. Returned triage's engine classification
+is correct. This entry supersedes only the earlier progress claims about the
+current implementation and count, preserving those dated records as history.
+
+The inherited loader in 8.8(a), Rust composite/locator implementation in
+8.8(b), and doctor report in 8.8(c) exist and are retained. The 015rc1 evidence
+record now includes the recording step produced by that Rust doctor entry.
+Those facts do not finish their enclosing tasks: `eligible_offer` still
+returns a string, the private DSH provider-ID/persistence-locator target and
+planner route remain to be implemented, and 8.10/9.6 acceptance plus the live
+built-driver exchange and full 10.7 proof are pending. D6's existing npm
+version rule also still needs complete whitespace rejection in 8.8(b) and
+space/tab/CR rejection coverage in 8.10; the inherited empty/NUL/LF checks are
+insufficient. No separate canonicalization or digest is introduced.
+
+Tasks 1.1, 6.4 and 11.5 remain checked after their valid forward-pin repairs.
+Only 13.1 is reopened: its DSH row is repaired but its Codex/Claude rows deny
+supplied partial observations. Correct that bounded evidence account before
+continuing the remaining 8.8 work; do not rerun or undo completed preparatory
+steps merely to recreate the earlier landing order. All four declarations
+remain disabled and no provider proof or enablement is completed by this
+visit. Codex's September 12 startup precondition remains true, while 10.5
+still owes an exercised-binary version read and full resume proof. This seat's
+own boxed `codex --version` returned 127, not a controller version observation
+or a renewed host sandbox blocker.
+
+Current recount: **81 complete / 20 pending** across 101 unchanged IDs. Pending:
+8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.4, 13.1, 14.1–14.2, 15.1–15.4 and
+15.6–15.7. Preserve Astra xhigh at the commissioned gates/chiefs/judges, Flash
+implementation and the specified Sonnet positions. Re-pins, local gates,
+archive readiness, full post-archive tests and activation remain pending;
+exact-head host coverage and remote delivery remain controller handoff work.
+
+
+This visit's strict OpenSpec and structural checks pass; the command records
+are under `.forge/specify-cff27e9f/` and the consolidated validation account is
+in [proposal.md](proposal.md#specify-re-entry-validation--2026-09-13-inherited-head-b049224).
+Cargo is absent, so none of the six commissioned Cargo gates could launch.
+No delivery checkbox is ticked on these specification checks, and exact
+coverage plus remote final-head evidence remain pending with the controller.
