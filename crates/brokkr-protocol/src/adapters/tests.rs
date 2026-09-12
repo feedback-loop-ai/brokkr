@@ -868,6 +868,7 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     assert_eq!(started[0]["step"], "transcript");
     assert_eq!(started[0]["transcript"]["kind"], "dsh-session");
     assert_eq!(started[1]["step"], "harness-started");
+    assert_eq!(started[1]["effort"], "not applicable");
     assert!(started[1].get("model").is_none(), "{:?}", started[1]);
     let turn = started
         .iter()
@@ -876,12 +877,15 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     assert_eq!(turn["model"], "served-by-dsh");
     assert_eq!(invocation.session_meta["model"], "served-by-dsh");
     assert_eq!(invocation.session_meta["harness"], "deepseek");
-    // No effort pinned: no settings row, no settings document, and the
-    // header echoed no level, so the row says so (decision 0035).
+    // No effort pinned: no settings row, no settings document — and the
+    // seat says `not applicable` from the first row, because a dsh seat
+    // with no pin compiles only on an effortless route (decision 0035
+    // addendum 2026-09-11). A header that echoed a real level would
+    // overwrite the seed; here none does.
     assert!(!written.contains("- id: settings\n"), "{written}");
     assert!(!settings.exists());
-    assert_eq!(turn["effort"], "not reported");
-    assert!(invocation.session_meta.get("effort").is_none());
+    assert_eq!(turn["effort"], "not applicable");
+    assert_eq!(invocation.session_meta["effort"], "not applicable");
 
     // A model AND an effort: the effort leaves the argv, the overlay
     // gains the settings row, the document behind it restates the
@@ -941,6 +945,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
         .expect("the transcript's assistant message became a checkpoint");
     assert_eq!(turn["effort"], "high");
     assert_eq!(invocation.session_meta["effort"], "high");
+    // The harness-started row predates the header echo, so even a
+    // pinned seat reads `not reported` there — the echo lands on the
+    // rows that follow it.
+    assert_eq!(started[1]["effort"], "not reported");
 
     // No pair, no model row: the profile's own default model boots, and
     // the journal says so by naming none. The overlay itself is still
@@ -971,6 +979,11 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
     );
     assert!(!written.contains("agent-default-model"), "{written}");
     assert!(started[1].get("model").is_none());
+    // No pin at all: the seed still applies — a pin-less dsh seat only
+    // compiles on an effortless route — while the served model comes
+    // from the transcript alone.
+    assert_eq!(started[1]["effort"], "not applicable");
+    assert_eq!(invocation.session_meta["effort"], "not applicable");
     // No pin, still a served model: the record carries what the harness
     // reported, never a default (decision 0031).
     assert_eq!(invocation.session_meta["model"], "served-by-dsh");
@@ -1185,6 +1198,29 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
         meta["effort"], "xhigh",
         "a header naming no level keeps the last one seen"
     );
+}
+
+/// The finishing record's effort (decision 0035 addendum 2026-09-11):
+/// the driver's own seed is matched literally — the clamp's alphabet
+/// has no space and the sentinel does — while harness strings cross
+/// the clamp exactly as before, so a hostile echo still cannot smuggle
+/// a level into the record.
+#[test]
+fn the_finishing_record_keeps_the_seed_and_clamps_everything_else() {
+    let mut meta = serde_json::Map::new();
+    assert_eq!(applied_harness_effort(&meta), "not reported");
+    meta.insert(
+        "effort".into(),
+        serde_json::Value::String("not applicable".into()),
+    );
+    assert_eq!(applied_harness_effort(&meta), "not applicable");
+    meta.insert("effort".into(), serde_json::Value::String("high".into()));
+    assert_eq!(applied_harness_effort(&meta), "high");
+    meta.insert(
+        "effort".into(),
+        serde_json::Value::String("think hard".into()),
+    );
+    assert_eq!(applied_harness_effort(&meta), "not reported");
 }
 
 /// One line of a codex rollout in the envelope codex actually writes:

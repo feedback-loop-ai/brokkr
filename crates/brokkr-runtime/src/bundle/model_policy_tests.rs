@@ -338,7 +338,7 @@ fn the_model_pin_refusal_names_every_inline_invocation_site_and_the_fix() {
             ]
         }
     });
-    let refusal = enforce_model_pins(seats.as_object().unwrap())
+    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
         .unwrap_err()
         .to_string();
     for site in [
@@ -386,7 +386,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
                 ["{brokkr}", "driver", "claude", "--", "--model", "claude-opus-5"]},
         },
     });
-    let refusal = enforce_model_pins(seats.as_object().unwrap())
+    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
         .unwrap_err()
         .to_string();
     assert!(!refusal.contains("do not pin a model"), "{refusal}");
@@ -436,7 +436,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
     ] {
         let seats = json!({"work": {"driver": {"command": command}}});
         assert!(
-            enforce_model_pins(seats.as_object().unwrap())
+            enforce_model_pins(seats.as_object().unwrap(), None)
                 .unwrap_err()
                 .to_string()
                 .contains("do not pin an effort"),
@@ -447,7 +447,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
     // And an exec seat needs neither pin: ruling 5's own exemption.
     let exec = json!({"work": {"driver": {"command":
         ["{brokkr}", "driver", "exec", "--", "true"]}}});
-    enforce_model_pins(exec.as_object().unwrap()).expect("exec needs no effort");
+    enforce_model_pins(exec.as_object().unwrap(), None).expect("exec needs no effort");
 }
 
 #[test]
@@ -464,7 +464,7 @@ fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() 
         "agent": {"agent": "implementer"},
         "custom": {"driver": {"command": ["custom-driver"]}}
     });
-    enforce_model_pins(seats.as_object().unwrap()).expect("every model invocation is pinned");
+    enforce_model_pins(seats.as_object().unwrap(), None).expect("every model invocation is pinned");
 
     for command in [
         json!(null),
@@ -529,7 +529,7 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
             "--effort=medium", "--effort-cap=medium"
         ]}},
     });
-    enforce_model_pins(seats.as_object().unwrap())
+    enforce_model_pins(seats.as_object().unwrap(), None)
         .expect("a seat that states both pins has stated them, whatever stands beside them");
     for site in seats.as_object().unwrap().values() {
         assert!(command_pins_model(site));
@@ -543,7 +543,7 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
         "--effort", "high"
     ]}}});
     assert!(
-        enforce_model_pins(twice.as_object().unwrap())
+        enforce_model_pins(twice.as_object().unwrap(), None)
             .unwrap_err()
             .to_string()
             .contains("do not pin a model"),
@@ -3988,4 +3988,95 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
             "recipes/triage"
         ]
     );
+/// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
+/// resolves to an effortless route needs no effort pin — and the
+/// answering digest is witnessed. A bare id keeps the adapter
+/// default's standing, an unlisted route keeps the refusal, and no
+/// adapters at all keeps the strict rule, exactly as a bundle with no
+/// adapters/ directory in sight compiles today.
+#[test]
+fn effortless_routes_excuse_only_their_own_lanes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("adapters")).unwrap();
+    std::fs::write(
+        dir.path().join("adapters/dsh.json"),
+        serde_json::to_string_pretty(&json!({
+            "provider": "dsh",
+            "binary": "dsh",
+            "driver": ["{brokkr}", "driver", "dsh", "--"],
+            "models": {
+                "spark-flash": "spark/qwen3.8-flash",
+                "flash": "deepseek-v4-flash",
+                "qwen-flash": "dashscope/qwen3.8-flash",
+            },
+            "model_flag": "--model",
+            "efforts": ["low", "medium", "high", "xhigh"],
+            "effort_flag": "--effort",
+            "effortless_routes": {
+                "spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level",
+            },
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let adapters = Adapters::load(&dir.path().join("adapters")).unwrap();
+
+    let seat = |command: Value| json!({"results": ["pass"], "driver": {"command": command}});
+    let spark = || {
+        seat(json!([
+            "{brokkr}",
+            "driver",
+            "dsh",
+            "--",
+            "--model",
+            "spark/qwen3.8-flash",
+        ]))
+    };
+    let seats = json!({"implement": spark()});
+
+    // Exempt, with the answering digest witnessed beside the exemption.
+    let witnessed = enforce_model_pins(seats.as_object().unwrap(), Some(&adapters)).unwrap();
+    assert_eq!(
+        witnessed["implement"]["dsh"],
+        Value::String(adapters.adapter("dsh").unwrap().digest.clone()),
+    );
+
+    // No adapters: the strict rule stands.
+    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+
+    // A bare id keeps the adapter default's standing: it takes effort.
+    let bare = json!({"implement": seat(json!([
+        "{brokkr}", "driver", "dsh", "--",
+        "--model", "deepseek-v4-flash",
+    ]))});
+    let refusal = enforce_model_pins(bare.as_object().unwrap(), Some(&adapters))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+
+    // An unlisted route keeps the refusal.
+    let studio = json!({"implement": seat(json!([
+        "{brokkr}", "driver", "dsh", "--",
+        "--model", "dashscope/qwen3.8-flash",
+    ]))});
+    let refusal = enforce_model_pins(studio.as_object().unwrap(), Some(&adapters))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+
+    // An effort pinned on an effortless route still compiles — the
+    // provider refuses it at spawn, fail-closed, never silently — and
+    // witnesses nothing, because no exemption was claimed.
+    let pinned = json!({"implement": seat(json!([
+        "{brokkr}", "driver", "dsh", "--",
+        "--model", "spark/qwen3.8-flash",
+        "--effort", "low",
+    ]))});
+    let witnessed = enforce_model_pins(pinned.as_object().unwrap(), Some(&adapters)).unwrap();
+    assert!(witnessed.is_empty());
 }

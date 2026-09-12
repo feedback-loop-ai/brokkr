@@ -20,7 +20,8 @@ pub mod compose;
 use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
-    resolve_route, Adapter, Adapters, Availability, Candidate, EgressClass, Library, TrustTier,
+    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
+    Library, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
 
@@ -683,6 +684,68 @@ fn command_pins_effort(raw: &Value) -> bool {
 struct Unpinned {
     model: Vec<String>,
     effort: Vec<String>,
+    /// Decision 0035 addendum 2026-09-11: per site, the adapter digest
+    /// whose effortless listing exempted it from the effort pin. The
+    /// declaration that authorised the exemption rides the bundle's
+    /// identity beside decision 0021's — un-listing a route moves the
+    /// digest of every bundle it excused.
+    witnessed: Map<String, Value>,
+}
+
+/// Adapter data for the effortless-route exemption (decision 0035
+/// addendum 2026-09-11). Loaded only where an inline model seat could
+/// claim it; a missing or malformed adapters root reads as no
+/// exemptions rather than an error — the strict rule stands, exactly
+/// as a bundle with no adapters/ directory in sight compiles today.
+fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Adapters> {
+    fn has_inline_model_driver(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                built_in_model_driver(value).is_some() || map.values().any(has_inline_model_driver)
+            }
+            Value::Array(items) => items.iter().any(has_inline_model_driver),
+            _ => false,
+        }
+    }
+    if !seats.values().any(has_inline_model_driver) {
+        return None;
+    }
+    Adapters::load(root).ok()
+}
+
+/// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
+/// resolves through its adapter to an effortless route needs no effort
+/// pin — and the adapter digest that says so is witnessed beside the
+/// exemption. Only a readable concrete id with a route prefix can
+/// claim it: a bare id keeps the adapter default's standing, and an
+/// unreadable pin is refused on the model axis first.
+fn effort_exempt(
+    what: &str,
+    raw: &Value,
+    adapters: Option<&Adapters>,
+    witnessed: &mut Map<String, Value>,
+) -> bool {
+    let adapters = match adapters {
+        Some(adapters) => adapters,
+        None => return false,
+    };
+    let kind = match built_in_model_driver(raw) {
+        Some(kind) => kind,
+        None => return false,
+    };
+    let adapter = match adapters.adapter(kind) {
+        Some(adapter) => adapter,
+        None => return false,
+    };
+    match inline_route_pin(raw, Some(adapter)) {
+        ModelPin::Concrete(id) if route_is_effortless(adapter, &id) => {
+            let mut authorised = Map::new();
+            authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
+            witnessed.insert(what.to_string(), Value::Object(authorised));
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Inspect every driver-bearing invocation site in the already composed
@@ -690,7 +753,7 @@ struct Unpinned {
 /// chains — a chain that names no effort for an effort-bearing provider
 /// is refused where the vocabulary is known, in the resolver — while
 /// inline built-ins must state both concrete pins in their argv.
-fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
+fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &mut Unpinned) {
     if raw.get("agent").is_some() {
         return;
     }
@@ -702,14 +765,14 @@ fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
         if !command_pins_model(raw) {
             out.model.push(what.to_string());
         }
-        if !command_pins_effort(raw) {
+        if !command_pins_effort(raw) && !effort_exempt(what, raw, adapters, &mut out.witnessed) {
             out.effort.push(what.to_string());
         }
         return;
     }
     if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
         for (member, member_raw) in panel {
-            collect_unpinned(&format!("{what}:{member}"), member_raw, out);
+            collect_unpinned(&format!("{what}:{member}"), member_raw, adapters, out);
         }
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
@@ -719,17 +782,17 @@ fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("step-{}", index + 1));
-            collect_unpinned(&format!("{what}:{name}"), step, out);
+            collect_unpinned(&format!("{what}:{name}"), step, adapters, out);
         }
     }
     if let Some(select) = raw.get("select").and_then(Value::as_object) {
         if let Some(cases) = select.get("cases").and_then(Value::as_object) {
             for (case, body) in cases {
-                collect_unpinned(&format!("{what}:{case}"), body, out);
+                collect_unpinned(&format!("{what}:{case}"), body, adapters, out);
             }
         }
         if let Some(body) = select.get("default") {
-            collect_unpinned(&format!("{what}:default"), body, out);
+            collect_unpinned(&format!("{what}:default"), body, adapters, out);
         }
     }
 }
@@ -745,11 +808,15 @@ fn labels(sites: &[String]) -> String {
 /// One refusal names the complete repair set, on BOTH axes. A model pin
 /// without an effort pin is half a hire (decision 0035 ruling 5), so the
 /// two clauses stand beside each other rather than the first hiding the
-/// second behind a second compile.
-fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
+/// second behind a second compile. Returns the adapter digests whose
+/// effortless listings exempted inline seats, for the manifest.
+fn enforce_model_pins(
+    seats: &Map<String, Value>,
+    adapters: Option<&Adapters>,
+) -> Result<Map<String, Value>, CompileError> {
     let mut unpinned = Unpinned::default();
     for (phase, raw) in seats {
-        collect_unpinned(phase, raw, &mut unpinned);
+        collect_unpinned(phase, raw, adapters, &mut unpinned);
     }
     let mut refusals = Vec::new();
     if !unpinned.model.is_empty() {
@@ -768,7 +835,7 @@ fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
         ));
     }
     if refusals.is_empty() {
-        return Ok(());
+        return Ok(unpinned.witnessed);
     }
     Err(CompileError::Invalid(refusals.join("; ")))
 }
@@ -895,8 +962,13 @@ impl Bundle {
         let table = resolved.table.clone();
         // One refusal names the complete repair set. Running this on the
         // flattened seats also means inherited omissions cannot hide in
-        // a composition layer.
-        enforce_model_pins(&resolved.seats)?;
+        // a composition layer. The returned map witnesses the adapter
+        // digests whose effortless listings exempted inline seats, for
+        // the manifest below.
+        let pin_drivers = enforce_model_pins(
+            &resolved.seats,
+            load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
+        )?;
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases
@@ -1328,12 +1400,32 @@ impl Bundle {
                 _ => None,
             })
             .collect();
+        // Decision 0035 addendum 2026-09-11: the adapter digests whose
+        // effortless listings exempted inline seats ride beside decision
+        // 0021's — un-listing a route moves the digest of every bundle
+        // it excused, and a bundle no listing excused keeps its shape.
+        let mut drivers = pin_drivers;
+        if let Some(context) = agents.as_ref() {
+            for (site, record) in &context.drivers {
+                match (drivers.get_mut(site), record) {
+                    (Some(Value::Object(into)), Value::Object(extra)) => {
+                        for (provider, digest) in extra {
+                            into.insert(provider.clone(), digest.clone());
+                        }
+                    }
+                    _ => {
+                        drivers.insert(site.clone(), record.clone());
+                    }
+                }
+            }
+        }
+        let drivers = (!drivers.is_empty()).then_some(&drivers);
         let manifest = manifest_for(
             dir,
             &name,
             &resolved.chain,
             agents.as_ref().map(|a| &a.records),
-            agents.as_ref().map(|a| &a.drivers),
+            drivers,
             &hands,
             &select_records,
             boundary,

@@ -756,6 +756,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             "model_flag",
             "efforts",
             "effort_flag",
+            "effortless_routes",
             "tool_permissions",
             "mcp",
             "hands",
@@ -848,6 +849,41 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     // implicit default ruling 1 exists to refuse.
     let efforts = string_array(map, "efforts", &what)?;
     named(&efforts, "efforts", &what)?;
+    // Decision 0035 addendum 2026-09-11: routes measured as refusing
+    // every reasoning level, mapped to the measurement that listed
+    // them. Absent is no such route — an absent declaration excuses
+    // nothing, which is the implicit-default refusal ruling 1 exists
+    // for. Keys obey the route grammar, like `routes` and
+    // `credentials`; values are non-empty evidence strings.
+    let effortless_routes = match map.get("effortless_routes") {
+        None => BTreeMap::new(),
+        Some(declared) => {
+            let Some(entries) = declared.as_object() else {
+                return invalid(format!(
+                    "{what} 'effortless_routes' must be an object of route name → measurement"
+                ));
+            };
+            let mut out = BTreeMap::new();
+            for (route, value) in entries {
+                if !route_name(route) {
+                    return invalid(format!(
+                        "{what} 'effortless_routes' names '{route}', which does not match {ROUTE_GRAMMAR}"
+                    ));
+                }
+                match value.as_str() {
+                    Some(text) if !text.is_empty() => {
+                        out.insert(route.clone(), text.to_string());
+                    }
+                    _ => {
+                        return invalid(format!(
+                            "{what} 'effortless_routes.{route}' must be a non-empty string naming the measurement"
+                        ))
+                    }
+                }
+            }
+            out
+        }
+    };
     // Decision 0043: how the provider puts its hands in the box, or the
     // measured reason it cannot. The same three legal shapes as
     // `tool_permissions`, for the same reason.
@@ -892,6 +928,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         model_flag,
         efforts,
         effort_flag: pin_flag(map, "effort_flag", &what)?,
+        effortless_routes,
         tool_permissions,
         tool_permissions_gap,
         hands,
