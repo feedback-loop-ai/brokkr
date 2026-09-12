@@ -279,6 +279,7 @@ read as history, not as a current claim.
 - **AND** Brokkr installs, composes, updates and removes no DSH package, plugin or profile, and stages only its per-seat overlay
 - **AND** the qualification and the end-to-end proof reach the task-owned installation through these same seams, while snapshots show the global DSH installation, profiles and credentials byte-unchanged
 - **AND** the end-to-end proof is a recorded exchange with the built DSH driver over that installation, while the committed test suite proves the same decisions over synthetic homes and reads no provider installation
+- **AND** the composite match concerns the inputs read for launch and only the qualified patch-reload mode can match; it does not attest to later mid-invocation patch changes or replace AS2's current-restriction proof
 
 #### Scenario: The resolved DSH home lacks the qualified composite
 - **GIVEN** the resolved executable and home are the global 0.1.2-rc.1 installation with its plugin-free `headless` profile, or any composite whose core, Node, dependency, plugin, patch or profile identity differs from the qualified one, including a profile bundle added, dropped or reordered, a different patch-reload mode, a home-level patch layer the qualified composite lacked, or a listed bundle that resolves outside the core installation and the profile
@@ -294,11 +295,12 @@ read as history, not as a current claim.
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
 
 #### Scenario: npm nested and scoped keys produce reproducible dependency values
-- **GIVEN** a hidden npm lock with no `name` fields, including `node_modules/debug`, nested `node_modules/parent/node_modules/debug` and `node_modules/@parent/pkg/node_modules/@scope/child` entries
+- **GIVEN** a hidden npm lock with no `name` fields, including `node_modules/debug`, nested `node_modules/parent/node_modules/debug`, scoped-parent/unscoped-child entries and `node_modules/a/node_modules/@parent/b/node_modules/@scope/child` with version and integrity distinct from shallower `@scope/child` entries
 - **WHEN** qualification and runtime compute the same composite through the delivered Rust canonicalization
-- **THEN** each dependency value uses the terminal package name (`debug` or `@scope/child`) and that entry's exact `version` and `integrity`, joined by single ASCII spaces; parent paths and optional `name` fields never supply these values
+- **THEN** the key is parsed left to right through every package group, preserving the slash inside each scoped package; each dependency value uses only the terminal package name and that entry's exact `version` and `integrity`, joined by single ASCII spaces, with no parent path or optional `name` field supplying a value
+- **AND** the hidden lock is the only npm source, without a root-lock fallback, and three or more package groups obey the same rule as shallow entries
 - **AND** identical complete triples produce one dependency line, different versions or integrities remain distinct, and equivalent npm and pnpm entries yield identical value bytes before bytewise sorting
-- **AND** malformed paths or missing, mistyped or invalid version fields make the identity unreadable and an offer declines as `unverified-harness`; the name is never guessed from a URL or another entry
+- **AND** malformed paths, including a malformed intermediate group before a valid terminal package, or missing, mistyped or invalid version fields make the identity unreadable and an offer declines as `unverified-harness`; the name is never guessed from a URL or another entry
 
 #### Scenario: A measured missing hook requires the conditional Cordis extension
 - **GIVEN** a dated probe demonstrates a missing policy or pre-work fact on the adapted DSH route and a documented Cordis hook can supply that fact

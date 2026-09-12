@@ -1,10 +1,15 @@
 ## Context
 
-The 2026-09-12 specify seat adopts `cf06034` for
-`current-successor-operator-rulin-eef1e666`, including this entire design.
-Proposal P records the current whole-change and provider ruling. This visit
-repairs only the two new D6 findings and carries the superseding Codex host
-evidence into the proof plan; the earlier council dispositions remain settled.
+This council visit adopts `05fd566`, including all work at `cf06034`, for
+`current-successor-operator-rulin-eef1e666` under the same change identifier.
+Proposal P governs the whole-change and provider ruling. The two commissioned
+D6 findings are already answered at `05fd566`; this visit verifies those
+answers and reconciles the fresh robustness and simplicity positions in D10's
+2026-09-13 sitting. It clarifies the npm evidence and group parsing, requires
+a deeper synthetic vector, and names the composite's launch-time limit.
+The September 12 Codex host precondition remains measured true and task 10.5
+remains pending. The earlier design history and council dispositions below
+remain adopted, including A1–A5 and B1–B5.
 
 This design adopts the existing
 **2026-09-09-226-session-resumption** change at `7178895`, over its
@@ -704,12 +709,14 @@ package portion of npm's path keys and from pnpm's package keys by the rules
 below, never from a resolved URL or importer specifier: the pnpm importer's
 `specifier` records the plugin tarball's absolute path and is not read.
 
-**npm key-to-triple rule (2026-09-12 finding 1).** Read the hidden lock's
-`packages` object, with JSON decoding but no filesystem, URL or case
-normalization of its keys. A key consists of one or more
-`node_modules/<package>` groups separated by `/`. Each `<package>` is either
-one unscoped component or exactly `@<scope>/<name>`. Scope and name components
-are non-empty, are neither `.` nor `..`, and contain no `/`, `@`, backslash,
+**npm key-to-triple rule (2026-09-12 finding 1).** Read only the hidden
+`node_modules/.package-lock.json` lock's `packages` object; there is no root
+`package-lock.json` fallback. Decode JSON without filesystem, URL or case
+normalization of keys. Read a key left to right as one or more
+`node_modules/<package>` groups separated by `/`: each `node_modules/`
+consumes either one unscoped component or exactly `@<scope>/<name>`, whose
+embedded `/` belongs to that scoped package, not to the group separator. Scope
+and name components are non-empty, are neither `.` nor `..`, and contain no `/`, `@`, backslash,
 NUL or whitespace. An unscoped component obeys the same rule. Reject an empty
 key, absolute path, incomplete group, trailing separator or any other shape
 as unreadable; do not skip it or guess a name. Parse every group, then take
@@ -732,6 +739,8 @@ Examples below are normalization vectors, not provider qualification:
 | `node_modules/express/node_modules/debug` | `4.4.3` | `debug` / `4.4.3` |
 | `node_modules/@smithy/node-http-handler` | `4.12.1` | `@smithy/node-http-handler` / `4.12.1` |
 | `node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler` | `4.12.1` | `@smithy/node-http-handler` / `4.12.1` |
+| `node_modules/@parent/pkg/node_modules/child` | `1.0.0` | `child` / `1.0.0` |
+| `node_modules/a/node_modules/@parent/b/node_modules/@scope/child` | `2.0.0` | `@scope/child` / `2.0.0` |
 
 Each resulting dependency value is exactly `name`, one ASCII space,
 `version`, one ASCII space, then that entry's `integrity`. Deduplicate only
@@ -741,10 +750,21 @@ same-name entries with different versions or integrities remain separate.
 No installation path enters the triple. 8.10 uses synthetic excerpts to pin
 these outcomes alongside the existing pnpm vector and malformed-key/version
 refusals; its npm/pnpm equivalent entries must yield identical value bytes.
+Include the three-group vector above with version and integrity distinct from
+shallower `@scope/child` entries, plus a malformed intermediate group before a
+valid terminal package. These exercise repeated group consumption and full
+path validation; extracting only the last segment must not admit a malformed
+ancestor. They are synthetic cases, not additional measured provider shapes.
 
 This visit re-read the hidden lock (SHA-256
 `581a4c461f72e968a190bbfb50d991aa89a39e62ec32ef9f224cc4773c8a02bb`):
-521 entries, 335 scoped keys, 32 nested keys and zero `name` fields. Its nine
+521 entries, 335 keys containing a scope component, 333 with a scoped terminal
+package, 32 nested keys and zero `name` fields. The two remaining scoped paths
+end in unscoped `chokidar` and `readdirp` below `@deepseek-ai/dsh-skill-filesystem`.
+Every measured key has at most two package groups; 8.10's three-group case
+therefore extends the observed examples without narrowing the stated grammar.
+The hidden lock has no root `""` key; the plain root lock does, so switching
+sources would make this grammar refuse that install. Its nine
 `debug` keys represent two distinct version/integrity triples (2.6.9 and
 4.4.3). The path-literal alternative would produce nine lines. Reject that
 reading because the declared value is a package name/version/integrity triple
@@ -917,9 +937,16 @@ credential or settings file, and opens no seat's gate. The detail stays informat
 shape's composite differs or is unreadable, because every offer on that home
 would then decline. This also meets answer O's guide obligation. An operator who
 deploys the pair can check which digest the home must reproduce instead of
-reading unexplained `unverified-harness` declines. After 8.8's function and
-the doctor line land, 10.7's recording step re-measures the raw inputs the
-live half recorded and requires them unchanged. It then runs `brokkr doctor`
+reading unexplained `unverified-harness` declines. This verification is a
+launch-time check of the composite as read, not a lifetime integrity claim:
+`patchReload: live` can reapply profile/home patches mid-invocation, and such
+later same-host mutation is an accepted residual outside this gate's reach.
+It grants no exemption from AS1/AS2: only the actually qualified reload mode
+can match the declaration (`startup` in the supplied profile), and restored
+state must still pass current-restriction proof. No continuous verifier is
+added; accounting and the deadline neither prevent nor undo a policy change.
+After 8.8's function and the doctor line land, 10.7's recording step re-measures
+the raw inputs the live half recorded and requires them unchanged. It then runs `brokkr doctor`
 with the seams pointed at the retained task-owned home, and appends the
 reported plugin component and canonical composite to
 `.forge/tasks/dsh-pair-qualification-015rc1.json` as a dated entry beside the
@@ -1299,19 +1326,19 @@ rulings and enforcement bindings are:
 | 9 | Current-only accounting, unchanged transcript/privacy limits, narrow legacy compatibility. | D8 accounting/export/verify/legacy tests. |
 | 10 | Persist truthful progress before the next group; finish and mark all tracked repository-local work while active; then run archive as the final non-checkbox artifact effect, verify the archived result read-only, commit, and keep exact-head controller evidence external to the task state. | D9 instruction/identity tests, readiness and archive recovery postconditions, and content-addressed handoff. Actual completion is judgment guidance, not an automatic guarantee. |
 
-The current sitting's sources are the two run-local positions named in Context,
-recorded here so the reasoning survives their replacement on a future visit:
+The B1–B5 sitting's source pins remain recorded here so its reasoning survives
+the run-local positions' replacement. The current sitting's pins and
+reconciliation follow under *Council sitting — 2026-09-13*:
 
 - Robustness SHA-256: `3747137128c7333d8d8dce72e161c2cc5079a2788129974b1e4ae401ee5e7b0d`.
 - Simplicity SHA-256: `b9f30ae7f5bab0be001afb7a998d6c4cc7e58360eae8ff3b657123066219eb02`.
 
 These replace the A1–A5 sitting's pins (`9a7f0e93…`, `21e74165…`), which had
 replaced the forward-pin sitting's (`0df9c79c…`, `9776a8e6…`), themselves
-replacing `78a39c1e…` and `0bb9b650…`. Both current positions answer the
-analyze return's findings B1–B5 and leave the earlier sittings' dispositions
+replacing `78a39c1e…` and `0bb9b650…`. Both positions at those pins answered the
+analyze return's findings B1–B5 and left the earlier sittings' dispositions
 standing. The rows that predate the DSH forward pin, and those under the
-*Forward-pin* and *A1–A5* sittings, keep their dispositions. The rows under
-*Current sitting* dispose of this sitting's claims.
+*Forward-pin*, *A1–A5* and *B1–B5* sittings, keep their dispositions.
 
 This table replaces the original council's Cut A–E/R1–R6 attribution. The
 rejected mechanisms retain their reasons in D1–D9; the current simplicity
@@ -1381,7 +1408,7 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 | Robustness §5 / simplicity A5: tasks.md's conventions line calls the 2026-09-10 controller evidence core 0.1.0-rc.6. Sweep every occurrence. | Adopt. `controller-dsh-upstream-discovery.json` records official 0.1.5-rc.1 at `183f08e9`. This visit repeated the sweep over proposal, design and tasks at `095dd21`: 46 matching lines. The conventions line is the only present-tense claim that the reversed pin is current evidence. Every other hit is dated history, the superseded record's name, the reversal wording, or a rule that no current text may name that pin as the route. D6's lock-dialect aside cited the 0.1.0-rc.6 profile, and the measured 0.1.5-rc.1 lock facts replace it. |
 | Simplicity: refresh D10's simplicity pin; no second probe, typed history field, mapping table or doc-linting. | Adopt the refreshed pins above. The other cuts were settled last sitting and stand. |
 
-*Current sitting — analyze return B1–B5, 2026-09-11:*
+*B1–B5 sitting — analyze return, 2026-09-11:*
 
 | Current position / claim | Disposition and evidence |
 |---|---|
@@ -1398,8 +1425,9 @@ identity, harvest-only syntax or unqualified newer Codex enablement.
 
 *Successor adoption — two new D6 findings, 2026-09-12:*
 
-Both retained positions were read in full and their hashes above still match.
-They are the B1–B5 sitting, not new opinions about these two findings. Adopt
+At the specify adoption, both retained positions were read in full and their
+hashes matched the B1–B5 pins above. They were that sitting's positions, not
+new opinions about these two findings. Adopt
 their common single-producer, bounded-reader, synthetic-test and conditional
 extension constraints. Their earlier disagreements remain explicitly resolved
 in the existing rows; no A1–A5 or B1–B5 finding is reopened.
@@ -1414,6 +1442,32 @@ These are design repairs within the adopted specification. AS1 gains scenarios
 for the two answered ambiguities; tasks reconcile afterward without new IDs or
 ticks. Proposed 0056 and the declaration/guide truth repairs remain pending in
 1.1/6.4/11.5/13.1 before 8.8; this planning commit enables no provider.
+
+*Council sitting — 2026-09-13 (Europe/Sofia), run `current-successor-operator-rulin-eef1e666`:*
+
+Read both fresh position files in full. Their pins supersede the B1–B5 pins
+for this sitting only; prior dispositions remain evidence of their own visits:
+
+- `.forge/design/positions/robustness.md`: SHA-256
+  `f5b1b1f4dc3f428624aaa311e989efc3d79b9c15f4f255f4eea93d7a1fc98cdf`.
+- `.forge/design/positions/simplicity.md`: SHA-256
+  `8e523a53b473a283755a358a4fb2dbc4f104252abbe0f4149cb04e5deb982dbe`.
+
+| Position / claim | Disposition and evidence |
+|---|---|
+| Both: `05fd566` already answers the two commissioned findings; retain the full change and all earlier dispositions. | Adopt. D6, the two AS1 scenarios and 8.8/8.10 already agree on terminal names, same-entry version/integrity and conditional extension ownership. This visit re-read all 521 hidden-lock entries; no new counterexample reopens A1–A5 or B1–B5. Finding 1 remains reproducibility MEDIUM, and finding 2 ownership LOW. |
+| Simplicity corrections 1–3; robustness's root-key observation: distinguish scope counts, consume scoped groups left to right, and use only the hidden lock. | Adopt in D6 and 8.8/8.10. Direct measurement confirms 335 scope-containing paths but 333 scoped terminal packages, with unscoped `chokidar` and `readdirp` under a scoped parent. All 521 keys fit and none is empty. The plain lock's root entry would be refused, so no fallback or hoisting reconstruction is introduced. Keep `headless` as the single profile; discovery's `qualify` directory is not another locator. |
+| Robustness §1: a three-or-more-group synthetic key with distinct version/integrity. Simplicity: use synthetic excerpts in the measured grammar and add no test framework. | Combine. Add a three-group vector and a malformed-intermediate-group refusal to the existing 8.10 obligation, D11 and the existing AS1 npm scenario. The supplied tree reaches only two groups, so these distinguish a correct repeated parse from a one-nesting special case or terminal-only shortcut. No `.forge/` bytes, live test, frozen fixture or new scenario is needed. Ancestors are validated and then discarded; they supply neither identity nor sort order. |
+| Robustness §2: state live patch reapplication as a residual outside the launch gate. | Adopt with the AS1/AS2 limit stated in D6 and Risks. The re-hashed loader (`8b79b5c7…`, lines 321 onward) watches and reapplies both patches under `live`; the function reads once before launch. A matching doctor value proves those inputs at that read, not continued integrity. Reject any implication that accounting or a deadline enforces restrictions or undoes later changes. Only a qualified mode is enabled; `startup` evidence cannot admit `live`. No continuous verifier or new proof exemption follows. |
+| Both: fixed conditional extension ownership, one producer, no speculative extension. Simplicity: four executed files, no build/dependency/lockfile/README/CI/version script, no runtime provenance read. | Adopt unchanged. A measured missing hook alone activates `extensions/dsh/resume-policy/` and its separate provenance section; synthetic present-set tests create no real extension. Its installed bytes enter line 9 through 8.8's function. No additional extension surface is needed. |
+| Simplicity's mechanism cuts: no parser dependency or lock abstraction, generic grammar, new loader member beyond `wrapper_digest`, public start/wire field, capability, decision, contract, task ID, store or provider framework. | Adopt within the existing design. The already-required private DSH target and originating identity still travel in private `Start.input`; interpreting “no new start payload field” to erase those settled obligations is rejected by D6/AS1. Keep the existing doctor entry, file lookup and bounded readers, no resolver/dump-config subprocess, raw-manifest or whole-install hashing, URL/specifier/name-field reconciliation, second digest producer or committed live test. |
+| Simplicity's anticipated robustness requests: use measured lock bytes in CI, author an extension for tests, reject optional `name`, or add composite lines. | Reject those mechanisms as D6 already does, but do not attribute them to robustness: its actual position asks for synthetic depth coverage and one residual statement. Ignore optional `name` deliberately; no hard-error mode, new line or reopened `cordis.yml` decision follows. |
+| Both: provider instructions and evidence do not narrow the minimum; Codex startup is only a precondition and LaneTally is independently assessed. | Adopt proposal P and tasks 10.5/11.4 unchanged. This seat's own boxed `codex --version` returned 127 on this visit; it asserts no installed host version. Task 10.5 still re-reads its exercised binary and reconciles 0.148.0/0.153.4. No new harness or recipe pin is authored, no historical no-Codex instruction is revived, and no provider is enabled by this council. |
+
+No earlier artifact is newly at fault. These are bounded design/test-coverage
+clarifications of the adopted answers. Amend the existing npm scenario and
+tasks after D6, retain all 101 IDs and ticks (78 complete / 23 pending), and
+leave 1.1/6.4/11.5/13.1's truth repairs and every proof/enablement gate pending.
 
 **Forward-pin reconciliation.** The tasks return reconciles the artifacts
 `a86eca1` pointed at 0.1.0-rc.6, in this order, and adds no identifier:
@@ -1523,7 +1577,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -1668,6 +1722,12 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
   shadowing package] → The bundle list, `patchReload` and home patch are
   composite lines, and every listed bundle must resolve inside the core root
   or the profile by the loader's own lookup order (analyze B1).
+- [A live profile/home patch changes after the composite check] → Accepted
+  same-host mutation residual: the check and doctor's report concern launch-time
+  inputs, not lifetime integrity. Only the qualified reload mode can match;
+  `startup` evidence does not enable `live`. AS1/AS2's restored-state restriction
+  proof remains required. A later invocation detects a change that is still
+  present; no continuous verification or retroactive enforcement is claimed.
 - [The bounded pnpm reader meets a lock construct it does not know] → It
   declines as `unverified-harness`, so the failure is a false decline and
   never an admission. Synthetic vectors pin the recognized grammar, and a pnpm
@@ -2222,3 +2282,39 @@ declaration, decision, guide, frozen contract, fixture, policy, reference or
 provider setting changes, and the task-owned install was only read. No Rust
 gate or live provider observation is claimed; those belong to the tasks that
 own them.
+
+
+## Council design validation — 2026-09-13 (Europe/Sofia)
+
+Adopted `05fd566` and all committed work at `cf06034` under the unchanged
+`2026-09-09-226-session-resumption` identifier. Read the repository dialect
+instructions and `openspec instructions design --change
+2026-09-09-226-session-resumption --json` through the workspace tool, all
+commissioned evidence, the whole change and both fresh council positions.
+D10 records their dispositions and current hashes. D6 owns the clarifications;
+the two existing AS1 scenarios and tasks 8.8/8.10 follow them in dependency
+order. No earlier artifact fault or reduced provider minimum was found.
+
+Strict active validation, artifact status, delta parsing and `git diff --check`
+pass. Structural checks retain 20 requirements / 141 scenarios and all 101 task
+IDs and ticks at 78 complete / 23 pending. Only AS1's two existing scenario
+bodies change in the deltas; AS2–AS5 and the other four deltas are unchanged.
+A read-only prospective-fold comparison retains exactly AS1–AS3 and PM4 as
+semantic replacements, with all ADDED blocks identical to standing truth.
+The proposal, prior dated return sections, living specs and all non-artifact
+tracked paths are unchanged. No archive operation or workflow runner ran.
+
+The six commissioned Cargo commands were attempted with `CARGO_BUILD_JOBS=2`
+and `RUST_TEST_THREADS=2`; each failed to launch with `ENOENT` because Cargo
+is absent from this box. This visit's bare `codex --version` also returned
+command-not-found, not a host version measurement or a host sandbox blocker.
+No Rust, bundle, release-build or provider pass is claimed. Exact coverage
+remains the unchanged controller-owned host check against the final delivery
+head, outside this box; CI, release admission and coverage still consume
+`rust-nightly-version.txt`. Command and structural results are retained under
+`.forge/design-chief-eef1e666/`.
+
+This is a drafted design and dependent-artifact preparation commit only.
+Proposed 0056 remains proposed, all provider proofs and enablement remain
+pending, and no production, frozen, provider-setting or release artifact is
+changed. The controller retains integration, remote CI, publication and closure.

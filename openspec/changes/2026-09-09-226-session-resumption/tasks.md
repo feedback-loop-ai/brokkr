@@ -752,8 +752,9 @@ saved for the phase commit.
       bytewise-sorted `dependency` line per lock-metadata
       `name version integrity` triple normalized from npm's hidden
       `node_modules/.package-lock.json` and pnpm `pnpm-lock.yaml`. Apply D6's
-      complete npm path grammar: parse every `node_modules/<package>` group,
-      take the final unscoped or complete `@scope/name` package spelling, and
+      complete npm path grammar: consume every `node_modules/<package>` group
+      left to right, treating the slash within `@scope/name` as part of that
+      package, then take only the final complete package spelling, and
       take version and integrity verbatim from that same entry. Ignore an
       optional `name` field; reject malformed paths and missing, mistyped or
       invalid version fields. Deduplicate only equal complete triples, retain
@@ -777,11 +778,13 @@ saved for the phase commit.
       second digest producer is added. It reaches its inputs only
       through D6's locators: the canonical executable must be the core
       package's `bin.dsh` script with the `#!/usr/bin/env node` first line;
-      the core lock is `<core root>/node_modules/.package-lock.json`, whose
-      core entry carries the package's own version; `node` is the first on the
-      child environment's `PATH`, read by `node --version`; the profile
-      manifest yields only `bundles` (a non-empty string array) and
-      `patchReload` (`live` or `startup`); each listed bundle resolves by the
+      the core lock is only `<core root>/node_modules/.package-lock.json`, whose
+      core entry carries the package's own version, with no root-lock fallback;
+      `node` is the first on the child environment's `PATH`, read by
+      `node --version`; only
+      `<home>/profiles/headless/package.json` supplies the profile manifest,
+      with no search over other profiles, yielding `bundles` (a non-empty
+      string array) and `patchReload` (`live` or `startup`); each listed bundle resolves by the
       loader's order (the core package's lookup paths, Node's global folders,
       then the profile's) to a canonical directory inside the core root or the
       profile, the plugin inside the profile; the pnpm lock is read by D6's
@@ -798,7 +801,11 @@ saved for the phase commit.
       declared `wrapper_digest`. It is informational until a `supported`
       shape declares one, then a warning on difference or unreadability. It
       reads no credential or settings file, and the guide's doctor sample
-      follows it; it spawns only the `dsh` and `node` version probes. (d) Then
+      follows it; it spawns only the `dsh` and `node` version probes. The report
+      describes the composite as read for launch, not lifetime integrity;
+      D6's accepted later same-host patch-mutation residual adds no continuous
+      verifier or exemption from the qualified-mode and current-restriction
+      proof. (d) Then
       build the planner. Record the observed core
       version in `harness_version` and the composite in `wrapper_digest` and
       the assessment/instance identity. The engine passes the offered root's
@@ -882,10 +889,20 @@ saved for the phase commit.
       byte form with one worked vector per lock dialect (the npm lockfile-3
       hidden lock and pnpm lockfile 9.0, as committed synthetic excerpts in the
       measured grammar). The npm vector includes top-level and nested
-      unscoped names, scoped names under unscoped and scoped parents, no
-      `name` fields and a conflicting optional `name` field, with versions
-      taken from the selected entries. Assert exact normalized value bytes,
-      equality with equivalent pnpm entries, complete-triple deduplication and
+      unscoped names, scoped names under unscoped and scoped parents,
+      scoped-parent/unscoped-terminal keys, no `name` fields and a conflicting
+      optional `name` field, with versions taken from the selected entries.
+      Include at least three package groups, for example
+      `node_modules/a/node_modules/@parent/b/node_modules/@scope/child`, with
+      version and integrity distinct from shallower `@scope/child` entries;
+      consume every group and preserve only the terminal package in the triple.
+      The measured lock reaches only two groups, so this is synthetic grammar
+      coverage, not a claim of deeper measured provider trees. Also refuse
+      `node_modules/a/extra/node_modules/@scope/child`, whose valid terminal
+      package cannot excuse its malformed intermediate group. The hidden lock
+      is the sole npm source: a missing hidden lock is unreadable even if a
+      valid root `package-lock.json` is present. Assert exact normalized value
+      bytes, equality with equivalent pnpm entries, complete-triple deduplication and
       retention of same-name entries with different versions or integrities.
       Empty, absolute, incomplete, traversal, backslash or trailing-separator
       keys and missing, non-string, empty or whitespace-bearing versions are
@@ -2539,3 +2556,30 @@ provider proof and enablement, re-pins, local gates and readiness remain
 pending. This artifact-only commit is preparation, not activation, archive or
 delivery. The controller owns exact-head coverage, CI, integration,
 publication and closure, with real results pending outside this artifact.
+
+
+## Council design reconciliation — 2026-09-13 (Europe/Sofia)
+
+Run `current-successor-operator-rulin-eef1e666` adopts `05fd566` and all work
+at `cf06034`. The chief read both fresh positions and reconciled them in design
+D10 after verifying the hidden lock and the loader's live patch behavior.
+The two commissioned D6 findings remain answered; A1–A5 and B1–B5 stay settled.
+
+D6 was revised first, then its existing AS1 scenarios, then 8.8/8.10 here.
+Task 8.8 makes left-to-right scoped group consumption, the hidden-lock-only
+source and the single `headless` profile explicit. Task 8.10 adds a synthetic
+three-group key with distinct version/integrity, a scoped-parent/unscoped-child
+case, malformed intermediate-group refusal and a no-root-lock-fallback case.
+No test reads the measured `.forge/` lock and no real extension is authored
+for a synthetic test. Task 8.8's doctor account follows D6's launch-time limit;
+AS1/AS2 qualification and restriction proof remain mandatory, with no continuous
+verification mechanism added. D6's measured count is 335 paths containing a
+scope and 333 scoped terminal packages, not 335 scoped terminal packages.
+
+All 101 identifiers and ticks are unchanged: **78 complete / 23 pending**.
+All 20 requirements and 141 scenarios remain covered. These are design and
+acceptance-work clarifications, not completed implementation or provider proof.
+The Codex startup precondition remains true; this seat's own boxed version
+attempt returned 127 and supplies no host version. Task 10.5 still re-reads
+its exercised binary. The four truth repairs, provider proofs and enablement,
+re-pins, local gates and readiness remain pending in their adopted order.
