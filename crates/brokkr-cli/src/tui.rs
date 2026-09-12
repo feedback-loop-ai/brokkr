@@ -48,7 +48,7 @@ use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap}
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
-use brokkr_view::transcript::{BlockKind, LegacyProvenance, TranscriptRead, Turn};
+use brokkr_view::transcript::{BlockKind, LegacyProvenance, TranscriptRead, Turn, Unavailable};
 
 /// Below this the frame cannot hold its panes, and a drawn frame would
 /// be a corrupted one.
@@ -3070,15 +3070,17 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         stream,
     );
 
+    // A refused or unavailable read replaces the previous prose
+    // atomically: the pane carries the selected reference, the reason, the
+    // explanation, the retained path and the counts, and neither door is
+    // active. Dispatching on `read.unavailable` removes the former
+    // `is_readable` guard and its reason-less arm: a readable read is
+    // exactly one whose `unavailable` is `None`.
     let (lines, scroll) = match &views.transcript {
-        Some(read) if read.is_readable() => {
-            transcript_lines(read, selected_turn(tui, views).map(|(index, _)| index))
-        }
-        // A refused or unavailable read replaces the previous prose
-        // atomically: the pane carries the selected reference, the
-        // reason, the explanation, the retained path and the counts, and
-        // neither door is active.
-        Some(read) => (refused_lines(read), 0),
+        Some(read) => match read.unavailable {
+            None => transcript_lines(read, selected_turn(tui, views).map(|(index, _)| index)),
+            Some(reason) => (refused_lines(read, reason), 0),
+        },
         None => (
             vec![line(
                 "no local session transcript on this machine — the transcript line above names it",
@@ -3144,7 +3146,7 @@ fn transcript_lines(read: &TranscriptRead, selected: Option<usize>) -> (Vec<Line
 /// closed reason token, its explanation, the retained path and hint, its
 /// source-cap/count notices and its two counts. Nothing here is derived
 /// from a previous frame, so no stale prose can survive a refusal.
-fn refused_lines(read: &TranscriptRead) -> Vec<Line<'static>> {
+fn refused_lines(read: &TranscriptRead, reason: Unavailable) -> Vec<Line<'static>> {
     let reference = match &read.reference {
         Some(reference) => format!(
             "{} · {} · {}",
@@ -3153,12 +3155,10 @@ fn refused_lines(read: &TranscriptRead) -> Vec<Line<'static>> {
         None => "—".to_string(),
     };
     let mut lines = vec![line(&format!("reference  {reference}"), plain())];
-    if let Some(reason) = read.unavailable {
-        lines.push(line(
-            &format!("reason     {}", reason.as_str()),
-            header_style(),
-        ));
-    }
+    lines.push(line(
+        &format!("reason     {}", reason.as_str()),
+        header_style(),
+    ));
     if let Some(explanation) = &read.explanation {
         lines.push(line(explanation, plain()));
     }
@@ -3269,6 +3269,38 @@ pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option
 
 /// The bounded shell: draw, poll, apply, repeat. Everything impure it
 /// touches arrives as a parameter, so the whole loop — its quit arm, its
+/// How a refreshed frame relates the displayed transcript to the fresh one.
+///
+/// Invariant: in `drive`, `tui.reading_transcript` implies that
+/// `views.transcript` is `Some` and readable. It starts false; it is set
+/// true only inside the `is_readable` filter on `views.transcript`; every
+/// other write clears it; and `views` changes only to a fresh frame whose
+/// recompose keeps the door open only over a readable read. Given that
+/// invariant, a missing or unavailable fresh read makes
+/// `transcript_invalidates` return true and closes the door before any
+/// recompose runs, so the former `None` arm of the door recompose could
+/// never execute. The classification below carries the fresh read in the
+/// one arm that is allowed to recompose the door.
+enum Refresh<'a> {
+    /// Neither the displayed frame nor the fresh one holds a transcript.
+    Absent,
+    /// The fresh read is present and not invalidated, so it is readable.
+    Continuing(&'a TranscriptRead),
+    /// The fresh read replaced, removed or reordered the displayed one.
+    Invalidated,
+}
+
+fn classify_refresh<'a>(
+    displayed: Option<&TranscriptRead>,
+    fresh: Option<&'a TranscriptRead>,
+) -> Refresh<'a> {
+    match (displayed, fresh) {
+        (None, None) => Refresh::Absent,
+        (_, Some(read)) if !transcript_invalidates(displayed, fresh) => Refresh::Continuing(read),
+        _ => Refresh::Invalidated,
+    }
+}
+
 /// error arm and its transient-busy arms — runs under `TestBackend`.
 fn drive<B: Backend>(
     terminal: &mut Terminal<B>,
@@ -3308,29 +3340,27 @@ where
                 // A refreshed read that replaced, removed or reordered a
                 // displayed turn clears the cursor and closes an open
                 // overlay BEFORE the new indices are shown; a pure append
-                // or a notice-only change leaves navigation alone.
-                if transcript_invalidates(views.transcript.as_ref(), fresh.transcript.as_ref()) {
-                    tui.turn = None;
-                    tui.reading = None;
-                    tui.reading_transcript = false;
-                    tui.read_offset = 0;
-                }
-                // A notice-only refresh leaves the turns alone but still
-                // changes what a door must say: recompose an open
-                // transcript door from the fresh shared read so the pane
-                // and the door report the same notices.
-                if tui.reading_transcript {
-                    match fresh.transcript.as_ref().filter(|read| read.is_readable()) {
-                        Some(read) => {
+                // or a notice-only change leaves navigation alone. Classify
+                // once, then recompose the door only in the continuing arm,
+                // from that arm's fresh read (see `classify_refresh`).
+                match classify_refresh(views.transcript.as_ref(), fresh.transcript.as_ref()) {
+                    Refresh::Absent => {}
+                    Refresh::Invalidated => {
+                        tui.turn = None;
+                        tui.reading = None;
+                        tui.reading_transcript = false;
+                        tui.read_offset = 0;
+                    }
+                    // A notice-only refresh leaves the turns alone but still
+                    // changes what a door must say: recompose an open
+                    // transcript door from the fresh shared read so the pane
+                    // and the door report the same notices.
+                    Refresh::Continuing(read) => {
+                        if tui.reading_transcript {
                             tui.reading = Some(match selected_turn(tui, &fresh) {
                                 Some((index, turn)) => turn_overlay_text(index + 1, turn, read),
                                 None => transcript_text(read),
                             });
-                        }
-                        None => {
-                            tui.reading = None;
-                            tui.reading_transcript = false;
-                            tui.read_offset = 0;
                         }
                     }
                 }

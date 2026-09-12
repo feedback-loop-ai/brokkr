@@ -6668,10 +6668,11 @@ fn drive_recomposes_a_turn_door_then_clears_a_vanished_subject() {
 
 #[test]
 fn refused_lines_carry_the_reason_and_an_optional_explanation() {
+    let reason = brokkr_view::transcript::Unavailable::NotFound;
     let mut read = brokkr_view::transcript::TranscriptRead::refused(
         None,
         false,
-        brokkr_view::transcript::Unavailable::NotFound,
+        reason,
         "no retained transcript file was found",
         None,
         false,
@@ -6679,10 +6680,10 @@ fn refused_lines_carry_the_reason_and_an_optional_explanation() {
         0,
         None,
     );
-    let with_explanation = refused_lines(&read);
+    let with_explanation = refused_lines(&read, reason);
     assert!(with_explanation.len() >= 2);
 
     read.explanation = None;
-    let without_explanation = refused_lines(&read);
+    let without_explanation = refused_lines(&read, reason);
     assert!(without_explanation.len() < with_explanation.len());
 }

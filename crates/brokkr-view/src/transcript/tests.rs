@@ -3077,3 +3077,24 @@ fn dsh_omission_with_a_sequence_is_observed() {
     assert!(projection.unavailable.is_none());
     assert_eq!(projection.unrecognized_records, 1);
 }
+
+/// A quiet DSH row that carries no `seq` contributes no position: the
+/// `dsh_seq` lookup returns `None`, the row is still quiet, and the
+/// projection keeps zero counts and no turn.
+#[test]
+fn dsh_quiet_row_without_a_sequence_contributes_no_position() {
+    let text = format!(
+        "{}{}",
+        "{\"type\":\"session\",\"version\":0}\n",
+        row(json!({
+            "type": "assistant/chunk",
+            "data": {"turn": 1, "step": 1, "chunk": {"type": "text-delta", "text": ""}}
+        }))
+    );
+    let projection = dsh(&text);
+    assert_eq!(projection.unavailable, None);
+    assert!(projection.turns.is_empty());
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.skipped_lines, 0);
+    assert!(!projection.truncated);
+}

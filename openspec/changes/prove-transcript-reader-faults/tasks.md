@@ -69,7 +69,7 @@ task:
 
 ## 2. The fault seam module and its own tests (D2, D4, D8)
 
-- [ ] 2.1 Add `#[cfg(test)] pub(crate) mod fault` to
+- [x] 2.1 Add `#[cfg(test)] pub(crate) mod fault` to
       `crates/brokkr-cli/src/ui/safe_fs.rs`: the disjoint `FailAt` (`Entries`,
       `Identity`, `Read`) and `ChangeAt` (`Child`, `ChildFileAttempt`,
       `BeforeRewalk`) enums; `Plan` with private fields and the consuming
@@ -80,19 +80,19 @@ task:
       per-target occurrence counter starting at zero, panicking if a plan is
       already stored on that thread — transcript-reading / Reader failure
       handling is proved through a test-only fault seam.
-- [ ] 2.2 Add the opaque `Guard` (`PhantomData<*const ()>`, so `!Send`) with
+- [x] 2.2 Add the opaque `Guard` (`PhantomData<*const ()>`, so `!Send`) with
       a `Drop` that always takes the plan out of the thread-local first,
       returns without asserting when `std::thread::panicking()` is true, and
       otherwise asserts every entry fired, naming each unfired target and
       occurrence in the panic message — same requirement.
-- [ ] 2.3 Add the two hooks: `fault::fail(FailAt) -> Option<io::Error>`,
+- [x] 2.3 Add the two hooks: `fault::fail(FailAt) -> Option<io::Error>`,
       returning `Some(io::Error::other("scripted reader fault"))` exactly
       when the plan holds an unfired entry at that target's incremented
       occurrence and `None` otherwise (including with no plan installed);
       `fault::point(ChangeAt)`, taking the matching entry's closure out of
       the `RefCell`, releasing the borrow, then running it, and being a
       no-op when no entry matches — same requirement.
-- [ ] 2.4 Add the seam's own tests to `ui/tests.rs` (their `#[should_panic]`
+- [x] 2.4 Add the seam's own tests to `ui/tests.rs` (their `#[should_panic]`
       tails are not counted by the coverage gate): a plan whose entry never
       fires fails with the unfired message; a nested `install` on one thread
       fails with the refusal, and the same test's unwinding proves the
@@ -100,13 +100,13 @@ task:
       that spawns a second thread proves that thread's read at the scripted
       occurrence sees only real results, and that the installing thread's
       same occurrence is unaffected once its guard drops — same requirement.
-- [ ] 2.5 Confirm from this group's tests that every arm in the design's D8
+- [x] 2.5 Confirm from this group's tests that every arm in the design's D8
       table is reached: no plan installed; plan installed with no match at
       this count; a `fail` match; a `point` match; the guard's all-fired,
       unfired and unwinding paths; the `install` refusal. Record any arm
       this group alone does not reach, so group 3's hook tests close it —
       same requirement.
-- [ ] 2.6 Add `#![deny(clippy::mem_forget)]` to
+- [x] 2.6 Add `#![deny(clippy::mem_forget)]` to
       `crates/brokkr-cli/src/lib.rs`, so a `Guard` passed to `mem::forget`
       anywhere in the `brokkr_cli` library crate — `ui/safe_fs.rs` and
       `ui/tests.rs` included — fails the clippy gate, for every test
@@ -124,13 +124,13 @@ task:
 
 ## 3. The seven hook statements, driven by scripted errors, real changes and one ordinary fixture (D3, D5, D6)
 
-- [ ] 3.1 Add the `Entries`, `Identity` and `Read` hook statements to the
+- [x] 3.1 Add the `Entries`, `Identity` and `Read` hook statements to the
       platform-independent wrappers `Dir::entries_bounded` (`safe_fs.rs:70`),
       `OpenedFile::identity` (`:91`) and `OpenedFile::read_bounded` (`:103`):
       on `Some(error)` from the matching `fault::fail` call, return
       `Err(error)` before the real operation runs — transcript-reading /
       Reader failure handling is proved through a test-only fault seam.
-- [ ] 3.2 Add the `Child` hook statement in `Dir::child` (`:75`), before
+- [x] 3.2 Add the `Child` hook statement in `Dir::child` (`:75`), before
       `self.inner.child`, calling `fault::point(ChangeAt::Child)`; add the
       `ChildFileAttempt` hook statement in the unix `imp::Dir::child`
       (`:184`) and the Windows `imp::Dir::child` (`:469`), each after the
@@ -139,7 +139,7 @@ task:
       `BeforeRewalk` hook statement as the first statement of
       `acquisition_is_current` (`ui.rs:373`), calling
       `safe_fs::fault::point(ChangeAt::BeforeRewalk)` — same requirement.
-- [ ] 3.3 Scripted-error tests: an `Entries` error on the Claude projects
+- [x] 3.3 Scripted-error tests: an `Entries` error on the Claude projects
       root (`ui.rs:301-302`, `392-393`), the Codex `sessions` walk
       (`488-489`), and the DSH seat directory (`614-615`) and its one
       project directory (`636-637`), each asserting discovery-stage
@@ -147,34 +147,34 @@ task:
       notices, the kind's unresolved `full_session` hint, and that browser
       presentation for the same reference reports `admitted: false` with
       reason `unreadable` — same requirement.
-- [ ] 3.4 Scripted-error tests: an `Identity` error on each kind's sole
+- [x] 3.4 Scripted-error tests: an `Identity` error on each kind's sole
       matching candidate (`ui.rs:420`, `511`, `668`), run once alone and once
       with a second qualifying sibling present, asserting discovery-stage
       `unreadable` with no candidate admitted in either case — same
       requirement.
-- [ ] 3.5 Scripted-error test: a `Read` error on the only DSH candidate's
+- [x] 3.5 Scripted-error test: a `Read` error on the only DSH candidate's
       opening-header read (`ui.rs:552`), asserting discovery-stage
       `unreadable` with null path, null DSH hint, no turns and zero counts —
       same requirement.
-- [ ] 3.6 Scripted-error tests, after discovery has admitted a source: an
+- [x] 3.6 Scripted-error tests, after discovery has admitted a source: an
       `Identity` error at the retained-handle recheck (`ui.rs:750-751`), run
       for each of the three kinds; a `Read` error at the bounded source read
       (`ui.rs:758`), run for Claude/Codex and for DSH (past its two header
       reads). Each asserts body-stage `unreadable` with no turns, zero
       counts, no truncation and the retained file's bytes unchanged — same
       requirement.
-- [ ] 3.7 Real-change test: a `Child` entry removes the only matching Codex
+- [x] 3.7 Real-change test: a `Child` entry removes the only matching Codex
       rollout, sitting directly under `sessions`, after enumeration and
       before its open (`ui.rs:521`), asserting `not-found` with null path,
       never `unsafe-path`, and no content read — same requirement.
-- [ ] 3.8 Real-change tests at `ChildFileAttempt` on a Claude lookup: removing
+- [x] 3.8 Real-change tests at `ChildFileAttempt` on a Claude lookup: removing
       the session file after its directory attempt fails (`safe_fs.rs:193`)
       asserts `not-found` with null path and no content read; the placement
       witness (D6) instead replaces the file with a same-named directory,
       asserting `unsafe-path` on unix and Windows, proving the hook fires
       between the directory and file attempts rather than before either —
       same requirement.
-- [ ] 3.9 Real-change tests at `BeforeRewalk`, after discovery admits a
+- [x] 3.9 Real-change tests at `BeforeRewalk`, after discovery admits a
       unique Claude source: renaming that file into a second qualifying
       project directory (`ui.rs:377` branch, `743-744`); moving the admitted
       file to a non-qualifying holding name and then renaming a new file
@@ -182,7 +182,7 @@ task:
       name. Both assert body-stage `unreadable`, no turns, zero counts, no
       truncation and no prose from either file on any surface — same
       requirement.
-- [ ] 3.10 Boundary-in-force scenario (S9): one test whose only scripted
+- [x] 3.10 Boundary-in-force scenario (S9): one test whose only scripted
       entry is an `Entries` error at the occurrence falling in a separate,
       otherwise valid lookup made after the asserted reads. The same test
       first reads a symlinked project, a symlinked candidate, a FIFO
@@ -204,7 +204,7 @@ task:
 
 ## 4. Restructures with recorded unreachability proofs, and the `claude_source` home parameter (D5)
 
-- [ ] 4.1 Remove the post-decode emptiness check at `ui.rs:998-999`. Record
+- [x] 4.1 Remove the post-decode emptiness check at `ui.rs:998-999`. Record
       the unreachability proof in a code comment next to the surviving
       `:990` check: a non-empty component decodes to a non-empty byte
       string, `String::from_utf8` of a non-empty vector is non-empty or
@@ -212,7 +212,7 @@ task:
       Keep the `:990` check's existing test and the decode-refusal test —
       transcript-reading / Reader failure handling is proved through a
       test-only fault seam.
-- [ ] 4.2 Restructure the DSH walk (`ui.rs:613`) into a step-based form
+- [x] 4.2 Restructure the DSH walk (`ui.rs:613`) into a step-based form
       where the base is always the last directory a step opened and nothing
       is left unset: `split_once('/')` separates the first component, which
       opens from the root; each later component opens from the previous
@@ -221,12 +221,12 @@ task:
       unreachability proof for the removed post-walk `else` in a code
       comment. Add ordinary fixtures reaching both `split_once` arms
       (single-component and multi-component locators) — same requirement.
-- [ ] 4.3 Restructure `tui.rs::refused_lines` to take the refusal reason as
+- [x] 4.3 Restructure `tui.rs::refused_lines` to take the refusal reason as
       a parameter, matching it against `read.unavailable` inside `Some` at
       its only call site (which already follows the `is_readable` guard);
       remove the reason-less arm. Update the existing `refused_lines` tests
       to pass a reason — same requirement.
-- [ ] 4.4 Restructure `tui.rs::drive` around the invariant that
+- [x] 4.4 Restructure `tui.rs::drive` around the invariant that
       `tui.reading_transcript` implies `views.transcript` is `Some` and
       readable (established by its three write sites and by
       `transcript_invalidates` closing the door before any recompose runs on
@@ -237,7 +237,7 @@ task:
       `transcript_invalidates` expectations onto the new classification
       without changing any reachable outcome. Record the invariant's proof
       in a code comment — same requirement.
-- [ ] 4.5 Give `claude_source` (`ui.rs:820-834`) a `home: Option<&str>`
+- [x] 4.5 Give `claude_source` (`ui.rs:820-834`) a `home: Option<&str>`
       parameter, mirroring the existing `read_local`/`read_with_home` split;
       have its current caller(s) pass `local_projects_home()` as they read it
       today, with no behavior change on a present home. Add a unit test
@@ -247,23 +247,23 @@ task:
 
 ## 5. The remaining ordinary-fixture branches (D5)
 
-- [ ] 5.1 `ui.rs:261` branch: a fixture with two valid DSH session
+- [x] 5.1 `ui.rs:261` branch: a fixture with two valid DSH session
       candidates plus a third whose opening header exceeds the 65,536-byte
       cap, asserting `ambiguous-source` and not `discovery-limit` —
       transcript-reading / Reader failure handling is proved through a
       test-only fault seam.
-- [ ] 5.2 `ui.rs:443`, `445` branches: Codex ids `rollout-…` and `jsonl`
+- [x] 5.2 `ui.rs:443`, `445` branches: Codex ids `rollout-…` and `jsonl`
       (both in the Codex filename-token language), asserting the whole-token
       rule admits or refuses each as specified at the filename's start and
       end — same requirement.
-- [ ] 5.3 `ui.rs:516` branch: a matching rollout seven directory levels
+- [x] 5.3 `ui.rs:516` branch: a matching rollout seven directory levels
       below `sessions`, asserting `not-found` — same requirement.
-- [ ] 5.4 `ui.rs:990` branch: `GET /api/presentation//<key>`, asserting 404
+- [x] 5.4 `ui.rs:990` branch: `GET /api/presentation//<key>`, asserting 404
       `participant` — same requirement.
-- [ ] 5.5 `ui.rs:1003`: `GET /api/presentation/<unknown-run>/<key>` over a
+- [x] 5.5 `ui.rs:1003`: `GET /api/presentation/<unknown-run>/<key>` over a
       real journal so `Store::load` returns `RunNotFound`, asserting 404
       `participant` — same requirement.
-- [ ] 5.6 `brokkr-view/src/transcript.rs:1974` branch: a quiet DSH row
+- [x] 5.6 `brokkr-view/src/transcript.rs:1974` branch: a quiet DSH row
       without `seq`, asserting it contributes no position and the rest of
       the projection is unchanged — same requirement.
 

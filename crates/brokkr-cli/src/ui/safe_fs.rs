@@ -68,11 +68,21 @@ impl Dir {
     /// directory held more entries than `max`, so the caller can charge its
     /// discovery bound without materializing an unbounded listing.
     pub fn entries_bounded(&self, max: usize) -> io::Result<(Vec<std::ffi::OsString>, bool)> {
+        #[cfg(test)]
+        {
+            if let Some(error) = fault::fail(fault::FailAt::Entries) {
+                return Err(error);
+            }
+        }
         self.inner.entries_bounded(max)
     }
 
     /// Open one direct child, following no symlink or reparse point.
     pub fn child(&self, name: &OsStr) -> io::Result<Child> {
+        #[cfg(test)]
+        {
+            fault::point(fault::ChangeAt::Child);
+        }
         Ok(match self.inner.child(name)? {
             imp::Child::File(file) => Child::File(OpenedFile { inner: file }),
             imp::Child::Dir(dir) => Child::Dir(Dir { inner: dir }),
@@ -89,6 +99,12 @@ pub struct OpenedFile {
 
 impl OpenedFile {
     pub fn identity(&self) -> io::Result<Identity> {
+        #[cfg(test)]
+        {
+            if let Some(error) = fault::fail(fault::FailAt::Identity) {
+                return Err(error);
+            }
+        }
         self.inner.identity()
     }
 
@@ -101,6 +117,12 @@ impl OpenedFile {
     /// file. Returns `(bytes, overflow, eof)`: `overflow` means the probe
     /// byte was present, `eof` means the read reached true end of file.
     pub fn read_bounded(&self, cap: u64) -> io::Result<(Vec<u8>, bool, bool)> {
+        #[cfg(test)]
+        {
+            if let Some(error) = fault::fail(fault::FailAt::Read) {
+                return Err(error);
+            }
+        }
         self.inner.read_bounded(cap)
     }
 }
@@ -181,6 +203,11 @@ mod imp {
                 // `Unsafe` for a symlink, FIFO or other non-regular node).
                 Err(_) => {}
             }
+            // The point between the directory attempt and the file attempt.
+            // It runs before the real file open, which then classifies what
+            // it finds; a test-owned change is timed here.
+            #[cfg(test)]
+            super::fault::point(super::fault::ChangeAt::ChildFileAttempt);
             match openat(&self.fd, name, file_flags(), Mode::empty()) {
                 Ok(fd) => {
                     let stat = fstat(&fd)?;
@@ -466,6 +493,9 @@ mod imp {
                     }
                 }
             }
+            // The point between the directory attempt and the file attempt.
+            #[cfg(test)]
+            super::fault::point(super::fault::ChangeAt::ChildFileAttempt);
             match nt_open(&self.handle, name, false) {
                 Ok(handle) => {
                     let file = into_file(handle);
@@ -507,6 +537,288 @@ mod imp {
                 buffer.truncate(cap as usize);
             }
             Ok((buffer, overflow, !overflow))
+        }
+    }
+}
+
+/// A unit-test-only fault seam at the handle-based reader boundary.
+///
+/// It exists only under `#[cfg(test)]`, so no release binary, package or
+/// integration-test build compiles it and a reference to it in such a build
+/// is a compile error. It reads no environment variable, argument,
+/// configuration key, file or journal value, and it never builds a `Child`,
+/// `Identity`, handle, path or name. A plan names one target and the
+/// occurrence at which it fires on the installing thread; an entry that never
+/// fires fails its test, and no entry can be disarmed. See the change
+/// `prove-transcript-reader-faults` D2-D8 and proposed decision 0055's
+/// addendum.
+#[cfg(test)]
+pub(crate) mod fault {
+    use std::cell::RefCell;
+    use std::io;
+    use std::marker::PhantomData;
+
+    /// The operations whose result a scripted error replaces. Child open and
+    /// the two timed points accept no error (the change's S8), so they are a
+    /// disjoint enum.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum FailAt {
+        Entries,
+        Identity,
+        Read,
+    }
+
+    /// The points at which a test-owned filesystem change runs before the
+    /// reader's next real operation.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum ChangeAt {
+        Child,
+        ChildFileAttempt,
+        BeforeRewalk,
+    }
+
+    enum Entry {
+        Fail {
+            target: FailAt,
+            occurrence: usize,
+            fired: bool,
+        },
+        Change {
+            target: ChangeAt,
+            occurrence: usize,
+            action: Option<Box<dyn FnOnce()>>,
+            fired: bool,
+        },
+    }
+
+    impl Entry {
+        fn fired(&self) -> bool {
+            match self {
+                Entry::Fail { fired, .. } | Entry::Change { fired, .. } => *fired,
+            }
+        }
+
+        fn set_fired(&mut self) {
+            match self {
+                Entry::Fail { fired, .. } | Entry::Change { fired, .. } => *fired = true,
+            }
+        }
+
+        fn matches_fail(&self, target: FailAt, occurrence: usize) -> bool {
+            matches!(
+                self,
+                Entry::Fail {
+                    target: entry_target,
+                    occurrence: entry_occurrence,
+                    ..
+                } if *entry_target == target && *entry_occurrence == occurrence
+            )
+        }
+
+        fn matches_change(&self, target: ChangeAt, occurrence: usize) -> bool {
+            matches!(
+                self,
+                Entry::Change {
+                    target: entry_target,
+                    occurrence: entry_occurrence,
+                    ..
+                } if *entry_target == target && *entry_occurrence == occurrence
+            )
+        }
+
+        fn take_action(&mut self) -> Option<Box<dyn FnOnce()>> {
+            match self {
+                Entry::Change { action, .. } => action.take(),
+                Entry::Fail { .. } => None,
+            }
+        }
+
+        /// Name an unfired entry for the guard's panic message.
+        fn describe(&self) -> String {
+            match self {
+                Entry::Fail { target, occurrence, .. } => {
+                    format!("{target:?} occurrence {occurrence}")
+                }
+                Entry::Change { target, occurrence, .. } => {
+                    format!("{target:?} occurrence {occurrence}")
+                }
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct Counts {
+        entries: usize,
+        identity: usize,
+        read: usize,
+        child: usize,
+        child_file_attempt: usize,
+        before_rewalk: usize,
+    }
+
+    impl Counts {
+        fn bump_fail(&mut self, target: FailAt) -> usize {
+            let slot = match target {
+                FailAt::Entries => &mut self.entries,
+                FailAt::Identity => &mut self.identity,
+                FailAt::Read => &mut self.read,
+            };
+            *slot += 1;
+            *slot
+        }
+
+        fn bump_change(&mut self, target: ChangeAt) -> usize {
+            let slot = match target {
+                ChangeAt::Child => &mut self.child,
+                ChangeAt::ChildFileAttempt => &mut self.child_file_attempt,
+                ChangeAt::BeforeRewalk => &mut self.before_rewalk,
+            };
+            *slot += 1;
+            *slot
+        }
+    }
+
+    struct State {
+        entries: Vec<Entry>,
+        counts: Counts,
+    }
+
+    thread_local! {
+        static PLAN: RefCell<Option<State>> = const { RefCell::new(None) };
+    }
+
+    /// An append-only plan of scripted entries. It can be added to, never
+    /// trimmed: there is no `clear`, `skip`, `disarm`, `optional` or
+    /// `allow_unfired` method.
+    pub(crate) struct Plan {
+        entries: Vec<Entry>,
+    }
+
+    impl Plan {
+        pub(crate) fn new() -> Plan {
+            Plan {
+                entries: Vec::new(),
+            }
+        }
+
+        /// Script an injected I/O error at the given occurrence of one
+        /// enumeration, identity or bounded-read operation.
+        pub(crate) fn fail(mut self, target: FailAt, occurrence: usize) -> Plan {
+            self.entries.push(Entry::Fail {
+                target,
+                occurrence,
+                fired: false,
+            });
+            self
+        }
+
+        /// Script a test-owned filesystem change to run at the given
+        /// occurrence of one child open or timed point, before the reader's
+        /// next real operation.
+        pub(crate) fn change(
+            mut self,
+            target: ChangeAt,
+            occurrence: usize,
+            action: impl FnOnce() + 'static,
+        ) -> Plan {
+            self.entries.push(Entry::Change {
+                target,
+                occurrence,
+                action: Some(Box::new(action)),
+                fired: false,
+            });
+            self
+        }
+
+        /// Install the plan on the calling thread and return a guard that
+        /// clears it and fails the test if any entry never fired. A second
+        /// install on the same thread is refused.
+        pub(crate) fn install(self) -> Guard {
+            PLAN.with(|cell| {
+                let mut slot = cell.borrow_mut();
+                assert!(
+                    slot.is_none(),
+                    "a fault plan is already installed on this thread"
+                );
+                *slot = Some(State {
+                    entries: self.entries,
+                    counts: Counts::default(),
+                });
+            });
+            Guard {
+                _not_send: PhantomData,
+            }
+        }
+    }
+
+    /// An opaque guard. It is `!Send`, so it always drops on the installing
+    /// thread, and its `Drop` always takes the plan out of the thread-local.
+    pub(crate) struct Guard {
+        _not_send: PhantomData<*const ()>,
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            PLAN.with(|cell| {
+                let mut slot = cell.borrow_mut();
+                let Some(state) = slot.take() else {
+                    return;
+                };
+                // A panic inside `Drop` while unwinding aborts the whole
+                // test binary, so the plan is cleared and the check skipped
+                // when the test is already failing.
+                if std::thread::panicking() {
+                    return;
+                }
+                let unfired: Vec<String> = state
+                    .entries
+                    .iter()
+                    .filter(|entry| !entry.fired())
+                    .map(Entry::describe)
+                    .collect();
+                assert!(
+                    unfired.is_empty(),
+                    "fault seam entries never fired: {}",
+                    unfired.join(", ")
+                );
+            });
+        }
+    }
+
+    /// The injected-error hook. Returns an error exactly when the plan holds
+    /// an unfired entry for this target at its next occurrence; otherwise
+    /// `None`, including when no plan is installed.
+    pub(crate) fn fail(target: FailAt) -> Option<io::Error> {
+        PLAN.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            let state = slot.as_mut()?;
+            let occurrence = state.counts.bump_fail(target);
+            let entry = state
+                .entries
+                .iter_mut()
+                .find(|entry| !entry.fired() && entry.matches_fail(target, occurrence))?;
+            entry.set_fired();
+            Some(io::Error::other("scripted reader fault"))
+        })
+    }
+
+    /// The timed-change hook. Runs the matching entry's closure once, after
+    /// releasing the thread-local borrow, and is a no-op when no entry
+    /// matches or no plan is installed.
+    pub(crate) fn point(target: ChangeAt) {
+        let action = PLAN.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            let state = slot.as_mut()?;
+            let occurrence = state.counts.bump_change(target);
+            let entry = state
+                .entries
+                .iter_mut()
+                .find(|entry| !entry.fired() && entry.matches_change(target, occurrence))?;
+            entry.set_fired();
+            entry.take_action()
+        });
+        if let Some(action) = action {
+            action();
         }
     }
 }
