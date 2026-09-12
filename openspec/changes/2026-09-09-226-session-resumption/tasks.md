@@ -127,7 +127,7 @@ saved for the phase commit.
 
 ## 1. The proposed ruling (design D10)
 
-- [ ] 1.1 Amend the existing proposed
+- [x] 1.1 Amend the existing proposed
       `docs/decisions/0056-same-instance-session-resumption.md`
       with `Status: proposed`, in the register of the neighbouring
       decisions: context from #226 and the measured cold/resumed table,
@@ -519,7 +519,7 @@ saved for the phase commit.
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
       handle. No new wire type is added — safety / AS1, site / SR4.
-- [ ] 6.4 Write the assessments into `adapters/codex.json`,
+- [x] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
       change, each one loadable now under one of 6.1's two identity
@@ -1282,7 +1282,7 @@ itself (`safety / AS1`).
       reason. This is the operator's one lawful unsupported disposition;
       it does not waive Codex, Claude or DSH delivery. Never mark it supported
       by analogy — safety / AS1.
-- [ ] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
+- [x] 11.5 Before 8.8, reconcile every shipped, packaged or scaffolded
       support representation with 6.4's corrected preparatory truth. DSH's
       forward-pinned latest core (`@deepseek-ai/dsh` 0.1.5-rc.1, or the
       release answer N1 resolves in its place) plus the repository-owned
@@ -1349,7 +1349,7 @@ itself (`safety / AS1`).
 
 ## 13. Prose
 
-- [ ] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
+- [x] 13.1 Before 8.8, correct `docs/guides/provider-adapters.md` while
       preserving its offer, assessment and held-window guidance. The current
       adapter table must call the forward-pinned latest DSH core
       (`@deepseek-ai/dsh` 0.1.5-rc.1 at
@@ -2771,3 +2771,55 @@ concrete artifact it produces, and needs no repair before implementation
 resumes. `upstream` is not reported: no design, proposal or spec defect was
 found on this re-read. The next visit should implement in the stated order,
 starting with 10.7's live half.
+
+## Implement visit — 2026-09-13, run `current-successor-operator-rulin-eef1e666`
+
+This seat began with the task the previous visit named: 10.7's live half. It
+committed the repository-owned adaptation of `dsh-plugin-cli-session` 0.2.0 at
+`0f487e74c81ed102c6899440d9f5d65e8e9eabda` under
+`extensions/dsh/plugin-cli-session/` (the six published files; `lib/index.js`
+line 253 changes `agent.session.events` to
+`agent.session.snapshotEvents(firstSeq)`, and substituting the upstream
+expression back reproduces upstream `lib/index.js` `a40b52…`), added the
+sibling `extensions/dsh/PROVENANCE.md` and the
+`docs/guides/repository-layout.md` row, built an adapted tarball, installed the
+pair into the task-owned `.forge/dsh-qualify-015rc1` home's `headless` profile
+after `sha256sum -c` against the provenance block, and ran the bounded live
+cold/warm probe. Result: cold and warm both exit 0, emit the plugin result
+envelope, continue the same session root (`session-9992bd7c-…`), recall the
+nonce and report per-message usage, with the global pin unchanged. The raw
+composite inputs and the exchange are recorded in
+`.forge/tasks/dsh-pair-qualification-015rc1.json`. The prior 0.1.5-rc.1
+`events is not iterable` failure was the unadapted plugin; the adaptation fixes
+it. 10.7 stays unchecked because its recording step and the
+exact-root/restriction/accounting proof remain.
+
+1.1, 6.4, 11.5 and 13.1 are completed: proposed 0056 ruling 5 now selects core
+0.1.5-rc.1 plus the repository-owned adaptation, cites 0009 for the
+extension-boundary admission, ruling 6 cites 0043, ruling 7 cites 0034, ruling
+8 cites 0006, ruling 10 cites 0041 and carries the archive-dependent deferral,
+and a dated 2026-09-10 consequence records the reversed 0.1.0-rc.6 pin;
+`adapters/dsh.json` sets `version`/`applies_to` to 0.1.5-rc.1 with no
+`wrapper_digest`, points `evidence.interface` at the 015rc1 record and appends
+the dated reversal limitation while preserving every earlier entry; the
+provider-adapters guide row agrees; the content audit found no current
+declaration still selecting 0.1.0-rc.6 (only the preserved superseded
+limitation entry, the separate hands deferral and upstream plugin bytes).
+`cargo test -p brokkr-cli --test decisions_index` and the runtime agents suite
+pass.
+
+8.8(a) is implemented: `ResumeIdentity::Measured` carries the optional
+`wrapper_digest`; the loader admits it in the measured branch with seat record
+v5's 64-lowercase-hex grammar, refuses a malformed member or one beside
+`unknown` by name, carries it into the closed driver data, and a new
+`agents/tests.rs` case proves absence, presence, carriage, refusal and the
+adapter-content-digest move. 8.8 stays unchecked: (b) the plugin-component and
+canonical-composite function, (c) the doctor line and (d) the planner route
+with the private DSH target are not implemented, and 8.10/9.6 are unwritten, so
+no composite value exists yet.
+
+Recount: **82 complete / 19 pending** across the same 101 identifiers. Cargo
+was present in this seat's box, so the focused Rust checks ran; the six
+commissioned full gates, provider proofs 10.5/10.6/10.8, the DSH recording
+step, enablement 11.1–11.4, re-pins and readiness remain pending. The next
+visit should implement 8.8(b)–(d), then 8.10 and 9.6.

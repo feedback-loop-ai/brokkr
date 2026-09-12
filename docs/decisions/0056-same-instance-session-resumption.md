@@ -214,31 +214,40 @@ Alternatives weighed, each rejected on evidence rather than taste:
    history and regression scope, not a grant for a later one: 0030's
    0.148.0 codex measurement does not enable installed 0.153.4.
 
-   DSH's session integration is selected as one exact pair: official core
-   **0.1.0-rc.6** (`@deepseek-ai/dsh@0.1.0-rc.6`, the generation the plugin's
-   own development matrix pins) together with community plugin
-   `dsh-plugin-cli-session` **0.2.0** at
-   `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, installed and exercised
-   only in worktree- or task-owned storage through the documented
-   extension and `agents.resume` APIs. An isolated live cold+warm
-   qualification establishes composition, a result envelope, one continued
-   root, nonce continuity and per-message usage; the pair is still
-   **unmeasured** for admission because exact-root confirmation, restriction
-   precedence and a multi-message current-sequence accounting boundary are
-   unproven, so the declaration stays disabled. Core 0.1.5-rc.1 removed the
-   `agent.session.events` accessor the plugin reads; that measured pair
-   incompatibility is not a global DSH or extension limitation. The
-   request-derived `session_id` echo and the post-`firstSeq` last-wins usage
-   selection are interface evidence only: they neither confirm the root nor
-   attribute a multi-call total. The installed 0.1.2-rc.1 headless runner
-   remains bounded history — its one-shot entry mints a fresh root and
-   cannot forward the launcher's TUI example. This session-selection work
-   stays separate from the hands/tools plugin the adapter defers, preserves
-   Rust-only Brokkr production and the admitted headless profile, and
-   admits no second runner. No different core or plugin revision inherits
-   this evidence, and a measured incompatibility of this exact pair is
-   reported as the exact unmet requirement rather than a narrowed minimum
-   or a permitted TUI, SDK or package-patch substitution.
+   DSH's session integration is selected as one exact route: the latest
+   official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at
+   `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1
+   resolves in its place) together with the repository-owned six-file
+   adaptation of community plugin `dsh-plugin-cli-session` **0.2.0** at
+   `0f487e74c81ed102c6899440d9f5d65e8e9eabda`, committed under
+   `extensions/dsh/plugin-cli-session/` with its sibling
+   `extensions/dsh/PROVENANCE.md`, installed and exercised only in
+   worktree- or task-owned storage through the documented extension and
+   `agents.resume` APIs. Decision 0009's extension boundary admits those six
+   language-neutral files: Rust-only describes this repository's production
+   crates, not the extension boundary, and Brokkr neither builds, loads nor
+   executes them. An isolated live cold+warm qualification (2026-09-12)
+   establishes composition, a result envelope, one continued root, nonce
+   continuity and per-message usage with the global pin unchanged; the route
+   is still **unmeasured** for admission because exact-root and
+   independent-root confirmation, restriction precedence, a multi-message
+   current-sequence accounting boundary and the declared composite digest are
+   unproven, so the declaration stays disabled and sets no `wrapper_digest`
+   until the qualification completes. The removed `agent.session.events`
+   accessor was a measured incompatibility of the unadapted plugin on
+   0.1.5-rc.1, fixed by the adaptation's one-expression substitution of
+   `snapshotEvents(firstSeq)`; it is never a global DSH or extension
+   limitation. The request-derived `session_id` echo and the post-`firstSeq`
+   last-wins usage selection are interface evidence only: they neither
+   confirm the root nor attribute a multi-call total. The installed
+   0.1.2-rc.1 headless runner remains bounded history — its one-shot entry
+   mints a fresh root and cannot forward the launcher's TUI example. This
+   session-selection work stays separate from the hands/tools plugin the
+   adapter defers, preserves the admitted headless profile, and admits no
+   second runner. No different core or plugin revision inherits this
+   evidence, and a measured incompatibility of this exact route is reported
+   as the exact unmet requirement rather than a narrowed minimum or a
+   permitted TUI, SDK or package-patch substitution.
 
    **Enforcement binding:** the typed `resume` assessment and its loader
    in `crates/brokkr-runtime/src/agents.rs`, pinned by the existing
@@ -251,7 +260,9 @@ Alternatives weighed, each rejected on evidence rather than taste:
    rejoin carries this invocation's own class, model and effort, its
    generated hands fragment, its result door and its scoped resources,
    composed in the engine with their provenance intact and compared
-   against the actually expanded fragment in the adapter. User
+   against the actually expanded fragment in the adapter. The hands
+   fragment is decision 0043's single tool; a rejoin re-imposes it and
+   never inherits the previous grant. User
    passthrough that merely *resembles* a generated MCP setting is not
    authorized by the resemblance. A measured allow-list with exact arity,
    duplicate and precedence checks decides what may travel: competing
@@ -281,7 +292,8 @@ Alternatives weighed, each rejected on evidence rather than taste:
    is invented where no offer was made.
 
    Those facts ride `contracts/seat-record.v5.schema.json`, additive on
-   v4: `site_ref`, `instance_ref` and the closed `root_session` object,
+   v4 — decision 0034's seat record is a contract, and this is a new
+   numbered version beside the frozen ones: `site_ref`, `instance_ref` and the closed `root_session` object,
    with five refusal tokens beside v4's five. The store selects v5 for
    the 0.10 engine line and later, v4 for the 0.9 line, v3 for the 0.8
    line and v1 for older or unparseable engines, identically at append,
@@ -306,8 +318,9 @@ Alternatives weighed, each rejected on evidence rather than taste:
    `crates/brokkr-runtime/tests/frozen_contracts.rs`.
 
 8. **One proven pre-work replacement, inside the bounds that already
-   exist.** A local decline permits one independently safe cold launch. A
-   provider-rejected resume permits one cold replacement, reported cold
+   exist.** Decision 0006's bounded attempt is the frame: one replacement,
+   one deadline. A local decline permits one independently safe cold
+   launch. A provider-rejected resume permits one cold replacement, reported cold
    with `harness-refused`, and only on measured machine session-rejection
    evidence establishing that no session opened, no turn or tool action
    ran and no result was delivered. A generic nonzero exit, stderr prose,
@@ -377,7 +390,9 @@ Alternatives weighed, each rejected on evidence rather than taste:
     an invalidated task to pending with its reason, and never erases
     partial uncommitted edits merely because it does not remember
     authoring them. Current evidence outranks memory, and no seat reads
-    another session's private transcript. The charter names the task
+    another session's private transcript. Decision 0041 binds the same
+    boundary from the office side: judges never fix the work they judge,
+    so no judge gains permission to edit the task artifact. The charter names the task
     artifact generically; the dialects keep their own paths, formats and
     phase maps, and judges gain no permission to edit them.
 
@@ -386,6 +401,14 @@ Alternatives weighed, each rejected on evidence rather than taste:
     repository-local obligation is finished and its tick persisted before
     the normal archive operation, which is the final tracked artifact
     effect; the delivery commit follows it as an untracked phase action.
+    One pre-archive provenance assertion — the check that every capability
+    names the archived change that wrote it — cannot pass while the change
+    is still active, so the readiness gate defers exactly that named
+    assertion with unique-match and single-filter evidence, and the full
+    unfiltered workspace suite runs read-only on the archived bytes after
+    the archive effect and before the delivery commit; readiness records
+    that archived validation as pending until its result exists, never as a
+    completed full-suite gate.
     Exact-head evidence whose subject is the immutable delivery commit or
     a later integrated head — the host exact-coverage gate, remote CI on
     the final head, integration, publication, PR, merge and issue closure
@@ -431,16 +454,30 @@ Alternatives weighed, each rejected on evidence rather than taste:
   dialects' smiths are told, and that an interrupted exercise recovers
   from what is on disk. Whether a live model obeys is judgment's to
   check, and the guides say so.
-- **The selected DSH route and its bound.** Ruling 5 selects official
-  core 0.1.0-rc.6 (`@deepseek-ai/dsh@0.1.0-rc.6`, the plugin's own
-  supported generation) with `dsh-plugin-cli-session` 0.2.0 at
-  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` as the supported extension
-  route from the headless caller to an owned root, and keeps its
-  declaration disabled until that exact pair's exact-root rejoin,
-  restriction precedence and current-sequence accounting are measured.
-  The installed 0.1.2-rc.1 one-shot result is bounded history for that
-  entry only and is never restated as a global DSH limitation; core
-  0.1.5-rc.1's removal of `agent.session.events` is a measured pair
-  incompatibility, not a global one. Whether a harness other than these
-  four is ever admitted, and on what evidence, stays the question ruling 5
-  already answers for any adapter.
+- **The selected DSH route and its bound.** Ruling 5 selects the latest
+  official core 0.1.5-rc.1 (`@deepseek-ai/dsh@0.1.5-rc.1` at
+  `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1
+  resolves in its place) with the repository-owned six-file adaptation of
+  `dsh-plugin-cli-session` 0.2.0 at
+  `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under
+  `extensions/dsh/plugin-cli-session/`, as the supported extension route
+  from the headless caller to an owned root, and keeps its declaration
+  disabled until that exact route's exact-root rejoin, restriction
+  precedence, current-sequence accounting and declared composite digest are
+  measured. An isolated live cold+warm qualification (2026-09-12) proved
+  composition, a result envelope, one continued root, nonce continuity and
+  per-message usage, but enables nothing. The installed 0.1.2-rc.1 one-shot
+  result is bounded history for that entry only and is never restated as a
+  global DSH limitation; the unadapted plugin's loss of
+  `agent.session.events` on 0.1.5-rc.1 was a measured pair incompatibility,
+  not a global one. Whether a harness other than these four is ever
+  admitted, and on what evidence, stays the question ruling 5 already
+  answers for any adapter.
+- **2026-09-10 — the operator reversed the 0.1.0-rc.6 pin.** The ruling
+  that selected the plugin's own supported core generation 0.1.0-rc.6 is
+  reversed: the forward-pinned latest core with the repository-owned
+  adaptation at `0f487e74` is the selected route, and the superseded
+  `.forge/tasks/dsh-pair-qualification-010rc6.json` record and its
+  0.1.0-rc.6 measurement are dated history only. This note is appended;
+  the earlier ruling and consequence text it supersedes is preserved as
+  history rather than rewritten.

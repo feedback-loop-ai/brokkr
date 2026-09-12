@@ -51,8 +51,8 @@
     "headless-work": {
       "status": "unmeasured",
       "identity": {
-        "version": "0.1.0-rc.6",
-        "applies_to": "0.1.0-rc.6"
+        "version": "0.1.5-rc.1",
+        "applies_to": "0.1.5-rc.1"
       },
       "classes": [
         "work"
@@ -62,15 +62,16 @@
       ],
       "hands": "none",
       "evidence": {
-        "interface": ".forge/tasks/dsh-pair-qualification-010rc6.json (2026-09-10): isolated live cold+warm qualification of @deepseek-ai/dsh 0.1.0-rc.6 plus dsh-plugin-cli-session 0.2.0 (0f487e74c81ed102c6899440d9f5d65e8e9eabda), the plugin's supported core; see .forge/tasks/controller-dsh-upstream-discovery.json"
+        "interface": ".forge/tasks/dsh-pair-qualification-015rc1.json (2026-09-12): isolated live cold+warm qualification of @deepseek-ai/dsh 0.1.5-rc.1 at 183f08e9 plus the repository-owned six-file adaptation of dsh-plugin-cli-session 0.2.0 at 0f487e74 under extensions/dsh/plugin-cli-session/; see controller-dsh-upstream-discovery.json and dsh-pair-incompatibility.json"
       },
-      "reason": "core 0.1.0-rc.6 is the plugin's supported generation (peer range >=0.1.0-rc.6; 0.1.5-rc.1 removed the agent.session.events it reads). The isolated pair continues one root cold-to-warm with a result envelope and per-message usage, but exact-root confirmation, restriction precedence and the multi-message accounting boundary are unmeasured and the Rust route is unimplemented, so it stays disabled",
+      "reason": "the forward-pinned route (@deepseek-ai/dsh 0.1.5-rc.1 plus the repository-owned six-file adaptation of dsh-plugin-cli-session 0.2.0 under extensions/dsh/plugin-cli-session/) is selected but disabled: the adapted pair continues one root cold-to-warm with a result envelope and per-message usage, but exact-root, restriction, multi-message accounting and composite-digest proof are unmeasured",
       "limitations": [
         "core 0.1.5-rc.1 broke the plugin's post-turn fold (agent.session.events removed); the selected pair therefore pins the plugin's supported core generation 0.1.0-rc.6 instead, not a global DSH limitation",
         "the plugin's emitted session_id is request-derived and is not independent root confirmation; the retained depth-zero header, post-resume init event, same-root nonce continuity and absence of a fresh sibling root must be observed",
         "the plugin's collectUsage() is last-wins over firstSeq and is not proven to attribute a multi-message/retry turn's aggregate; a numeric total that cannot be attributed must stay absent",
         "the installed 0.1.2-rc.1 headless runner's one-shot entry mints a fresh root and cannot forward the launcher's TUI example; that is bounded history for that entry only, never a global DSH or extension limitation",
-        "the separate hands/tools plugin deferral above is a different matter and is not what blocks this shape"
+        "the separate hands/tools plugin deferral above is a different matter and is not what blocks this shape",
+        "2026-09-10: the operator's ruling reversed this shape's earlier 0.1.0-rc.6 pin; the forward-pinned latest core with the repository-owned adaptation at 0f487e74 is the selected route, and the superseded .forge/tasks/dsh-pair-qualification-010rc6.json record is dated history, not a current route"
       ]
     }
   }

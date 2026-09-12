@@ -1072,11 +1072,41 @@ fn resume_identity(raw: &Map<String, Value>, what: &str) -> Result<ResumeIdentit
         bounded_reason(&reason, "unknown", &what)?;
         return Ok(ResumeIdentity::Unknown { reason });
     }
-    only_keys(identity, &["version", "applies_to"], &what)?;
+    only_keys(
+        identity,
+        &["version", "applies_to", "wrapper_digest"],
+        &what,
+    )?;
+    let wrapper_digest = match identity.get("wrapper_digest") {
+        None => None,
+        Some(_) => {
+            let digest = string(identity, "wrapper_digest", &what)?;
+            if !is_lower_hex_64(&digest) {
+                return invalid(format!(
+                    "{what} 'wrapper_digest' must be 64 lowercase hexadecimal characters — \
+                     the declared composite identity design D6 writes at enablement; \
+                     '{digest}' is not"
+                ));
+            }
+            Some(digest)
+        }
+    };
     Ok(ResumeIdentity::Measured {
         version: string(identity, "version", &what)?,
         applies_to: string(identity, "applies_to", &what)?,
+        wrapper_digest,
     })
+}
+
+/// Seat record v5's digest grammar: exactly 64 lowercase hexadecimal
+/// characters. Kept here rather than shared with the store so the loader
+/// refuses a malformed declaration by name at load, before any site
+/// compiles (design D6, 8.8's loader amendment).
+fn is_lower_hex_64(text: &str) -> bool {
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn resume_evidence(raw: &Map<String, Value>, what: &str) -> Result<ResumeEvidence, LibraryError> {

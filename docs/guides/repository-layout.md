@@ -15,6 +15,7 @@
 | `agents/` | The agent library (decision 0016): one definition per agent plus the charters seats used to inline. |
 | `dialects/` | The dialect library (decision 0042): one JSON declaration and one instruction page per artifact per dialect. `crates/brokkr-cli/dialects/` carries the same bytes, because `brokkr init` embeds them and a published crate can hold only its own directory; the packaging contract ties the two, file for file. |
 | `adapters/` | One data file per provider: driver invocation, abstract→concrete model mapping, and what the provider CANNOT express. |
+| `extensions/` | Decision 0009's extension boundary: language-neutral, repository-owned provider extension bytes (starting with the adapted `dsh-plugin-cli-session` under `extensions/dsh/plugin-cli-session/`, with `extensions/dsh/PROVENANCE.md`). No Brokkr crate builds, loads or executes them; deployment is an operator action. |
 | `fixtures/` | The frozen evaluator behavior corpus — contract data, never regenerated. |
 | `policy/phase-machine.json` | The heritage transition table the corpus derives from; stability is contract. |
 | [`docs/decisions/`](../decisions/) | The constitution: numbered operator rulings 0001–0019, indexed. |

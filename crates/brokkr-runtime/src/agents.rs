@@ -342,6 +342,11 @@ pub enum ResumeIdentity {
         /// two differ the status must not be `supported`: a measurement
         /// expires with its version (proposed decision 0056 ruling 5).
         applies_to: String,
+        /// The optional declared composite identity for a provider whose
+        /// runner is a composed set of packages rather than a single
+        /// binary (design D6). 64 lowercase hex, checked at load; absent
+        /// for every provider whose identity is the version alone.
+        wrapper_digest: Option<String>,
     },
     Unknown {
         reason: String,
@@ -354,7 +359,14 @@ impl ResumeIdentity {
             ResumeIdentity::Measured {
                 version,
                 applies_to,
-            } => json!({"version": version, "applies_to": applies_to}),
+                wrapper_digest,
+            } => {
+                let mut object = json!({"version": version, "applies_to": applies_to});
+                if let Some(digest) = wrapper_digest {
+                    object["wrapper_digest"] = Value::String(digest.clone());
+                }
+                object
+            }
             ResumeIdentity::Unknown { reason } => json!({"unknown": reason}),
         }
     }

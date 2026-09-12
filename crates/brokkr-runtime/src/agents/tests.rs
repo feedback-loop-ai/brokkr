@@ -2131,6 +2131,90 @@ fn present_and_malformed_resume_data_is_refused_and_never_read_as_unmeasured() {
     }
 }
 
+/// Design D6 / task 8.8(a): the optional `wrapper_digest` member is
+/// admitted in the measured form only, carried into the closed data the
+/// driver reads, moves the adapter content digest, and is refused by name
+/// when malformed or placed beside the unknown form.
+#[test]
+fn the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name() {
+    let digest = "a".repeat(64);
+
+    // Absent: a measured identity without the member still loads.
+    let plain = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let plain_adapters = plain.adapters();
+    let shape = plain_adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(
+        shape.identity,
+        ResumeIdentity::Measured {
+            version: "1.2.3".into(),
+            applies_to: "1.2.3".into(),
+            wrapper_digest: None,
+        }
+    );
+
+    // Present and well formed: loaded and carried in the closed data.
+    let wrapped = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3", "wrapper_digest": digest},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let wrapped_adapters = wrapped.adapters();
+    let shape = wrapped_adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(
+        shape.identity,
+        ResumeIdentity::Measured {
+            version: "1.2.3".into(),
+            applies_to: "1.2.3".into(),
+            wrapper_digest: Some(digest.clone()),
+        }
+    );
+    assert_eq!(shape.identity.value()["wrapper_digest"], json!(digest));
+    // The adapter content digest moves when the member moves.
+    assert_ne!(
+        plain_adapters.digest("claude"),
+        wrapped_adapters.digest("claude")
+    );
+
+    // Malformed: refused, naming the field.
+    for bad in [
+        json!("A".repeat(64)),
+        json!("a".repeat(63)),
+        json!("a".repeat(65)),
+        json!("g".repeat(64)),
+    ] {
+        let tree = with_resume(json!({
+            "work-site": {"status": "unmeasured",
+                "identity": {"version": "1.2.3", "applies_to": "1.2.3", "wrapper_digest": bad},
+                "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+        }));
+        let error = tree.adapters_error();
+        assert!(error.contains("wrapper_digest"), "{error}");
+    }
+
+    // Beside `unknown`: the unknown form admits `unknown` alone.
+    let tree = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"unknown": "why", "wrapper_digest": digest},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let error = tree.adapters_error();
+    assert!(error.contains("unknown key 'wrapper_digest'"), "{error}");
+}
+
 /// The assessment is adapter DATA: it rides the declaration digest, so a
 /// declaration edit moves every bundle identity that consults it. That
 /// is what makes decision 0030 ruling 4's "an adapter edit spawns cold"
