@@ -2583,3 +2583,59 @@ The Codex startup precondition remains true; this seat's own boxed version
 attempt returned 127 and supplies no host version. Task 10.5 still re-reads
 its exercised binary. The four truth repairs, provider proofs and enablement,
 re-pins, local gates and readiness remain pending in their adopted order.
+
+## Current tasks visit — breakdown readiness confirmation, 2026-09-13
+
+This visit belongs to run `current-successor-operator-rulin-eef1e666` and
+holds the tasks phase after design's own `6baca70` return above. It adopts
+HEAD `6baca70` and the whole dated change, re-reads the required evidence set
+(the September 12 controller sandbox note superseding the September 10 host
+blocker, both codex proof records, both DSH pair-measurement records, the
+upstream-discovery record, both probe scripts, `adapters/dsh.json` and
+proposed 0056) against D6, D10, all five deltas and this file, and checks the
+breakdown rather than repeating design's own reconciliation.
+
+Both commissioned findings are confirmed answered in the design before their
+task clauses: the npm key-to-triple rule (terminal group, verbatim entry
+version/integrity, no `name`-field fallback, hidden-lock-only source, three-
+group and malformed-intermediate-group vectors) is stated in D6 and carried
+into 8.8(b)'s canonicalization steps and 8.10's pinned vectors and the AS1
+"npm nested and scoped keys" scenario; the conditional Cordis extension's
+repository location (`extensions/dsh/resume-policy/`), four-file set and
+provenance rule are stated in D6 and carried into 8.8's return-to-pending
+clause, 8.10's synthetic-extension cases and the AS1 "measured missing hook"
+scenario. Tasks 1.1, 6.4, 8.8, 8.10, 9.6, 10.7, 11.3 and 11.5 all name the
+forward-pinned latest core (`@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9`) with
+the repository-owned six-file adaptation, and none names the superseded
+0.1.0-rc.6 pin as current; the reversal is preserved only as dated history
+in each artifact's own append-only ledger. Task 10.5 carries the September 12
+host evidence (startup/enforcement precondition measured true; resumed
+root/accounting/re-imposition still unmeasured; the 0.148.0/0.153.4
+reconciliation left as 10.5's own work) without upgrading it into a resume
+proof, and 11.4 states the operator's LaneTally exception without completing
+any provider disposition here.
+
+Ordering is unchanged and consistent across the file: 10.7's live half runs
+before 1.1/6.4/11.5/13.1; those four then land before 8.8; 8.8's function and
+doctor line land before 10.7's recording step; 8.10, 9.6 and 11.3 follow;
+11.1, 11.2, 10.5, 10.6, 10.8 and 11.4 proceed independently on their own
+provider's evidence; 14.1/14.2 follow every code and declaration change; 15.x
+gates and pre-archive readiness are last. No task's stated prerequisite
+contradicts another's.
+
+Recounted directly against this file: **78 complete / 23 pending** across the
+same 101 identifiers, none added, removed or renumbered. The five deltas
+parse at **20 requirements / 141 scenarios**, matching design and proposal's
+own counts. `openspec validate 2026-09-09-226-session-resumption --strict`
+exits 0: `Change '2026-09-09-226-session-resumption' is valid`. This seat's
+box has no `cargo` on `PATH`, consistent with every predecessor visit's own
+report from this box; no Rust, bundle, coverage or release result is claimed
+here. No production code, contract, decision, adapter declaration, doctor
+output, guide or evidence file was written by this visit; only this planning
+artifact was read and appended to. No task was ticked and none reopened.
+
+This breakdown names, for every pending task, the requirement it serves and
+the concrete artifact it produces, and needs no repair before implementation
+resumes. `upstream` is not reported: no design, proposal or spec defect was
+found. The next visit should implement in the stated order, starting with
+10.7's live half.
