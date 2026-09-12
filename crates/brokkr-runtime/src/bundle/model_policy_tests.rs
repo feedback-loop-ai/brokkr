@@ -2155,6 +2155,51 @@ fn the_shipped_codex_adapter_says_why_it_cannot_restrict_tools() {
 }
 
 #[test]
+fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
+    // The dsh pin task re-probed the installed `dsh 0.1.5-rc.1`
+    // (2026-09-12) for every stale version note and moved only what it
+    // re-measured: the launcher flags
+    // (`-V/--profile/--patch/--dump-config/--dump-default-config`,
+    // `web`/`plugin`) and the headless flags (`-h` alone, reasoning
+    // streamed to stderr) are unchanged since 0.1.2-rc.1, still no CLI
+    // flag swaps the shell and file tools or adds an MCP server, and
+    // the tools row still reads `DSH_TOOLS_MODE` with no documented
+    // vocabulary. So the capability stays absent and the refusal is
+    // unchanged; what moves is the REASON, which now names the release
+    // the tree is pinned to. An edit that drops the measurement back to
+    // an older release trips here, as does one that invents a flag.
+    let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
+    let dsh = adapters.adapter("dsh").expect("a shipped adapter");
+    assert!(dsh.hands.is_none(), "dsh still expresses no tool surface");
+    let gap = dsh
+        .hands_gap
+        .as_deref()
+        .expect("and still records why, rather than leaving it to be guessed");
+    assert!(gap.contains("0.1.5-rc.1"), "{gap}");
+    assert!(gap.contains("no CLI flag"), "{gap}");
+    assert!(gap.contains("presentAs"), "{gap}");
+    assert!(gap.contains("DSH_TOOLS_MODE"), "{gap}");
+    // The spark effort refusal was already measured on this release
+    // (decision 0035 addendum 2026-09-11, same binary), so it stands —
+    // pinned here so a re-pin that drops the route or its version trips
+    // beside the hands half of the same task.
+    let spark = dsh
+        .effortless_routes
+        .get("spark")
+        .expect("spark stays the measured effortless route");
+    assert!(spark.contains("0.1.5-rc.1"), "{spark}");
+    // The neighbours are untouched by this slice: bare `unsupported`
+    // stays bare, so the re-measured reason cannot be mistaken for a
+    // capability somebody forgot to wire.
+    assert!(dsh.tool_permissions.is_none(), "dsh tool_permissions");
+    assert!(
+        dsh.tool_permissions_gap.is_none(),
+        "dsh tool_permissions_gap"
+    );
+    assert!(dsh.mcp.is_none(), "dsh mcp");
+}
+
+#[test]
 fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // The other adapter-data half: `codex debug models` on the
     // installed codex-cli 0.148.0 listed the three gpt-5.6 slugs, and the
