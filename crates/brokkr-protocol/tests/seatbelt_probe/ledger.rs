@@ -589,6 +589,17 @@ fn build_ledger() -> Vec<LedgerEntry> {
          `executable`.",
         "root-inode-read",
     ));
+    ledger.push(diagnosis(
+        unit("sysctl-read", "sysctl-name", "hw.pagesize_compat"),
+        "the helper, in Rust runtime initialisation",
+        "the page-size query the stack-guard setup performs",
+        "Without it, `452f9a1` aborted before any stage with `failed to allocate a \
+         guard page: Invalid argument (os error 22)`; native CI `34694562248` \
+         recorded `sysctl-read hw.pagesize_compat` as the last denial before that \
+         abort, every one-class file, mach, IOKit, network and socket differential \
+         still aborted, and `allow default` reached `READY`.",
+        "page-size-sysctl-read",
+    ));
     ledger
 }
 

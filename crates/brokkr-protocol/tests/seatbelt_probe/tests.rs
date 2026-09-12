@@ -1053,7 +1053,7 @@ fn every_ledger_entry_carries_its_typed_justification() {
 }
 
 #[test]
-fn the_ledger_has_the_named_baseline_entries_and_one_diagnosis() {
+fn the_ledger_has_the_named_baseline_entries_and_two_diagnoses() {
     let baseline = STARTUP_RULE_LEDGER
         .iter()
         .filter(|entry| matches!(entry.class, LedgerClass::Baseline(_)))
@@ -1063,7 +1063,7 @@ fn the_ledger_has_the_named_baseline_entries_and_one_diagnosis() {
         .filter(|entry| matches!(entry.class, LedgerClass::DiagnosisAdmitted(_)))
         .count();
     assert_eq!(baseline, 23, "twenty-three baseline entries");
-    assert_eq!(diagnosis, 1, "one diagnosis-admitted entry");
+    assert_eq!(diagnosis, 2, "two diagnosis-admitted entries");
 }
 
 #[test]
@@ -1238,22 +1238,76 @@ fn an_unlisted_or_missing_unit_fails() {
 }
 
 #[test]
-fn the_removal_set_is_exactly_the_diagnosis_admitted_unit() {
-    // The root-inode removal names exactly the diagnosis-admitted entry.
+fn the_page_size_admission_names_one_sysctl_and_never_the_whole_class() {
+    // Minimal aperture, as for the root inode: the payload's runtime needs the
+    // page size to size its stack guard, so the candidate admits that one
+    // sysctl by name. A blanket `(allow sysctl-read)` would hand over every
+    // kernel parameter and is what the diagnostic set is for, never the
+    // candidate.
+    let entry = STARTUP_RULE_LEDGER
+        .iter()
+        .find(|entry| entry.unit.operation == "sysctl-read")
+        .expect("the candidate admits a sysctl read");
+    let filter = entry
+        .unit
+        .filter
+        .as_ref()
+        .expect("the sysctl read names one parameter");
+    assert_eq!(filter.name, "sysctl-name");
+    assert_eq!(filter.target, "hw.pagesize_compat");
+    assert_eq!(
+        entry.unit.render(),
+        "(allow sysctl-read (sysctl-name \"hw.pagesize_compat\"))"
+    );
+    let inputs = fixed_inputs();
+    let profile = fixed_profile(&inputs);
+    assert!(
+        !profile.contains("(allow sysctl-read)"),
+        "the candidate must never grant the whole sysctl class"
+    );
+    assert!(profile.contains(&entry.unit.render()));
+}
+
+#[test]
+fn the_removal_set_is_exactly_the_diagnosis_admitted_units() {
+    // The removal set and the diagnosis-admitted half are the same set: every
+    // admitted unit names a removal, every removal names an admitted unit, and
+    // the rule each removal strips is that unit rendered. Neither half may grow
+    // a member the other does not carry.
     let diagnosis: Vec<&LedgerEntry> = STARTUP_RULE_LEDGER
         .iter()
         .filter(|entry| matches!(entry.class, LedgerClass::DiagnosisAdmitted(_)))
         .collect();
-    assert_eq!(diagnosis.len(), 1);
-    let admission = match &diagnosis[0].class {
-        LedgerClass::DiagnosisAdmitted(admission) => admission,
-        _ => unreachable!(),
-    };
-    assert_eq!(admission.removal, STARTUP_NEGATIVE_ALLOWANCES[0].name);
     assert_eq!(
-        diagnosis[0].unit.render(),
-        STARTUP_NEGATIVE_ALLOWANCES[0].removed_rule
+        diagnosis.len(),
+        STARTUP_NEGATIVE_ALLOWANCES.len(),
+        "one removal control per diagnosis-admitted unit"
     );
+    for entry in &diagnosis {
+        let admission = match &entry.class {
+            LedgerClass::DiagnosisAdmitted(admission) => admission,
+            _ => unreachable!(),
+        };
+        let allowance = STARTUP_NEGATIVE_ALLOWANCES
+            .iter()
+            .find(|allowance| allowance.name == admission.removal)
+            .unwrap_or_else(|| panic!("no removal control named {}", admission.removal));
+        assert_eq!(
+            entry.unit.render(),
+            allowance.removed_rule,
+            "the removal strips the admitted unit as rendered"
+        );
+    }
+    for allowance in STARTUP_NEGATIVE_ALLOWANCES {
+        assert!(
+            diagnosis.iter().any(|entry| match &entry.class {
+                LedgerClass::DiagnosisAdmitted(admission) => admission.removal == allowance.name,
+                _ => false,
+            }),
+            "removal {} names no diagnosis-admitted unit",
+            allowance.name
+        );
+    }
 }
 
 #[test]

@@ -333,34 +333,52 @@ guarantees are not demonstrated, remain OPEN and block Seatbelt activation
 and completion. The full workspace suite and exact coverage were not run in
 this focused audit, and no native macOS test was run or claimed.
 
-### SEATBELT-R3-STARTUP, fourth failed prerequisite (CI 34693664540, head `00d4664`)
+### SEATBELT-R3-STARTUP, fourth measurement and the named cause (CI 34694562248, head `0692477`)
 
-OPEN, and tracked as issue #268. On the macOS runner with
-`/usr/bin/sandbox-exec` present, S3 registers with launchd and the staged
-helper digest equals the committed build digest (`814ac8535776fff9`), so
-instantiation, staging and identity are correct. The payload then aborts
-before any authenticated stage with `failed to allocate a guard page:
-Invalid argument (os error 22)` and `fatal runtime error: initialization or
-cleanup bug`. `launchctl print` reports `state = not running`, `runs = 1`,
-`successive crashes = 1`, `last terminating signal = Abort trap: 6`, and the
-removal control is `NotDue` because the cell never reached READY.
+The fourth native run finally discriminated the pre-stage abort. On the macOS
+runner with `/usr/bin/sandbox-exec` present, S0 and S2 (both unboxed) reached
+a nonce-authenticated `READY` and every stage. S1 and S3 (both under the
+candidate profile) aborted at `stages=[]` with signal 6. The staged helper
+digest equalled the committed build digest (`814ac8535776fff9`) in all four
+cells, so instantiation, staging and identity were never the fault.
 
-The denial log is `available: true` and empty: no Sandbox denial event
-matched the helper's image path or name, and the failure is `EINVAL` rather
-than `EPERM`. This names the cause more precisely than the three earlier
-records: it is the Rust standard library failing to establish the main
-thread's stack guard page under the profile, not an operation the candidate
-ledger could admit. Earlier measurements are not rewritten; the seven
-one-class differentials that still aborted before the first stage are
-consistent with this reading.
+The payload's own stderr names the operation:
 
-**Operator ruling, 2026-09-12.** The two R3 steps run inside the `engine`
-job, which is the required `test (macos-latest)` check. Held as hard gates
-they would fail every subsequent pull request's macOS job and block all
-merges into `main`. They are therefore `continue-on-error` until #268
-closes. The probe still runs on every macOS job, the verdict is printed, the
-report content is still checked and `r3-native-diagnostics` is still
-uploaded. This narrows what CI refuses; it does not narrow what the slice
-must prove. Acceptance remains gated by the unticked section 6 and 8 tasks
-and by Seatbelt staying unbuilt, and a passing startup measurement restores
-both steps to hard gates.
+```
+failed to allocate a guard page: Invalid argument (os error 22)
+fatal runtime error: initialization or cleanup bug, aborting
+```
+
+The bounded `log show` collection recorded the denial sequence that precedes
+it, and the last event before the abort is `deny(1) sysctl-read
+hw.pagesize_compat`. Read with the differentials, the cause is settled:
+
+| Cell or differential | Added authority | Result |
+| --- | --- | --- |
+| `allow-default` | every operation | reached `READY`, all seven stages |
+| `restore-all-fa7` | the withdrawn and narrowed fa7 units | `entry`, `payload-dir`, `executable` |
+| `tmp-realpath-read`, `ancestor-read-metadata`, `helper-parent-read` | file classes | aborted at `stages=[]` |
+| `mach-lookup`, `network`, `system-socket`, `iokit-open` | mach, network, socket, IOKit | aborted at `stages=[]` |
+
+No differential in the set admitted `sysctl-read`. That was the one class the
+seven one-at-a-time allowances never varied, which is why three earlier runs
+recorded the abort without naming it. The failure is `EINVAL`, not `EPERM`,
+because the denial makes the runtime's page-size query return no usable value
+and the stack-guard `mprotect` is then called with a length the kernel
+refuses. It is not an operation the ledger was missing on a filesystem path.
+
+**The repair (task 1.34), with minimal aperture.** The candidate admits
+`(allow sysctl-read (sysctl-name "hw.pagesize_compat"))` as a
+diagnosis-admitted unit: one parameter by name, never the `sysctl-read` class,
+matching the rule the root-inode read already follows. Its removal control
+`page-size-sysctl-read` joins the bounded removal set, so a startup cell that
+reaches `READY` must also observe the stripped replay failing closed before it
+may pass. The previously untested `sysctl-read` class enters the diagnostic
+set as an eighth labelled non-passing allowance, so the one-class record is
+complete for any future abort. Host-independent tests falsify the named
+aperture and require the removal set and the diagnosis-admitted half to remain
+the same set in both directions.
+
+Earlier measurements are not rewritten. The seven one-class differentials that
+still aborted before the first stage stand as recorded, and they are what
+makes this reading the only one left.

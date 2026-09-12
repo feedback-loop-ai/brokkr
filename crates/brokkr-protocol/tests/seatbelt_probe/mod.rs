@@ -746,7 +746,7 @@ pub struct DiagnosticAllowance {
 /// The complete bounded diagnostic set. Each entry is applied alone, on top of
 /// the unchanged candidate profile, and is recorded as a labelled non-passing
 /// diagnostic.
-pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 7] = [
+pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 8] = [
     DiagnosticAllowance {
         name: "tmp-realpath-read",
         operation: "file-read*",
@@ -796,6 +796,13 @@ pub const DIAGNOSTIC_ALLOWANCES: [DiagnosticAllowance; 7] = [
         consumer: "IOKit user clients",
         sbpl: "(allow iokit-open)",
     },
+    DiagnosticAllowance {
+        name: "sysctl-read",
+        operation: "sysctl-read",
+        target: "all sysctl names",
+        consumer: "runtime parameter queries the payload performs before its first stage",
+        sbpl: "(allow sysctl-read)",
+    },
 ];
 
 /// A load-bearing startup rule proved by *removal*: the exact candidate profile
@@ -819,11 +826,18 @@ pub struct StartupNegativeAllowance {
 
 /// The complete bounded removal set. Every entry must be observed blocking the
 /// exact payload before a Seatbelt startup cell may pass.
-pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 1] = [StartupNegativeAllowance {
-    name: "root-inode-read",
-    removed_rule: "(allow file-read* (literal \"/\"))",
-    consumer: "dynamic-loader initialisation read of the filesystem root inode",
-}];
+pub const STARTUP_NEGATIVE_ALLOWANCES: [StartupNegativeAllowance; 2] = [
+    StartupNegativeAllowance {
+        name: "root-inode-read",
+        removed_rule: "(allow file-read* (literal \"/\"))",
+        consumer: "dynamic-loader initialisation read of the filesystem root inode",
+    },
+    StartupNegativeAllowance {
+        name: "page-size-sysctl-read",
+        removed_rule: "(allow sysctl-read (sysctl-name \"hw.pagesize_compat\"))",
+        consumer: "Rust runtime page-size query for the main thread's stack guard",
+    },
+];
 
 /// One labelled removal control: the exact candidate profile with a single
 /// load-bearing rule stripped. It is recorded, never admitted.
