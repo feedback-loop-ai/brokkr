@@ -19,6 +19,12 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+mod composite;
+pub use composite::{
+    canonical_composite, npm_dependencies, npm_name, plugin_component, plugin_file_digests,
+    pnpm_dependencies, CompositeError, EXTENSION_FILES, PLUGIN_FILES,
+};
+
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};

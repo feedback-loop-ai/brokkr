@@ -2813,13 +2813,23 @@ pass.
 v5's 64-lowercase-hex grammar, refuses a malformed member or one beside
 `unknown` by name, carries it into the closed driver data, and a new
 `agents/tests.rs` case proves absence, presence, carriage, refusal and the
-adapter-content-digest move. 8.8 stays unchecked: (b) the plugin-component and
-canonical-composite function, (c) the doctor line and (d) the planner route
-with the private DSH target are not implemented, and 8.10/9.6 are unwritten, so
-no composite value exists yet.
+adapter-content-digest move. 8.8(b)'s deterministic core is implemented and
+tested in `crates/brokkr-protocol/src/adapters/composite.rs`: the
+bytewise-path plugin component, the npm key-to-triple rule and the bounded
+pnpm line reader (the full D6 normalization vectors, the three-group and
+malformed-intermediate cases, hidden-lock-only, deduplication and pnpm
+equivalence), and the canonical composite's fixed line order with its
+bundle-order, reload, home-patch and extension movements. `brokkr-protocol`
+gains the workspace `sha2` and `hex` dependencies, and `Cargo.lock` records
+exactly those two edges. 8.8 stays unchecked: (b)'s seam/locator layer (core
+package, Node runtime, profile manifest, bundle resolution and home patch),
+(c) the doctor line and (d) the planner route with the private DSH target are
+not implemented, and 8.10/9.6 are unwritten, so no value is wired to a home
+yet.
 
 Recount: **82 complete / 19 pending** across the same 101 identifiers. Cargo
 was present in this seat's box, so the focused Rust checks ran; the six
 commissioned full gates, provider proofs 10.5/10.6/10.8, the DSH recording
 step, enablement 11.1–11.4, re-pins and readiness remain pending. The next
-visit should implement 8.8(b)–(d), then 8.10 and 9.6.
+visit should implement 8.8(b)'s seam/locator layer, then 8.8(c)–(d), 8.10 and
+9.6.
