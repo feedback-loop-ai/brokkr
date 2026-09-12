@@ -226,4 +226,7 @@ either kind of evidence.
 - **WHEN** the smith invokes the dialect's normal archive operation on that dated identifier
 - **THEN** the archive keeps the exact identifier, applies the complete MODIFIED AS1, AS2, AS3 and PM4 requirements, and treats AS4, AS5 and every other unchanged requirement as a no-op
 - **AND** each existing provenance pointer remains byte-for-byte unchanged and singular, strict archived validation passes, and bidirectional provenance resolves
+- **AND** if a required assertion can pass only once this change's archived directory exists, the planning artifacts identify that assertion individually as deferred archive validation, verify that no other test is excluded, and record its status as pending rather than passed; every other required pre-archive check must pass before readiness
+- **AND** the complete required suite runs without that deferral on the archived tree and must pass before the delivery commit; a failure blocks that commit and requires reopening the same change and its owning task before repair, with readiness invalidated and no post-archive task edit
+- **AND** no assertion is weakened, no additional failure broadens the deferral, and no duplicate archive supplies an early substitute for the assertion's subject
 - **AND** a prior scratch success is not reported as completion of the real archive, tasks, provider proof or delivery

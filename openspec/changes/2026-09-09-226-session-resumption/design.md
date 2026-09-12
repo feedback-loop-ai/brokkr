@@ -1,15 +1,16 @@
 ## Context
 
-This council visit adopts `05fd566`, including all work at `cf06034`, for
-`current-successor-operator-rulin-eef1e666` under the same change identifier.
-Proposal P governs the whole-change and provider ruling. The two commissioned
-D6 findings are already answered at `05fd566`; this visit verifies those
-answers and reconciles the fresh robustness and simplicity positions in D10's
-2026-09-13 sitting. It clarifies the npm evidence and group parsing, requires
-a deeper synthetic vector, and names the composite's launch-time limit.
-The September 12 Codex host precondition remains measured true and task 10.5
-remains pending. The earlier design history and council dispositions below
-remain adopted, including A1–A5 and B1–B5.
+This returned council visit adopts `663c84a`, including all work at `cf06034`,
+for `current-successor-operator-rulin-eef1e666` under the same change identifier.
+Proposal P governs the whole-change and provider ruling. The only live analyze
+finding, F1, is D9's circular pre-archive test gate: an existing provenance
+assertion requires this returned change's archive directory while readiness
+requires that assertion to pass before the directory can exist. D9 repairs the
+order, D10 reconciles both fresh positions, and the existing PM4 scenario and
+tasks follow. The two commissioned D6 findings and A1–A5/B1–B5 remain settled.
+The September 12 Codex host precondition remains measured true; this seat's
+`codex --version` returns 127 and supplies no host version. Task 10.5 remains
+pending, with its installed-version reconciliation and full resume proof owed.
 
 This design adopts the existing
 **2026-09-09-226-session-resumption** change at `7178895`, over its
@@ -1226,7 +1227,7 @@ state machine:
 | Active / archive-ready | None after the readiness tick and final progress edit. | Every checkbox truthfully describes completed repository-local work. Progress says archive and commit have not occurred. A death here leaves an all-ticked active change whose next action is the archive effect. |
 | Active / dated return | Identity repair and ordinary work may continue; readiness remains pending. | The active directory retains the original date-prefixed archive identity. Existing provenance is not rewritten; once every real task completes, the normal archive operation preserves this identity and makes the existing pointers resolve again. |
 | Archive effect in doubt | None until the actual namespace, living truth, provenance, index and HEAD are classified. | If all archive postconditions already hold, treat the fold as complete rather than repeating it. If the change is wholly active and living truth is unchanged, revalidate before invoking archive. If state is partial or inconsistent, restore this identifier to one active authoritative copy before repair; invalidate readiness if repair changes its premises. |
-| Archived / uncommitted | None. Archived validation, provenance assertions and staged-diff review are read-only. | A failed check reopens the same change before any repair; never patch the archived task file. |
+| Archived / uncommitted | None. Strict archived validation, the full unfiltered workspace suite (including both provenance directions) and staged-diff review are read-only with respect to tracked artifacts. | Any failure blocks the delivery commit and reopens the same change and its owning task before repair; invalidate readiness, and never patch the archived task file. |
 | Commit outcome in doubt | None until HEAD, its tree and worktree cleanliness are inspected. | If HEAD already contains the exact intended all-ticked archive, do not commit again. Otherwise repair from the appropriate earlier state. No dirty or wrong head is handed off. |
 | Controller evidence | None to the subject head or archived artifact. | Missing or failed evidence blocks only the claim it serves and stays pending outside the task artifact. |
 
@@ -1235,13 +1236,57 @@ acceptance work completes while the change is active: all earlier tracked
 obligations and their evidence are complete, active strict validation passes,
 the final progress account distinguishes repository-local completion from the
 still-pending archive and commit, the intended paths are staged and reviewed,
-and the archive command and exact postconditions below are selected. Ticking it
-is the last task-artifact edit; the tick does not claim that archive ran.
+and the archive command and exact postconditions below are selected. The final
+account names F1's single deferred assertion and the full archived suite as
+pending archive validation, separately from completed 15.3 preparation. Ticking
+15.7 is the last task-artifact edit; it claims neither archive nor a full-suite
+pass.
 The tracked obligations include the commissioned
 `cargo build --release --locked -p brokkr-cli`: it is attainable against the
 active worktree and must pass on the same final active bytes as the other local
 gates. A successful debug/test build or either bundle compile is not evidence
 that the release profile built.
+
+**F1 — Schedule the archive-dependent assertion after its subject exists
+(analyze return, 2026-09-13).** All five living capabilities already name
+`2026-09-09-226-session-resumption`, but its directory exists only in the
+active namespace. `crates/brokkr-cli/tests/provenance.rs:167` deliberately
+requires an archived directory. No pending implementation task can make that
+assertion pass before the normal fold. The defect is this design's validation
+order, not the test or F12's dated identity. PM4 already places archived checks
+after the fold and requires reopening before repair, so no earlier artifact
+needs a new exemption.
+
+Pre-archive task 15.3 runs exactly:
+
+```sh
+cargo test --workspace --all-features --locked -- --skip every_capability_names_the_archived_changes_that_wrote_it
+```
+
+Only that named assertion is deferred to archive validation; this is not a
+policy for excluding failing tests. Before ticking 15.3, retain the test
+listing from `cargo test --workspace --all-features --locked -- --list` and
+verify the skip substring matches exactly that one test in the provenance
+binary. Require the successful pre-archive run's `N filtered out` counts,
+summed over every test-result summary, to equal exactly one. No other filter
+or exclusion is permitted. A listing ambiguity, an additional filtered test
+or any failure leaves 15.3 pending. The other provenance direction still runs;
+its current pass is vacuous for this change because it iterates only existing
+archives, and cannot be credited as this change's round-trip proof. Dropping
+the skip before the fold correctly makes 15.3 fail and blocks readiness; never
+soften the assertion, accept an active directory as its substitute, or add an
+ignore/cfg annotation to make that failure disappear.
+
+After the normal archive, the existing read-only phase action runs the complete
+`cargo test --workspace --all-features --locked` with no test filter or skip,
+on the archived tree. Both provenance directions and every other required test
+must pass before the activation/delivery commit. The pre-archive tick records
+only its completed scope; the full-suite result is mandatory archive validation,
+recorded in run-local output outside the frozen task artifact, not a new task
+or external controller result. Any failed archived test blocks the commit and
+uses the recovery row above: reopen the same dated change, reopen its owning
+task and invalidate readiness before repair. No partial suite is reported as
+full success, and no post-archive tick is needed.
 
 F12 is resolved by preserving the original archive identity in the active
 namespace. Installed OpenSpec 1.12.0 tests
@@ -1256,8 +1301,9 @@ After every real tracked task is complete, run `openspec archive
 identity, applies the complete AS1–AS3 and PM4 replacements semantically, treats
 the other sixteen identical requirements as no-ops and leaves all five existing
 provenance sections byte-for-byte unchanged with one pointer each. Then run
-strict archived validation and the Rust bidirectional-provenance checks
-read-only. The controller probe predates proposal K/L and demonstrates the
+strict archived validation and the complete unfiltered workspace suite,
+including both Rust provenance directions, read-only before the delivery commit.
+The controller probe predates proposal K/L and demonstrates the
 identity mechanism only; its scratch ticks and archive are not delivery
 evidence.
 Manual post-archive renames, dropping or spoofing the date, `--skip-specs`,
@@ -1288,7 +1334,12 @@ completed fold whose acknowledgement was lost or duplicate provenance. F12's
 supersession proposal is rejected because it assumed OpenSpec would replace an
 existing date prefix; the installed source and dated scratch archive disprove
 that premise. A handoff capability, evidence database, verifier exception and
-public runtime lifecycle type remain unnecessary.
+public runtime lifecycle type remain unnecessary. F1 also rejects a duplicate
+archive created to make the pre-archive test pass, a broad known-failures skip,
+a weakened assertion, an archive-before-readiness shortcut and a post-archive
+15.3 tick. Each either falsifies the task evidence or bypasses the singular
+normal fold. Scheduling the unchanged assertion and requiring the full suite
+before commit preserves both proofs.
 
 **Bindings:** PM1–PM4; `library_data.rs` charter/roster/identity tests, both
 dialects' implement/return prompt tests, a deterministic recovery exercise,
@@ -1324,11 +1375,11 @@ rulings and enforcement bindings are:
 | 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
 | 9 | Current-only accounting, unchanged transcript/privacy limits, narrow legacy compatibility. | D8 accounting/export/verify/legacy tests. |
-| 10 | Persist truthful progress before the next group; finish and mark all tracked repository-local work while active; then run archive as the final non-checkbox artifact effect, verify the archived result read-only, commit, and keep exact-head controller evidence external to the task state. | D9 instruction/identity tests, readiness and archive recovery postconditions, and content-addressed handoff. Actual completion is judgment guidance, not an automatic guarantee. |
+| 10 | Persist truthful progress before the next group; finish and mark all tracked repository-local work while active, with D9's single archive-dependent assertion explicitly deferred; then run archive as the final non-checkbox artifact effect, verify the archived result and full unfiltered workspace suite read-only before commit, and keep exact-head controller evidence external to the task state. | D9 instruction/identity tests, readiness and archive recovery postconditions, and content-addressed handoff. Actual completion is judgment guidance, not an automatic guarantee. |
 
 The B1–B5 sitting's source pins remain recorded here so its reasoning survives
-the run-local positions' replacement. The current sitting's pins and
-reconciliation follow under *Council sitting — 2026-09-13*:
+the run-local positions' replacement. The earlier successor sitting and the
+current F1 sitting each retain their own pins and reconciliation below:
 
 - Robustness SHA-256: `3747137128c7333d8d8dce72e161c2cc5079a2788129974b1e4ae401ee5e7b0d`.
 - Simplicity SHA-256: `b9f30ae7f5bab0be001afb7a998d6c4cc7e58360eae8ff3b657123066219eb02`.
@@ -1469,6 +1520,37 @@ clarifications of the adopted answers. Amend the existing npm scenario and
 tasks after D6, retain all 101 IDs and ticks (78 complete / 23 pending), and
 leave 1.1/6.4/11.5/13.1's truth repairs and every proof/enablement gate pending.
 
+*F1 council sitting — analyze return, 2026-09-13 (Europe/Sofia):*
+
+Read both replacement position files in full at `663c84a`. These are the
+current pins; the preceding sitting's hashes and dispositions remain history:
+
+- `.forge/design/positions/robustness.md`: SHA-256
+  `728328aaf78ae8f05d2929b84f48d9e000202018cfe56ebbc6abe8fbe4f0fded`.
+- `.forge/design/positions/simplicity.md`: SHA-256
+  `faae5333cdf499174387024a8591060a515bdef767fefc203d31895e8af3fa90`.
+
+| Position / claim | Disposition and evidence |
+|---|---|
+| Both: F1 is the only live finding; defer one named assertion in 15.3 and require the full suite after archive before delivery. | Adopt in D9, D11 and Migration Plan, then PM4's existing normal-rearchive scenario and tasks 15.3/15.6/15.7 plus the post-task action. The source, five existing pointers and absent archive reproduce the circular dependency. The test remains unchanged; the ledger stays 78/23 of 101. |
+| Robustness asks 2–3: prevent silent widening of the skip and distinguish deferred from passed; simplicity rejects another guard test or verifier. | Combine as evidence requirements, not new machinery. The test listing must contain exactly one match for the skip substring, and the pre-archive run must report exactly one filtered test across all summaries. The second provenance direction passes for existing archives but is vacuous for this change until it is folded. No broader skip follows from a later failure; it is a new finding. |
+| Robustness ask 4: dropping the deferral early should fail loudly; both reject weakening the assertion, duplicate archives and post-archive ticks. | Adopt. The retained binary fails on the absent archive at line 167. That is the wanted provenance guarantee. D9 keeps the assertion, requires the full unfiltered suite after the fold, and reopens the owning task/readiness before any repair. A clean exit or partial suite cannot authorize the delivery commit. |
+| Robustness ask 1: put a durable dated-return scheduling comment beside the test; simplicity asks for artifact-only clause edits. | Reject the source-comment addition for this repair while adopting the durable explanation. The test's existing module comment correctly describes the invariant and its two directions; it needs no exception in source. PM4's existing normal-rearchive scenario records the observable deferral/pending/full-suite/reopen behavior durably, while D9 and tasks own this commission's exact command and test name, as PM4 requires. A second scheduling account beside an unchanged assertion duplicates that ownership; no standing charter, dialect instruction, source file or new task is needed. |
+| Simplicity's remaining cuts and both positions' settled D6/provider claims. | Adopt unchanged: one optional identity member, one composite producer and doctor entry, one evidence-gated declaration swap; no parser dependency, new framework, speculative extension, live cargo test, capability, decision, contract, task ID or store. The npm and extension answers, depth vector and launch-time residual remain settled. No split or support by analogy; Codex/Claude/DSH proofs and LaneTally's sole 11.4 exception remain as commissioned. |
+
+This seat independently ran the retained provenance binary (SHA-256
+`bb72b8699dec4c9573cb4cb7e034e2d83a382a63bd15e20674b7ff4cefcbf59e`): the
+named assertion fails, and excluding it yields one passed/one filtered. Its
+source is unchanged from `cf06034` (SHA-256
+`1bbb21afc0268ab79acdcf14770b75c3426c1aae01a03ee90c1d1b3469db596d`). This
+corroborates F1 and the scheduling mechanism; it is not a fresh Cargo run,
+workspace proof, archive result or 15.3 completion. Simplicity reports its own
+fresh focused Cargo run; this seat has no Cargo and makes no such claim.
+No earlier artifact is at fault: the proposal requires the full suite before
+delivery, PM4 already reserves read-only archived validation, and D9 supplied
+the impossible pre-archive ordering. Answer F1 here first, then reconcile its
+scenario and tasks without reopening settled planning or ticking delivery work.
+
 **Forward-pin reconciliation.** The tasks return reconciles the artifacts
 `a86eca1` pointed at 0.1.0-rc.6, in this order, and adds no identifier:
 
@@ -1582,13 +1664,17 @@ modify frozen evaluator fixtures.
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
 | LE4 | Only current turns/tools/targets/usage, replay, unknown baseline, rotated/truncated source, completion deduplication and LaneTally capture. DSH exercises multi-message/tool/retry behavior across `firstSeq`, establishes per-message versus cumulative usage before folding, and shows the adapted slice equals the retained log filtered to `seq >= firstSeq`. Retain transcript caps. |
-| PM1/PM2/PM3/PM4 | Both dialects' SDD instruction/rendering/identity suites and returns; completed uncommitted group plus interrupted partial group; missing-edit/failed-check reconciliation; pending workspace proof; death after the readiness tick leaves a truthful all-ticked active change; lost archive or commit acknowledgement is recognized without duplicate fold/commit; a partial fold refuses blind retry and repairs only after reopening; a returned dated change retains its identity and normal rearchive keeps singular bidirectional provenance; exact-head controller evidence remains external and judges do not mutate. |
+| PM1/PM2/PM3/PM4 | Both dialects' SDD instruction/rendering/identity suites and returns; completed uncommitted group plus interrupted partial group; missing-edit/failed-check reconciliation; pending workspace proof; death after the readiness tick leaves a truthful all-ticked active change; lost archive or commit acknowledgement is recognized without duplicate fold/commit; a partial fold refuses blind retry and repairs only after reopening; a returned dated change retains its identity and normal rearchive keeps singular bidirectional provenance; the one named archive-dependent assertion stays explicitly deferred before the fold, the skip matches and filters exactly one test, and the full unfiltered archived suite must pass before delivery or reopen the change and owning task; exact-head controller evidence remains external and judges do not mutate. |
 
 Run the proposal's exact commands with `CARGO_BUILD_JOBS=2` and
 `RUST_TEST_THREADS=2`: format, clippy with all targets/features and warnings as
 errors, workspace tests with all features/locked, both bundle compiles, and
 `cargo build --release --locked -p brokkr-cli`. The release-profile command
-has its own result and is not discharged by the other builds.
+has its own result and is not discharged by the other builds. For this dated
+return, D9 schedules exactly one named assertion after the fold: 15.3 checks
+the rest with its single-match/single-filter evidence, then the full unfiltered
+suite runs on archived bytes before the activation/delivery commit. This
+changes no assertion or coverage threshold.
 Run the unchanged exact-coverage gate on the host with `TMPDIR=/var/tmp` and
 `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`. CI, release admission and coverage continue
 to consume `rust-nightly-version.txt`. A nested-box skip or missing tool is
@@ -1685,6 +1771,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
+- [A returned change's archive-dependent assertion makes readiness circular]
+  → D9 defers exactly the named assertion in 15.3, verifies a unique listing
+  match and one filtered test, and requires the full unfiltered archived suite
+  before delivery. Deferred is never green; any post-fold failure reopens the
+  same change and owning task before repair. No new failure may widen the skip.
 - [Required provider evidence is incomplete] → Proceed with known construction
   and tests; keep separate evidence/enablement tasks pending. Disabled or
   unmeasured declarations do not complete AS1. A measured failure of the exact
@@ -1818,11 +1909,15 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    a policy or pre-work observation hook, compose the narrow documented Cordis
    extension and include it in the same identity; otherwise add none. A failed qualification returns
    the exact unmet AS1 condition and does not authorize SDK/TUI substitution or
-   a global pin change. Finish the repository-local tests, house validation,
-   both bundle compiles and `cargo build --release --locked -p brokkr-cli`, then
-   specification review, task reconciliation and the final progress account
-   while the change is active. The task phase adds the release build to
-   still-pending 15.4 rather than creating or renumbering a task.
+   a global pin change. Finish D9's pre-archive suite with exactly its one named
+   assertion deferred and its single-match/single-filter evidence, the other
+   house validation, both bundle compiles and
+   `cargo build --release --locked -p brokkr-cli`, then specification review,
+   task reconciliation and the final progress account while the change is
+   active. That account records the full archived suite as pending; the
+   activation/delivery commit still requires its unfiltered pass after the fold.
+   The task phase adds the release build to still-pending 15.4 rather than
+   creating or renumbering a task.
 5. Preserve the restored active identity
    `2026-09-09-226-session-resumption` through every current command and
    artifact. After every real tracked task is complete and readiness is
@@ -1832,8 +1927,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    identical requirements to no-op, all five existing provenance sections to
    remain byte-for-byte
    unchanged and singular, and the archived identity to remain dated
-   2026-09-09. Run strict archived validation, Rust bidirectional provenance and
-   staged-diff checks read-only. This design visit does not archive.
+   2026-09-09. Run strict archived validation, the complete unfiltered
+   `cargo test --workspace --all-features --locked` (both provenance directions
+   included) and staged-diff checks read-only with respect to tracked artifacts.
+   A failure blocks the delivery commit and reopens the same dated change, its
+   owning task and readiness before repair. This design visit does not archive.
 6. Commit the all-ticked archive unsigned in repository style, verify the exact
    head and clean tree, then hand it to the controller. Host exact coverage of
    the delivery commit and integration, remote validation, publication, merge
@@ -2318,3 +2416,41 @@ This is a drafted design and dependent-artifact preparation commit only.
 Proposed 0056 remains proposed, all provider proofs and enablement remain
 pending, and no production, frozen, provider-setting or release artifact is
 changed. The controller retains integration, remote CI, publication and closure.
+
+
+## Returned design-phase validation — F1, 2026-09-13
+
+Adopted `663c84a`, including `cf06034`, under the unchanged
+`2026-09-09-226-session-resumption` identifier. Read the dialect's own rendered
+design, specs and tasks instructions, the return instructions, every required
+provider/host evidence file and probe script, the whole change and both fresh
+positions through the workspace tool. D9 answers the returned F1 ordering
+fault first; D10 records the council's adopted, combined and rejected claims
+with reasons. The existing PM4 scenario and tasks then follow. No proposal or
+earlier spec fault warrants `upstream`; settled D6 and earlier findings remain
+adopted.
+
+Strict active OpenSpec validation, artifact status and delta parsing pass.
+Structural checks and `git diff --check` pass: the same 20 requirements, 141
+scenarios and 101 task IDs remain, with 78 complete / 23 pending. A read-only
+prospective-fold comparison still yields exactly AS1–AS3 and PM4 as semantic
+replacements. Only design, the existing PM4 scenario and dependent tasks are
+amended; the proposal, historical return sections, D5–D8, living specifications,
+singular provenance, production code and frozen paths remain unchanged. No
+archive, workflow runner, provider invocation or Brokkr run was started.
+
+The retained provenance binary reproduces the missing-archive failure and the
+one-pass/one-filter result described in D10. This is focused retained-binary
+evidence, not a fresh workspace run. Each of the six commissioned Cargo
+commands (format, clippy, workspace tests, both bundle compiles and release
+build) failed to launch with `ENOENT`: Cargo is absent in this box. The bare
+`codex --version` returned 127, supplying no installed host version. No Rust,
+bundle, release, provider or readiness pass is claimed. Exact coverage remains
+pending controller evidence on the final delivery head outside the box; CI,
+release and local coverage still read `rust-nightly-version.txt`. This visit's
+command and structural evidence is under `.forge/design-chief-eef1e666-f1/`.
+
+This is a design preparation commit. Proposed 0056 remains proposed, all 23
+pending tasks stay pending, and the full unfiltered archived suite remains
+mandatory before the activation/delivery commit. Remote CI, publication,
+integration and closure remain with the controller.
