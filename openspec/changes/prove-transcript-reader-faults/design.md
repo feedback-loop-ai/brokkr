@@ -91,7 +91,8 @@ design does not repeat them.
   missing-journal rule on the command, the browser and the TUI.
 - Say how the rest of #222 closes on this branch: the repair verification
   record, the security residual, the integration fixture ports, every gate,
-  the final review and the archive fold.
+  the archive fold, the commit, and the independent final review of that
+  committed head.
 
 **Non-Goals:**
 
@@ -160,6 +161,26 @@ available for nothing.
 | F3: proposal Impact, D10 and task 9.1 must name the same place in the same words | robustness | **Adopted** | All three are repaired together in this visit. |
 | The two `tui.rs` restructures are the largest code motion; prefer the smallest form that removes the arm | simplicity | **Adopted as a caution** | D5 already fixes the form and requires the existing `transcript_invalidates` expectations to move unchanged. No reopening of the settled reach-or-remove ruling. |
 | Neither seat reopens D2-D9's seam shape, the S1-S14 clarify record, or the six targets | both | **Held** | Nothing in F1-F4 bears on them, and no new evidence was offered. |
+
+#### Third sitting: the second return from analyze (A1)
+
+Analyze's second visit verified F1-F4 as repaired and raised one low
+finding, owned by this design: the Migration Plan's step 9 ordered the final
+independent review *before* the archive fold and the commit, and tasks
+9.2-9.4 copied that order. Both seats wrote again, and they agree: the
+reviewed head must be the delivered head, the repair is a reordering rather
+than a mechanism, and nothing else in the design moves. They differ only in
+how much the fold task must carry.
+
+| Claim | Seat | Ruling | Evidence and result |
+|---|---|---|---|
+| A1: the repair is a reordering of the Migration Plan and tasks group 9 — fold, then commit, then the review of that committed head — and nothing larger | simplicity | **Adopted** | The commit hash already is the head's identity. D11's own list, the archived change's tasks 13.9-13.10 and the paragraph beneath them, and this design's existing treatment of host coverage and remote CI all have this shape already. The Migration Plan step 9, the Goals line, D11's Archive bullet and D11's Final review bullet are repaired here; tasks 9.1-9.3 and the group-9 preamble and heading mirror them. |
+| A1: a pre-commit checkbox cannot carry post-commit evidence, so the review becomes a closing paragraph outside the tracked checkboxes, not a fourth checkbox | robustness, simplicity | **Adopted** | This is the shape the commission demands ("proof does not change the head it validates") and the archived change used. Old task 9.2 is deleted as a checkbox and its content moves to the paragraph after 9.3. |
+| A1: the fold must re-run `openspec validate --all --strict` on the folded living spec and the archived change, because 8.6's run validated a different tree | robustness | **Adopted** | The fold is the one closing step that edits living truth (`openspec/specs/transcript-reading/spec.md`) and moves a directory, which is exactly where a mis-placed requirement block or archive path goes unnoticed. The archived change's task 13.9 required the same post-fold check; this draft's fold task did not. It is one clause on the task that performs the fold. |
+| A1: a separate group-9 validation task, or any ordering-enforcement mechanism (a hook, a script asserting no commit follows the review, a recorded head digest, a second post-review commit task) | simplicity | **Adopted as a refusal** | A second checkbox can go stale independently of the fold it validates, which is the failure mode A1 names. The ordering plus the paragraph is what the repository has already run once. No mechanism is added. |
+| A1: repair `proposal.md:99` instead, so the review keeps coming first | — | **Rejected** | `proposal.md:99` ("end with an independent clean final review") is the invariant the other two artifacts drifted from, and it is correct. Reordering it would enshrine the defect and make the delivered head unreviewable. The proposal does not move. |
+| A1: say what happens when the final review finds a defect | robustness | **Adopted** | D11's Final review bullet and the tasks' closing paragraph both say it: the finding is repaired in its owning artifact through the run's ordinary drift machinery, the repair is a new commit, and that new head gets its own clean review. This branch has already run that loop (reviews 7505 and 7507), so it records a fact rather than inventing contingency machinery. |
+| Nothing in A1 bears on the seam, the six targets, the WAL settlement, the enforcement binding, or S1-S14 | both | **Held** | A1 is owned by the migration text alone. D1-D10 stand as `5d9cefe` left them. |
 
 ### D2 — One test-only module, a builder plan and an opaque guard
 
@@ -644,10 +665,24 @@ repairing them separately would recreate it.
 - **Archive.** When every task is checked, the change folds into
   `openspec/specs/transcript-reading/spec.md` with one normal archive: the
   modified requirement is replaced and the new one appended. Existing
-  provenance lines are append-only (decision 0042).
-- **Final review.** A fresh, independent final review closes the issue's
-  engineering. Its run-integrity observations are recorded as observations,
-  never as directions to override a gate.
+  provenance lines are append-only (decision 0042). The fold edits living
+  truth and moves the change directory, so it re-runs `openspec validate
+  --all --strict` on the folded living spec and on the archived change
+  afterwards; group 8's earlier run validated a different tree and does not
+  speak for the folded one.
+- **Commit.** The commit of the ticked task list and its code comes after
+  the fold, and it is the head this branch delivers.
+- **Final review.** A fresh, independent final review of that committed
+  head closes the issue's engineering. It is the last thing on the branch,
+  and it certifies the delivered bytes: nothing tracked lands after it. Its
+  evidence is recorded outside the tracked checkboxes, for the same reason
+  host coverage, remote CI and publication are — a checkbox ticked before
+  the commit cannot carry proof of the commit. Its run-integrity
+  observations are recorded as observations, never as directions to
+  override a gate. A finding it raises is a new finding in the owning
+  artifact, repaired through the run's ordinary drift machinery; the repair
+  is a new commit, and that new head gets its own clean review, so the
+  reviewed head and the delivered head are never different heads.
 
 ## Risks / Trade-offs
 
@@ -685,6 +720,12 @@ repairing them separately would recreate it.
 - [The pre-existing `HOME` pattern in `ui/tests.rs` is not unwind-safe] →
   Recorded residual, out of scope. No test in this change mutates the
   environment.
+- [The final review is run evidence, not a tracked checkbox, so the task
+  list never records it as done] → That is the point: a checkbox ticked
+  before the fold and the commit would assert a review of a head that does
+  not exist yet. The commit hash is the head's identity, and the review
+  names it. The archived change closed the same way (its tasks 13.9–13.10
+  and the paragraph beneath them).
 
 ## Migration Plan
 
@@ -702,8 +743,11 @@ Each step is a commit tagged `(#222)`, unsigned and never pushed.
 8. Re-measure, re-trace S11 and run every gate. Write the verification
    record with the M/L regression map and the security residual.
 9. Add the contributor note to `docs/guides/contributing-by-hand.md`'s
-   "The four refusal shapes" section. Get the final independent review.
-   Fold the archive.
+   "The four refusal shapes" section. Fold the archive and re-validate the
+   folded living spec and the archived change. Commit the completed, ticked
+   task list and its code. The fresh, independent final review is taken of
+   that committed head, and its evidence is recorded outside the tracked
+   checkboxes.
 
 There is no data or contract migration: the journal format, frozen
 surfaces, CLI and routes are unchanged. Rollback is reverting the commits.

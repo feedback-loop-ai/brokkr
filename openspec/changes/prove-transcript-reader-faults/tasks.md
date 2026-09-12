@@ -6,8 +6,10 @@ itself, then the seven hook statements with their scripted-error and
 real-change tests, then the restructures and the `claude_source` home
 parameter, then the remaining ordinary fixtures, then the journal-inertness
 tests, then the read-only integration fixture ports, then coverage
-re-trace and every gate, then the contributor note, final review and
-archive fold. This is the order another smith executes them in: a later
+re-trace and every gate, then the contributor note, the archive fold and
+the final commit, with the independent final review as post-commit evidence
+of the head that commit fixes. This is the order another smith executes
+them in: a later
 group's tests exercise hooks and restructures the earlier groups land, and
 the closing gates and archive must see every earlier group's tests green
 before they run.
@@ -15,7 +17,7 @@ before they run.
 Every task names the requirement it serves as `transcript-reading /
 <Requirement>`. Group 1, group 7 and group 9 serve every requirement of
 this change, because a filing prerequisite, the read-only integration
-inspection and the closing gates/archive/review are not requirements of
+inspection and the closing gates, fold and commit are not requirements of
 their own.
 
 Conventions binding on every task below, restated once rather than per
@@ -373,7 +375,7 @@ task:
       coverage gate under `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2` —
       every requirement of this change.
 
-## 9. Contributor note, final review, archive fold (D10, D11)
+## 9. Contributor note, archive fold, commit (D10, D11)
 
 - [ ] 9.1 Add the short coverage note to
       `docs/guides/contributing-by-hand.md`, as one paragraph in the
@@ -391,16 +393,28 @@ task:
       Check that this task, design D10 and the proposal's Impact line name
       the same file and section in the same words — every requirement of
       this change.
-- [ ] 9.2 Obtain a fresh, independent final review of this branch's head.
-      Record its run-integrity observations as observations, never as
-      directions to override a gate — every requirement of this change.
-- [ ] 9.3 Fold the change into `openspec/specs/transcript-reading/spec.md`
+- [ ] 9.2 Fold the change into `openspec/specs/transcript-reading/spec.md`
       with one normal archive: replace the modified "Transcript prose stays
       local and inert" requirement and append the new "Reader failure
       handling is proved through a test-only fault seam" requirement,
       keeping existing provenance lines append-only (decision 0042). Move
-      this change's directory under `openspec/changes/archive/` — every
-      requirement of this change.
-- [ ] 9.4 Commit the completed, ticked task list and its code together,
+      this change's directory under `openspec/changes/archive/`. Then re-run
+      `openspec validate --all --strict` on the folded tree and confirm both
+      the living `transcript-reading` specification and the archived change
+      pass: 8.6's run validated the pre-fold tree and does not speak for
+      this one — every requirement of this change.
+- [ ] 9.3 Commit the completed, ticked task list and its code together,
       tagged `(#222)`, unsigned, and never pushed — every requirement of
       this change.
+
+The fresh, independent final review is deliberately outside the tracked
+checkboxes above. After 9.3 fixes the delivered head, that review is taken
+of the unchanged commit 9.3 produced, and it causes no further tracked edit.
+Its run-integrity observations are recorded as observations, never as
+directions to override a gate. If it finds a defect, the finding is repaired
+in its owning artifact through the run's ordinary drift machinery, the
+repair is a new commit, and that new head gets its own clean review — the
+reviewed head is always the delivered head. Host exact coverage with
+`TMPDIR=/var/tmp` and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`, remote CI,
+integration and publication stay controller handoff and are recorded as
+pending until their results exist.
