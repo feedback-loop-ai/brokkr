@@ -1059,19 +1059,19 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "009c0c243996bfa170049b2cf4a038383bb06c57da0a34af1a61f2ab985be0cf",
+        "ea3622812a5e868500b1ed74e3eb20b899c410b24231b515803476a6a7cab424",
     ),
     (
         "recipes/panel-review",
-        "51d6a2911cfb2616e4417823da74e6fa79eeda64ba63b98c64fcc2e69ee6135a",
+        "2e8b0eb8ecec62c8cd82b4dadad90d21269bbe273318a9133e434813479fbcef",
     ),
     (
         "bundles/self",
-        "121c421967b077042e47e7d9d37ac9adac088d492ea16af3b1d9115d276467b7",
+        "79954bbaa0bd677c5a2e0328129a95ffd28631d443ac638be7749373fd1cf8a3",
     ),
     (
         "bundles/verify",
-        "ff6b15429d9fadd82f047541418cf1c3ff9c3ed8152cd67848846cecc5647f0e",
+        "b7fe9e96eb7cb04a4790310f87a916662563e407e600290af215d69c924e8ca9",
     ),
 ];
 

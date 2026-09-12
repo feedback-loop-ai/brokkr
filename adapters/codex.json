@@ -84,7 +84,8 @@
       },
       "reason": "installed codex-cli is 0.153.4 and decision 0030's evidence is 0.148.0; a measurement expires with its version, so this shape stays disabled until the installed one is remeasured",
       "limitations": [
-        "current-only accounting on a rejoin has no measurement on any version; the accounting evidence reference is deliberately absent",
+        "a September 10 bounded cold/warm probe on the installed 0.153.4 re-announced the same thread id, recalled the cold nonce and recorded per-invocation (current-only) usage, so accounting evidence is no longer absent on every version; its read-only write attempt failed at sandbox startup, so resumed restriction enforcement across the rejoin is still unmeasured",
+        "the September 12 host evidence establishes only the cold sandbox startup/enforcement precondition, not any resume axis",
         "the historical 47 cold / 19 resumed launches on the canonical journal are supplied history, not a measurement of the installed CLI"
       ]
     }

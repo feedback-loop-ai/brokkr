@@ -66,7 +66,7 @@
       },
       "reason": "the forward-pinned route (@deepseek-ai/dsh 0.1.5-rc.1 plus the repository-owned six-file adaptation of dsh-plugin-cli-session 0.2.0 under extensions/dsh/plugin-cli-session/) is selected but disabled: the adapted pair continues one root cold-to-warm with a result envelope and per-message usage, but exact-root, restriction, multi-message accounting and composite-digest proof are unmeasured",
       "limitations": [
-        "core 0.1.5-rc.1 broke the plugin's post-turn fold (agent.session.events removed); the selected pair therefore pins the plugin's supported core generation 0.1.0-rc.6 instead, not a global DSH limitation",
+        "core 0.1.5-rc.1 broke the plugin's post-turn fold (agent.session.events removed); the repository-owned adaptation restores the interval with snapshotEvents(firstSeq) and is the selected route, a measured one-expression fix, not a global DSH or extension limitation",
         "the plugin's emitted session_id is request-derived and is not independent root confirmation; the retained depth-zero header, post-resume init event, same-root nonce continuity and absence of a fresh sibling root must be observed",
         "the plugin's collectUsage() is last-wins over firstSeq and is not proven to attribute a multi-message/retry turn's aggregate; a numeric total that cannot be attributed must stay absent",
         "the installed 0.1.2-rc.1 headless runner's one-shot entry mints a fresh root and cannot forward the launcher's TUI example; that is bounded history for that entry only, never a global DSH or extension limitation",

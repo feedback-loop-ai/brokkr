@@ -1379,7 +1379,7 @@ itself (`safety / AS1`).
 
 ## 13. Prose
 
-- [ ] 13.1 Before continuing 8.8, correct `docs/guides/provider-adapters.md` while
+- [x] 13.1 Before continuing 8.8, correct `docs/guides/provider-adapters.md` while
       preserving its offer, assessment and held-window guidance. The current
       adapter table must call the forward-pinned latest DSH core
       (`@deepseek-ai/dsh` 0.1.5-rc.1 at
@@ -3014,3 +3014,55 @@ found on this re-read; design's own containment fix at `ab3012a` was already
 propagated into this file's task text and needed no further edit here. The
 next visit should resume implementation at 13.1's reopened Codex/Claude row,
 then 8.8's remaining work in the stated order.
+
+## Implement visit — 2026-09-13, run `current-successor-operator-rulin-eef1e666` (continuation)
+
+Adopted HEAD `1aa120b` and the whole change. This visit completed **13.1**
+and advanced **8.8(b)/8.10**; nothing else was ticked.
+
+**13.1 (ticked).** `docs/guides/provider-adapters.md` now replaces the two
+false claims: the codex row cites the September 10 bounded cold/warm probe on
+the installed **0.153.4** (same thread id re-announced, cold nonce recalled,
+current-invocation-only usage) while keeping resumed restriction enforcement
+unmeasured, and the claude row cites the controller captures and the
+September 10 same-root probe (root continuity, expired Read grant renewed,
+new Read grant operating, Write and MCP tools removed, init admission, raw
+id/tool ids, reconciled accounting) while keeping the installed **2.1.270**
+and the complete boundary/precedence unmeasured. The completed DSH row is
+preserved verbatim. To satisfy 13.1's line-by-line declaration agreement,
+`adapters/codex.json` and `adapters/claude.json` limitations/reason text were
+corrected to the same account, and `adapters/dsh.json` line 69's stale
+sentence — which still said the selected pair "pins ... 0.1.0-rc.6" — was
+replaced with the repository-owned `snapshotEvents(firstSeq)` adaptation
+truth; 0056 and the guide already carry the reversal. The declaration edits
+moved the witness and compose pins, which were re-recorded from the tests'
+own reported pairs: `WITNESSES` (9 entries, only `recipes/research-dsh`
+unmoved) and `UNCOMPOSED` (4 entries). That re-pin is preparable work under
+14.1, which stays unchecked because groups 8–13 still change.
+
+**8.8(b)/8.10 (advanced, still unchecked).** `crates/brokkr-protocol/src/adapters/composite.rs`
+now rejects an npm `version` carrying any whitespace, not only empty/NUL/LF
+(D6's complete rejection), and canonicalizes the complete
+`<home>/profiles/headless` directory once as the containment boundary while
+retaining the raw lookup anchor: every first-hit canonical candidate is
+compared against the canonical core root or canonical profile boundary, the
+plugin and conditional extension must lie inside that same canonical profile,
+and an uncanonicalizable boundary or candidate is unreadable. New
+`composite/tests.rs` vectors cover space/tab/CR/NUL versions, a symlinked
+home ancestor yielding equal plugin/composite values, a near-prefix sibling
+compared by components not string prefix, a broken-symlink boundary, and an
+outside first hit that is never skipped for a later inside candidate. The 17
+focused composite tests pass. 8.8 stays unchecked because (d) the planner
+route and the private DSH provider-ID/persistence-locator target, the
+remaining seam/doctor acceptance and the built-driver exchange are not
+implemented; 8.10 and 9.6 remain unwritten.
+
+Recount: **82 complete / 19 pending** across the same 101 identifiers.
+Pending: 8.8, 8.10, 9.6, 10.5–10.8, 11.1–11.4, 14.1–14.2, 15.1–15.4 and
+15.6–15.7. `cargo fmt --all -- --check` is clean and the complete
+`cargo test --workspace --all-features --locked` passes except three
+`brokkr-cli` tests that spawn `git` and fail only under this harness's
+malformed `GIT_CONFIG_COUNT` environment; with that variable unset the same
+287-test binary is green. No provider proof, enablement, coverage, bundle,
+release or archive step is claimed.
+

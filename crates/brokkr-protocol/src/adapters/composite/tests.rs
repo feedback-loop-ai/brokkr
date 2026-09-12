@@ -439,6 +439,101 @@ impl Synthetic {
 }
 
 #[test]
+fn npm_versions_with_any_whitespace_are_unreadable() {
+    // D6 rejects a version containing NUL or any whitespace, not only an
+    // empty or line-bearing one. Space, tab and CR are the three the
+    // inherited empty/NUL/LF check left open.
+    for version in [" 1.0.0", "1.0.0 ", "1\t0", "1\r0", "1.0.0\n", "\u{0}"] {
+        let lock = format!(
+            "{{\"lockfileVersion\":3,\"packages\":{{\"node_modules/a\":{{\"version\":{},\"integrity\":\"sha512-A\"}}}}}}",
+            serde_json::to_string(version).unwrap()
+        );
+        assert!(npm_dependencies(&lock, &[]).is_err(), "{version:?}");
+    }
+    // A clean version still reads.
+    let clean = r#"{"lockfileVersion":3,"packages":{"node_modules/a":{"version":"1.0.0","integrity":"sha512-A"}}}"#;
+    assert_eq!(
+        npm_dependencies(clean, &[]).unwrap(),
+        vec!["a 1.0.0 sha512-A".to_string()]
+    );
+}
+
+#[test]
+fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
+    // Council return 2026-09-13: the containment boundary is canonical,
+    // so a symlinked ancestor resolving the same contained bundles is not
+    // a refusal. The raw lookup anchor stays in place, so the loader's
+    // search order is unchanged.
+    let install = Synthetic::new();
+    let base = install.composite();
+    let alias = install.dir.path().join("alias");
+    std::os::unix::fs::symlink(&install.seams.home, &alias).unwrap();
+    let aliased = DshSeams {
+        executable: install.seams.executable.clone(),
+        home: alias,
+    };
+    let same = dsh_composite_with(&aliased, &install.node(), &[]).unwrap();
+    assert_eq!(base.plugin, same.plugin);
+    assert_eq!(base.canonical, same.canonical);
+}
+
+#[test]
+fn containment_compares_canonical_components_not_string_prefixes() {
+    // A near-prefix sibling (`headless-extra`) is outside the canonical
+    // profile boundary even though its path string starts with
+    // `.../headless`. A string-prefix check would wrongly admit it.
+    let install = Synthetic::new();
+    let sibling = install.seams.home.join("profiles").join("headless-extra");
+    for file in PLUGIN_FILES {
+        write(
+            &sibling.join("dsh-plugin-cli-session"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    // The first bundle (`@deepseek-ai/dsh-base`) has no hit in the
+    // sibling; the plugin does. Point the search at the sibling only to
+    // reach the plugin candidate.
+    write(
+        &sibling.join("@deepseek-ai/dsh-base"),
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh-base"}"#,
+    );
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[sibling]).is_err());
+
+    // A profile directory that cannot be canonicalized (a broken
+    // symlink) is unreadable rather than compared raw.
+    let broken = tempfile::tempdir().unwrap();
+    let home = broken.path().join("home");
+    fs::create_dir_all(home.join("profiles")).unwrap();
+    std::os::unix::fs::symlink(home.join("nowhere"), home.join("profiles/headless")).unwrap();
+    let seams = DshSeams {
+        executable: install.seams.executable.clone(),
+        home,
+    };
+    assert!(dsh_composite_with(&seams, &install.node(), &[]).is_err());
+}
+
+#[test]
+fn an_outside_first_bundle_hit_is_not_skipped_for_a_later_inside_one() {
+    // `resolveBundleDir` takes the first candidate holding a
+    // package.json. An outside first hit is a refusal, never a reason to
+    // keep searching for a contained one.
+    let install = Synthetic::new();
+    let outside = install.dir.path().join("outside");
+    for file in PLUGIN_FILES {
+        write(
+            &outside.join("dsh-plugin-cli-session"),
+            file,
+            file.as_bytes(),
+        );
+    }
+    // The core lookup misses, the injected global folder hits first, and
+    // the profile's own contained copy is later in the order.
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[outside]).is_err());
+}
+
+#[test]
 fn the_dsh_composite_reads_the_qualified_locators_and_moves_with_them() {
     let install = Synthetic::new();
     let base = install.composite();

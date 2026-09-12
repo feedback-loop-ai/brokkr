@@ -237,7 +237,8 @@ pub fn npm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, Co
             .get("version")
             .and_then(Value::as_str)
             .ok_or_else(|| CompositeError::NpmLock(format!("'{key}': no string 'version'")))?;
-        if version.is_empty() || version.contains('\0') || version.contains('\n') {
+        if version.is_empty() || version.contains('\0') || version.chars().any(char::is_whitespace)
+        {
             return Err(CompositeError::NpmLock(format!("'{key}': invalid version")));
         }
         let integrity = entry
@@ -665,16 +666,28 @@ fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
 }
 
 struct Profile {
+    /// The original lookup anchor: the raw `<home>/profiles/headless`
+    /// path. The loader's Node search order is unchanged, so this is what
+    /// `resolve_bundle` searches from. It is never used for containment: a
+    /// symlinked home ancestor would make raw-prefix comparison refuse a
+    /// legitimate install (design D6, council return 2026-09-13).
     dir: PathBuf,
+    /// The canonical `<home>/profiles/headless` directory, taken once at
+    /// read time. Every containment decision compares canonical
+    /// candidates against this boundary, never against the raw anchor.
+    canonical: PathBuf,
     bundles: Vec<String>,
     patch_reload: String,
 }
 
 /// `<home>/profiles/headless/package.json`, of which only
 /// `dsh.profile.bundles` (a non-empty string array) and
-/// `dsh.profile.patchReload` (`live` or `startup`) are read.
+/// `dsh.profile.patchReload` (`live` or `startup`) are read. The complete
+/// profile directory is canonicalized once here and retained as the
+/// containment boundary, separate from the raw lookup anchor.
 fn read_profile(home: &Path) -> Result<Profile, CompositeError> {
     let dir = home.join("profiles").join("headless");
+    let canonical = canonicalize(&dir)?;
     let manifest = read_json(&dir.join("package.json"))?;
     let profile = manifest
         .get("dsh")
@@ -707,6 +720,7 @@ fn read_profile(home: &Path) -> Result<Profile, CompositeError> {
     }
     Ok(Profile {
         dir,
+        canonical,
         bundles: names,
         patch_reload: patch_reload.to_string(),
     })
@@ -762,13 +776,18 @@ fn global_folders(node: &NodeRuntime) -> Vec<PathBuf> {
 /// Emulate `resolveBundleDir`: the core package's Node lookup, the
 /// global folders, then the profile's Node lookup. The first candidate
 /// holding a `package.json` wins, and its canonical directory must lie
-/// inside the core root or the profile.
+/// inside the canonical core root or the canonical profile boundary. The
+/// profile lookup ANCHOR is the raw directory, so an alias in the home's
+/// ancestry does not move the search order; containment alone is decided
+/// on canonical paths. An outside first hit is a refusal, never skipped
+/// for a later inside candidate.
 fn resolve_bundle(
     name: &str,
     core_dir: &Path,
     profile_dir: &Path,
     globals: &[PathBuf],
     core_root: &Path,
+    profile_boundary: &Path,
 ) -> Result<PathBuf, CompositeError> {
     let mut candidates = node_modules_paths(core_dir);
     candidates.extend(globals.iter().cloned());
@@ -780,7 +799,7 @@ fn resolve_bundle(
             continue;
         }
         let canonical = canonicalize(&dir)?;
-        if canonical.starts_with(core_root) || canonical.starts_with(profile_dir) {
+        if canonical.starts_with(core_root) || canonical.starts_with(profile_boundary) {
             return Ok(canonical);
         }
         return Err(CompositeError::Config(format!(
@@ -837,8 +856,15 @@ pub fn dsh_composite_with(
     let profile = read_profile(&seams.home)?;
     let mut resolved: Vec<(String, PathBuf)> = Vec::new();
     for name in &profile.bundles {
-        let dir = resolve_bundle(name, &core.dir, &profile.dir, globals, &core.root)?;
-        if name == "dsh-plugin-cli-session" && !dir.starts_with(&profile.dir) {
+        let dir = resolve_bundle(
+            name,
+            &core.dir,
+            &profile.dir,
+            globals,
+            &core.root,
+            &profile.canonical,
+        )?;
+        if name == "dsh-plugin-cli-session" && !dir.starts_with(&profile.canonical) {
             return Err(CompositeError::Config(
                 "the plugin resolves outside the profile".into(),
             ));
@@ -865,7 +891,7 @@ pub fn dsh_composite_with(
             .ok_or_else(|| {
                 CompositeError::Config("the extension bundle was not resolved".into())
             })?;
-        if !dir.starts_with(&profile.dir) {
+        if !dir.starts_with(&profile.canonical) {
             return Err(CompositeError::Config(
                 "the extension resolves outside the profile".into(),
             ));
