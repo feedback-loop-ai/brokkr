@@ -2556,6 +2556,47 @@ fn codex_row_edges_and_duplicate_identity() {
     );
 }
 
+/// A row that projects no block is counted and released, never retained
+/// as an empty record: a source of quiet or malformed rows must not
+/// amplify into one record per row before association (design D4).
+#[test]
+fn codex_blockless_rows_are_counted_without_being_retained() {
+    let mut text = String::new();
+    for _ in 0..1000 {
+        text.push_str("1\n");
+        text.push_str(&row(json!({"type":"session_meta","timestamp":"t"})));
+        text.push_str(&row(json!({"type":"totally_unknown"})));
+        text.push_str(&row(
+            json!({"type":"response_item","payload":{"type":"future_item"}}),
+        ));
+    }
+    text.push_str(&row(json!({
+        "type":"response_item",
+        "payload":{"type":"message","role":"assistant","id":"m1",
+                   "content":[{"type":"output_text","text":"kept"}]}
+    })));
+    text.push_str(&row(json!({
+        "type":"event_msg",
+        "payload":{"type":"agent_message","message":"kept"}
+    })));
+    text.push_str("not json\n");
+
+    let mut projection = Projection::default();
+    let records = collect_codex(&admitted(&text, false), &mut projection);
+    assert_eq!(records.len(), 2, "only block-bearing rows are retained");
+    assert!(records.iter().all(|record| !record.blocks.is_empty()));
+    assert_eq!(records[0].role, "assistant");
+    assert!(records[0].canonical);
+    assert!(!records[1].canonical);
+    assert_eq!(projection.unrecognized_records, 3000);
+    assert_eq!(projection.skipped_lines, 1);
+
+    let full = codex(&text);
+    assert_eq!(full.turns.len(), 2);
+    assert_eq!(full.unrecognized_records, 3000);
+    assert_eq!(full.skipped_lines, 1);
+}
+
 #[test]
 fn codex_response_item_classifies_wrong_typed_members() {
     assert!(codex_response_item(&json!({"type":"message","content":[{"type":"nope"}]})).2);

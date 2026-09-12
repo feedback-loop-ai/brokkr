@@ -1097,15 +1097,7 @@ fn compose(parts: &[&str]) -> String {
 }
 
 fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
-    let mut records: Vec<CodexRecord> = Vec::new();
-    projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
-        records.push(codex_row(&value));
-    });
-    for record in &records {
-        if record.unrecognized {
-            projection.unrecognized_records += 1;
-        }
-    }
+    let mut records = collect_codex(admitted, projection);
     // Association is a separate, explicit pass over the complete bounded
     // prefix: only recorded identity plus direction and compatible family
     // can remove an event fallback, and only a unique canonical
@@ -1123,6 +1115,27 @@ fn project_codex(admitted: &Admitted<'_>, projection: &mut Projection) {
         });
     }
     projection.turns = display_cap(turns, &mut projection.truncated);
+}
+
+/// Parse the bounded prefix into the records that carry blocks. A row
+/// that projects nothing — a non-object, quiet metadata, or an
+/// unrecognized shape with nothing to show — is counted here and released
+/// with its JSON (design D4): association consumes only blocks, so an
+/// empty record could never change the projection, and retaining one per
+/// row would let a 32 MiB source of two-byte rows amplify into gigabytes
+/// of records on every read.
+fn collect_codex(admitted: &Admitted<'_>, projection: &mut Projection) -> Vec<CodexRecord> {
+    let mut records: Vec<CodexRecord> = Vec::new();
+    projection.skipped_lines = for_each_parsed_row(admitted, |_, value, _| {
+        let record = codex_row(&value);
+        if record.unrecognized {
+            projection.unrecognized_records += 1;
+        }
+        if !record.blocks.is_empty() {
+            records.push(record);
+        }
+    });
+    records
 }
 
 /// Remove the blocks an event fallback provably mirrors. A canonical
