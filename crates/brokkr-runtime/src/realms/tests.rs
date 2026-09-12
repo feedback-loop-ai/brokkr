@@ -147,6 +147,10 @@ fn a_repository_is_the_realm_whose_path_it_is() {
         Some("brokkr")
     );
     assert!(world.realm_for(&dir.path().join("stranger")).is_none());
+    // A repository the map does not name has no realm and therefore no
+    // house: the selected-realm lookup answers absence rather than
+    // borrowing a neighbour's text.
+    assert_eq!(world.house_for(&dir.path().join("stranger")).unwrap(), None);
     assert!(format!("{realm:?}").contains("main"), "{realm:?}");
 }
 
@@ -936,9 +940,16 @@ fn a_moved_contract_refuses_the_load_and_names_both_digests() {
         message.contains(&observed),
         "the observed digest: {message}"
     );
+    // The contract is named at the publisher's own declared path, never
+    // the host location it resolved to: a refusal reaches run journals
+    // and seat inputs that must not carry the operator's layout.
     assert!(
-        message.contains(&path.display().to_string()),
+        message.contains("contracts/orders.v1.schema.json"),
         "and the file that moved: {message}"
+    );
+    assert!(
+        !message.contains(&path.display().to_string()),
+        "no host path in the refusal: {message}"
     );
 
     // At load, and only at load: no hearth of this world was opened to
@@ -1150,9 +1161,17 @@ fn a_moved_crossing_is_data_to_inspect_and_a_refusal_to_load() {
         ("beta", "orders.api")
     );
     assert_eq!(failure.error().to_string(), refused);
-    for fact in [&pin, &observed, &path.display().to_string()] {
-        assert!(refused.contains(fact.as_str()), "{refused}");
+    // The refusal names the contract at the publisher's own declared
+    // path — never the host location the bytes resolved to, which no run
+    // journal and no seat input may learn (decision 0020 ruling 1).
+    for fact in [&pin, &observed, "contracts/orders.v1.schema.json"] {
+        assert!(refused.contains(fact), "{refused}");
     }
+    assert!(
+        !refused.contains(&path.display().to_string()),
+        "the refusal names no host path: {refused}"
+    );
+    assert_eq!(failure.publisher(), Some("alpha"));
 
     // And the published file that IS there was still resolved, so a
     // sound realm's crossing reads back under a world holding a broken
@@ -1185,6 +1204,10 @@ fn a_published_file_that_is_gone_is_reported_against_its_publisher() {
         (failure.realm(), failure.crossing()),
         ("alpha", "orders.api")
     );
+    // An unreadable publication is the PUBLISHER's own fault and has no
+    // separate publishing realm to name; only a moved pin does.
+    assert_eq!(failure.publisher(), None);
+    assert!(!failure.moved(), "an unreadable file is not a moved pin");
     assert!(reports[0].unchecked.is_empty(), "alpha consumes nothing");
     assert!(reports[1].failures.is_empty(), "beta pinned nothing wrong");
     assert_eq!(reports[1].consumed, 1);

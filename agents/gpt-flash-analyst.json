@@ -1,0 +1,15 @@
+{
+  "description": "Read-only SDD judge: finds drift across the artifacts and the realm constitution.",
+  "charter": "charters/analyst.md",
+  "models": [
+    "sol"
+  ],
+  "efforts": {
+    "sol": "high"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": []
+  }
+}

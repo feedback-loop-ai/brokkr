@@ -1,0 +1,15 @@
+{
+  "description": "Read-only SDD judge: identifies every material ambiguity in the specification.",
+  "charter": "charters/clarifier.md",
+  "models": [
+    "sol"
+  ],
+  "efforts": {
+    "sol": "xhigh"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": []
+  }
+}
