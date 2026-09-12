@@ -1481,12 +1481,13 @@ fn the_dsh_composite_detail_reports_each_disposition() {
     let other = "b".repeat(64);
 
     // No declared digest at all: informational, never a warning.
-    let (warning, line) = composite_detail(None, false, Ok(&digest));
+    let (warning, line) = composite_detail(None, false, Ok((&digest, "plugin")));
     assert!(!warning);
     assert!(line.contains("no declared wrapper_digest"), "{line}");
+    assert!(line.contains("plugin"), "{line}");
 
     // A matching digest is informational even when the shape is supported.
-    let (warning, line) = composite_detail(Some(&digest), true, Ok(&digest));
+    let (warning, line) = composite_detail(Some(&digest), true, Ok((&digest, "plugin")));
     assert!(!warning);
     assert!(
         line.contains("matches the declared wrapper_digest"),
@@ -1494,10 +1495,10 @@ fn the_dsh_composite_detail_reports_each_disposition() {
     );
 
     // A differing digest warns only when a supported shape declares one.
-    let (warning, line) = composite_detail(Some(&digest), true, Ok(&other));
+    let (warning, line) = composite_detail(Some(&digest), true, Ok((&other, "plugin")));
     assert!(warning);
     assert!(line.contains("differs from the declared"), "{line}");
-    assert!(!composite_detail(Some(&digest), false, Ok(&other)).0);
+    assert!(!composite_detail(Some(&digest), false, Ok((&other, "plugin"))).0);
 
     // An unreadable composite warns only when a supported shape declares
     // a digest; the detail names the unreadable component.
@@ -1515,7 +1516,7 @@ fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
     fn fake_composite(_: &Adapter) -> (bool, String) {
         (
             false,
-            "composite deadbeef (no declared wrapper_digest)".to_string(),
+            "composite deadbeef plugin feedface (no declared wrapper_digest)".to_string(),
         )
     }
     let rendered = doctor_in(
@@ -1533,7 +1534,7 @@ fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
     .render();
     assert!(
         rendered.contains("ok       dsh:")
-            && rendered.contains("composite deadbeef (no declared wrapper_digest)"),
+            && rendered.contains("composite deadbeef plugin feedface"),
         "{rendered}"
     );
 }

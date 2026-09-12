@@ -14,10 +14,23 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.2-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
+ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro · composite b2777e9a69a8b11c274c85811d55aaaf725ed4244b86956fdb2df50488b4477c plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
+
+The `dsh` line also reports the **composite** the adapter's own seam
+resolution reads (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on `PATH`,
+and `$DSH_HOME` or `$HOME/.dsh`): the canonical composite digest, the
+plugin component, and whether it equals, differs from or has no declared
+`wrapper_digest`. It is informational while no `supported` shape declares
+one, and a warning once one does and the installed home differs or is
+unreadable — an operator deploying the pair can see the digest their home
+must reproduce instead of reading an unexplained `unverified-harness`
+decline. It reads package metadata, the profile manifest, lock, plugin
+and patch files and spawns only the `dsh` and `node` version probes; it
+opens no seat's gate and grants no exemption from the current-restriction
+proof.
 
 The `boundaries` line (decision
 [0046](../decisions/0046-the-boundary-is-named.md) ruling 2) names what

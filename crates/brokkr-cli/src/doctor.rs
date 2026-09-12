@@ -190,7 +190,11 @@ fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
     });
     let supported = shape.is_some_and(|shape| shape.status == ResumeStatus::Supported);
     match DshSeams::resolve().and_then(|seams| dsh_composite(&seams)) {
-        Ok(composite) => composite_detail(declared.as_deref(), supported, Ok(&composite.canonical)),
+        Ok(composite) => composite_detail(
+            declared.as_deref(),
+            supported,
+            Ok((&composite.canonical, &composite.plugin)),
+        ),
         Err(error) => composite_detail(declared.as_deref(), supported, Err(&error.to_string())),
     }
 }
@@ -198,27 +202,28 @@ fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
 /// The pure classifier behind `dsh_composite_line`, so every disposition
 /// is a plain test: informational while no `supported` shape declares a
 /// digest; a warning flag only when one does and the composite differs
-/// or is unreadable.
+/// or is unreadable. The `Ok` pair carries the canonical composite and
+/// the plugin component, both of which the qualification record needs.
 fn composite_detail(
     declared: Option<&str>,
     supported: bool,
-    composite: Result<&str, &str>,
+    composite: Result<(&str, &str), &str>,
 ) -> (bool, String) {
     match composite {
-        Ok(digest) => match declared {
-            Some(declared) if declared == digest => (
-                false,
-                format!("composite {digest} matches the declared wrapper_digest"),
-            ),
-            Some(declared) => (
-                supported,
-                format!("composite {digest} differs from the declared wrapper_digest {declared}"),
-            ),
-            None => (
-                false,
-                format!("composite {digest} (no declared wrapper_digest)"),
-            ),
-        },
+        Ok((digest, plugin)) => {
+            let detail = match declared {
+                Some(declared) if declared == digest => {
+                    "matches the declared wrapper_digest".to_string()
+                }
+                Some(declared) => format!("differs from the declared wrapper_digest {declared}"),
+                None => "no declared wrapper_digest".to_string(),
+            };
+            let warning = supported && declared.is_some() && declared != Some(digest);
+            (
+                warning,
+                format!("composite {digest} plugin {plugin} ({detail})"),
+            )
+        }
         Err(error) => (
             supported && declared.is_some(),
             format!("composite unreadable: {error}"),
