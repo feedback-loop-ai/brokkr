@@ -3933,12 +3933,18 @@ fn seat_input_spells_the_workdir_and_result_path_absolutely() {
     let input = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
-    let workdir = input["workdir"].as_str().unwrap();
-    let result_path = input["result_path"].as_str().unwrap();
-    assert!(workdir.starts_with('/'), "{workdir}");
+    // Absoluteness is asserted through `Path`, not through a leading
+    // slash: on Windows an absolute path is `C:\...` and the separator
+    // is `\`, so a POSIX-shaped assertion would fail there while the
+    // composition it is checking is correct.
+    let workdir = std::path::Path::new(input["workdir"].as_str().unwrap());
+    let result_path = std::path::Path::new(input["result_path"].as_str().unwrap());
+    assert!(workdir.is_absolute(), "{}", workdir.display());
+    assert!(result_path.is_absolute(), "{}", result_path.display());
     assert!(
-        result_path.starts_with('/') && result_path.ends_with("/.forge/results/effect.json"),
-        "{result_path}"
+        result_path.ends_with(std::path::Path::new(".forge/results/effect.json")),
+        "{}",
+        result_path.display()
     );
 
     // A path that cannot be made absolute at all is threaded as written:
