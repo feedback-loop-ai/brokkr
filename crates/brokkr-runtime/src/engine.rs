@@ -1282,9 +1282,9 @@ impl Engine {
                 holds,
                 started,
             );
-            let originating_harness = offer
+            let originating = offer
                 .as_ref()
-                .and_then(|_| resume::originating_harness_version(events, &context.site_ref));
+                .and_then(|_| resume::originating_root(events, &context.site_ref));
             let assessment = selection
                 .get(&entry.site)
                 .map_or(Value::Null, |candidate| candidate.resume.value());
@@ -1294,7 +1294,7 @@ impl Engine {
                     context,
                     offer,
                     assessment,
-                    originating_harness,
+                    originating,
                 },
             );
         }
@@ -1561,15 +1561,22 @@ impl Engine {
     ) -> Result<DriverRun, EngineError> {
         let workdir = self.workdir();
         let boundary = self.site_boundary(driver_seat);
-        let session_ref = plan.and_then(|plan| plan.offer.clone());
+        let session_ref = plan
+            .and_then(|plan| plan.offer.as_ref())
+            .map(|offer| offer.provider_id.clone());
         // The private start context (design D5): which resume assessment
-        // this site selected and, when an offer travels, the harness
-        // version its root was opened under. It rides the existing
-        // `Start.input` object under one key, separate from the rendered
-        // `context` and the phase inputs, and never reaches the prompt.
+        // this site selected, the harness facts its offered root was
+        // opened under, and the owned target (provider ID plus the
+        // persistence locator read off the same confirmed checkpoint). It
+        // rides the existing `Start.input` object under one key, separate
+        // from the rendered `context` and the phase inputs, and never
+        // reaches the prompt.
         if let Some(plan) = plan {
-            input["resume_context"] =
-                resume::start_context(plan.assessment.clone(), plan.originating_harness.as_deref());
+            input["resume_context"] = resume::start_context(
+                plan.assessment.clone(),
+                plan.originating.as_ref(),
+                plan.offer.as_ref(),
+            );
         }
         let stamp = plan.map(|plan| plan.context.clone());
         let process = match spawn_site(&self.bundle, spawn, &workdir, deadline) {
@@ -1814,7 +1821,8 @@ impl Engine {
                 if let Some(plan) = plan {
                     input["resume_context"] = resume::start_context(
                         plan.assessment.clone(),
-                        plan.originating_harness.as_deref(),
+                        plan.originating.as_ref(),
+                        plan.offer.as_ref(),
                     );
                 }
                 MemberRun {
@@ -1890,7 +1898,10 @@ impl Engine {
                                 run.input.clone(),
                                 // This member's own offer, decided in
                                 // `site_plans` before anything spawned.
-                                run.offer.clone(),
+                                // Only its provider ID crosses the wire;
+                                // the locator rides the member's private
+                                // `resume_context`.
+                                run.offer.as_ref().map(|offer| offer.provider_id.clone()),
                                 // Live telemetry: hand each checkpoint to the
                                 // main thread — the store has one writer.
                                 |data| {
@@ -3605,17 +3616,22 @@ type ChainIndexes = BTreeMap<Site, usize>;
 #[derive(Debug)]
 struct SitePlan {
     context: resume::SiteContext,
-    offer: Option<String>,
+    /// The eligible session as an owned target: the provider ID that
+    /// crosses `Body::Resume` plus the persistence locator recorded on
+    /// the same confirmed checkpoint (design D6).
+    offer: Option<resume::ResumeTarget>,
     /// The selected adapter's typed resume assessment for this site
     /// (design D5), carried into the driver's private start context.
     /// `Value::Null` where no adapter answers for the site — an inline
     /// command — which the adapter reads as unmeasured, never as
     /// implicit support.
     assessment: Value,
-    /// Read off the same row the offer came from, so the adapter can
-    /// refuse a rejoin whose CLI has moved underneath it (proposed
-    /// decision 0056 ruling 5). Absent when no offer is made.
-    originating_harness: Option<String>,
+    /// The harness facts (version and optional wrapper digest) the offered
+    /// root was opened under, read off the same row the offer came from so
+    /// the adapter can refuse a rejoin whose CLI or composite has moved
+    /// underneath it (proposed decision 0056 ruling 5). Absent when no
+    /// offer is made.
+    originating: Option<resume::OriginatingRoot>,
 }
 
 /// Every invocation site of a seat body, with the site's fallback chain.
@@ -3764,7 +3780,7 @@ fn offer_for_site(
     started_here: bool,
     pinned_bundle_holds: bool,
     started: &Value,
-) -> Option<String> {
+) -> Option<resume::ResumeTarget> {
     resume::eligible_offer(
         events,
         key,
@@ -3859,8 +3875,9 @@ struct MemberRun {
     name: String,
     driver_seat: String,
     boundary: Option<Boundary>,
-    /// This member's own eligible session, if the engine offered one.
-    offer: Option<String>,
+    /// This member's own eligible session and its persistence locator,
+    /// if the engine offered one.
+    offer: Option<resume::ResumeTarget>,
     /// This member's own structural identity, handed beside its
     /// checkpoints to the single journal writer for stamping — the
     /// worker threads never touch the store.

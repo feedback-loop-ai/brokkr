@@ -863,6 +863,7 @@ fn every_fact_the_offer_rests_on_can_refuse_it_alone() {
     let work = context(SITE_A, OWNER, SeatClass::Work);
     let offer = |events: &[EventEnvelope], seat: &str, started: &Value, here: bool, holds: bool| {
         offer_for_site(events, &key, &work, seat, here, holds, started)
+            .map(|target| target.provider_id)
     };
 
     // Every fact agrees: the session is offered.
@@ -1021,6 +1022,7 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
             true,
             &started,
         )
+        .map(|target| target.provider_id)
     };
 
     assert_eq!(
@@ -1066,6 +1068,47 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
         offer_for_site(&both, &key, &mine, "work", true, true, &started),
         None
     );
+
+    // The owned target pairs the provider ID with the locator from the
+    // SAME checkpoint, and `originating_root` reads the version and the
+    // optional wrapper digest from that one row — never per field from
+    // whichever checkpoint is newest.
+    let mut with_locator = row(SITE_A, OWNER, "session-one", true);
+    with_locator["transcript"] =
+        json!({"kind": "dsh-session", "locator": "sessions/brokkr/seat-1"});
+    with_locator["root_session"]["wrapper_digest"] = json!("a".repeat(64));
+    let journaled = journal(with_locator.clone());
+    let target = offer_for_site(&journaled, &key, &mine, "work", true, true, &started)
+        .expect("the confirmed root is offered");
+    assert_eq!(target.provider_id, "session-one");
+    assert_eq!(
+        target.persistence_locator.as_deref(),
+        Some("sessions/brokkr/seat-1")
+    );
+    let originating = resume::originating_root(&journaled, SITE_A).expect("a confirmed root");
+    assert_eq!(originating.harness_version.as_deref(), Some("2.1.266"));
+    assert_eq!(
+        originating.wrapper_digest.as_deref(),
+        Some("a".repeat(64).as_str())
+    );
+    assert_eq!(
+        originating.persistence_locator.as_deref(),
+        Some("sessions/brokkr/seat-1")
+    );
+    // A confirmed row with no transcript reference still offers its
+    // provider ID, and hands a two-coordinate planner no locator to
+    // rejoin — which is a decline, never a guess.
+    let locatorless = offer_for_site(
+        &journal(row(SITE_A, OWNER, "session-one", true)),
+        &key,
+        &mine,
+        "work",
+        true,
+        true,
+        &started,
+    )
+    .expect("the root is offered");
+    assert_eq!(locatorless.persistence_locator, None);
 }
 
 /// The four topologies get four different keys, and every identity axis

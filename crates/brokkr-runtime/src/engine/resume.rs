@@ -268,6 +268,75 @@ fn pointer(map: &str, label: &str) -> String {
     format!("/{map}/{}", label.replace('~', "~0").replace('/', "~1"))
 }
 
+/// The engine's owned resume target: the provider root ID plus the
+/// retained persistence locator the SAME confirmed checkpoint recorded
+/// beside it (design D6). Only `provider_id` crosses the negotiated
+/// `Body::Resume`; `persistence_locator` and the selected assessment
+/// travel in the private `Start.input` context, where a provider like DSH
+/// that needs both coordinates can read them and no prompt ever sees
+/// them.
+///
+/// The two fields are read together because they are one fact: a locator
+/// from a different row than the root would let a seat rejoin a directory
+/// in which the offered ID was never opened. The locator is `None` for a
+/// provider whose confirmed row carries no transcript reference; such a
+/// target still offers its provider ID, and a planner that requires the
+/// locator declines rather than guessing one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ResumeTarget {
+    pub(super) provider_id: String,
+    pub(super) persistence_locator: Option<String>,
+}
+
+/// The harness facts the offered root was opened under, read off the same
+/// confirmed checkpoint the offer came from. The version is what a
+/// planner compares with its measured identity; the wrapper digest is the
+/// optional composite identity a wrapper-shaped provider (DSH) records,
+/// which an offered root without one can never match (design D6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct OriginatingRoot {
+    pub(super) harness_version: Option<String>,
+    pub(super) wrapper_digest: Option<String>,
+    pub(super) persistence_locator: Option<String>,
+}
+
+/// Read the offered root's own facts from the NEWEST checkpoint that
+/// carries confirmed root evidence for this exact site. This is the same
+/// row `eligible_offer` judges, scanned once more so the version, the
+/// optional wrapper digest and the locator all describe one session
+/// rather than whichever checkpoint happened to be newest per field.
+pub(super) fn originating_root(
+    events: &[EventEnvelope],
+    site_ref: &str,
+) -> Option<OriginatingRoot> {
+    let checkpoint = events
+        .iter()
+        .rev()
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .find_map(|event| {
+            let checkpoint = event.payload.get("checkpoint")?;
+            if checkpoint.get("site_ref").and_then(Value::as_str) != Some(site_ref) {
+                return None;
+            }
+            checkpoint.get("root_session")?;
+            Some(checkpoint)
+        })?;
+    Some(OriginatingRoot {
+        harness_version: checkpoint
+            .pointer("/root_session/harness_version")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        wrapper_digest: checkpoint
+            .pointer("/root_session/wrapper_digest")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        persistence_locator: checkpoint
+            .pointer("/transcript/locator")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
+}
+
 /// The provider-confirmed root a launch stood on, as it reaches the
 /// journal under seat-record v5. Read back here, never invented: a row
 /// without one supplies no offer, whatever else it says.
@@ -369,7 +438,7 @@ pub(super) fn eligible_offer(
     started_here: bool,
     pinned_bundle_holds: bool,
     legacy: impl Fn(&EventEnvelope) -> bool,
-) -> Option<String> {
+) -> Option<ResumeTarget> {
     if context.class == SeatClass::Gate || !started_here || !pinned_bundle_holds {
         return None;
     }
@@ -403,7 +472,19 @@ pub(super) fn eligible_offer(
         // journal.
         let attempt = event.attempt_id.as_deref()?;
         started_attempt(events, attempt)?;
-        return Some(root.id);
+        // The locator comes off the SAME checkpoint as the root: a
+        // provider that needs both coordinates (DSH) may only rejoin the
+        // directory in which this exact ID was opened. A codex/claude row
+        // that confirms from its own locator needs none, and a row that
+        // carries none still offers its provider ID.
+        return Some(ResumeTarget {
+            provider_id: root.id,
+            persistence_locator: checkpoint
+                .pointer("/transcript/locator")
+                .and_then(Value::as_str)
+                .filter(|locator| !locator.is_empty())
+                .map(str::to_string),
+        });
     }
     // Decision 0030's evidence, kept readable (design D8). Only an
     // unambiguous local single WORK seat qualifies: a composite row's
@@ -412,7 +493,13 @@ pub(super) fn eligible_offer(
     if !key.is_single() {
         return None;
     }
-    legacy_offer(events, &seat_effects, &legacy)
+    legacy_offer(events, &seat_effects, &legacy).map(|provider_id| ResumeTarget {
+        // The legacy shape's locator IS the session it hands over
+        // (decision 0032's codex-thread locator, or the old flat id), so
+        // the two coordinates coincide.
+        persistence_locator: Some(provider_id.clone()),
+        provider_id,
+    })
 }
 
 /// The effect ids this seat requested, newest last.
@@ -632,42 +719,42 @@ fn describe(key: &SiteKey) -> String {
 }
 
 /// The private start context an adapter reads beside its prompt: which
-/// resume assessment was selected for this site, and the harness
-/// identity the offered root was opened under. It rides the existing
-/// `Start.input` object under one key, never the rendered prompt.
-pub(super) fn start_context(assessment: Value, originating_harness: Option<&str>) -> Value {
+/// resume assessment was selected for this site, the harness facts the
+/// offered root was opened under, and the owned target (provider ID plus
+/// its persistence locator) that a two-coordinate provider needs. It
+/// rides the existing `Start.input` object under one key, never the
+/// rendered prompt.
+pub(super) fn start_context(
+    assessment: Value,
+    originating: Option<&OriginatingRoot>,
+    target: Option<&ResumeTarget>,
+) -> Value {
     let mut context = Map::new();
     context.insert("assessment".into(), assessment);
-    if let Some(version) = originating_harness {
+    if let Some(originating) = originating {
+        if let Some(version) = &originating.harness_version {
+            context.insert(
+                "originating_harness_version".into(),
+                Value::String(version.clone()),
+            );
+        }
+        if let Some(digest) = &originating.wrapper_digest {
+            context.insert(
+                "originating_wrapper_digest".into(),
+                Value::String(digest.clone()),
+            );
+        }
+    }
+    if let Some(target) = target {
         context.insert(
-            "originating_harness_version".into(),
-            Value::String(version.to_string()),
+            "owned_target".into(),
+            json!({
+                "provider_id": target.provider_id,
+                "persistence_locator": target.persistence_locator,
+            }),
         );
     }
     Value::Object(context)
-}
-
-/// The harness version the offered root was opened under, read off the
-/// same row the offer came from so the adapter can refuse a rejoin whose
-/// CLI has moved underneath it (proposed decision 0056 ruling 5).
-pub(super) fn originating_harness_version(
-    events: &[EventEnvelope],
-    site_ref: &str,
-) -> Option<String> {
-    events
-        .iter()
-        .rev()
-        .filter(|event| event.event_type == EventType::EffectCheckpointed)
-        .find_map(|event| {
-            let checkpoint = event.payload.get("checkpoint")?;
-            if checkpoint.get("site_ref").and_then(Value::as_str) != Some(site_ref) {
-                return None;
-            }
-            checkpoint
-                .pointer("/root_session/harness_version")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
 }
 
 #[cfg(test)]
@@ -743,5 +830,50 @@ mod tests {
         let forged = json!({"step": "seat-turn", "site_ref": "c".repeat(64)});
         assert_eq!(context.stamp(forged.clone()), json!({"step": "seat-turn"}));
         assert_eq!(unstamped(forged), json!({"step": "seat-turn"}));
+    }
+
+    /// The private context carries the two things a two-coordinate
+    /// provider needs and nothing it does not: the harness facts of the
+    /// offered root (version and the optional wrapper digest) and the
+    /// owned target's provider ID and persistence locator. With no offer,
+    /// no target and no originating digest travel — only the assessment,
+    /// exactly as before.
+    #[test]
+    fn the_private_context_carries_the_owned_target_and_originating_digest() {
+        let originating = OriginatingRoot {
+            harness_version: Some("0.1.5-rc.1".into()),
+            wrapper_digest: Some("a".repeat(64)),
+            persistence_locator: Some("sessions/brokkr/seat-1".into()),
+        };
+        let target = ResumeTarget {
+            provider_id: "session-1".into(),
+            persistence_locator: Some("sessions/brokkr/seat-1".into()),
+        };
+        let context = start_context(
+            json!({"headless-work": {"status": "supported"}}),
+            Some(&originating),
+            Some(&target),
+        );
+        assert_eq!(context["originating_harness_version"], "0.1.5-rc.1");
+        assert_eq!(context["originating_wrapper_digest"], "a".repeat(64));
+        assert_eq!(context["owned_target"]["provider_id"], "session-1");
+        assert_eq!(
+            context["owned_target"]["persistence_locator"],
+            "sessions/brokkr/seat-1"
+        );
+        assert_eq!(
+            context["assessment"]["headless-work"]["status"],
+            "supported"
+        );
+
+        let cold = start_context(
+            json!({"headless-work": {"status": "unmeasured"}}),
+            None,
+            None,
+        );
+        assert_eq!(cold["assessment"]["headless-work"]["status"], "unmeasured");
+        assert!(cold.get("owned_target").is_none());
+        assert!(cold.get("originating_harness_version").is_none());
+        assert!(cold.get("originating_wrapper_digest").is_none());
     }
 }

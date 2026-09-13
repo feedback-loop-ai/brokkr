@@ -3066,3 +3066,56 @@ malformed `GIT_CONFIG_COUNT` environment; with that variable unset the same
 287-test binary is green. No provider proof, enablement, coverage, bundle,
 release or archive step is claimed.
 
+## Implement visit — 2026-09-13, run `current-successor-operator-rulin-eef1e666` (engine target plumbing)
+
+Adopted HEAD `0ae143c` and the whole change. This visit implemented the
+engine half of 8.8(d) and left every checkbox unchanged: **82 complete /
+19 pending** across the same 101 identifiers.
+
+`crates/brokkr-runtime/src/engine/resume.rs` gains `ResumeTarget` (the
+provider ID plus the persistence locator read off the SAME confirmed
+checkpoint) and `OriginatingRoot` (the offered row's `harness_version`, its
+optional `wrapper_digest` and its locator). `eligible_offer` now returns
+the owned target: the legacy path pairs its session with itself as the
+locator, and a stamped row with no transcript reference still offers its
+provider ID with no locator to rejoin. `originating_root` replaces
+`originating_harness_version` and reads version, digest and locator from
+one row rather than per field from whichever checkpoint happens to be
+newest. `start_context` now carries `originating_wrapper_digest` and
+`owned_target` beside the assessment.
+
+`crates/brokkr-runtime/src/engine.rs`: `SitePlan.offer`/`MemberRun.offer`
+are the owned target and `SitePlan.originating` is the `OriginatingRoot`.
+Only `provider_id` crosses `run_attempt_resuming`'s `Body::Resume`; the
+locator and originating digest ride the private `Start.input` context. No
+wire, contract, store or declaration changes.
+
+Tests: `resume::tests::the_private_context_carries_the_owned_target_and_originating_digest`
+and the extended stamped-row case assert same-row locator pairing, the
+optional wrapper digest and the locatorless decline. Task 8.8 stays
+unchecked: the DSH adapter's `--new`/`--session` planner, its stream-json
+confirmation and the atomic `root_session`+`transcript` launch row are not
+implemented, and 8.10/9.6 remain unwritten.
+
+**A concrete conflict the DSH planner must resolve.** Task 8.8(d) and
+design D6 (lines 1007–1011) require the planner to reject a user
+`--patch` on both paths, but `recipes/research-dsh/bundle.json` is the one
+bundle whose dsh fetch grant IS a `--patch` overlay, pinned by
+`crates/brokkr-runtime/tests/roster.rs`
+`the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter`
+and by the witness digests. Rejecting `--patch` outright would disable
+that grant, so 8.8 must either consume and fold the seat patch into the
+Rust-owned overlay or migrate the grant to a profile/bundle mechanism,
+then reconcile the roster test and re-record the moved witness digests.
+Recorded here because it is new concrete evidence, not a reopening of
+A1–A5/B1–B5.
+
+Local checks on this tree: `cargo fmt --all -- --check` clean; `cargo
+clippy --workspace --all-targets --all-features --locked -- -D warnings`
+clean; `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+exit 0. The complete workspace suite has exactly one failure,
+`machine_proof::dialect_validate_expands_the_chiefs_change_and_records_tool_evidence`,
+which fails identically at HEAD with these edits stashed — a pre-existing
+environment/harness failure, not this visit's. No provider proof,
+enablement, coverage, release, archive or controller step is claimed.
+
