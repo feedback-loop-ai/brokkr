@@ -119,15 +119,19 @@ format catalogue with current version three, codecs zero through three and
 lossless migrations between them, read for #279 and cited by file, digest
 and line in that change. That read reached the session package's format
 constant, event catalogue, event map, surface contract and citation
-grammar and the catalogue and migration packages. It did not reach the
-message and block definitions the event map imports for the payloads of
-`user/message`, `assistant/message` and `tool/result`, the persistence
-package's row kinds and its append and replace paths, or the seed and
-fork path that writes a seeded session's inherited prefix. Under version
-three those three payloads are therefore refused row by row by the content
-rules below, a replacement copy and an inherited identity decide nothing,
-and `tool/call`, whose fields the event map carries on the event itself,
-is the one content kind that projects. Versions 1 and 2 are not admitted:
+grammar; the message and block definitions the event map imports for the
+payloads of `user/message`, `assistant/message` and `tool/result`, mapped
+field by field onto the reader's projection; the persistence codec's
+header shape, physical envelope, row admission and seed-marker
+consistency; and the catalogue and migration packages. It did not reach
+the writer's append and replace paths, which decide what a replace-marked
+row carries, or the seed and fork path that writes a seeded session's
+inherited prefix. Under version three the four content kinds therefore
+project by the content rules below; a replace-marked row projects by its
+type at its recorded position because the reader parses no marker; and the
+one rule that rests on inherited identities, the dedicated-tool
+association, runs only for a session whose header records `isSeeded`
+exactly `false`. Versions 1 and 2 are not admitted:
 no core of this fleet wrote them to disk under an admitted name and their
 codecs were not read. A version SHALL join the set only through a change
 that records, from the writer's own source, its package identity and
@@ -135,13 +139,14 @@ files with digests; the record vocabulary it emits; the message and block
 definitions behind every payload it projects, mapped field by field; how
 streaming fragments persist; the meaning of every header field it adds;
 the meaning of `surfaceOp` and `sourceEventSeqs` on every row that
-carries them, including whether replacement copies are persisted as rows;
-the identity of a seeded session's inherited rows; a disposition for every
-record type; and whether every admitted-version meaning is preserved or a
-per-version projection is required. A versioned filename, a header number
-and the resemblance of sampled rows to admitted shapes are not admission
-evidence, and a part of a writer that was not read SHALL stay refused row
-by row rather than admitted with its version. The filename and the header
+carries them; the identity of a seeded session's inherited rows; a
+disposition for every record type; and whether every admitted-version
+meaning is preserved or a per-version projection is required. A part of
+the writer such a change did not read SHALL keep withheld the one rule
+that rests on it, with the lifting read named, rather than be admitted
+with its version. A versioned filename, a header number and the
+resemblance of sampled rows to admitted shapes are not admission
+evidence. The filename and the header
 version are independent facts: `session.v3.jsonl` carrying a version-zero
 header is readable under the version-zero rules, `session.jsonl` carrying
 version three is readable under the version-three rules, and either name
@@ -157,10 +162,14 @@ delegation-depth rule and SHALL not supply admission, whatever its JSON
 shape, including null and absent; no provenance or delegation claim rests
 on it under either version. Whether a seeded session's inherited prefix
 keeps the originating `seq`, `turn`, `step` and call identities of its
-rows was not read for version three, so no version-three association
-rests on those identities either: the content rules below apply no
-embedded tool association under version three, and `isSeeded` changes no
-row's classification. Extra fields SHALL be ignored, never
+rows was not read for version three, so the one rule that rests on those
+identities is withheld where they could be inherited: under version three
+the dedicated-tool association of the content rules below SHALL run only
+when the opening header records `isSeeded` as boolean `false`, and every
+other value, including `true`, a string, an object, null and absent, SHALL
+leave each embedded copy visible beside its dedicated event. That gate
+changes no row's classification, count or admission and adds no notice;
+under version zero the field has no effect. Extra fields SHALL be ignored, never
 interpreted as an event, identity, path, timestamp or execution policy.
 This is the complete reader header-admission shape; it is deliberately not
 DSH's execution-replay header validator.
@@ -266,25 +275,25 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **THEN** the reader returns `unsupported-format` with its unchanged reference, `legacy: false`, confirmed path and DSH path hint, no turns, zero diagnostic counts, `truncated: false` and no notices; it neither returns `not-found` nor decodes the apparently familiar later events, and a token whose parsed value rounds to an admitted integer is refused on its recorded digits
 
 #### Scenario: DSH admits only the declared version-three header shapes
-- **WHEN** a unique safe DSH source begins with `{"type":"session","version":3,"delegationDepth":0,"isSeeded":false}`, or the equivalent numeric version `3.0` or `3e0`, with depth zero or omitted depth, followed by version-three quiet rows and one `tool/call` row within both caps
-- **THEN** each source is admitted under the version-three vocabulary and projects that call once with its confirmed path/hint and zero diagnostic counts; absent or mistyped unused header metadata adds no gate or notice, and a file containing only such a header at EOF without a newline is a readable zero-turn source
+- **WHEN** a unique safe DSH source begins with `{"type":"session","version":3,"delegationDepth":0,"isSeeded":false}`, or the equivalent numeric version `3.0` or `3e0`, with depth zero or omitted depth, followed by version-three quiet rows and readable content rows within both caps
+- **THEN** each source is admitted under the version-three vocabulary and projects those content rows once each with its confirmed path/hint and zero diagnostic counts; absent or mistyped unused header metadata adds no gate or notice, and a file containing only such a header at EOF without a newline is a readable zero-turn source
 
-#### Scenario: A version-3 session is located, its measured rows project and its message rows refuse
-- **WHEN** one recorded root's unique safe DSH candidate is `session.v3.jsonl` whose opening row is `{"type":"session","version":3,"delegationDepth":0,"isSeeded":false}`, followed by complete rows typed `system/message`, `todo/write`, `turn/end` and one `tool/call`, and another root's `session.v3.jsonl` holds the same rows followed by a readable-looking `user/message`, the call's `tool/result` and an `assistant/message` carrying `surfaceOp: "append"`, `stream` and `usage`, both within both caps, with discovery complete and no I/O or UTF-8 failure
-- **THEN** discovery resolves each path; the first read projects the call once with zero diagnostic counts and no notice, the three quiet rows supplying no content; the second returns `unsupported-format` with `DSH transcript format is not supported`, its confirmed path/hint, no turns, `unrecognized_records: 3`, `skipped_lines: 0` and exactly `unrecognized transcript records: 3`, because version-three message payloads are refused until their definitions are read
-- **AND** CLI text, CLI JSON and the TUI show that same projection and that same refusal, `--turn 1` reaches the call in the first, and the second keeps its notices with both reading doors disabled
+#### Scenario: A version-3 session is located and projected
+- **WHEN** the unique safe DSH candidate is `session.v3.jsonl` whose opening row is `{"type":"session","version":3,"delegationDepth":0,"isSeeded":false,"id":"s","createdAt":"2026-09-13T00:00:00Z","cwd":"/w"}`, followed by complete rows typed `system/message`, `todo/write`, `turn/end`, a readable `user/message` whose `data` carries `id`, `role`, `content` and `source`, a `tool/call`, its `tool/result` and a readable `assistant/message` carrying `surfaceOp: "append"`, `stream` and `usage`, within both caps, with discovery complete and no I/O or UTF-8 failure
+- **THEN** discovery resolves that path and the read projects the user message, the call, the result and the assistant message once each in source order with zero diagnostic counts and no notice; the three quiet rows, the header's `isSeeded`, `id`, `createdAt` and `cwd`, the message's `id` and `source` and the assistant row's `surfaceOp`, `stream` and `usage` supply no content
+- **AND** CLI text, CLI JSON and the TUI show that same projection, and a `--turn` request reaches each of those four turns
 
 #### Scenario: The filename and the header version are independent facts
-- **WHEN** one recorded root's only session directory holds `session.jsonl` whose opening header has version 3 and depth zero followed by a `tool/call`, another's holds `session.v3.jsonl` whose opening header has version 0 and depth zero followed by a readable `user/message`, and a third's holds `session.v3.jsonl` whose opening header has version 4 and depth zero
-- **THEN** the first projects its call under the version-three vocabulary and the second its message under the version-zero vocabulary, each with zero counts and no notice, and the third returns `unsupported-format` with its confirmed path and zero counts; neither name infers a version and neither version infers a name
+- **WHEN** one recorded root's only session directory holds `session.jsonl` whose opening header has version 3 and depth zero followed by a readable `user/message`, another's holds `session.v3.jsonl` whose opening header has version 0 and depth zero followed by a readable `user/message`, and a third's holds `session.v3.jsonl` whose opening header has version 4 and depth zero
+- **THEN** the first projects its message under the version-three vocabulary and the second its message under the version-zero vocabulary, each with zero counts and no notice, and the third returns `unsupported-format` with its confirmed path and zero counts; neither name infers a version and neither version infers a name
 
 #### Scenario: The versioned name beside the plain name is decisive, whatever its version
-- **WHEN** one session directory holds `session.v3.jsonl` with a version-3 header followed by a `tool/call` and `session.jsonl` with a version-zero header followed by a readable `user/message`, and another directory holds `session.v3.jsonl` with a version-4 header beside `session.jsonl` with a version-zero header and a readable `user/message`
-- **THEN** the first directory reads `session.v3.jsonl` and projects its call under the version-three vocabulary, never the plain name's message, and the second returns `unsupported-format` with the confirmed `session.v3.jsonl` path, zero counts and no turns; neither directory is ambiguous with itself, and the plain name is never read once the versioned name carries a valid session header, because falling through would present superseded evidence as the seat's newest transcript
+- **WHEN** one session directory holds `session.v3.jsonl` with a version-3 header followed by a readable `user/message` and `session.jsonl` with a version-zero header followed by a readable `user/message` with different text, and another directory holds `session.v3.jsonl` with a version-4 header beside `session.jsonl` with a version-zero header and a readable `user/message`
+- **THEN** the first directory reads `session.v3.jsonl` and projects the versioned file's message under the version-three vocabulary, never the plain name's, and the second returns `unsupported-format` with the confirmed `session.v3.jsonl` path, zero counts and no turns; neither directory is ambiguous with itself, and the plain name is never read once the versioned name carries a valid session header, because falling through would present superseded evidence as the seat's newest transcript
 
 #### Scenario: A seeded header changes neither ownership nor admission
-- **WHEN** the unique safe candidate's opening header has depth zero or omitted depth and `isSeeded` true, false, a string, an object, null or absent, followed by a readable `user/message` under version 0 and by a `tool/call` under version 3
-- **THEN** every source is admitted and projects that row with zero counts and no notice, no seeded value adds a gate, a notice, a claim about provenance or a change to any row's classification, and the reader claims nothing about an inherited prefix
+- **WHEN** the unique safe candidate's opening header has depth zero or omitted depth and `isSeeded` true, false, a string, an object, null or absent, followed by a readable `user/message` under version 0 and again under version 3
+- **THEN** every source is admitted and projects that message with zero counts and no notice, no seeded value adds a gate, a notice, a claim about provenance or a change to any row's classification or count, and the reader claims nothing about an inherited prefix; whether an embedded tool copy is suppressed under version three is the content rules' seeded-association scenario, not an admission fact
 - **AND** when the only candidate's header has version 3, `isSeeded: true` and `delegationDepth: 1`, it is not a candidate and the result is `not-found` with null path and hint; the depth rule governs ownership and `isSeeded` does not
 
 #### Scenario: Version zero already rules the three sampled types
@@ -318,8 +327,9 @@ response. SSE remains a growth notification, not a new transcript body API.
 
 The rules of this requirement are the version-zero rules, measured on the
 captured 0.1.2-rc.1 writer, except where a paragraph names version three;
-the version-three paragraphs below say which rows version three projects,
-which it refuses and why, and what read lifts each refusal.
+the version-three paragraphs below say what version three changes, on
+which of its writer's definitions each version-three row projects, and
+which single rule is withheld because the path it rests on was not read.
 
 DSH SHALL read retained `user/message`, assembled `assistant/message`,
 `tool/call` and `tool/result` events in source order, including readable
@@ -423,7 +433,10 @@ Under version three the writer persists no fragment rows: its catalogue
 has no `assistant/chunk`, a completed step is one `assistant/message`, and
 a step cancelled mid-stream is one `assistant/message` with
 `interrupted: true` whose message is the delivered prefix the writer
-finalized. The rule that fragments are never concatenated is unchanged
+finalized. The reader SHALL project such a message as recorded, at its own
+position and time, with no interruption marker, notice or block, exactly
+as an interrupted version-zero step shows its retained fragments without
+one. The rule that fragments are never concatenated is unchanged
 and, under version three, has nothing to concatenate: the reader SHALL
 assemble nothing under either version. `interrupted`, the embedded
 `stream` and `usage` on `assistant/message` SHALL never be expanded into
@@ -439,76 +452,75 @@ evidence: under a version-three header each SHALL be a required unknown
 row, refused unless it carries top-level `ignorable: true`, and never
 decoded by the version-zero fragment or packed-row path.
 
-The message and block definitions behind version-three payloads were not
-read. The admitting read cites the event map's envelope fields, content in
-`data` for `user/message` and `data.message` for `assistant/message` and
-`tool/result`, and not the message and block types that map imports,
-whereas the version-zero projection of `text`, `reasoning`, `tool-call`,
-`tool-result` and `image` blocks and of string content rests on the
-0.1.2-rc.1 message and block definitions read for #222. A block name the
-version-zero parser recognizes is not evidence that the same name carries
-the same fields or meaning under version three, and counting an unknown
-block does not measure a familiar one. Under version three a
-`user/message`, `assistant/message` or `tool/result` row SHALL therefore
-be a refused row: recognized as a content kind of the version-three
-vocabulary, projected nowhere, causing `unsupported-format` and counting
-once as unrecognized, whatever its payload carries, including string
-content, familiar block names, `interrupted`, `stream`, `usage`,
-`surfaceOp` or citations, and regardless of a top-level `ignorable`
-marker, because that marker licenses omitting an operational record the
-reader does not know, never dropping conversation content it cannot read.
-No block of such a row SHALL be projected, suppressed, cited or
-associated. `tool/call` under version three SHALL project as under version
-zero, from the `callId`, `name` and `arguments` the event map carries on
-the event itself; its recorded `turn` and `step` are read only for
-association, which has no admitted version-three counterpart. This refusal
-is lifted only by a change that records, from the installed writer's
-source by package, file, digest and line, the version-three message and
-block definitions the event map imports, maps every consumed nested field
-(`content` as array or string, `text.text`, `reasoning.text`,
-`tool-call.id`, `tool-call.name`, `tool-call.arguments`,
-`tool-result.toolCallId`, `tool-result.content`, `tool-result.text`,
-`image`) and every other block variant to its version-three meaning and
-disposition, and pins each with synthetic scenarios naming exact counts
-and any suppression.
+The message and block definitions behind version-three payloads were read
+for #279: the session event map imports its message and block types from
+the 0.1.5-rc.2 `dsh-llm` package, whose files are cited by digest and line
+in the change's design, and every field the reader consumes maps onto the
+version-zero projection. `user/message` carries its message directly in
+`data`, which is `{id, role, content, source}` with no `turn` or `step`;
+`assistant/message` and `tool/result` carry theirs in `data.message`;
+`content` is an array of blocks or a string; the block union is `text`
+(`text`), `reasoning` (`text`), `image` (`attachment`), `tool-call` (`id`,
+`name`, `arguments`), `tool-result` (`toolCallId`, `content`) and `file`.
+Under version three the four content kinds SHALL therefore project exactly
+as under version zero: ordered `text` and `reasoning` blocks, string
+content as one text block, `tool-call` and `tool-result` blocks with their
+identifiers, names, arguments and textual results, `image` as the inert
+omission marker, and `file`, which the version-zero parser does not name,
+as a counted unrecognized block that keeps its siblings under the
+supported-sibling rule. `Message.id`, `Message.source`, `error` and `meta`
+on `tool/result`, and `interrupted`, `stream` and `usage` on
+`assistant/message` SHALL supply no content. `tool/call` projects from the
+`callId`, `name` and `arguments` the event map carries on the event. A
+version-three `user/message` records no `turn` or `step`, so it SHALL
+never own or be owned in the dedicated-tool association. A familiar block
+name is not what admits these payloads; the field-by-field mapping is,
+and a further version SHALL be admitted only on its own mapping.
 
 The citation grammar above is the grammar the version-three writer emits,
 byte-identical in its source, so `sourceEventSeqs` SHALL be validated
-identically under both versions wherever it is validated; under version
-three that validation reaches no row until the payload refusal above is
-lifted, and suppression, which only ever removes cited earlier chunks,
-would still remove nothing because no chunk row exists under version
-three. `surfaceOp`, an append or replace marker on the writer's four
-surface-eligible types, SHALL never remove, reorder or replace an earlier
-row: the reader SHALL not replay the writer's model-visible surface, whose
-own contract calls it the wrong source for a human transcript. Whether the
-writer persists a replacement copy, a model-only row whose `surfaceOp` has
-`op: replace`, as a message row of the session file, what such a row
-carries, and how an append-origin row is told from it were not read,
-because the persistence package and the append and replace paths were not
-read. Keeping earlier rows is measured; excluding replacement copies is
-not; they are separate operations. Until that path is read, a replacement
-copy can reach the reader only as a version-three message row, which the
-payload rule refuses, or as a `system/message`, which is quiet, and the
-reader SHALL neither display nor suppress a version-three row on
-`surfaceOp`. The change that lifts the payload refusal SHALL also rule,
-from the persistence and surface source, whether replacement copies are
-persisted and whether each displays, is omitted or refuses, with synthetic
-append-plus-replacement and compaction scenarios pinning displayed rows,
-order, duplicates and diagnostics. Under version zero the compaction and
-replacement rules above are unchanged.
+identically under both versions wherever the version-zero rules validate
+it, including the whole-read refusal for a present invalid field. Under
+version three a valid citation SHALL suppress nothing: suppression only
+ever removes cited earlier chunks, no chunk row exists under version three,
+and the writer never places a citation on `assistant/message`; a
+version-three citation on a user message or tool result to an earlier
+row, to an unobserved sequence, or from an assembled message is the
+existing no-suppression outcome, not a refusal. `surfaceOp`, an append or
+replace marker the writer requires on its four surface-eligible types,
+SHALL never be parsed and SHALL never remove, reorder or replace an
+earlier row: the reader SHALL not replay the writer's model-visible
+surface, whose own contract calls it the wrong source for a human
+transcript. A row whose `surfaceOp` is a replace object SHALL project by
+its type at its recorded position, a message as a message and a
+`system/message` as quiet, exactly as version zero's compaction message
+appears at its recorded position rather than rewriting history. The
+writer's append and replace paths, which decide what such a row carries,
+were not read; that gap changes no disposition, because the reader reads
+no marker and reconstructs nothing, and a later change that reads those
+paths may add a marker-aware presentation but SHALL never remove a
+persisted row. Under version zero the compaction and replacement rules
+above are unchanged.
 
 Dedicated call/result ownership of an embedded block, above, rests on a
-unique recorded call id and turn/step. Whether a seeded version-three
+unique recorded call id and turn/step, which the version-three writer
+carries on `assistant/message`, `tool/call` and `tool/result` and on the
+`tool-call` and `tool-result` blocks. Whether a seeded version-three
 session's inherited prefix keeps the originating `seq`, `turn`, `step` and
-call identities of its rows, or remaps or reuses them, was not read.
-Under version three that association SHALL not be applied: no message or
-`tool/result` row projects, and a `tool/call` row has no embedded copy to
-own. The change that lifts the payload refusal SHALL read the seed and
-fork path and pin seeded scenarios in which inherited and newly emitted
-embedded and dedicated calls and results suppress a genuine duplicate once
-and keep unrelated or ambiguous identities, or SHALL leave the association
-unapplied under version three.
+call identities of its rows, or remaps or reuses them, was not read, and
+that prefix is the one way rows from another session enter a file. Under
+version three the association SHALL therefore run only when the opening
+header records `isSeeded` as boolean `false`; when it records anything
+else, every embedded call or result copy SHALL remain visible beside its
+dedicated event under the absent-partner rule, with no suppression, no
+count and no notice. When it runs, the version-zero rule applies unchanged:
+one proved matching call id and turn/step suppresses the embedded copy
+once, and a missing, ambiguous or cross-step identity keeps both. Under
+version zero the association runs whatever `isSeeded` carries. A change
+that reads the seed and fork path SHALL lift the gate only with seeded
+scenarios in which inherited and newly emitted embedded and dedicated
+calls and results suppress a genuine duplicate once and keep unrelated or
+ambiguous identities.
 
 Version-three admission changes nothing about time. An ordinary
 version-three event's `time` keeps the signed-safe-integer rule above and
@@ -585,18 +597,35 @@ packed row's `time0`, and no other field, under either version.
 - **WHEN** a complete valid packed row yields a first text turn of exactly 4,000,000 UTF-8 bytes and a second nonempty text turn, while the encoded row fits the source cap
 - **THEN** turn one is retained, turn two is not, `truncated` is true and diagnostics count no unknown record; the packed row is fully validated but is neither one oversized turn nor a means to exceed the display cap
 
-#### Scenario: Version-3 message rows refuse until their payload definitions are read
-- **WHEN** a version-three session holds a `tool/call` at sequence 2 followed by a readable-looking `user/message` with string content, and otherwise identical files instead end with an `assistant/message` carrying familiar `text` and `reasoning` blocks, `interrupted: true`, a `stream` array and a `usage` object, followed by a partial JSON append; an `assistant/message` at sequence 20 carrying `surfaceOp: {"op":"replace","startSeq":2,"endSeq":4}` and `sourceEventSeqs: [[3, 5], 7]`; a `tool/result` whose `tool-result` block names the call's `callId` with matching `turn` and `step`; or that `user/message` with top-level `ignorable: true`
-- **THEN** every read returns `unsupported-format` with `DSH transcript format is not supported`, its confirmed path/hint, no turns, `unrecognized_records: 1`, `skipped_lines: 0`, `truncated: false` and exactly `unrecognized transcript records: 1`; no text, reasoning, tool block, image, fragment or interruption marker is projected, the `stream` yields no turn, no row is removed or reordered on `surfaceOp`, the citations are neither applied nor reported, the call's embedded copy is neither owned nor suppressed, the marker does not omit the row, and the partial append is not a malformed complete line
-- **AND** a file holding the header and that `tool/call` alone projects the one call with zero counts, and the same four message rows under a version-zero header keep their version-zero projection
+#### Scenario: Version-3 content projects on the writer's own definitions
+- **WHEN** a version-three session holds a `user/message` whose `data` is `{id, role, content, source}` with `content` an array of one `text` block, a `tool/call`, its `tool/result` whose `data.message.content` holds one `tool-result` block naming the call's `callId` with textual content, and an `assistant/message` whose `data.message.content` holds `reasoning`, `text`, `image` and `file` blocks in that order with `surfaceOp: "append"`, a `stream` array and a `usage` object, and an otherwise identical file whose user message carries string `content`
+- **THEN** each read projects four turns in source order: the user text, the call with its name and arguments, the result with its identifier and text, and the assistant turn with its reasoning, text and `[image omitted]` blocks in recorded order; the `file` block adds one to `unrecognized_records` with its notice and removes no sibling, the string content projects as one text block, `id`, `source`, `stream`, `usage` and `surfaceOp` supply nothing, and no row refuses
+- **AND** the same rows under a version-zero header project identically, and a version-three `user/message` carrying `turn` and `step` beside its message neither gains nor loses content
+
+#### Scenario: A version-3 interrupted step retains the writer's finalized message
+- **WHEN** an owned version-three session ends with a readable `assistant/message` carrying `interrupted: true`, a `stream` array, a `usage` object and text equal to the delivered prefix, followed by a partial JSON append and no further row
+- **THEN** the read projects one assistant turn with exactly that text at the message's own position and time, with no interruption marker, no fragment turns derived from `stream`, zero diagnostic counts and no notice, and the partial append is not a malformed complete line; CLI whole output, `--turn` and both TUI doors show that one turn
 
 #### Scenario: A version-3 attempt is counted and shows nothing
-- **WHEN** a version-three session holds a `tool/call`, an `assistant/attempt` row carrying a stream, and a second `tool/call`
-- **THEN** the two calls project once each in source order, the attempt supplies no turn, block or text, `unrecognized_records` is one with its notice, and the read succeeds; the same attempt row with top-level `ignorable: true` yields the same result
+- **WHEN** a version-three session holds a readable `user/message`, an `assistant/attempt` row carrying a stream, and a readable `assistant/message`
+- **THEN** the user and assistant messages project once each, the attempt supplies no turn, block or text, `unrecognized_records` is one with its notice, and the read succeeds; the same attempt row with top-level `ignorable: true` yields the same result
+
+#### Scenario: Version-3 citations share the grammar and suppress nothing
+- **WHEN** a version-three `user/message` at sequence 20 cites `sourceEventSeqs: [[3, 5], 7]` naming earlier `system/message`, `assistant/message` and `tool/call` rows, a `tool/result` cites an unobserved sequence, an `assistant/message` cites earlier rows, and otherwise identical files instead give the user message `sourceEventSeqs: null`, a reversed range or a self reference
+- **THEN** the first three project every content row once in source order with zero diagnostic counts, removing none of the cited rows, and each of the others returns `unsupported-format` with one unrecognized row and no turns
+
+#### Scenario: A version-3 replacement copy keeps the audit order
+- **WHEN** a version-three session holds a readable `user/message`, a readable `assistant/message`, a `system/message` carrying `surfaceOp: {"op":"replace","startSeq":1,"endSeq":2}`, and a later readable `assistant/message` carrying the same replace marker over the first two rows and text unlike theirs
+- **THEN** the read projects three turns in source order, the two earlier messages and the later replace-marked message at its recorded position, with zero diagnostic counts and no notice; the `system/message` is quiet whatever its marker, no earlier row is removed, reordered or replaced, and neither marker is parsed, displayed or counted
+
+#### Scenario: Embedded copies are owned only in an unseeded version-3 session
+- **WHEN** a version-three session whose header records `isSeeded: false` holds an `assistant/message` at turn 1 step 1 embedding text and a `tool-call` block with id `c1`, a dedicated `tool/call` with `callId: "c1"` at turn 1 step 1 and its `tool/result`; and otherwise identical files record `isSeeded` as `true`, a string, an object, null or absent
+- **THEN** the first read projects the assistant text without its embedded call block, then the dedicated call once and the result once, with zero counts and no notice; each of the others projects the same three rows with the embedded call block still present in the assistant turn beside the dedicated call, with zero counts and no notice, and no seeded value changes any row's classification
+- **AND** in the `isSeeded: false` file a second dedicated `tool/call` with `callId: "c1"` at the same turn and step makes the identity ambiguous, so both dedicated calls and the embedded copy remain; a version-three `user/message` embedding a `tool-result` block keeps it under every header, because it records no turn or step; and under a version-zero header the association runs whatever `isSeeded` carries
 
 #### Scenario: Version-zero fragment rows are unknown under a version-3 header
-- **WHEN** a version-three session contains a `tool/call` followed by an `assistant/chunk` row, and three otherwise identical files instead contain a valid `text-chunks`, `reasoning-chunks` or `tool-call-chunks` row
-- **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice, without decoding the row as a fragment or a packed run; with top-level `ignorable: true` on that row each read instead projects the call once with one unrecognized record
+- **WHEN** a version-three session contains a readable `user/message` followed by an `assistant/chunk` row, and three otherwise identical files instead contain a valid `text-chunks`, `reasoning-chunks` or `tool-call-chunks` row
+- **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice, without decoding the row as a fragment or a packed run; with top-level `ignorable: true` on that row each read instead projects the user message once with one unrecognized record
 
 #### Scenario: Version-three time keeps the recorded-token exactness of version zero
 - **WHEN** a version-three source whose header spells its version `3e0` holds three `tool/call` rows with `time` spelled `1e-400`, `1e3` and `-0.0`, and version-zero sources hold the existing ordinary `assistant/chunk` at `time: 1e-400` and packed `text-chunks` row at `time0: 1e-400`
@@ -651,30 +680,26 @@ successfully only when it is an object with top-level `ignorable` exactly
 boolean `true`. Absent, false, null, string, numeric or nested markers
 SHALL not permit omission; a scalar cannot carry that marker. Such a
 required unknown row SHALL cause `unsupported-format`, with no projected
-prose from anywhere in the snapshot. A recognized event whose payload is
-admitted, every version-zero content kind and `tool/call` under version
-three, with an unsupported nested content/block/chunk variant SHALL keep
-the earlier supported-sibling and counted-omission rule; it is not an
-unknown event envelope. Recognized quiet event kinds SHALL be enumerated per admitted
+prose from anywhere in the snapshot. A recognized content event under
+either version with an unsupported nested content/block/chunk variant,
+including a version-three `file` block, SHALL keep the earlier
+supported-sibling and counted-omission rule; it is not an unknown event
+envelope. Recognized quiet event kinds SHALL be enumerated per admitted
 version from evidence in design, not inferred from a type prefix, from an
 arbitrary claim that a record is metadata, or from the same name being
 quiet under another version. The version-zero vocabulary is the captured
 0.1.2-rc.1 catalogue: five content kinds, three packed storage rows and 46
-quiet kinds. The version-three vocabulary is the read 0.1.5-rc.2 catalogue
-as far as it was transcribed: one projecting content kind (`tool/call`),
-three refused content kinds (`user/message`, `assistant/message` and
-`tool/result`, whose payload definitions were not read), one counted
-omission (`assistant/attempt`) and 51 quiet kinds, namely the 44
+quiet kinds. The version-three vocabulary is the read 0.1.5-rc.2
+catalogue, transcribed in full at 56 names: four content kinds
+(`user/message`, `assistant/message`, `tool/call`, `tool/result`), one
+counted omission (`assistant/attempt`) and 51 quiet kinds, namely the 44
 version-zero quiet kinds other than `tool/code-dispatch` and
 `tool/code-dispatch-start` plus `system/message`,
 `deliverables/presented`, `feedback/message-delete`,
 `feedback/message-put`, `subagent/catalog`, `tool/ptc-dispatch` and
-`tool/ptc-dispatch-start`. A refused version-three content row is not an
-unknown envelope: it counts once as unrecognized and refuses the read
-regardless of an ignorable marker, exactly as an invalid packed-row or
-citation encoding does. The writer reports two further catalogue names
-that were not transcribed; they, `assistant/chunk`, the three packed-row
-names, the two `tool/code-dispatch*` names and every other name are
+`tool/ptc-dispatch-start`. No catalogue name is untranscribed;
+`assistant/chunk`, the three packed-row names, the two
+`tool/code-dispatch*` names and every name outside the catalogue are
 required unknowns under version three, and the eight version-three names
 above are required unknowns under version zero. Invalid packed-row or
 citation encodings SHALL also cause `unsupported-format` as specified
@@ -751,7 +776,7 @@ result, not that compatibility response.
 - **THEN** only boolean true succeeds with the recognized turns and one counted unknown row; every other case returns `unsupported-format` with no turns and the same count, and an unknown scalar or an event with only a nested true marker is likewise refused
 
 #### Scenario: Known DSH event content keeps counted partial support
-- **WHEN** a recognized version-zero DSH assistant message contains readable text plus two unsupported blocks and valid association metadata
+- **WHEN** a recognized DSH assistant message under version zero, and again under version three with one of the two being a `file` block, contains readable text plus two unsupported blocks and valid association metadata
 - **THEN** the text remains readable, its one physical row adds one to `unrecognized_records`, and an absent ignorable marker does not turn the recognized envelope into an unknown required event
 
 #### Scenario: A refused DSH snapshot keeps complete-prefix diagnostics
@@ -784,13 +809,13 @@ result, not that compatibility response.
 - **AND** if the opening header is instead version zero or version three, a later `session` row is one unknown event: without top-level `ignorable: true` it causes R14's event refusal and one unrecognized row, while with that marker it is a counted omission and other recognized content remains readable, with no version switch in either direction
 
 #### Scenario: Version-3 names are ruled under the version-3 vocabulary
-- **WHEN** a version-three session holds a `tool/call` followed by one row of each type `system/message`, `deliverables/presented`, `feedback/message-delete`, `feedback/message-put`, `subagent/catalog`, `tool/ptc-dispatch`, `tool/ptc-dispatch-start`, `todo/write`, `turn/end` and `request/header`, none carrying an `ignorable` marker
-- **THEN** the read projects the call once with zero diagnostic counts and no notice; every listed row is recognized quiet, and `system/message` supplies no `system` turn and no prose, whatever its payload or `surfaceOp`
+- **WHEN** a version-three session holds a readable `user/message` followed by one row of each type `system/message`, `deliverables/presented`, `feedback/message-delete`, `feedback/message-put`, `subagent/catalog`, `tool/ptc-dispatch`, `tool/ptc-dispatch-start`, `todo/write`, `turn/end` and `request/header`, none carrying an `ignorable` marker
+- **THEN** the read projects the user message once with zero diagnostic counts and no notice; every listed row is recognized quiet, and `system/message` supplies no `system` turn and no prose, whatever its payload or `surfaceOp`
 
 #### Scenario: Version-3 names are unknown under version zero
 - **WHEN** a version-zero session holds a readable `user/message` followed by one `assistant/attempt`, `deliverables/presented`, `feedback/message-delete`, `feedback/message-put`, `subagent/catalog`, `tool/ptc-dispatch` or `tool/ptc-dispatch-start` row without an `ignorable` marker
 - **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice; with top-level `ignorable: true` on that row it projects the user message once with one unrecognized record, and no name is quiet under version zero because it is quiet under version three
 
 #### Scenario: Version-zero-only names are unknown under version three
-- **WHEN** a version-three session holds a `tool/call` followed by one `tool/code-dispatch` or `tool/code-dispatch-start` row, or by a row whose type is outside every transcribed version-three name, without an `ignorable` marker
-- **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice, and with top-level `ignorable: true` on that row it projects the call once with one unrecognized record; an untranscribed catalogue name is refused by name, never admitted with the version
+- **WHEN** a version-three session holds a `tool/call` followed by one `tool/code-dispatch` or `tool/code-dispatch-start` row, or by a row whose type is outside the 56-name version-three catalogue, without an `ignorable` marker
+- **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice, and with top-level `ignorable: true` on that row it projects the call once with one unrecognized record; a name outside the catalogue is refused by name, never admitted with the version
