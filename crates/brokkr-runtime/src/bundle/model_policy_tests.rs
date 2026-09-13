@@ -4147,9 +4147,10 @@ fn effortless_routes_excuse_only_their_own_lanes() {
 
 #[test]
 fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
-    // Coverage for the adapter-lookup miss in `effort_exempt`: the seat
-    // drives a built-in provider the adapter map does not declare, so no
-    // exemption is claimed and nothing is witnessed.
+    // Coverage for the two miss arms in `effort_exempt`: a seat driving
+    // a built-in provider the adapter map does not declare, and a seat
+    // with no model-bearing driver at all — neither claims an exemption
+    // and nothing is witnessed.
     let fixture = Fixture::new();
     let adapters = Adapters::load(&fixture.dir.path().join("adapters")).unwrap();
     assert!(adapters.adapter("codex").is_none());
@@ -4160,6 +4161,16 @@ fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
     assert!(!effort_exempt(
         "work",
         &raw,
+        Some(&adapters),
+        &mut witnessed
+    ));
+    assert!(witnessed.is_empty());
+    let exec = json!({"driver": {"command": [
+        "{brokkr}", "driver", "exec", "--", "true",
+    ]}});
+    assert!(!effort_exempt(
+        "check",
+        &exec,
         Some(&adapters),
         &mut witnessed
     ));
