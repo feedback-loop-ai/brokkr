@@ -4144,3 +4144,52 @@ fn effortless_routes_excuse_only_their_own_lanes() {
     let witnessed = enforce_model_pins(pinned.as_object().unwrap(), Some(&adapters)).unwrap();
     assert!(witnessed.is_empty());
 }
+
+#[test]
+fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
+    // Coverage for the adapter-lookup miss in `effort_exempt`: the seat
+    // drives a built-in provider the adapter map does not declare, so no
+    // exemption is claimed and nothing is witnessed.
+    let fixture = Fixture::new();
+    let adapters = Adapters::load(&fixture.dir.path().join("adapters")).unwrap();
+    assert!(adapters.adapter("codex").is_none());
+    let raw = json!({"driver": {"command": [
+        "{brokkr}", "driver", "codex", "--", "--model", "gpt-5.6-sol",
+    ]}});
+    let mut witnessed = Map::new();
+    assert!(!effort_exempt("work", &raw, Some(&adapters), &mut witnessed));
+    assert!(witnessed.is_empty());
+}
+
+#[test]
+fn an_exempted_inline_gate_merges_its_authorisation_with_its_exemption() {
+    // Coverage for the manifest merge arm: an inline gate on an
+    // effortless route with no effort pin is BOTH authorised (its
+    // adapter's digest in the resolution record) AND exempted (the same
+    // digest witnessed beside the exemption), so the manifest merges the
+    // two records instead of inserting.
+    let fixture = Fixture::new();
+    let mut dsh = adapter("dsh", Some("trusted"), Some(true));
+    dsh["models"] = json!({"spark": "spark/qwen3.8-flash"});
+    dsh["judges"] = json!(["spark"]);
+    dsh["model_flag"] = json!("--model");
+    dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
+    dsh["effort_flag"] = json!("--effort");
+    dsh["effortless_routes"] = json!({"spark": "test route refuses every level"});
+    fixture.write_adapter(dsh);
+    let bundle = fixture
+        .compile(json!({
+            "results": ["pass", "fail"],
+            "class": "gate",
+            "role": "roles/role.md",
+            "driver": {"command": [
+                "{brokkr}", "driver", "dsh", "--",
+                "--model", "spark/qwen3.8-flash",
+            ]},
+        }))
+        .expect("a trusted effortless gate compiles");
+    assert_eq!(
+        bundle.manifest["drivers"],
+        json!({"work": {"dsh": adapter_digest(&fixture, "dsh")}}),
+    );
+}
