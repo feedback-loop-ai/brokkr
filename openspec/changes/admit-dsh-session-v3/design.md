@@ -33,6 +33,19 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   refutes; that sitting lifted the refusal and revised this design to
   match, so the council's next sitting starts from a design that agrees
   with its delta.
+- **The change at the fifth specification sitting.** The clarify judge
+  returned four findings against the record itself (proposal S8,
+  CLARIFY-279-5 to 8): E3 and E4 contradicted each other on the envelope;
+  D4, D13 and task 2.1 inferred that an unchanged message arm reads no
+  user positions, which `transcript.rs:2427-2428` refutes; D3 and tasks
+  1.2 and 1.4 promised the shipped zero behaviour byte for byte, which
+  `zero_number_token` (`:1876-1895`, a zero digit somewhere in the
+  mantissa, not everywhere) makes incompatible with the exact-zero
+  requirement; and D3's "when the raw token is found" left escaped and
+  duplicate `version` members to the parsed value. The specify seat
+  revised D1, D2, D3, D4, D5, D12, D13, the Risks and the Migration Plan
+  to the corrected delta; each correction is recorded as a correction and
+  nothing was re-measured.
 - **The recipe's return budget is spent.** `recipes/triage/policy.json`
   rule `DESIGN-UPSTREAM-EXHAUSTED` parks a run whose design reports
   `upstream` after three specification visits; specification has now sat
@@ -81,10 +94,11 @@ See proposal.md — Why for the motivation. The facts that shape this design:
 |---|---|
 | Simplicity: the 0.1.5-rc.2 message and block definitions (`dsh-llm`) map field for field onto the reader's block parser; project the four content kinds. | **Adopt.** The read is recorded in D2 (digests) and D13 (the mapping); the delta projects the four kinds on it and pins each consumed field with the projection, interrupted-message and partial-support scenarios. The previous design's reasons for not lifting no longer hold: the specification has been revised by its own author on the analyze judge's return, and the re-verification standard it applied to the payload read was never applied to the header, vocabulary and `tool/call` admission that rest on the same seat's read from the same run. |
 | Simplicity: the catalogue is exactly 56 names; 51 − 3 + 8 reconciles. | **Adopt.** The delta closes the version-three vocabulary at 56 and refuses any other name; no name is untranscribed (E1). |
-| Simplicity: the version-three codec admits only `type`, `seq`, `time`, `data` at the top level; the timed stream is nested under `data.stream`. | **Adopt.** A top-level packed row cannot be written by the 0.1.5-rc.2 codec, so refusing one under version three refuses a row its writer cannot have written (E3, D6). |
+| Simplicity §3.2: the version-three codec admits only `type`, `seq`, `time`, `data` at the top level; the timed stream is nested under `data.stream`. | **Adopt as corrected.** The base check at `worker.cjs:9824` is the four members; the same validation pass at `:9824-9930`, which simplicity §3.4 cites, admits and validates the conditional top-level members `surfaceOp` and `sourceEventSeqs` per type (E4). "Only" overstated the base check as the whole envelope; E3 now records the base plus the conditional members, and the conclusion stands that a top-level packed row cannot be written, because it lacks the base `seq` and `time` and carries members no type permits (E3, D6; CLARIFY-279-5). |
 | Simplicity: `assistant/attempt` is quiet. | **Reject; counted omission stands.** An attempt carries model output the writer never surfaced. The reader's existing signal for "recognized envelope, content not projected" is the counted `DshRow::Omission` (`transcript.rs:2245`), and its count is the only trace an operator gets that model text exists which the read does not show. Quiet would erase that trace. Simplicity's §8 accepts this outcome. |
 | Simplicity §6.9: apply the dedicated-tool association under version three everywhere and accept a cosmetic duplicate in the seeded case. | **Adopt for `isSeeded: false`; reject for every other header value.** The identities the rule keys on are carried on the version-three rows (D13), and a non-seeded session has no prefix from another session, so the version-zero rule applies there on measured fields. A seeded prefix is the one way foreign identities enter a file and its path was not read (U2); the delta withholds the pass there, which shows every embedded copy and hides nothing. The fleet's driver never seeds a session, so the gate is open for every transcript it writes. |
-| Simplicity: `assistant/message` forbids `sourceEventSeqs`; the codec requires unique earlier source sequences and replacement endpoints below the event's `seq`. | **Adopt.** The reader's earlier-than-owning citation rule matches the writer's validator; under version three a valid citation suppresses nothing because no chunk row exists (D7). |
+| Simplicity §3.4: `assistant/message` forbids `sourceEventSeqs`; the codec requires unique earlier source sequences and replacement endpoints below the event's `seq`. | **Adopt.** The reader's earlier-than-owning citation rule matches the writer's validator; under version three a valid citation suppresses nothing because no chunk row exists (D7). Both members are top-level members of the event row, as the reader has always read `sourceEventSeqs` and as the delta's scenarios place `surfaceOp`; E4 records the per-type permissions. |
+| Simplicity §3.7: a version-three `user/message` carries no `turn`/`step`, so its positions are `None` and association still works. | **Adopt the measurement, correct the inference.** The writer omits the fields (E5, corroborated by the key histogram), but the shipped message arm reads `data.turn` and `data.step` for both roles (`transcript.rs:2427-2428`) and the association pass has no role exception (`:2142-2173`), so a supplied pair would let a crafted row own or lose an embedded copy. Under `Three` the arm reads no position from a `user/message` (D4; CLARIFY-279-6). |
 | Robustness §1: reach is a property of an operation, not of a seat; a third shape exists (binary resolvable, source unreadable). | **Adopt.** D2's reach table carries the shape, and the decision's ruling 1 says reach is performed by the reading seat at the file it cites and is never inherited (D11). |
 | Robustness §2: a payload refusal renders the same string as a never-admitted version; surface the distinction. | **Moot.** No payload refusal exists in the revised delta; `unsupported-format` under version three arises only from the version-zero causes, an invalid citation or packed encoding or a required unknown without the marker (D10). |
 | Robustness §3: the tool-call-only synthetic session is a wiring proof and should say so. | **Superseded.** The delta's located scenario projects a full session end to end; no separate wiring proof remains (D12). |
@@ -151,20 +165,43 @@ simplicity seat's, into the 0.1.5-rc.2 packages above):
   `parentSession`, `origin` and `agentPreset` (`worker.cjs:10461-10470`).
   The reader's admission shape stays deliberately smaller (`type`, depth,
   `version`) and every other field inert, absent or present.
-- **E3 The envelope and the stream.** The version-three codec admits only
-  `type`, `seq`, `time` and `data` at the top level (`worker.cjs:9824`).
-  The timed stream is an array nested under `data.stream` on
-  `assistant/message` and `assistant/attempt`, whose elements are the
-  compact `{type: 'text-chunks' | 'reasoning-chunks' | 'tool-call-chunks'
-  | 'chunk', time0, index, dt, ...}` objects of `AssistantStreamAccumulator`
-  (`worker.cjs:4114-4200`). A top-level packed row cannot be written by
-  this codec. The stream element shape the previous design left uncited is
-  now cited; the stream is still never expanded (D6).
-- **E4 Surface markers are validated by the writer.** `surfaceOp` is
-  required on the four surface-eligible types and forbidden elsewhere;
+- **E3 The envelope and the stream.** The version-three codec requires the
+  base members `type`, `seq`, `time` and `data` on every event row
+  (`worker.cjs:9824`) and, in the same validation pass, admits exactly two
+  further top-level members under the per-type permissions of E4; no other
+  top-level member is permitted. The timed stream is an array nested under
+  `data.stream` on `assistant/message` and `assistant/attempt`, whose
+  elements are the compact `{type: 'text-chunks' | 'reasoning-chunks' |
+  'tool-call-chunks' | 'chunk', time0, index, dt, ...}` objects of
+  `AssistantStreamAccumulator` (`worker.cjs:4114-4200`). A top-level packed
+  row, `{type, seq0, time0, data}`, lacks the base `seq` and `time` and
+  carries members no type permits, so this codec cannot write one. The
+  stream is still never expanded (D6). The record's earlier sentence that
+  the codec admits "only" the four base members was the base check
+  overstated as the whole envelope; it is corrected here, from the cited
+  lines already in the record and not from a new read (CLARIFY-279-5).
+- **E4 The conditional top-level members.** `surfaceOp` is required on the
+  four surface-eligible types and forbidden on every other type;
   `assistant/message` forbids `sourceEventSeqs`; source sequences must be
   unique and earlier than the event, and replacement endpoints below its
-  `seq` (`types.d.ts:429-446`, `worker.cjs:9824-9930`).
+  `seq` (`types.d.ts:429-446`, `worker.cjs:9824-9930`). By type, as far as
+  the record supports it:
+
+  | Version-three type | Required at top level | Optional at top level | Forbidden at top level |
+  |---|---|---|---|
+  | `user/message`, `tool/result` | `type`, `seq`, `time`, `data`, `surfaceOp` | `sourceEventSeqs` | every other member |
+  | `system/message` | `type`, `seq`, `time`, `data`, `surfaceOp` | `sourceEventSeqs`, by the same exception | every other member |
+  | `assistant/message` | `type`, `seq`, `time`, `data`, `surfaceOp` | none | `sourceEventSeqs` and every other member |
+  | the other 52 types | `type`, `seq`, `time`, `data` | not recorded for `sourceEventSeqs` | `surfaceOp` and every other member |
+
+  That `assistant/message` alone is recorded as forbidding
+  `sourceEventSeqs` is what makes the member optional on the other
+  surface-eligible types; whether a non-surface row may carry one was not
+  recorded, and no reader rule rests on it. Writer validity is not reader
+  admission: the reader validates no event row's key set, requires and
+  refuses no marker, and reads `sourceEventSeqs` only on the three content
+  kinds its version-zero rules read it on, `assistant/message` included
+  (D7); the delta's writer-validity scenario pins that distinction.
 - **E5 The message and block definitions.** `Message` is `{id, role,
   content, source}` (`dsh-llm/lib/types/message.d.ts:120-153`); the block
   union is `text`, `reasoning`, `image`, `tool-call`, `tool-result` and
@@ -220,28 +257,68 @@ rejected: an integer, because a `u8` invites arithmetic and a default; the
 enum makes every match exhaustive so a third version cannot be added
 without visiting every dispatch site.
 
-**Spellings.** `zero_number_token` generalizes into an exact-integer token
-check over a digit signature: strip the sign, split the mantissa from any
-exponent, require mantissa characters in `0-9.` and exponent digits only,
-then compare the mantissa's digits with the decimal point and leading and
-trailing zeros removed against the signature, empty for zero and `3` for
-three. Three is admitted when the parsed value is three and, when the raw
-token is found, its signature is `3`. So `3`, `3.0`, `3e0`, `30e-1` and
-`0.3e1` admit; `"3"`, `true`, `null`, `3.1`, `-3`, `3e1` (signature `3`,
-parsed thirty) and the rounding artefacts `2.9999999999999999` and
-`3.0000000000000001` (parsed three, signature not `3`) refuse. The zero
-path keeps its rule unchanged, including `-0`; `dsh_millis_exact` keeps
-calling the zero form. Alternative rejected: parsed value only for three,
-because it admits a token the writer never wrote and drops a defence the
-zero path already has (robustness §5 at the first sitting).
+**Spellings: one signature rule.** `zero_number_token` is replaced by a
+digit-signature helper: strip the sign, split the mantissa from any
+exponent, require mantissa characters in `0-9.` and exponent digits only
+(else no signature), then return the mantissa digits with the decimal
+point and every leading and trailing zero removed. The helper knows
+nothing about parsed values: `0`, `0.0`, `-0`, `0e0` and `0.000` have the
+empty signature; `1e-400`, `10e-400`, `0.1e-400` and `1.0e-400` have `1`;
+`3`, `3.0`, `3e0`, `30e-1`, `0.3e1`, `-3`, `3e1` and `300` have `3`; `3.1`
+has `31`; `2.9999999999999999` and `3.0000000000000001` have their
+seventeen digits. Admission is the combined check: the parsed value is
+zero or three and the signature is empty or `3` respectively. So `-3` and
+`3e1` refuse on the parsed value, the rounding artefacts refuse on the
+signature, and the zero-digit underflow tokens refuse on the signature
+where the shipped predicate admitted them. The combined check is complete
+for both integers: a token whose digits are one `3` and zeros has the
+value 3·10^k, which is three only at k = 0, and a token with the empty
+signature is exactly zero. Alternative rejected: parsed value only for
+three, because it admits a token the writer never wrote and drops a
+defence the zero path already has (robustness §5 at the first sitting).
+
+**Token binding.** `raw_top_level_token` decodes JSON string escapes in
+member names before comparing and returns one of three outcomes: exactly
+one top-level member of that name with its raw value token, no such
+member, or more than one. The scan already skips nested depth and string
+contents; the change is the decode and the count. `dsh_header` admits only
+when the parsed `version` is zero or three, the scan finds exactly one
+`version` member and its signature matches; a duplicated member is an
+ambiguous recording and refuses whatever its values, and a parsed number
+whose token the scan cannot establish refuses rather than passing, so the
+check never falls open to the parsed value. `dsh_millis_exact` takes the
+same three-way outcome: a duplicated member is invalid whatever the value;
+for a parsed zero the one token must have the empty signature; a parsed
+number with no established token is invalid. Binding to the first or the
+last duplicate was rejected because `serde_json` retains the last
+occurrence while the shipped scan returned the first, so either binding
+can disagree with the parser and admit a rounded token; no writer records
+a member twice, so refusing costs nothing real (CLARIFY-279-8).
+
+**Compatibility, stated plainly.** Two shipped behaviours change, under
+version zero as well as three, and both are corrections toward
+requirements the living text already states. `zero_number_token` requires
+a zero digit somewhere in the mantissa, not everywhere (`:1883-1885`), so
+`10e-400` and `0.1e-400` were admitted as version zero, rendered `"0"` as
+an ordinary `time` and passed as a packed `time0`; with the signature they
+refuse, render `""` and refuse the row. `dsh_header` treated a missing raw
+token as passing (`:1931`), and the first-match scan missed escaped names
+and bound the first duplicate; with the binding a missing or duplicated
+token refuses at the header, invalidates an ordinary time and refuses a
+packed row, and an escaped name binds. The previous design's "the zero
+path keeps its rule unchanged" and tasks 1.2 and 1.4's "byte-for-byte"
+are withdrawn; the existing underflow regressions (`tests.rs:2126`,
+`:2143`, `:2180`) still pass because `1e-400` has no zero digit, and new
+regressions pin the tokens that do (D12; CLARIFY-279-7).
 
 **Exactness scope.** The recorded-token check judges the header `version`,
-an ordinary event's `time` and a packed row's `time0`, under either version,
-and no other field. Admitting three widens the version check from one
-admitted integer to two and adds no field: `surfaceOp`, citations and every
-other event field are never judged on their token. The existing underflow
-regressions (`tests.rs:2126`, `:2143`, `:2180`) stay, and a version-three
-`tool/call` time scenario pins the scope (D12).
+an ordinary event's `time` and a packed row's `time0`, under either
+version, and no other field. Admitting three widens the version check from
+one admitted integer to two and adds no field: `surfaceOp`, citations and
+every other event field are never judged on their token. The signature and
+the binding are one rule at all three sites; the consequence differs by
+site: refusal at the header, an empty stamp for an ordinary time, refusal
+of the packed row for `time0`.
 
 **Filename and header stay independent facts.** `session.jsonl` with a
 version-three header reads under the version-three vocabulary;
@@ -257,7 +334,7 @@ Under `Three`:
 
 | Kind under a version-three header | Arm | Notes |
 |---|---|---|
-| `user/message`, `assistant/message`, `tool/call`, `tool/result` | the existing arms | The envelopes and block definitions carry every field the arms read (D13). `user/message` yields `turn: None` and `step: None` because its `data` is the message itself; `assistant/message` and `tool/result` read `data.message`, `data.turn` and `data.step` as today; `tool/call` reads `callId`, `name`, `arguments`, `turn` and `step`. `dsh_message_blocks` (`:2278`) is unchanged: a `file` block falls to its unrecognized-block branch, keeps its siblings and counts the row once; `interrupted`, `stream`, `usage`, `error`, `meta`, `id` and `source` are never read. `dsh_citations` (`:2342`) runs on the three surface kinds as today. |
+| `user/message`, `assistant/message`, `tool/call`, `tool/result` | the existing arms, with one version condition | The envelopes and block definitions carry every field the arms read (D13). The `user/message` definition declares no `turn` or `step`, so under `Three` the shared message arm reads neither from a `user/message`, whatever its `data` carries: the two `Position::parse` reads at `:2427-2428` are taken only for `assistant/message` or under `Zero`. The shipped arm reads both for both roles, so "unchanged" would not keep the delta's promise (CLARIFY-279-6). `assistant/message` and `tool/result` read `data.message`, `data.turn` and `data.step` as today; `tool/call` reads `callId`, `name`, `arguments`, `turn` and `step`. `dsh_message_blocks` (`:2278`) is unchanged: a `file` block falls to its unrecognized-block branch, keeps its siblings and counts the row once; `interrupted`, `stream`, `usage`, `error`, `meta`, `id` and `source` are never read. `dsh_citations` (`:2342`) runs on the three surface kinds as today. |
 | `assistant/attempt` | `DshRow::Omission` | Counted, no content, read available, whatever the payload or marker (D6). |
 | the 51 quiet names | `DshRow::Quiet` | `dsh_quiet_event(kind, version)` matching on `Three` (below). |
 | `assistant/chunk`, `text-chunks`, `reasoning-chunks`, `tool-call-chunks`, `tool/code-dispatch`, `tool/code-dispatch-start` | `DshRow::Unrecognized` | The ignorable rule applies as to any unknown; the row is never decoded by the fragment or packed path (E3, E6). |
@@ -292,12 +369,19 @@ the header's `isSeeded` value as `Option<bool>` (a JSON boolean, else
 and the value is `Some(false)`, and skips it otherwise. The pass itself is
 unchanged: it keys on call id, direction, turn and step and removes an
 embedded copy from a non-dedicated event only when exactly one dedicated
-event carries that key (`:2142-2171`). A version-three `user/message` has
-no positions and so never participates. Alternatives rejected: a version
-guard inside the pass (the gate is a header fact, and the pass should not
-read headers); applying the pass under every version-three header (rests
-on U2); refusing seeded files (turns an inert header field into an
-admission gate, which the commission's Q3 ruled out).
+event carries that key (`:2142-2171`), with no role exception. A
+version-three `user/message` never participates because the arm gives it
+no positions under `Three` (above), not because the writer happens to
+omit them: a supplied `turn` and `step` beside an embedded `tool-result`
+would otherwise let the one matching dedicated result remove the copy
+under an unseeded header, and the delta's supplied-positions scenario pins
+that the copy stays under every version-three header and is removed under
+version zero. Alternatives rejected: a version guard inside the pass (the
+gate is a header fact, and the pass should not read headers); a role
+exception inside the pass (version zero reads and uses user positions);
+applying the pass under every version-three header (rests on U2);
+refusing seeded files (turns an inert header field into an admission
+gate, which the commission's Q3 ruled out).
 
 **No refusal arm.** The previous design's `DshRow::RefusedPayload` is
 withdrawn with the refusal it served. `unsupported-format` after header
@@ -314,7 +398,7 @@ are D2's; the specification consequences are proposal S3's.
 
 | # | Question | Measured answer and evidence | Reader consequence | Unmeasured |
 |---|---|---|---|---|
-| 1 | Record types and shapes the v3 writer emits | `SESSION_FORMAT_VERSION = 3` (`types.js:54`); catalogue `currentVersion: 3`, codecs `v0..v3`, lossless migrations `v0→v1→v2→v3` (`dsh-session-format-catalog/lib/index.js:33-46`); the vocabulary is the 56-name generated set (E1); payload envelopes are `SessionEventMap` (`types.d.ts:309-338`): content in `data` for `user/message`, `data.message` for `assistant/message` and `tool/result`, `callId`, `name` and `arguments` on `tool/call`; the physical envelope is `type`, `seq`, `time`, `data` (E3); the message and block definitions are E5 and map onto the parser (D13); surface-eligible types are exactly `system/message`, `user/message`, `assistant/message`, `tool/result` (`types.d.ts:413`), every other type log-only (`surface.d.ts:52-64`). | Per-version vocabulary (D4); dispositions in D8; the four content kinds project through the existing arms; `file` is a counted unrecognized block. | Nothing the projection depends on. |
+| 1 | Record types and shapes the v3 writer emits | `SESSION_FORMAT_VERSION = 3` (`types.js:54`); catalogue `currentVersion: 3`, codecs `v0..v3`, lossless migrations `v0→v1→v2→v3` (`dsh-session-format-catalog/lib/index.js:33-46`); the vocabulary is the 56-name generated set (E1); payload envelopes are `SessionEventMap` (`types.d.ts:309-338`): content in `data` for `user/message`, `data.message` for `assistant/message` and `tool/result`, `callId`, `name` and `arguments` on `tool/call`; the physical envelope is the base `type`, `seq`, `time`, `data` on every row plus the conditional top-level `surfaceOp` and `sourceEventSeqs` with E4's per-type permissions (E3, E4); the message and block definitions are E5 and map onto the parser (D13); surface-eligible types are exactly `system/message`, `user/message`, `assistant/message`, `tool/result` (`types.d.ts:413`), every other type log-only (`surface.d.ts:52-64`). | Per-version vocabulary (D4); dispositions in D8; the four content kinds project through the existing arms; `file` is a counted unrecognized block. | Nothing the projection depends on. |
 | 2 | `assistant/chunk` absent from v3 | Removed, not renamed and not conditional. It is outside the 56-name catalogue (E1); the codec treats it as opaque unknown (E6) and cannot write a top-level packed row (E3). The v1→v2 package is the assistant-stream migration; in v3 the timed stream is embedded: `assistant/message` carries `message`, `stream`, optional `usage` and `interrupted?: true` (`types.d.ts:309-317`); `assistant/attempt` carries a stream with no surface message (`types.d.ts:323-327`); "a turn cancelled mid-stream finalizes its delivered text/reasoning prefix as this event with `interrupted: true`" (`types.d.ts:303-307`). | Whole messages only under version three; the fragment rule's text stands and has nothing to concatenate; the reader assembles nothing under either version. A finalized message, interrupted or not, projects as one turn with no marker. `stream`, `usage` and `interrupted` are never expanded. `assistant/attempt` is a counted omission. `assistant/chunk` and the packed rows are required unknowns under version three (D6). | Nothing for the disposition. |
 | 3 | `isSeeded` new in the header | A required v3 header boolean (E2) meaning the session contains a fork-inherited event prefix (`types.d.ts:72-76`); the prefix length is `inheritedEventCount` session state (`types.d.ts:105-109`, `:139`), not header metadata; the cut is the `session/end-seed` marker and the codec enforces their agreement (E7); delegation depth is a separate field (`types.d.ts:82-87`). Ownership is `type: session` plus depth, and the reader's header admission reads no other field. | Inert for ownership, depth, admission, classification and counts; pinned over true, false, string, object, null and absent under both versions; no provenance or delegation claim rests on it. Under version three it gates the association pass: `Some(false)` runs it, anything else withholds it (D4, D7). | Whether inherited rows keep their originating `seq`, `turn`, `step` and call identities (U2); the gate confines that gap to seeded and unattested files. |
 | 4 | `surfaceOp` and `sourceEventSeqs` rise to about 21% of rows | `surfaceOp` is `'append' \| {op: 'replace', startSeq, endSeq}`, required on the four surface types and forbidden elsewhere; `assistant/message` forbids `sourceEventSeqs`; the codec validates unique earlier sources and replacement endpoints below the event's `seq` (E4). `sourceEventSeqs` is individual non-negative integers plus inclusive `[start, end]` pairs, strictly increasing (`seq-ranges.js`, byte-identical to 0.1.2-rc.1): the grammar `dsh_citations` (`:2342`) accepts. The rise is the writer placing every surface message on the surface with an explicit marker. The writer's contract: the surface "is the wrong source for a human transcript — a landed replacement would erase conversation the user already saw. Append-origin events are that transcript's durable source material; replacement copies stay model-only" (`surface.d.ts:27-33`). | The reader never parses `surfaceOp`, never removes, reorders or replaces a row on it and never replays the surface: measured, and 0055 ruling 3's audit rule. A replace-marked message projects as a message at its recorded position, as version zero's compaction message does; a replace-marked `system/message` is quiet. Citations validate identically and suppress nothing under version three (D7). | What a persisted replacement copy carries (U1); no rule rests on it. |
@@ -484,10 +568,28 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
 
 - **Version matrix.** `dsh_header_version_matrix_admits_only_numeric_zero`
   (`:1019`) becomes the two-version matrix: admitted `0`, `0.0`, `0e0`,
-  `-0`, `3`, `3.0`, `3e0`, `30e-1`, `0.3e1`; refused `null`, `false`,
-  `"0"`, `"3"`, `[]`, `{}`, `1`, `2`, `4`, `-1`, `-3`, `0.5`, `3.1`, `3e1`,
-  `2.9999999999999999`, `3.0000000000000001` and an absent version; every
-  refusal keeps zero counts and the confirmed path.
+  `-0`, `0.000`, `3`, `3.0`, `3e0`, `30e-1`, `0.3e1`; refused `null`,
+  `false`, `"0"`, `"3"`, `[]`, `{}`, `1`, `2`, `4`, `-1`, `-3`, `0.5`,
+  `3.1`, `3e1`, `2.9999999999999999`, `3.0000000000000001`, `1e-400`,
+  `10e-400`, `0.1e-400`, `1.0e-400` and an absent version; every refusal
+  keeps zero counts and the confirmed path.
+- **Signature helper.** A unit test on the helper alone, separate from
+  admission: the empty signature for the zero spellings, `1` for the four
+  underflow tokens, `3` for `3`, `3.0`, `3e0`, `30e-1`, `0.3e1`, `-3`,
+  `3e1` and `300`, `31` for `3.1`, the seventeen-digit strings for the two
+  rounding artefacts, and no signature for `3e`, `.`, `e5` and the empty
+  token. That `-3` and `3e1` share `3` is asserted here; their refusal is
+  the matrix's, on the parsed value.
+- **Token binding.** Raw-string headers, never built through a parsed
+  object that would lose the evidence:
+  `{"type":"session","\u0076ersion":3,"delegationDepth":0}` admits as
+  three and reads a following `system/message` quietly; the same header
+  with `3.0000000000000001` refuses; `"version":3,"version":3.0000000000000001`,
+  its reverse, `"version":3,"\u0076ersion":3` and `"version":0,"version":3`
+  each refuse with zero counts and the confirmed path. A scanner unit test
+  asserts the three outcomes (one, none, more than one) on those rows and
+  on `{"data":{"version":3}}` and `{"cwd":"version"}`, which must count
+  none.
 - **Quiet-list relation.** A test over the two lists asserting version
   three equals version zero minus the two `tool/code-dispatch*` names plus
   the seven quiet version-three names, and that neither list holds
@@ -523,6 +625,19 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
 - **Replacement copy.** Two messages, a replace-marked `system/message`
   and a later replace-marked `assistant/message`: three turns in order,
   zero counts, nothing removed.
+- **Supplied user positions.** The delta's supplied-positions scenario: a
+  version-three `user/message` with a text block `see`, an embedded
+  `tool-result` for `c1` with content `out` and `turn: 1, step: 1`, then a
+  dedicated `tool/result` for `c1` at turn 1 step 1, under `isSeeded`
+  `false`, `true` and absent: two turns, the user turn keeping both blocks
+  (`see`, `out [c1]`) and the tool turn `out [c1]`, zero counts; the same
+  two rows under a version-zero header give the user turn `see` alone.
+- **Writer validity.** The delta's writer-validity scenario: a
+  `user/message` without `surfaceOp`, a `tool/call` with
+  `surfaceOp: "append"`, an `assistant/message` with a valid citation and a
+  `step/end` with `sourceEventSeqs: null` project three turns with zero
+  counts; the same file with the `null` moved onto the assistant message
+  refuses with one count.
 - **Seeded association.** The delta's seeded scenario as a matrix over
   `isSeeded` `false`, `true`, `"yes"`, `{}`, null and absent under version
   three: only `false` suppresses the embedded call block; every value
@@ -535,7 +650,15 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
   `ignorable: true` each projects the message with one count.
 - **Time exactness.** A `3e0` header with `tool/call` rows at `1e-400`,
   `1e3` and `-0.0` projects stamps `""`, `"1000"`, `"0"`; the existing
-  underflow regressions (`:2143`, `:2180`) stay.
+  underflow regressions (`:2143`, `:2180`) stay. The delta's zero-digit
+  scenario, on raw rows: version-three `tool/call` rows at `10e-400`,
+  `0.1e-400`, `1.0e-400`, a row recording `time` twice (`1000` then
+  `2000`) and a row whose member is `"\u0074ime"` with `1e-400` each
+  stamp `""`, rows at `0`, `0.0`, `-0` and `0e0` stamp `"0"`, all with
+  zero counts; a version-zero `assistant/chunk` at `10e-400` and one
+  recording `time` twice stamp `""`; version-zero packed `text-chunks`
+  rows with `time0` at `10e-400` and with `time0` recorded twice each
+  refuse with one count.
 - **Partial support.** The living "Known DSH event content keeps counted
   partial support" case under version zero and again under version three
   with a `file` block as one of the two unsupported blocks.
@@ -543,7 +666,9 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
   null and absent under both versions admit and change no classification
   or count; version 3 with `isSeeded: true` and depth 1 is not a candidate.
 - **Version-zero regressions.** Every existing DSH test unchanged and
-  green.
+  green; the two corrections of D3 touch only tokens and member shapes no
+  existing test spells, which is why the record can say both that every
+  existing test passes and that version-zero behaviour changes.
 
 In `crates/brokkr-cli/src/ui/tests.rs`: the delta's two sibling scenarios
 (version 3 beside version zero reads the versioned name's message, never
@@ -574,7 +699,7 @@ block union against the reader's parser (`dsh_row`, `:2394`;
 
 | Writer definition | Reader read today | Finding |
 |---|---|---|
-| `user/message.data` is the `UserMessage` itself: `{id, role, content, source}`, no `turn` or `step` (`types.d.ts:281`; `message.d.ts:120-153`) | `data.content`; `data.turn`, `data.step` | Field-compatible; positions are `None` under version three, so a user message can never own or be owned in association |
+| `user/message.data` is the `UserMessage` itself: `{id, role, content, source}`, no `turn` or `step` (`types.d.ts:281`; `message.d.ts:120-153`) | `data.content`; `data.turn`, `data.step` | Field-compatible for `content`. The definition declares no positions, so under version three the reader reads none (D4): the shipped arm would read a supplied pair, and only declining to read it keeps a user message from owning or being owned in association |
 | `assistant/message.data` is `{turn, step, message, stream, usage?, interrupted?}` (`types.d.ts:309-317`) | `data.message.content`, `data.turn`, `data.step` | Field-compatible; `stream`, `usage`, `interrupted` unread by design |
 | `tool/result.data` is `{turn, step, message, error?, meta?}` (`types.d.ts:351`) | `data.message.content` | Field-compatible; `error` and `meta` unread |
 | `text.text` (`dsh-llm/lib/types/types.d.ts:39-98`) | `text` | Compatible |
@@ -633,6 +758,14 @@ tests. Nothing else in this design moves.
   Admission still requires ownership, bounded UTF-8 acquisition and an
   exact header; the version-three arms are the version-zero arms with the
   same bounded block traversal; no new parser.
+- [Two shipped version-zero behaviours change: zero-digit underflow
+  tokens stop passing as zero, and a missing or duplicated `version`,
+  `time` or `time0` token stops passing on the parsed value] → Both are
+  corrections toward requirements the living text already states, said so
+  in the proposal and the decision rather than hidden under "unchanged";
+  no writer of this fleet emits either shape, because JSON serialisation
+  writes a zero as `0` and never repeats or escapes an ASCII member name;
+  every affected token is pinned by a regression in D12.
 - [The decision number is contested by two other branches] → Re-read at
   the PR; the file and its README row are written by the implementation
   seat, not reserved here.
@@ -654,9 +787,10 @@ tests. Nothing else in this design moves.
    version-three sessions (reading, never committing), review, landing,
    closure of #279 with the seed-path change opened on D13.
 
-Rollback: revert the activation commit. Version-zero behaviour is untouched
-by construction and version three returns to the header refusal. No data
-migration exists to undo.
+Rollback: revert the activation commit. Version-zero files read as before
+except for the two exactness corrections of D3, which the revert also
+undoes, and version three returns to the header refusal. No data migration
+exists to undo.
 
 ## Open Questions
 
@@ -690,3 +824,16 @@ design to the lifted delta: the Context, Goals, D1, D4 to D8, D10 to D13,
 the Risks, the Migration Plan and the Open Questions; D2, D3 and D9 stand
 as the council recorded them. The council's next sitting re-verifies this
 design against the delta and the tree and owns it from there.
+
+**Revision at the fifth specification sitting.** On the clarify judge's
+four record findings, the specify seat corrected this design against the
+tree and the delta: the Context, D1 (the envelope row and a new row for
+the user-position inference), D2 E3 and E4 (the base envelope and the
+conditional members' per-type table), D3 (the signature rule, the token
+binding and the compatibility statement), D4 (the version condition on
+user positions), D5 Q1, D12 (the new regressions), D13 (row one), the
+Risks and the Migration Plan. Every reader fact cited was verified in the
+tree at this sitting; nothing was re-measured from the writer, and the
+envelope correction is a reconciliation of citations already in the
+record. The council's next sitting re-verifies this design against the
+delta and the tree and owns it from there.

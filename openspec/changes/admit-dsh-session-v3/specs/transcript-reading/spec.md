@@ -87,25 +87,47 @@ changes proposed for 0055, not implied compatibility with the old reader.
 After safe unique DSH ownership and a usable bounded UTF-8 source snapshot
 are established, content admission SHALL require an opening header whose
 top-level `version` is a JSON number in the admitted version set. That set
-is closed and is exactly `{0, 3}`. Numeric zero spellings such as `0`,
-`0.0`, `0e0` and `-0` SHALL denote version zero. Numeric three spellings
-SHALL denote version three only when the parsed value is three and the
-recorded token, with its decimal point and leading and trailing zeros
-removed, spells exactly `3`, as `3`, `3.0` and `3e0` do; `3.1`, `3e1`,
-`-3` and a token whose parsed value rounds to three but whose recorded
-digits are not `3` SHALL not. Exactness SHALL be judged on the recorded
-top-level `version` token as well as its parsed value, for zero and for
-three alike. Admitting three widens that recorded-token version check
-from one admitted integer to two and touches no other field: an ordinary
-event's `time` and a packed row's `time0` keep the exactness the content
-rules below already require of them under either version, and no
-citation, marker or other event field is judged on its recorded token
-under either version. Strings, booleans and null SHALL not be coerced. Missing `version`, any
-nonnumeric value and any numeric value outside the set, including 1, 2 and
-4, SHALL return `unsupported-format` with
-`DSH transcript format is not supported`. There is no legacy default version
-or automatic migration. An omitted depth still means zero under the settled
-ownership rule; a missing version does not.
+is closed and is exactly `{0, 3}`. Admission SHALL be judged on the
+recorded `version` token and its parsed value together, for zero and for
+three alike. A recorded number token spells an admitted integer exactly
+when its parsed value is that integer and its digit signature, the
+mantissa digits with the decimal point and every leading and trailing zero
+removed, is that integer's digits: empty for zero, `3` for three. So `0`,
+`0.0`, `0e0`, `0.000` and `-0` SHALL denote version zero, and `3`, `3.0`,
+`3e0`, `30e-1` and `0.3e1` SHALL denote version three. `-3` and `3e1`
+share the signature `3` and SHALL refuse on their parsed value; `3.1`, the
+rounding artefacts `2.9999999999999999` and `3.0000000000000001`, whose
+parsed value is three, and every token whose mantissa carries a nonzero
+digit yet parses to zero, such as `1e-400`, `10e-400`, `0.1e-400` and
+`1.0e-400`, SHALL refuse on their signature. A zero digit somewhere in a
+mantissa is not a zero spelling. The shipped reader admitted `10e-400`
+and `0.1e-400` as version zero because a zero digit appeared in them;
+this change corrects that judgment toward the rule instead of preserving
+it, and the correction applies under version zero as well as three.
+
+The recorded token SHALL be bound to the member the JSON parser reads.
+The token of a top-level member is established only when the header
+records exactly one top-level member whose name, after JSON string-escape
+decoding, is `version`; that member's raw value is the token, so an
+escaped name such as `"\u0076ersion"` binds to `version` and its token is
+judged like any other. A header that records `version` more than once at
+its top level, under literal or escaped names and whatever the values,
+even two exact and equal spellings, is an ambiguous recording and SHALL
+return `unsupported-format`. A header whose parsed `version` is a number
+but whose recorded token cannot be established SHALL likewise refuse: the
+recorded-token check SHALL never fall open to the parsed value alone.
+Admitting three widens the recorded-token version check from one admitted
+integer to two and touches no other field: an ordinary event's `time` and
+a packed row's `time0` keep the exactness the content rules below already
+require of them under either version, judged by the same digit signature
+and the same one-member binding, and no citation, marker or other event
+field is judged on its recorded token under either version. Strings,
+booleans and null SHALL not be coerced. Missing `version`, any nonnumeric
+value and any numeric value outside the set, including 1, 2 and 4, SHALL
+return `unsupported-format` with `DSH transcript format is not supported`.
+There is no legacy default version or automatic migration. An omitted
+depth still means zero under the settled ownership rule; a missing version
+does not.
 
 Each admitted version is admitted because its writer was read, and the
 admitting read is cited from the change that admitted it. Version zero: the
@@ -122,7 +144,9 @@ constant, event catalogue, event map, surface contract and citation
 grammar; the message and block definitions the event map imports for the
 payloads of `user/message`, `assistant/message` and `tool/result`, mapped
 field by field onto the reader's projection; the persistence codec's
-header shape, physical envelope, row admission and seed-marker
+header shape, physical envelope (a base of four members on every event row
+plus two conditional top-level members, stated with their per-type
+permissions in the content rules below), row admission and seed-marker
 consistency; and the catalogue and migration packages. It did not reach
 the writer's append and replace paths, which decide what a replace-marked
 row carries, or the seed and fork path that writes a seeded session's
@@ -273,6 +297,14 @@ response. SSE remains a growth notification, not a new transcript body API.
 #### Scenario: A foreign-version DSH root alone keeps its confirmed location
 - **WHEN** the unique safe candidate's opening `session` object has depth zero and version 1, 2, 4, -1, -3, 0.5, 3.1, 3e1, `2.9999999999999999` or `3.0000000000000001`, with a usable bounded source below the source cap, including if unused current-version header metadata is missing or malformed
 - **THEN** the reader returns `unsupported-format` with its unchanged reference, `legacy: false`, confirmed path and DSH path hint, no turns, zero diagnostic counts, `truncated: false` and no notices; it neither returns `not-found` nor decodes the apparently familiar later events, and a token whose parsed value rounds to an admitted integer is refused on its recorded digits
+
+#### Scenario: A zero digit inside an underflowing token is not a zero spelling
+- **WHEN** a unique safe candidate's opening `session` object has depth zero and version `10e-400`, `0.1e-400` or `1.0e-400`, each a nonzero literal whose parsed value collapses to zero and whose mantissa contains a zero digit, and otherwise identical sources spell the version `0`, `0.0`, `0e0`, `0.000`, `-0` or `-0.0`
+- **THEN** each of the first three returns `unsupported-format` with its confirmed path and hint, no turns, zero counts, `truncated: false` and no notices, because its digit signature is `1` and not empty, exactly as `1e-400` refuses; each genuine zero spelling is admitted as version zero and reads its rows under the version-zero vocabulary; the parsed zero alone admits nothing
+
+#### Scenario: The version token is bound to the one decoded member
+- **WHEN** a unique safe candidate's opening header is `{"type":"session","\u0076ersion":3,"delegationDepth":0}`, a second's is that header with the value `3.0000000000000001`, and four more record the member twice at their top level: `"version":3` then `"version":3.0000000000000001`, that pair in the reverse order, `"version":3` then `"\u0076ersion":3`, and `"version":0` then `"version":3`, every source complete and below both caps
+- **THEN** the first is admitted as version three, because the escaped name decodes to `version` and its one token spells exactly `3`; the second returns `unsupported-format`, because the decoded member binds and its token is a rounding artefact, so the parsed three cannot admit alone; each of the four duplicate headers returns `unsupported-format` as an ambiguous recording, whichever occurrence the parser retains and even where both spellings are exact and equal; every refusal keeps the confirmed path and hint, no turns, zero counts, `truncated: false` and no notices, and no later row rescues it
 
 #### Scenario: DSH admits only the declared version-three header shapes
 - **WHEN** a unique safe DSH source begins with `{"type":"session","version":3,"delegationDepth":0,"isSeeded":false}`, or the equivalent numeric version `3.0` or `3e0`, with depth zero or omitted depth, followed by version-three quiet rows and readable content rows within both caps
@@ -471,11 +503,17 @@ as a counted unrecognized block that keeps its siblings under the
 supported-sibling rule. `Message.id`, `Message.source`, `error` and `meta`
 on `tool/result`, and `interrupted`, `stream` and `usage` on
 `assistant/message` SHALL supply no content. `tool/call` projects from the
-`callId`, `name` and `arguments` the event map carries on the event. A
-version-three `user/message` records no `turn` or `step`, so it SHALL
-never own or be owned in the dedicated-tool association. A familiar block
-name is not what admits these payloads; the field-by-field mapping is,
-and a further version SHALL be admitted only on its own mapping.
+`callId`, `name` and `arguments` the event map carries on the event. The
+version-three `user/message` definition declares no `turn` or `step`, so
+under version three the reader SHALL read no position from a
+`user/message`, even when its `data` supplies members of those names: a
+field the writer's definition does not declare is not the writer's
+identity. A version-three `user/message` therefore has no positions and
+SHALL never own or be owned in the dedicated-tool association, whatever
+its `data` carries and whatever the header records; under version zero
+its positions are read as today. A familiar block or field name is not
+what admits these payloads; the field-by-field mapping is, and a further
+version SHALL be admitted only on its own mapping.
 
 The citation grammar above is the grammar the version-three writer emits,
 byte-identical in its source, so `sourceEventSeqs` SHALL be validated
@@ -486,8 +524,24 @@ ever removes cited earlier chunks, no chunk row exists under version three,
 and the writer never places a citation on `assistant/message`; a
 version-three citation on a user message or tool result to an earlier
 row, to an unobserved sequence, or from an assembled message is the
-existing no-suppression outcome, not a refusal. `surfaceOp`, an append or
-replace marker the writer requires on its four surface-eligible types,
+existing no-suppression outcome, not a refusal. The version-three physical
+event envelope, as the codec read for #279 validates it, is a base of
+`type`, `seq`, `time` and `data` on every event row plus two conditional
+top-level members: `surfaceOp`, required on exactly the four
+surface-eligible types `system/message`, `user/message`,
+`assistant/message` and `tool/result` and forbidden on every other type,
+and `sourceEventSeqs`, forbidden on `assistant/message` and optional on
+the other surface-eligible types; whether a non-surface row may carry a
+citation was not recorded, and no reader rule rests on it. A top-level
+packed row, which carries `seq0` and `time0` in place of `seq` and
+`time`, is outside every type's permitted set and cannot be written by
+that codec. Writer validity is not reader admission: the reader SHALL
+validate no event row's key set, SHALL neither require a marker where the
+writer requires one nor refuse a row for a marker the writer forbids, and
+SHALL read `sourceEventSeqs` only on the three content kinds whose
+version-zero rules read it, including on an `assistant/message`, where
+the writer forbids the member and the reader still validates it.
+`surfaceOp`, that append or replace marker,
 SHALL never be parsed and SHALL never remove, reorder or replace an
 earlier row: the reader SHALL not replay the writer's model-visible
 surface, whose own contract calls it the wrong source for a human
@@ -522,14 +576,25 @@ scenarios in which inherited and newly emitted embedded and dedicated
 calls and results suppress a genuine duplicate once and keep unrelated or
 ambiguous identities.
 
-Version-three admission changes nothing about time. An ordinary
+Version-three admission adds no rule about time. An ordinary
 version-three event's `time` keeps the signed-safe-integer rule above and
-its existing exactness: a nonzero literal whose parsed value collapses to
-zero is not an integer millisecond count, so it is invalid and renders an
-empty stamp under either version, and a packed `time0` spelled that way
-keeps its version-zero refusal. The recorded-token exactness checks of
-this reader judge the header `version`, an ordinary event's `time` and a
-packed row's `time0`, and no other field, under either version.
+its exactness: a nonzero literal whose parsed value collapses to zero is
+not an integer millisecond count, so it is invalid and renders an empty
+stamp under either version, and a packed `time0` spelled that way keeps
+its version-zero refusal. This change does correct how the reader judges
+that exactness, under both versions: a recorded token is a zero spelling
+only when its digit signature is empty, so `10e-400`, `0.1e-400` and
+`1.0e-400`, which the shipped reader accepted as zero because a zero
+digit appeared in their mantissas, are invalid exactly as `1e-400` is; and
+a `time` or `time0` token is established only from exactly one top-level
+member whose decoded name is that field's, so a row that records `time`
+more than once has no valid time and renders an empty stamp, a packed row
+that records `time0` more than once refuses, an escaped member name binds
+like a literal one, and a parsed number whose token cannot be established
+is invalid rather than accepted on its parsed value. The recorded-token
+exactness checks of this reader judge the header `version`, an ordinary
+event's `time` and a packed row's `time0`, and no other field, under
+either version.
 
 #### Scenario: A DSH step is assembled once
 - **WHEN** a session has a user message, several assistant chunks, an assembled assistant message containing text and reasoning and citing every one of those same-step chunks, a tool call, its output and another assembled answer
@@ -618,10 +683,18 @@ packed row's `time0`, and no other field, under either version.
 - **WHEN** a version-three session holds a readable `user/message`, a readable `assistant/message`, a `system/message` carrying `surfaceOp: {"op":"replace","startSeq":1,"endSeq":2}`, and a later readable `assistant/message` carrying the same replace marker over the first two rows and text unlike theirs
 - **THEN** the read projects three turns in source order, the two earlier messages and the later replace-marked message at its recorded position, with zero diagnostic counts and no notice; the `system/message` is quiet whatever its marker, no earlier row is removed, reordered or replaced, and neither marker is parsed, displayed or counted
 
+#### Scenario: Writer-required and writer-forbidden members are not reader admission
+- **WHEN** a version-three session holds a readable `user/message` without `surfaceOp`, which the writer requires there, a `tool/call` carrying `surfaceOp: "append"`, which the writer forbids there, an `assistant/message` carrying a valid `sourceEventSeqs` to earlier rows, which the writer forbids there, and a `step/end` row carrying `sourceEventSeqs: null`; and an otherwise identical file gives the `assistant/message` `sourceEventSeqs: null` instead
+- **THEN** the first read projects the user message, the call and the assistant message once each in source order with zero diagnostic counts and no notice, because the reader validates no row's key set, requires no marker, refuses no marker and reads a citation only on the three content kinds, so the quiet `step/end` row's member is never read; the second returns `unsupported-format` with one unrecognized record and no turns, because the citation rules validate the member on an assistant message wherever it appears
+
 #### Scenario: Embedded copies are owned only in an unseeded version-3 session
 - **WHEN** a version-three session whose header records `isSeeded: false` holds an `assistant/message` at turn 1 step 1 embedding text and a `tool-call` block with id `c1`, a dedicated `tool/call` with `callId: "c1"` at turn 1 step 1 and its `tool/result`; and otherwise identical files record `isSeeded` as `true`, a string, an object, null or absent
 - **THEN** the first read projects the assistant text without its embedded call block, then the dedicated call once and the result once, with zero counts and no notice; each of the others projects the same three rows with the embedded call block still present in the assistant turn beside the dedicated call, with zero counts and no notice, and no seeded value changes any row's classification
-- **AND** in the `isSeeded: false` file a second dedicated `tool/call` with `callId: "c1"` at the same turn and step makes the identity ambiguous, so both dedicated calls and the embedded copy remain; a version-three `user/message` embedding a `tool-result` block keeps it under every header, because it records no turn or step; and under a version-zero header the association runs whatever `isSeeded` carries
+- **AND** in the `isSeeded: false` file a second dedicated `tool/call` with `callId: "c1"` at the same turn and step makes the identity ambiguous, so both dedicated calls and the embedded copy remain; a version-three `user/message` embedding a `tool-result` block keeps it under every header, because the reader reads no position from it even when its `data` supplies `turn` and `step`; and under a version-zero header the association runs whatever `isSeeded` carries
+
+#### Scenario: A version-3 user message's supplied positions do not make it an association party
+- **WHEN** a version-three session whose header records `isSeeded: false` holds a `user/message` at sequence 1 whose `data` carries `content` of a `text` block `see` and a `tool-result` block with `toolCallId` `c1` and content `out`, together with `turn: 1` and `step: 1`, followed by a dedicated `tool/result` at sequence 2 at turn 1 step 1 whose `data.message.content` is that same `tool-result` block; otherwise identical files record `isSeeded: true` or omit it; and a fourth file carries the same two rows under a version-zero header
+- **THEN** each version-three read projects two turns in order, a user turn with the blocks `see` and `out [c1]` and a tool turn with `out [c1]`, each at its recorded stamp, with zero counts and no notice, because the reader reads no position from a version-three user message and so nothing owns its copy, under the unseeded header where the association runs as much as under the others where it is withheld; the version-zero read projects the user turn with `see` alone and the same tool turn, because version zero reads the user message's positions and the one dedicated result owns the copy
 
 #### Scenario: Version-zero fragment rows are unknown under a version-3 header
 - **WHEN** a version-three session contains a readable `user/message` followed by an `assistant/chunk` row, and three otherwise identical files instead contain a valid `text-chunks`, `reasoning-chunks` or `tool-call-chunks` row
@@ -630,6 +703,10 @@ packed row's `time0`, and no other field, under either version.
 #### Scenario: Version-three time keeps the recorded-token exactness of version zero
 - **WHEN** a version-three source whose header spells its version `3e0` holds three `tool/call` rows with `time` spelled `1e-400`, `1e3` and `-0.0`, and version-zero sources hold the existing ordinary `assistant/chunk` at `time: 1e-400` and packed `text-chunks` row at `time0: 1e-400`
 - **THEN** the version-three header admits and its three calls project in order with stamps `""`, `"1000"` and `"0"`, zero counts and no notice; the version-zero chunk still renders an empty stamp and the version-zero packed row still refuses with one unrecognized record; no other field of any row is judged on its recorded token
+
+#### Scenario: Zero-digit underflow and duplicated time members are not zero stamps
+- **WHEN** a version-three source holds `tool/call` rows whose `time` is spelled `10e-400`, `0.1e-400` and `1.0e-400`, a `tool/call` that records `time` twice at its top level as `"time":1000` then `"time":2000`, a `tool/call` whose member is named `"\u0074ime"` with the value `1e-400`, and `tool/call` rows spelling `time` as `0`, `0.0`, `-0` and `0e0`; a version-zero source holds an ordinary `assistant/chunk` at `time: 10e-400` and another that records `time` twice; and two version-zero sources hold a packed `text-chunks` row spelling `time0` as `10e-400` and one recording `time0` twice as `1000` then `2000`
+- **THEN** the three zero-digit underflow calls, the twice-recorded call and the escaped-name call each project with an empty stamp, because a zero digit inside an underflowing mantissa is not a zero spelling, a member recorded twice has no established token and an escaped name binds to the same judgment as a literal one, while the four genuine zero spellings render `"0"`; every version-three row projects with zero counts and no notice; the version-zero chunks each render an empty stamp with zero counts; and each version-zero packed row returns `unsupported-format` with one unrecognized record and no turns
 
 ### Requirement: Partial records and read failures remain distinguishable
 
