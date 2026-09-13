@@ -148,13 +148,15 @@ grammar; the message and block definitions the event map imports for the
 payloads of `user/message`, `assistant/message` and `tool/result`, mapped
 field by field onto the reader's projection; the persistence codec's
 header shape, physical envelope (a base of four members on every event row
-plus two conditional top-level members, stated in the content rules below
-with the per-type permissions that read recorded and the one it did not),
-row admission and seed-marker consistency; and the catalogue and migration
+plus two conditional top-level members, recorded in that change's design
+with each per-type permission's standing, measured or unread, and
+summarised in the content rules below), row admission and seed-marker
+consistency; and the catalogue and migration
 packages. It did not reach the writer's append and replace paths, which
 decide what a replace-marked row carries, the seed and fork path that
 writes a seeded session's inherited prefix, or the permission of
-`sourceEventSeqs` on any type but `assistant/message`. Under version three the four content kinds therefore
+`sourceEventSeqs` on any type but `assistant/message`, which no reader
+rule consults. Under version three the four content kinds therefore
 project by the content rules below; a replace-marked row projects by its
 type at its recorded position because the reader parses no marker; and the
 one rule that rests on inherited identities, the dedicated-tool
@@ -535,17 +537,20 @@ top-level members: `surfaceOp`, required on exactly the four
 surface-eligible types `system/message`, `user/message`,
 `assistant/message` and `tool/result` and forbidden on every other type,
 and `sourceEventSeqs`, forbidden on `assistant/message` and validated
-wherever the codec finds one; whether any other type, surface-eligible or
-not, permits, requires or forbids `sourceEventSeqs` was not recorded by
-that read, and no reader rule rests on it. A top-level
-packed row, which carries `seq0` and `time0` in place of `seq` and
-`time`, is outside every type's permitted set and cannot be written by
-that codec. Writer validity is not reader admission: the reader SHALL
+wherever the codec finds one. The writer's permission of
+`sourceEventSeqs` on each other type is a cell of that change's evidence
+record, measured or unread as its design states, and is not a premise of
+any rule here: the reader's outcome for a row is the same whether the
+writer permits, requires or forbids the member on that row's type. A
+top-level packed row, which carries `seq0` and `time0` in place of `seq`
+and `time`, is outside every type's permitted set and cannot be written
+by that codec. Writer validity is not reader admission: the reader SHALL
 validate no event row's key set, SHALL neither require a marker where the
 writer requires one nor refuse a row for a marker the writer forbids, and
 SHALL read `sourceEventSeqs` only on the three content kinds whose
 version-zero rules read it, including on an `assistant/message`, where
-the writer forbids the member and the reader still validates it.
+the writer forbids the member and the reader still validates it, and on
+a `user/message` or `tool/result` whatever the writer's permission there.
 `surfaceOp`, that append or replace marker,
 SHALL never be parsed and SHALL never remove, reorder or replace an
 earlier row: the reader SHALL not replay the writer's model-visible
@@ -692,8 +697,8 @@ either version.
 - **THEN** the read projects three turns in source order, the two earlier messages and the later replace-marked message at its recorded position, with zero diagnostic counts and no notice; the `system/message` is quiet whatever its marker, no earlier row is removed, reordered or replaced, and neither marker is parsed, displayed or counted
 
 #### Scenario: Writer-required and writer-forbidden members are not reader admission
-- **WHEN** a version-three session holds a readable `user/message` without `surfaceOp`, which the writer requires there, a `tool/call` carrying `surfaceOp: "append"`, which the writer forbids there, an `assistant/message` carrying a valid `sourceEventSeqs` to earlier rows, which the writer forbids there, and a `step/end` row carrying `sourceEventSeqs: null`; and an otherwise identical file gives the `assistant/message` `sourceEventSeqs: null` instead
-- **THEN** the first read projects the user message, the call and the assistant message once each in source order with zero diagnostic counts and no notice, because the reader validates no row's key set, requires no marker, refuses no marker and reads a citation only on the three content kinds, so the quiet `step/end` row's member is never read; the second returns `unsupported-format` with one unrecognized record and no turns, because the citation rules validate the member on an assistant message wherever it appears
+- **WHEN** a version-three session holds a readable `user/message` without `surfaceOp`, which the writer requires there; a `tool/call` carrying `surfaceOp: "append"`, which the writer forbids there, and `sourceEventSeqs: null`, whose permission on that type the read did not record; a readable `tool/result` carrying a valid `sourceEventSeqs` to earlier rows, whose permission on that type the read did not record; an `assistant/message` carrying a valid `sourceEventSeqs` to earlier rows, which the writer forbids there; and a `step/end` row carrying `sourceEventSeqs: null`; and two otherwise identical files give the `assistant/message`, respectively the `tool/result`, `sourceEventSeqs: null` instead
+- **THEN** the first read projects the user message, the call, the result and the assistant message once each in source order with zero diagnostic counts and no notice, because the reader validates no row's key set, requires no marker, refuses no marker and reads a citation only on the three content kinds, so the members on the `tool/call` and the quiet `step/end` are never read; each of the other two returns `unsupported-format` with one unrecognized record and no turns, because the citation rules validate the member on an assistant message and on a tool result wherever it appears; no outcome in this scenario depends on whether the writer permits, requires or forbids the member on the row's type
 
 #### Scenario: Embedded copies are owned only in an unseeded version-3 session
 - **WHEN** a version-three session whose header records `isSeeded: false` holds an `assistant/message` at turn 1 step 1 embedding text and a `tool-call` block with id `c1`, a dedicated `tool/call` with `callId: "c1"` at turn 1 step 1 and its `tool/result`; and otherwise identical files record `isSeeded` as `true`, a string, an object, null or absent

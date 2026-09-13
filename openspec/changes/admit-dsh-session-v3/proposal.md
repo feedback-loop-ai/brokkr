@@ -46,7 +46,12 @@ header integers it was proved for, which read literally would invalidate
 `1e3` as a timestamp; a helper algorithm that gave `.` the empty
 signature while its own test required none; and a promise to leave every
 existing test untouched that the plan's own signature changes could not
-keep.
+keep. The seventh sitting answers the clarify judge's third visit of
+CLARIFY-279-5, which asks for the `sourceEventSeqs` permission cells
+themselves: they exist only in the installed writer, which no
+specification box of this run reaches, so the specification refuses to
+carry them as a requirement and assigns their read to the design council
+at its next sitting (S6, S8).
 
 ## What Changes
 
@@ -105,7 +110,8 @@ keep.
   top-level members, `surfaceOp` and `sourceEventSeqs`, with the per-type
   permissions the read recorded: `surfaceOp` for every type,
   `sourceEventSeqs` for `assistant/message` only, its permission on every
-  other type recorded as unread (design D2 E3, E4, U4); the reader
+  other type recorded as unread and assigned to the design council's
+  read (d) at its next sitting (design D2 E3, E4, U4, D13; S6); the reader
   validates no row's key set and neither requires nor refuses either
   member.
   `surfaceOp` is never parsed and never removes, reorders or replaces a
@@ -244,7 +250,9 @@ version zero.
    (U4). The record's earlier sentence that the codec admits only the four
    base members overstated the base check as the whole envelope; E3 and E4
    cite one validation pass over the same lines and now read together
-   (S8, CLARIFY-279-5, both visits).
+   (S8, CLARIFY-279-5, first and second visits). The unread cells are
+   assigned, not inferred: read (d) at the council's next sitting (S6;
+   third visit).
 5. The message and block definitions: `Message` is `{id, role, content,
    source}` and the block union is `text`, `reasoning`, `image`,
    `tool-call`, `tool-result` and `file`; every field the reader consumes
@@ -282,7 +290,10 @@ exactly the rule each could break and names the read that lifts it:
   validates the member wherever its version-zero rules read it, never on
   the writer's permission. The read that records it is the member's
   declaring type in the session package's `types.d.ts` and the per-type
-  branch of the codec's validation pass.
+  branch of the codec's validation pass. It is assigned to the design
+  council's next sitting, the one phase of this run whose seats have
+  reached the writer, and the specification does not carry the cells as
+  a requirement (S6).
 
 ### S2 — The admitted set is `{0, 3}`, spelled exactly, classified per version
 
@@ -378,7 +389,7 @@ the specification consequence of each.
 | 1 | Record types and shapes | A per-version vocabulary closed at the 56 transcribed names. The four content kinds project on the version-three envelope and the 0.1.5-rc.2 message and block definitions (D13): `content` as an array of blocks or a string; `text.text`; `reasoning.text`; `tool-call.id/name/arguments`; `tool-result.toolCallId/content`; `image` as the omission marker; `file` as a counted unrecognized block that keeps its siblings; `Message.id` and `.source` inert. Under version three no `turn` or `step` is read from a `user/message`, whose definition declares neither, even when a row supplies them. `tool/call` projects from `callId`, `name` and `arguments` on the event. |
 | 2 | `assistant/chunk` absent | Removed, not renamed and not conditional. Whole messages only under version three; an interrupted step is one `assistant/message` with `interrupted: true`, projected as recorded with no marker; `interrupted`, `stream` and `usage` are never expanded; `assistant/attempt` is a counted omission; `assistant/chunk` and the packed rows are required unknowns under version three. The fragment rule's text is unchanged and has nothing to concatenate. |
 | 3 | `isSeeded` new in the header | Inert for ownership, depth, admission, classification and counts, whatever its JSON shape. Because the seed path is unread, it has one effect under version three: the dedicated-tool association runs only when the header records `isSeeded` exactly `false`. A seeded or unattested version-three session shows every embedded copy beside its dedicated event, which is the existing absent-partner outcome, never a hidden row. Under version zero the field has no effect. |
-| 4 | `surfaceOp` and `sourceEventSeqs` at about 21% of rows | Both are top-level members beside the base envelope of `type`, `seq`, `time` and `data`: `surfaceOp` required on the four surface types and forbidden elsewhere, `sourceEventSeqs` forbidden on `assistant/message` and unrecorded elsewhere (S1 items 3 and 4, U4); the reader validates no row's key set and neither requires nor refuses either. The writer places every surface message on the surface with an explicit marker. `sourceEventSeqs` is validated identically under both versions; under version three a valid citation suppresses nothing, because no chunk row exists and the writer never puts a citation on `assistant/message`, and an invalid one refuses as today. `surfaceOp` is never parsed: a replace-marked row projects by its type at its recorded position, no earlier row is removed, reordered or replaced, and the surface is never replayed. |
+| 4 | `surfaceOp` and `sourceEventSeqs` at about 21% of rows | Both are top-level members beside the base envelope of `type`, `seq`, `time` and `data`: `surfaceOp` required on the four surface types and forbidden elsewhere, `sourceEventSeqs` forbidden on `assistant/message` and unrecorded elsewhere pending the council's read (d) (S1 items 3 and 4, U4, S6); the reader validates no row's key set and neither requires nor refuses either. The writer places every surface message on the surface with an explicit marker. `sourceEventSeqs` is validated identically under both versions; under version three a valid citation suppresses nothing, because no chunk row exists and the writer never puts a citation on `assistant/message`, and an invalid one refuses as today. `surfaceOp` is never parsed: a replace-marked row projects by its type at its recorded position, no earlier row is removed, reordered or replaced, and the surface is never replayed. |
 | 5 | `system/message`, `todo/write`, `turn/end` | All three quiet under version three, whatever payload or marker they carry; `system/message` is the rendered prompt that `request/context` was, and a displayed `system` turn would be new command and TUI capability. `system/message` stays a required unknown under version zero; `todo/write` and `turn/end` were already quiet there. |
 | 6 | Superset? | No as a vocabulary, yes as a payload. Version three removes three names, adds eight, moves the prompt into `system/message` and the stream into the message; the four content kinds keep their envelope nesting and their block definitions map field for field. So `3` is admitted beside `0` with a per-version vocabulary and one projector; every version-zero meaning is preserved for version-zero files and every projected version-three meaning is measured. |
 
@@ -404,7 +415,9 @@ scenarios naming exact counts, order and suppression. The append and
 replace writer paths remain unread; no rule rests on them, and a later
 change that reads them may add a marker-aware presentation but never a
 removal. The per-type permission of `sourceEventSeqs` beyond
-`assistant/message` is likewise unread (U4); no rule rests on it.
+`assistant/message` is likewise unread (U4); no rule rests on it, and its
+read is the design council's at its next sitting, not a later change's
+(S6).
 
 **Corroboration** follows the writer and never leads. After the writer
 read, the simplicity seat ran a type-only, content-free histogram over the
@@ -554,53 +567,84 @@ are preserved.
   forbids the member on one type; treating that as permission on the
   others would record an inference as a measurement. The permission is
   recorded unread at no cost, because no reader rule consults it (S1, U4).
+- **No per-type `sourceEventSeqs` inventory as a requirement of this
+  change, and no inferred cell.** The commission asks for the allowed,
+  required, optional and conditional top-level key sets by relevant event
+  type. For the four kinds the reader projects, the record states every
+  cell with its standing (design D2 E4): the base four and `surfaceOp`
+  measured on all four; `sourceEventSeqs` forbidden on `assistant/message`
+  by measurement and unread on `user/message`, `tool/result` and
+  `tool/call`, as on the other 52 types. The requirement is complete
+  without the unread cells: the reader validates no row's key set and
+  reads the member on its three kinds wherever present, so no scenario's
+  outcome moves whichever way a cell resolves, and the writer-validity
+  scenario pins that across a forbidden cell, an unread cell and two
+  members the reader never reads. The cells exist only in the installed
+  writer's `types.d.ts` and `worker.cjs`, which no specification box of
+  this run reaches (S1; this sitting reconfirmed no `dsh`, `volta`, npm
+  cache, `~/.dsh` or network) and which the commission forbids this seat
+  to re-read; an inferred cell would repeat the defect the second visit
+  withdrew. The specification therefore refuses to carry the inventory
+  and decides its owner instead: read (d) is assigned to the design
+  council's next sitting, the one phase of this run whose seats have
+  reached the writer, to be performed by the seat that reaches it, cited
+  by package, file, digest and line, with E4 completed there; a council
+  without reach records that and leaves the cells unread, and the change
+  proceeds either way (design D13). Recording a cell as unread is not
+  this closure; the closure is that no rule depends on the cell and the
+  read has an owner and a sitting (S8, CLARIFY-279-5, third visit).
 - **No compatibility wrappers to keep old test lines compiling.** Keeping
   `zero_number_token` and the one-argument helpers as shims so that no
   existing test line changes would leave dead code under the exact-coverage
   gate; the direct calls adapt mechanically and keep their assertions
   (tasks 4.3).
 - **No `upstream` result from this seat.** The commission supports a sound
-  specification; the evidence it asks for exists in this run's record.
+  specification: every rule the delta states rests on evidence in this
+  run's record, and the one evidence cell the record lacks is no rule's
+  premise, is refused above as a requirement and has an owner within this
+  run.
 
 ### S7 — Validation of this sitting
 
 Read the dialect through `openspec instructions proposal`, `specs` and
 `tasks` for this change; they declare `proposal.md`, `specs/**/*.md` and
 `tasks.md`, and no workflow runner was invoked. Adopted the existing change
-at `95ba4a8` and revised it in dependency order for the four findings of
-the sixth sitting: the design's evidence record and decisions, the
-proposal, the `transcript-reading` delta and the tasks, each delta edit an
-exact-match replacement over the requirement text. The `transcript-tui`
-delta is unchanged. Verified against the tree the reader facts the
-findings cite: `dsh_time` and `dsh_packed` are called directly by existing
-tests with `None` or `""` for the token (`tests.rs:3083-3087`, `:3173`,
-`:2232`, `:2246`), `zero_number_token`, `raw_top_level_token`,
-`dsh_quiet_event` and `dsh_row` by four more (`:2735-2764`,
-`:3150-3163`, `:3166-3174`, `:2871-2902`), and `1e3` and `1000.0` already
-render `1000` (`:2160-2176`); the adopted simplicity report records the
-`sourceEventSeqs` prohibition on `assistant/message` and the validation
-of a present member, and no permission on any other type (§3.4).
-Reconfirmed this box cannot reach the writer (no `dsh`, `volta`, `npm`,
-`cargo` or `~/.dsh`; HOME `/runtime/home`); nothing was re-measured, and
-the E4 correction withdraws an inference rather than adding a
-measurement. The fifth sitting's verification of the message arm, the
-association pass, the shipped zero predicate, the first-match scanner and
-the fall-open header stands as recorded in the change's history
-(`95ba4a8`).
-Strict OpenSpec validation was run over the whole tree after authoring.
-Cargo is absent from this box, so no format, clippy, test or bundle gate
-ran here; they belong to the implementation seat before its activation
-commit, and the exact-coverage gate to host validation outside the box.
-This sitting commits the proposal, the reading delta, the design and the
-tasks, unsigned, and pushes nothing.
+at `2e7163e` and revised it for the one finding of the seventh sitting,
+CLARIFY-279-5 on its third visit, in dependency order: the proposal's
+refusal and assignment (Why, What Changes, S1, S3, S4, S6, S8), the
+design's evidence record (Context, D1, D2's reach table, E4 and U4, D5,
+D12, D13), the `transcript-reading` delta's evidence and envelope
+paragraphs and its writer-validity scenario, each delta edit an
+exact-match replacement over the requirement text, task 2.9 to match that
+scenario, and the adopted simplicity report's third erratum. The
+`transcript-tui` delta is unchanged. No task reads the writer, and no
+scenario's outcome depends on the unread cells. Reconfirmed this box
+cannot reach the writer by any route: no `dsh`, `volta`, `npm`, `cargo`
+or `~/.dsh`, HOME `/runtime/home`, `/home/vyanakiev` holding only
+`source`, no npm cache, and no network (the registry host does not
+resolve), so neither the installed packages nor a digest-matched copy
+could be read; nothing was re-measured and no E4 cell changed standing.
+Verified in the tree that `dsh_citations` is called from the message arm
+and the `tool/result` arm only (`transcript.rs:2412`, `:2474`), which the
+extended writer-validity scenario relies on. The sixth sitting's
+verification of the direct helper calls and the fifth sitting's of the
+message arm, the association pass, the shipped zero predicate, the
+first-match scanner and the fall-open header stand as recorded in the
+change's history (`2e7163e`, `95ba4a8`). Strict OpenSpec validation was
+run over the whole tree after authoring. Cargo is absent from this box,
+so no format, clippy, test or bundle gate ran here; they belong to the
+implementation seat before its activation commit, and the exact-coverage
+gate to host validation outside the box. This sitting commits the
+proposal, the reading delta, the design and the tasks, unsigned, and
+pushes nothing.
 
 ### S8 — The judges' findings, answered
 
 The clarify judge's four findings on the second sitting, the analyze
-judge's seven on the third, the clarify judge's four on the fourth and its
-four on the fifth are answered here; the earlier answers that later
-sittings superseded are recorded in the change's history (`36bf374`,
-`f34279e`, `50d2c28`, `95ba4a8`).
+judge's seven on the third, the clarify judge's four on the fourth, its
+four on the fifth and its one on the sixth are answered here; the earlier
+answers that later sittings superseded are recorded in the change's
+history (`36bf374`, `f34279e`, `50d2c28`, `95ba4a8`, `2e7163e`).
 
 | Finding | Answer | Where |
 |---|---|---|
@@ -619,7 +663,8 @@ sittings superseded are recorded in the change's history (`36bf374`,
 | CLARIFY-279-6: the never-associates promise for a version-three user message is not enforced by the unchanged arm. | The promise stands and is enforced: under version three the reader reads no position from a `user/message`, so the message arm gains one version condition; the inference that an unchanged arm yields none is withdrawn. | S3 Q1, S5 ruling 3, S6; design D1, D4, D13; delta payload paragraph, seeded scenario and the supplied-positions scenario; tasks 2.1 and 2.8. |
 | CLARIFY-279-7: byte-for-byte zero preservation contradicts the shipped predicate. | Stated plainly: the predicate is corrected, version-zero behaviour changes for zero-digit underflow tokens, and the helper's signature contract is separated from the combined admission check. | S2, S5 ruling 7, S6; design D3, D12; delta version and time paragraphs and their two new scenarios; tasks 1.2 to 1.5. |
 | CLARIFY-279-8: escaped or duplicate `version` members escape the exact-number promise. | The token is bound to the one decoded member; duplicates refuse as ambiguous; a missing token for a parsed number refuses; the same binding serves `time` and `time0`. | S2, S5 ruling 7, S6; design D3, D12; delta version and time paragraphs, the decoded-member scenario and the duplicated-time scenario; tasks 1.3 to 1.5. |
-| CLARIFY-279-5, second visit: E4 presented an inferred `sourceEventSeqs` permission as measured and left 52 types unrecorded. | Answered as far as the adopted evidence reaches, and no further: the read records `surfaceOp` for every type, the `sourceEventSeqs` prohibition on `assistant/message` and the validation of a present member, and no permission on any other type. The "optional" cell is withdrawn as a measurement; the permission on the other 55 types is recorded unread as U4 with the read that fixes it named, and no reader rule rests on it. The full-envelope question is therefore not closed on this record; it is bounded to that one unread permission. | S1 item 4 and U4, S3 Q4, S4, S6; design D1, D2 E3/E4 and U4, D5 Q1/Q4, D13 read (d); delta evidence and envelope paragraphs; the simplicity report's second erratum. |
+| CLARIFY-279-5, second visit: E4 presented an inferred `sourceEventSeqs` permission as measured and left 52 types unrecorded. | Answered as far as the adopted evidence reaches, and no further: the read records `surfaceOp` for every type, the `sourceEventSeqs` prohibition on `assistant/message` and the validation of a present member, and no permission on any other type. The "optional" cell is withdrawn as a measurement; the permission on the other 55 types is recorded unread as U4 with the read that fixes it named, and no reader rule rests on it. That left the full-envelope question open on this record, bounded to that one unread permission; the third visit, below, decides who closes it and when. | S1 item 4 and U4, S3 Q4, S4, S6; design D1, D2 E3/E4 and U4, D5 Q1/Q4, D13 read (d); delta evidence and envelope paragraphs; the simplicity report's second erratum. |
+| CLARIFY-279-5, third visit: the `sourceEventSeqs` permission inventory for the 55 types other than `assistant/message` is incomplete, and the evidence that completes it is the member's declaring type in `types.d.ts` around `:429-446` with the per-type validation branch at `worker.cjs:9824-9930`. | Refused as a specification obligation and assigned as a read, not relabelled. The requirement is complete without the cells: the reader validates no key set and reads the member on its three kinds wherever present, which the writer-validity scenario now pins across a forbidden cell, an unread cell and two members the reader never reads. The cells exist only in the installed writer, which no specification box of this run reaches and which the commission forbids this seat to re-read; an inferred cell would repeat the defect the second visit withdrew. Read (d) is therefore assigned to the design council's next sitting, the one phase of this run whose seats have reached the writer, to be performed by the seat that reaches it and cited by package, file, digest and line, with E4 completed there; a council without reach records that and leaves the cells unread, and the change proceeds either way because no rule rests on them. | S1 item 4 and U4, S3 Q4, S4, S6; design Context, D1, D2 reach table, E4 and U4, D5 Q1/Q4, D12, D13 read (d); delta evidence and envelope paragraphs and the writer-validity scenario; tasks 2.9; the simplicity report's third erratum. |
 | CLARIFY-279-9: S5 ruling 7 generalised the signature to every integer timestamp, which would invalidate `1e3`. | Ruling 7 is restated per site: header admission for `{0, 3}` on parsed value and signature together; the time sites on the parsed value as a signed safe integer, the signature deciding only whether a parsed zero is a zero spelling; the binding shared by all three. `1e3` and `1000.0` render `1000`, and the version-three time scenario now spells `1000.0` beside `1e3`. | S2 Timestamps, S5 ruling 7; design D3, D12; delta version and time paragraphs and the version-three time scenario; tasks 1.5 and 6.1. |
 | CLARIFY-279-10: the helper algorithm gave `.` the empty signature while requiring `None`. | The helper's grammar requires at least one mantissa digit and, after an `e`, at least one exponent digit; it validates no more of the JSON grammar because the parser has already read the token as a number; `.` has no signature because it has no digit. | Design D3, D12; tasks 1.2. |
 | CLARIFY-279-11: task 4.3 required every existing test unmodified while tasks 1 and 2 change the helpers those tests call. | Preservation means behavioural assertions, not bytes: the six tests that call the changed helpers directly adapt their calls mechanically and are named, the version matrix is the one test extended on purpose, no compatibility wrapper is added, and no existing assertion changes because none spells an affected token. | Impact, S6; design D12; tasks 1.2 to 1.5, 2.1, 2.3 and 4.3. |
