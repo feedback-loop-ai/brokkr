@@ -367,3 +367,122 @@ before that reset regardless of this fix.
 and `recipes/research-dsh/bundle.json`, held by the
 `recipes/research-dsh` row of
 `crates/brokkr-runtime/tests/witness_digests.rs`.
+## Addendum — 2026-09-11, accepted: effort capability is per provider route, and a route that refuses every level is effortless
+
+Status: accepted (operator ruled in chat, 2026-09-11 — "ok, approved"). Drafted from wager evidence; binds from this ruling.
+
+### Context
+
+The 09-05 addendum assumed every dsh route takes a level: the driver
+forwards a seat's `--effort` unconditionally, and the fold reads the
+echo. Measured 2026-09-11 on dsh 0.1.5-rc.1, one route refuses all of
+them. `spark/qwen3.8-flash` (DGX Spark, SGLang, alive — `/v1/models`
+lists it) fails at spawn with
+`UNSUPPORTED_REASONING_EFFORT: provider "spark" model "qwen3.8-flash"
+does not support reasoning effort "low"`, and again with `"none"`
+(runs `task-framing-doctor-warns-when-a-088cb62b` and
+`...-b2b4fdc4`: implement failed 2/2 attempts, zero turns, zero spend).
+The lane is reachable, declared in the profile, and served — it simply
+has no effort control the wire will carry.
+
+The mirror case is Muse, and it confirms the axis is the provider's,
+not the seat's: the profile states Muse always reasons, `none` is
+refused, `off` deliberately absent. Spark is the opposite end of the
+same axis: every level refused. Between them sit the ordinary routes,
+which take levels. Effort support is therefore a fact about a route at
+a dsh version — measured, driftable (0.1.2 accepted what 0.1.5
+refuses, or the reverse next release), and exactly the kind of fact
+this tree keeps in adapter data rather than in code.
+
+Requiring a pin where no pin can mean anything would be the move
+ruling 1 refuses: a fiction in the plan, ignored on the wire, recorded
+as configuration. The 09-05 addendum's mechanism is kept for every
+route that takes a level; this addendum names the route that takes
+none.
+
+### Rulings
+
+1. **Effort capability is declared per provider route, in adapter
+   data.** `adapters/dsh.json` gains the list of routes measured as
+   refusing every reasoning level, each entry carrying the dsh version
+   measured and the run that measured it — `spark` as the first entry,
+   with 0.1.5-rc.1 and the two runs above. Adding or removing a
+   provider or a route's standing is a file edit, not a release, as
+   provider adapters already are.
+2. **Ruling 5 is amended for effortless routes only.** A seat whose
+   concrete lane resolves to a listed route needs no `--effort` pin;
+   compilation accepts the model-only seat. Every other model seat
+   still requires both pins, refused exactly as today. Effortlessness
+   is a property of the route, never of the seat: a bare id keeps the
+   standing of the adapter default it resolves to.
+3. **The driver sends no level where none exists.** For an effortless
+   route the driver writes no `reasoningEffort` — no settings key, no
+   fallback value, no silent `low`. The fold keeps reading the header
+   and never the pin, so there is nothing for it to misread; what the
+   header does not carry, the record does not claim.
+4. **The record carries `not applicable` on those seats.** Ruling 3's
+   own distinction decides it: `not reported` is a control that exists
+   but goes unreported; a control the provider refuses at every level
+   does not exist, which is the `exec` sentinel, reused rather than
+   reinvented.
+5. **Standing is re-measured, never assumed.** When a dsh version
+   accepts effort on a listed route — a headless turn with the level
+   echoed in the request header, journaled — removing the entry
+   re-arms the pin requirement: bundles still pinning model-only then
+   fail compile. That refusal is intended, digests move with it, and
+   old journals keep their absence visibly absent.
+
+### Enforcement binding
+
+`effortless_routes` in `adapters/dsh.json` with its loader (`agents`
+`Adapter`, `load.rs` route-grammar parsing, absent-is-empty);
+`enforce_model_pins` (the ruling-5 exemption, route-resolved through
+the seat's own adapter, with the answering digest witnessed into the
+manifest beside decision 0021's); the agent candidate resolver (the
+same exemption for abstract hires); `invoke_dsh_with` (a seat arriving
+with no `--effort` pin seeds `not applicable`, which a header level —
+never present on an effortless route — would overwrite, and says so
+from `harness-started`); their unit tests; driver conformance (a spark
+seat with no `--effort` spawns and records `not applicable`; a `spark`
+seat WITH one keeps failing closed at the provider, never silently).
+`dsh_effort_settings_in` is untouched: with no pin there is no
+document to write, which is the existing `(model, None)` arm.
+
+### Consequences
+
+The `spark-flash` alias becomes drivable: `wager-spark-flash`
+recompiles model-only and its digest moves, descendants with it. No
+other seat changes standing — Muse still requires its level, ordinary
+routes behave exactly as the 09-05 addendum says. Ruling 5's text
+above is left as written, since it was true when written; this
+addendum governs effortless routes from its ruling. Tracked as
+[brokkr#263](https://github.com/feedback-loop-ai/brokkr/issues/263);
+the wager runs above are its evidence.
+
+### Operational evidence (2026-09-12, recorded, not ruled)
+
+Enacted and measured the same night. A spark seat on the fixed
+binary spawns, works, and reads `not applicable` from
+`harness-started` (run `task-framing-doctor-warns-when-a-05b3e343`);
+an earlier full spark implement delivered the doctor-routes task as
+commit `a72d31a` (769 lines, diff and journal exported, tree reset
+after). Two measurements for the ledger-minded:
+
+- **Metering is absent on these dsh lanes.** Deepseek, muse and
+  spark implements report no usage into the record — against the
+  2026-09-05 verification that the contributor route meters. The
+  opus-5/low reference on the same task reported $2.82 over 61 turns
+  (3.51M cached input tokens). A wager that prices dsh arms is
+  pricing the incumbent only until the profile seam from this
+  decision's consequences lands.
+- **Local qwen is slow.** The validation implement died twice on the
+  90-minute attempt deadline; the one full implement took ~1.5h wall.
+  Spark suits patient batch work, not interactive loops — hire it
+  where elapsed time is cheap and the meter is zero.
+
+Enactment erratum, kept here rather than silently fixed: the
+finishing record does not read the seed through the boundary clamp —
+the clamp's alphabet has no space and the sentinel does — so
+`applied_harness_effort` matches the source-literal seed before
+clamping anything else. Harness-written values cross the clamp
+exactly as before.

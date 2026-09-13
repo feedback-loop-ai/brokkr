@@ -1184,6 +1184,23 @@ const DSH_USAGE: [(&str, &str); 4] = [
 /// sibling of dsh's own `inputTokens`.
 const DSH_INPUT_CACHE_READ: &str = "cacheReadTokens";
 
+/// The level the finishing record carries for a non-exec seat.
+/// Harness-written values cross the boundary clamp exactly as before —
+/// every fold inserts them token-checked, so an echo that fails the
+/// shape still reads `not reported`. The one value that never crossed
+/// a boundary is the driver's own seed: a source-literal constant
+/// (decision 0035 addendum 2026-09-11), matched literally rather than
+/// clamped, because the clamp's alphabet has no space and the sentinel
+/// does. Matching it by value cannot admit a harness string no fold
+/// would have written.
+fn applied_harness_effort(session_meta: &Map<String, Value>) -> String {
+    match session_meta.get("effort").and_then(Value::as_str) {
+        Some(effort) if effort == EFFORT_NOT_APPLICABLE => EFFORT_NOT_APPLICABLE.to_string(),
+        Some(effort) => effort_token(effort).unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string()),
+        None => EFFORT_NOT_REPORTED.to_string(),
+    }
+}
+
 /// The level dsh's request header last echoed for this seat, or the
 /// sentinel for a row written before any header did.
 fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
@@ -1256,7 +1273,11 @@ fn fold_dsh_event(
             // its addendum brought in). Measured on 0.1.2-rc.1: the
             // header's `config` carries `reasoningEffort` when a level
             // applies and omits it when none does, so an absent field
-            // leaves the seat saying `not reported`, honestly.
+            // leaves the seat saying `not reported`, honestly — for a
+            // seat that pinned one. A seat that arrived with no pin
+            // carries invoke_dsh_with's seed (`not applicable`, by the
+            // compile law that only effortless routes compile pin-less),
+            // which an absent field leaves standing.
             if let Some(effort) = event
                 .pointer("/data/header/config/reasoningEffort")
                 .and_then(Value::as_str)
@@ -2085,13 +2106,31 @@ fn invoke_dsh_with(
     )?;
     let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
+    // Decision 0035 addendum 2026-09-11: a dsh seat with no `--effort`
+    // pin compiles only on an effortless route, so the absence IS the
+    // standing — no level to forward, none for any header to echo. It
+    // is seeded so every fold row and the finishing record read `not
+    // applicable` from the first row; a header that echoes a real
+    // level overwrites the seed below, which is exactly the applied
+    // configuration ruling 3 asks the fold to read. (The transcript
+    // row keeps the harness default: its subject is transcript
+    // identity, and run_seat fills what folds do not set.)
+    if effort.is_none() {
+        session_meta.insert(
+            "effort".into(),
+            Value::String(EFFORT_NOT_APPLICABLE.to_string()),
+        );
+    }
     transcript.record(&locator, &mut session_meta, emit);
     emit(&json!({
         "step":"harness-started",
         "harness":"deepseek",
         "profile":"headless",
         // The pin travels in the manifest, not here: "model" on a seat's
-        // checkpoints means what SERVED (decision 0031).
+        // checkpoints means what SERVED (decision 0031). "effort" reads
+        // the seed above, so an effortless seat says `not applicable`
+        // from this row while any other seat keeps today's reading.
+        "effort": dsh_echoed_effort(&session_meta),
     }));
     let mut command = vec![
         bin,
@@ -3166,11 +3205,7 @@ fn run_seat(
     let applied_effort = if kind == AdapterKind::Exec {
         EFFORT_NOT_APPLICABLE.to_string()
     } else {
-        session_meta
-            .get("effort")
-            .and_then(Value::as_str)
-            .and_then(effort_token)
-            .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
+        applied_harness_effort(&session_meta)
     };
     let stderr_tail_start = stderr_tail_start(&stderr);
     eprint!("{}", &stderr[stderr_tail_start..]);

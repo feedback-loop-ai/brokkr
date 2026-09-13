@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.2-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
+ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
@@ -58,6 +58,11 @@ any pinned `--effort` is refused at start. `recipes/research-dsh`
 states `low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's
 own Qwen catalog lists, and pins `xhigh` (decision 0035, second
 addendum).
+
+The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
+on DeepSeek's own API. A completion verified this beta id on 2026-09-08;
+it was not yet included in the API's model list. Its name indicates a
+September 10 expiry; the exact cutoff time is unconfirmed.
 
 The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
 on DeepSeek's own API. A completion verified this beta id on 2026-09-08;

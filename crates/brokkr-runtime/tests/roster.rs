@@ -133,11 +133,16 @@ fn shipped_model_sites_name_the_library_outside_the_ruled_exceptions() {
             // library chain would silently undo that at its first fallback
             // (decision 0041's addendum of 2026-09-06). The retired strategy directories no longer need an
             // exception because their crews are selected from the roster.
+            // review-first forces its crew for the reason a wager does: the
+            // firing names the models (Muse implements, Astra judges), and a
+            // library chain would silently undo that at its first fallback
+            // (decision 0060, under decision 0041 ruling 7).
             let allowed = recipe.starts_with("wager-harness")
                 || recipe == "fast"
                 || recipe == "standby"
                 || recipe == "node"
                 || recipe == "preflight"
+                || recipe == "review-first"
                 || (recipe == "night-shift" && path.iter().any(|part| part == "implement"))
                 || (recipe == "research-dsh" && path.iter().any(|part| part == "research"));
             assert!(

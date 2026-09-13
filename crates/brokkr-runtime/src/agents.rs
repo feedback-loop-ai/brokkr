@@ -269,6 +269,12 @@ pub struct Adapter {
     /// `effort_flag` unsupported — the same shape, and the same meaning,
     /// as `model_flag`.
     pub effort_flag: Option<String>,
+    /// Decision 0035 addendum 2026-09-11: provider routes measured as
+    /// refusing every reasoning level, mapped to the measurement that
+    /// listed them. A seat whose concrete lane resolves to a listed
+    /// route needs no effort pin and records `not applicable`; absence
+    /// excuses nothing, exactly as an absent `efforts` excuses nothing.
+    pub effortless_routes: BTreeMap<String, String>,
     pub tool_permissions: Option<ToolPermissions>,
     /// Decision 0043: how this provider is told to put its hands in the
     /// box — the argv fragment that disables its own tools and reaches
@@ -328,6 +334,17 @@ pub struct HarnessHands {
     pub work: Option<Vec<String>>,
     pub work_gap: Option<String>,
     pub result: ResultDoor,
+}
+
+/// Decision 0035 addendum 2026-09-11: whether a concrete lane resolves
+/// to a route its adapter lists as effortless. Only a prefixed id can
+/// claim it — a bare id keeps the adapter default's standing, and an
+/// unlisted prefix is an ordinary route that takes an effort.
+pub(crate) fn route_is_effortless(adapter: &Adapter, concrete: &str) -> bool {
+    match concrete.split_once('/') {
+        Some((route, _)) => adapter.effortless_routes.contains_key(route),
+        None => false,
+    }
 }
 
 /// One resolved invocation: the agent it serves, a model, the provider
@@ -538,17 +555,25 @@ fn compose(
             ))
         }
         (Some(_), None) => {
-            return Err(capability_gap(
-                agent,
-                adapter,
-                model,
-                format!(
-                    "the provider takes an effort and this candidate pins none; add \
-                     \"efforts\": {{\"{model}\": \"<one of: {}>\"}} to the agent \
-                     (decision 0035 ruling 5)",
-                    adapter.efforts.join(", ")
-                ),
-            ))
+            // Decision 0035 addendum 2026-09-11: a candidate resolving to
+            // an effortless route needs no effort entry — the route, not
+            // the seat, decides. Every other effort-bearing provider
+            // still refuses here.
+            if route_is_effortless(adapter, concrete) {
+                None
+            } else {
+                return Err(capability_gap(
+                    agent,
+                    adapter,
+                    model,
+                    format!(
+                        "the provider takes an effort and this candidate pins none; add \
+                         \"efforts\": {{\"{model}\": \"<one of: {}>\"}} to the agent \
+                         (decision 0035 ruling 5)",
+                        adapter.efforts.join(", ")
+                    ),
+                ));
+            }
         }
         (Some(effort_flag), Some(effort)) => {
             if !adapter.efforts.iter().any(|known| known == effort) {
