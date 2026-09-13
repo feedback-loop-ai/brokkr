@@ -129,7 +129,13 @@ compiling under harness once the fragments are measured;
 of the `CONTRIBUTING.md` recipe table against `brokkr recipes list`.
 A determinable ruling with no named mechanism is judgment-guidance and
 says so: ruling 4's routing guidance is judgment-guidance; rulings 1–3
-are refused at compile time or by the walks above.
+are refused at compile time or by the walks above only for what those
+walks check — gate safety, bundle compilation, table valuations, recipe
+enumeration, and permission to use inline sites. Those walks do not pin
+`initial: verify` or the exact Muse/Astra model and effort assignments,
+and `review-first` has no fixed witness-digest entry: the current recipe
+data matches the intent, verified by review, and a change to the entry
+or the crew would escape the cited checks.
 
 ## Consequences
 
@@ -140,7 +146,11 @@ are refused at compile time or by the walks above.
   reads identically, and the witnesses do not name it.
 - **What it costs.** A code found-branch delivery is a verify's minutes
   and one review seat at `xhigh` on each model seat. Remediation is
-  spent only on a finding, never more than twice, as in `fast`.
+  spent only on a finding, at most three implement visits under the
+  table's `visits_implement_gte` 3 bound, as in `fast` — and because
+  entry is at `verify`, all three are remediation visits (`VERIFY-FAIL`
+  returns at counts 0, 1, and 2 and stops at 3), whereas `fast`'s first
+  visit is initial construction.
 - **What stays.** Decision 0041 rulings 2–3 and 5 (the roster, the judge
   vocabulary, every finding's edge and bound); decision 0045 (Astra
   judges); decision 0051 (landing, the classify fork, the label as
