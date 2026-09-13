@@ -853,10 +853,15 @@ saved for the phase commit.
       confirmation. Require a valid prior depth-zero header retained at
       the resolved locator for the offered ID, the pinned plugin's
       post-`await agents.resume` init event read from the stream-json
-      child on that selected persistence root, same-root nonce
-      continuity with no fresh sibling root/session, and new sequence
-      activity in that same root, before the launch hold releases. A
-      missing or different root, whether followed by a clean child exit
+      child on that selected persistence root, no fresh sibling
+      root/session in the retained store, and new sequence activity past
+      the recorded `firstSeq` in that same root, before the launch hold
+      releases. Same-root nonce continuity is 10.7's probe-only
+      model-recall device (design D6): it is never planted in a prompt or
+      read at run time, and this run-time confirmation names only the
+      mechanically observable header, init event, sibling-root and
+      sequence facts above. A missing or different root, whether followed
+      by a clean child exit
       or by a delivered result file, remains failed or indeterminate
       under D7: it publishes no `root_session`, no `transcript` locator
       and no launch row, and authorizes no cold replacement by itself.
@@ -986,8 +991,9 @@ saved for the phase commit.
       Add the DSH stream-json confirmation exchange's deterministic cases
       design D6 and D7 name, each built from a captured synthetic child
       transcript with no installed provider: a post-`await agents.resume`
-      init event confirming the offered root, same-root nonce continuity
-      and new sequence activity, followed by current work, publishes
+      init event confirming the offered root, no fresh sibling
+      root/session and new sequence activity past the recorded
+      `firstSeq`, followed by current work, publishes
       `root_session` and the launch row only after that event, and a
       request-derived `session_id` alone never substitutes for it; the
       child exiting before any init event is failed or indeterminate,
@@ -1117,7 +1123,7 @@ saved for the phase commit.
 - [ ] 9.6 After 8.8 and 8.10, extend the existing accounting and compatibility
       tests with the
       selected DSH route. In deterministic retained-store fixtures, a cold
-      `--new` launch confirms a fresh root and nonce and atomically journals the
+      `--new` launch confirms a fresh root and atomically journals the
       provider ID, safe persistence locator and composite runner identity; a
       warm `--session` launch can use only that same root/locator, and missing,
       truncated, ambiguous or escaping storage starts cold without searching
@@ -3358,3 +3364,60 @@ specification, and it is now closed. Passes B, C and D (this run's scheduled
 scope) and passes E through K (out of scope) are otherwise unchanged from the
 prior visit's reconciliation. The next visit should implement pass B starting
 from 8.8's remaining planner work, in the order this file states.
+
+## Current tasks return — nonce/run-time confirmation conflation repair, 2026-09-14
+
+This visit belongs to run `current-successor-issue-226-pass-972adad6` (tasks
+phase), returned from that run's own analyze visit (transcript
+`2c99aeba-c098-4212-9e8a-24b6e7a94d22`), which held pass A complete but raised
+one MEDIUM finding against this file at HEAD `d14c97b`: the previous
+2026-09-14 repair (above) carried D6's probe-only "same-root nonce
+continuity" phrase into 8.8(d)'s run-time launch-hold paragraph, into 8.10's
+positive stream-json vector, and into 9.6's cold `--new` launch description,
+each stating or implying that a nonce is confirmed at run time. Design D6
+(`design.md:1171`) assigns nonce continuity to **10.7's probe** alongside "no
+fresh sibling root/session" and "new sequence activity," and the operator's
+pass C framing for this run separately names only "the depth-zero stored
+header and the post-resume init" as run-time confirmation. A nonce is the
+probe's model-recall device: proving it at run time would require planting a
+token in the prompt and reading the model's recall on every invocation, a
+per-attempt model experiment D5 forbids (`design.md:468`) and AS1 rejects as
+an unnecessary model experiment, and it would put engine content in the
+prompt that ruling 4 forbids. As written, 8.8(d) could not be implemented
+without violating D5, and 9.6's "nonce" word described a live-model fact
+inside what its own sentence calls a deterministic retained-store fixture.
+
+**Repaired in this visit, tasks-only, no tick.** 8.8(d)'s launch-hold
+paragraph now requires only the retained depth-zero header, the pinned
+plugin's post-`await agents.resume` init event, no fresh sibling root/session
+in the retained store, and new sequence activity past the recorded
+`firstSeq` — all four mechanically observable from the retained root
+directory and its log tail — and states explicitly that same-root nonce
+continuity is 10.7's probe-only model-recall device, never planted or read
+at run time. 8.10's positive stream-json vector drops "same-root nonce
+continuity" from the run-time confirming event and states the same two
+mechanical facts (no fresh sibling root/session, new sequence activity past
+`firstSeq`) instead. 9.6's cold `--new` launch description drops "and nonce"
+from what a deterministic retained-store fixture confirms, leaving "a fresh
+root." Task 10.7 (`tasks.md:1316`, out of this run's scope) is untouched: it
+already scopes same-root nonce continuity to its own live probe alongside the
+header and init event, which is correct and needed no repair. Design D6 is
+untouched: its own sentence already assigns nonce continuity to "the probe,"
+and the conflation was this file's wording, not the design's.
+
+Recounted directly against this file: **82 complete / 19 pending**, the same
+101 identifiers, none added, removed, renumbered or ticked.
+`openspec validate 2026-09-09-226-session-resumption --strict` exits 0:
+`Change '2026-09-09-226-session-resumption' is valid`. `git diff --check`
+reports no whitespace errors. No production code, contract, decision,
+adapter declaration, doctor output, guide or evidence file was written by
+this visit — only this planning artifact was edited.
+
+This breakdown now states D6's run-time/probe nonce split coherently under
+existing identifiers 8.8, 8.10 and 9.6, and needs no further repair before
+implementation resumes. `upstream` is not reported: the defect was this
+file's own wording, not a defect in design or specification, and it is now
+closed. Passes B, C and D (this run's scheduled scope) and passes E through K
+(out of scope) are otherwise unchanged from the prior visit's reconciliation.
+The next visit should implement pass B starting from 8.8's remaining planner
+work, in the order this file states.
