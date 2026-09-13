@@ -119,9 +119,12 @@ recorded-token check SHALL never fall open to the parsed value alone.
 Admitting three widens the recorded-token version check from one admitted
 integer to two and touches no other field: an ordinary event's `time` and
 a packed row's `time0` keep the exactness the content rules below already
-require of them under either version, judged by the same digit signature
-and the same one-member binding, and no citation, marker or other event
-field is judged on its recorded token under either version. Strings,
+require of them under either version, their parsed value a signed safe
+integer, a parsed zero a zero spelling only when its token's digit
+signature is empty, a nonzero integer judged on its parsed value alone,
+and every judged token established by the same one-member binding; no
+citation, marker or other event field is judged on its recorded token
+under either version. Strings,
 booleans and null SHALL not be coerced. Missing `version`, any nonnumeric
 value and any numeric value outside the set, including 1, 2 and 4, SHALL
 return `unsupported-format` with `DSH transcript format is not supported`.
@@ -145,12 +148,13 @@ grammar; the message and block definitions the event map imports for the
 payloads of `user/message`, `assistant/message` and `tool/result`, mapped
 field by field onto the reader's projection; the persistence codec's
 header shape, physical envelope (a base of four members on every event row
-plus two conditional top-level members, stated with their per-type
-permissions in the content rules below), row admission and seed-marker
-consistency; and the catalogue and migration packages. It did not reach
-the writer's append and replace paths, which decide what a replace-marked
-row carries, or the seed and fork path that writes a seeded session's
-inherited prefix. Under version three the four content kinds therefore
+plus two conditional top-level members, stated in the content rules below
+with the per-type permissions that read recorded and the one it did not),
+row admission and seed-marker consistency; and the catalogue and migration
+packages. It did not reach the writer's append and replace paths, which
+decide what a replace-marked row carries, the seed and fork path that
+writes a seeded session's inherited prefix, or the permission of
+`sourceEventSeqs` on any type but `assistant/message`. Under version three the four content kinds therefore
 project by the content rules below; a replace-marked row projects by its
 type at its recorded position because the reader parses no marker; and the
 one rule that rests on inherited identities, the dedicated-tool
@@ -530,9 +534,10 @@ event envelope, as the codec read for #279 validates it, is a base of
 top-level members: `surfaceOp`, required on exactly the four
 surface-eligible types `system/message`, `user/message`,
 `assistant/message` and `tool/result` and forbidden on every other type,
-and `sourceEventSeqs`, forbidden on `assistant/message` and optional on
-the other surface-eligible types; whether a non-surface row may carry a
-citation was not recorded, and no reader rule rests on it. A top-level
+and `sourceEventSeqs`, forbidden on `assistant/message` and validated
+wherever the codec finds one; whether any other type, surface-eligible or
+not, permits, requires or forbids `sourceEventSeqs` was not recorded by
+that read, and no reader rule rests on it. A top-level
 packed row, which carries `seq0` and `time0` in place of `seq` and
 `time`, is outside every type's permitted set and cannot be written by
 that codec. Writer validity is not reader admission: the reader SHALL
@@ -581,7 +586,10 @@ version-three event's `time` keeps the signed-safe-integer rule above and
 its exactness: a nonzero literal whose parsed value collapses to zero is
 not an integer millisecond count, so it is invalid and renders an empty
 stamp under either version, and a packed `time0` spelled that way keeps
-its version-zero refusal. This change does correct how the reader judges
+its version-zero refusal. A nonzero integer `time` or `time0` is judged
+on its parsed value alone under either version, so `1e3` and `1000.0`
+are the millisecond `1000`; the digit signature below decides only
+whether a parsed zero is a zero spelling. This change does correct how the reader judges
 that exactness, under both versions: a recorded token is a zero spelling
 only when its digit signature is empty, so `10e-400`, `0.1e-400` and
 `1.0e-400`, which the shipped reader accepted as zero because a zero
@@ -701,8 +709,8 @@ either version.
 - **THEN** each read returns `unsupported-format` with no turns, one unrecognized record and its notice, without decoding the row as a fragment or a packed run; with top-level `ignorable: true` on that row each read instead projects the user message once with one unrecognized record
 
 #### Scenario: Version-three time keeps the recorded-token exactness of version zero
-- **WHEN** a version-three source whose header spells its version `3e0` holds three `tool/call` rows with `time` spelled `1e-400`, `1e3` and `-0.0`, and version-zero sources hold the existing ordinary `assistant/chunk` at `time: 1e-400` and packed `text-chunks` row at `time0: 1e-400`
-- **THEN** the version-three header admits and its three calls project in order with stamps `""`, `"1000"` and `"0"`, zero counts and no notice; the version-zero chunk still renders an empty stamp and the version-zero packed row still refuses with one unrecognized record; no other field of any row is judged on its recorded token
+- **WHEN** a version-three source whose header spells its version `3e0` holds four `tool/call` rows with `time` spelled `1e-400`, `1e3`, `1000.0` and `-0.0`, and version-zero sources hold the existing ordinary `assistant/chunk` at `time: 1e-400` and packed `text-chunks` row at `time0: 1e-400`
+- **THEN** the version-three header admits and its four calls project in order with stamps `""`, `"1000"`, `"1000"` and `"0"`, the two nonzero integers on their parsed value alone although their digit signature is `1`, zero counts and no notice; the version-zero chunk still renders an empty stamp and the version-zero packed row still refuses with one unrecognized record; no other field of any row is judged on its recorded token
 
 #### Scenario: Zero-digit underflow and duplicated time members are not zero stamps
 - **WHEN** a version-three source holds `tool/call` rows whose `time` is spelled `10e-400`, `0.1e-400` and `1.0e-400`, a `tool/call` that records `time` twice at its top level as `"time":1000` then `"time":2000`, a `tool/call` whose member is named `"\u0074ime"` with the value `1e-400`, and `tool/call` rows spelling `time` as `0`, `0.0`, `-0` and `0e0`; a version-zero source holds an ordinary `assistant/chunk` at `time: 10e-400` and another that records `time` twice; and two version-zero sources hold a packed `text-chunks` row spelling `time0` as `10e-400` and one recording `time0` twice as `1000` then `2000`
