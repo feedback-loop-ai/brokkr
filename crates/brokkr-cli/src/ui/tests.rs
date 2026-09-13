@@ -3633,6 +3633,73 @@ fn a_non_unicode_canonical_home_is_unreadable() {
     );
 }
 
+/// The DSH core versions its session file: 0.1.5-rc.1 writes
+/// `session.v3.jsonl` where earlier cores wrote `session.jsonl`. A reader
+/// that knows only one name reports `not-found` for every session written
+/// since the upgrade while the transcript sits beside the reference the
+/// journal recorded.
+#[test]
+fn a_versioned_dsh_session_file_is_discovered() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("session.v3.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, None, "{:?}", read.explanation);
+    assert!(
+        read.path.as_deref().unwrap().ends_with("session.v3.jsonl"),
+        "{:?}",
+        read.path
+    );
+}
+
+/// A session directory yields at most one candidate, so a directory holding
+/// both admitted names admits the newer and never becomes ambiguous with
+/// itself.
+#[test]
+fn a_session_directory_holding_both_names_admits_the_versioned_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let header = "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n";
+    std::fs::write(session.join("session.jsonl"), header).unwrap();
+    std::fs::write(session.join("session.v3.jsonl"), header).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, None, "{:?}", read.explanation);
+    assert!(
+        read.path.as_deref().unwrap().ends_with("session.v3.jsonl"),
+        "{:?}",
+        read.path
+    );
+}
+
+/// The set is closed: a name outside it is never read, however plausible.
+#[test]
+fn a_session_filename_outside_the_admitted_set_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("session.v4.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
 #[test]
 fn a_dsh_header_that_is_not_an_object_is_not_a_session() {
     let dir = tempfile::tempdir().unwrap();
