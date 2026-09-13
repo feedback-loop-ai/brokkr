@@ -45,6 +45,9 @@ completed work needs a truthful task marker before the phase's final commit.
   unmeasured shapes honestly. Cold-only, declaration-gated preparation does not
   close #226. Re-impose current restrictions, hands and model/effort settings on
   every rejoin; inherited permissions and argument parsing do not prove safety.
+  DSH's one operator-ruled route overlay is admitted by its measured shape and
+  folded ahead of the Rust-owned rows on every launch; any other `--patch` is
+  refused before provider work (answer Q).
 - Report confirmed cold/resumed outcomes and bounded reasons for declined
   offers, preserving first-work acceptance and pre-session refusal semantics.
   Permit at most one proven pre-work cold replacement within the invocation's
@@ -788,6 +791,91 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   corrections against sound requirements, not an upstream specification fault
   or a reason to narrow AS1. All five capability deltas remain adopted unchanged.
 
+- **Q — Pass A, 2026-09-14: the DSH route overlay is admitted by shape and
+  folded, not rejected.** The 2026-09-13 engine-plumbing visit recorded a
+  concrete conflict: design D6 and task 8.8(d) reject a user `--patch` on the
+  cold and warm DSH paths, while `recipes/research-dsh/bundle.json:16` supplies
+  `--patch recipes/research-dsh/drivers/research-web.yml`, the roster test
+  `the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter`
+  admits that one `--patch` and no other, and the witness digest pins the
+  file. The file is the Model Studio route: one `llm-pi-ai` entry defining the
+  single provider `dashscope`, keyed by `DASHSCOPE_API_KEY` by name, with the
+  `qwen3.8-max` entry's `low`, `medium` and `xhigh` reasoning levels (decision
+  0035, second addendum). Decision 0044 ruling 5's 2026-09-04 erratum places
+  the fetch grant in the headless profile, so the overlay carries the route
+  only; the roster test's comment and the inherited progress line that call
+  the overlay "the fetch grant" describe the pre-erratum shape and do not
+  decide the repair.
+
+  The shipped cold path, `invoke_dsh_with`, already stages one Rust-owned
+  overlay — the `session-persistence-jsonl`, `agent-default-model` and
+  `settings` rows — and forwards the seat's `--patch` after it as raw
+  passthrough. D6's rejection is right about arbitrary patches: dsh applies
+  `--patch` overlays last and a patch replaces the targeted row's whole
+  config, so a user file applied after the seat's could repoint the
+  persistence root, replace the model or effort, or configure the pinned
+  plugin's runner row and thereby select another session. It is wrong about
+  this file, whose rows are disjoint from every Rust-owned row and whose only
+  effect is to make the pinned provider reachable.
+
+  The answer is an AS3 amendment. The adapter admits exactly one authorized
+  `--patch` shape, the route overlay, by its measured shape, and folds its
+  validated bytes into the per-seat overlay ahead of the Rust-owned rows, so
+  the launcher receives one `--patch` and Brokkr's rows apply last. Admission
+  is: the only `--patch`; a regular file beneath the seat's working directory
+  without absolute path, `..` or symlink escape; bounded UTF-8 without tabs,
+  control characters or document markers; one top-level entry whose id is the
+  `llm-pi-ai` row, holding only `config`, holding only `providers`; exactly
+  one provider key equal to the provider segment of the pinned
+  `<provider>/<id>` model; and a credential named by `apiKeyEnv`, never a
+  value (decision 0012). A bounded line reader of the pnpm reader's
+  discipline checks those depths and carries deeper lines verbatim; an
+  unrecognized construct is a refusal, never an empty result. Everything else
+  offered as `--patch` refuses the invocation before provider work on both
+  paths — never forwarded, never dropped — as the existing
+  `--effort`-without-`--model` refusal already does. The check is independent
+  of the resume gate: an `unmeasured` shape folds the route into the shipped
+  cold invocation exactly as an enabled shape does, and a rejoin re-imposes
+  the current bundle's route rows like the model and effort. The composite is
+  unchanged, because the folded rows are part of the per-seat overlay D6
+  excludes and the file's identity is the bundle digest. The fetch grant
+  stays the profile's, entering the composite through the `profile-bundle`
+  lines; a patch naming a tool row is refused like any other row.
+
+  Nothing else moves. `bundle.json`, `research-web.yml`, the compiled
+  staffing, the roster assertion and the research-dsh witness digest are
+  unchanged; the selected core/plugin pair, D6's grammar and locators, AS1's
+  minimum and answers A–P are not reopened. The design phase reconciles D6's
+  passthrough sentence (`design.md` lines 1005–1011) and D10, and records the
+  admitted shape in proposed 0056 ruling 6 beside "unknown restriction or
+  profile overrides are not forwarded"; the tasks phase replaces `--patch` in
+  8.8(d)'s rejection list with "a `--patch` other than the admitted route
+  overlay" and adds the new scenarios to 8.10's deterministic cases — the
+  shipped overlay as the positive vector, and the row, arity, path, provider,
+  credential and unrecognized-construct refusals — under the existing task
+  identifiers. Pass B implements them; the roster test's stale comment may
+  read "route" when B touches that file.
+
+  Rejected alternatives:
+  - Migrating the route into the operator's DSH profile: it edits the global
+    profile this run may not touch, moves the route out of the bundle digest
+    and makes the sweep depend on an undeclared home state; a profile is per
+    home while the pin is per seat.
+  - A Brokkr-owned spelling such as `--route <file>`: it distinguishes the
+    shape by name rather than by content, moves the research-dsh witness
+    digest and the roster assertion for no admission gain, and strands
+    decision 0044's enforcement binding, which names `--patch` on a dsh site.
+  - Forwarding `--patch` raw when its path lies under the bundle: a path
+    bounds nothing about the rows, and dsh would still apply the file after
+    the Rust-owned overlay.
+  - Two Rust-ordered `--patch` arguments with the validated file first: the
+    launcher would read the file again after validation, and the argv widens
+    for nothing once the bytes are folded.
+  - A YAML crate: rejected on the pnpm reader's grounds — deny, audit, licence
+    and MSRV stay unchanged, and the shipped shape is one block form.
+  - Rejecting `--patch` outright, as D6 read it: it disables the
+    operator-ruled lane and its route, which the framing forbids.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -1502,3 +1590,34 @@ This is a drafted specification preparation commit of exactly three planning
 artifacts. Proposed 0056 remains proposed; the DSH route, full provider proofs,
 enablement and delivery gates remain incomplete. No provider model call,
 workflow runner, push, merge or new Brokkr run was started.
+
+## Current successor specify — pass A route overlay, 2026-09-14
+
+Run `current-successor-issue-226-pass-972adad6`, phase specify, adopted HEAD
+`8f93894267069ff9ec5d101bbaeefbd49a2e6b8d` and the whole active change. Read
+in full the pass framing, the September 12 controller Codex note, the 015rc1
+qualification, incompatibility and upstream-discovery records,
+`adapters/dsh.json`, proposed 0056, the proposal, design D6, tasks
+8.8/8.10/9.6 and the five deltas, plus `recipes/research-dsh/bundle.json`,
+its `drivers/research-web.yml`, the roster test and the DSH arm of
+`adapters.rs`, through the workspace hands; the dialect's own instructions
+were read and no workflow runner was invoked.
+
+Answer Q resolves pass A's overlay interaction as an AS3 amendment in
+`specs/adapter-resume-safety/spec.md`: the AS3 requirement gains the route
+overlay's authorized shape and rejection rule, five scenarios are added beside
+"A DSH profile or wrapper can replace session selection", which gains one AND,
+and the AS2 DSH scenario and AS1's before-enablement scenario each gain one
+AND so the fold is re-imposed on a rejoin and unchanged by the closed gate.
+The other four deltas, answers A–P, D6's grammar and locators, the selected
+pair, the recipe, the roster assertion and every task tick are untouched;
+design, proposed 0056 and tasks reconcile in their own phases as Q names.
+Counts after this visit: 20 requirements / 146 scenarios, and 82 complete /
+19 pending across the same 101 task identifiers.
+
+Strict active validation passes. Cargo is absent in this box, as every
+predecessor specify visit recorded, so format, clippy, workspace tests, both
+bundle compiles and the release build could not launch here and remain the
+implementing pass's obligation before its commit. No provider probe, task
+tick, archive, push, merge or new Brokkr run was performed. Evidence is under
+`.forge/specify-972adad6/`.

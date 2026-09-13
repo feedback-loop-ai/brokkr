@@ -315,6 +315,7 @@ read as history, not as a current claim.
 - **WHEN** a DSH seat starts cold or an eligible DSH offer arrives
 - **THEN** any offer is declined as `unsupported-resume` and the shipped cold invocation runs unchanged
 - **AND** no version probe or composite recompute runs, no `--new` or `--session` is built and no offerable root is recorded
+- **AND** a route overlay the seat carries is validated and folded into that shipped cold invocation exactly as on an enabled shape; the closed gate changes nothing about which `--patch` is admitted
 
 #### Scenario: A supported DSH identity lacks a valid composite digest
 - **GIVEN** a DSH assessment marks the shape `supported` but its measured identity has no `wrapper_digest`, or the private start context carries one that does not fit the grammar
@@ -410,6 +411,7 @@ an unsupported hands shape or change which adapters can hold a gate.
 - **WHEN** an eligible DSH site resumes under a measured supported path
 - **THEN** headless operation, the pinned model/effort overlay and the owned session/transcript relationship remain effective, without falling into an interactive or ambient profile
 - **AND** the resolved home's `headless` profile verifies as the qualified composite, the declared `wrapper_digest`, before this invocation; a different core, plugin, profile or selector, or plugin bytes that differ from the pinned repository-owned adaptation, declines the offer instead of being inherited
+- **AND** the seat's route overlay, where the bundle carries one, is validated and folded ahead of the Rust-owned rows on the rejoin exactly as on the cold launch; it is a current-invocation setting, never a restored one
 
 #### Scenario: Unsupported hands still refuse
 - **WHEN** a DSH or LaneTally site requests a hands shape its declaration does not support
@@ -445,6 +447,47 @@ A setting such as `--no-session-persistence` SHALL NOT be silently removed to
 make a nonpersistent invocation resumable. Its measured effect on the shape
 SHALL be respected and reflected in support and session-eligibility evidence.
 
+DSH's launcher has one override channel, `--patch <overlay>`, and Brokkr's
+per-seat persistence/model/effort overlay already rides it. A seat's own
+`--patch` SHALL be admitted in exactly one authorized shape, the **route
+overlay**: an operator-ruled file inside the bundle, read from the seat's
+working directory, whose rows state only the provider route of the pinned
+model (decision 0044 ruling 5 and its erratum of 2026-09-04; the shipped
+instance is `recipes/research-dsh/drivers/research-web.yml`). The adapter
+SHALL validate the overlay by its measured shape before provider work, on the
+cold and the resume path alike, and SHALL fold its validated bytes into the
+per-seat overlay ahead of the Rust-owned rows, so the launcher receives one
+`--patch` and the persistence, model and settings rows Brokkr writes apply
+last. A route overlay SHALL be the only `--patch` in the seat's settings;
+SHALL resolve to a regular file beneath the seat's working directory, with no
+absolute path, `..` component or symlink escape; SHALL be bounded UTF-8 text
+without tabs, control characters or document markers; SHALL consist of
+full-line comments, blank lines and exactly one top-level entry, whose `id`
+is the provider-catalogue row the shipped overlay names (`llm-pi-ai`), whose
+only member is `config`, whose `config` holds only `providers`; SHALL define
+exactly one provider key, equal to the provider segment of the seat's pinned
+`<provider>/<id>` model; and SHALL name its credential only by environment
+variable name (`apiKeyEnv`), never carrying a key value (decision 0012). A
+bounded line reader of the pnpm reader's discipline checks the entry,
+`config`, `providers` and provider depths in the block form the shipped
+overlay uses and carries deeper lines verbatim; a construct it does not
+recognize at those depths is a refusal, never an empty result. Anything else
+offered as `--patch` — a second file, a bare `--patch`, a row naming the
+persistence, model, settings, runner, session or tool rows or any other id,
+more than one entry or provider, a provider other than the pinned one, a
+route beside a model pin with no provider segment or no model pin, an inline
+credential, or a file that cannot be read within the bound — SHALL refuse the
+invocation before provider work on both paths, SHALL NOT be forwarded to the
+launcher and SHALL NOT be dropped silently. The fetch grant is the composed
+`headless` profile's own and enters the composite through its
+`profile-bundle` lines; no overlay row grants or revokes it. The folded route
+rows are part of the per-seat overlay the composite excludes, their
+provenance is the bundle digest that already covers the file, and no route
+byte enters launch evidence. On a resume the route overlay is re-imposed from
+the current bundle, never inherited from the persisted session, and its
+admission is independent of the resume gate: an `unmeasured` shape folds it
+into the shipped cold invocation exactly as an enabled shape does.
+
 #### Scenario: Claude continue is not a selector for this seat
 - **WHEN** passthrough requests Claude's continue/latest-session behavior or a different explicit session
 - **THEN** it cannot override the exact engine offer, and any cold path cannot silently perform that ambient continuation
@@ -475,6 +518,32 @@ SHALL be respected and reflected in support and session-eligibility evidence.
 - **WHEN** user passthrough or a wrapper setting would override the headless profile, selected session, model/effort overlay or restriction set
 - **THEN** the resume is declined and the safe cold or refusal outcome names a bounded reason
 - **AND** only the adapter-owned `--session <owned-root>` value reaches the selected pinned extension route; a user-supplied selector never competes with it
+- **AND** a `--patch` other than the admitted route overlay is such an override: it is refused before provider work on the cold and the resume path, neither forwarded nor dropped
+
+#### Scenario: The research route overlay is admitted by its shape and folded
+- **GIVEN** a DSH seat pinned `--model dashscope/qwen3.8-max --effort xhigh --patch recipes/research-dsh/drivers/research-web.yml`, as `recipes/research-dsh` ships it, whose overlay's one entry is the `llm-pi-ai` row defining the single provider `dashscope` by `apiKeyEnv` with its model's declared reasoning levels
+- **WHEN** the seat launches cold, or rejoins its owned root through `--session <owned-id>` on a supported shape
+- **THEN** the overlay is read from the seat's working directory, validated by that shape before provider work, and its bytes are folded into the per-seat overlay ahead of the persistence, model and settings rows Brokkr writes, so the launcher receives exactly one `--patch` and the Rust-owned rows apply last
+- **AND** on a rejoin the route rows are the current bundle's, re-imposed like the model and effort; nothing the persisted session remembers supplies them
+- **AND** an `unmeasured` shape folds the overlay into the shipped cold invocation the same way, still without a version probe, a composite recompute, `--new` or `--session`
+- **AND** the composite, the launch row and the journal carry no route byte; the file's provenance is the bundle digest that already covers it, and the fetch grant stays the composed profile's own
+
+#### Scenario: A patch names a Rust-owned or selector row
+- **WHEN** a seat's `--patch` file carries an entry whose `id` is `session-persistence-jsonl`, `agent-default-model`, `settings`, the pinned plugin's runner row, a tool row or any id other than the route row, or carries more than one entry
+- **THEN** the invocation is refused before provider work on the cold and the resume path, the file is not forwarded to the launcher, no row of it is dropped to make the launch admissible, and no launch row or offerable root is recorded
+- **AND** the refusal is the adapter's existing pre-work failure to start; it is not a resume decline, not a cold replacement and not a reason to inherit the persisted session's settings
+
+#### Scenario: A patch competes by arity or path
+- **WHEN** a seat's settings carry two `--patch` controls, a bare `--patch` with no value, or a value that is an absolute path, contains a `..` component, resolves through a symlink to a file outside the seat's working directory, is not a regular file, exceeds the reader's byte bound, is not UTF-8, or carries a tab, control character, document marker or an unrecognized construct at the entry, `config`, `providers` or provider depth
+- **THEN** the invocation is refused before provider work on both paths with a bounded reason, and no partial overlay is staged
+
+#### Scenario: A route overlay names a provider the seat did not pin
+- **WHEN** the overlay defines a provider key other than the provider segment of the pinned `<provider>/<id>` model, defines two provider keys, or accompanies a model pin with no provider segment or no model pin at all
+- **THEN** the invocation is refused before provider work; an overlay cannot redefine the profile's default route or a route the seat does not use
+
+#### Scenario: A route overlay carries a credential value
+- **WHEN** an overlay's provider carries an inline `apiKey` value instead of an `apiKeyEnv` name
+- **THEN** the invocation is refused before provider work and the value is never staged, forwarded or echoed; a route names its credential by environment variable only
 
 #### Scenario: Identifier injection
 - **WHEN** an offered handle contains a flag-like prefix, control characters, path traversal, shell syntax or an overlong value outside the measured grammar
