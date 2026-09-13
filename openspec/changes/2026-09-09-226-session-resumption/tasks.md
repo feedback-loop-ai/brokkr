@@ -848,6 +848,18 @@ saved for the phase commit.
       member, a member outside the grammar, any mismatch, or an originating
       root with no recorded digest declines as `unverified-harness`, runs the
       shipped cold invocation unchanged and records no offerable root.
+      Confirm the launched root before publishing: do not treat the
+      plugin's request-derived `session_id` value by itself as
+      confirmation. Require a valid prior depth-zero header retained at
+      the resolved locator for the offered ID, the pinned plugin's
+      post-`await agents.resume` init event read from the stream-json
+      child on that selected persistence root, same-root nonce
+      continuity with no fresh sibling root/session, and new sequence
+      activity in that same root, before the launch hold releases. A
+      missing or different root, whether followed by a clean child exit
+      or by a delivered result file, remains failed or indeterminate
+      under D7: it publishes no `root_session`, no `transcript` locator
+      and no launch row, and authorizes no cold replacement by itself.
       Reject user `--session`, tag resume, `--new`, `--list`, `--workdir`,
       `--profile`, `--output-format`, model/effort or settings controls, and
       every `--patch` other than the one authorized route overlay, on cold and
@@ -910,8 +922,8 @@ saved for the phase commit.
       recomputed delta digest equals the note's, and substituting the upstream
       expression back reproduces upstream `lib/index.js` SHA-256
       `a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b`,
-      before ticking — safety / AS1, safety / AS2, safety / AS3, site / SR3,
-      site / SR5.
+      before ticking — safety / AS1, safety / AS2, safety / AS3, safety / AS4,
+      site / SR3, site / SR5, evidence / LE1, evidence / LE3.
 - [x] 8.9 Implement SR3's two identity origins: harvest the
       provider-generated root for the known Claude and Codex paths, and
       support a fresh engine- or adapter-assigned creation ID only where
@@ -971,6 +983,29 @@ saved for the phase commit.
       flow collection, anchor, alias, merge key or block/quoted scalar). Prove
       the binding and digest check run before any shape check, so a bound,
       digest-matching member whose `baseURL` fails the grammar still refuses.
+      Add the DSH stream-json confirmation exchange's deterministic cases
+      design D6 and D7 name, each built from a captured synthetic child
+      transcript with no installed provider: a post-`await agents.resume`
+      init event confirming the offered root, same-root nonce continuity
+      and new sequence activity, followed by current work, publishes
+      `root_session` and the launch row only after that event, and a
+      request-derived `session_id` alone never substitutes for it; the
+      child exiting before any init event is failed or indeterminate,
+      records no launch row and authorizes no replacement; an init event
+      naming a different root followed by a clean exit, and the same
+      mismatch followed by an otherwise valid delivered result file, each
+      end failed or indeterminate without an accepted successful launch or
+      a cold replacement; a nonzero exit carrying stderr prose but no
+      measured machine-readable session-rejection shape performs no
+      automatic cold replacement (AS4's unstructured-DSH-error case, LE3's
+      cannot-classify-a-refusal case); cancellation or a deadline expiry
+      while the launch hold is open ends the invocation without a
+      fabricated launch or confirmed-session checkpoint and starts no
+      replacement; and the one DSH-specific local-decline path, an
+      unsupported offer, permits exactly one independently safe cold
+      launch. Label these the DSH arm of LE1/LE3/AS4/D7 rather than a
+      restatement of 7.9's or 9.7's generic cross-adapter coverage, which
+      exercise no DSH child-process init event.
       Pin the canonical composite's byte form
       byte form with one worked vector per lock dialect (the npm lockfile-3
       hidden lock and pnpm lockfile 9.0, as committed synthetic excerpts in the
@@ -1031,7 +1066,8 @@ saved for the phase commit.
       identifier injection, unsupported hands and cold/resume inability to
       honour the class. Label these deterministic planner/storage shims rather
       than live DSH compatibility or enforcement evidence — safety / AS1,
-      safety / AS2, safety / AS3, site / SR3, site / SR5, evidence / LE5.
+      safety / AS2, safety / AS3, safety / AS4, site / SR3, site / SR5,
+      evidence / LE1, evidence / LE3, evidence / LE5.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
@@ -3251,3 +3287,74 @@ staleness was this file's own text, now reconciled. Passes E through K remain
 out of this run's scope and are untouched. The next visit should implement
 pass B starting from 8.8's remaining planner work, in the order this file
 states.
+
+## Current tasks return — D7 confirmation-exchange coverage repair, 2026-09-14
+
+This visit belongs to run `current-successor-issue-226-pass-972adad6` (tasks
+phase), returned from that run's own analyze visit
+(transcript `a9ccdc00-0617-4b6f-b6e6-a532fec188a8`), which held pass A
+complete but raised one MEDIUM coverage-gap finding against this file at HEAD
+`77fcacbb41f6174cab04af5a6bb2d3246362b91e`: D10's own sitting ruling that
+pass C is "D6's confirmation paragraph and D7" and that "their deterministic
+cases belong to 8.10 and 9.6" was not carried into the breakdown. 8.8(d)
+named the locator-side check (bounded relative form, depth-zero header, exact
+ID) but never D6's later paragraph requiring the pinned plugin's post-`await
+agents.resume` init event, same-root nonce continuity and new sequence
+activity before the launch hold releases, and never stated that a bare
+request-derived `session_id` is insufficient alone. 8.10's DSH list covered
+argv, selectors, drift, digest and the new route overlay but carried no case
+for that confirmation exchange itself, and 9.6 covers only D3's offer-time
+storage decline (missing/truncated/ambiguous/escaping storage starts cold),
+not D7's post-spawn missing-confirmation or different-root outcome. The
+generic 7.9/9.7 cases were checked before DSH existed as a launch-confirming
+shape and do not exercise a DSH child-process init event, so AS4's
+"unstructured DSH error" and "different session" scenarios and LE1's
+"requesting resume proves nothing alone" and LE3's "DSH cannot classify a
+refusal" scenarios had no DSH-owned deterministic task case.
+
+**Repaired in this visit, tasks-only, no tick.** 8.8(d) gains one paragraph,
+placed after the version/composite gate paragraph and before the existing
+forbidden-flag sentence, stating D6's confirmation rule as a build
+obligation: reject the plugin's request-derived `session_id` alone; require
+the retained depth-zero header for the offered ID, the pinned plugin's
+post-`await agents.resume` init event from that root, same-root nonce
+continuity and new sequence activity before the launch hold releases; and a
+missing or different root, whether followed by a clean exit or a delivered
+result file, stays failed or indeterminate under D7 and publishes no
+`root_session`, `transcript` locator or launch row. 8.10 gains one
+enumeration, placed after the route-overlay refusal cases and before the
+canonical-composite byte-form vectors, naming six deterministic DSH
+stream-json exchange cases built from a captured synthetic child transcript
+with no installed provider: the confirming init-then-work positive vector;
+child exit before any init (indeterminate/failed, no launch row, no
+replacement); an init naming a different root followed by a clean exit, and
+the same mismatch followed by a valid delivered result file (each
+failed/indeterminate, no accepted success); a nonzero exit with stderr prose
+but no measured machine-readable rejection shape (no automatic cold
+replacement, AS4/LE3); cancellation or deadline expiry while the hold is open
+(no fabricated launch, no replacement); and the one DSH-specific local-decline
+path permitting exactly one safe cold launch. 8.10's and 8.8's closing
+requirement citations gain `safety / AS4`, `evidence / LE1` and
+`evidence / LE3` to match. 9.6 is left untouched: its store fixtures prove
+D3's pre-spawn decline, a different artifact than D7's post-spawn confirmation
+exchange that 8.10 now owns, and reopening it would exceed this finding's
+demonstrated gap.
+
+Recounted directly against this file: **82 complete / 19 pending**, the same
+101 identifiers, none added, removed, renumbered or ticked.
+`openspec validate 2026-09-09-226-session-resumption --strict` exits 0:
+`Change '2026-09-09-226-session-resumption' is valid`. `git diff --check`
+reports no whitespace errors. This seat's box has no `cargo` on `PATH`,
+consistent with every predecessor tasks visit's own report; only the
+installed `openspec` binary and `git` were run. No production code, contract,
+decision, adapter declaration, doctor output, guide or evidence file was
+written by this visit — only this planning artifact was edited.
+
+This breakdown now carries every deterministic case D6's confirmation
+paragraph and D7 require, under existing identifiers 8.8 and 8.10, and needs
+no further repair before implementation resumes. `upstream` is not reported:
+the defect was this file's own missing coverage, not a defect in design or
+specification, and it is now closed. Passes B, C and D (this run's scheduled
+scope) and passes E through K (out of scope) are otherwise unchanged from the
+prior visit's reconciliation. The next visit should implement pass B starting
+from 8.8's remaining planner work, in the order this file states.
