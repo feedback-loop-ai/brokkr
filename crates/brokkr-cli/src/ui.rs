@@ -678,31 +678,52 @@ fn discover_dsh(root: &safe_fs::Dir, home: &str, reference: &ValidReference, loo
                     continue;
                 }
             };
-            match session.child(std::ffi::OsStr::new("session.jsonl")) {
-                Ok(safe_fs::Child::File(file)) => match dsh_header(&file) {
-                    HeaderCheck::Valid => match file.identity() {
-                        Ok(identity) => lookup.candidates.push(AdmittedSource {
-                            path: join_path(
-                                &join_path(&project_path, session_name),
-                                "session.jsonl",
-                            ),
-                            identity,
-                            file,
-                        }),
-                        Err(_) => lookup.io_seen = true,
+            // The admitted names, newest first. A session directory yields
+            // at most one candidate: the first admitted name carrying a
+            // valid header, so a directory holding both admits the newer
+            // and never becomes ambiguous with itself. Only an absent file
+            // or a row that is not a session header moves on to the next
+            // name; every other outcome is decisive for this directory.
+            for session_file in DSH_SESSION_FILES {
+                let mut decided = true;
+                match session.child(std::ffi::OsStr::new(session_file)) {
+                    Ok(safe_fs::Child::File(file)) => match dsh_header(&file) {
+                        HeaderCheck::Valid => match file.identity() {
+                            Ok(identity) => lookup.candidates.push(AdmittedSource {
+                                path: join_path(
+                                    &join_path(&project_path, session_name),
+                                    session_file,
+                                ),
+                                identity,
+                                file,
+                            }),
+                            Err(_) => lookup.io_seen = true,
+                        },
+                        HeaderCheck::InvalidDepth => lookup.invalid_depth_seen = true,
+                        HeaderCheck::NotSessionHeader => decided = false,
+                        HeaderCheck::TooLarge => lookup.limit_hit = true,
+                        HeaderCheck::Io => lookup.io_seen = true,
                     },
-                    HeaderCheck::InvalidDepth => lookup.invalid_depth_seen = true,
-                    HeaderCheck::NotSessionHeader => {}
-                    HeaderCheck::TooLarge => lookup.limit_hit = true,
-                    HeaderCheck::Io => lookup.io_seen = true,
-                },
-                Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
-                Ok(_) => {}
-                Err(_) => lookup.io_seen = true,
+                    Ok(safe_fs::Child::Unsafe) => lookup.unsafe_seen = true,
+                    Ok(_) => decided = false,
+                    Err(_) => lookup.io_seen = true,
+                }
+                if decided {
+                    break;
+                }
             }
         }
     }
 }
+
+/// The session filenames DSH discovery admits, newest first. The core
+/// versions this file: 0.1.5-rc.1 writes `session.v3.jsonl` where earlier
+/// cores wrote `session.jsonl`, and a reader that knows only one name loses
+/// exactly the newest evidence. The set is closed rather than a glob so
+/// that admitting a name stays a decision with evidence behind it, and
+/// ordered so the choice between two present files is stated rather than
+/// incidental.
+const DSH_SESSION_FILES: [&str; 2] = ["session.v3.jsonl", "session.jsonl"];
 
 /// Select, validate, safely discover, bound-read and project one local
 /// transcript: the one read path every local surface consumes (D2).

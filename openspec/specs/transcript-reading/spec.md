@@ -386,7 +386,14 @@ file contents independently authenticate a session.
 
 DSH discovery SHALL search only the retained root at
 `<recorded-home>/<locator>`, using its project/session directory layout and
-`session.jsonl` filename. Its first JSONL record SHALL be a `session` header
+a closed, ordered set of session filenames: `session.v3.jsonl`, then
+`session.jsonl`. A session directory SHALL yield at most one candidate, the
+first name in that order carrying a valid header, so a directory holding
+both admits the newer and never becomes ambiguous with itself. A name
+outside the set SHALL NOT be read. The set is versioned because the DSH core
+versions the file: 0.1.5-rc.1 writes `session.v3.jsonl` where earlier cores
+wrote `session.jsonl`, and a reader that knows only one name loses exactly
+the newest evidence. Its first JSONL record SHALL be a `session` header
 with `delegationDepth` equal to zero; an omitted depth SHALL retain the
 existing legacy meaning of zero. An invalid depth or a positive delegation
 depth SHALL not match. Valid zero means a JSON unsigned-integer zero;
