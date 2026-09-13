@@ -1117,6 +1117,30 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
                    "credentials": {"spark": 7}}),
             "^[A-Z][A-Z0-9_]*$",
         ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "--model",
+                   "efforts": ["high"], "effort_flag": "--effort",
+                   "effortless_routes": ["spark"]}),
+            "'effortless_routes' must be an object of route name → measurement",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "--model",
+                   "efforts": ["high"], "effort_flag": "--effort",
+                   "effortless_routes": {"us/east": "measured 2026-09-11"}}),
+            "'effortless_routes' names 'us/east', which does not match ^[A-Za-z0-9._:-]+$",
+        ),
+        (
+            json!({"provider": "claude", "binary": "claude", "driver": ["x"],
+                   "models": {}, "tool_permissions": "unsupported",
+                   "mcp": "unsupported", "model_flag": "--model",
+                   "efforts": ["high"], "effort_flag": "--effort",
+                   "effortless_routes": {"spark": ""}}),
+            "'effortless_routes.spark' must be a non-empty string naming the measurement",
+        ),
     ];
     for (body, expected) in cases {
         let tree = Tree::new();
@@ -1128,6 +1152,95 @@ fn the_adapter_loader_names_the_file_and_the_key_it_refuses() {
         );
         assert!(message.contains("claude.json"), "{message}");
     }
+}
+
+/// Decision 0035 addendum 2026-09-11: absent is no effortless route,
+/// and only a prefixed lane on a listed route claims the standing — a
+/// bare id keeps the adapter default's, and an unlisted prefix is an
+/// ordinary route that takes an effort.
+#[test]
+fn effortless_routes_default_to_empty_and_match_prefixed_lanes_only() {
+    let bare = Tree::new();
+    bare.write(
+        "adapters/dsh.json",
+        &json!({
+            "provider": "dsh",
+            "binary": "dsh",
+            "driver": ["{brokkr}", "driver", "dsh", "--"],
+            "models": {"spark-flash": "spark/qwen3.8-flash"},
+            "model_flag": "--model",
+            "efforts": ["low", "medium", "high", "xhigh"],
+            "effort_flag": "--effort",
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }),
+    );
+    let adapter = bare.adapters().adapter("dsh").unwrap().clone();
+    assert!(adapter.effortless_routes.is_empty());
+    assert!(!route_is_effortless(&adapter, "spark/qwen3.8-flash"));
+
+    let listed = Tree::new();
+    listed.write(
+        "adapters/dsh.json",
+        &json!({
+            "provider": "dsh",
+            "binary": "dsh",
+            "driver": ["{brokkr}", "driver", "dsh", "--"],
+            "models": {"spark-flash": "spark/qwen3.8-flash"},
+            "model_flag": "--model",
+            "efforts": ["low", "medium", "high", "xhigh"],
+            "effort_flag": "--effort",
+            "effortless_routes": {"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"},
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }),
+    );
+    let adapter = listed.adapters().adapter("dsh").unwrap().clone();
+    assert_eq!(adapter.effortless_routes.len(), 1);
+    assert!(route_is_effortless(&adapter, "spark/qwen3.8-flash"));
+    assert!(!route_is_effortless(&adapter, "deepseek-v4-flash"));
+    assert!(!route_is_effortless(&adapter, "dashscope/qwen3.8-flash"));
+}
+
+/// The same standing through an abstract hire: a candidate resolving
+/// to an effortless route needs no `efforts` entry, composes no
+/// `--effort` flag, and carries no effort — the route, not the seat,
+/// decides.
+#[test]
+fn a_candidate_on_an_effortless_route_needs_no_effort_entry() {
+    let tree = Tree::new();
+    let mut body = agent_body();
+    body["models"] = json!(["spark-flash"]);
+    body["efforts"] = json!({});
+    // The dsh fixture declares tool_permissions unsupported, so the
+    // agent must not restrict tools either — this test is about the
+    // effort axis only.
+    body.as_object_mut().unwrap().remove("tools");
+    tree.write("agents/tester.json", &body);
+    tree.write(
+        "adapters/dsh.json",
+        &json!({
+            "provider": "dsh",
+            "binary": "dsh",
+            "driver": ["{brokkr}", "driver", "dsh", "--"],
+            "models": {"spark-flash": "spark/qwen3.8-flash"},
+            "model_flag": "--model",
+            "efforts": ["low", "medium", "high", "xhigh"],
+            "effort_flag": "--effort",
+            "effortless_routes": {"spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level"},
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }),
+    );
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert_eq!(resolution.candidates.len(), 1);
+    let candidate = &resolution.candidates[0];
+    assert_eq!(candidate.effort, None);
+    assert!(
+        !candidate.argv.iter().any(|part| part == "--effort"),
+        "{:?}",
+        candidate.argv
+    );
 }
 
 // ------------------------------------------------- decision 0036: routes

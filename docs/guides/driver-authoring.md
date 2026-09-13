@@ -375,6 +375,9 @@ and the distinction between them is load-bearing:
   echoes, so on a dsh row the sentinel now means a row written before
   the first request went out — or a release that echoes nothing.
 - `not applicable` — the driver has no model turn at all. This is `exec`.
+  Since decision 0035's 2026-09-11 addendum it is also a dsh seat whose
+  lane resolves to a route the adapter lists as effortless: no level to
+  forward, none to echo, on every row from `harness-started` on.
 
 A control that exists but goes unreported is not a control that does not
 exist, and the record must not blur the two.

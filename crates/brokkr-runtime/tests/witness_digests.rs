@@ -165,6 +165,17 @@ fn workspace() -> PathBuf {
 /// Sol/Flash/Astra seats and inherited deterministic gates are its identity.
 /// Decision 0058's citation in the recipe README moves its manifest digest
 /// once more, because the README bytes are part of the recipe's identity.
+/// Decision 0035's 2026-09-11 addendum moves it again: the dsh adapter
+/// lists an effortless route, and every bundle resolving an agent
+/// through that adapter pins its digest — the roster's Flash seats do.
+/// The dsh pin to the installed 0.1.5-rc.1 moves it once more for one
+/// named reason: `hands.unsupported` re-measured on that release, which
+/// moves the dsh adapter digest every Flash resolution witnesses.
+/// The review-first remediation corrects that reason once more for one
+/// named reason: `DSH_TOOLS_MODE` is documented (`native|ptc|both` into
+/// `tools.mode`), those are presentation modes rather than a capability
+/// restriction, and the installed tools/headless components identify as
+/// 0.1.5-rc.2 behind launcher 0.1.5-rc.1 — which moves the same digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -200,7 +211,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "b1469d14d1965e39d3a9e8962fb69f225c8ba76365eec7000cadc8c36b4182ae",
+        "74d09bb4da22b6a895835746a63e388d0738efb59296ee2cf4b8b280c7b86a79",
     ),
     (
         "bundles/verify",
