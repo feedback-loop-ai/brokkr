@@ -848,9 +848,45 @@ saved for the phase commit.
       member, a member outside the grammar, any mismatch, or an originating
       root with no recorded digest declines as `unverified-harness`, runs the
       shipped cold invocation unchanged and records no offerable root.
-      Reject user `--session`, tag resume, `--new`, `--list`, `--workdir`, `--profile`, `--patch`,
-      `--output-format`, model/effort or settings controls on cold and warm
-      paths. Never forward the launcher's TUI example, treat the retained
+      Reject user `--session`, tag resume, `--new`, `--list`, `--workdir`,
+      `--profile`, `--output-format`, model/effort or settings controls, and
+      every `--patch` other than the one authorized route overlay, on cold and
+      warm paths. Build D5/D6's route overlay exactly as answers Q-S and AS3
+      specify; this task does not re-derive AS3's byte-exact grammar. At every
+      model-site start, cold, offered or `unmeasured`, independent of the resume
+      gate, at both `start_context` call sites: bind the seat's single `--patch`
+      value from the argv, the run's working directory and the compiled leaf
+      layer's directory and manifest to a `files` member of that manifest,
+      refusing an absolute path, `..` or symlink escape and any value the leaf
+      layer does not carry as its own `files` member (an ancestor layer's
+      aggregate digest does not bind, and the bundle-relative `./` spelling is
+      refused as absolute); carry the argv value and that member's
+      64-lowercase-hex digest as the private `route_overlay` beside the
+      assessment and owned target. In the adapter, read the file once from the
+      working directory, require SHA-256 equality with the bound digest before
+      any shape check, then apply AS3's closed, data-only line reader — no tag,
+      anchor, alias, flow collection, block scalar, merge key or quoted scalar
+      at any depth, refusal naming the offending depth — and its closed field
+      set (`displayName`, `api`, `baseURL`, `compat`, `models`, `apiKeyEnv`) with
+      `apiKeyEnv` required as an environment-variable name and `baseURL`, when
+      present, the closed lowercase-`https` endpoint grammar excluding every
+      credential-bearing position and character. Fold the validated rows ahead
+      of the transcript, model and settings rows in `dsh_seat_overlay_in` so the
+      launcher receives exactly one `--patch` and Brokkr's rows apply last, on
+      the cold, resume and closed/`unmeasured`-gate paths alike, re-imposed from
+      the current bundle rather than inherited from the persisted session.
+      Every other `--patch` — a second one, an unbound or digest-mismatched
+      file, a grammar or field-set breach, a foreign provider/row or a
+      `baseURL` outside the endpoint grammar — refuses before staging or
+      provider work on both paths, never forwarded and never dropped. No route
+      byte enters the composite, the launch row or the journal. Correct
+      `crates/brokkr-runtime/tests/roster.rs`'s doc comment on
+      `the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter`,
+      which still calls the overlay "the fetch grant", to state the overlay is
+      the route overlay and the fetch grant is the composed profile's own
+      (decision 0044 ruling 5's erratum), without moving that assertion,
+      `bundle.json`, `research-web.yml` or the research-dsh witness digest.
+      Never forward the launcher's TUI example, treat the retained
       directory as a provider handle, alter the live global pin/profile, add
       an SDK runner or admit hands. If 10.7 demonstrates that the documented
       setup or pre-work observation hook is still insufficient after the
@@ -901,8 +937,9 @@ saved for the phase commit.
       DSH pair's exact `--new` and
       `--session <owned-id>` argv, `stream-json`, admitted profile, current directory,
       originating persistence root and Rust-owned model/effort/settings overlay;
-      prove no user selector/profile/patch/output/model/effort/settings spelling
-      competes, and that core, Node, dependency, plugin, patch, composed-profile
+      prove no user selector/profile/output/model/effort/settings spelling, and
+      no `--patch` other than the bound route overlay, competes, and that core,
+      Node, dependency, plugin, patch, composed-profile
       or optional extension drift yields `unverified-harness` before provider
       work. Cover each digest case design D6 and AS1 name: a `supported` shape
       whose identity lacks `wrapper_digest`, a private start context carrying
@@ -912,7 +949,29 @@ saved for the phase commit.
       recorded a different version or digest, or no digest, declines the same
       way even when the declaration matches the recompute; an `unmeasured`
       shape on a home holding the qualified pair spawns no version probe, no
-      recompute and no `--new` or `--session`. Pin the canonical composite's
+      recompute and no `--new` or `--session`. Add the DSH route overlay's
+      deterministic cases (answers Q-S): the shipped `recipes/research-dsh`
+      overlay as the positive vector under the cold, offered and `unmeasured`
+      gate, its bound `route_overlay` member folded ahead of the transcript/
+      model/settings rows with the composite, launch row and journal left free
+      of route bytes; and, each refusing before staging on the cold, resume and
+      disabled-gate paths and naming a depth, field or URL part but never a
+      value: a second or bare `--patch`; an absolute, `..`, symlink-escaping,
+      non-regular, oversized or non-UTF-8 path; a same-shaped nonmember, a
+      shadow, changed bytes, an ancestor-layer file, the `./` expansion, an
+      absent binding, a binding without `--patch` and a disagreeing binding; a
+      Rust-owned or foreign row ID, a second entry or provider, a provider the
+      seat did not pin or an absent model pin; each field outside the closed
+      six-field set, a literal authentication header beside a valid
+      `apiKeyEnv`, and a missing or non-name-shaped `apiKeyEnv`; each `baseURL`
+      grammar breach (userinfo, query, fragment, percent-escape, backslash,
+      whitespace, brackets, empty segment, `http`, uppercase scheme,
+      schemeless); and executable or unrecognized syntax at any depth in either
+      representation (a `!!js` or other tagged scalar, a `__jsExpr` mapping, a
+      flow collection, anchor, alias, merge key or block/quoted scalar). Prove
+      the binding and digest check run before any shape check, so a bound,
+      digest-matching member whose `baseURL` fails the grammar still refuses.
+      Pin the canonical composite's byte form
       byte form with one worked vector per lock dialect (the npm lockfile-3
       hidden lock and pnpm lockfile 9.0, as committed synthetic excerpts in the
       measured grammar). The npm vector includes top-level and nested
@@ -3119,3 +3178,76 @@ which fails identically at HEAD with these edits stashed — a pre-existing
 environment/harness failure, not this visit's. No provider proof,
 enablement, coverage, release, archive or controller step is claimed.
 
+## Current tasks visit — pass A route-overlay breakdown reconciliation, 2026-09-14
+
+This visit belongs to run `current-successor-issue-226-pass-972adad6` (tasks
+phase) under `.forge/tasks/current-successor-226-passes.md`'s scheduled
+passes A–D and nothing else. It adopts HEAD `77574b06950405039f9036dd8b718a61df517218`,
+including this run's design return that reconciled D5/D6/D10/D11 and proposed
+0056 ruling 6 with the route-overlay rule answers Q, R and S already landed in
+AS3 (specify commits `2f1b97b`, `ca2d145`, `7ac9852`; design commit `77574b0`).
+That design return explicitly left tasks 8.8(d) and 8.10 stale against the
+reconciled specification and named them as this phase's own work, together
+with the `roster.rs` doc-comment correction. Read in full: the pass framing,
+`.forge/tasks/controller-codex-sandbox-host-2026-09-12.md`,
+`dsh-pair-qualification-015rc1.json`, `dsh-pair-incompatibility.json`,
+`controller-dsh-upstream-discovery.json`, `adapters/dsh.json`, proposed 0056
+including its dated 2026-09-14 route-overlay note, and the whole change
+(proposal answers Q–S, all five deltas including the amended AS1–AS3
+scenarios, design D5/D6/D10/D11 and this file).
+
+**Repaired in this visit.** Task 8.8(d) now states the route overlay's four
+mechanisms as build steps in the same order D6 specifies them — bind the
+seat's single `--patch` to a `files` member of the compiled leaf layer at
+both `start_context` call sites; read the file once and require SHA-256
+equality before any shape check; apply AS3's closed data-only line reader and
+closed six-field set with the `apiKeyEnv`/`baseURL` value grammars; fold the
+validated rows ahead of the transcript/model/settings rows in
+`dsh_seat_overlay_in` unconditionally on the cold, resume and closed/
+`unmeasured`-gate paths — and now excepts exactly that one bound overlay from
+the prior blanket `--patch` rejection sentence, matching AS2's and AS3's
+amended scenarios. It also assigns the `roster.rs` doc-comment correction
+(`the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter`
+still calls the overlay "the fetch grant") to this task, without moving that
+test's assertion, `bundle.json`, `research-web.yml` or the research-dsh
+witness digest. Task 8.10 gains the deterministic route-overlay case list
+answers Q–S require: the shipped overlay as the positive vector under cold,
+offered and `unmeasured`; refusals for a second/bare `--patch`, an unsafe or
+unbound/drifted path, a foreign row/provider/model pin, each field-set or
+`apiKeyEnv`/`baseURL` grammar breach and executable syntax at any depth in
+either representation — each naming a depth, field or URL part and never a
+value, and proving the binding/digest check precedes the shape check. No
+other task text moved: 9.6's accounting folds are unaffected because the
+composite and its folds exclude the overlay's rows by construction, and D7/D8
+(passes C and D) needed no new design decision per this run's design return.
+
+Passes B, C and D need no further breakdown repair beyond this reconciliation:
+8.8's remaining seam/planner work (the private DSH provider-ID/persistence-
+locator target, the stream-json cold/warm construction and now the reconciled
+route-overlay fold), 8.10's and 9.6's acceptance suites, and the launch/
+accounting mechanics D7/D8 already specify, are all named with their concrete
+artifacts and requirement citations in the existing task text. No task's
+stated prerequisite contradicts another's, and the order — 8.8's remaining
+work, then 8.10, then 9.6 — is unchanged.
+
+Recounted directly against this file: **82 complete / 19 pending** across the
+same 101 identifiers, none added, removed or renumbered. The five deltas
+parse at **20 requirements / 150 scenarios**, matching this run's design
+return's own recount (the specify phase's Q–S scenarios raised the AS1–AS3
+count from 141). `openspec validate 2026-09-09-226-session-resumption
+--strict` exits 0: `Change '2026-09-09-226-session-resumption' is valid`.
+`git diff --check` reports no whitespace errors. This seat's box has no
+`cargo` on `PATH`, consistent with every predecessor visit's own report from
+this box; only the installed `openspec` binary was run. No production code,
+contract, decision, adapter declaration, doctor output, guide or evidence
+file was written by this visit — only this planning artifact was edited. No
+task was ticked and none reopened.
+
+This breakdown names, for every pending task, the requirement it serves and
+the concrete artifact it produces, and needs no further repair before
+implementation resumes. `upstream` is not reported: the design and
+specification already own and coherently state the route-overlay rule: the
+staleness was this file's own text, now reconciled. Passes E through K remain
+out of this run's scope and are untouched. The next visit should implement
+pass B starting from 8.8's remaining planner work, in the order this file
+states.
