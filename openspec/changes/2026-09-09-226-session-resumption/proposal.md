@@ -47,7 +47,7 @@ completed work needs a truthful task marker before the phase's final commit.
   every rejoin; inherited permissions and argument parsing do not prove safety.
   DSH's one operator-ruled route overlay is admitted by its measured shape and
   folded ahead of the Rust-owned rows on every launch; any other `--patch` is
-  refused before provider work (answer Q).
+  refused before provider work (answers Q, R and S).
 - Report confirmed cold/resumed outcomes and bounded reasons for declined
   offers, preserving first-work acceptance and pre-session refusal semantics.
   Permit at most one proven pre-work cold replacement within the invocation's
@@ -1011,6 +1011,99 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   assertion, the compiled staffing and the research-dsh witness digest
   still do not move.
 
+- **S — Pass A return, 2026-09-14, second visit: a `baseURL` is admitted by
+  an endpoint grammar; the closed field set alone was not the credential
+  rule.** The clarify seat read the selected installation's provider schema
+  again and found one defect in R's second point. R and the AS3 rule it
+  wrote claimed that the closed permitted set enforces the credential ban,
+  but `baseURL` is an unrestricted string in the selected
+  `dsh-llm-pi-ai/lib/index.js` provider profile (`baseURL: z.string()`, line
+  987), and `resolveProfiles` (line 1058) refuses only an empty value. A
+  read-only, in-memory parse of the shipped overlay with only `baseURL`
+  changed — once to URL userinfo carrying a synthetic credential, once to a
+  query carrying `api_key=<synthetic>` — succeeded against that schema; both
+  values were preserved beside the unchanged valid `apiKeyEnv`, and both use
+  only the admitted fields and the plain-scalar grammar, so R's rule would
+  have staged them. The finding is adopted as a defect in R's record. It
+  reopens nothing else: answers A–Q, R's first and third points, the selected
+  pair, D6's grammar and locators, AS1's minimum, the recipe, the overlay,
+  the roster assertion and the witness digest stand. S supersedes one
+  sentence of R: the closed set is the field rule, and the credential rule
+  is that set together with the value grammar of each admitted field that
+  names a credential or a network location. Manifest binding is not that
+  rule either, as the clarify seat says: binding establishes which bytes are
+  authorized, not what an authorized member may carry.
+
+  The corrected rule: `baseURL`, when present, SHALL be an endpoint of the
+  closed grammar `https://<host>[:<port>][/<segment>...]`. The scheme is
+  exactly the lowercase `https`. The host is one or more labels separated by
+  `.`, each of ASCII letters, digits and `-`, neither beginning nor ending
+  with `-`. The optional port is `:` and one to five ASCII digits. Each
+  optional path segment is `/` and one or more of ASCII letters, digits,
+  `-`, `.`, `_` and `~`. Nothing else appears. The grammar therefore refuses
+  by construction every position in which a URL carries a credential and
+  every character that could introduce one: userinfo (`@`), a query (`?`),
+  a fragment (`#`), a percent-escape (`%`, which can spell any of those), a
+  backslash, whitespace, brackets, any non-ASCII byte, an empty segment (a
+  trailing or doubled `/`), a scheme other than lowercase `https` — `http`
+  included, because dsh authenticates the route with the resolved key
+  against whatever `baseURL` names, and a cleartext route discloses it — and
+  a value with no scheme. The shipped Model Studio endpoint,
+  `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`,
+  lies inside the grammar and is the positive vector. A refusal names the
+  field and the URL part that broke the grammar (scheme, authority, path,
+  query or fragment), never the value, and happens before staging on the
+  cold, the resume and the disabled-gate path, so no byte is staged,
+  forwarded, resolved or echoed. Of the permitted fields, `baseURL` alone
+  names a network location and `apiKeyEnv` alone names a credential;
+  `models` is already pinned to the seat's model, and `displayName`, `api`,
+  `compat` and `reasoningEfforts` carry labels or enumerations that dsh
+  itself validates and that reach no credential position. The rule refuses
+  positions and characters; it does not, and cannot, tell a secret spelled
+  as a host label or path segment from a route, and it does not pin the
+  host: which endpoint receives the pinned provider's key is the operator's
+  ruling that the bound bundle member carries (decision 0044 ruling 5 and
+  its erratum), reviewed and pinned by the witness digest, and decision 0012
+  governs the file as it governs every seat input — a secret is referenced
+  by name and resolved by the runner, never written by value.
+
+  Rejected alternatives:
+  - Pinning the shipped endpoint string in the reader: a Rust constant
+    carrying a vendor host, which answer O already rejected for the
+    composite digest; every route change would become a code release, and
+    the host is the operator's ruling, not the adapter's.
+  - Parsing with a URL crate or a WHATWG-style parser and inspecting its
+    username, password, search and hash members: a dependency (deny, audit,
+    licence and MSRV) whose normalizations — percent-decoding, IDNA,
+    default-port stripping, backslash-as-slash — are exactly what the closed
+    grammar avoids; the grammar admits less than any parser accepts.
+  - Refusing only `@` and `?`, the two measured vectors: `#`, `%`-escapes, a
+    backslash and `http` would remain, closing the finding's examples while
+    leaving the class open.
+  - Admitting `http://` for local endpoints: it puts the resolved key on the
+    wire in clear; a route that needs it is a recorded amendment.
+  - Admitting bracketed IPv6 literals, internationalized hosts or
+    percent-encoded segments: no shipped need; each is an amendment.
+  - Treating the manifest binding as the credential rule: it authorizes
+    bytes, not their content — the clarify seat's point, adopted.
+  - Scanning values for secret-looking patterns (prefixes, entropy): a
+    heuristic can neither be closed nor proven; the position rule is
+    deterministic and testable.
+
+  Dependent artifacts, in their own phases: design D6 states the endpoint
+  grammar beside the closed field set it already reconciles under Q and R;
+  proposed 0056 ruling 6 names the bound route overlay's value grammars.
+  Task 8.8(d)'s planner half gains the endpoint check between the digest
+  check and the fold; 8.10 gains the deterministic cases — the shipped
+  endpoint as the positive vector under cold, offer and `unmeasured`; and,
+  each on the cold, resume and disabled-gate path, userinfo with a synthetic
+  credential, a query, a fragment, a percent-escape, a backslash, whitespace,
+  a bracketed address, an empty segment, `http`, an uppercase scheme and a
+  schemeless value, each refused before staging with a reason naming the
+  field and part and never the value — under the existing identifiers. Pass
+  B implements them. The recipe, `research-web.yml`, the roster assertion,
+  the compiled staffing and the research-dsh witness digest do not move.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -1789,6 +1882,46 @@ selected pair, the recipe, the overlay, the roster assertion, the witness
 digest and every task tick are untouched. Counts after this visit: 20
 requirements / 149 scenarios, and 82 complete / 19 pending across the same
 101 task identifiers.
+
+Strict active validation passes. Cargo is absent in this box, as every
+predecessor specify visit recorded, so format, clippy, workspace tests, both
+bundle compiles and the release build could not launch here and remain the
+implementing pass's obligation before its commit. No provider probe, task
+tick, archive, push, merge or new Brokkr run was performed. Evidence is under
+`.forge/specify-972adad6/`.
+
+## Current successor specify return — pass A clarify R2, 2026-09-14
+
+Run `current-successor-issue-226-pass-972adad6`, phase specify, returned
+from clarify a second time (`CLARIFY-AMBIGUOUS`, gpt-6-astra, one finding)
+on the adopted HEAD `8f93894267069ff9ec5d101bbaeefbd49a2e6b8d` plus this
+run's pass A commits `2f1b97b` and `ca2d145`. Read in full, through the
+workspace hands: the pass framing and its A–D specialization, the September
+12 controller Codex note, the 015rc1 qualification, incompatibility and
+upstream-discovery records, `adapters/dsh.json`, proposed 0056, the
+proposal, all five deltas, design D1–D13 with its dated reconciliations,
+the tasks preamble, groups 8 and 9 and the latest progress entries, the
+recipe, its overlay and the roster test, and the clarify seat's cited
+evidence: the selected installation's `dsh-llm-pi-ai/lib/index.js` provider
+profile (`baseURL: z.string()` at 987; `resolveProfiles` refusing only an
+empty value at 1058) and its listing and request-URL code. Every cited line
+was confirmed by reading; no package source, profile, credential or global
+configuration was edited, and no expression, provider or model was executed.
+
+The finding is adopted as a defect in R's second point and answered by
+answer S and an AS3 amendment: `baseURL` is admitted by a closed `https`
+endpoint grammar that refuses every credential-bearing URL position and
+every character that could introduce one, and the credential rule is the
+closed field set together with the `apiKeyEnv` and `baseURL` value
+grammars. One scenario is added (the credential-bearing or ill-formed
+`baseURL`, with the shipped Model Studio endpoint as its positive case),
+the credential scenario's rule sentence and the positive scenario's GIVEN
+are amended, and the requirement's refusal list names the endpoint grammar.
+Answers A–R otherwise stand; the other four deltas, D6's grammar and
+locators, the selected pair, the recipe, the overlay, the roster assertion,
+the witness digest and every task tick are untouched. Counts after this
+visit: 20 requirements / 150 scenarios, and 82 complete / 19 pending across
+the same 101 task identifiers.
 
 Strict active validation passes. Cargo is absent in this box, as every
 predecessor specify visit recorded, so format, clippy, workspace tests, both

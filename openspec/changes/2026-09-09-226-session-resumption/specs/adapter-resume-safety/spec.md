@@ -512,27 +512,48 @@ closed permitted set the shipped overlay uses, each at most once:
 reference `apiKeyEnv`. `apiKeyEnv` SHALL be present and its value SHALL be an
 environment-variable name (an ASCII letter or `_` followed by ASCII letters,
 digits or `_`), which Brokkr never resolves, forwards or echoes (decision
-0012). `compat` SHALL hold only `<key>: <value>` pairs. `models` SHALL hold
-exactly one item, whose `id` equals the id segment of the pinned model and
-which holds only `id` and `reasoningEfforts`; `reasoningEfforts` SHALL hold
-one or more `<level>: <wire>` pairs, so the shipped `low`, `medium` and
-`xhigh` levels survive unchanged. The credential rule is enforced by that
-closed set, not by naming one inline field: `apiKey`, `headers` (a literal
-`Authorization` or `x-api-key` value is a credential even beside a valid
-`apiKeyEnv`), `modelOverrides`, `reasoning`, transport, timeout, retry and
-every other field dsh's provider profile would accept refuse the invocation.
-A route that needs a further field is a recorded amendment of this grammar,
-never a relaxation of the reader.
+0012). `baseURL`, when present, SHALL be an endpoint of the closed grammar
+`https://<host>[:<port>][/<segment>...]`: the scheme is exactly the
+lowercase `https`; `<host>` is one or more labels separated by `.`, each of
+one or more ASCII letters, digits or `-`, neither beginning nor ending with
+`-`; `<port>` is one to five ASCII digits; each `<segment>` is one or more
+of ASCII letters, digits, `-`, `.`, `_` or `~`; and nothing else appears.
+The grammar therefore refuses every position in which a URL carries a
+credential and every character that could introduce one: userinfo (`@`), a
+query (`?`), a fragment (`#`), a percent-escape (`%`), a backslash,
+whitespace, brackets, a non-ASCII byte, an empty segment (a trailing or
+doubled `/`), a scheme other than lowercase `https` (including `http`, which
+would carry the resolved key in clear) and a value with no scheme. The
+shipped Model Studio endpoint,
+`https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`,
+lies inside it. Of the permitted fields, `baseURL` alone names a network
+location and `apiKeyEnv` alone names a credential; `models` is pinned to the
+seat's model, and the remaining values are labels or enumerations that dsh
+itself validates and that reach no credential position. `compat` SHALL hold
+only `<key>: <value>` pairs. `models` SHALL hold exactly one item, whose `id`
+equals the id segment of the pinned model and which holds only `id` and
+`reasoningEfforts`; `reasoningEfforts` SHALL hold one or more
+`<level>: <wire>` pairs, so the shipped `low`, `medium` and `xhigh` levels
+survive unchanged. The credential rule is that closed set
+together with the value grammars of `apiKeyEnv` and `baseURL`, not the
+absence of one named field: `apiKey`, `headers` (a literal `Authorization`
+or `x-api-key` value is a credential even beside a valid `apiKeyEnv`),
+`modelOverrides`, `reasoning`, transport, timeout, retry and every other
+field dsh's provider profile would accept refuse the invocation, and so does
+a `baseURL` outside the endpoint grammar, whatever its value carries. A
+route that needs a further field or a wider endpoint form is a recorded
+amendment of this grammar, never a relaxation of the reader.
 
 Anything else offered as `--patch` — a second file, a bare `--patch`, a row
 naming the persistence, model, settings, runner, session or tool rows or any
 other id, more than one entry or provider, a provider other than the pinned
 one, a route beside a model pin with no provider segment or no model pin, a
-credential value in any field, executable or unrecognized syntax at any
-depth, an unbound or drifted file, or a file that cannot be read within the
-bound — SHALL refuse the invocation before provider work on both paths, SHALL
-NOT be forwarded to the launcher and SHALL NOT be dropped silently; the
-bounded reason names the depth or field, never a value. The fetch grant is
+credential value in any field, a `baseURL` outside the endpoint grammar,
+executable or unrecognized syntax at any depth, an unbound or drifted file,
+or a file that cannot be read within the bound — SHALL refuse the invocation
+before provider work on both paths, SHALL NOT be forwarded to the launcher
+and SHALL NOT be dropped silently; the bounded reason names the depth or
+field, never a value. The fetch grant is
 the composed `headless` profile's own and enters the composite through its
 `profile-bundle` lines; no overlay row grants or revokes it. The folded route
 rows are part of the per-seat overlay the composite excludes, their
@@ -576,7 +597,7 @@ invocation exactly as an enabled shape does.
 - **AND** a `--patch` other than the admitted route overlay is such an override: it is refused before provider work on the cold and the resume path, neither forwarded nor dropped
 
 #### Scenario: The research route overlay is admitted by its shape and folded
-- **GIVEN** a DSH seat pinned `--model dashscope/qwen3.8-max --effort xhigh --patch recipes/research-dsh/drivers/research-web.yml`, as `recipes/research-dsh` ships it, whose overlay's one entry is the `llm-pi-ai` row defining the single provider `dashscope` by `apiKeyEnv` with its model's declared reasoning levels
+- **GIVEN** a DSH seat pinned `--model dashscope/qwen3.8-max --effort xhigh --patch recipes/research-dsh/drivers/research-web.yml`, as `recipes/research-dsh` ships it, whose overlay's one entry is the `llm-pi-ai` row defining the single provider `dashscope` by `apiKeyEnv`, at its `https` Model Studio endpoint, with its model's declared reasoning levels
 - **WHEN** the seat launches cold, or rejoins its owned root through `--session <owned-id>` on a supported shape
 - **THEN** the engine binds the value to the member `drivers/research-web.yml` of the compiled `recipes/research-dsh` layer and carries the argv value and that member's manifest digest in the private start context; the adapter reads the file once from the seat's working directory, requires the SHA-256 of the bytes it read to equal the bound digest, validates those bytes by the closed grammar before provider work, and folds them into the per-seat overlay ahead of the persistence, model and settings rows Brokkr writes, so the launcher receives exactly one `--patch` and the Rust-owned rows apply last
 - **AND** on a rejoin the route rows are the current bundle's, re-imposed like the model and effort; nothing the persisted session remembers supplies them
@@ -598,7 +619,14 @@ invocation exactly as an enabled shape does.
 
 #### Scenario: A route overlay carries a credential value or a field outside the permitted set
 - **WHEN** an overlay's provider carries an inline `apiKey` value, a `headers` mapping whose `Authorization` or `x-api-key` value is a literal bearer token even though a valid `apiKeyEnv` is present beside it, an `apiKeyEnv` whose value is not an environment-variable name, no `apiKeyEnv` at all, or any field outside `displayName`, `api`, `baseURL`, `compat`, `models` and `apiKeyEnv` — including `modelOverrides`, `reasoning`, transport, timeout and retry fields dsh would accept
-- **THEN** the invocation is refused before provider work on the cold, the resume and the disabled-gate path, no value is staged, forwarded, resolved or echoed, and the bounded reason names the field, never its value; a route names its credential by environment variable only and the closed set, not one named field, enforces that rule
+- **THEN** the invocation is refused before provider work on the cold, the resume and the disabled-gate path, no value is staged, forwarded, resolved or echoed, and the bounded reason names the field, never its value; a route names its credential by environment variable only, and the closed set together with the `apiKeyEnv` and `baseURL` value grammars, not one named field, enforces that rule
+
+#### Scenario: A route overlay's baseURL carries a credential or leaves the endpoint grammar
+- **GIVEN** an overlay that equals the shipped route except in its `baseURL`, beside an unchanged valid `apiKeyEnv`
+- **WHEN** that value carries URL userinfo holding a synthetic credential, a query such as `?api_key=` with a synthetic value, a fragment, a percent-escape, a backslash or whitespace, a bracketed address, an empty path segment, a scheme other than lowercase `https` (including `http` and `HTTPS`) or no scheme at all
+- **THEN** the invocation is refused before staging or provider work on the cold, the resume and the disabled-gate path alike; no byte of the value is staged, forwarded, resolved or echoed, and the bounded reason names the field and the URL part that broke the grammar (scheme, authority, path, query or fragment), never the value
+- **AND** the shipped endpoint `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` passes the same check and folds, so one grammar decides the positive case and every refusal
+- **AND** the binding to the compiled bundle does not stand in for this check: a bound, digest-matching member whose `baseURL` fails the grammar refuses the same way, because the binding authorizes bytes and the grammar decides what those bytes may carry
 
 #### Scenario: A route overlay carries executable syntax
 - **WHEN** an overlay carries a `!!js` or any other tagged scalar at any depth (for example under `displayName` or `baseURL`), a mapping with a `__jsExpr` key at any depth, or a flow mapping or sequence, anchor, alias, merge key, block scalar or quoted scalar
