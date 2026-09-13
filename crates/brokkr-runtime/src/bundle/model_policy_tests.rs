@@ -4050,6 +4050,8 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
             "recipes/triage"
         ]
     );
+}
+
 /// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
 /// resolves to an effortless route needs no effort pin — and the
 /// answering digest is witnessed. A bare id keeps the adapter
