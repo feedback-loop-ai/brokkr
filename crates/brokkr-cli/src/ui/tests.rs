@@ -1821,14 +1821,7 @@ fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
     // A non-Unicode directory name makes uniqueness unknowable.
     std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
     let bad = root.join(std::ffi::OsString::from_vec(vec![b'b', 0xff, b'd']));
-    if let Err(error) = std::fs::create_dir_all(&bad) {
-        // macOS filesystems reject this byte sequence before a directory can
-        // exist. Assert that native refusal; the reader cannot encounter an
-        // entry the filesystem cannot represent. Other errors still fail.
-        assert!(
-            cfg!(target_vendor = "apple") && error.raw_os_error() == Some(92),
-            "unexpected failure creating the non-Unicode fixture: {error}"
-        );
+    if !create_non_unicode_dir(&bad) {
         return;
     }
     std::fs::write(bad.join("abcd-1234.jsonl"), body).unwrap();
@@ -3586,6 +3579,27 @@ fn a_boundary_refusal_reports_the_recorded_path_and_hint() {
     assert_eq!(read.full_session.as_deref(), Some("hint"));
 }
 
+/// Create a fixture directory whose name is not valid UTF-8, reporting
+/// whether the filesystem accepted it. Linux takes any byte sequence but
+/// slash and null; macOS requires valid UTF-8 in a filename and refuses this
+/// one with `EILSEQ` before the directory can exist. A reader cannot
+/// encounter an entry the filesystem cannot represent, so a test that needs
+/// one has nothing left to prove there and returns. Every other error is a
+/// real failure and still fails.
+#[cfg(unix)]
+fn create_non_unicode_dir(path: &std::path::Path) -> bool {
+    match std::fs::create_dir_all(path) {
+        Ok(()) => true,
+        Err(error) => {
+            assert!(
+                cfg!(target_vendor = "apple") && error.raw_os_error() == Some(92),
+                "unexpected failure creating the non-Unicode fixture: {error}"
+            );
+            false
+        }
+    }
+}
+
 #[test]
 fn a_non_directory_home_is_unreadable_not_not_found() {
     let dir = tempfile::tempdir().unwrap();
@@ -3607,7 +3621,9 @@ fn a_non_unicode_canonical_home_is_unreadable() {
     let bad = dir
         .path()
         .join(std::ffi::OsString::from_vec(vec![b'b', 0xff]));
-    std::fs::create_dir_all(&bad).unwrap();
+    if !create_non_unicode_dir(&bad) {
+        return;
+    }
     let link = dir.path().join("home");
     std::os::unix::fs::symlink(&bad, &link).unwrap();
     let reference = common("claude-session", "abcd-1234", link.to_str().unwrap());
@@ -3668,7 +3684,9 @@ fn codex_walk_skips_non_unicode_names_and_symlinks() {
     let home = dir.path().join("home");
     let sessions = home.join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
-    std::fs::create_dir_all(sessions.join(std::ffi::OsString::from_vec(vec![b'x', 0xff]))).unwrap();
+    if !create_non_unicode_dir(&sessions.join(std::ffi::OsString::from_vec(vec![b'x', 0xff]))) {
+        return;
+    }
     std::os::unix::fs::symlink(
         dir.path().join("outside.jsonl"),
         sessions.join("rollout-thread-1.jsonl"),
@@ -3688,12 +3706,16 @@ fn dsh_walk_skips_non_unicode_projects_sessions_and_symlinked_leaves() {
     let home = dir.path().join("home");
     let base = home.join("sessions/one");
     std::fs::create_dir_all(&base).unwrap();
-    std::fs::create_dir_all(base.join(std::ffi::OsString::from_vec(vec![b'p', 0xff]))).unwrap();
+    if !create_non_unicode_dir(&base.join(std::ffi::OsString::from_vec(vec![b'p', 0xff]))) {
+        return;
+    }
     std::os::unix::fs::symlink(dir.path().join("out"), base.join("plink")).unwrap();
 
     let project = base.join("project");
     std::fs::create_dir_all(&project).unwrap();
-    std::fs::create_dir_all(project.join(std::ffi::OsString::from_vec(vec![b's', 0xff]))).unwrap();
+    if !create_non_unicode_dir(&project.join(std::ffi::OsString::from_vec(vec![b's', 0xff]))) {
+        return;
+    }
     std::os::unix::fs::symlink(dir.path().join("out"), project.join("slink")).unwrap();
 
     let session = project.join("seat");
