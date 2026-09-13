@@ -450,7 +450,7 @@ SHALL be respected and reflected in support and session-eligibility evidence.
 DSH's launcher has one override channel, `--patch <overlay>`, and Brokkr's
 per-seat persistence/model/effort overlay already rides it. A seat's own
 `--patch` SHALL be admitted in exactly one authorized shape, the **route
-overlay**: an operator-ruled file inside the bundle, read from the seat's
+overlay**: an operator-ruled file of the compiled bundle, read from the seat's
 working directory, whose rows state only the provider route of the pinned
 model (decision 0044 ruling 5 and its erratum of 2026-09-04; the shipped
 instance is `recipes/research-dsh/drivers/research-web.yml`). The adapter
@@ -458,35 +458,90 @@ SHALL validate the overlay by its measured shape before provider work, on the
 cold and the resume path alike, and SHALL fold its validated bytes into the
 per-seat overlay ahead of the Rust-owned rows, so the launcher receives one
 `--patch` and the persistence, model and settings rows Brokkr writes apply
-last. A route overlay SHALL be the only `--patch` in the seat's settings;
-SHALL resolve to a regular file beneath the seat's working directory, with no
-absolute path, `..` component or symlink escape; SHALL be bounded UTF-8 text
-without tabs, control characters or document markers; SHALL consist of
-full-line comments, blank lines and exactly one top-level entry, whose `id`
-is the provider-catalogue row the shipped overlay names (`llm-pi-ai`), whose
-only member is `config`, whose `config` holds only `providers`; SHALL define
+last. A route overlay SHALL be the only `--patch` in the seat's settings.
+
+Authorization is a binding to the compiled bundle, not a path or a shape. At
+every start of a model site, cold and resume alike and independent of the
+resume gate, the engine SHALL bind the seat's single `--patch` value: the
+value SHALL resolve, relative to the seat's working directory and without an
+absolute path, `..` component or symlink escape, to a regular file inside the
+compiled bundle's own layer directory, and that file SHALL be a `files`
+member of the compiled manifest, whose recorded SHA-256 the run's witness
+identity already pins. The engine SHALL carry that binding in the private
+start context beside the assessment, as the argv value and the manifest's
+64-lowercase-hex digest, and nowhere else. Before staging or provider work
+the adapter SHALL read the named file exactly once from the seat's working
+directory, SHALL require the SHA-256 of the bytes it read to equal the bound
+digest, and only then SHALL validate those same bytes by shape and fold
+them. A `--patch` with no binding, a binding with no `--patch` or whose value
+differs from the argv, a file that is not the bound member (a same-shaped
+file outside the bundle's layer, or a working-directory shadow of the
+bundled path), or bytes whose digest differs from the compiled one (a file
+changed since compilation) SHALL refuse the invocation before staging or
+provider work on both paths; no unbound byte is staged, forwarded or folded.
+A file of an ancestor layer is recorded only through that ancestor's
+manifest digest and is therefore not bindable under this rule, and the
+bundle-relative `./` spelling expands to an absolute path and is refused as
+one; admitting either is a recorded amendment, never an implementation
+choice. The binding never enters the prompt, the launch row or the journal.
+
+The admitted shape is a closed, data-only grammar, and its reader is a
+bounded line reader of the pnpm reader's discipline, never a YAML
+implementation. dsh parses a patch file with a schema that turns a `!!js`
+tagged scalar into an expression node, and its loader evaluates any mapping
+that holds a `__jsExpr` key when the entry activates, so a deeper line
+carried verbatim could carry executable syntax; the reader therefore carries
+no line it has not recognized, at any depth. A route overlay SHALL be
+bounded UTF-8 text without tabs, control characters or document markers;
+SHALL consist only of full-line comments, blank lines and block-form lines of
+the forms `<key>: <value>`, `<key>:` and the sequence item `- <key>: <value>`,
+indented two spaces per depth; every key SHALL be a plain identifier that
+begins with an ASCII letter and continues with ASCII letters, digits, `_` or
+`-`, so `__jsExpr`, `<<`, quoted and flow keys are refused; every value SHALL
+be a non-empty plain unquoted scalar that begins with none of `!`, `&`, `*`,
+`{`, `[`, `|`, `>`, `%`, `@`, `` ` ``, `"`, `'`, `?`, `-`, `:` or `,` and
+carries no ` #`; and no tag, anchor, alias, flow collection, block scalar,
+merge key or quoted scalar SHALL be admitted at any depth. Within that
+grammar the overlay SHALL hold exactly one top-level entry, whose `id` is the
+provider-catalogue row the shipped overlay names (`llm-pi-ai`), whose only
+member is `config`, whose `config` holds only `providers`, which SHALL define
 exactly one provider key, equal to the provider segment of the seat's pinned
-`<provider>/<id>` model; and SHALL name its credential only by environment
-variable name (`apiKeyEnv`), never carrying a key value (decision 0012). A
-bounded line reader of the pnpm reader's discipline checks the entry,
-`config`, `providers` and provider depths in the block form the shipped
-overlay uses and carries deeper lines verbatim; a construct it does not
-recognize at those depths is a refusal, never an empty result. Anything else
-offered as `--patch` — a second file, a bare `--patch`, a row naming the
-persistence, model, settings, runner, session or tool rows or any other id,
-more than one entry or provider, a provider other than the pinned one, a
-route beside a model pin with no provider segment or no model pin, an inline
-credential, or a file that cannot be read within the bound — SHALL refuse the
-invocation before provider work on both paths, SHALL NOT be forwarded to the
-launcher and SHALL NOT be dropped silently. The fetch grant is the composed
-`headless` profile's own and enters the composite through its
+`<provider>/<id>` model. The provider mapping SHALL hold only fields of the
+closed permitted set the shipped overlay uses, each at most once:
+`displayName`, `api`, `baseURL`, `compat`, `models` and the credential
+reference `apiKeyEnv`. `apiKeyEnv` SHALL be present and its value SHALL be an
+environment-variable name (an ASCII letter or `_` followed by ASCII letters,
+digits or `_`), which Brokkr never resolves, forwards or echoes (decision
+0012). `compat` SHALL hold only `<key>: <value>` pairs. `models` SHALL hold
+exactly one item, whose `id` equals the id segment of the pinned model and
+which holds only `id` and `reasoningEfforts`; `reasoningEfforts` SHALL hold
+one or more `<level>: <wire>` pairs, so the shipped `low`, `medium` and
+`xhigh` levels survive unchanged. The credential rule is enforced by that
+closed set, not by naming one inline field: `apiKey`, `headers` (a literal
+`Authorization` or `x-api-key` value is a credential even beside a valid
+`apiKeyEnv`), `modelOverrides`, `reasoning`, transport, timeout, retry and
+every other field dsh's provider profile would accept refuse the invocation.
+A route that needs a further field is a recorded amendment of this grammar,
+never a relaxation of the reader.
+
+Anything else offered as `--patch` — a second file, a bare `--patch`, a row
+naming the persistence, model, settings, runner, session or tool rows or any
+other id, more than one entry or provider, a provider other than the pinned
+one, a route beside a model pin with no provider segment or no model pin, a
+credential value in any field, executable or unrecognized syntax at any
+depth, an unbound or drifted file, or a file that cannot be read within the
+bound — SHALL refuse the invocation before provider work on both paths, SHALL
+NOT be forwarded to the launcher and SHALL NOT be dropped silently; the
+bounded reason names the depth or field, never a value. The fetch grant is
+the composed `headless` profile's own and enters the composite through its
 `profile-bundle` lines; no overlay row grants or revokes it. The folded route
 rows are part of the per-seat overlay the composite excludes, their
-provenance is the bundle digest that already covers the file, and no route
-byte enters launch evidence. On a resume the route overlay is re-imposed from
-the current bundle, never inherited from the persisted session, and its
-admission is independent of the resume gate: an `unmeasured` shape folds it
-into the shipped cold invocation exactly as an enabled shape does.
+provenance is the bound manifest digest the bundle digest already covers,
+and no route byte enters launch evidence. On a resume the route overlay is
+re-imposed from the current bundle, never inherited from the persisted
+session, and its admission is independent of the resume gate: an
+`unmeasured` shape binds, verifies and folds it into the shipped cold
+invocation exactly as an enabled shape does.
 
 #### Scenario: Claude continue is not a selector for this seat
 - **WHEN** passthrough requests Claude's continue/latest-session behavior or a different explicit session
@@ -523,10 +578,10 @@ into the shipped cold invocation exactly as an enabled shape does.
 #### Scenario: The research route overlay is admitted by its shape and folded
 - **GIVEN** a DSH seat pinned `--model dashscope/qwen3.8-max --effort xhigh --patch recipes/research-dsh/drivers/research-web.yml`, as `recipes/research-dsh` ships it, whose overlay's one entry is the `llm-pi-ai` row defining the single provider `dashscope` by `apiKeyEnv` with its model's declared reasoning levels
 - **WHEN** the seat launches cold, or rejoins its owned root through `--session <owned-id>` on a supported shape
-- **THEN** the overlay is read from the seat's working directory, validated by that shape before provider work, and its bytes are folded into the per-seat overlay ahead of the persistence, model and settings rows Brokkr writes, so the launcher receives exactly one `--patch` and the Rust-owned rows apply last
+- **THEN** the engine binds the value to the member `drivers/research-web.yml` of the compiled `recipes/research-dsh` layer and carries the argv value and that member's manifest digest in the private start context; the adapter reads the file once from the seat's working directory, requires the SHA-256 of the bytes it read to equal the bound digest, validates those bytes by the closed grammar before provider work, and folds them into the per-seat overlay ahead of the persistence, model and settings rows Brokkr writes, so the launcher receives exactly one `--patch` and the Rust-owned rows apply last
 - **AND** on a rejoin the route rows are the current bundle's, re-imposed like the model and effort; nothing the persisted session remembers supplies them
 - **AND** an `unmeasured` shape folds the overlay into the shipped cold invocation the same way, still without a version probe, a composite recompute, `--new` or `--session`
-- **AND** the composite, the launch row and the journal carry no route byte; the file's provenance is the bundle digest that already covers it, and the fetch grant stays the composed profile's own
+- **AND** the composite, the launch row and the journal carry no route byte or binding; the file's provenance is the bound manifest digest the bundle digest already covers, and the fetch grant stays the composed profile's own
 
 #### Scenario: A patch names a Rust-owned or selector row
 - **WHEN** a seat's `--patch` file carries an entry whose `id` is `session-persistence-jsonl`, `agent-default-model`, `settings`, the pinned plugin's runner row, a tool row or any id other than the route row, or carries more than one entry
@@ -534,16 +589,31 @@ into the shipped cold invocation exactly as an enabled shape does.
 - **AND** the refusal is the adapter's existing pre-work failure to start; it is not a resume decline, not a cold replacement and not a reason to inherit the persisted session's settings
 
 #### Scenario: A patch competes by arity or path
-- **WHEN** a seat's settings carry two `--patch` controls, a bare `--patch` with no value, or a value that is an absolute path, contains a `..` component, resolves through a symlink to a file outside the seat's working directory, is not a regular file, exceeds the reader's byte bound, is not UTF-8, or carries a tab, control character, document marker or an unrecognized construct at the entry, `config`, `providers` or provider depth
+- **WHEN** a seat's settings carry two `--patch` controls, a bare `--patch` with no value, or a value that is an absolute path, contains a `..` component, resolves through a symlink to a file outside the seat's working directory, is not a regular file, exceeds the reader's byte bound, is not UTF-8, or carries a tab, control character, document marker or an unrecognized construct at any depth
 - **THEN** the invocation is refused before provider work on both paths with a bounded reason, and no partial overlay is staged
 
 #### Scenario: A route overlay names a provider the seat did not pin
 - **WHEN** the overlay defines a provider key other than the provider segment of the pinned `<provider>/<id>` model, defines two provider keys, or accompanies a model pin with no provider segment or no model pin at all
 - **THEN** the invocation is refused before provider work; an overlay cannot redefine the profile's default route or a route the seat does not use
 
-#### Scenario: A route overlay carries a credential value
-- **WHEN** an overlay's provider carries an inline `apiKey` value instead of an `apiKeyEnv` name
-- **THEN** the invocation is refused before provider work and the value is never staged, forwarded or echoed; a route names its credential by environment variable only
+#### Scenario: A route overlay carries a credential value or a field outside the permitted set
+- **WHEN** an overlay's provider carries an inline `apiKey` value, a `headers` mapping whose `Authorization` or `x-api-key` value is a literal bearer token even though a valid `apiKeyEnv` is present beside it, an `apiKeyEnv` whose value is not an environment-variable name, no `apiKeyEnv` at all, or any field outside `displayName`, `api`, `baseURL`, `compat`, `models` and `apiKeyEnv` — including `modelOverrides`, `reasoning`, transport, timeout and retry fields dsh would accept
+- **THEN** the invocation is refused before provider work on the cold, the resume and the disabled-gate path, no value is staged, forwarded, resolved or echoed, and the bounded reason names the field, never its value; a route names its credential by environment variable only and the closed set, not one named field, enforces that rule
+
+#### Scenario: A route overlay carries executable syntax
+- **WHEN** an overlay carries a `!!js` or any other tagged scalar at any depth (for example under `displayName` or `baseURL`), a mapping with a `__jsExpr` key at any depth, or a flow mapping or sequence, anchor, alias, merge key, block scalar or quoted scalar
+- **THEN** the invocation is refused before staging or provider work on the cold, the resume and the disabled-gate path alike; nothing is parsed as YAML, evaluated or folded, and the shipped reasoning-level mapping is untouched by the rule because its keys and values are plain
+- **AND** the refusal names the offending depth, never the text
+
+#### Scenario: The route overlay is bound to the compiled bundle
+- **GIVEN** a compiled bundle whose seat names one `--patch` whose value resolves under the seat's working directory to a regular file inside the bundle's own layer, recorded in the manifest's `files`
+- **WHEN** the seat starts cold, with an offer, or while the shape is `unmeasured`
+- **THEN** the private start context carries the binding as the argv value and the member's 64-lowercase-hex manifest digest, the adapter's single read of the file hashes to that digest before the shape check, and the fold proceeds only then
+- **AND** the binding rides beside the assessment and the owned target, never in the prompt, the launch row or the journal
+
+#### Scenario: An unbound or drifted route overlay is refused
+- **WHEN** a seat's `--patch` names a same-shaped file outside the compiled bundle's layer, a working-directory path that resolves to a file other than the bound member (a shadow of the bundled path), a bundle member whose bytes differ from the digest recorded at compilation, a file of an ancestor layer, or a bundle-relative `./` spelling expanded to an absolute path; or the private start context carries no binding for a present `--patch`, a binding for an absent one, or a binding whose value differs from the argv
+- **THEN** the invocation is refused before staging or provider work on the cold, the resume and the disabled-gate path, no byte of the file is staged, forwarded or folded, no launch row or offerable root is recorded, and the refusal is the adapter's existing pre-work failure to start
 
 #### Scenario: Identifier injection
 - **WHEN** an offered handle contains a flag-like prefix, control characters, path traversal, shell syntax or an overlong value outside the measured grammar

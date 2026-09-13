@@ -876,6 +876,141 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   - Rejecting `--patch` outright, as D6 read it: it disables the
     operator-ruled lane and its route, which the framing forbids.
 
+- **R — Pass A return, 2026-09-14: Q's authorization record is repaired on
+  three defects.** The clarify seat read the selected installation's own
+  sources under `.forge/dsh-qualify/core/node_modules/@deepseek-ai/` and
+  found three defects in answer Q and its AS3 amendment. All three are
+  adopted as defects in Q's new record — none reopens answers A–P, the
+  selected pair, D6's grammar and locators, AS1's minimum or the recipe —
+  and each is answered as a rule with scenarios in
+  `specs/adapter-resume-safety/spec.md`. R supersedes three sentences of Q:
+  that the reader "carries deeper lines verbatim", that the credential rule
+  is the absence of an inline `apiKey`, and that the file's provenance is
+  the bundle digest by virtue of admission. Everything else in Q stands.
+
+  1. **The deeper grammar is closed and data-only.** Q told the reader to
+  check the entry, `config`, `providers` and provider depths and to carry
+  deeper lines verbatim, assuming an admitted row supplies only routing
+  data. The selected core's patch parser (`dsh-app-boot/lib/index.js`: the
+  `JsExpr` YAML type at lines 17–30, `parsePatchList` at 1192 loading with
+  `userPatchesSchema = entryListSchema`) turns a `!!js` tagged scalar into
+  an expression node, and the loader (`cordis-plugin-loader/lib/index.js`
+  lines 289–304 and 689) recursively evaluates any mapping holding a
+  `__jsExpr` key when the entry's config is interpolated at activation — a
+  plain mapping under `displayName` needs no tag. Verbatim deeper lines
+  therefore carried executable syntax through a shape check that passed.
+  The corrected rule: the reader recognizes every line it carries, at every
+  depth, and the shape is closed. Lines are `key: value`, `key:` and
+  `- key: value` in block form, two spaces per depth; keys are plain
+  identifiers beginning with an ASCII letter (which refuses `__jsExpr`,
+  `<<`, quoted and flow keys); values are non-empty plain unquoted scalars
+  that begin with no YAML indicator and carry no ` #`; no tag, anchor,
+  alias, flow collection, block scalar, merge key or quoted scalar is
+  admitted at any depth; the refusal names a depth, never text. The shipped
+  file lies entirely inside that grammar, its `reasoningEfforts` mapping
+  included. Two scenarios carry it: executable syntax in both
+  representations, and the arity/path scenario's "at any depth".
+
+  2. **The permitted fields are a closed set, and that set is the
+  credential rule.** Q's only credential scenario named an inline
+  `apiKey`. The selected `dsh-llm-pi-ai/lib/index.js` provider profile
+  (lines 984–1000) admits `headers` as a string dictionary, and a
+  read-only synthetic parse accepted `headers.Authorization` carrying a
+  bearer value beside a valid `apiKeyEnv` — Q's ancestor shape was
+  satisfied with a credential in the file. The corrected rule admits only
+  the fields the shipped overlay uses, each at most once: `displayName`,
+  `api`, `baseURL`, `compat`, `models` and the reference `apiKeyEnv`, which
+  is required and whose value is an environment-variable name Brokkr never
+  resolves (decision 0012); `compat` holds pairs only; `models` holds
+  exactly one item, the pinned model's id, with `id` and
+  `reasoningEfforts`. `apiKey`, `headers`, `modelOverrides`, `reasoning`,
+  transport, timeout, retry and every other profile field refuse. The
+  scenario rejects a literal `Authorization` or `x-api-key` header beside a
+  valid `apiKeyEnv`, a non-name or missing `apiKeyEnv` and every foreign
+  field, without staging, forwarding, resolving or echoing a value.
+
+  3. **Authorization is a binding to the compiled bundle.** Q claimed the
+  file's provenance was the bundle digest while its admission list checked
+  only working-directory containment and shape. `expand_command`
+  (`crates/brokkr-runtime/src/bundle.rs:3176`) leaves the shipped non-`./`
+  value cwd-relative; `manifest_for` and `walk_files` (`bundle.rs`
+  3254–3357) hash the bundle layer's own files, not arbitrary cwd files;
+  and `start_context` (`engine/resume.rs:727–763`) carried no overlay
+  identity. A same-shaped cwd file outside the layer passed every
+  enumerated check with none of the claimed provenance. The corrected rule:
+  at every model-site start, cold, offered or `unmeasured`, the engine
+  resolves the seat's single `--patch` value relative to the seat's working
+  directory (no absolute path, `..` or symlink escape), requires the
+  canonical file to lie inside the compiled bundle's own layer directory
+  and to be a `files` member of the compiled manifest, and carries the
+  binding — the argv value and that member's 64-lowercase-hex digest — in
+  the private `resume_context` beside the assessment and the owned target.
+  The adapter reads the file once, requires SHA-256 equality with the bound
+  digest, and only then validates by shape and folds. A `--patch` with no
+  binding, a binding without a `--patch` or disagreeing with it, a
+  same-shaped nonmember, a working-directory shadow of the bundled path, a
+  member whose bytes changed since compilation, an ancestor-layer file
+  (recorded only through the ancestor's manifest digest) or the
+  bundle-relative `./` spelling (expanded to an absolute path) refuses
+  before staging on both paths and under the closed gate. The binding is
+  the engine's, so a seat cannot authorize its own file, and the digest is
+  the manifest's, so the witness identity that already pins the file is
+  what authorizes its bytes. This is private-context plumbing the framing
+  admits where a concrete defect demonstrates it; `Start.input` gains one
+  private member, and driver protocol v1 and `Body::Resume` are unchanged.
+
+  Rejected alternatives:
+  - Carrying the file's bytes in the private context instead of its
+    digest: it doubles the read, puts a file in the Start object, and still
+    needs the manifest digest to relate those bytes to the bundle.
+  - Letting the adapter read the compiled manifest or the bundle directory:
+    the adapter receives argv, a working directory and the private context,
+    nothing else, and a second reader of the manifest is a second producer
+    of bundle identity.
+  - Refusing at compile time instead of at start: compile pins files and
+    knows neither the seat's working directory nor the start-time bytes,
+    so a compile check would be additional, not a substitute, and touches
+    the bundle compiler this pass is not commissioned to change. The
+    start-time refusal is the pre-work failure path every AS3 refusal uses.
+  - Binding by canonical location alone: bytes edited after compilation
+    would pass; the manifest is the authority for bytes.
+  - Binding by digest alone: a byte-identical copy anywhere under the
+    working directory would pass; the location rule keeps the file the
+    bundle's.
+  - Walking the composition chain to admit ancestor-layer files: their
+    per-file digests are not in the leaf manifest; admitting them needs a
+    recorded rule, not an inference from `roots`.
+  - Mirroring dsh's whole provider schema as the permitted set: it admits
+    `headers` and some forty other fields for a route that uses six, and
+    it moves with every dsh release.
+  - Admitting quoted and block scalars as inert: they are inert, but they
+    are two more line forms the reader must get exactly right for no
+    shipped need; a route that needs them amends the grammar.
+  - Refusing only `!` and keeping "verbatim" otherwise: `__jsExpr` is a
+    plain mapping key with no tag; the evaluation belongs to the loader,
+    not the tag.
+  - A YAML crate: still rejected on the pnpm reader's grounds; the closed
+    grammar is smaller than any YAML subset a crate would parse.
+
+  Dependent artifacts, in their own phases: design D6 reconciles its reader
+  sentence with the closed grammar and permitted set and records the
+  engine-side binding in the private start context beside D5's assessment
+  and D6's owned target; proposed 0056 ruling 6 names the admitted shape
+  "the bound route overlay". Tasks 8.8(d) gains, in its engine half, the
+  binding at both private-context call sites in `engine.rs` and
+  `engine/resume.rs`, and in its planner half the digest check before the
+  shape check; 8.10 gains the deterministic cases — executable syntax in
+  both representations at a deep depth, flow, anchor, alias, block and
+  quoted refusals, a literal authentication header beside `apiKeyEnv`, a
+  missing or non-name `apiKeyEnv`, each foreign field, the bound shipped
+  file as the positive vector under cold, offer and `unmeasured`, a
+  same-shaped nonmember, a shadow, changed bytes, an ancestor-layer file,
+  the absolute `./` expansion, an absent binding, a binding without
+  `--patch` and a disagreeing binding — under the existing identifiers.
+  Pass B implements all of it. The recipe, `research-web.yml`, the roster
+  assertion, the compiled staffing and the research-dsh witness digest
+  still do not move.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -1614,6 +1749,46 @@ pair, the recipe, the roster assertion and every task tick are untouched;
 design, proposed 0056 and tasks reconcile in their own phases as Q names.
 Counts after this visit: 20 requirements / 146 scenarios, and 82 complete /
 19 pending across the same 101 task identifiers.
+
+Strict active validation passes. Cargo is absent in this box, as every
+predecessor specify visit recorded, so format, clippy, workspace tests, both
+bundle compiles and the release build could not launch here and remain the
+implementing pass's obligation before its commit. No provider probe, task
+tick, archive, push, merge or new Brokkr run was performed. Evidence is under
+`.forge/specify-972adad6/`.
+
+## Current successor specify return — pass A clarify R1–R3, 2026-09-14
+
+Run `current-successor-issue-226-pass-972adad6`, phase specify, returned
+from clarify (`CLARIFY-AMBIGUOUS`, gpt-6-astra, three questions) on the same
+adopted HEAD `8f93894267069ff9ec5d101bbaeefbd49a2e6b8d` plus this run's pass A
+commit `2f1b97b`. Read in full, through the workspace hands: the pass framing
+and its A–D specialization, the September 12 controller Codex note, the
+015rc1 qualification, incompatibility and upstream-discovery records,
+`adapters/dsh.json`, proposed 0056 ruling 6, answer Q and the AS3 delta,
+design D6's passthrough sentences, tasks 8.8(d) and 8.10, the recipe, its
+overlay and the roster test, and the clarify seat's cited evidence: the
+selected installation's `dsh-app-boot`, `cordis-plugin-loader` and
+`dsh-llm-pi-ai` sources, `bundle.rs` (`expand_command`, `manifest_for`,
+`walk_files`), `engine/resume.rs` (`start_context`) and both `resume_context`
+call sites in `engine.rs`. Every cited line was confirmed; no package source,
+profile, credential or global configuration was edited, and no expression
+was executed.
+
+All three findings are adopted as defects in Q's new record and answered by
+answer R and a rewritten AS3 route-overlay rule: the deeper grammar is
+closed and data-only, the permitted provider fields are a closed set that
+is itself the credential rule, and authorization is an engine-side binding
+of the argv value to a `files` member of the compiled manifest, verified by
+digest in the adapter before staging. Three scenarios are added
+(executable syntax, the bound overlay, the unbound or drifted overlay), the
+credential scenario is widened to the closed set, and the positive and
+arity/path scenarios gain the binding and "at any depth". Answers A–Q
+otherwise stand; the other four deltas, D6's grammar and locators, the
+selected pair, the recipe, the overlay, the roster assertion, the witness
+digest and every task tick are untouched. Counts after this visit: 20
+requirements / 149 scenarios, and 82 complete / 19 pending across the same
+101 task identifiers.
 
 Strict active validation passes. Cargo is absent in this box, as every
 predecessor specify visit recorded, so format, clippy, workspace tests, both
