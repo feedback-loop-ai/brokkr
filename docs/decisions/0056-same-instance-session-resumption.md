@@ -276,9 +276,43 @@ Alternatives weighed, each rejected on evidence rather than taste:
    2 generalised: a class that cannot be re-expressed is a cold spawn
    with the reason journaled, never a quiet escalation.
 
+   **2026-09-14 — one authorized `--patch`: the bound route overlay.**
+   The allow-list above admits one profile overlay, and only one, on
+   DSH: the route overlay, an operator-ruled file of the compiled bundle
+   whose rows state only the provider route of the pinned model
+   (decision 0044 ruling 5 and its erratum of 2026-09-04; the shipped
+   instance is `recipes/research-dsh/drivers/research-web.yml`). It is
+   not a competing selector, because it selects nothing the seat did not
+   already pin, and it is admitted by four rules together, never by path
+   or resemblance: the engine binds the seat's single `--patch` value, at
+   every model-site start and independent of the resume gate, to a
+   `files` member of the compiled bundle's own layer and carries the
+   value and that member's digest in the private start context; the
+   adapter reads the file once and requires digest equality before any
+   shape check; the file is read by a closed, data-only grammar that
+   recognizes every line at every depth or refuses, with a closed field
+   set and value grammars for `apiKeyEnv` (an environment-variable name)
+   and `baseURL` (a lowercase-`https` endpoint that admits no credential
+   position), which is decision 0012 enforced on the one file Brokkr
+   forwards; and the validated rows fold into the per-seat overlay ahead
+   of the persistence, model and settings rows Brokkr writes, so the
+   launcher receives one `--patch` and Brokkr's rows apply last, on the
+   cold, the resume and the closed-gate path alike, re-imposed from the
+   current bundle on every rejoin. Every other `--patch` refuses before
+   provider work, neither forwarded nor dropped. The fetch grant stays
+   the composed profile's own; the composite, the launch row and the
+   journal carry no route byte. This note is appended and the ruling
+   text above is preserved as written; the specification is AS3 of
+   `adapter-resume-safety` (change `2026-09-09-226-session-resumption`,
+   answers Q, R and S).
+
    **Enforcement binding:** the restriction plan composed in `engine.rs`
    and compared in each planner in `adapters.rs`; the planner tests in
-   `adapters/tests.rs` built from the captured grammars.
+   `adapters/tests.rs` built from the captured grammars; the
+   route-overlay binding carried by the private start context in
+   `crates/brokkr-runtime/src/engine/resume.rs` and the bounded
+   route-overlay reader beside the DSH planner in `adapters.rs`, with the
+   route-overlay cases in `adapters/tests.rs`.
 
 7. **One confirmed launch per executing model site, in v5's vocabulary,
    dispatched from 0.10.0.** `launch: resumed` is published only after
@@ -481,3 +515,12 @@ Alternatives weighed, each rejected on evidence rather than taste:
   0.1.0-rc.6 measurement are dated history only. This note is appended;
   the earlier ruling and consequence text it supersedes is preserved as
   history rather than rewritten.
+- **2026-09-14 — the bound route overlay.** Ruling 6's "unknown
+  restriction or profile overrides are not forwarded" gains its one
+  exception, appended above as a dated note: DSH's route overlay, bound
+  to the compiled bundle by manifest digest, read by a closed grammar and
+  folded ahead of Brokkr's own rows. It grants nothing — the fetch
+  capability is the profile's — and it changes no composite line; the
+  shipped `recipes/research-dsh` lane keeps its Model Studio route under
+  the closed gate today and under an enabled shape later. The earlier
+  ruling text is preserved rather than rewritten.

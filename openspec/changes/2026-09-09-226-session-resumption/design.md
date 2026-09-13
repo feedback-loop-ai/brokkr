@@ -1,9 +1,27 @@
 ## Context
 
-This council visit adopts `02e6771`, including all committed work at
+This council visit belongs to run `current-successor-issue-226-pass-972adad6`
+(design phase, 2026-09-14). It adopts all committed work at
+`8f93894267069ff9ec5d101bbaeefbd49a2e6b8d` and this run's three specify
+commits `2f1b97b`, `ca2d145` and `7ac9852`, under the unchanged
+`2026-09-09-226-session-resumption` identifier. The operator scheduled passes
+A–D of `.forge/tasks/current-successor-226-passes.md` and nothing else; this
+visit is pass A's design half. Clarify returned `clear` on its third visit, and
+answers Q, R and S have already landed the DSH route-overlay rule in AS3. Two
+artifacts still stated the pre-Q blanket rejection of every `--patch` — D5/D6
+here and proposed 0056 ruling 6 — and this visit reconciles both, reads both
+fresh council positions in full and disposes of them under D10, and orders the
+tasks phase's 8.8(d)/8.10 reconciliation. Passes B–D owe no new design
+decision: D6, D7 and D8 already specify the planner, the confirmed launch and
+the current-only folds. The ledger stays 82 complete / 19 pending across 101
+identifiers; the five deltas hold 20 requirements / 150 scenarios; no provider
+is enabled and 0056 stays `proposed`. The following history retains each prior
+visit's evidence boundary.
+
+The 2026-09-13 council visit adopted `02e6771`, including all committed work at
 `cf06034`, for `current-successor-operator-rulin-eef1e666` under the unchanged
 `2026-09-09-226-session-resumption` identifier. Proposal P governs the whole
-change and provider ruling. Returned clarify reports `clear`: no unanswered
+change and provider ruling. Returned clarify reported `clear`: no unanswered
 specification ambiguity or earlier artifact fault. Both fresh positions are
 read and reconciled under D10. The two commissioned D6 answers, A1–A5/B1–B5
 and F1 remain settled. The new source finding concerns canonical profile
@@ -433,7 +451,13 @@ moves when the member moves. Carry the selected assessment
 through `Candidate`/`SiteSpawn` into private driver context in `Start.input`, separate
 from rendered `context`, phase inputs and the resume handle. Missing assessment
 for inline/standalone invocation means unmeasured, not implicit support. The
-existing start-input object carries this context; no wire type is added.
+existing start-input object carries this context; no wire type is added. For a
+DSH seat whose compiled command carries a `--patch`, the same object carries
+D6's route-overlay binding — the argv value and the compiled manifest's digest
+of that member, under one private member (`route_overlay`) — computed by the
+engine where the context is built, at both `start_context` call sites; it is
+one more member of the existing private carrier, not a wire or contract field
+(answers R and S).
 
 Probe the selected executable's version using its *measured* version interface
 once per invocation, with bounded output inside the existing total deadline.
@@ -455,6 +479,9 @@ policy input, checkpoint content or a copy of private argv into the journal.
 Use a measured resume allow-list with exact arity, duplicate and precedence
 checks. Competing selectors, forks, background/cloud/worktree launch, extra
 positional handles and unknown restriction/profile overrides are not forwarded.
+The one authorized profile-overlay shape is DSH's bound route overlay, which
+D6 admits by its binding to the compiled bundle and its closed grammar, never
+by resemblance or path; every other `--patch` refuses before provider work.
 Apply selector protection to cold/gate paths too: unsafe cold settings fail
 before provider work, instead of forwarding `--continue` after declining an
 offer. Do not silently strip persistence or restrictions. A resume-only
@@ -485,7 +512,7 @@ and measured confirmation/accounting rules.
 | Codex | Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort and safe passthrough. Admit exact engine-generated MCP fragments separately from arbitrary `-c`. | Re-read the exercised installed version and reconcile 0030's 0.148.0 with supplied 0.153.4; prove resumed class/boxed-fragment enforcement, exact root, current events and pre-work rejection semantics. September 12 host startup/enforcement evidence establishes only 10.5's precondition. |
 | Claude | Known print/stream-json path with exactly `--resume <owned-id>` and the current restriction plan: permission mode, model/effort, `--tools ""`, strict MCP config, current MCP document and allowed workspace tool where boxed. Current prompt stays on stdin. | Root-opening semantics, complete effective restrictions/precedence, persistent identity and current-only stream/accounting on 2.1.266. |
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
-| DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay; use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
+| DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay, folding the bound route overlay ahead of those rows where the bundle carries one (below); use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
 
 **Codex host evidence, 2026-09-12.** The controller's
 `.forge/tasks/controller-codex-sandbox-host-2026-09-12.md` supersedes the
@@ -912,8 +939,8 @@ carries an absolute specifier, and `pnpm-workspace.yaml` holds install
 settings whose resolutions the lock records. The invoking directory's and the
 home's `.env` layers (`loadLayeredEnv`) can carry credentials, so they are
 neither read nor hashed (decision 0012). Persisted `sessions/` and `storages/`
-state, the per-seat `--patch` overlay and the `DSH_TELEMETRY_DISABLED`
-telemetry switch are excluded too. What the env layers and persisted state do
+state, the per-seat `--patch` overlay (including the route rows folded into
+it) and the `DSH_TELEMETRY_DISABLED` telemetry switch are excluded too. What the env layers and persisted state do
 to every current axis is what 10.7's restriction-precedence proof measures. A
 `dump-config` of the composed tree is rejected: it spawns the tool under
 measurement inside D5's deadline and prints absolute paths, while the lines
@@ -1006,9 +1033,136 @@ admitted profile, the Rust-owned persistence/model/effort overlay and
 `current_dir`. The driver points the resume overlay at the originating
 retained persistence root instead of allocating a fresh root. User passthrough
 may not supply `--session`, tag-based `--resume`, `--new`, `--list`,
-`--workdir`, `--profile`, `--patch`, `--output-format`, model/effort or
-settings duplicates. Those controls either choose another identity or override
-the current plan, so both cold and resume paths reject them before work.
+`--workdir`, `--profile`, a `--patch` other than the bound route overlay,
+`--output-format`, model/effort or settings duplicates. Those controls either
+choose another identity or override the current plan, so both cold and resume
+paths reject them before work.
+
+**The bound route overlay (pass A, 2026-09-14; answers Q, R and S).** The
+sentence above once rejected every `--patch`, and the shipped tree contradicted
+it: `recipes/research-dsh/bundle.json` is the one bundle whose dsh seat carries
+`--patch recipes/research-dsh/drivers/research-web.yml`, the roster test
+`the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter`
+admits that one `--patch` and no other, and the research-dsh witness digest
+pins the file. The file is the Model Studio route for the pinned model — one
+`llm-pi-ai` entry defining the provider `dashscope` by `apiKeyEnv`, its `https`
+endpoint and the `qwen3.8-max` reasoning levels — and nothing else; the fetch
+grant is the composed `headless` profile's own (decision 0044 ruling 5, erratum
+of 2026-09-04) and enters the composite through the `profile-bundle` lines.
+The shipped cold path, `invoke_dsh_with`, stages one Rust-owned overlay and
+then forwards the seat's passthrough after it, so building 8.8(d) literally as
+the old sentence read would either forward a second `--patch` behind Brokkr's
+rows or disable the operator-ruled lane. AS3 now admits exactly one authorized
+`--patch` shape, the **route overlay**, and this design adopts it as four
+mechanisms that each close a defect clarify measured in the weaker version
+before it; a summary that keeps fewer than four reopens the defect the missing
+one closed. AS3 owns the byte-exact grammar and it is not copied here.
+
+1. *Authorization is a binding to the compiled bundle, not a path or a shape*
+   (answer R). At every model-site start — cold, offered or `unmeasured`, and
+   independent of the resume gate — the engine binds the seat's single
+   `--patch` value where it builds the private start context, at both
+   `start_context` call sites, from the argv the site spawns, the run's
+   working directory and the compiled leaf layer's directory and manifest: the
+   value resolves relative to the working directory, without an absolute
+   path, `..` or symlink escape, to a regular file inside that layer that is a
+   `files` member of the manifest, and the context carries the argv value and
+   that member's 64-lowercase-hex digest as one private member
+   (`route_overlay`) beside the assessment and the owned target. The adapter
+   reads the file exactly once from the working directory and requires SHA-256
+   equality before any shape check. `expand_command` leaves the shipped
+   non-`./` value cwd-relative, and `manifest_for`/`walk_files` hash only the
+   leaf layer's files, so admission by containment and shape alone would have
+   accepted a same-shaped file placed at that relative path outside the layer,
+   or the bundled file edited since compilation; the binding closes both. It is
+   leaf-only by construction: an ancestor layer's files enter the manifest only
+   as that ancestor's aggregate `@compose/` digest, so they are not bindable,
+   and the bundle-relative `./` spelling expands to an absolute path and is
+   refused as one — admitting either is a recorded amendment. A seat composed
+   outside a compiled bundle has no manifest to bind against, so its `--patch`
+   refuses. The binding rides the existing private carrier; driver protocol
+   v1, `Body::Resume`, the store and every contract are unchanged.
+2. *The grammar is closed and data-only, and the reader recognizes every line
+   at every depth or refuses* (answer R). dsh's patch parser turns a `!!js`
+   tagged scalar into an expression node and its loader evaluates any mapping
+   holding a `__jsExpr` key when the entry activates, so a reader that checked
+   the top depths and carried deeper lines verbatim — answer Q's shape —
+   forwarded executable syntax through a passing check. The reader is a bounded
+   line reader of the pnpm reader's discipline, never a YAML implementation
+   and never a parse-then-filter: block-form lines two spaces per depth,
+   identifier keys, plain unquoted scalars, and no tag, anchor, alias, flow
+   collection, block scalar, merge key or quoted scalar anywhere. The refusal
+   names a depth, never text.
+3. *The content rule is the closed field set together with the value grammars
+   of the fields that name a credential or a location* (answers R and S). Two
+   gaps were found in sequence in what looked closed after each fix: the first
+   admitted-field list caught an inline `apiKey` but not `headers` carrying a
+   literal bearer value beside a valid `apiKeyEnv`; the closed set then still
+   admitted a `baseURL`, which the selected provider profile types as an
+   unrestricted string, carrying URL userinfo or an `api_key=` query. The rule
+   is therefore the six fields the shipped overlay uses, each at most once,
+   with `apiKeyEnv` required and an environment-variable name and `baseURL` an
+   endpoint of the closed lowercase-`https` grammar that refuses every position
+   in which a URL can carry a credential and every character that could
+   introduce one. This is decision 0012 enforced mechanically on the one file
+   Brokkr forwards to dsh: a secret is referenced by name and resolved by the
+   runner, never written by value. "No credential field" is not a stable
+   design sentence — it is the sentence that failed twice.
+4. *The rule applies unconditionally* (answer Q). The fold runs on the cold
+   path, the resume path and under the closed or `unmeasured` gate exactly
+   alike, because the shipped recipe runs under the closed gate today; an
+   implementation that gated the fold on an enabled assessment would be wrong
+   about the recipe running now. On a rejoin the route rows are the current
+   bundle's, re-imposed like the model and effort, never inherited from the
+   persisted session. Anything else offered as `--patch` refuses before
+   staging or provider work on both paths through the adapter's existing
+   pre-work failure to start — the path the `--effort`-without-`--model`
+   refusal already takes — never forwarded and never dropped to make the
+   launch admissible.
+
+The planner's order, which pass B implements: split `--model`, `--effort` and
+the single `--patch` from the passthrough (a second or bare `--patch` refuses
+by arity); require the binding and its agreement with the argv; read the file
+once; require digest equality; check the grammar, the field set and the value
+grammars; fold the validated bytes ahead of the transcript, model and settings
+rows in `dsh_seat_overlay_in`, so the launcher receives one `--patch` and
+Brokkr's rows apply last; then, and only then, the gate, version and composite
+comparisons and the `--new`/`--session` construction of the paragraphs above.
+The composite is unchanged: the folded rows are part of the per-seat overlay it
+excludes, and the file's provenance is the bound manifest digest the bundle
+digest already covers. No route byte or binding enters the prompt, the launch
+row or the journal.
+
+Binding and grammar answer different questions, and neither stands in for the
+other. The binding is the provenance rule — which bytes are authorized: the
+operator's compiled, witness-pinned file and no other. The grammar is the
+content rule — what an authorized member may carry — and it constrains the
+bundle author, not only a competing seat; the roster test asserts that
+`research-dsh` alone carries a `--patch`, not what that file says. The grammar
+is bounded to the one file Brokkr forwards. The profile's and the home's
+`cordis.patch.yml` are hashed into the composite as bytes and are not
+grammar-checked, so executable syntax in operator-installed profile bytes
+remains reachable by the same loader; that is an accepted residual of the same
+class as the live patch-reapplication residual above, recorded here and not
+closed in this pass. A route that needs a further field, another line form or
+a wider endpoint is a recorded amendment of AS3, never a relaxation of the
+reader.
+
+What this is not: not a new hands grant — no overlay row grants or revokes the
+fetch capability; not a relaxation of the restriction re-imposition invariant
+or of AS1's minimum; not a precedent for admitting a second `--patch` shape
+without its own binding and its own closed grammar; not a `--route` spelling,
+which would distinguish the shape by name rather than content and move the
+witness digest and roster assertion for no gain; not a YAML crate, a URL
+parser, a Rust constant carrying the vendor host, or a mirror of dsh's provider
+schema; not a second manifest reader in the adapter, which receives argv, a
+working directory and the private context and nothing else. `bundle.json`,
+`research-web.yml`, the compiled staffing, the roster assertion and the
+research-dsh witness digest do not move. The roster test's doc comment still
+says the overlay "is the fetch grant", which the erratum and AS3 state the
+other way round; pass B corrects that comment when it touches the planner,
+without moving the assertion. Answers Q, R and S in [proposal.md](proposal.md)
+record the rejected alternatives in full.
 
 Do not treat the plugin's request-derived `session_id` value by itself as
 confirmation. Confirmation requires a valid prior depth-zero header for the
@@ -1388,7 +1542,7 @@ rulings and enforcement bindings are:
 | 3 | Provider-confirmed root; generated or fresh assigned ID; intent proves nothing. | D3/D4 root latch, fence, assignment/kill-window tests. |
 | 4 | Negotiated, correlated, one-use offer in existing wire vocabulary. | D5 protocol/conformance tests. |
 | 5 | Required measured provider shapes; current-version qualification; the latest DSH core (0.1.5-rc.1, or the `latest` release resolved at qualification) with the repository-owned six-file adaptation of plugin 0.2.0, pinned by the declared `wrapper_digest` written at enablement; no older core; unmeasured and separate from hands until its complete admission proof passes. Consequences record the reversed 0.1.0-rc.6 pin as history. | D5/D6 loader grammar, composite recompute, committed-bytes test, declaration gate and dated provider evidence. |
-| 6 | Re-impose current restrictions, model/effort, grant and result door; no alternate selectors. | D5/D6 composition and enforcement proof. |
+| 6 | Re-impose current restrictions, model/effort, grant and result door; no alternate selectors. DSH admits exactly one `--patch`, the bound route overlay: bound by the engine to a `files` member of the compiled bundle, verified by digest in the adapter, read by a closed data-only grammar with a closed field set and value grammars, folded ahead of the Rust-owned rows on cold, resume and closed-gate paths alike (answers Q–S, appended as a dated note on 2026-09-14). | D5/D6 composition and enforcement proof; the route-overlay binding in the private start context and the bounded reader beside the DSH planner, with 8.10's deterministic cases. |
 | 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
 | 9 | Current-only accounting, unchanged transcript/privacy limits, narrow legacy compatibility. | D8 accounting/export/verify/legacy tests. |
@@ -1717,13 +1871,53 @@ remains pending. D6 is amended first, then the existing AS1 ordinary-runtime
 scenario and tasks 8.8(b)/8.10; the other deltas, settled grammar, 101 IDs and
 all ticks stay unchanged. No earlier artifact fault warrants `upstream`.
 
+#### Pass A council sitting — route overlay, 2026-09-14, run `current-successor-issue-226-pass-972adad6`
+
+Adopted all committed work at `8f93894` and this run's specify commits
+`2f1b97b`, `ca2d145` and `7ac9852`. Clarify returned `clear` on its third
+visit; answers Q, R and S already carry the route-overlay rule in AS3. Read
+both fresh position files in full. Their pins supersede the 2026-09-13 pins for
+this sitting, and every earlier disposition remains evidence of its own visit:
+
+- `.forge/design/positions/robustness.md`: SHA-256
+  `a1752b8a09b26a056e1136e988eee7523445bee84dd703c16b181165c89e4778`.
+- `.forge/design/positions/simplicity.md`: SHA-256
+  `2d53316727be521a26ba03719a02af2d703405a642a6fd2d4a7abf8918a37422`.
+
+| Position / claim | Disposition and evidence |
+|---|---|
+| Both: the conflict is real and still open in D6, proposed 0056 ruling 6 and tasks 8.8(d)/8.10; answers Q–S already landed the rule in AS3; reconcile without reopening A–P, the selected pair, D6's grammar and locators or the recipe. | Adopt. D5, D6 and this table are amended in this visit, and proposed 0056 ruling 6 gains a dated appended note with a matching Consequences bullet. The tasks phase owns 8.8(d)/8.10 under their existing identifiers, as answers Q–S assign; no tick or identifier moves. |
+| Robustness: all four mechanisms must appear in D6's prose with the defect each closes, not a bare cross-reference. Simplicity: one design-altitude paragraph citing AS3 for the byte-exact grammar — one normative source, not two. | Combine. D6 names the four mechanisms and their Q→R→S defect history at design altitude and points at AS3 for the grammar's bytes. The reasoning that found answer S — reading the provider profile's own source after R looked closed — lives in the design, where the next reader looks; the grammar table lives once, in the spec. |
+| Robustness: 0056 ruling 6 reads as a blanket ban this exception contradicts; append a dated note preserving the original text, as ruling 5 and Consequences already do for the DSH reversal. Simplicity: append the bound route overlay beside "unknown restriction or profile overrides are not forwarded"; status stays proposed. | Adopt both; they coincide. Ruling 6 gains a dated 2026-09-14 paragraph and its enforcement binding names the binding and reader; Consequences gains the matching dated bullet; the original text is preserved and the status stays `proposed`. This table already owns the rulings' required content, so the edit is this visit's and reopens no checked task. |
+| Simplicity: R3's binding is the authorization boundary and R1/S are defense-in-depth over digest-matched bytes; keep them, label them so, refuse expansion; the grammar is not a complete executable-syntax boundary because the profile and home patches are hashed, not grammar-checked. | Adopt the residual, the keep and the refusal to expand; reject the label. AS3 (answer S) already states the division: the binding authorizes bytes, the grammar decides what authorized bytes may carry. D6 records them as the provenance rule and the content rule — the grammar constrains the bundle author, whom the roster assertion does not check, and enforces decision 0012 on the one file Brokkr forwards — so neither is subordinate to the other. The profile/home patch residual is recorded in D6 and Risks beside the live-reapplication residual; no grammar extends to those files in this pass. |
+| Simplicity: a smaller reader (binding, fold and minimal refusals) would do; do not take the cut now. | Adopt the recommendation not to cut. The committed grammar is deterministic, dependency-free and already specified; shrinking it would reopen the specify artifact for no admission gain, and a false decline disables rather than admits. |
+| Robustness: `roster.rs`'s doc comment states the fetch-grant model backwards; correct it in this pass. Simplicity: the assertion is already right; a one-line comment fix is optional in B and must not ride A's artifact reconciliation. | Combine. The correction is owed, not optional: two contradictory in-repo explanations of one fact would outlive this change. It is a comment-only change to a Rust test file, so it lands in pass B with the planner, where Cargo runs, and the tasks phase records it in 8.8(d); the assertion, the recipe, the overlay and the witness digest do not move. |
+| Both: the binding rides the existing private `Start.input` context beside the assessment and the owned target; no wire, contract, store, capability, task identifier or decision is added. | Adopt. D5 names the member (`route_overlay`); `start_context` gains one optional input at both engine call sites; driver protocol v1 and `Body::Resume` are unchanged. |
+| Simplicity: the binding is leaf-only; ancestor-layer files cannot bind. | Adopt as a design-level sentence in D6 with its reason: `manifest_for` records ancestors only as aggregate `@compose/` digests, and the shipped overlay is a leaf file. |
+| Simplicity's mechanism cuts: no YAML crate, second manifest reader, public or wire field, host constant, schema mirror, URL parser, committed live test, `--route` spelling, roster/witness/recipe movement, pass E–K work, narrowed minimum or support by analogy. | Adopt every cut; each is already a rejected alternative of answer Q, R or S, and D6 restates the list. |
+| Both: passes B–D owe no new design decision; D6, D7 and D8 already specify the planner, the confirmation and launch hold, and the current-only folds. | Adopt. B is D6's planner, locator and route-overlay paragraphs; C is D6's confirmation paragraph and D7; D is D6's `firstSeq` paragraph and D8. Their deterministic cases belong to 8.10 and 9.6. This design commissions no new mechanism for them. |
+| Simplicity: `cargo` and `rustc` 1.98.0 are present "in this box", so the specify seats' "Cargo absent" claim does not carry. | Reject as a claim about this seat's box: `cargo --version` and `rustc --version` return command-not-found here, recorded in this visit's validation. The framing assigns the Rust gates to the implementing pass before its commit; no Rust result is claimed by this visit. |
+| Simplicity's counterpoint to anticipated robustness asks (canonical containment, integrity whitespace, a durable guard, a profile-patch grammar, a vendor pin). | Record without attributing them: the current robustness file raises none of them. The earlier sittings' dispositions stand — canonical containment and the npm version whitespace rule landed in `composite.rs`, the integrity token's grammar is unchanged pending concrete evidence, and no new guard or host constant is added. |
+| Both: no provider enabled, no tick, 82 complete / 19 pending across 101 identifiers, 0056 proposed, LaneTally's sole 11.4 exception, no split. | Adopt. |
+
+Dependent artifacts after this design, in dependency order: the tasks phase
+amends 8.8(d) — replace `--patch` in its rejection list with "a `--patch`
+other than the bound route overlay"; add the engine half, the binding at both
+`start_context` call sites; add the planner half in D6's order, with the
+`roster.rs` comment correction — and 8.10, with the deterministic cases D11
+lists, under their existing identifiers and without a tick. Pass B implements
+both. No earlier artifact is at fault: the specification already owns and
+states the rule, and the stale sentences were this design's and the proposed
+decision's own.
+
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 141 scenarios (AS1 gained
-14 DSH scenarios from answers M–O and two for the September 12 design answers); the 101
+The current five deltas contain 20 requirements and 150 scenarios (AS1 gained
+14 DSH scenarios from answers M–O and two for the September 12 design answers;
+AS3 gained nine route-overlay scenarios from answers Q–S); the 101
 surviving task IDs keep their coverage and evidence dependencies. A parameterized
 test may cover several scenarios only when it exercises their independent
 outcomes. The topology, ownership, wire, record, provider and recovery axes in
@@ -1736,7 +1930,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. A symlinked home ancestor resolving the same selected bundles yields the same composite, using canonical containment while preserving the original lookup anchor; an unresolvable boundary, escaped plugin/extension or outside first hit stays unreadable without raw-path fallback, near-prefix acceptance or later-candidate search. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. A symlinked home ancestor resolving the same selected bundles yields the same composite, using canonical containment while preserving the original lookup anchor; an unresolvable boundary, escaped plugin/extension or outside first hit stays unreadable without raw-path fallback, near-prefix acceptance or later-candidate search. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. The DSH route overlay (answers Q–S) has the shipped overlay as the positive vector under cold, offer and `unmeasured`; refusals for a second or bare `--patch`; an absolute, `..`, symlink-escaping, non-regular, oversized or non-UTF-8 path; a Rust-owned or foreign row id, a second entry or provider, a provider the seat did not pin or an absent model pin; each foreign field, a literal authentication header beside a valid `apiKeyEnv`, a missing or non-name `apiKeyEnv`; each `baseURL` grammar breach (userinfo, query, fragment, percent-escape, backslash, whitespace, brackets, empty segment, `http`, uppercase scheme, schemeless); executable or unrecognized syntax at depth in both representations; a same-shaped nonmember, a shadow, changed bytes, an ancestor-layer file, the `./` expansion, an absent binding, a binding without `--patch` and a disagreeing binding — every refusal before staging on the cold, resume and disabled-gate paths, naming depth, field or URL part and never a value; and the folded overlay leaves the composite, launch row and journal free of route bytes. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -1958,6 +2152,20 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 - [Evidence is attached to the wrong or later-mutated head] → Record each result
   outside the tracked artifact with its exact Git object. Rerun the applicable
   proof for a changed subject unless explicit byte identity makes it transferable.
+- [A `--patch` that looks like the route overlay is not the bundle's file, or
+  the bundled file changed after compilation] → The engine binds the argv value
+  to a `files` member of the compiled leaf manifest and the adapter requires
+  digest equality before the shape check; a shadow, a nonmember, changed bytes,
+  an ancestor-layer file, the `./` expansion or a missing or disagreeing
+  binding refuses before staging on every path, including the closed gate.
+- [The bound route overlay's own content carries a credential or executable
+  syntax, by authoring error or a later edit] → The closed data-only grammar,
+  the closed field set and the `apiKeyEnv`/`baseURL` value grammars refuse it
+  before staging, naming depth or field and never a value; decision 0012 is
+  enforced mechanically on the one file Brokkr forwards. The profile's and the
+  home's `cordis.patch.yml` are hashed into the composite but not
+  grammar-checked: an accepted residual of the same class as live patch
+  reapplication, recorded and not closed in this pass.
 
 ## Migration Plan
 
@@ -1976,7 +2184,8 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
    frozen bytes do not move.
 3. Add or complete structural contexts/stamps, correlated offers and provider
    planning/confirmation, including D6's private DSH target carrying the
-   provider ID and originating persistence locator. Enable measured shapes only;
+   provider ID and originating persistence locator, and the route-overlay
+   binding beside it where a DSH seat's compiled command carries a `--patch`. Enable measured shapes only;
    keep instruction identities coherent. No private-run migration or global
    provider settings change.
 4. Obtain the pre-archive live provider evidence and deliver measured Claude
@@ -2031,7 +2240,9 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No open design question remains. D13 establishes the supported dated
+No open design question remains. The DSH route overlay is settled by answers
+Q–S, AS3 and D6 (pass A); its deterministic cases belong to 8.10 and its
+implementation to pass B. D13 establishes the supported dated
 same-change path from decision 0042 and installed OpenSpec behavior. D6 selects
 the latest DSH core with the repository-owned adaptation, names its location,
 its composite's byte form, sole producer and doctor entry point, the locators
@@ -2594,3 +2805,63 @@ proofs and enablement stay pending, and the full unfiltered archived suite is
 still mandatory before activation/delivery. The controller owns final-head
 coverage, remote CI, publication, integration and closure. No provider model
 call, workflow runner, new Brokkr run, push or merge was performed.
+
+## Council design reconciliation — pass A route overlay, 2026-09-14
+
+Run `current-successor-issue-226-pass-972adad6`, design phase, adopted HEAD
+`8f93894267069ff9ec5d101bbaeefbd49a2e6b8d` and this run's specify commits
+`2f1b97b`, `ca2d145` and `7ac9852`, the tree this visit edits. Read in full,
+through the workspace hands: the pass framing
+`.forge/tasks/current-successor-226-passes.md`, the September 12 controller
+Codex note, the 015rc1 qualification, incompatibility and upstream-discovery
+records, `adapters/dsh.json`, proposed 0056, the whole change (the proposal
+with answers Q–S, all five deltas, design and tasks),
+`recipes/research-dsh/bundle.json` and its `drivers/research-web.yml`, the
+roster test, the DSH arm of `adapters.rs` (`dsh_resume_refusal`,
+`invoke_dsh_with`, `dsh_seat_overlay_in`), `engine/resume.rs::start_context`
+with both `resume_context` call sites in `engine.rs`, and `bundle.rs`
+(`expand_command`, `manifest_for`, `walk_files`). Read the dialect's own
+design and return instructions and `openspec instructions design --change
+2026-09-09-226-session-resumption --json`; no workflow runner was invoked.
+Both fresh council positions were read in full and pinned in D10 by SHA-256.
+
+This visit reconciles pass A's owning design and proposed decision with the
+route-overlay rule answers Q–S landed in AS3. D5 names the private
+`route_overlay` binding and the allow-list's one authorized profile overlay.
+D6's passthrough sentence now excepts the bound route overlay and gains the
+design-altitude account of the four mechanisms with the defect each closed,
+the planner order for pass B, the binding-versus-grammar division, the
+profile/home patch residual and what the exception is not. D10 gains the
+ruling-6 row content, this sitting's pins and dispositions and the
+dependent-artifact order; D11's counts and AS1–AS3 row, Risks, Migration Plan
+and Open Questions follow. Proposed
+`docs/decisions/0056-same-instance-session-resumption.md` ruling 6 gains a
+dated 2026-09-14 appended note and an extended enforcement binding, and its
+Consequences a matching dated bullet; the original text and `Status: proposed`
+are unchanged. Tasks 8.8(d)/8.10 are ordered to the tasks phase and the
+`roster.rs` comment correction to pass B; nothing under `recipes/` or
+`crates/`, no delta and no proposal line moves.
+
+- `openspec validate 2026-09-09-226-session-resumption --strict
+  --no-interactive` exits 0 after the edits; `openspec status` reports all
+  four planning artifacts done; the delta parser reads 15 ADDED and five
+  MODIFIED operations, and the source headings count 20 requirements / 150
+  scenarios.
+- The task artifact is untouched: 82 complete / 19 pending across 101
+  identifiers, recounted directly against the file.
+- `git diff --check` passes; exactly `design.md` and the proposed decision
+  change. The five deltas, proposal, tasks, living specifications, frozen
+  paths, production code, declarations, recipes and provider settings are
+  byte-unchanged from `7ac9852`.
+- With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, all six commissioned Cargo
+  commands exit 127: `cargo` is absent from this seat's box, and so is
+  `codex`. No Rust, bundle, release-build or provider result is claimed; the
+  framing assigns those gates to the implementing pass before its commit.
+- Command and structural evidence is under `.forge/design-chief-972adad6/`.
+
+The design is `drafted`, not `upstream`: the specification already owns and
+coherently states the rule, and the stale sentences were this design's and the
+proposed decision's own. No provider probe, task tick, archive, push, merge or
+new Brokkr run was performed; proposed 0056 remains proposed; every provider
+proof, enablement, pin, gate and readiness task remains pending, as passes E–K
+are not scheduled.
