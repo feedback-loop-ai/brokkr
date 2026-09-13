@@ -8,7 +8,7 @@
 //! that hands it the workspace database's runs. Resolution reads the
 //! run table and never writes the journal.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use brokkr_store::Store;
 
 use crate::render::Safe;
@@ -23,6 +23,39 @@ pub const LATEST: &str = "latest";
 pub struct RunRef<'a> {
     pub run_id: &'a str,
     pub created_at: &'a str,
+}
+
+/// Why a selector did not resolve. A caller that walks several hearths
+/// must keep an ambiguous prefix visible even when another hearth
+/// answers uniquely, so the refusal remembers its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// The hearth records no runs at all.
+    Empty,
+    /// No run in this hearth matched the requested selector.
+    Missing,
+    /// Several runs matched: a guess would be unsafe.
+    Ambiguous,
+}
+
+/// A selector refusal that remembers its kind.
+#[derive(Debug)]
+struct RefusalError {
+    kind: Refusal,
+    message: String,
+}
+
+impl std::fmt::Display for RefusalError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for RefusalError {}
+
+/// The refusal kind an error carries, when it is a selector refusal.
+pub fn refusal_kind(error: &anyhow::Error) -> Option<Refusal> {
+    error.downcast_ref::<RefusalError>().map(|error| error.kind)
 }
 
 /// Resolve a user's `--run` string against the runs a workspace holds.
@@ -42,7 +75,10 @@ pub fn resolve(runs: &[RunRef<'_>], requested: &str) -> Result<String> {
             .max_by_key(|run| run.created_at)
             .map(|run| run.run_id.to_string())
             .ok_or_else(|| {
-                anyhow!("no runs in this workspace database; 'latest' resolves to nothing")
+                refusal(
+                    Refusal::Empty,
+                    "no runs in this workspace database; 'latest' resolves to nothing".to_string(),
+                )
             });
     }
     if runs.iter().any(|run| run.run_id == requested) {
@@ -57,21 +93,32 @@ pub fn resolve(runs: &[RunRef<'_>], requested: &str) -> Result<String> {
     // requested selector and every candidate id are sanitized.
     match matched.as_slice() {
         [only] => Ok((*only).to_string()),
-        [] => Err(anyhow!(
-            "no run matching '{}' in this workspace database",
-            Safe::new(requested).as_str()
+        [] => Err(refusal(
+            Refusal::Missing,
+            format!(
+                "no run matching '{}' in this workspace database",
+                Safe::new(requested).as_str()
+            ),
         )),
-        ambiguous => Err(anyhow!(
-            "'{}' matches {} runs: {}; use more characters",
-            Safe::new(requested).as_str(),
-            ambiguous.len(),
-            ambiguous
-                .iter()
-                .map(|id| Safe::new(id).as_str().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+        ambiguous => Err(refusal(
+            Refusal::Ambiguous,
+            format!(
+                "'{}' matches {} runs: {}; use more characters",
+                Safe::new(requested).as_str(),
+                ambiguous.len(),
+                ambiguous
+                    .iter()
+                    .map(|id| Safe::new(id).as_str().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         )),
     }
+}
+
+/// Wrap one refusal in the error the caller downcasts to classify it.
+fn refusal(kind: Refusal, message: String) -> anyhow::Error {
+    anyhow::Error::new(RefusalError { kind, message })
 }
 
 /// The store-facing form every command that takes `--run` calls: read

@@ -48,7 +48,7 @@ use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap}
 use ratatui::{Frame, Terminal};
 
 use crate::render::{self, Safe, Tone};
-use crate::ui::Turn;
+use brokkr_view::transcript::{BlockKind, LegacyProvenance, TranscriptRead, Turn, Unavailable};
 
 /// Below this the frame cannot hold its panes, and a drawn frame would
 /// be a corrupted one.
@@ -86,7 +86,11 @@ pub(crate) struct Views {
     pub now: String,
     pub runs: RunsView,
     pub run: Option<RunView>,
-    pub transcript: Option<(Vec<Turn>, bool)>,
+    /// The one selected participant's complete bounded local read. `None`
+    /// means no participant is open, never "the file is missing" — a
+    /// missing, refused or unowned source is the reader's own result and
+    /// stays visible rather than collapsing into an absence.
+    pub transcript: Option<TranscriptRead>,
     /// What this frame has to SAY about the hearth it was read from, as
     /// opposed to what it failed to do. A realm whose journal is not
     /// there yet is empty rather than unreadable (decision 0026 ruling
@@ -119,15 +123,41 @@ impl Views {
 /// not moved, keep the frame you have".
 pub(crate) type Refreshed = Option<Views>;
 
+/// The selected transcript subject: realm/journal identity, the full run
+/// id, the participant key and the complete effective reference. The
+/// shell re-resolves exactly this participant and no other, so no surface
+/// gates the pane on a Claude session id or any other single kind.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct Subject {
+    /// The active hearth, so a stamp taken in one realm never speaks for
+    /// the same run or participant name in another.
+    pub tab: usize,
+    /// The realm name when the world has tabs; the tab index alone is the
+    /// journal identity in a one-hearth world.
+    pub realm: Option<String>,
+    /// The full run id, not a selector.
+    pub run: String,
+    /// The exact participant key.
+    pub key: String,
+    /// The complete recorded common reference, echoed even when it cannot
+    /// be validated — a present reference always wins.
+    pub reference: Option<brokkr_view::Transcript>,
+    /// How an absent common reference may synthesize a legacy Claude one.
+    pub provenance: LegacyProvenance,
+    /// The compatibility flat id a legacy synthesis may use.
+    pub legacy_id: Option<String>,
+    /// Whether the participant can still gain prose: the reader watches
+    /// the source only while this holds.
+    pub working: bool,
+}
+
 /// What the shell asks the journal for. Selection reaches a store only
 /// through this struct — the TUI itself never holds one.
 pub(crate) struct Ask<'a> {
     pub run: Option<&'a str>,
-    pub session: Option<&'a str>,
-    /// Whether that session can still gain words. The shell watches the
-    /// transcript file only while this holds; a concluded seat's
-    /// transcript is already whole, so there is nothing to poll for.
-    pub working: bool,
+    /// The participant whose transcript this frame is about, or `None`
+    /// away from the participant level.
+    pub subject: Option<Subject>,
     /// `r`, a level change, or the first frame: rebuild regardless.
     pub force: bool,
     /// The fleet's slower cadence is due.
@@ -200,6 +230,10 @@ pub(crate) struct Tui {
     /// otherwise be unreadable — truncation with no way through is a
     /// dead end, not evidence.
     pub reading: Option<String>,
+    /// True when the open reader is the transcript pane's door, so a
+    /// notice-only refresh recomposes it from the shared read instead of
+    /// leaving a stale notice set behind.
+    pub reading_transcript: bool,
     /// Scroll within the reader, in wrapped lines.
     pub read_offset: usize,
     pub status: Option<String>,
@@ -258,6 +292,7 @@ impl Tui {
             typing: false,
             help: false,
             reading: None,
+            reading_transcript: false,
             read_offset: 0,
             status: None,
             ticks: 0,
@@ -319,6 +354,7 @@ fn switch(tui: &mut Tui, index: usize) {
     tui.turn = None;
     tui.typing = false;
     tui.reading = None;
+    tui.reading_transcript = false;
     tui.read_offset = 0;
     // This hearth's journal has not been read yet; the shell asks for it
     // on the next frame, which is when its store is first opened at all.
@@ -411,41 +447,74 @@ fn seat_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Participant> {
     tui.seat.as_deref().and_then(|key| participant(views, key))
 }
 
-/// The Claude session id the shell asks the local prose reader for. New
-/// journals derive it from decision 0032's transcript shape; old journals
-/// keep using the compatibility field — under the provenance guard that
-/// field always had, because a pre-0032 codex seat journaled its thread
-/// id there and a thread id is hex and dashes like a claude session.
-/// Provenance absent predates decision 0016, when every seat was claude.
-fn claude_session(part: &Participant) -> Option<&str> {
-    let session = match &part.transcript {
-        Some(transcript) if transcript.kind == "claude-session" => {
-            Some(transcript.locator.as_str())
-        }
-        Some(_) => None,
-        None => match part.provenance.as_ref().map(|p| p.provider.as_str()) {
-            None | Some("claude") | Some("lanetally") => part.session_id.as_deref(),
-            Some(_) => None,
-        },
-    };
-    session.filter(|session| crate::ui::valid_session_id(session))
-}
-
-fn session_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a str> {
-    match tui.level {
-        Level::Participant => seat_of(tui, views).and_then(claude_session),
-        _ => None,
+/// Map a participant's provenance to the legacy-synthesis rule. The same
+/// rule `transcript_command` applies, kept here so the TUI can build a
+/// subject without reaching into the command's private helper: only
+/// Claude, LaneTally and an inline seat with no provenance may fall back
+/// to a local Claude id.
+fn legacy_provenance(part: &Participant) -> LegacyProvenance {
+    match part
+        .provenance
+        .as_ref()
+        .map(|provenance| provenance.provider.as_str())
+    {
+        None => LegacyProvenance::Absent,
+        Some("claude") => LegacyProvenance::Claude,
+        Some("lanetally") => LegacyProvenance::LaneTally,
+        Some(_) => LegacyProvenance::Other,
     }
 }
 
-/// Whether the session the shell is asking for can still gain prose:
-/// `status` is the same model field the seats table branches on, and
-/// this branches on it rather than deriving anything. Pure, and asked
-/// once where the `Ask` is built — never inside [`apply`], which stays a
-/// state machine over models with no notion of a file at all.
-fn session_is_live(tui: &Tui, views: &Views) -> bool {
-    session_of(tui, views).is_some()
-        && seat_of(tui, views).is_some_and(|part| part.status == "working")
+/// The subject the shell re-resolves: exactly the selected participant at
+/// the participant level, with every fact the shared reader needs. No
+/// field asks which kind it is, so a Codex thread or DSH session reaches
+/// the same read path as a Claude one.
+fn subject_of(tui: &Tui, views: &Views) -> Option<Subject> {
+    if tui.level != Level::Participant {
+        return None;
+    }
+    let part = seat_of(tui, views)?;
+    let run = tui.run.clone()?;
+    Some(Subject {
+        tab: tui.tab,
+        realm: tui.tabs.get(tui.tab).cloned(),
+        run,
+        key: part.key.clone(),
+        reference: part.transcript.clone(),
+        provenance: legacy_provenance(part),
+        legacy_id: part.session_id.clone(),
+        working: part.status == "working",
+    })
+}
+
+/// Whether a refreshed read replaces the previously displayed turns. A
+/// pure append — the new projection begins with every old turn, in order,
+/// under the same authority — keeps navigation. Removal, replacement,
+/// reorder, shrink, a changed reference or path, and every refusal
+/// (ambiguity, ownership loss, format refusal) invalidate the cursor and
+/// close an open door before new indices are shown. A notice-only change
+/// leaves the turns alone and therefore keeps the cursor.
+fn transcript_invalidates(old: Option<&TranscriptRead>, new: Option<&TranscriptRead>) -> bool {
+    let (Some(old), Some(new)) = (old, new) else {
+        // A subject appearing or vanishing is a new list either way.
+        return old.is_some() != new.is_some();
+    };
+    if new.unavailable.is_some() || old.unavailable.is_some() {
+        return true;
+    }
+    // D8's source-identity rule: a same-content replacement (a new inode
+    // or changed member provenance) invalidates the cursor and overlay
+    // even when every projected field is identical.
+    if new.source_identity != old.source_identity {
+        return true;
+    }
+    if new.reference != old.reference || new.path != old.path || new.kind != old.kind {
+        return true;
+    }
+    if new.turns.len() < old.turns.len() {
+        return true;
+    }
+    new.turns[..old.turns.len()] != old.turns
 }
 
 // --------------------------------------------------------------- the keys
@@ -625,48 +694,39 @@ fn stream_len(tui: &Tui, views: &Views) -> usize {
 }
 
 /// The transcript pane's list: one key per turn, the turn's index in
-/// the stream. Live prose streaming only APPENDS turns, so an index is
-/// a stable key, and the cursor survives an appending refresh by the
-/// same absence of code as every other list.
+/// the command's own displayed sequence. Live prose streaming only
+/// APPENDS turns, so an index is a stable key, and the cursor survives an
+/// appending refresh by the same absence of code as every other list.
 fn turn_keys(views: &Views) -> Vec<String> {
-    let count = views
-        .transcript
-        .as_ref()
-        .map_or(0, |(turns, _)| turns.len());
+    turn_keys_of(views.transcript.as_ref())
+}
+
+/// The pane's turn keys for one read; the pane and the 11.2 cross-surface
+/// comparison share this exact enumeration.
+fn turn_keys_of(read: Option<&TranscriptRead>) -> Vec<String> {
+    let count = read.map_or(0, |read| read.turns.len());
     (0..count).map(|index| index.to_string()).collect()
 }
 
 /// The transcript's live selection: a turn the cursor's index still
-/// names. A stale index — a transcript that shrank — selects nothing,
-/// exactly like a stale key anywhere else.
+/// names. A stale index — a transcript that shrank or was replaced —
+/// selects nothing, exactly like a stale key anywhere else.
 fn selected_turn<'a>(tui: &Tui, views: &'a Views) -> Option<(usize, &'a Turn)> {
-    let (turns, _) = views.transcript.as_ref()?;
+    let read = views.transcript.as_ref()?;
     let index = index_of(&turn_keys(views), &tui.turn)?;
-    Some((index, &turns[index]))
+    Some((index, &read.turns[index]))
 }
 
-/// The truncation notice, written once: the transcript pane shows it as
-/// its last line and the reader repeats it as the reader's last line.
-/// Silently short evidence is worse than none (decision 0001), so the
-/// door that opens the WHOLE transcript must not be the surface that
-/// quietly hides the cap.
-const TRUNCATED_NOTICE: &str = "transcript truncated (size cap) — claude --resume carries the rest";
-
-/// The extra action line a Claude transcript keeps. Other transcript kinds
-/// have one common `transcript` line and no invented resume command.
-fn session_line(session: &str) -> String {
-    format!("full session: claude --resume {session}")
-}
-
-/// The whole turn, composed for the reader: a header naming the role
-/// and the timestamp, then every block in order — prose in full, tool
-/// blocks as the same `⚙ name · target` marker the console shows.
-/// Every part is seat-authored, so every part passes through [`safe`].
-fn turn_text(turn: &Turn) -> String {
-    let mut text = format!("{}  {}\n", safe(&turn.role), safe(&turn.ts));
+/// The whole turn, composed for the reader: a one-based number in the
+/// command's own displayed sequence, a header naming the role and the
+/// timestamp, then every block in order — prose in full, tool blocks as
+/// the same `⚙ name · target` marker the console shows. Every part is
+/// seat-authored, so every part passes through [`safe`].
+fn turn_text(number: usize, turn: &Turn) -> String {
+    let mut text = format!("#{number} {}  {}\n", safe(&turn.role), safe(&turn.ts));
     for block in &turn.blocks {
         text.push('\n');
-        if block.kind == "tool" {
+        if block.kind == BlockKind::Tool {
             text.push_str("⚙ ");
         }
         text.push_str(safe(&block.text).as_str());
@@ -674,22 +734,70 @@ fn turn_text(turn: &Turn) -> String {
     text
 }
 
+/// The reader's ordered notices, each sanitized, as one block. They are
+/// the reader's own strings, never re-derived here, so the pane and both
+/// doors cannot invent a suffix (decision 0055; T2).
+fn notices_text(read: &TranscriptRead) -> Vec<String> {
+    read.notices.iter().map(|notice| safe(notice)).collect()
+}
+
+/// The selected turn plus the whole read's notices, so a door onto one
+/// turn cannot hide a source cap, a malformed-line count or an
+/// unrecognized-record count that the read still carries.
+fn turn_overlay_text(number: usize, turn: &Turn, read: &TranscriptRead) -> String {
+    let mut parts = vec![turn_text(number, turn).trim_end_matches('\n').to_string()];
+    parts.extend(notices_text(read));
+    parts.join("\n\n")
+}
+
 /// The WHOLE transcript, composed for the same reader: every turn in
 /// stream order, each composed by [`turn_text`] itself — reused, never
 /// re-derived, so the two doors cannot drift — a blank line between
-/// turns, and the pane's own truncation notice as the final line when
-/// the stream was capped. Every part is [`safe`] because `turn_text` is.
-fn transcript_text(turns: &[Turn], truncated: bool) -> String {
-    let mut parts: Vec<String> = turns
-        .iter()
-        // The separator owns the blank line, so a turn with no blocks
-        // cannot smuggle a second one in on its header's newline.
-        .map(|turn| turn_text(turn).trim_end_matches('\n').to_string())
-        .collect();
-    if truncated {
-        parts.push(TRUNCATED_NOTICE.to_string());
+/// turns, then the reader's own notices and full-session line. A readable
+/// zero-turn result keeps an openable empty or capped explanation rather
+/// than an apparently missing session. Every part is [`safe`] because
+/// [`turn_text`] and [`notices_text`] are.
+fn transcript_text(read: &TranscriptRead) -> String {
+    let mut parts: Vec<String> = if read.turns.is_empty() {
+        vec![if read.truncated {
+            "no readable turns — transcript truncated (size cap)".to_string()
+        } else {
+            "no readable turns".to_string()
+        }]
+    } else {
+        read.turns
+            .iter()
+            .enumerate()
+            // The separator owns the blank line, so a turn with no blocks
+            // cannot smuggle a second one in on its header's newline.
+            .map(|(index, turn)| {
+                turn_text(index + 1, turn)
+                    .trim_end_matches('\n')
+                    .to_string()
+            })
+            .collect()
+    };
+    parts.extend(notices_text(read));
+    if let Some(hint) = &read.full_session {
+        parts.push(safe(hint));
     }
     parts.join("\n\n")
+}
+
+/// The exact pane keys, one selected-turn door and the whole-transcript
+/// door for one shared read, through the same renderers the TUI paints.
+/// The 11.2 cross-surface proof compares these against the command and
+/// the HTTP body without a second renderer.
+#[doc(hidden)]
+pub fn transcript_surfaces_for_test(
+    read: &TranscriptRead,
+    selected: Option<usize>,
+) -> (Vec<String>, String, String) {
+    let selected = selected
+        .filter(|index| *index < read.turns.len())
+        .map(|index| turn_overlay_text(index + 1, &read.turns[index], read))
+        .unwrap_or_default();
+    (turn_keys_of(Some(read)), selected, transcript_text(read))
 }
 
 fn step(tui: &mut Tui, views: &Views, step: Step) {
@@ -857,16 +965,22 @@ fn enter(tui: &mut Tui, views: &Views) {
         // transcript at all still holds no door.
         Level::Participant => {
             if tui.pane == 1 {
+                // A refused or unavailable read has no reading door: the
+                // pane carries the reason, and Enter must not reopen a
+                // former snapshot's prose.
+                let Some(read) = views.transcript.as_ref().filter(|read| read.is_readable()) else {
+                    return;
+                };
                 match selected_turn(tui, views) {
-                    Some((_, turn)) => {
-                        tui.reading = Some(turn_text(turn));
+                    Some((index, turn)) => {
+                        tui.reading = Some(turn_overlay_text(index + 1, turn, read));
+                        tui.reading_transcript = true;
                         tui.read_offset = 0;
                     }
                     None => {
-                        if let Some((turns, truncated)) = views.transcript.as_ref() {
-                            tui.reading = Some(transcript_text(turns, *truncated));
-                            tui.read_offset = 0;
-                        }
+                        tui.reading = Some(transcript_text(read));
+                        tui.reading_transcript = true;
+                        tui.read_offset = 0;
                     }
                 }
             }
@@ -913,6 +1027,7 @@ fn enter(tui: &mut Tui, views: &Views) {
                         safe(&row.what.text),
                         safe(&row.payload_json),
                     ));
+                    tui.reading_transcript = false;
                     tui.read_offset = 0;
                 }
             }
@@ -1040,6 +1155,7 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
             Key::Char('q') => return Flow::Quit,
             Key::Escape | Key::Backspace | Key::Enter | Key::Char('?') => {
                 tui.reading = None;
+                tui.reading_transcript = false;
                 tui.read_offset = 0;
             }
             Key::Down | Key::Char('j') => tui.read_offset = tui.read_offset.saturating_add(1),
@@ -1090,9 +1206,9 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
     match (tui.level, tui.pane) {
         // The tab keys are said where they are bound, and only there:
         // a one-hearth world's footer is the footer it always was.
-        (Level::Runs, _) if tabbed(tui) => format!(
-            "↑↓/jk move · Enter open run · [ ] 1-9 realm · g/G top/bottom {tail}"
-        ),
+        (Level::Runs, _) if tabbed(tui) => {
+            format!("↑↓/jk move · Enter open run · [ ] 1-9 realm · g/G top/bottom {tail}")
+        }
         (Level::Runs, _) => format!("↑↓/jk move · Enter open run · g/G top/bottom {tail}"),
         // The lane cursor scopes, so the footer must say so where it
         // happens (decision 0014's discoverability rule): an operator
@@ -1104,8 +1220,8 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
         // standing, and a footer naming a seat the panes are not
         // filtered to would contradict the status line above it.
         (Level::Run, 0) => {
-            let named = lane_member(tui, views)
-                .filter(|part| scoped_seat(tui) == Some(part.key.as_str()));
+            let named =
+                lane_member(tui, views).filter(|part| scoped_seat(tui) == Some(part.key.as_str()));
             let lanes = match named {
                 Some(part) => format!("↑↓ lanes · scoped to {}", safe(&part.label)),
                 None => "↑↓ lanes".to_string(),
@@ -1125,14 +1241,24 @@ pub(crate) fn footer_for(tui: &Tui, views: &Views) -> String {
         // the cursor, and the key that opens the whole transcript —
         // each named where it is the one Enter does, with `Esc
         // unselect` naming the way back to the other.
-        (Level::Participant, 1) => match tui.turn {
-            Some(_) => {
+        (Level::Participant, 1) => {
+            // A refused or unavailable read has both doors disabled, so
+            // the footer must not advertise one. A `None` transcript is
+            // the old no-subject pane, unchanged.
+            if views
+                .transcript
+                .as_ref()
+                .is_some_and(|read| !read.is_readable())
+            {
+                format!("↑↓/jk move · no reading door · Tab pane · Esc back {tail}")
+            } else if tui.turn.is_some() {
                 format!("↑↓/jk move · Enter read turn · Esc unselect · g/G top/bottom · Tab pane {tail}")
+            } else {
+                format!(
+                    "↑↓/jk move · Enter read whole transcript · g/G top/bottom · Tab pane · Esc back {tail}"
+                )
             }
-            None => format!(
-                "↑↓/jk move · Enter read whole transcript · g/G top/bottom · Tab pane · Esc back {tail}"
-            ),
-        },
+        }
         (Level::Participant, _) => {
             format!("↑↓/jk scroll · g/G top/bottom · Tab pane · Esc back {tail}")
         }
@@ -2944,10 +3070,9 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         Constraint::Percentage(50),
     ])
     .areas(area);
-    // One plain mechanism label for every driver. A Claude locator also
-    // keeps the resume line decision 0014 established; no other kind is
-    // ever rendered as a Claude command.
-    let session = claude_session(part);
+    // The shared full-session value is rendered verbatim when the reader
+    // produced one and no line at all when it is null — the TUI never
+    // chooses a command or invents a hint of its own.
     let pair = render::served_text(&part.served);
     let mut lines = vec![
         Line::from(vec![
@@ -2961,8 +3086,12 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
             plain(),
         ),
     ];
-    if let Some(session) = session {
-        lines.push(line(&session_line(session), plain()));
+    if let Some(hint) = views
+        .transcript
+        .as_ref()
+        .and_then(|read| read.full_session.as_deref())
+    {
+        lines.push(line(hint, plain()));
     }
     lines.extend([
         line(
@@ -3033,12 +3162,17 @@ fn draw_participant(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, par
         stream,
     );
 
+    // A refused or unavailable read replaces the previous prose
+    // atomically: the pane carries the selected reference, the reason, the
+    // explanation, the retained path and the counts, and neither door is
+    // active. Dispatching on `read.unavailable` removes the former
+    // `is_readable` guard and its reason-less arm: a readable read is
+    // exactly one whose `unavailable` is `None`.
     let (lines, scroll) = match &views.transcript {
-        Some((turns, truncated)) => transcript_lines(
-            turns,
-            *truncated,
-            selected_turn(tui, views).map(|(index, _)| index),
-        ),
+        Some(read) => match read.unavailable {
+            None => transcript_lines(read, selected_turn(tui, views).map(|(index, _)| index)),
+            Some(reason) => (refused_lines(read, reason), 0),
+        },
         None => (
             vec![line(
                 "no local session transcript on this machine — the transcript line above names it",
@@ -3064,35 +3198,80 @@ fn offset_for(tui: &Tui, pane: usize) -> u16 {
 }
 
 /// Transcript prose is arbitrary text from outside the store, so it goes
-/// through `Safe` like everything else, and the truncation flag is
-/// **shown**: silently short evidence is worse than none (decision 0001).
-/// The selected turn wears the same mark as every selected row, and the
-/// returned scroll is that turn's own first line, so the pane follows
-/// the cursor rather than holding a second offset that could drift.
-fn transcript_lines(
-    turns: &[Turn],
-    truncated: bool,
-    selected: Option<usize>,
-) -> (Vec<Line<'static>>, usize) {
+/// through `Safe` like everything else, and every notice the reader
+/// produced is **shown**: silently short evidence is worse than none
+/// (decision 0001). The selected turn wears the same mark as every
+/// selected row, and the returned scroll is that turn's own first line,
+/// so the pane follows the cursor rather than holding a second offset
+/// that could drift.
+fn transcript_lines(read: &TranscriptRead, selected: Option<usize>) -> (Vec<Line<'static>>, usize) {
     let mut lines: Vec<Line> = Vec::new();
     let mut scroll = 0usize;
-    for (index, turn) in turns.iter().enumerate() {
+    for (index, turn) in read.turns.iter().enumerate() {
         let picked = selected == Some(index);
         if picked {
             scroll = lines.len();
         }
         lines.push(line(
-            &format!("{} · {}", turn.role, turn.ts),
+            &format!("#{} {} · {}", index + 1, turn.role, turn.ts),
             header_style().patch(selected_style(picked)),
         ));
         for block in &turn.blocks {
             lines.push(line(&format!("  {}", block.text), selected_style(picked)));
         }
     }
-    if truncated {
-        lines.push(line(TRUNCATED_NOTICE, header_style()));
+    if read.turns.is_empty() {
+        let explanation = if read.truncated {
+            "no readable turns — transcript truncated (size cap)"
+        } else {
+            "no readable turns"
+        };
+        lines.push(line(explanation, plain()));
+    }
+    for notice in &read.notices {
+        lines.push(line(notice, header_style()));
     }
     (lines, scroll)
+}
+
+/// An unavailable read's own lines: the reference it kept, the reader's
+/// closed reason token, its explanation, the retained path and hint, its
+/// source-cap/count notices and its two counts. Nothing here is derived
+/// from a previous frame, so no stale prose can survive a refusal.
+fn refused_lines(read: &TranscriptRead, reason: Unavailable) -> Vec<Line<'static>> {
+    let reference = match &read.reference {
+        Some(reference) => format!(
+            "{} · {} · {}",
+            reference.kind, reference.locator, reference.home
+        ),
+        None => "—".to_string(),
+    };
+    let mut lines = vec![line(&format!("reference  {reference}"), plain())];
+    lines.push(line(
+        &format!("reason     {}", reason.as_str()),
+        header_style(),
+    ));
+    if let Some(explanation) = &read.explanation {
+        lines.push(line(explanation, plain()));
+    }
+    lines.push(line(
+        &format!("path       {}", read.path.as_deref().unwrap_or("—")),
+        plain(),
+    ));
+    for notice in &read.notices {
+        lines.push(line(notice, plain()));
+    }
+    if let Some(hint) = &read.full_session {
+        lines.push(line(hint, plain()));
+    }
+    lines.push(line(
+        &format!(
+            "counts     skipped {} · unrecognized {}",
+            read.skipped_lines, read.unrecognized_records
+        ),
+        plain(),
+    ));
+    lines
 }
 
 // ---------------------------------------------------------- the terminal
@@ -3182,6 +3361,38 @@ pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option
 
 /// The bounded shell: draw, poll, apply, repeat. Everything impure it
 /// touches arrives as a parameter, so the whole loop — its quit arm, its
+/// How a refreshed frame relates the displayed transcript to the fresh one.
+///
+/// Invariant: in `drive`, `tui.reading_transcript` implies that
+/// `views.transcript` is `Some` and readable. It starts false; it is set
+/// true only inside the `is_readable` filter on `views.transcript`; every
+/// other write clears it; and `views` changes only to a fresh frame whose
+/// recompose keeps the door open only over a readable read. Given that
+/// invariant, a missing or unavailable fresh read makes
+/// `transcript_invalidates` return true and closes the door before any
+/// recompose runs, so the former `None` arm of the door recompose could
+/// never execute. The classification below carries the fresh read in the
+/// one arm that is allowed to recompose the door.
+enum Refresh<'a> {
+    /// Neither the displayed frame nor the fresh one holds a transcript.
+    Absent,
+    /// The fresh read is present and not invalidated, so it is readable.
+    Continuing(&'a TranscriptRead),
+    /// The fresh read replaced, removed or reordered the displayed one.
+    Invalidated,
+}
+
+fn classify_refresh<'a>(
+    displayed: Option<&TranscriptRead>,
+    fresh: Option<&'a TranscriptRead>,
+) -> Refresh<'a> {
+    match (displayed, fresh) {
+        (None, None) => Refresh::Absent,
+        (_, Some(read)) if !transcript_invalidates(displayed, fresh) => Refresh::Continuing(read),
+        _ => Refresh::Invalidated,
+    }
+}
+
 /// error arm and its transient-busy arms — runs under `TestBackend`.
 fn drive<B: Backend>(
     terminal: &mut Terminal<B>,
@@ -3197,11 +3408,11 @@ where
     let mut views = Views::empty();
     let mut failures = 0usize;
     for _ in 0..max_iterations {
-        let session = session_of(tui, &views).map(str::to_string);
+        let subject = subject_of(tui, &views);
+        let vanishing_key = subject.as_ref().map(|subject| subject.key.clone());
         let ask = Ask {
             run: tui.run.as_deref(),
-            session: session.as_deref(),
-            working: session_is_live(tui, &views),
+            subject,
             force: std::mem::take(&mut tui.force),
             fleet: tui.ticks.is_multiple_of(RUNS_REFRESH_TICKS),
             // Only the ACTIVE hearth is ever asked about, so an inactive
@@ -3209,7 +3420,42 @@ where
             tab: tui.tab,
         };
         match source(ask) {
-            Ok(Some(fresh)) => {
+            Ok(Some(mut fresh)) => {
+                // L6: when the fresh fold no longer lists the participant
+                // this frame was reading — even when it lists none at all
+                // — the stale transcript is cleared in this same frame.
+                if let (Some(key), Some(run)) = (vanishing_key.as_deref(), fresh.run.as_ref()) {
+                    if !run.participants.iter().any(|part| part.key == key) {
+                        fresh.transcript = None;
+                    }
+                }
+                // A refreshed read that replaced, removed or reordered a
+                // displayed turn clears the cursor and closes an open
+                // overlay BEFORE the new indices are shown; a pure append
+                // or a notice-only change leaves navigation alone. Classify
+                // once, then recompose the door only in the continuing arm,
+                // from that arm's fresh read (see `classify_refresh`).
+                match classify_refresh(views.transcript.as_ref(), fresh.transcript.as_ref()) {
+                    Refresh::Absent => {}
+                    Refresh::Invalidated => {
+                        tui.turn = None;
+                        tui.reading = None;
+                        tui.reading_transcript = false;
+                        tui.read_offset = 0;
+                    }
+                    // A notice-only refresh leaves the turns alone but still
+                    // changes what a door must say: recompose an open
+                    // transcript door from the fresh shared read so the pane
+                    // and the door report the same notices.
+                    Refresh::Continuing(read) => {
+                        if tui.reading_transcript {
+                            tui.reading = Some(match selected_turn(tui, &fresh) {
+                                Some((index, turn)) => turn_overlay_text(index + 1, turn, read),
+                                None => transcript_text(read),
+                            });
+                        }
+                    }
+                }
                 // A frame that arrived says whatever it has to say — a
                 // hearth with no journal yet says so — and a frame with
                 // nothing to say clears the last sentence.

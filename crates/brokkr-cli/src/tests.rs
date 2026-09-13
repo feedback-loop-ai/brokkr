@@ -1617,6 +1617,133 @@ fn a_selector_that_several_hearths_answer_is_refused_and_latest_is_the_newest() 
     assert_eq!(newest_answer(Vec::new()), None);
 }
 
+/// M1: an ambiguous prefix in one hearth is preserved even when another
+/// hearth answers the same selector uniquely. A guess in one journal is
+/// still a guess about which run the operator meant.
+#[test]
+fn a_unique_hearth_does_not_discard_another_hearths_ambiguous_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.db");
+    let beta = dir.path().join("beta.db");
+    running_store(&alpha, "target-alone");
+    running_store(&beta, "target-one");
+    running_store(&beta, "target-two");
+    let hearth = |realm: &str, journal: &std::path::Path| Hearth {
+        realms: vec![realm.to_string()],
+        journal: journal.to_path_buf(),
+    };
+    let world = [hearth("alpha", &alpha), hearth("beta", &beta)];
+
+    let refusal = resolve_in_hearths(&world, "target".to_string()).unwrap_err();
+    let said = refusal.to_string();
+    assert!(
+        said.contains("matches 2 runs"),
+        "the ambiguous hearth's refusal survives: {said}"
+    );
+
+    // A fully distinct exact id still resolves where only one hearth
+    // answers it.
+    assert_eq!(
+        resolve_in_hearths(&world, "target-alone".to_string()).unwrap(),
+        (0, "target-alone".to_string())
+    );
+}
+
+/// L8: a `--turn` selector wider than `usize` must not wrap into an
+/// unrelated retained turn on a 32-bit target.
+#[test]
+fn a_huge_turn_selector_cannot_wrap_into_a_retained_turn() {
+    let turn = |text: &str| brokkr_view::transcript::Turn {
+        role: "assistant".to_string(),
+        ts: String::new(),
+        blocks: vec![brokkr_view::transcript::Block::text(text)],
+    };
+    let read = TranscriptRead::readable(
+        None,
+        false,
+        brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        None,
+        vec![turn("one"), turn("two")],
+        false,
+        0,
+        0,
+    );
+    let selected = select_transcript_turn(read, Some(4_294_967_297));
+    assert_eq!(
+        selected.unavailable,
+        Some(brokkr_view::transcript::Unavailable::TurnNotRetained),
+        "2^32 + 1 must not narrow to turn 1"
+    );
+}
+
+/// L4: the top-level error display is sanitized while the chain's own
+/// line breaks survive and recorded strings are untouched.
+#[test]
+fn a_hostile_error_display_is_sanitized_line_by_line() {
+    let raw = "error: bad \u{1b}[2Jpath\u{061c}name\ncaused by: \u{202e}reversed";
+    let safe = safe_lines(raw);
+    assert!(!safe.contains('\u{1b}'));
+    assert!(!safe.contains('\u{061c}'));
+    assert!(!safe.contains('\u{202e}'));
+    assert_eq!(
+        safe.lines().count(),
+        2,
+        "the chain's own line breaks survive"
+    );
+}
+
+/// L6: a participant that vanished from the fresh view clears its
+/// transcript in the same frame rather than lingering until a later
+/// refresh.
+#[test]
+fn a_vanished_participant_clears_the_same_frames_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    // The run must still list a participant, so the vanished subject is a
+    // genuine disappearance rather than an absent-participant view.
+    Store::open(&db)
+        .unwrap()
+        .append_next(
+            "r1",
+            EventType::EffectRequested,
+            json!({"effect_id": "eff", "seat": "work", "phase": "work"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let clock = || "2026-01-01T00:07:03Z".to_string();
+    let mut head = None;
+    let mut seen = None;
+    let ask = tui::Ask {
+        tab: 0,
+        run: Some("r1"),
+        subject: Some(tui::Subject {
+            tab: 0,
+            realm: None,
+            run: "r1".to_string(),
+            key: "gone-seat".to_string(),
+            reference: None,
+            provenance: LegacyProvenance::Absent,
+            legacy_id: None,
+            working: false,
+        }),
+        force: true,
+        fleet: false,
+    };
+    let views = tui_views(&db, true, ask, &mut head, &mut seen, clock)
+        .unwrap()
+        .expect("the forced frame is built");
+    assert!(
+        views.transcript.is_none(),
+        "a participant absent from the fresh view leaves no transcript"
+    );
+    assert!(
+        seen.is_none(),
+        "the stamp is cleared in the same frame as the content"
+    );
+}
+
 /// The lookup reads every hearth it passes READ-ONLY (ruling 5): a
 /// console asked about ONE run must not migrate the journals of the
 /// realms it merely walked past. An empty file is the proof — a
@@ -1647,6 +1774,65 @@ fn resolving_across_hearths_migrates_no_journal_it_passes() {
     assert!(!dir.path().join("alpha.db-wal").exists());
 }
 
+/// The transcript command resolves even a SOLE named hearth read-only: a
+/// read must not create a WAL sidecar, migrate or repair the journal it
+/// came to read.
+#[test]
+fn read_only_resolution_opens_a_sole_hearth_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("alpha.db");
+    running_store(&db, "run-alpha");
+    let before = std::fs::read(&db).unwrap();
+    let world = [Hearth {
+        realms: vec!["alpha".to_string()],
+        journal: db.clone(),
+    }];
+    assert_eq!(
+        resolve_in_hearths_read_only(&world, "run-al".to_string()).unwrap(),
+        (0, "run-alpha".to_string())
+    );
+    assert_eq!(
+        std::fs::read(&db).unwrap(),
+        before,
+        "the sole journal was not modified"
+    );
+
+    // A sole unborn journal is read-only-refused rather than migrated: a
+    // read-write open would write a schema and meta rows into it, so the
+    // refusal is the correct outcome and the file keeps its zero bytes.
+    let unborn = dir.path().join("unborn.db");
+    std::fs::write(&unborn, b"").unwrap();
+    let sole_unborn = [Hearth {
+        realms: vec!["unborn".to_string()],
+        journal: unborn.clone(),
+    }];
+    assert!(
+        resolve_in_hearths_read_only(&sole_unborn, "latest".to_string()).is_err(),
+        "an unmigrated sole journal is refused, not repaired"
+    );
+    assert_eq!(
+        std::fs::metadata(&unborn).unwrap().len(),
+        0,
+        "a read migrated the sole journal it came to read"
+    );
+
+    // A hearth whose journal is not on disk is consulted by neither
+    // resolver and is never created.
+    let ghost = dir.path().join("ghost.db");
+    let empty = [Hearth {
+        realms: vec!["ghost".to_string()],
+        journal: ghost.clone(),
+    }];
+    assert_eq!(
+        resolve_in_hearths_read_only(&empty, "latest".to_string()).unwrap(),
+        (0, "latest".to_string())
+    );
+    assert!(
+        !ghost.exists(),
+        "a read created the journal it came to read"
+    );
+}
+
 /// The console's liveness, at the one place a store is opened on its
 /// path: head-gated on both seq and hash, fleet on the slower cadence,
 /// and one unfoldable run keeping its row.
@@ -1659,8 +1845,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let ask = |run, force, fleet| tui::Ask {
         tab: 0,
         run,
-        session: None,
-        working: false,
+        subject: None,
         force,
         fleet,
     };
@@ -1825,7 +2010,8 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         .unwrap();
     assert!(broken.status.is_none() && !broken.status_known);
 
-    // A missing session is an absent transcript, never an invented one.
+    // A missing session is an unavailable transcript, never an invented
+    // one, and the reader keeps the reference plus its Claude hint.
     let mut head = None;
     let views = tui_views(
         &mixed,
@@ -1833,8 +2019,25 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         tui::Ask {
             tab: 0,
             run: None,
-            session: Some("9999-9999"),
-            working: false,
+            subject: Some(tui::Subject {
+                tab: 0,
+                realm: None,
+                run: "r1".to_string(),
+                key: "seat".to_string(),
+                reference: Some(brokkr_view::Transcript {
+                    kind: "claude-session".to_string(),
+                    locator: "9999-9999".to_string(),
+                    home: dir
+                        .path()
+                        .join("missing-home")
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                }),
+                provenance: brokkr_view::transcript::LegacyProvenance::Claude,
+                legacy_id: None,
+                working: false,
+            }),
             force: true,
             fleet: false,
         },
@@ -1844,7 +2047,17 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     )
     .unwrap()
     .unwrap();
-    assert!(views.transcript.is_none());
+    let transcript = views.transcript.expect("a refused read is still a result");
+    assert_eq!(
+        transcript.unavailable,
+        Some(brokkr_view::transcript::Unavailable::NotFound)
+    );
+    assert!(transcript.turns.is_empty());
+    assert!(transcript.path.is_none());
+    assert!(transcript
+        .full_session
+        .as_deref()
+        .is_some_and(|hint| hint.contains("claude --resume 9999-9999")));
 
     // An unreadable store is an error the shell frames, not a panic.
     let corrupt = dir.path().join("corrupt.db");
@@ -1879,28 +2092,40 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
 }
 
 /// The other half of the console's liveness: a seat's prose lands
-/// BETWEEN journal checkpoints, so the same poll that compares the head
-/// also asks the transcript file its length — while the seat is
-/// working, and not once it has concluded. Nothing here writes, and the
-/// pure core never learns a file exists.
+/// BETWEEN journal checkpoints, so every refresh opportunity re-resolves
+/// the selected reference even when the journal head has not moved. The
+/// in-memory stamp is the bounded result, not a length or an mtime, so a
+/// same-length rewrite would be noticed as well.
 #[test]
-fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
-    let _home = HOME.lock().unwrap_or_else(|error| error.into_inner());
-    let previous_home = std::env::var_os("HOME");
+fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     running_store(&db, "r1");
     let home = dir.path().join("home");
-    let projects = home.join(".claude").join("projects").join("live-project");
-    std::fs::create_dir_all(&projects).unwrap();
-    std::env::set_var("HOME", &home);
+    let projects = home.join(".claude").join("projects");
+    let live = projects.join("live-project");
+    std::fs::create_dir_all(&live).unwrap();
+    let home_str = projects.to_string_lossy().to_string();
 
     let clock = || "2026-01-01T00:07:03Z".to_string();
-    let poll = |session, working| tui::Ask {
+    let subject = |locator: &str, working: bool| tui::Subject {
+        tab: 0,
+        realm: None,
+        run: "r1".to_string(),
+        key: "seat".to_string(),
+        reference: Some(brokkr_view::Transcript {
+            kind: "claude-session".to_string(),
+            locator: locator.to_string(),
+            home: home_str.clone(),
+        }),
+        provenance: brokkr_view::transcript::LegacyProvenance::Claude,
+        legacy_id: None,
+        working,
+    };
+    let poll = |locator: &str, working: bool| tui::Ask {
         tab: 0,
         run: Some("r1"),
-        session,
-        working,
+        subject: Some(subject(locator, working)),
         force: false,
         fleet: false,
     };
@@ -1910,15 +2135,15 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     let mut head = None;
     let mut seen = None;
 
-    // The first frame is forced; it settles the head and the length.
-    assert!(tui_views(
+    // The first frame is forced; a not-yet-created file is the reader's
+    // own not-found result, not an absent frame.
+    let first = tui_views(
         &db,
         true,
         tui::Ask {
             tab: 0,
             run: Some("r1"),
-            session: Some("abcd-1234"),
-            working: true,
+            subject: Some(subject("abcd-1234", true)),
             force: true,
             fleet: false,
         },
@@ -1927,48 +2152,52 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
         clock,
     )
     .unwrap()
-    .is_some());
+    .expect("the first frame is forced");
+    assert_eq!(
+        first.transcript.as_ref().unwrap().unavailable,
+        Some(brokkr_view::transcript::Unavailable::NotFound)
+    );
     assert!(
         tui_views(
             &db,
             true,
-            poll(Some("abcd-1234"), true),
+            poll("abcd-1234", true),
             &mut head,
             &mut seen,
             clock
         )
         .unwrap()
         .is_none(),
-        "no journal move and no transcript at all: the frame stands"
+        "an unchanged not-found read is not a new frame"
     );
 
     // The seat's transcript appears, then gains a turn. Neither moves
     // the journal head, and both must reach the operator's eye.
-    let file = projects.join("abcd-1234.jsonl");
+    let file = live.join("abcd-1234.jsonl");
     std::fs::write(&file, turn("the first words")).unwrap();
     let views = tui_views(
         &db,
         true,
-        poll(Some("abcd-1234"), true),
+        poll("abcd-1234", true),
         &mut head,
         &mut seen,
         clock,
     )
     .unwrap()
     .expect("a transcript that appeared is prose the operator is waiting for");
-    assert_eq!(views.transcript.unwrap().0.len(), 1);
+    assert_eq!(views.transcript.unwrap().turns.len(), 1);
     assert!(
         tui_views(
             &db,
             true,
-            poll(Some("abcd-1234"), true),
+            poll("abcd-1234", true),
             &mut head,
             &mut seen,
             clock
         )
         .unwrap()
         .is_none(),
-        "an unchanged length is not a reason to re-read a multi-megabyte file"
+        "an unchanged bounded read is not a new frame"
     );
     std::fs::write(
         &file,
@@ -1978,20 +2207,43 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
     let views = tui_views(
         &db,
         true,
-        poll(Some("abcd-1234"), true),
+        poll("abcd-1234", true),
         &mut head,
         &mut seen,
         clock,
     )
     .unwrap()
-    .expect("the file grew");
-    assert_eq!(views.transcript.unwrap().0.len(), 2);
+    .expect("the transcript was re-derived");
+    assert_eq!(views.transcript.unwrap().turns.len(), 2);
 
-    // A different seat is a different watch: one transcript's length
-    // never speaks for another's, however much longer it happens to be.
-    // Switching seats is a level change, which forces its own refresh.
+    // M11: a same-content replacement is a new inode. Every projected
+    // field is identical, but the source identity differs, so the frame
+    // must be re-derived rather than treated as unchanged. The copy is
+    // staged beside the live tree and renamed over the target, so the new
+    // inode is allocated while the old one still exists: remove-then-write
+    // can reuse the freed inode on filesystems that do so, which would make
+    // this proof depend on the filesystem rather than the reader.
+    let bytes = std::fs::read(&file).unwrap();
+    let replacement = dir.path().join("replacement.jsonl");
+    std::fs::write(&replacement, &bytes).unwrap();
+    std::fs::rename(&replacement, &file).unwrap();
+    let views = tui_views(
+        &db,
+        true,
+        poll("abcd-1234", true),
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .expect("a replaced source inode re-derives the frame");
+    assert_eq!(views.transcript.unwrap().turns.len(), 2);
+
+    // A different seat is a different subject: the stamp's identity
+    // includes the locator, so the new reference is resolved rather than
+    // compared against the old seat's result.
     std::fs::write(
-        projects.join("0000-1111.jsonl"),
+        live.join("0000-1111.jsonl"),
         format!(
             "{}{}{}",
             turn("a different seat"),
@@ -2000,32 +2252,32 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
         ),
     )
     .unwrap();
-    assert!(
-        tui_views(
-            &db,
-            true,
-            poll(Some("0000-1111"), true),
-            &mut head,
-            &mut seen,
-            clock
-        )
-        .unwrap()
-        .is_none(),
-        "a longer file under a different id is not this seat's growth"
-    );
-
-    // Once the seat concludes the file is not asked about at all: the
-    // journal's own head is the only thing left that can move.
-    assert!(tui_views(
+    let views = tui_views(
         &db,
         true,
-        poll(Some("abcd-1234"), false),
+        poll("0000-1111", true),
         &mut head,
         &mut seen,
-        clock
+        clock,
     )
     .unwrap()
-    .is_none());
+    .expect("a changed subject is a new read");
+    assert_eq!(views.transcript.unwrap().turns.len(), 3);
+
+    // Returning to the first seat re-resolves it too, and once it has
+    // concluded an unchanged subject is not read again: the journal head
+    // is the only thing left that can move.
+    let views = tui_views(
+        &db,
+        true,
+        poll("abcd-1234", false),
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .expect("a changed subject re-resolves");
+    assert_eq!(views.transcript.unwrap().turns.len(), 2);
     std::fs::write(
         &file,
         format!(
@@ -2040,7 +2292,7 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
         tui_views(
             &db,
             true,
-            poll(Some("abcd-1234"), false),
+            poll("abcd-1234", false),
             &mut head,
             &mut seen,
             clock
@@ -2049,12 +2301,24 @@ fn a_working_seats_transcript_growing_forces_the_shell_to_re_read_it() {
         .is_none(),
         "a concluded seat's file growing is not the console's business"
     );
-
-    if let Some(previous_home) = previous_home {
-        std::env::set_var("HOME", previous_home);
-    } else {
-        std::env::remove_var("HOME");
-    }
+    // An explicit refresh still re-resolves the concluded participant.
+    let refreshed = tui_views(
+        &db,
+        true,
+        tui::Ask {
+            tab: 0,
+            run: Some("r1"),
+            subject: Some(subject("abcd-1234", false)),
+            force: true,
+            fleet: false,
+        },
+        &mut head,
+        &mut seen,
+        clock,
+    )
+    .unwrap()
+    .expect("an explicit refresh still re-resolves");
+    assert_eq!(refreshed.transcript.unwrap().turns.len(), 3);
 }
 
 #[test]
@@ -3002,7 +3266,8 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     // reverse what follows it, a zero-width space to split a word past
     // a filter, and a newline forging a second citation of its own.
     let operator = "root\u{1b}[31m";
-    let reason = "closed\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
+    let reason =
+        "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
     let mut store = Store::open(&db).unwrap();
     let state = conclude(&mut store, run_id, operator, reason).unwrap();
     assert_eq!(state.status, Status::Stopped);
@@ -3028,7 +3293,8 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         .filter(|c| {
             (c.is_control() && *c != '\n')
                 || matches!(c,
-                    '\u{200B}'..='\u{200F}'
+                    '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
                     | '\u{202A}'..='\u{202E}'
                     | '\u{2060}'..='\u{2064}'
                     | '\u{2066}'..='\u{2069}'
@@ -3643,4 +3909,211 @@ fn replayed_crossing_view_preserves_declarations_without_inventing_observations(
     );
     assert!(!source.exists());
     assert!(!dir.path().join("publisher").exists());
+}
+
+/// The refreshed journal's authority wins the same frame: a subject that
+/// still names the previous reference must not publish the new
+/// participant/reference beside the old reference's prose.
+#[test]
+fn a_refreshed_run_re_resolves_changed_authority_before_display() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects");
+    let live = projects.join("live-project");
+    std::fs::create_dir_all(&live).unwrap();
+    std::fs::write(
+        live.join("aaaa1111.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"new body\"}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        live.join("bbbb2222.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"old body\"}}\n",
+    )
+    .unwrap();
+    let home_str = projects.to_string_lossy().to_string();
+
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    let mut append = |event_type, payload| {
+        store
+            .append_next("r1", event_type, payload, None, None)
+            .unwrap();
+    };
+    append(
+        EventType::RunStarted,
+        json!({"feature": "feat", "manifest": {}}),
+    );
+    append(EventType::PhaseEntered, json!({"phase": "intake"}));
+    append(
+        EventType::EffectRequested,
+        json!({"effect_id": "seat", "seat": "review", "phase": "intake"}),
+    );
+    append(
+        EventType::EffectStarted,
+        json!({"effect_id": "seat", "attempt_id": "att0"}),
+    );
+    append(
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "seat", "attempt_id": "att0",
+               "checkpoint": {"step": "claude-session-finished",
+                 "transcript": {"kind": "claude-session", "locator": "aaaa1111",
+                                "home": home_str}}}),
+    );
+    append(
+        EventType::EffectSucceeded,
+        json!({"effect_id": "seat", "attempt_id": "att0",
+               "result": {"result": "intook"}}),
+    );
+
+    // The subject still carries the previous reference's id.
+    let subject = tui::Subject {
+        tab: 0,
+        realm: None,
+        run: "r1".to_string(),
+        key: "seat".to_string(),
+        reference: Some(brokkr_view::Transcript {
+            kind: "claude-session".to_string(),
+            locator: "bbbb2222".to_string(),
+            home: home_str.clone(),
+        }),
+        provenance: brokkr_view::transcript::LegacyProvenance::Claude,
+        legacy_id: None,
+        working: false,
+    };
+    let mut head = None;
+    let mut seen = None;
+    let views = tui_views(
+        &db,
+        true,
+        tui::Ask {
+            tab: 0,
+            run: Some("r1"),
+            subject: Some(subject),
+            force: true,
+            fleet: false,
+        },
+        &mut head,
+        &mut seen,
+        || "2026-01-01T00:00:00Z".to_string(),
+    )
+    .unwrap()
+    .expect("a forced frame");
+    let read = views.transcript.expect("a transcript read");
+    assert_eq!(
+        read.reference.as_ref().unwrap().locator,
+        "aaaa1111",
+        "the frame re-reads the refreshed reference, not the stale subject"
+    );
+    assert_eq!(
+        read.turns.len(),
+        1,
+        "expected exactly one projected turn: {read:?}"
+    );
+    assert_eq!(read.turns[0].blocks[0].text, "new body");
+}
+
+#[test]
+fn source_stamp_identity_covers_every_subject_field() {
+    let base = tui::Subject {
+        tab: 0,
+        realm: None,
+        run: "r1".to_string(),
+        key: "seat".to_string(),
+        reference: None,
+        provenance: brokkr_view::transcript::LegacyProvenance::Absent,
+        legacy_id: None,
+        working: false,
+    };
+    let stamp = SourceStamp::of(
+        &base,
+        TranscriptRead::refused(
+            None,
+            false,
+            brokkr_view::transcript::Unavailable::None,
+            "x",
+            None,
+            false,
+            0,
+            0,
+            None,
+        ),
+    );
+    assert!(stamp.same_subject(&base));
+
+    let mut differing = base.clone();
+    differing.tab = 1;
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.realm = Some("other".to_string());
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.run = "r2".to_string();
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.key = "other".to_string();
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.reference = Some(brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: "abcd-1234".to_string(),
+        home: "/h".to_string(),
+    });
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.provenance = brokkr_view::transcript::LegacyProvenance::Claude;
+    assert!(!stamp.same_subject(&differing));
+    let mut differing = base.clone();
+    differing.legacy_id = Some("abcd-1234".to_string());
+    assert!(!stamp.same_subject(&differing));
+}
+
+#[test]
+fn turn_selection_covers_both_bounds_and_the_truncated_explanation() {
+    fn turn(text: &str) -> brokkr_view::transcript::Turn {
+        brokkr_view::transcript::Turn {
+            role: "assistant".to_string(),
+            ts: String::new(),
+            blocks: vec![brokkr_view::transcript::Block::text(text)],
+        }
+    }
+    let read = || {
+        TranscriptRead::readable(
+            Some(brokkr_view::Transcript {
+                kind: "claude-session".to_string(),
+                locator: "abcd-1234".to_string(),
+                home: "/h".to_string(),
+            }),
+            false,
+            brokkr_view::transcript::TranscriptKind::ClaudeSession,
+            Some("/h/a.jsonl".to_string()),
+            vec![turn("one"), turn("two")],
+            false,
+            0,
+            0,
+        )
+    };
+    assert!(select_transcript_turn(read(), None).is_readable());
+    assert_eq!(
+        select_transcript_turn(read(), Some(0)).unavailable,
+        Some(brokkr_view::transcript::Unavailable::TurnNotRetained)
+    );
+    assert_eq!(select_transcript_turn(read(), Some(1)).turns.len(), 1);
+    assert_eq!(select_transcript_turn(read(), Some(2)).turns.len(), 1);
+    assert_eq!(
+        select_transcript_turn(read(), Some(3)).unavailable,
+        Some(brokkr_view::transcript::Unavailable::TurnNotRetained)
+    );
+
+    let mut truncated = read();
+    truncated.truncated = true;
+    let selected = select_transcript_turn(truncated, Some(3));
+    assert!(selected
+        .explanation
+        .as_deref()
+        .unwrap()
+        .contains("retained prefix"));
 }

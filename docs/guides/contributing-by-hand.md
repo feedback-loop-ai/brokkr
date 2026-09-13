@@ -411,6 +411,21 @@ usually an error arm. The fix is the test case that takes the arm — not
 deleting the arm. Find it by searching `lcov.info` for the `BRDA` record
 whose taken count is `0` or `-` under your file's `SF:` heading.
 
+**A reader error arm reached only by a filesystem failure or race.** When
+the arm is in a transcript reader, prefer the routes in the order the change
+`prove-transcript-reader-faults` fixes: an ordinary input first; then a
+deterministic real filesystem change; and only then a scripted error, because
+no portable real fault exists for enumeration, identity and bounded read. A
+real change that must fall between two reader operations is timed through
+`brokkr_cli::ui::safe_fs::fault`, the unit-test-only reader fault seam, and a
+scripted error fills the gaps the real routes cannot. Every entry a plan
+installs must fire, or its test fails. The seam exists only in the
+`brokkr-cli` unit-test build, so no release binary, package or integration-test
+build compiles it. The `fault` module is not a test module: it is counted code
+inside the production file `crates/brokkr-cli/src/ui/safe_fs.rs`, so the
+test-module placement rule below neither applies to it nor exempts it from the
+counter. Its own tests live in `ui/tests.rs`, the established harness.
+
 **A new function nothing calls.** Same shape, one level up, with one
 wrinkle: the fold identifies a source function by file and start line
 and sums the hits of every compiled instantiation of it, so a single

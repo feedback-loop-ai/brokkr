@@ -228,6 +228,82 @@ In `brokkr tui` the same journal draws the return as a solid arc under
 the span with a mirrored arrowhead (`╰ᐸ╯`) at the landing phase —
 drawn only when a return was actually taken, never as decoration.
 
+### `brokkr transcript` — one participant's retained prose
+
+Every driver records one retained, harness-owned transcript reference
+(decision 0032): Claude a session id, Codex a thread and rollout, DSH its
+session file. `brokkr transcript` reads that local file through the same
+bounded derivation the TUI pane uses, for every kind, and writes nothing:
+no provider process is started and the journal is opened read-only. The
+browser participant page consumes the same shared presentation for every
+kind and keeps its checkpoint fallback, but its id-only body drill stays
+Claude-only: the existing `/api/session/<id>` and `/sse/session/<id>`
+routes are explicit local Claude-session lookups, so a Codex thread or DSH
+session gets the shared hint and no browser body.
+
+```
+$ brokkr transcript --run latest --seat review:chief
+$ brokkr transcript --run latest --seat review:chief --turn 4
+$ brokkr transcript --run latest --seat review:chief --json
+```
+
+`--run` takes the same full-id, unique-prefix and `latest` selector as
+`inspect`, `--seat` an exact participant key or a label that is unique in
+the run, and `--turn` a one-based position in the same displayed
+sequence the TUI numbers — not a durable message id and not a raw JSONL
+line. Selecting a turn after the projection completes keeps that turn's
+original number and the whole read's notices. `--json` emits the
+`brokkr.transcript/v1` document: `run_id`, the exact `seat` key, the
+recorded `transcript` three strings, `legacy`, the confirmed `path`,
+`turn`, the ordered `turns`, `truncated`, `skipped_lines`,
+`unrecognized_records`, the shared `notices`, `unavailable` or null, and
+the per-kind `full_session` line. Text output sanitizes terminal control
+characters; JSON keeps the escaped originals.
+
+The closed unavailable vocabulary is `no-reference`, `none`,
+`unsupported-kind`, `unannounced`, `missing-home`, `invalid-reference`,
+`unsafe-path`, `not-found`, `ambiguous-source`, `discovery-limit`,
+`unreadable`, `unsupported-format` and `turn-not-retained`. A readable
+result — including an empty, skipped-line or truncated one — exits zero;
+any unavailable reason exits one with a sanitized stderr explanation, and
+the JSON document is still emitted under `--json`. The shared notices
+are, in order, `transcript truncated (size cap)`,
+`malformed transcript lines skipped: <n>` and
+`unrecognized transcript records: <n>`.
+
+The per-kind full-session line is inert information: Claude keeps
+`claude --resume <id>`, Codex names the confirmed rollout (or
+`rollout unavailable`), `codex exec resume <id>` and the recorded home,
+and DSH names only a confirmed session file. The reader executes none of
+it. Path and home placeholders are reversible portable display literals,
+not shell quoting and not pasteable commands: each is a valid
+double-quoted JSON string literal that emits only ASCII letters, digits,
+`/`, `.`, `_`, `-` and `:` directly, and encodes every other Unicode
+scalar as a lowercase four-digit `\u` escape — a surrogate pair for a
+scalar outside the basic multilingual plane — never a JSON short escape,
+so JSON decoding recovers the exact path or home. The fixed fields are
+separated by commas and introduce no semicolon, pipe, ampersand or
+redirection operator. A `--json` document escapes the complete shared
+line a second time as an ordinary JSON member; decoding that member
+recovers the exact hint the TUI, the command and the browser show. A hint
+is not resumption, credential or sandbox-reimposition evidence.
+
+**Claude compatibility.** The shared reader deliberately tightens the old
+Claude lookup: an id that begins with a hyphen is now invalid
+everywhere; two qualifying files are `ambiguous-source` rather than
+first-match; the lookup examines at most 10,000 entries and refuses
+below-home symlinks; and the source snapshot is capped at 32 MiB
+(`unsafe-path`, `discovery-limit` and the cap notice say which). These
+costs are proposed in decision 0055, which only the operator accepts. The
+remediation is the operator's: inspect the original file independently,
+place a duplicate deliberately, fit the recorded scope within the bound,
+or use real owned entries instead of below-home symlinks. The guide's
+`brokkr tui` pane and the `brokkr ui` Claude drill read the same result,
+so a seat the command refuses is refused in all three. The TUI, the
+command and the browser present the exact same completed
+portable-display hint without independently quoting a path or home
+fragment.
+
 ### `brokkr watch` — the same, live
 
 The same readout, redrawn whenever the journal head moves, exiting when
@@ -325,6 +401,13 @@ derivation, same answers, a mouse instead of a keyboard.
 ```
 $ brokkr ui --port 8383 --open
 ```
+
+The Claude drill reads the same bounded result as `brokkr transcript` and
+the TUI pane, so decision 0055's Claude compatibility costs apply here
+too: leading-hyphen ids are refused, duplicate candidates are ambiguous,
+below-home symlinks and the discovery bound are enforced, and the 32 MiB
+source cap holds. The operator-owned remediation is in the
+`brokkr transcript` section above.
 
 ### `brokkr muninn` — the fleet, read and advised on
 

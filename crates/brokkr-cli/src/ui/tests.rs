@@ -351,6 +351,25 @@ fn the_page_paints_and_derives_nothing() {
     }
 }
 
+#[test]
+fn the_page_strips_directional_formatting_at_the_display_boundary() {
+    // L3: the browser is a display boundary too. Its text nodes are
+    // inert, but bidi/directional formatting characters reorder visible
+    // text, so the page removes them without touching machine JSON.
+    assert!(
+        PAGE.contains("\\u061C"),
+        "the Arabic letter mark is named in the browser sanitizer"
+    );
+    assert!(
+        PAGE.contains("function displayText"),
+        "one browser display sanitizer exists"
+    );
+    assert!(
+        PAGE.contains("node.textContent = displayText(text)"),
+        "el() and svgEl() route their text through it"
+    );
+}
+
 // -------------------------------------------------------- the road back
 //
 // A reforging is a road, and roads are drawn — the TUI's rail has drawn
@@ -583,16 +602,15 @@ fn the_console_wears_the_brokkr_wordmark_and_keeps_the_motto() {
     }
 }
 
-/// The traversal guard lives with the lookup, not in the HTTP layer: a
-/// second caller — decision 0014's TUI — reaches `session_turns`
-/// directly, and a refactor that left validation behind would hand it a
-/// path traversal.
+/// The traversal guard lives with the shared reference selection, not in
+/// the HTTP layer: invalid ids refuse before any path is formed.
 #[test]
 fn the_session_lookup_carries_its_own_id_validation() {
     for bad in ["", "../../etc/passwd", &"a".repeat(65), "/etc/passwd"] {
+        let reference = common("claude-session", bad, "/tmp/projects");
         assert!(
-            session_turns(bad).is_none(),
-            "session_turns itself refuses {bad:?}"
+            read_common(&reference).unavailable.is_some(),
+            "{bad:?} must refuse"
         );
     }
 }
@@ -717,28 +735,23 @@ fn the_transcript_drill_reads_a_local_session_or_says_why_it_cannot() {
     }
 }
 
-/// The whole liveness rule of the transcript watch, as a predicate with
-/// its own test rather than a comparison buried in a poll loop. Prose is
-/// only ever appended, so length is the signal — and the FIRST look is
-/// never growth, because the reader already holds the file as it stood.
+/// The liveness rule the watch keeps, now measured through the retained
+/// handle rather than a reopened pathname: the first look is never
+/// growth, an append is, and a shrunk or vanished source is not.
 #[test]
-fn transcript_growth_is_length_and_the_first_look_is_never_growth() {
-    assert!(!transcript_grew(None, 0), "the first look at an empty file");
-    assert!(!transcript_grew(None, 8_192), "nor at a long one");
-    assert!(transcript_grew(Some(10), 11), "one more byte is new prose");
-    assert!(!transcript_grew(Some(10), 10), "an unchanged file is quiet");
-    assert!(
-        !transcript_grew(Some(10), 3),
-        "a file that shrank was replaced, not appended to"
-    );
-
-    // The length itself: what is there, and 0 for what is not — a
-    // transcript that vanished mid-watch has not grown.
+fn source_growth_is_measured_through_the_retained_handle() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("t.jsonl");
-    std::fs::write(&file, "1234567890").unwrap();
-    assert_eq!(transcript_len(&file), 10);
-    assert_eq!(transcript_len(&dir.path().join("gone.jsonl")), 0);
+    std::fs::write(dir.path().join("t.jsonl"), "1234567890").unwrap();
+    let root = safe_fs::Dir::open_root(dir.path().to_str().unwrap()).unwrap();
+    let safe_fs::Child::File(file) = root.child(std::ffi::OsStr::new("t.jsonl")).unwrap() else {
+        panic!("a regular file opens as a file");
+    };
+    assert_eq!(file.len(), 10, "the held handle reports the size");
+    let grew = |previous: Option<u64>, current: u64| previous.is_some_and(|p| current > p);
+    assert!(!grew(None, file.len()), "the first look is never growth");
+    assert!(grew(Some(10), 11), "one more byte is new prose");
+    assert!(!grew(Some(10), 10), "an unchanged file is quiet");
+    assert!(!grew(Some(10), 3), "a shrink is not an append");
 }
 
 /// A drilled seat's prose lands BETWEEN journal checkpoints, so the
@@ -804,8 +817,9 @@ fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
     );
     assert_eq!(
         stream.matches(": ping").count(),
-        2,
-        "the polls that saw no new prose are heartbeats: {stream}"
+        1,
+        "the one poll that saw no new prose is a heartbeat; losing the \
+         unique source closes the stream without another size: {stream}"
     );
 
     // A client that has already gone gets no stream: the header write
@@ -869,21 +883,20 @@ impl Write for GrowsThenVanishes {
     }
 }
 
-/// The page's half of the same rule: it subscribes to that one session,
-/// drops that one cache entry, and closes what it opened.
+/// The page's half of the same rule: the controller keys the watch to the
+/// active participant and owns the exact handle it opened.
 #[test]
 fn the_page_watches_one_working_sessions_prose_and_closes_what_it_opens() {
     for kept in [
         "/sse/session/",
-        "transcriptCache.delete",
-        "closeSessionWatch",
         "part.status === 'working'",
+        "source.close(); handlers.close()",
     ] {
         assert!(PAGE.contains(kept), "the page streams prose with {kept}");
     }
-    // One cache entry at a time: a full clear would refetch every
-    // transcript the operator has already read.
-    assert!(!PAGE.contains("transcriptCache.clear"));
+    // No separate cache survives across intervals: the controller's own
+    // body state is the only cache, and a key change clears it.
+    assert!(!PAGE.contains("transcriptCache"));
 }
 
 /// AC-8's fourth surface: the console's payload carries the same two
@@ -1092,4 +1105,3469 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
     );
     assert!(page.contains("'model ' + model.text + ' · boundary ' + boundary.text"));
     assert_eq!(page.matches("el('th', null, 'boundary')").count(), 4);
+}
+
+// ---------------------------------------------- shared discovery (D3/D4)
+
+fn common(kind: &str, locator: &str, home: &str) -> brokkr_view::Transcript {
+    brokkr_view::Transcript {
+        kind: kind.to_string(),
+        locator: locator.to_string(),
+        home: home.to_string(),
+    }
+}
+
+/// Read a present common reference without touching the ambient HOME.
+fn read_common(reference: &brokkr_view::Transcript) -> TranscriptRead {
+    read_with_home(Some(reference), LegacyProvenance::Absent, None, None)
+}
+
+/// Claude: the exact filename in one immediate project directory; a
+/// duplicate is ambiguous, a symlink is unsafe, and no content is read.
+#[cfg(unix)]
+#[test]
+fn claude_discovery_is_scoped_and_refuses_symlinks() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let body =
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}\n";
+
+    // No file yet.
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), body).unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert_eq!(read.turns.len(), 1);
+
+    // A symlink candidate is unsafe and supplies no content; the one safe
+    // regular file still wins.
+    std::fs::create_dir_all(projects.join("two")).unwrap();
+    std::os::unix::fs::symlink(
+        projects.join("one/abcd-1234.jsonl"),
+        projects.join("two/abcd-1234.jsonl"),
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "the safe regular file wins: {read:?}");
+    assert_eq!(
+        read.path.as_deref().unwrap(),
+        projects
+            .join("one/abcd-1234.jsonl")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+
+    // A symlink-only lookup that also hides the real file is unsafe-path.
+    std::fs::remove_file(projects.join("one/abcd-1234.jsonl")).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::UnsafePath)
+    );
+
+    // A real file under a symlinked project directory is not an unsafe
+    // candidate; the real project still supplies content.
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), body).unwrap();
+    std::os::unix::fs::symlink(projects.join("one"), projects.join("three")).unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "the real project still wins: {read:?}");
+}
+
+/// Codex: the whole-filename token predicate, through depth, with no
+/// header gate and no id-language beyond the engine's own.
+#[test]
+fn codex_discovery_matches_the_whole_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(sessions.join("2026/09/10")).unwrap();
+    let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+
+    // `rollout-0199other` only.
+    std::fs::write(
+        sessions.join("2026/09/10/rollout-0199other.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    // Add the whole-token match, then a superset token that must not match.
+    std::fs::write(
+        sessions.join("rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(read
+        .path
+        .as_deref()
+        .unwrap()
+        .ends_with("rollout-0199mine.jsonl"));
+
+    std::fs::write(
+        sessions.join("2026/09/10/rollout-0199mineX.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "the superset token is not a match: {read:?}"
+    );
+}
+
+/// A directory whose own name resembles a rollout is still traversed, so
+/// an eligible descendant beneath it is discovered (design D3).
+#[test]
+fn codex_rollout_shaped_directories_are_still_traversed() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    let shaped = sessions.join("rollout-0199mine.jsonl");
+    std::fs::create_dir_all(&shaped).unwrap();
+    std::fs::write(
+        shaped.join("rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "the rollout-shaped directory is traversed: {read:?}"
+    );
+    assert!(
+        read.path
+            .as_deref()
+            .unwrap()
+            .ends_with("rollout-0199mine.jsonl/rollout-0199mine.jsonl"),
+        "the descendant is the confirmed source: {read:?}"
+    );
+}
+
+/// A home spelled in another platform's absolute syntax is refused as an
+/// invalid reference before any filesystem call, and its bytes are echoed.
+#[cfg(unix)]
+#[test]
+fn a_foreign_absolute_home_is_refused_before_native_io() {
+    let recorded = r"C:\Users\operator\.claude\projects";
+    let reference = common("claude-session", "abcd-1234", recorded);
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::InvalidReference));
+    assert_eq!(read.path, None, "no path is confirmed for a refused home");
+    assert_eq!(
+        read.reference.as_ref().unwrap().home,
+        recorded,
+        "the recorded bytes are echoed unchanged"
+    );
+}
+
+/// DSH: the recorded root's project/session layout, depth zero only, and
+/// version cannot choose between two owned roots.
+#[test]
+fn dsh_discovery_admits_depth_zero_and_refuses_delegated_siblings() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/brokkr/seat-222";
+    let make = |project: &str, session: &str, header: &str| {
+        let dir = root.join(locator).join(project).join(session);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("session.jsonl"), format!("{header}\n")).unwrap();
+    };
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+
+    // A delegated sibling at depth one is not the depth-zero owned session.
+    make(
+        "project",
+        "delegated",
+        "{\"type\":\"session\",\"delegationDepth\":1,\"version\":0}",
+    );
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(read.explanation.as_deref().unwrap().contains("depth-zero"));
+
+    // A string depth is not unsigned zero.
+    make(
+        "project",
+        "stringy",
+        "{\"type\":\"session\",\"delegationDepth\":\"zero\",\"version\":0}",
+    );
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    // A valid depth-zero root.
+    make(
+        "root",
+        "seat",
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}",
+    );
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+
+    // Version never changes ownership: two owned roots are ambiguous.
+    make(
+        "root",
+        "foreign",
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":1}",
+    );
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::AmbiguousSource)
+    );
+}
+
+/// A DSH opening row that is malformed cannot borrow a later header, an
+/// oversized first record is a discovery-limit (not a missing session),
+/// and invalid opening-header UTF-8 is unreadable.
+#[test]
+fn dsh_discovery_bounds_the_opening_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+
+    std::fs::write(
+        session.join("session.jsonl"),
+        "not json\n{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+
+    // A non-session first record is not an invalid-depth explanation.
+    std::fs::write(
+        session.join("session.jsonl"),
+        "{\"type\":\"entry\",\"version\":0}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(
+        !read
+            .explanation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("depth-zero"),
+        "a non-session opening row must not borrow the invalid-depth explanation: {read:?}"
+    );
+
+    // A null depth is invalid, not legacy zero: it is excluded from
+    // ownership and keeps the invalid-depth explanation.
+    std::fs::write(
+        session.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":null,\"version\":0}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert!(
+        read.explanation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("depth-zero"),
+        "a null depth keeps the invalid-depth explanation: {read:?}"
+    );
+    assert!(read.path.is_none());
+
+    std::fs::write(
+        session.join("session.jsonl"),
+        format!("{}\n", "x".repeat(70_000)),
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::DiscoveryLimit)
+    );
+
+    std::fs::write(
+        session.join("session.jsonl"),
+        [
+            b"{\"type\":\"session\",\"delegationDepth\":0,\"version\":0,\"pad\":\"".as_slice(),
+            &[0xff, 0xfe],
+            b"\"}\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+}
+
+/// A header-only DSH file at EOF without a newline is still complete.
+#[test]
+fn dsh_discovery_accepts_a_header_at_eof_without_newline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}",
+    )
+    .unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(read.turns.is_empty());
+}
+
+/// L5: a newline immediately after a header of exactly the bounded
+/// header cap is part of the header, not the overflow probe.
+#[test]
+fn dsh_discovery_admits_a_header_exactly_at_the_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+
+    let base = r#"{"type":"session","delegationDepth":0,"version":0"#;
+    let cap = brokkr_view::transcript::DSH_HEADER_CAP;
+    let pad = cap - base.len() - 1;
+    let header = format!("{base}{}}}", " ".repeat(pad));
+    assert_eq!(header.len(), cap);
+    std::fs::write(session.join("session.jsonl"), format!("{header}\n")).unwrap();
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "a cap-length header before a newline is admitted: {read:?}"
+    );
+    assert!(read.turns.is_empty());
+
+    // One byte past the cap is still beyond the bounded header.
+    let header = format!("{base}{}}}", " ".repeat(pad + 1));
+    assert_eq!(header.len(), cap + 1);
+    std::fs::write(session.join("session.jsonl"), format!("{header}\n")).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::DiscoveryLimit)
+    );
+}
+
+/// Every file below `root`, relative path -> bytes, with symlinks
+/// recorded as their link text. Used to prove a read changes no
+/// retained byte (7.6).
+#[cfg(unix)]
+fn snapshot_tree(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    use std::os::unix::ffi::OsStringExt;
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap())
+            .collect();
+        entries.sort_by_key(|entry| entry.path());
+        for entry in entries {
+            let path = entry.path();
+            let meta = std::fs::symlink_metadata(&path).unwrap();
+            let key = path.strip_prefix(base).unwrap().to_path_buf();
+            if meta.file_type().is_symlink() {
+                out.push((
+                    key,
+                    std::fs::read_link(&path)
+                        .unwrap()
+                        .into_os_string()
+                        .into_vec(),
+                ));
+            } else if meta.is_dir() {
+                walk(base, &path, out);
+            } else if meta.is_file() {
+                out.push((key, std::fs::read(&path).unwrap()));
+            } else {
+                // A FIFO or device is recorded by type, never opened.
+                out.push((key, b"<non-regular>".to_vec()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out
+}
+
+#[cfg(unix)]
+fn assert_retained(root: &Path, before: &[(PathBuf, Vec<u8>)]) {
+    assert_eq!(
+        snapshot_tree(root),
+        before,
+        "the read must not change retained bytes"
+    );
+}
+
+/// 7.6 — each kind searches only its own declared scope, and a read
+/// leaves the retained tree byte-for-byte unchanged.
+#[cfg(unix)]
+#[test]
+fn kind_scopes_are_closed_and_reads_retain_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    // Claude: only an immediate project directory, never a nested one.
+    let projects = home.join(".claude/projects");
+    std::fs::create_dir_all(projects.join("one/nested")).unwrap();
+    let claude = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    std::fs::write(
+        projects.join("one/nested/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"deep\"}}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert_eq!(
+        read_common(&claude).unavailable,
+        Some(Unavailable::NotFound),
+        "a nested project directory is outside the immediate scope"
+    );
+    assert_retained(&home, &before);
+    std::fs::write(
+        projects.join("one/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert!(read_common(&claude).is_readable());
+    assert_retained(&home, &before);
+
+    // Codex: only below `sessions`, never beside the recorded home.
+    let codex = common("codex-thread", "0199mine", home.to_str().unwrap());
+    std::fs::write(home.join("rollout-0199mine.jsonl"), "{}\n").unwrap();
+    let before = snapshot_tree(&home);
+    assert_eq!(
+        read_common(&codex).unavailable,
+        Some(Unavailable::NotFound),
+        "a rollout beside the home is outside `<home>/sessions`"
+    );
+    assert_retained(&home, &before);
+    std::fs::create_dir_all(home.join("sessions")).unwrap();
+    std::fs::write(home.join("sessions/rollout-0199mine.jsonl"), "{}\n").unwrap();
+    let before = snapshot_tree(&home);
+    assert!(read_common(&codex).is_readable());
+    assert_retained(&home, &before);
+
+    // DSH: only below `<home>/<locator>`.
+    let dsh = common(
+        "dsh-session",
+        "sessions/brokkr/seat-222",
+        home.to_str().unwrap(),
+    );
+    let sibling = home.join("sessions/brokkr/other/project/seat");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(
+        sibling.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert_eq!(
+        read_common(&dsh).unavailable,
+        Some(Unavailable::NotFound),
+        "a sibling locator is outside the recorded seat root"
+    );
+    assert_retained(&home, &before);
+    let owned = home.join("sessions/brokkr/seat-222/project/root");
+    std::fs::create_dir_all(&owned).unwrap();
+    std::fs::write(
+        owned.join("session.jsonl"),
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
+    )
+    .unwrap();
+    let before = snapshot_tree(&home);
+    assert!(read_common(&dsh).is_readable());
+    assert_retained(&home, &before);
+}
+
+/// 7.6 — the whole-token Codex predicate over the variant filenames and
+/// the 80/81-character length boundary, with the recorded home winning
+/// over a different ambient one.
+#[test]
+fn codex_whole_token_variants_and_length_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let recorded = dir.path().join("recorded");
+    let ambient = dir.path().join("ambient");
+    std::fs::create_dir_all(recorded.join("sessions")).unwrap();
+    std::fs::create_dir_all(ambient.join("sessions")).unwrap();
+    let reference = common("codex-thread", "0199mine", recorded.to_str().unwrap());
+
+    for name in ["rollout-0199other.jsonl", "rollout-0199mineX.jsonl"] {
+        std::fs::write(recorded.join("sessions").join(name), "{}\n").unwrap();
+    }
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound),
+        "only `rollout-0199mine` is a whole-token match"
+    );
+    std::fs::write(
+        recorded.join("sessions/rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(read
+        .path
+        .as_deref()
+        .unwrap()
+        .ends_with("rollout-0199mine.jsonl"));
+
+    // The recorded home, not an ambient one, decides the lookup.
+    let ambient_only = common("codex-thread", "0199mine", ambient.to_str().unwrap());
+    std::fs::write(
+        ambient.join("sessions/rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let ambient_read = read_with_home(
+        Some(&reference),
+        LegacyProvenance::Absent,
+        None,
+        Some(ambient.to_str().unwrap()),
+    );
+    assert!(ambient_read
+        .path
+        .as_deref()
+        .unwrap()
+        .starts_with(recorded.canonicalize().unwrap().to_str().unwrap()));
+    assert_eq!(
+        read_with_home(
+            Some(&ambient_only),
+            LegacyProvenance::Absent,
+            None,
+            Some(recorded.to_str().unwrap()),
+        )
+        .path
+        .as_deref()
+        .unwrap(),
+        format!(
+            "{}/sessions/rollout-0199mine.jsonl",
+            ambient.canonicalize().unwrap().display()
+        )
+    );
+
+    // An 80-character id never matches an 81-character filename token.
+    let id80 = "a".repeat(80);
+    let boundary = common("codex-thread", &id80, recorded.to_str().unwrap());
+    std::fs::write(
+        recorded
+            .join("sessions")
+            .join(format!("rollout-{id80}a.jsonl")),
+        "{}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        read_common(&boundary).unavailable,
+        Some(Unavailable::NotFound)
+    );
+    std::fs::write(
+        recorded
+            .join("sessions")
+            .join(format!("rollout-{id80}.jsonl")),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    assert!(read_common(&boundary).is_readable());
+}
+
+/// 7.6 — DSH depth ownership beyond version, and ambiguity resolved the
+/// same way in either creation order.
+#[test]
+fn dsh_depth_versions_and_both_enumeration_orders() {
+    let build = |order: [(&str, &str); 2]| {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("dsh");
+        let locator = "sessions/brokkr/seat-222";
+        let reference = common("dsh-session", locator, root.to_str().unwrap());
+        for (project, version) in order {
+            let session = root.join(locator).join(project).join("seat");
+            std::fs::create_dir_all(&session).unwrap();
+            std::fs::write(
+                session.join("session.jsonl"),
+                format!("{{\"type\":\"session\",\"delegationDepth\":0,\"version\":{version}}}\n"),
+            )
+            .unwrap();
+        }
+        let read = read_common(&reference);
+        assert_eq!(read.unavailable, Some(Unavailable::AmbiguousSource));
+        (dir, root)
+    };
+    let (dir, _) = build([("zero-first", "0"), ("one-second", "1")]);
+    drop(dir);
+    let (dir, _) = build([("one-first", "1"), ("zero-second", "0")]);
+    drop(dir);
+
+    // A version-zero root alone is eligible; a version-one root with a
+    // delegated or mistyped-depth sibling does not outrank it.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/brokkr/seat-222";
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    let write = |project: &str, header: &str| {
+        let session = root.join(locator).join(project).join("seat");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("session.jsonl"), format!("{header}\n")).unwrap();
+    };
+    write(
+        "root",
+        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}",
+    );
+    write(
+        "delegated",
+        "{\"type\":\"session\",\"delegationDepth\":1,\"version\":1}",
+    );
+    write(
+        "stringy",
+        "{\"type\":\"session\",\"delegationDepth\":\"zero\",\"version\":1}",
+    );
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "the version-zero root remains unique: {read:?}"
+    );
+    assert!(read.path.as_deref().unwrap().contains("/root/"));
+}
+
+/// 7.6 — a spent discovery bound outranks a provisional match, and an
+/// oversized DSH opening record is refused without allocating it.
+#[test]
+fn discovery_limit_outranks_a_provisional_match() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("winning")).unwrap();
+    std::fs::write(
+        projects.join("winning/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"late\"}}\n",
+    )
+    .unwrap();
+    for index in 0..10_001 {
+        std::fs::write(projects.join(format!("filler-{index:05}")), b"x").unwrap();
+    }
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::DiscoveryLimit),
+        "the bound outranks the one provisional candidate"
+    );
+}
+
+/// 7.6 — symlinks and a FIFO supply no content, a non-Unicode path is
+/// unreadable rather than lossily spelled, and every refusal retains bytes.
+#[cfg(unix)]
+#[test]
+fn symlinks_fifos_and_non_unicode_paths_are_unavailable() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(root.join("one")).unwrap();
+    let reference = common("claude-session", "abcd-1234", root.to_str().unwrap());
+    let body =
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"real\"}}\n";
+    std::fs::write(root.join("one/abcd-1234.jsonl"), body).unwrap();
+
+    // A symlink inside the recognised scope, pointing within the root.
+    std::fs::create_dir_all(root.join("two")).unwrap();
+    std::os::unix::fs::symlink(
+        root.join("one/abcd-1234.jsonl"),
+        root.join("two/abcd-1234.jsonl"),
+    )
+    .unwrap();
+    let before = snapshot_tree(&root);
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "the safe regular file still wins");
+    assert!(read.path.as_deref().unwrap().contains("/one/"));
+    assert_retained(&root, &before);
+
+    // With only the symlink left, the lookup is unsafe and supplies no
+    // content, and a symlink escaping the root is the same refusal.
+    let outside = dir.path().join("outside.jsonl");
+    std::fs::write(&outside, body).unwrap();
+    std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
+    std::fs::remove_file(root.join("two/abcd-1234.jsonl")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("one/abcd-1234.jsonl")).unwrap();
+    let before = snapshot_tree(&root);
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::UnsafePath), "{read:?}");
+    assert_retained(&root, &before);
+
+    // A FIFO is not a transcript file and cannot block the read.
+    std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
+    let fifo = std::ffi::CString::new(root.join("one/abcd-1234.jsonl").to_str().unwrap()).unwrap();
+    let fifo_rc = unsafe { libc_mkfifo(fifo.as_ptr(), 0o644) };
+    assert_eq!(fifo_rc, 0, "the test can create a FIFO");
+    let before = snapshot_tree(&root);
+    let read = read_common(&reference);
+    assert!(
+        read.unavailable.is_some() && !read.is_readable(),
+        "a FIFO supplies no transcript content: {read:?}"
+    );
+    assert_retained(&root, &before);
+
+    // A non-Unicode directory name makes uniqueness unknowable.
+    std::fs::remove_file(root.join("one/abcd-1234.jsonl")).unwrap();
+    let bad = root.join(std::ffi::OsString::from_vec(vec![b'b', 0xff, b'd']));
+    if !create_non_unicode_dir(&bad) {
+        return;
+    }
+    std::fs::write(bad.join("abcd-1234.jsonl"), body).unwrap();
+    let before = snapshot_tree(&root);
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    assert_retained(&root, &before);
+}
+
+// Read a FIFO creation through libc without adding a crate: `libc` is
+// already an indirect dependency, so the symbol is declared here.
+#[cfg(unix)]
+unsafe extern "C" {
+    #[link_name = "mkfifo"]
+    fn libc_mkfifo(path: *const std::os::raw::c_char, mode: u32) -> std::os::raw::c_int;
+}
+
+/// 7.6 — a held handle keeps the verified bytes when the leaf or an
+/// ancestor path is replaced between discovery and read.
+#[cfg(unix)]
+#[test]
+fn held_handles_survive_ancestor_and_leaf_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("session.jsonl"), "original\n").unwrap();
+
+    let root_handle = safe_fs::Dir::open_root(root.to_str().unwrap()).unwrap();
+    let project_handle = match root_handle.child(std::ffi::OsStr::new("project")).unwrap() {
+        safe_fs::Child::Dir(dir) => dir,
+        _ => panic!("the project opens as a directory"),
+    };
+    let held = match project_handle
+        .child(std::ffi::OsStr::new("session.jsonl"))
+        .unwrap()
+    {
+        safe_fs::Child::File(file) => file,
+        _ => panic!("the transcript opens as a regular file"),
+    };
+
+    // Replace the leaf path: the held file handle keeps the original
+    // inode and bytes.
+    std::fs::remove_file(project.join("session.jsonl")).unwrap();
+    std::fs::write(project.join("session.jsonl"), "replacement\n").unwrap();
+    let (bytes, _, _) = held.read_bounded(1024).unwrap();
+    assert_eq!(std::str::from_utf8(&bytes).unwrap(), "original\n");
+
+    // Replace the ancestor path: the held directory handle still reaches
+    // the original directory, now renamed, and never the impostor.
+    std::fs::rename(&project, root.join("moved")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("session.jsonl"), "impostor\n").unwrap();
+    match project_handle
+        .child(std::ffi::OsStr::new("session.jsonl"))
+        .unwrap()
+    {
+        safe_fs::Child::File(after) => {
+            let (bytes, _, _) = after.read_bounded(1024).unwrap();
+            assert_eq!(std::str::from_utf8(&bytes).unwrap(), "replacement\n");
+        }
+        _ => panic!("the held directory still opens the retained file"),
+    }
+}
+
+/// M7: the read boundary's acquisition recheck is not the held leaf
+/// compared against itself. A leaf or ancestor replaced after discovery
+/// is a different candidate, so the acquisition is refused and the read
+/// fails closed instead of serving the old inode.
+#[cfg(unix)]
+#[test]
+fn a_replaced_leaf_or_ancestor_fails_the_acquisition_recheck() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let file = project.join("abcd-1234.jsonl");
+    let original =
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"original\"}}\n";
+    std::fs::write(&file, original).unwrap();
+    let valid = brokkr_view::transcript::ValidReference {
+        kind: brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        locator: "abcd-1234".to_string(),
+        home: root.to_str().unwrap().to_string(),
+    };
+    let source = match discover(&valid) {
+        Discovery::Admitted(source) => source,
+        _ => panic!("the original is discoverable"),
+    };
+    assert!(
+        acquisition_is_current(&valid, &source),
+        "the unchanged acquisition is current"
+    );
+
+    // Replace the leaf with an identical copy: a new inode is a new
+    // acquisition even though every displayed byte matches. The copy is
+    // staged outside the root and renamed over the target, so the new
+    // inode is allocated while the old one still exists; remove-then-write
+    // can reuse the freed inode on filesystems that do so.
+    let replacement = dir.path().join("replacement.jsonl");
+    std::fs::write(&replacement, original).unwrap();
+    std::fs::rename(&replacement, &file).unwrap();
+    assert!(
+        !acquisition_is_current(&valid, &source),
+        "a replaced leaf inode is not the retained acquisition"
+    );
+
+    // Replace the ancestor: the held root no longer reaches the candidate
+    // the recorded path now names.
+    std::fs::rename(&project, root.join("moved")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(&file, original).unwrap();
+    assert!(
+        !acquisition_is_current(&valid, &source),
+        "a replaced ancestor is not the retained acquisition"
+    );
+}
+
+// =========================================================================
+// The browser participant controller (D9/D11). The exact marker-delimited
+// controller bytes served from `PAGE` are extracted and evaluated with the
+// pinned, default-feature-free dev-only Boa engine; deterministic promises,
+// identity-bearing watches, timers and paint/clear effects drive the traces.
+
+const CONTROLLER_START: &str = "/* transcript-controller:start */";
+const CONTROLLER_END: &str = "/* transcript-controller:end */";
+
+fn controller_block() -> String {
+    let start = PAGE
+        .find(CONTROLLER_START)
+        .expect("the served page marks the controller start")
+        + CONTROLLER_START.len();
+    let end = PAGE[start..]
+        .find(CONTROLLER_END)
+        .expect("the served page marks the controller end")
+        + start;
+    PAGE[start..end].to_string()
+}
+
+const DRIVER: &str = r#"
+var __trace = [];
+var __pres = [];
+var __body = [];
+var __watches = [];
+var __timers = [];
+var __controller = null;
+function __t(kind, detail) {
+  __trace.push(detail === undefined ? kind : kind + ' ' + detail);
+}
+function __newController() {
+  __trace = [];
+  __pres = [];
+  __body = [];
+  __watches = [];
+  __timers = [];
+  __controller = createTranscriptController({
+    requestPresentation: function (subject) {
+      __t('presentation', subject.participantKey);
+      return new Promise(function (resolve, reject) {
+        __pres.push({ resolve: resolve, reject: reject });
+      });
+    },
+    requestBody: function (id) {
+      __t('body', id);
+      return new Promise(function (resolve, reject) {
+        __body.push({ resolve: resolve, reject: reject });
+      });
+    },
+    openWatch: function (id, subject, handlers) {
+      var handle = { id: id, token: __watches.length, closed: false };
+      __watches.push({ handle: handle, handlers: handlers });
+      __t('open', id + '#' + handle.token);
+      return handle;
+    },
+    closeWatch: function (handle) {
+      if (handle) handle.closed = true;
+      __t('close', handle ? handle.id + '#' + handle.token : '');
+    },
+    schedule: function (callback) {
+      var timer = { callback: callback, active: true };
+      __timers.push(timer);
+      __t('timer');
+      return timer;
+    },
+    cancel: function (timer) {
+      if (timer) timer.active = false;
+      __t('cancel');
+    },
+    clear: function () { __t('clear'); },
+    render: function (view) {
+      __t('render',
+        view.phase + ' ' + (view.sessionId === null ? '-' : view.sessionId)
+        + ' ' + (view.reason === null ? '-' : view.reason)
+        + (view.homeUnavailable ? ' home' : ''));
+    }
+  });
+  return true;
+}
+function __operatorSelect(subject) { __controller.operator_select(subject); }
+function __sync(subject) { __controller.sync(subject); }
+function __repaint() { __controller.repaint(); }
+function __clearController() { __controller.clear(); }
+function __resolvePresentation(presentation) { __pres.shift().resolve(presentation); }
+function __rejectPresentation() { __pres.shift().reject(new Error('presentation')); }
+function __resolveBody(body) { __body.shift().resolve(body); }
+function __resolveBodyAt(index, body) { __body.splice(index, 1)[0].resolve(body); }
+function __rejectBody() { __body.shift().reject(new Error('body')); }
+function __tick() { __timers[__timers.length - 1].callback(); }
+function __grow(index) { __watches[index].handlers.growth(); }
+function __watchClose(index) { __watches[index].handlers.close(); }
+function __traceText() { return JSON.stringify(__trace); }
+function __snapshotText() { return JSON.stringify(__controller.snapshot()); }
+"#;
+
+struct Boa {
+    context: boa_engine::Context,
+}
+
+impl Boa {
+    fn boot() -> Boa {
+        let mut context = boa_engine::Context::default();
+        let block = controller_block();
+        context
+            .eval(boa_engine::Source::from_bytes(block.as_bytes()))
+            .expect("the served controller block evaluates");
+        context
+            .eval(boa_engine::Source::from_bytes(DRIVER.as_bytes()))
+            .expect("the deterministic driver evaluates");
+        let mut harness = Boa { context };
+        harness.call("__newController()");
+        harness
+    }
+
+    fn call(&mut self, source: &str) -> String {
+        let value = self
+            .context
+            .eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|error| panic!("evaluating {source}: {error}"));
+        self.context.run_jobs().expect("queued promise jobs drain");
+        value
+            .as_string()
+            .map(|text| text.to_std_string_escaped())
+            .unwrap_or_default()
+    }
+
+    fn select(&mut self, subject: &Value) {
+        self.call(&format!("__operatorSelect({subject})"));
+    }
+    fn sync(&mut self, subject: &Value) {
+        self.call(&format!("__sync({subject})"));
+    }
+    fn resolve_presentation(&mut self, presentation: &Value) {
+        self.call(&format!("__resolvePresentation({presentation})"));
+    }
+    fn reject_presentation(&mut self) {
+        self.call("__rejectPresentation()");
+    }
+    fn resolve_body(&mut self, body: &Value) {
+        self.call(&format!("__resolveBody({body})"));
+    }
+    fn resolve_body_at(&mut self, index: usize, body: &Value) {
+        self.call(&format!("__resolveBodyAt({index}, {body})"));
+    }
+    fn reject_body(&mut self) {
+        self.call("__rejectBody()");
+    }
+    fn tick(&mut self) {
+        self.call("__tick()");
+    }
+    fn grow(&mut self, index: usize) {
+        self.call(&format!("__grow({index})"));
+    }
+    fn close_watch(&mut self, index: usize) {
+        self.call(&format!("__watchClose({index})"));
+    }
+    fn trace(&mut self) -> Vec<String> {
+        serde_json::from_str(&self.call("__traceText()")).expect("the effect trace parses")
+    }
+    fn state(&mut self) -> Value {
+        serde_json::from_str(&self.call("__snapshotText()")).expect("the snapshot parses")
+    }
+}
+
+fn subject(
+    run_id: &str,
+    participant_key: &str,
+    reference: Option<Value>,
+    session_id: Option<&str>,
+    provider: Option<&str>,
+    working: bool,
+) -> Value {
+    json!({
+        "runId": run_id,
+        "participantKey": participant_key,
+        "reference": reference,
+        "sessionId": session_id,
+        "provider": provider,
+        "working": working,
+    })
+}
+
+fn claude_reference(id: &str, home: &str) -> Value {
+    json!({"kind": "claude-session", "locator": id, "home": home})
+}
+
+fn presentation(
+    reference: Value,
+    admitted: bool,
+    reason: Option<&str>,
+    hint: Option<&str>,
+    drill_eligible: bool,
+) -> Value {
+    json!({
+        "reference": reference,
+        "legacy": false,
+        "admitted": admitted,
+        "reason": reason,
+        "explanation": reason.map(|_| "explained"),
+        "path": if admitted { json!("/confirmed") } else { Value::Null },
+        "hint": hint,
+        "drill_eligible": drill_eligible,
+    })
+}
+
+fn text_body(text: &str) -> Value {
+    json!({"session_id": "abcd-1234", "turns": [
+        {"role": "assistant", "ts": "", "blocks": [{"kind": "text", "text": text}]}
+    ], "truncated": false})
+}
+
+#[test]
+fn the_served_controller_block_evaluates_in_boa() {
+    let mut boa = Boa::boot();
+    assert_eq!(boa.call("'ok'"), "ok");
+    let state = boa.state();
+    assert_eq!(state["active"], Value::Null);
+    assert_eq!(state["body"], "missing");
+    assert_eq!(state["bodies"], 0);
+}
+
+/// The production adapter is thin and lives outside the block; the block
+/// reaches no ambient browser global and is extracted from the exact bytes.
+#[test]
+fn the_controller_is_isolated_and_the_adapter_is_thin() {
+    assert_eq!(
+        PAGE.matches(CONTROLLER_START).count(),
+        1,
+        "exactly one served controller block"
+    );
+    assert_eq!(PAGE.matches(CONTROLLER_END).count(), 1);
+    assert_eq!(
+        PAGE.matches("= createTranscriptController(").count(),
+        1,
+        "the adapter constructs the controller exactly once"
+    );
+    assert!(PAGE.contains("encodeURIComponent(subject.runId)"));
+    assert!(PAGE.contains("encodeURIComponent(subject.participantKey)"));
+    assert!(PAGE.contains("encodeURIComponent(id)"));
+    assert_eq!(
+        PAGE.matches("{ cache: 'no-store' }").count(),
+        2,
+        "presentation and body fetches request no-store freshness"
+    );
+    assert_eq!(
+        PAGE.matches("new EventSource(").count(),
+        2,
+        "the run stream and the controller's watch each own one EventSource"
+    );
+    assert!(PAGE.contains("source.onerror = () => { source.close(); handlers.close(); };"));
+    assert_eq!(
+        PAGE.matches("setInterval(").count(),
+        2,
+        "the runs poll and the controller's re-check each own one timer"
+    );
+    assert!(PAGE.contains("clearInterval(handle)"));
+    assert!(PAGE.contains("transcriptBox.replaceChildren()"));
+    assert!(PAGE.contains("/^[0-9a-fA-F][0-9a-fA-F-]{0,63}$/"));
+    for retired in [
+        "transcriptCache",
+        "closeSessionWatch",
+        "held by ",
+        "— resume the session for the rest",
+        "— claude --resume carries the rest",
+    ] {
+        assert!(
+            !PAGE.contains(retired),
+            "the page still carries {retired:?}"
+        );
+    }
+    let block = controller_block();
+    assert!(block.contains("function createTranscriptController(effects)"));
+    assert!(
+        block.contains("function operator_select(subject)"),
+        "the controller exposes the explicit edge-triggered selection"
+    );
+    assert!(
+        PAGE.contains("transcriptController.operator_select(subject)"),
+        "the adapter routes explicit selection through operator_select"
+    );
+    assert!(
+        PAGE.contains("explicitSelectKey = part.key;"),
+        "the seat row marks an explicit selection"
+    );
+    assert!(
+        PAGE.contains("explicitSelectKey = n.key;"),
+        "the graph node marks an explicit selection instead of background sync"
+    );
+    assert!(
+        PAGE.contains("'local reference · '"),
+        "the page paints the authoritative common reference as its own fact"
+    );
+    for banned in [
+        "document",
+        "window",
+        "fetch",
+        "EventSource",
+        "setInterval",
+        "setTimeout",
+        "clearInterval",
+        "localStorage",
+        "XMLHttpRequest",
+        "JSON",
+    ] {
+        assert!(
+            !block.contains(banned),
+            "the controller block reaches the ambient {banned}"
+        );
+    }
+}
+
+/// The pinned Boa engine is a dev-only edge: the release dependency tree
+/// excludes it by construction.
+#[test]
+fn the_test_engine_is_pinned_and_dev_only() {
+    let manifest =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+    let (production, dev) = manifest
+        .split_once("[dev-dependencies]")
+        .expect("the manifest separates dev-dependencies");
+    assert!(
+        !production.contains("boa_engine"),
+        "Boa must never be a production dependency"
+    );
+    assert!(
+        dev.contains("boa_engine = { version = \"=0.21.1\", default-features = false }"),
+        "Boa is pinned exactly with default features disabled"
+    );
+}
+
+#[test]
+fn admitted_non_claude_sources_never_drill() {
+    for (kind, locator) in [
+        ("codex-thread", "0199mine"),
+        ("dsh-session", "sessions/one"),
+    ] {
+        let reference = json!({"kind": kind, "locator": locator, "home": "/retained"});
+        let pres = presentation(reference.clone(), true, None, Some("shared hint"), false);
+        let mut boa = Boa::boot();
+        boa.select(&subject(
+            "r1",
+            "seat",
+            Some(reference),
+            None,
+            Some("codex"),
+            true,
+        ));
+        boa.resolve_presentation(&pres);
+        boa.tick();
+        boa.resolve_presentation(&pres);
+        boa.tick();
+        boa.resolve_presentation(&pres);
+        let trace = boa.trace();
+        assert!(
+            !trace.iter().any(|entry| entry.starts_with("body ")),
+            "{kind} drove an id-only body request: {trace:?}"
+        );
+        assert!(
+            !trace.iter().any(|entry| entry.starts_with("open ")),
+            "{kind} opened a watch: {trace:?}"
+        );
+        let state = boa.state();
+        assert_eq!(state["admitted"], true);
+        assert_eq!(state["drillEligible"], false);
+        assert_eq!(state["bodies"], 0);
+        assert_eq!(state["opens"], 0);
+    }
+
+    // A valid Claude reference whose recorded home is not the local
+    // projects home is admitted yet drills nothing.
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume abcd-1234"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    let trace = boa.trace();
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("body ")),
+        "{trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("open ")),
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn a_concluded_zero_turn_body_is_fetched_once() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume abcd-1234"),
+        true,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        false,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&json!({"session_id": "abcd-1234", "turns": [], "truncated": false}));
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    let state = boa.state();
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(
+        state["bodies"], 1,
+        "an empty success is received, not re-requested"
+    );
+    assert_eq!(state["opens"], 0, "a concluded participant watches nothing");
+    let trace = boa.trace();
+    assert_eq!(
+        trace
+            .iter()
+            .filter(|entry| entry.starts_with("body "))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_persistently_unreadable_body_costs_one_request_per_interval() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        false,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.reject_body();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["body"], "refused");
+    for _ in 0..2 {
+        boa.tick();
+        boa.resolve_presentation(&pres);
+        boa.reject_body();
+        boa.resolve_presentation(&pres);
+    }
+    let state = boa.state();
+    assert_eq!(state["bodies"], 3, "one refused request per interval");
+    assert_eq!(state["opens"], 0);
+}
+
+#[test]
+fn discovery_refusals_close_admission_everywhere() {
+    for (kind, locator, home) in [
+        ("dsh-session", "sessions/one", "/retained"),
+        ("claude-session", "abcd-1234", "/retained/claude"),
+        ("codex-thread", "0199mine", "/retained"),
+    ] {
+        let reference = json!({"kind": kind, "locator": locator, "home": home});
+        let refused = presentation(reference.clone(), false, Some("unreadable"), None, false);
+        let mut boa = Boa::boot();
+        boa.select(&subject(
+            "r1",
+            "seat",
+            Some(reference),
+            None,
+            Some("codex"),
+            true,
+        ));
+        boa.resolve_presentation(&refused);
+        boa.tick();
+        boa.resolve_presentation(&refused);
+        boa.tick();
+        boa.resolve_presentation(&refused);
+        let state = boa.state();
+        assert_eq!(state["admitted"], false);
+        assert_eq!(state["reason"], "unreadable");
+        assert_eq!(state["explanation"], "explained");
+        assert_eq!(state["path"], Value::Null);
+        assert_eq!(
+            state["hint"],
+            Value::Null,
+            "a discovery refusal has no path hint"
+        );
+        assert_eq!(state["sessionId"], Value::Null, "no session label to drill");
+        assert_eq!(state["body"], "missing");
+        assert_eq!(state["bodies"], 0);
+        assert_eq!(state["opens"], 0);
+        let trace = boa.trace();
+        assert_eq!(
+            trace
+                .iter()
+                .filter(|entry| entry.starts_with("presentation "))
+                .count(),
+            3,
+            "each interval performs only fresh presentation discovery: {trace:?}"
+        );
+    }
+}
+
+#[test]
+fn a_recheck_first_interval_opens_one_watch() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut subject = subject("r1", "seat", Some(reference), None, Some("claude"), false);
+    let mut boa = Boa::boot();
+    boa.select(&subject);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["opens"], 0, "a concluded seat watches nothing");
+
+    // The seat starts working without a key change; the next recurring
+    // re-check spends its restored budget on the missing watch.
+    subject["working"] = json!(true);
+    boa.sync(&subject);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["opens"], 1);
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    let state = boa.state();
+    assert_eq!(state["opens"], 1, "one automatic opening per interval");
+    assert_eq!(state["watch"], true);
+}
+
+#[test]
+fn a_closure_first_interval_and_a_second_immediate_closure() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["opens"], 1);
+
+    // The watch closes at once; the interval's single budget is spent, so
+    // the fresh presentation repaints from a fresh body without a watch.
+    boa.close_watch(0);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("second"));
+    let state = boa.state();
+    assert_eq!(
+        state["opens"], 1,
+        "no second watch before the next re-check"
+    );
+    assert_eq!(state["watch"], false);
+    assert_eq!(state["body"], "succeeded");
+
+    // The next re-check restores the budget and opens exactly one watch.
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["opens"], 2);
+    assert_eq!(boa.state()["watch"], true);
+
+    // A second immediate closure again repaints from a fresh body and
+    // leaves the watch closed until the following re-check.
+    boa.close_watch(1);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("third"));
+    let state = boa.state();
+    assert_eq!(state["opens"], 2);
+    assert_eq!(state["watch"], false);
+    assert_eq!(state["body"], "succeeded");
+}
+
+#[test]
+fn admission_loss_rejects_late_callbacks_and_then_recovers() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let lost = presentation(
+        reference.clone(),
+        false,
+        Some("not-found"),
+        Some("hint"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.tick();
+    boa.resolve_presentation(&lost);
+    let state = boa.state();
+    assert_eq!(state["admitted"], false);
+    assert_eq!(state["reason"], "not-found");
+    assert_eq!(state["watch"], false);
+    assert_eq!(
+        state["body"], "missing",
+        "admission loss discards the prose"
+    );
+
+    // A late growth or close callback from the closed handle is inert.
+    let before = boa.trace().len();
+    boa.grow(0);
+    boa.close_watch(0);
+    assert_eq!(
+        boa.trace().len(),
+        before,
+        "a stale watch callback repainted"
+    );
+
+    // The next re-check admits again and restores body and watch.
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("recovered"));
+    let state = boa.state();
+    assert_eq!(state["admitted"], true);
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(state["watch"], true);
+    assert_eq!(state["opens"], 2);
+}
+
+#[test]
+fn an_identity_change_resets_only_the_new_key() {
+    let first = claude_reference("aaaa-1111", "/local/projects");
+    let second = claude_reference("bbbb-2222", "/local/projects");
+    let pres_first = presentation(first.clone(), true, None, Some("hint-a"), true);
+    let pres_second = presentation(second.clone(), true, None, Some("hint-b"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat-a",
+        Some(first),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres_first);
+    boa.resolve_body(&text_body("a"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.select(&subject(
+        "r1",
+        "seat-b",
+        Some(second),
+        None,
+        Some("claude"),
+        true,
+    ));
+    let state = boa.state();
+    assert_eq!(state["watch"], false, "the old watch is closed");
+    assert_eq!(state["body"], "missing");
+    assert_eq!(state["sessionId"], Value::Null);
+
+    boa.resolve_presentation(&pres_second);
+    boa.resolve_body(&text_body("b"));
+    let state = boa.state();
+    assert_eq!(state["sessionId"], "bbbb-2222");
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(state["watch"], true);
+    assert_eq!(state["opens"], 2);
+
+    // The first key's stale handle cannot touch the second's state.
+    boa.grow(0);
+    boa.close_watch(0);
+    assert_eq!(boa.state()["watch"], true);
+    assert_eq!(boa.state()["body"], "succeeded");
+}
+
+#[test]
+fn identical_subject_reselection_starts_a_fresh_interval() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference.clone()),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["opens"], 1);
+    // A closure spends the interval's opening; the fresh body repaints
+    // without a second watch.
+    boa.close_watch(0);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("second"));
+    assert_eq!(boa.state()["opens"], 1);
+    // The next re-check opens one watch and the interval then refuses a
+    // deferred body, exhausting the floor and the budget.
+    boa.tick();
+    boa.resolve_presentation(&pres);
+    assert_eq!(boa.state()["opens"], 2);
+    boa.close_watch(1);
+    boa.resolve_presentation(&pres);
+    boa.reject_body();
+    boa.resolve_presentation(&pres);
+    let exhausted = boa.state();
+    assert_eq!(exhausted["body"], "refused");
+    let generation = exhausted["generation"].as_u64().unwrap();
+
+    // The operator reselects the identical subject: a fresh generation,
+    // interval, presentation, body and eligible watch — never the
+    // consumed refusal floor or watch budget.
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    let fresh = boa.state();
+    assert!(
+        fresh["generation"].as_u64().unwrap() > generation,
+        "identical reselection is an event, not a no-op"
+    );
+    assert_eq!(fresh["body"], "missing");
+    assert_eq!(fresh["openingsUsed"], 0);
+    assert_eq!(fresh["watch"], false);
+
+    // Late callbacks from the prior generation stay inert while the fresh
+    // interval completes.
+    boa.grow(0);
+    boa.close_watch(0);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("third"));
+    let state = boa.state();
+    assert_eq!(state["body"], "succeeded");
+    assert_eq!(state["watch"], true);
+    assert_eq!(state["opens"], 3, "one eligible opening per interval");
+}
+
+#[test]
+fn a_foreign_home_shows_the_home_explanation_in_the_view() {
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume abcd-1234"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    let trace = boa.trace();
+    assert!(
+        trace.iter().any(|entry| entry.ends_with(" home")),
+        "a foreign canonical home shows the recorded-home explanation: {trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("body ")),
+        "{trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("open ")),
+        "{trace:?}"
+    );
+    let state = boa.state();
+    assert_eq!(state["sessionId"], Value::Null);
+    assert_eq!(state["drillEligible"], false);
+}
+
+// =========================================================================
+// HTTP: the shared Claude routes and the participant-presentation route.
+
+fn percent_encode(component: &str) -> String {
+    let mut out = String::new();
+    for byte in component.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+fn participant_fixture(
+    reference: Option<Value>,
+    provider: Option<&str>,
+    session_id: Option<&str>,
+) -> (tempfile::TempDir, PathBuf, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let mut store = Store::open(&db).unwrap();
+    store
+        .create_run("r1", "feat", "self", &json!({"files": {}}))
+        .unwrap();
+    {
+        let mut append = |kind, payload| {
+            store.append_next("r1", kind, payload, None, None).unwrap();
+        };
+        append(
+            EventType::RunStarted,
+            json!({"feature": "feat", "manifest": {}}),
+        );
+        append(EventType::PhaseEntered, json!({"phase": "intake"}));
+        append(
+            EventType::EffectRequested,
+            json!({"effect_id": "e1:seat", "seat": "intake", "phase": "intake",
+                   "idempotency_key": "k", "input_digest": "d"}),
+        );
+        let mut started = json!({"effect_id": "e1:seat", "attempt_id": "a1", "driver": "d"});
+        if let Some(provider) = provider {
+            started["provenance"] = json!([{"member": null, "agent": "intake",
+                "model": "m", "provider": provider, "chain_index": 1}]);
+        }
+        append(EventType::EffectStarted, started);
+        let mut checkpoint = json!({"step": "session-started"});
+        if let Some(reference) = reference {
+            checkpoint["transcript"] = reference;
+        }
+        if let Some(session_id) = session_id {
+            checkpoint["session_id"] = json!(session_id);
+        }
+        append(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e1:seat", "attempt_id": "a1", "checkpoint": checkpoint}),
+        );
+    }
+    let view: Value = serde_json::from_str(&handle(&db, "/api/view/r1").body).unwrap();
+    let key = view["participants"][0]["key"]
+        .as_str()
+        .expect("the fixture derives a participant")
+        .to_string();
+    (dir, db, key)
+}
+
+fn claude_projects_home() -> (tempfile::TempDir, PathBuf) {
+    let home = tempfile::tempdir().unwrap();
+    let projects = home.path().join(".claude").join("projects");
+    std::fs::create_dir_all(projects.join("seat")).unwrap();
+    (home, projects)
+}
+
+#[test]
+fn the_presentation_route_decodes_each_component_exactly_once() {
+    let (_dir, db, key) = participant_fixture(
+        Some(claude_reference("abcd-1234", "/retained/claude")),
+        None,
+        None,
+    );
+    let once = percent_encode(&key);
+    let twice = percent_encode(&once);
+
+    let response = handle(&db, &format!("/api/presentation/r1/{once}"));
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert!(parsed.get("reference").is_some());
+    assert!(parsed.get("legacy").is_some());
+    assert!(parsed.get("admitted").is_some());
+    assert!(parsed.get("reason").is_some());
+    assert!(parsed.get("explanation").is_some());
+    assert!(parsed.get("hint").is_some());
+    assert!(parsed.get("drill_eligible").is_some());
+    assert!(
+        parsed.get("turns").is_none(),
+        "no prose in the presentation"
+    );
+    assert!(parsed.get("blocks").is_none());
+    assert!(parsed.get("truncated").is_none());
+
+    // A double-encoded key decodes once to a non-peer, never twice.
+    assert_eq!(
+        handle(&db, &format!("/api/presentation/r1/{twice}")).status,
+        "404 Not Found"
+    );
+
+    // Malformed escapes and extra or missing components are refused.
+    for bad in [
+        "/api/presentation/r1/%zz".to_string(),
+        "/api/presentation/r1/%".to_string(),
+        "/api/presentation/r1".to_string(),
+        "/api/presentation/r1/".to_string(),
+        "/api/presentation/".to_string(),
+        format!("/api/presentation/r1/{once}/extra"),
+    ] {
+        assert_eq!(
+            handle(&db, &bad).status,
+            "404 Not Found",
+            "route {bad} must refuse"
+        );
+    }
+}
+
+/// R25: the participant route carries an agent-controlled confirmed
+/// path/home only as the shared reversible portable display literal, and
+/// the served page paints that exact value through a text node without
+/// reconstructing a fragment.
+#[test]
+fn a_hostile_recorded_home_reaches_the_page_only_as_portable_display_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let hostile_home = dir.path().join(if cfg!(windows) {
+        "home $(x) `t` ;a&b%c!d é😀"
+    } else {
+        "home $(x) `t` ;a&b|c<d>e%f!g \"q\" \\ é😀"
+    });
+    std::fs::create_dir_all(hostile_home.join("sessions")).unwrap();
+    std::fs::write(
+        hostile_home.join("sessions/rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let home_text = hostile_home.to_str().unwrap().to_string();
+    let (_dir, db, key) = participant_fixture(
+        Some(json!({"kind": "codex-thread", "locator": "0199mine", "home": home_text})),
+        None,
+        None,
+    );
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], true, "{}", response.body);
+    assert_eq!(parsed["drill_eligible"], false, "{}", response.body);
+    let path = parsed["path"].as_str().expect("a confirmed rollout");
+    let expected = format!(
+        "full session: path {}, codex exec resume 0199mine, home {}",
+        brokkr_view::transcript::portable_display_literal(path),
+        brokkr_view::transcript::portable_display_literal(&home_text),
+    );
+    let hint = parsed["hint"].as_str().expect("the shared hint");
+    assert_eq!(hint, expected);
+    for raw in ["$(", "`", ";", "&", "|", "<", ">", "%", "!", "é", "😀"] {
+        assert!(!hint.contains(raw), "{raw:?} survived raw in {hint:?}");
+    }
+    assert!(hint.contains("\\u0020"), "{hint:?}");
+    assert!(hint.contains("\\ud83d\\ude00"), "{hint:?}");
+    // The response's decoded JSON value equals the shared string; the raw
+    // document carries the separate outer escaping layer only. The echo of
+    // the recorded reference keeps its own raw bytes; only the completed
+    // hint must be portable.
+    assert!(response.body.contains("\\\\u0020"), "{}", response.body);
+
+    // The served page consumes `view.hint` verbatim through `el`'s
+    // textContent and never derives or reconstructs a path/home fragment.
+    let page = handle(&db, "/");
+    assert_eq!(page.status, "200 OK");
+    assert!(
+        page.body.contains("el('p', 'cause', view.hint)"),
+        "the participant block paints the shared hint verbatim"
+    );
+    assert!(!page.body.contains("full session: <id>"));
+}
+
+#[test]
+fn an_eligible_claude_participant_shares_the_hint_and_turns() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (home, projects) = claude_projects_home();
+    std::fs::write(
+        projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"the words\"}}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", home.path());
+    let recorded = std::fs::canonicalize(&projects)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let (_dir, db, key) =
+        participant_fixture(Some(claude_reference("abcd-1234", &recorded)), None, None);
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], true, "{}", response.body);
+    assert_eq!(parsed["drill_eligible"], true, "{}", response.body);
+    assert_eq!(parsed["reason"], Value::Null);
+    assert_eq!(parsed["hint"], "full session: claude --resume abcd-1234");
+    assert!(parsed["path"]
+        .as_str()
+        .unwrap()
+        .ends_with("abcd-1234.jsonl"));
+
+    let api = handle(&db, "/api/session/abcd-1234");
+    assert_eq!(api.status, "200 OK");
+    let body: Value = serde_json::from_str(&api.body).unwrap();
+    assert_eq!(body["session_id"], "abcd-1234");
+    assert_eq!(body["turns"][0]["blocks"][0]["text"], "the words");
+    assert_eq!(body["truncated"], false);
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn a_legacy_codex_participant_is_ineligible_while_the_id_route_answers() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (home, projects) = claude_projects_home();
+    std::fs::write(
+        projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hello\"}}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", home.path());
+    let (_dir, db, key) = participant_fixture(None, Some("codex"), Some("abcd-1234"));
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], false, "{}", response.body);
+    assert_eq!(parsed["reason"], "no-reference");
+    assert_eq!(parsed["hint"], Value::Null);
+    assert_eq!(parsed["drill_eligible"], false);
+
+    // The id-only route is journal-independent: it still answers.
+    let api = handle(&db, "/api/session/abcd-1234");
+    assert_eq!(api.status, "200 OK", "{}", api.body);
+    let body: Value = serde_json::from_str(&api.body).unwrap();
+    assert_eq!(body["turns"][0]["blocks"][0]["text"], "hello");
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn a_common_reference_defeats_a_stale_flat_id() {
+    for reference in [
+        json!({"kind": "none", "locator": "", "home": ""}),
+        json!({"kind": "claude-session", "locator": "", "home": "/retained"}),
+    ] {
+        let (_dir, db, key) =
+            participant_fixture(Some(reference), Some("claude"), Some("abcd-1234"));
+        let response = handle(
+            &db,
+            &format!("/api/presentation/r1/{}", percent_encode(&key)),
+        );
+        assert_eq!(response.status, "200 OK", "{}", response.body);
+        let parsed: Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(parsed["legacy"], false);
+        assert_eq!(parsed["admitted"], false, "{}", response.body);
+        assert!(parsed["reason"] == "none" || parsed["reason"] == "unannounced");
+        assert_eq!(parsed["hint"], Value::Null);
+        assert_eq!(parsed["path"], Value::Null);
+    }
+}
+
+/// The shared refusal mapping: every Claude lookup failure is a 404 with the
+/// exact envelope, on both routes, before any stream header.
+#[test]
+fn lookup_refusals_are_the_exact_envelope_on_both_routes() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (home, projects) = claude_projects_home();
+    // An unreadable body: the body route refuses it with the same envelope.
+    std::fs::write(projects.join("seat/dead-beef.jsonl"), [0xff, 0xfe]).unwrap();
+    // Two qualifying files: ambiguous-source.
+    std::fs::write(
+        projects.join("seat/aaaa-1111.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"one\"}}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(projects.join("other")).unwrap();
+    std::fs::write(
+        projects.join("other/aaaa-1111.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"two\"}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        projects.join("seat/a-bC09.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"content\":\"ok\"}}\n",
+    )
+    .unwrap();
+    // A below-home symlink: unsafe-path.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        projects.join("seat/a-bC09.jsonl"),
+        projects.join("other/baad-beef.jsonl"),
+    )
+    .unwrap();
+    std::env::set_var("HOME", home.path());
+    let db = PathBuf::from("missing.db");
+
+    // The body route refuses every lookup and body failure identically.
+    for id in ["dead-beef", "9999-9999", "aaaa-1111", "baad-beef"] {
+        let api = handle(&db, &format!("/api/session/{id}"));
+        assert_eq!(api.status, "404 Not Found", "id {id}: {}", api.body);
+        assert_eq!(api.body, "{\"error\":\"transcript not found\"}", "id {id}");
+    }
+    // The stream route refuses every lookup (it never reads a body) before
+    // a stream header; an invalid id maps to the same transcript envelope.
+    for id in ["9999-9999", "aaaa-1111", "baad-beef", "-abc"] {
+        let sse = exchange(
+            db.clone(),
+            &format!("GET /sse/session/{id} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+            None,
+        );
+        assert!(sse.starts_with("HTTP/1.1 404 Not Found"), "id {id}: {sse}");
+        assert!(
+            sse.contains("{\"error\":\"transcript not found\"}"),
+            "id {id}: {sse}"
+        );
+        assert!(
+            !sse.contains("text/event-stream"),
+            "a refusal writes no stream header: {sse}"
+        );
+    }
+
+    // The API's invalid id keeps its distinct envelope.
+    let api = handle(&db, "/api/session/-abc");
+    assert_eq!(api.status, "404 Not Found");
+    assert_eq!(api.body, "{\"error\":\"session not found\"}");
+
+    // a-bC09 keeps the three-field envelope and the stream.
+    let api = handle(&db, "/api/session/a-bC09");
+    assert_eq!(api.status, "200 OK", "{}", api.body);
+    let parsed: Value = serde_json::from_str(&api.body).unwrap();
+    assert_eq!(parsed["session_id"], "a-bC09");
+    assert_eq!(parsed["turns"][0]["blocks"][0]["text"], "ok");
+    assert_eq!(parsed["truncated"], false);
+    let sse = exchange(
+        db.clone(),
+        "GET /sse/session/a-bC09 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        Some(1),
+    );
+    assert!(sse.starts_with("HTTP/1.1 200 OK"), "{sse}");
+    assert!(sse.contains("Content-Type: text/event-stream"), "{sse}");
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn every_api_body_and_the_presentation_send_no_store() {
+    let (_dir, db, key) = participant_fixture(
+        Some(claude_reference("abcd-1234", "/retained/claude")),
+        None,
+        None,
+    );
+    let requests = [
+        "GET /api/runs HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+        "GET /api/view/r1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+        "GET /api/run/r1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
+        format!("/api/presentation/r1/{}", percent_encode(&key)),
+    ];
+    for request in requests {
+        let line = if request.starts_with("GET") {
+            request
+        } else {
+            format!("GET {request} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        };
+        let response = exchange(db.clone(), &line, None);
+        assert!(
+            response.contains("Cache-Control: no-store"),
+            "{line}: {response}"
+        );
+    }
+
+    // A refusal carries the header too.
+    let missing = exchange(
+        PathBuf::from("missing.db"),
+        "GET /api/session/-abc HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        None,
+    );
+    assert!(missing.contains("Cache-Control: no-store"), "{missing}");
+    assert!(missing.contains("{\"error\":\"session not found\"}"));
+}
+
+#[test]
+fn a_foreign_claude_home_admits_and_drills_nothing_over_http() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous = std::env::var_os("HOME");
+    let (local_home, _local_projects) = claude_projects_home();
+    std::env::set_var("HOME", local_home.path());
+    let custom = tempfile::tempdir().unwrap();
+    let custom_projects = custom.path().join("claude-projects");
+    std::fs::create_dir_all(custom_projects.join("seat")).unwrap();
+    std::fs::write(
+        custom_projects.join("seat/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"custom\"}}\n",
+    )
+    .unwrap();
+    let recorded = std::fs::canonicalize(&custom_projects)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let (_dir, db, key) =
+        participant_fixture(Some(claude_reference("abcd-1234", &recorded)), None, None);
+
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], true, "{}", response.body);
+    assert_eq!(parsed["drill_eligible"], false, "{}", response.body);
+    assert_eq!(parsed["hint"], "full session: claude --resume abcd-1234");
+    assert_eq!(parsed["reason"], Value::Null);
+
+    if let Some(previous) = previous {
+        std::env::set_var("HOME", previous);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+#[test]
+fn the_client_id_guard_refuses_a_leading_hyphen_drill() {
+    let reference = claude_reference("-abc", "/local/projects");
+    let pres = presentation(
+        reference.clone(),
+        true,
+        None,
+        Some("full session: claude --resume -abc"),
+        true,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    let state = boa.state();
+    assert_eq!(
+        state["sessionId"],
+        Value::Null,
+        "the client guard is the leading-hexadecimal rule"
+    );
+    assert_eq!(state["bodies"], 0);
+    assert_eq!(state["opens"], 0);
+    let trace = boa.trace();
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("body ")),
+        "{trace:?}"
+    );
+    assert!(
+        !trace.iter().any(|entry| entry.starts_with("open ")),
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn an_eligibility_change_resets_that_key() {
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let eligible = presentation(reference.clone(), true, None, Some("hint"), true);
+    let ineligible = presentation(reference.clone(), true, None, Some("hint"), false);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&eligible);
+    boa.resolve_body(&text_body("x"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.tick();
+    boa.resolve_presentation(&ineligible);
+    let state = boa.state();
+    assert_eq!(state["drillEligible"], false);
+    assert_eq!(state["watch"], false, "eligibility loss closes the watch");
+    assert_eq!(state["body"], "missing", "eligibility loss clears prose");
+}
+
+#[test]
+fn a_failed_presentation_request_is_an_unreadable_refusal() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.reject_presentation();
+    let state = boa.state();
+    assert_eq!(state["admitted"], false);
+    assert_eq!(state["reason"], "unreadable");
+    assert_eq!(state["bodies"], 0);
+    assert_eq!(state["opens"], 0);
+    assert_eq!(state["sessionId"], Value::Null);
+}
+
+/// A bounded growth watch reads the source and writes nothing: the
+/// journal is untouched and the retained file keeps every byte.
+#[test]
+fn a_growth_watch_changes_no_retained_byte() {
+    let _home = crate::tests::HOME
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let projects = home.join(".claude").join("projects").join("live-project");
+    std::fs::create_dir_all(&projects).unwrap();
+    let file = projects.join("abcd-1234.jsonl");
+    std::fs::write(
+        &file,
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"a word\"}}\n",
+    )
+    .unwrap();
+    std::env::set_var("HOME", &home);
+    let before = std::fs::read(&file).unwrap();
+    let mut request = std::io::Cursor::new(
+        b"GET /sse/session/abcd-1234 HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+    );
+    let mut sink = Vec::new();
+    serve_io(
+        &PathBuf::from("missing.db"),
+        &mut request,
+        &mut sink,
+        Some(2),
+    );
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        before,
+        "a growth watch must read the source, never rewrite it"
+    );
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+}
+
+/// Syncing a participant from working to concluded closes the watch it
+/// owns instead of leaving it open on a seat with no further prose.
+#[test]
+fn syncing_a_concluded_participant_closes_its_owned_watch() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut working = subject("r1", "seat", Some(reference), None, Some("claude"), true);
+    let mut boa = Boa::boot();
+    boa.select(&working);
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+
+    working["working"] = json!(false);
+    boa.sync(&working);
+    let state = boa.state();
+    assert_eq!(state["watch"], false, "a concluded seat keeps no watch");
+    assert!(
+        boa.trace().iter().any(|entry| entry.starts_with("close ")),
+        "the transition closes the owned watch: {:?}",
+        boa.trace()
+    );
+}
+
+/// Two growth callbacks issue two body requests; when the newer response
+/// resolves first, the older superseded response cannot repaint.
+#[test]
+fn overlapping_growth_reads_cannot_restore_older_prose() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let pres = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+
+    boa.grow(0);
+    boa.grow(0);
+    assert_eq!(
+        boa.state()["bodies"],
+        3,
+        "each growth callback issues one body request"
+    );
+
+    // Resolve the newer request first, then the older one.
+    boa.resolve_body_at(1, &text_body("newer"));
+    boa.resolve_body_at(0, &text_body("older"));
+    let renders = boa
+        .trace()
+        .iter()
+        .filter(|entry| entry.starts_with("render body"))
+        .count();
+    assert_eq!(
+        renders,
+        2,
+        "only the newest body request may repaint: {:?}",
+        boa.trace()
+    );
+}
+
+/// An eligibility-only presentation change resets the watch budget, as
+/// the transcript-reading recovery rule exempts eligibility changes from
+/// the previous automatic-recovery bound.
+#[test]
+fn an_eligibility_change_restores_the_watch_budget() {
+    let reference = claude_reference("abcd-1234", "/local/projects");
+    let ineligible = presentation(reference.clone(), true, None, Some("hint"), false);
+    let eligible = presentation(reference.clone(), true, None, Some("hint"), true);
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&eligible);
+    boa.resolve_body(&text_body("first"));
+    assert_eq!(boa.state()["watch"], true);
+    assert_eq!(boa.state()["openingsUsed"], 1);
+
+    // The closure's fresh presentation turns the drill ineligible. The
+    // spent opening must not survive that eligibility change.
+    boa.close_watch(0);
+    boa.resolve_presentation(&ineligible);
+    assert_eq!(
+        boa.state()["openingsUsed"],
+        0,
+        "an eligibility change restores the watch budget"
+    );
+    assert_eq!(boa.state()["drillEligible"], false);
+    assert_eq!(
+        boa.state()["opens"],
+        1,
+        "no watch opens while the drill is ineligible"
+    );
+}
+
+/// A valid Claude reference under a foreign recorded home keeps the
+/// recorded-home explanation even when shared lookup refuses it at the
+/// same time, and still drives no body request or watch.
+#[test]
+fn a_foreign_home_shows_the_home_explanation_beside_a_discovery_refusal() {
+    let reference = claude_reference("abcd-1234", "/retained/claude");
+    let pres = presentation(
+        reference.clone(),
+        false,
+        Some("ambiguous-source"),
+        Some("full session: claude --resume abcd-1234"),
+        false,
+    );
+    let mut boa = Boa::boot();
+    boa.select(&subject(
+        "r1",
+        "seat",
+        Some(reference),
+        None,
+        Some("claude"),
+        true,
+    ));
+    boa.resolve_presentation(&pres);
+    let trace = boa.trace();
+    assert!(
+        trace.iter().any(|entry| entry.ends_with(" home")),
+        "a foreign home keeps its explanation beside the refusal: {trace:?}"
+    );
+    assert!(
+        trace.iter().any(|entry| entry.contains("ambiguous-source")),
+        "{trace:?}"
+    );
+    assert_eq!(boa.state()["bodies"], 0);
+    assert_eq!(boa.state()["opens"], 0);
+}
+
+/// A symlinked recorded home is canonicalized once and opened as the
+/// traversal root; the confirmed path is the canonical spelling.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_home_is_canonicalized_and_readable() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    let projects = real.join("project");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::write(
+        projects.join("abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let reference = common("claude-session", "abcd-1234", link.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "a symlinked home is canonicalized, not refused: {read:?}"
+    );
+    assert!(
+        read.path
+            .as_deref()
+            .unwrap()
+            .starts_with(real.canonicalize().unwrap().to_str().unwrap()),
+        "the confirmed path is canonical: {read:?}"
+    );
+}
+
+/// Each enumerated project costs one discovery entry, not two: 6,000
+/// projects with only one matching file stay inside the 10,000-entry
+/// bound instead of exhausting it on the file probes.
+#[test]
+fn claude_discovery_counts_each_project_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("winning")).unwrap();
+    std::fs::write(
+        projects.join("winning/abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"late\"}}\n",
+    )
+    .unwrap();
+    for index in 0..6_000 {
+        std::fs::create_dir_all(projects.join(format!("filler-{index:05}"))).unwrap();
+    }
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(
+        read.is_readable(),
+        "6,000 projects are 6,000 examined entries, not 12,000: {read:?}"
+    );
+}
+
+// ------------------------------------- discovery boundaries and refusals
+
+#[test]
+fn discovery_helper_predicates_cover_their_boundaries() {
+    assert!(!codex_filename_matches("session.jsonl", "abc"));
+    assert!(!codex_filename_matches("rollout-abc.txt", "abc"));
+    assert!(codex_filename_matches("rollout-abc.jsonl", "abc"));
+    assert!(!codex_filename_matches("rollout-.jsonl", ""));
+    assert!(!codex_filename_matches("rollout-abc.jsonl", "abcd"));
+    assert!(!codex_filename_matches("rolloutxabc.jsonl", "abc"));
+    assert!(!codex_filename_matches("rollout-abcX.jsonl", "abc"));
+    assert!(codex_filename_matches("rollout-abc-.jsonl", "abc"));
+}
+
+#[test]
+fn discover_of_the_none_kind_selects_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let valid = brokkr_view::transcript::ValidReference {
+        kind: brokkr_view::transcript::TranscriptKind::None,
+        locator: "x".to_string(),
+        home: dir.path().to_str().unwrap().to_string(),
+    };
+    assert!(matches!(discover(&valid), Discovery::Refused(_, _)));
+}
+
+#[test]
+fn a_boundary_refusal_reports_the_recorded_path_and_hint() {
+    let selection = brokkr_view::transcript::Selection {
+        reference: Some(common("claude-session", "abcd-1234", "/h")),
+        legacy: false,
+        outcome: Err(brokkr_view::transcript::Unavailable::Unreadable),
+    };
+    let read = refused_source(
+        &selection,
+        "/h/one/abcd-1234.jsonl".to_string(),
+        Some("hint".to_string()),
+    );
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    assert_eq!(read.path.as_deref(), Some("/h/one/abcd-1234.jsonl"));
+    assert_eq!(read.full_session.as_deref(), Some("hint"));
+}
+
+/// Create a fixture directory whose name is not valid UTF-8, reporting
+/// whether the filesystem accepted it. Linux takes any byte sequence but
+/// slash and null; macOS requires valid UTF-8 in a filename and refuses this
+/// one with `EILSEQ` before the directory can exist. A reader cannot
+/// encounter an entry the filesystem cannot represent, so a test that needs
+/// one has nothing left to prove there and returns. Every other error is a
+/// real failure and still fails.
+#[cfg(unix)]
+fn create_non_unicode_dir(path: &std::path::Path) -> bool {
+    match std::fs::create_dir_all(path) {
+        Ok(()) => true,
+        Err(error) => {
+            assert!(
+                cfg!(target_vendor = "apple") && error.raw_os_error() == Some(92),
+                "unexpected failure creating the non-Unicode fixture: {error}"
+            );
+            false
+        }
+    }
+}
+
+#[test]
+fn a_non_directory_home_is_unreadable_not_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("not-a-dir");
+    std::fs::write(&file, "x").unwrap();
+    let reference = common("claude-session", "abcd-1234", file.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_non_unicode_canonical_home_is_unreadable() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir
+        .path()
+        .join(std::ffi::OsString::from_vec(vec![b'b', 0xff]));
+    if !create_non_unicode_dir(&bad) {
+        return;
+    }
+    let link = dir.path().join("home");
+    std::os::unix::fs::symlink(&bad, &link).unwrap();
+    let reference = common("claude-session", "abcd-1234", link.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+}
+
+#[test]
+fn a_dsh_header_that_is_not_an_object_is_not_a_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(session.join("session.jsonl"), "[1]\n").unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_codex_sessions_root_is_unsafe() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("elsewhere"), home.join("sessions")).unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::UnsafePath)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_dsh_locator_component_is_unsafe() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("elsewhere"), home.join("sessions")).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::UnsafePath)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_walk_skips_non_unicode_names_and_symlinks() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    if !create_non_unicode_dir(&sessions.join(std::ffi::OsString::from_vec(vec![b'x', 0xff]))) {
+        return;
+    }
+    std::os::unix::fs::symlink(
+        dir.path().join("outside.jsonl"),
+        sessions.join("rollout-thread-1.jsonl"),
+    )
+    .unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(!read.is_readable(), "{read:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_walk_skips_non_unicode_projects_sessions_and_symlinked_leaves() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let base = home.join("sessions/one");
+    std::fs::create_dir_all(&base).unwrap();
+    if !create_non_unicode_dir(&base.join(std::ffi::OsString::from_vec(vec![b'p', 0xff]))) {
+        return;
+    }
+    std::os::unix::fs::symlink(dir.path().join("out"), base.join("plink")).unwrap();
+
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    if !create_non_unicode_dir(&project.join(std::ffi::OsString::from_vec(vec![b's', 0xff]))) {
+        return;
+    }
+    std::os::unix::fs::symlink(dir.path().join("out"), project.join("slink")).unwrap();
+
+    let session = project.join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("out"), session.join("session.jsonl")).unwrap();
+
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(!read.is_readable(), "{read:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_claude_project_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    let locked = projects.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    std::fs::write(
+        locked.join("abcd-1234.jsonl"),
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"x\"}}\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_codex_sessions_root_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_dsh_locator_component_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable));
+    std::fs::set_permissions(&sessions, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_dsh_projects_sessions_and_leaves_count_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let base = home.join("sessions/one");
+    std::fs::create_dir_all(&base).unwrap();
+    let locked_project = base.join("locked");
+    std::fs::create_dir_all(&locked_project).unwrap();
+    std::fs::set_permissions(&locked_project, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&locked_project, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let project = base.join("project");
+    let locked_session = project.join("locked-session");
+    std::fs::create_dir_all(&locked_session).unwrap();
+    std::fs::set_permissions(&locked_session, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&locked_session, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let session = project.join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let leaf = session.join("session.jsonl");
+    std::fs::write(&leaf, "{\"type\":\"session\",\"version\":0}\n").unwrap();
+    std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[test]
+fn dsh_walk_ignores_regular_files_and_directory_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let base = home.join("sessions/one");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(base.join("stray"), "x").unwrap();
+
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("stray-session"), "x").unwrap();
+    std::fs::create_dir_all(project.join("dirleaf/session.jsonl")).unwrap();
+
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn safe_fs_classifies_non_regular_children_as_unsafe() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(&root).unwrap();
+    let fifo = root.join("pipe.jsonl");
+    let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc_mkfifo(c.as_ptr(), 0o644) }, 0);
+    let handle = safe_fs::Dir::open_root(root.to_str().unwrap()).unwrap();
+    let name = std::ffi::OsStr::from_bytes(b"pipe.jsonl");
+    let got = handle.child(name).expect("child open");
+    assert!(matches!(got, safe_fs::Child::Unsafe), "classification");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_claude_candidate_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let file = projects.join("one/abcd-1234.jsonl");
+    std::fs::write(
+        &file,
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":\"x\"}}\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_codex_rollout_candidate_counts_as_io() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let sessions = home.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let file = sessions.join("rollout-thread-1.jsonl");
+    std::fs::write(&file, "{}\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let reference = common("codex-thread", "thread-1", home.to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// The fault-seam proofs (change `prove-transcript-reader-faults`, D2-D8).
+// ---------------------------------------------------------------------------
+
+use safe_fs::fault::{ChangeAt, FailAt, Plan};
+
+fn claude_body(text: &str) -> String {
+    format!(
+        "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":{}}}}}\n",
+        json!(text)
+    )
+}
+
+fn dsh_header_text(depth: u64) -> String {
+    format!("{{\"type\":\"session\",\"delegationDepth\":{depth},\"version\":0}}\n")
+}
+
+/// A discovery-stage unreadable refusal: no path, no turns, zero counts, no
+/// truncation, no notices, and the kind's unresolved full-session hint.
+fn assert_discovery_unreadable(
+    read: &TranscriptRead,
+    kind: TranscriptKind,
+    reference: &brokkr_view::Transcript,
+) {
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable), "{read:?}");
+    assert_eq!(
+        read.path, None,
+        "a discovery-stage refusal keeps no path: {read:?}"
+    );
+    assert!(read.turns.is_empty(), "{read:?}");
+    assert_eq!(read.skipped_lines, 0, "{read:?}");
+    assert_eq!(read.unrecognized_records, 0, "{read:?}");
+    assert!(!read.truncated, "{read:?}");
+    assert!(read.notices.is_empty(), "{read:?}");
+    let valid = ValidReference {
+        kind,
+        locator: reference.locator.clone(),
+        home: reference.home.clone(),
+    };
+    assert_eq!(
+        read.full_session,
+        brokkr_view::transcript::full_session(&valid, None),
+        "the kind's unresolved hint is kept: {read:?}"
+    );
+}
+
+/// A body-stage unreadable refusal: the admitted path is kept, no turns and
+/// zero counts.
+fn assert_body_unreadable(read: &TranscriptRead) {
+    assert_eq!(read.unavailable, Some(Unavailable::Unreadable), "{read:?}");
+    assert!(
+        read.path.is_some(),
+        "a body-stage refusal keeps the admitted path: {read:?}"
+    );
+    assert!(read.turns.is_empty(), "{read:?}");
+    assert_eq!(read.skipped_lines, 0, "{read:?}");
+    assert_eq!(read.unrecognized_records, 0, "{read:?}");
+    assert!(!read.truncated, "{read:?}");
+}
+
+fn claude_fixture(text: &str) -> (tempfile::TempDir, brokkr_view::Transcript) {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), claude_body(text)).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    (dir, reference)
+}
+
+fn codex_fixture(id: &str) -> (tempfile::TempDir, brokkr_view::Transcript) {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join(format!("rollout-{id}.jsonl")),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let reference = common("codex-thread", id, dir.path().to_str().unwrap());
+    (dir, reference)
+}
+
+fn dsh_fixture(locator: &str) -> (tempfile::TempDir, brokkr_view::Transcript) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let seat = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&seat).unwrap();
+    std::fs::write(seat.join("session.jsonl"), dsh_header_text(0)).unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    (dir, reference)
+}
+
+#[test]
+#[should_panic(expected = "fault seam entries never fired")]
+fn a_plan_whose_entry_never_fires_fails_its_test() {
+    let _guard = Plan::new().fail(FailAt::Entries, 1).install();
+}
+
+#[test]
+#[should_panic(expected = "fault seam entries never fired: Child occurrence 1")]
+fn a_change_entry_that_never_fires_names_itself() {
+    let _guard = Plan::new().change(ChangeAt::Child, 1, || {}).install();
+}
+
+#[test]
+#[should_panic(expected = "a fault plan is already installed on this thread")]
+fn a_nested_install_is_refused_and_its_unwinding_clears_the_plan() {
+    let _outer = Plan::new().fail(FailAt::Entries, 1).install();
+    let _nested = Plan::new().install();
+}
+
+#[test]
+fn a_plan_is_scoped_to_its_installing_thread_and_ends_with_its_test() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    std::fs::write(projects.join("one/abcd-1234.jsonl"), claude_body("one")).unwrap();
+    let home = projects.to_str().unwrap().to_string();
+    let reference = common("claude-session", "abcd-1234", &home);
+
+    // The first lookup enumerates once for discovery and once for the
+    // acquisition re-walk; the separate second lookup is occurrence 3.
+    let _guard = Plan::new().fail(FailAt::Entries, 3).install();
+    assert!(
+        read_common(&reference).is_readable(),
+        "occurrence 1 sees the real filesystem"
+    );
+
+    let other_home = home.clone();
+    let other = std::thread::spawn(move || {
+        let reference = common("claude-session", "abcd-1234", &other_home);
+        read_common(&reference).is_readable()
+    })
+    .join()
+    .unwrap();
+    assert!(other, "the other thread sees only real filesystem results");
+
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::Unreadable)
+    );
+}
+
+#[test]
+fn a_scripted_enumeration_error_is_a_discovery_stage_unreadable() {
+    {
+        let (_dir, reference) = claude_fixture("one");
+        let _guard = Plan::new().fail(FailAt::Entries, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::ClaudeSession, &reference);
+    }
+    {
+        let (_dir, reference) = codex_fixture("0199mine");
+        let _guard = Plan::new().fail(FailAt::Entries, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::CodexThread, &reference);
+    }
+    {
+        let (_dir, reference) = dsh_fixture("sessions/one");
+        let _guard = Plan::new().fail(FailAt::Entries, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::DshSession, &reference);
+    }
+    {
+        let (_dir, reference) = dsh_fixture("sessions/one");
+        let _guard = Plan::new().fail(FailAt::Entries, 2).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::DshSession, &reference);
+    }
+}
+
+#[test]
+fn an_enumeration_error_closes_browser_admission() {
+    let (dir, reference) = claude_fixture("one");
+    let home = reference.home.clone();
+    let (_db_dir, db, key) = participant_fixture(
+        Some(json!({"kind": "claude-session", "locator": "abcd-1234", "home": home})),
+        None,
+        None,
+    );
+    let _guard = Plan::new().fail(FailAt::Entries, 1).install();
+    let response = handle(
+        &db,
+        &format!("/api/presentation/r1/{}", percent_encode(&key)),
+    );
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    let parsed: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(parsed["admitted"], false, "{}", response.body);
+    assert_eq!(parsed["reason"], "unreadable", "{}", response.body);
+    drop(dir);
+}
+
+#[test]
+fn a_scripted_identity_error_prevents_a_unique_answer() {
+    {
+        let (_dir, reference) = claude_fixture("one");
+        let _guard = Plan::new().fail(FailAt::Identity, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::ClaudeSession, &reference);
+    }
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let projects = dir.path().join("projects");
+        for project in ["one", "two"] {
+            std::fs::create_dir_all(projects.join(project)).unwrap();
+            std::fs::write(
+                projects.join(project).join("abcd-1234.jsonl"),
+                claude_body(project),
+            )
+            .unwrap();
+        }
+        let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+        let _guard = Plan::new().fail(FailAt::Identity, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::ClaudeSession, &reference);
+    }
+    {
+        let (_dir, reference) = codex_fixture("0199mine");
+        let _guard = Plan::new().fail(FailAt::Identity, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::CodexThread, &reference);
+    }
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let sessions = dir.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        for id in ["0199mine", "0199other"] {
+            std::fs::write(
+                sessions.join(format!("rollout-{id}.jsonl")),
+                "{\"type\":\"turn_context\"}\n",
+            )
+            .unwrap();
+        }
+        let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+        let _guard = Plan::new().fail(FailAt::Identity, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::CodexThread, &reference);
+    }
+    {
+        let (_dir, reference) = dsh_fixture("sessions/one");
+        let _guard = Plan::new().fail(FailAt::Identity, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::DshSession, &reference);
+    }
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("dsh");
+        let locator = "sessions/one";
+        for project in ["project", "second"] {
+            let seat = root.join(locator).join(project).join("seat");
+            std::fs::create_dir_all(&seat).unwrap();
+            std::fs::write(seat.join("session.jsonl"), dsh_header_text(0)).unwrap();
+        }
+        let reference = common("dsh-session", locator, root.to_str().unwrap());
+        let _guard = Plan::new().fail(FailAt::Identity, 1).install();
+        let read = read_common(&reference);
+        assert_discovery_unreadable(&read, TranscriptKind::DshSession, &reference);
+    }
+}
+
+#[test]
+fn a_scripted_dsh_header_read_error_is_discovery_stage_unreadable() {
+    let (_dir, reference) = dsh_fixture("sessions/one");
+    let _guard = Plan::new().fail(FailAt::Read, 1).install();
+    let read = read_common(&reference);
+    assert_discovery_unreadable(&read, TranscriptKind::DshSession, &reference);
+    assert_eq!(read.full_session, None, "the DSH hint stays null: {read:?}");
+}
+
+#[test]
+fn a_failed_retained_handle_identity_refuses_without_prose() {
+    {
+        let (dir, reference) = claude_fixture("body");
+        let file = dir.path().join("projects/one/abcd-1234.jsonl");
+        let before = std::fs::read(&file).unwrap();
+        let _guard = Plan::new().fail(FailAt::Identity, 3).install();
+        let read = read_common(&reference);
+        assert_body_unreadable(&read);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "bytes unchanged");
+    }
+    {
+        let (dir, reference) = codex_fixture("0199mine");
+        let file = dir.path().join("sessions/rollout-0199mine.jsonl");
+        let before = std::fs::read(&file).unwrap();
+        let _guard = Plan::new().fail(FailAt::Identity, 3).install();
+        let read = read_common(&reference);
+        assert_body_unreadable(&read);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "bytes unchanged");
+    }
+    {
+        let (dir, reference) = dsh_fixture("sessions/one");
+        let file = dir
+            .path()
+            .join("dsh/sessions/one/project/seat/session.jsonl");
+        let before = std::fs::read(&file).unwrap();
+        let _guard = Plan::new().fail(FailAt::Identity, 3).install();
+        let read = read_common(&reference);
+        assert_body_unreadable(&read);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "bytes unchanged");
+    }
+}
+
+#[test]
+fn a_failed_bounded_source_read_refuses_without_prose() {
+    {
+        let (dir, reference) = claude_fixture("body");
+        let file = dir.path().join("projects/one/abcd-1234.jsonl");
+        let before = std::fs::read(&file).unwrap();
+        let _guard = Plan::new().fail(FailAt::Read, 1).install();
+        let read = read_common(&reference);
+        assert_body_unreadable(&read);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "bytes unchanged");
+    }
+    {
+        let (dir, reference) = codex_fixture("0199mine");
+        let file = dir.path().join("sessions/rollout-0199mine.jsonl");
+        let before = std::fs::read(&file).unwrap();
+        let _guard = Plan::new().fail(FailAt::Read, 1).install();
+        let read = read_common(&reference);
+        assert_body_unreadable(&read);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "bytes unchanged");
+    }
+    {
+        let (dir, reference) = dsh_fixture("sessions/one");
+        let file = dir
+            .path()
+            .join("dsh/sessions/one/project/seat/session.jsonl");
+        let before = std::fs::read(&file).unwrap();
+        // Two header reads happen before the source read: discovery and the
+        // acquisition re-walk.
+        let _guard = Plan::new().fail(FailAt::Read, 3).install();
+        let read = read_common(&reference);
+        assert_body_unreadable(&read);
+        assert_eq!(std::fs::read(&file).unwrap(), before, "bytes unchanged");
+    }
+}
+
+#[test]
+fn a_codex_entry_that_vanishes_before_its_open_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let rollout = sessions.join("rollout-0199mine.jsonl");
+    std::fs::write(&rollout, "{\"type\":\"turn_context\"}\n").unwrap();
+    let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+    let target = rollout.clone();
+    // `sessions` itself is `Child` 1; the rollout is `Child` 2.
+    let _guard = Plan::new()
+        .change(ChangeAt::Child, 2, move || {
+            std::fs::remove_file(&target).unwrap();
+        })
+        .install();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound), "{read:?}");
+    assert_eq!(read.path, None);
+    assert!(read.turns.is_empty());
+}
+
+#[test]
+fn a_claude_entry_that_vanishes_at_the_file_attempt_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let file = projects.join("one/abcd-1234.jsonl");
+    std::fs::write(&file, claude_body("gone")).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let target = file.clone();
+    let _guard = Plan::new()
+        .change(ChangeAt::ChildFileAttempt, 1, move || {
+            std::fs::remove_file(&target).unwrap();
+        })
+        .install();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound), "{read:?}");
+    assert_eq!(read.path, None);
+    assert!(read.turns.is_empty());
+}
+
+#[test]
+fn a_claude_child_file_attempt_placement_witness_is_unsafe_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let file = projects.join("one/abcd-1234.jsonl");
+    std::fs::write(&file, claude_body("gone")).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let target = file.clone();
+    let _guard = Plan::new()
+        .change(ChangeAt::ChildFileAttempt, 1, move || {
+            std::fs::remove_file(&target).unwrap();
+            std::fs::create_dir(&target).unwrap();
+        })
+        .install();
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::UnsafePath), "{read:?}");
+}
+
+#[test]
+fn a_rename_before_the_rewalk_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    std::fs::create_dir_all(projects.join("two")).unwrap();
+    let file = projects.join("one/abcd-1234.jsonl");
+    std::fs::write(&file, claude_body("original")).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let source = file.clone();
+    let moved = projects.join("two/abcd-1234.jsonl");
+    let _guard = Plan::new()
+        .change(ChangeAt::BeforeRewalk, 1, move || {
+            std::fs::rename(&source, &moved).unwrap();
+        })
+        .install();
+    let read = read_common(&reference);
+    assert_body_unreadable(&read);
+}
+
+#[test]
+fn a_replacement_before_the_rewalk_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    std::fs::create_dir_all(projects.join("one")).unwrap();
+    let file = projects.join("one/abcd-1234.jsonl");
+    std::fs::write(&file, claude_body("original")).unwrap();
+    let reference = common("claude-session", "abcd-1234", projects.to_str().unwrap());
+    let source = file.clone();
+    let holding = projects.join("one/holding.txt");
+    let staged = projects.join("one/staged.jsonl");
+    let _guard = Plan::new()
+        .change(ChangeAt::BeforeRewalk, 1, move || {
+            std::fs::rename(&source, &holding).unwrap();
+            std::fs::write(&staged, claude_body("replacement")).unwrap();
+            std::fs::rename(&staged, &source).unwrap();
+        })
+        .install();
+    let read = read_common(&reference);
+    assert_body_unreadable(&read);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_seam_leaves_the_boundary_checks_in_force() {
+    use std::os::unix::fs::symlink;
+
+    extern "C" {
+        fn mkfifo(path: *const std::os::raw::c_char, mode: u32) -> std::os::raw::c_int;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    // A symlinked project, a symlinked candidate, a FIFO candidate and a
+    // regular candidate, each in its own root so one read is one lookup.
+    let linked_project = dir.path().join("linked-project");
+    let real = linked_project.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    symlink(&real, linked_project.join("one")).unwrap();
+
+    let linked_candidate = dir.path().join("linked-candidate");
+    std::fs::create_dir_all(linked_candidate.join("one")).unwrap();
+    let target = linked_candidate.join("target");
+    std::fs::write(&target, claude_body("target")).unwrap();
+    symlink(&target, linked_candidate.join("one/abcd-1234.jsonl")).unwrap();
+
+    let fifo = dir.path().join("fifo");
+    std::fs::create_dir_all(fifo.join("one")).unwrap();
+    let fifo_path = fifo.join("one/abcd-1234.jsonl");
+    let fifo_c = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { mkfifo(fifo_c.as_ptr(), 0o644) }, 0);
+
+    let regular = dir.path().join("regular");
+    std::fs::create_dir_all(regular.join("one")).unwrap();
+    std::fs::write(regular.join("one/abcd-1234.jsonl"), claude_body("regular")).unwrap();
+
+    // One enumeration per unadmitted read: linked project (1), linked
+    // candidate (2), FIFO (3). The regular candidate is admitted, so it
+    // enumerates once for discovery and once for the re-walk (4 and 5);
+    // the separate later lookup is occurrence 6.
+    let _guard = Plan::new().fail(FailAt::Entries, 6).install();
+
+    let linked_project_ref = common(
+        "claude-session",
+        "abcd-1234",
+        linked_project.to_str().unwrap(),
+    );
+    assert_eq!(
+        read_common(&linked_project_ref).unavailable,
+        Some(Unavailable::UnsafePath),
+        "the symlinked project keeps its no-follow check"
+    );
+
+    let linked_candidate_ref = common(
+        "claude-session",
+        "abcd-1234",
+        linked_candidate.to_str().unwrap(),
+    );
+    assert_eq!(
+        read_common(&linked_candidate_ref).unavailable,
+        Some(Unavailable::UnsafePath),
+        "the symlinked candidate keeps its no-follow check"
+    );
+
+    let fifo_ref = common("claude-session", "abcd-1234", fifo.to_str().unwrap());
+    assert_eq!(
+        read_common(&fifo_ref).unavailable,
+        Some(Unavailable::UnsafePath),
+        "the FIFO candidate keeps its non-blocking regular-file check"
+    );
+
+    let regular_ref = common("claude-session", "abcd-1234", regular.to_str().unwrap());
+    let read = read_common(&regular_ref);
+    assert!(read.is_readable(), "the regular candidate stays readable");
+
+    // A separate, otherwise valid lookup whose enumeration is the entry's
+    // occurrence: it fires here, so the unfired-entry check passes unchanged
+    // and the lookup returns discovery-stage unreadable.
+    let later = read_common(&regular_ref);
+    assert_eq!(
+        later.unavailable,
+        Some(Unavailable::Unreadable),
+        "{later:?}"
+    );
+    assert_eq!(later.path, None);
+}
+
+#[test]
+fn claude_source_without_a_home_is_missing_home() {
+    match claude_source("abcd-1234", None) {
+        Discovery::Refused(reason, _) => assert_eq!(reason, Unavailable::MissingHome),
+        Discovery::Admitted(_) => panic!("a missing home is refused"),
+    }
+}
+
+#[test]
+fn a_discovery_limit_with_two_candidates_is_ambiguous_not_limited() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    for project in ["a", "b"] {
+        let seat = root.join(locator).join(project).join("seat");
+        std::fs::create_dir_all(&seat).unwrap();
+        std::fs::write(seat.join("session.jsonl"), dsh_header_text(0)).unwrap();
+    }
+    // A third owned session whose opening header outgrows the cap sets the
+    // limit fact while two candidates already stand: the two-candidate
+    // branch wins and the answer is ambiguous, not discovery-limited.
+    let oversized = root.join(locator).join("c").join("seat");
+    std::fs::create_dir_all(&oversized).unwrap();
+    std::fs::write(
+        oversized.join("session.jsonl"),
+        vec![b'x'; brokkr_view::transcript::DSH_HEADER_CAP + 8],
+    )
+    .unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(
+        read.unavailable,
+        Some(Unavailable::AmbiguousSource),
+        "{read:?}"
+    );
+}
+
+#[test]
+fn codex_whole_token_branches_at_the_filename_edges() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+
+    // The id at the filename's start: `rollout` matches at index zero.
+    let start = common("codex-thread", "rollout", dir.path().to_str().unwrap());
+    assert!(read_common(&start).is_readable(), "start token admits");
+    // The id at the filename's end: `jsonl` matches at the last token.
+    let end = common("codex-thread", "jsonl", dir.path().to_str().unwrap());
+    assert!(read_common(&end).is_readable(), "end token admits");
+    // A non-token substring is refused: `0199` is followed by `m`.
+    let inner = common("codex-thread", "0199", dir.path().to_str().unwrap());
+    assert_eq!(
+        read_common(&inner).unavailable,
+        Some(Unavailable::NotFound),
+        "a partial token is not a match"
+    );
+}
+
+#[test]
+fn a_codex_rollout_deeper_than_six_levels_is_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = dir.path().join("sessions");
+    let deep = sessions.join("a/b/c/d/e/f/g");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(
+        deep.join("rollout-0199mine.jsonl"),
+        "{\"type\":\"turn_context\"}\n",
+    )
+    .unwrap();
+    let reference = common("codex-thread", "0199mine", dir.path().to_str().unwrap());
+    assert_eq!(
+        read_common(&reference).unavailable,
+        Some(Unavailable::NotFound)
+    );
+}
+
+#[test]
+fn an_empty_presentation_run_component_is_refused() {
+    let (_dir, db, key) = participant_fixture(
+        Some(claude_reference("abcd-1234", "/retained/claude")),
+        None,
+        None,
+    );
+    let response = handle(&db, &format!("/api/presentation//{}", percent_encode(&key)));
+    assert_eq!(response.status, "404 Not Found");
+    assert_eq!(
+        response.body,
+        json!({"error": "participant not found"}).to_string()
+    );
+}
+
+#[test]
+fn an_unknown_presentation_run_is_not_found() {
+    let (dir, db) = fixture();
+    let response = handle(&db, "/api/presentation/unknown-run/whatever");
+    assert_eq!(response.status, "404 Not Found");
+    assert_eq!(
+        response.body,
+        json!({"error": "participant not found"}).to_string()
+    );
+    drop(dir);
+}
+
+/// A missing journal gains no file of any kind on any browser route: each
+/// journal route answers 404, one poll of the run stream opens read-only and
+/// reports head sequence zero, and the database path, its `-wal` and its
+/// `-shm` still do not exist afterward.
+#[test]
+fn a_missing_journal_gains_no_file_on_every_browser_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("missing").join("forge.db");
+    for path in [
+        "/api/runs",
+        "/api/run/r222",
+        "/api/view/r222",
+        "/api/presentation/r222/key",
+    ] {
+        let response = handle(&db, path);
+        assert_eq!(
+            response.status, "404 Not Found",
+            "{path}: {}",
+            response.body
+        );
+    }
+
+    let request = b"GET /sse/r222 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_vec();
+    let mut reader = std::io::Cursor::new(request);
+    let mut out: Vec<u8> = Vec::new();
+    serve_io(&db, &mut reader, &mut out, Some(1));
+    let text = String::from_utf8_lossy(&out);
+    assert!(text.contains("\"seq\":0"), "{text}");
+
+    assert!(!db.exists(), "no database was created");
+    assert!(
+        !PathBuf::from(format!("{}-wal", db.display())).exists(),
+        "no -wal was created"
+    );
+    assert!(
+        !PathBuf::from(format!("{}-shm", db.display())).exists(),
+        "no -shm was created"
+    );
 }
