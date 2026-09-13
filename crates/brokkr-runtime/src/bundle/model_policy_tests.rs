@@ -4157,7 +4157,12 @@ fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
         "{brokkr}", "driver", "codex", "--", "--model", "gpt-5.6-sol",
     ]}});
     let mut witnessed = Map::new();
-    assert!(!effort_exempt("work", &raw, Some(&adapters), &mut witnessed));
+    assert!(!effort_exempt(
+        "work",
+        &raw,
+        Some(&adapters),
+        &mut witnessed
+    ));
     assert!(witnessed.is_empty());
 }
 
