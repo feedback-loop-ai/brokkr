@@ -785,4 +785,72 @@ mod tests {
             );
         }
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn claim_refuses_symlink_escape_non_regular_oversized_and_non_utf8() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("elsewhere.yml"), SHIPPED).unwrap();
+        let digest = |bytes: &[u8]| {
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            hex::encode(hasher.finalize())
+        };
+        let body = SHIPPED.as_bytes();
+        let bound = |digest: &str| json!({"resume_context": {"route_overlay": {"value": "route.yml", "digest": digest}}});
+
+        // A symlink inside the working directory resolving outside it.
+        let (dir, _) = binding(body, "route.yml");
+        std::fs::remove_file(dir.path().join("route.yml")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("elsewhere.yml"),
+            dir.path().join("route.yml"),
+        )
+        .unwrap();
+        let error = claim(
+            &bound(&digest(body)),
+            &dir.path().to_string_lossy(),
+            Some(PIN),
+            Some("route.yml"),
+        )
+        .unwrap_err();
+        assert!(error.contains("outside the working directory"), "{error}");
+
+        // A directory where the route file must be a regular file.
+        let (dir, _) = binding(body, "route.yml");
+        std::fs::remove_file(dir.path().join("route.yml")).unwrap();
+        std::fs::create_dir(dir.path().join("route.yml")).unwrap();
+        let error = claim(
+            &bound(&digest(body)),
+            &dir.path().to_string_lossy(),
+            Some(PIN),
+            Some("route.yml"),
+        )
+        .unwrap_err();
+        assert!(error.contains("not a regular file"), "{error}");
+
+        // Bytes over the reader's finite bound.
+        let oversized = vec![b'a'; MAX_BYTES + 1];
+        let (dir, _) = binding(&oversized, "route.yml");
+        let error = claim(
+            &bound(&digest(body)),
+            &dir.path().to_string_lossy(),
+            Some(PIN),
+            Some("route.yml"),
+        )
+        .unwrap_err();
+        assert!(error.contains("byte bound"), "{error}");
+
+        // Bytes that are not UTF-8, bound by their own digest.
+        let raw = b"- id: llm-pi-ai\n\xff\n";
+        let (dir, _) = binding(raw, "route.yml");
+        let error = claim(
+            &bound(&digest(raw)),
+            &dir.path().to_string_lossy(),
+            Some(PIN),
+            Some("route.yml"),
+        )
+        .unwrap_err();
+        assert!(error.contains("not UTF-8"), "{error}");
+    }
 }

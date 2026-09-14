@@ -2916,25 +2916,44 @@ fn plain_dsh_session_id(id: &str) -> bool {
     recordable_session_id(id)
 }
 
-/// The id a transcript's first line names as a depth-zero session header,
-/// or `None` when the file is absent, unreadable, not JSON, not a session
-/// header, or one a delegated child wrote. The first line is read under a
-/// finite budget, so a malformed store cannot force an unbounded
-/// allocation before the provider starts (task 8.8(d)).
-fn dsh_session_header_id(candidate: &std::path::Path) -> Option<String> {
-    dsh_session_header_id_with(candidate, DSH_HEADER_LIMIT)
+/// What one stored `session.jsonl`'s first line states. `None` is unsafe
+/// evidence — absent, unreadable, truncated, over budget, non-JSON, not a
+/// session header at all, or a depth-zero header with no string id — and
+/// declines the whole admission rather than being skipped in favour of a
+/// convenient match (design D6; task 8.8(d)).
+enum DshStoredSession {
+    /// A complete header a delegated child wrote under the owned root.
+    Delegated,
+    /// A complete depth-zero header naming its own session id.
+    DepthZero(String),
 }
 
-/// `dsh_session_header_id` over an injected line budget, so the admission
+/// Classify a transcript's first line. The line must be complete within a
+/// finite budget: a prefix cut at the budget, or a valid JSON prefix
+/// padded to the budget and followed by further bytes, is not a header
+/// (task 8.8(d)).
+fn dsh_stored_session(candidate: &std::path::Path) -> Option<DshStoredSession> {
+    dsh_stored_session_with(candidate, DSH_HEADER_LIMIT)
+}
+
+/// `dsh_stored_session` over an injected line budget, so the admission
 /// bound is reachable from a test without a 4 KiB file.
-fn dsh_session_header_id_with(candidate: &std::path::Path, budget: u64) -> Option<String> {
+fn dsh_stored_session_with(candidate: &std::path::Path, budget: u64) -> Option<DshStoredSession> {
     let file = std::fs::File::open(candidate).ok()?;
-    let mut header = String::new();
-    std::io::BufReader::new(file)
+    let mut reader = std::io::BufReader::new(file);
+    let mut header = Vec::new();
+    let read = reader
+        .by_ref()
         .take(budget)
-        .read_line(&mut header)
+        .read_until(b'\n', &mut header)
         .ok()?;
-    let event = serde_json::from_str::<Value>(&header).ok()?;
+    // A newline within the budget is the only complete line: `read_until`
+    // stops at the budget without it, so a longer or padded row cannot
+    // present its prefix as the whole header.
+    if read == 0 || header.last() != Some(&b'\n') {
+        return None;
+    }
+    let event = serde_json::from_slice::<Value>(&header).ok()?;
     if event.get("type").and_then(Value::as_str) != Some("session") {
         return None;
     }
@@ -2944,9 +2963,12 @@ fn dsh_session_header_id_with(candidate: &std::path::Path, budget: u64) -> Optio
         .unwrap_or(0)
         != 0
     {
-        return None;
+        return Some(DshStoredSession::Delegated);
     }
-    event.get("id").and_then(Value::as_str).map(str::to_string)
+    event
+        .get("id")
+        .and_then(Value::as_str)
+        .map(|id| DshStoredSession::DepthZero(id.to_string()))
 }
 
 /// The one stored depth-zero session file under a retained root whose
@@ -2955,8 +2977,11 @@ fn dsh_session_header_id_with(candidate: &std::path::Path, budget: u64) -> Optio
 /// to a substitute. Each project/session directory and the selected
 /// `session.jsonl` is canonicalized and required to stay inside the
 /// retained root, and the whole walk is charged against a finite
-/// enumeration budget, so an escaping symlink or an oversized store cannot
-/// redirect or stall admission (task 8.8(d)).
+/// enumeration budget. A directory, file or header that cannot be admitted
+/// fails the whole selection rather than being skipped for a convenient
+/// match: an escaping symlink, an unreadable candidate or an
+/// invalid/truncated header cannot supply the one valid depth-zero header
+/// (design D6; task 8.8(d)).
 fn dsh_session_file(root: &std::path::Path, expected: &str) -> Result<std::path::PathBuf, String> {
     dsh_session_file_with(root, expected, DSH_DIRECTORY_ENTRIES)
 }
@@ -2985,33 +3010,47 @@ fn dsh_session_file_with(
         let project =
             project.map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
         charge(&mut visited)?;
-        let Ok(project_dir) = std::fs::canonicalize(project.path()) else {
-            continue;
-        };
-        if !project_dir.starts_with(&root) || !project_dir.is_dir() {
-            continue;
+        let project_dir = std::fs::canonicalize(project.path())
+            .map_err(|_| "dsh driver: a retained project path is unreadable".to_string())?;
+        if !project_dir.starts_with(&root) {
+            return Err("dsh driver: a retained project path escapes the owned root".to_string());
         }
-        let Ok(sessions) = std::fs::read_dir(&project_dir) else {
-            continue;
-        };
+        if !project_dir.is_dir() {
+            return Err("dsh driver: a retained project path is not a directory".to_string());
+        }
+        let sessions = std::fs::read_dir(&project_dir)
+            .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
         for session in sessions {
             let session =
                 session.map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
             charge(&mut visited)?;
-            let Ok(session_dir) = std::fs::canonicalize(session.path()) else {
-                continue;
-            };
-            if !session_dir.starts_with(&root) || !session_dir.is_dir() {
-                continue;
+            let session_dir = std::fs::canonicalize(session.path())
+                .map_err(|_| "dsh driver: a retained session path is unreadable".to_string())?;
+            if !session_dir.starts_with(&root) {
+                return Err(
+                    "dsh driver: a retained session path escapes the owned root".to_string()
+                );
             }
-            let Ok(candidate) = std::fs::canonicalize(session_dir.join(DSH_TRANSCRIPT)) else {
-                continue;
-            };
-            if !candidate.starts_with(&root) || !candidate.is_file() {
-                continue;
+            if !session_dir.is_dir() {
+                return Err("dsh driver: a retained session path is not a directory".to_string());
             }
-            if dsh_session_header_id(&candidate).as_deref() == Some(expected) {
-                matches.push(candidate);
+            let candidate = std::fs::canonicalize(session_dir.join(DSH_TRANSCRIPT))
+                .map_err(|_| "dsh driver: the stored session file is unreadable".to_string())?;
+            if !candidate.starts_with(&root) {
+                return Err(
+                    "dsh driver: the stored session file escapes the owned root".to_string()
+                );
+            }
+            if !candidate.is_file() {
+                return Err("dsh driver: the stored session file is not a regular file".to_string());
+            }
+            match dsh_stored_session(&candidate) {
+                None => {
+                    return Err("dsh driver: a retained session header is unreadable".to_string())
+                }
+                Some(DshStoredSession::Delegated) => {}
+                Some(DshStoredSession::DepthZero(id)) if id == expected => matches.push(candidate),
+                Some(DshStoredSession::DepthZero(_)) => {}
             }
         }
     }
@@ -3024,10 +3063,10 @@ fn dsh_session_file_with(
 
 /// The highest sequence number stored in a session file — the owned
 /// pre-followup boundary a warm invocation folds past — or `None` when the
-/// file cannot be read inside the finite admission budget. An unreadable
-/// or over-budget file refuses the offer rather than guessing a baseline;
-/// a truncated boundary is never a zero or a partial-prefix maximum
-/// (design D8; task 8.8(d)).
+/// file cannot be read inside the finite admission budget. An unreadable,
+/// over-budget, truncated or malformed row refuses the offer rather than
+/// guessing a baseline; a truncated boundary is never a zero or a
+/// partial-prefix maximum (design D8; task 8.8(d)).
 fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
     let file = std::fs::File::open(path).ok()?;
     if file.metadata().ok()?.len() > DSH_SESSION_FILE_LIMIT {
@@ -3035,20 +3074,24 @@ fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
     }
     let mut reader = std::io::BufReader::new(file);
     let mut last = 0u64;
-    let mut line = String::new();
+    let mut line = Vec::new();
     loop {
         line.clear();
         let read = reader
             .by_ref()
             .take(DSH_HEADER_LIMIT)
-            .read_line(&mut line)
+            .read_until(b'\n', &mut line)
             .ok()?;
         if read == 0 {
             break;
         }
-        let Ok(event) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
+        // Complete, newline-terminated rows only: a row cut at the budget
+        // or a half-written final row is truncated evidence, not a row to
+        // skip past while reporting a lower maximum.
+        if line.last() != Some(&b'\n') {
+            return None;
+        }
+        let event = serde_json::from_slice::<Value>(&line).ok()?;
         if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
             last = last.max(seq);
         }
@@ -3079,14 +3122,28 @@ fn resolve_dsh_root(
         return Err("dsh driver: the owned persistence locator exceeds the admitted bound".into());
     }
     let relative = std::path::Path::new(locator);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| !matches!(component, std::path::Component::Normal(_)))
-    {
+    if relative.is_absolute() {
         return Err(
             "dsh driver: the owned persistence locator is not a bounded relative path".into(),
         );
+    }
+    for component in relative.components() {
+        // `Transcript::locator_under_home` rewrites `\` to `/` for every
+        // transcript producer; on Unix a literal backslash is an ordinary
+        // filename byte, so a locator whose component carries one would be
+        // *recorded* as a different address than the one admitted here.
+        // Refuse it rather than let the shared clamp turn one owned address
+        // into another (task 8.8(d); design D6).
+        match component {
+            std::path::Component::Normal(name) if !name.to_string_lossy().contains('\\') => {}
+            _ => {
+                return Err(
+                    "dsh driver: the owned persistence locator is not a bounded, round-tripping \
+                     relative path"
+                        .into(),
+                )
+            }
+        }
     }
     let canonical_home = std::fs::canonicalize(home)
         .map_err(|_| "dsh driver: the admitted dsh home is unreadable".to_string())?;
@@ -3288,16 +3345,20 @@ fn dsh_launch_with(
         fresh(&home)?
     };
 
-    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), &root, route.as_deref())?;
     // The planned locator is validated against the same 80-character
-    // bound, before the shared `Transcript::record` clamp can shorten it
-    // into a different address (task 8.8(d)).
+    // bound before the shared `Transcript::record` clamp can shorten it
+    // into a different address, and before any overlay is staged
+    // (task 8.8(d); design D6). The offered locator was already required
+    // to round-trip losslessly by `resolve_dsh_root`; the fresh root is
+    // short and separator-free by construction, so this checks its output
+    // too.
     let locator = transcript.locator_under_home(&root)?;
     if locator.is_empty() || locator.chars().count() > DSH_LOCATOR_LIMIT {
         return Err(
             "dsh driver: the planned dsh locator is outside the admitted bound".to_string(),
         );
     }
+    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), &root, route.as_deref())?;
     let mut command = vec![
         bin.to_string(),
         "--profile".into(),

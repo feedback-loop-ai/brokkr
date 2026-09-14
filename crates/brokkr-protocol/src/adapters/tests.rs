@@ -6386,6 +6386,30 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
     .unwrap();
     assert!(linked.stream_json && linked.rejoining.as_deref() == Some("session-1"));
 
+    // A literal backslash inside a component is a filename byte on Unix but
+    // a separator to the shared locator clamp: the offered address would be
+    // *recorded* as a different one, so a real store at that spelling is
+    // refused rather than rewritten into `a/b`.
+    let escaped = "sessions/brokkr/a\\b";
+    plant_dsh_session(dir.path(), escaped, "--w--", "session-1", 4);
+    assert!(resolve_dsh_root(dir.path(), escaped, "session-1").is_err());
+    let declined = dsh_launch_with(
+        &shim_text,
+        &[],
+        workdir,
+        Some("session-1"),
+        &with_target(json!({
+            "provider_id": "session-1",
+            "persistence_locator": escaped,
+            "persistence_home": home,
+        })),
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(declined.refusal, Some("unverified-harness"));
+    assert!(!declined.stream_json && declined.rejoining.is_none());
+    assert_shipped_cold_command(&declined.command, &shim_text);
+
     // A second home holding the identical ID/locator is never read.
     let other = tempfile::tempdir().unwrap();
     plant_dsh_session(
@@ -6606,45 +6630,417 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
 
 #[cfg(unix)]
 #[test]
-fn dsh_admission_reads_are_bounded_and_decline_a_truncated_boundary() {
+fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
+    use sha2::{Digest, Sha256};
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let valid = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              high: high\n";
+    let digest = |bytes: &[u8]| {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        hex::encode(hasher.finalize())
+    };
+    let declared = "b".repeat(64);
+    let marker = dir.path().join("m-route");
+    let shim = dsh_recording_version_shim(dir.path(), "dsh-route-refuse", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = dir.path().to_str().unwrap();
+    let extra = vec![
+        "--model".to_string(),
+        "deepseek/deepseek-v4-flash".to_string(),
+        "--patch".to_string(),
+        "route.yml".to_string(),
+    ];
+    let binding = |digest: &str| json!({"value": "route.yml", "digest": digest});
+    let disabled = |digest: &str| json!({"workdir": dir.path(), "resume_context": {"route_overlay": binding(digest)}});
+    let enabled = |digest: &str| {
+        let mut input = dsh_enabled_input("0.1.5-rc.1", &declared, dir.path());
+        input["resume_context"]["route_overlay"] = binding(digest);
+        input
+    };
+    let check = |digest: &str, label: &str| {
+        for (path, input, session) in [
+            ("disabled", disabled(digest), None),
+            ("offered", enabled(digest), Some("session-1")),
+            ("enabled", enabled(digest), None),
+        ] {
+            let calls = std::cell::Cell::new(0u32);
+            let result = dsh_launch_with(&shim_text, &extra, workdir, session, &input, || {
+                calls.set(calls.get() + 1);
+                Ok(synthetic_dsh_composite(&declared))
+            });
+            let error = result
+                .err()
+                .unwrap_or_else(|| panic!("{label}/{path} must refuse"));
+            assert_eq!(calls.get(), 0, "{label}/{path}: no producer call");
+            assert!(!marker.exists(), "{label}/{path}: no version probe");
+            assert!(
+                error.contains("route_overlay") || error.contains("route overlay"),
+                "{label}/{path}: {error}"
+            );
+            for echo in ["route.yml", "zzz-marker", "deepseek-v4-flash"] {
+                assert!(
+                    !error.contains(echo),
+                    "{label}/{path}: {echo} echoed in {error}"
+                );
+            }
+        }
+    };
+    let route_path = dir.path().join("route.yml");
+
+    // A symlink inside the working directory that resolves outside it.
+    std::fs::write(outside.path().join("zzz-marker.yml"), valid).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("zzz-marker.yml"), &route_path).unwrap();
+    check(&digest(valid), "symlink-escape");
+    std::fs::remove_file(&route_path).unwrap();
+
+    // A directory where the route file must be a regular file.
+    std::fs::create_dir(&route_path).unwrap();
+    check(&digest(valid), "non-regular");
+    std::fs::remove_dir(&route_path).unwrap();
+
+    // Bytes over the reader's finite bound.
+    std::fs::write(&route_path, vec![b'a'; 64 * 1024 + 1]).unwrap();
+    check(&digest(valid), "oversized");
+    std::fs::remove_file(&route_path).unwrap();
+
+    // Bytes that are not UTF-8, bound by their own digest.
+    let raw = b"- id: llm-pi-ai\n  # zzz-marker\n\xff\n";
+    std::fs::write(&route_path, raw).unwrap();
+    check(&digest(raw), "non-utf8");
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path();
     let session = home.join("sessions/brokkr/seat-1/--x--/session-1");
     std::fs::create_dir_all(&session).unwrap();
     let id = "a".repeat(200);
-    let header = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}\n");
-    std::fs::write(session.join(DSH_TRANSCRIPT), &header).unwrap();
+    let transcript = session.join(DSH_TRANSCRIPT);
 
-    // A header longer than the injected budget is unreadable; a complete
-    // header within the budget is admitted. Neither is a partial prefix.
-    assert_eq!(
-        dsh_session_header_id_with(&session.join(DSH_TRANSCRIPT), 16),
-        None
-    );
-    assert_eq!(
-        dsh_session_header_id_with(&session.join(DSH_TRANSCRIPT), DSH_HEADER_LIMIT).as_deref(),
-        Some(id.as_str())
-    );
+    // An over-budget header is unreadable; a complete one within the
+    // budget is admitted. Neither is a partial prefix.
+    let header = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}\n");
+    std::fs::write(&transcript, &header).unwrap();
+    assert!(dsh_stored_session_with(&transcript, 16).is_none());
+    match dsh_stored_session_with(&transcript, DSH_HEADER_LIMIT) {
+        Some(DshStoredSession::DepthZero(seen)) => assert_eq!(seen, id),
+        _ => panic!("a complete in-budget header is admitted"),
+    }
+
+    // A header whose newline lands exactly at the budget is complete.
+    let mut exact = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}").into_bytes();
+    exact.resize(DSH_HEADER_LIMIT as usize - 1, b' ');
+    exact.push(b'\n');
+    std::fs::write(&transcript, &exact).unwrap();
+    assert!(matches!(
+        dsh_stored_session(&transcript),
+        Some(DshStoredSession::DepthZero(_))
+    ));
+
+    // Valid JSON padded to the whole budget and followed by further bytes
+    // is not a complete line: the truncated prefix is never admitted.
+    let mut padded = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}").into_bytes();
+    padded.resize(DSH_HEADER_LIMIT as usize, b' ');
+    padded.extend_from_slice(b"tail");
+    std::fs::write(&transcript, &padded).unwrap();
+    assert!(dsh_stored_session(&transcript).is_none());
+
+    // A delegated child's complete header is valid non-matching evidence;
+    // a depth-zero header with no string id, a non-session first line and
+    // an empty file are all unreadable rather than a match.
+    std::fs::write(
+        &transcript,
+        b"{\"type\":\"session\",\"id\":\"child\",\"delegationDepth\":1}\n",
+    )
+    .unwrap();
+    assert!(matches!(
+        dsh_stored_session(&transcript),
+        Some(DshStoredSession::Delegated)
+    ));
+    std::fs::write(
+        &transcript,
+        b"{\"type\":\"session\",\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    assert!(dsh_stored_session(&transcript).is_none());
+    std::fs::write(&transcript, b"{\"type\":\"permission/preset\"}\n").unwrap();
+    assert!(dsh_stored_session(&transcript).is_none());
+    std::fs::write(&transcript, b"").unwrap();
+    assert!(dsh_stored_session(&transcript).is_none());
 
     // The enumeration budget is finite: the project and its session are
     // both charged, so a one-entry budget declines rather than walking on.
+    std::fs::write(
+        &transcript,
+        format!("{{\"type\":\"session\",\"id\":\"{id}\",\"delegationDepth\":0}}\n"),
+    )
+    .unwrap();
     let root = home.join("sessions/brokkr/seat-1");
     assert!(dsh_session_file_with(&root, &id, 1).is_err());
     assert!(dsh_session_file_with(&root, &id, 2).is_ok());
 
-    // An over-budget stored session refuses the sequence boundary rather
-    // than reading a partial-prefix maximum.
+    // An over-budget stored session, a root that is not a directory and a
+    // root that does not resolve are all bounded refusals.
     let huge = home.join("huge-session.jsonl");
     let file = std::fs::File::create(&huge).unwrap();
     file.set_len(DSH_SESSION_FILE_LIMIT + 1).unwrap();
     drop(file);
     assert_eq!(dsh_session_last_seq(&huge), None);
+    let plain = home.join("plain-root");
+    std::fs::write(&plain, b"x").unwrap();
+    assert!(dsh_session_file_with(&plain, &id, 64).is_err());
+    assert!(dsh_session_file_with(&home.join("absent-root"), &id, 64).is_err());
 
     // A non-directory and an empty locator are both bounded refusals.
     std::fs::create_dir_all(home.join("sessions/brokkr")).unwrap();
     std::fs::write(home.join("sessions/brokkr/not-a-dir"), b"x").unwrap();
     assert!(resolve_dsh_root(home, "sessions/brokkr/not-a-dir", &id).is_err());
     assert!(resolve_dsh_root(home, "", &id).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
+    let dir = tempfile::tempdir().unwrap();
+    let header = b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n";
+    let write = |rows: &[u8]| -> std::path::PathBuf {
+        let path = dir.path().join("session.jsonl");
+        let mut bytes = header.to_vec();
+        bytes.extend_from_slice(rows);
+        std::fs::write(&path, &bytes).unwrap();
+        path
+    };
+
+    // Complete rows report their true maximum.
+    assert_eq!(
+        dsh_session_last_seq(&write(b"{\"seq\":3}\n{\"seq\":7}\n")),
+        Some(7)
+    );
+
+    // A complete final row longer than the per-line budget is truncated
+    // evidence: it must not be skipped while reporting the lower maximum.
+    let mut oversized = b"{\"seq\":8,\"pad\":\"".to_vec();
+    oversized.resize(5052 - 2, b'x');
+    oversized.extend_from_slice(b"\"}\n");
+    let mut rows = b"{\"seq\":7}\n".to_vec();
+    rows.extend_from_slice(&oversized);
+    assert_eq!(dsh_session_last_seq(&write(&rows)), None);
+
+    // A valid prefix followed by a truncated final JSON row declines.
+    assert_eq!(
+        dsh_session_last_seq(&write(b"{\"seq\":7}\n{\"seq\":8")),
+        None
+    );
+
+    // A malformed complete row declines too, never a partial maximum.
+    assert_eq!(
+        dsh_session_last_seq(&write(b"{\"seq\":7}\nnot-json\n")),
+        None
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let home = dir.path().to_path_buf();
+    let digest = "b".repeat(64);
+    let shim = dsh_version_shim(&home, "dsh-unsafe", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = home.to_str().unwrap();
+
+    // One safe matching candidate under a named retained root.
+    let make_root = |label: &str| -> std::path::PathBuf {
+        let root = home.join("sessions/brokkr").join(label);
+        let session = root.join("--w--").join("session-1");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(
+            session.join(DSH_TRANSCRIPT),
+            b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n",
+        )
+        .unwrap();
+        root
+    };
+    let launch = |label: &str| {
+        let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, &home);
+        input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+        input["resume_context"]["originating_wrapper_digest"] = json!(digest);
+        input["resume_context"]["owned_target"] = json!({
+            "provider_id": "session-1",
+            "persistence_locator": format!("sessions/brokkr/{label}"),
+            "persistence_home": home.to_str().unwrap(),
+        });
+        dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &input, || {
+            Ok(synthetic_dsh_composite(&digest))
+        })
+        .unwrap()
+    };
+    let refused = |label: &str| {
+        let plan = launch(label);
+        assert_eq!(plan.refusal, Some("unverified-harness"), "{label}");
+        assert!(!plan.stream_json && plan.rejoining.is_none(), "{label}");
+        assert_shipped_cold_command(&plan.command, &shim_text);
+    };
+
+    // The safe candidate alone qualifies, and a delegated child plus a
+    // different depth-zero session are valid non-matches, not unsafe.
+    let safe = make_root("safe");
+    assert!(dsh_session_file(&safe, "session-1").is_ok());
+    assert!(launch("safe").stream_json);
+    let mixed = make_root("mixed");
+    std::fs::create_dir_all(mixed.join("--w--").join("session-child")).unwrap();
+    std::fs::write(
+        mixed.join("--w--/session-child").join(DSH_TRANSCRIPT),
+        b"{\"type\":\"session\",\"id\":\"session-child\",\"delegationDepth\":1}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(mixed.join("--x--").join("session-2")).unwrap();
+    std::fs::write(
+        mixed.join("--x--/session-2").join(DSH_TRANSCRIPT),
+        b"{\"type\":\"session\",\"id\":\"session-2\",\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    assert!(dsh_session_file(&mixed, "session-1").is_ok());
+
+    // An escape to another root inside the same home, at the project,
+    // session and selected-file levels: the valid candidate beside it must
+    // not make the unsafe entry skippable.
+    std::fs::create_dir_all(home.join("outside-root/--w--/session-1")).unwrap();
+    std::fs::write(
+        home.join("outside-root/--w--/session-1")
+            .join(DSH_TRANSCRIPT),
+        b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        home.join("outside-file"),
+        b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+
+    let project_escape = make_root("project-escape");
+    std::os::unix::fs::symlink(home.join("outside-root"), project_escape.join("--e--")).unwrap();
+    assert!(dsh_session_file(&project_escape, "session-1").is_err());
+    refused("project-escape");
+
+    let session_escape = make_root("session-escape");
+    std::fs::create_dir_all(session_escape.join("--e--")).unwrap();
+    std::os::unix::fs::symlink(
+        home.join("outside-root/--w--/session-1"),
+        session_escape.join("--e--/session-1"),
+    )
+    .unwrap();
+    assert!(dsh_session_file(&session_escape, "session-1").is_err());
+    refused("session-escape");
+
+    let file_escape = make_root("file-escape");
+    std::fs::create_dir_all(file_escape.join("--e--/session-1")).unwrap();
+    std::os::unix::fs::symlink(
+        home.join("outside-file"),
+        file_escape.join("--e--/session-1").join(DSH_TRANSCRIPT),
+    )
+    .unwrap();
+    assert!(dsh_session_file(&file_escape, "session-1").is_err());
+    refused("file-escape");
+
+    // Broken symlinks at the project and session levels, and a regular
+    // file where a directory is required.
+    let broken = make_root("broken");
+    std::os::unix::fs::symlink(broken.join("missing"), broken.join("--b--")).unwrap();
+    assert!(dsh_session_file(&broken, "session-1").is_err());
+
+    let broken_session = make_root("broken-session");
+    std::fs::create_dir_all(broken_session.join("--b--")).unwrap();
+    std::os::unix::fs::symlink(
+        broken_session.join("missing"),
+        broken_session.join("--b--/session-9"),
+    )
+    .unwrap();
+    assert!(dsh_session_file(&broken_session, "session-1").is_err());
+
+    let non_dir = make_root("non-dir");
+    std::fs::write(non_dir.join("--n--"), b"x").unwrap();
+    assert!(dsh_session_file(&non_dir, "session-1").is_err());
+
+    let non_dir_session = make_root("non-dir-session");
+    std::fs::create_dir_all(non_dir_session.join("--n--")).unwrap();
+    std::fs::write(non_dir_session.join("--n--/session-9"), b"x").unwrap();
+    assert!(dsh_session_file(&non_dir_session, "session-1").is_err());
+
+    // A missing or non-regular stored `session.jsonl`.
+    let missing = make_root("missing-file");
+    std::fs::create_dir_all(missing.join("--m--/session-9")).unwrap();
+    assert!(dsh_session_file(&missing, "session-1").is_err());
+
+    let non_file = make_root("non-file");
+    std::fs::create_dir_all(non_file.join("--m--/session-9").join(DSH_TRANSCRIPT)).unwrap();
+    assert!(dsh_session_file(&non_file, "session-1").is_err());
+
+    // Malformed, non-session, id-less and truncated headers are unreadable
+    // evidence beside the valid candidate, so the offer ships cold.
+    for (label, body) in [
+        ("malformed", &b"not-json\n"[..]),
+        ("non-session", &b"{\"type\":\"permission/preset\"}\n"[..]),
+        (
+            "idless",
+            &b"{\"type\":\"session\",\"delegationDepth\":0}\n"[..],
+        ),
+        (
+            "truncated",
+            &b"{\"type\":\"session\",\"id\":\"session-1\"}"[..],
+        ),
+    ] {
+        let root = make_root(label);
+        std::fs::write(root.join("--w--/session-1").join(DSH_TRANSCRIPT), body).unwrap();
+        assert!(dsh_session_file(&root, "session-1").is_err(), "{label}");
+        refused(label);
+    }
+
+    // At the planner boundary too: a valid header whose stored sequence row
+    // is truncated is never read as a partial-prefix maximum, and a valid
+    // header padded to the budget and followed by junk is never a header.
+    let truncated_sequence = make_root("truncated-sequence");
+    std::fs::write(
+        truncated_sequence
+            .join("--w--/session-1")
+            .join(DSH_TRANSCRIPT),
+        b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n{\"seq\":1",
+    )
+    .unwrap();
+    assert!(dsh_session_file(&truncated_sequence, "session-1").is_ok());
+    refused("truncated-sequence");
+
+    let padded_header = make_root("padded-header");
+    let mut padded = b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}".to_vec();
+    padded.resize(DSH_HEADER_LIMIT as usize, b' ');
+    padded.extend_from_slice(b"tail");
+    std::fs::write(
+        padded_header.join("--w--/session-1").join(DSH_TRANSCRIPT),
+        &padded,
+    )
+    .unwrap();
+    assert!(dsh_session_file(&padded_header, "session-1").is_err());
+    refused("padded-header");
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 #[cfg(unix)]
