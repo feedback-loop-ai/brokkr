@@ -874,10 +874,11 @@ saved for the phase commit.
       gate, at both `start_context` call sites: bind the seat's single `--patch`
       value from the argv, the run's working directory and the compiled leaf
       layer's directory and manifest to a `files` member of that manifest,
-      refusing an absolute path, `..` or symlink escape and any value the leaf
-      layer does not carry as its own `files` member (an ancestor layer's
-      aggregate digest does not bind, and the bundle-relative `./` spelling is
-      refused as absolute); carry the argv value and that member's
+      withholding the binding for an absolute path, `..` or symlink escape and
+      any value the leaf layer does not carry as its own `files` member (an
+      ancestor layer's aggregate digest does not bind, and the bundle-relative
+      `./` spelling expands to an absolute path and receives no binding);
+      carry the argv value and that member's
       64-lowercase-hex digest as the private `route_overlay` beside the
       assessment and owned target. The binding is the engine's alone: it is an
       input of `start_context` in `crates/brokkr-runtime/src/engine/resume.rs`,
@@ -3565,3 +3566,51 @@ reconciliation; passes E through K remain unscheduled and untouched. The next
 visit should implement pass B starting from 8.8's remaining planner work, in
 the order this file states, writing the runtime engine cases beside the
 binding they prove.
+
+## Current tasks visit — 8.8(d) verb normalization, 2026-09-14
+
+This visit belongs to run `current-successor-issue-226-pass-c2d8f6ec` (tasks
+phase, the run's only seat). It adopts all committed work at `1064dca` on
+this branch, including the predecessor's `d14c97b`/`2e157c5` and this run's
+own `b1caf37` (specify) and `1064dca` (design), under the unchanged
+`2026-09-09-226-session-resumption` identifier. The predecessor,
+`current-successor-issue-226-pass-972adad6`, parked at
+`ANALYZE-DRIFT-EXHAUSTED` with one MEDIUM coverage-gap finding owned by
+tasks; `b1caf37` already answered its substance by naming the runtime engine
+suite and its cases for the route-overlay binding at both `start_context`
+call sites, and `1064dca` recorded that ownership in design D6/D10/D11/Risks
+and ordered this visit's one residual: 8.8(d)'s engine-half verb still read
+as an engine-side refusal, which AS3/D6 do not specify — the engine's outcome
+for a non-bindable value is withholding the `route_overlay` member, never a
+start failure, with the adapter's existing pre-work failure to start on
+seeing a `--patch` beside an absent binding as the single refusal path.
+
+Applied exactly the edit design ordered, at 8.8(d) only, under the existing
+identifier, without a tick: "refusing an absolute path, `..` or symlink
+escape and any value the leaf layer does not carry as its own `files`
+member" becomes "withholding the binding for" those same values, and "the
+bundle-relative `./` spelling is refused as absolute" becomes "the
+bundle-relative `./` spelling expands to an absolute path and receives no
+binding." No other byte in 8.8(d) or 8.10 moved; 8.10's crate-split case list
+and 8.8(d)'s verify clause were already correct from `b1caf37` and are
+unchanged.
+
+Recounted directly against this file: **82 complete / 19 pending**, the same
+101 identifiers, none added, removed, renumbered or ticked. `openspec
+validate 2026-09-09-226-session-resumption --strict --no-interactive` exits
+0: `Change '2026-09-09-226-session-resumption' is valid`. `git diff --check`
+reports no whitespace errors. `cargo`/`rustc` are absent from this seat's
+box, as every planning visit in this feature has recorded from this box; no
+Rust, bundle or release-build result is claimed here, and none is owed by a
+tasks-only verb normalization. No production code, contract, decision,
+adapter declaration, doctor output, guide, recipe, living specification or
+evidence file was written by this visit.
+
+`upstream` is not reported: the specification and design already state the
+engine-side binding and its uniform withholding outcome, and `b1caf37`
+already placed the engine cases; the only residual was this file's own verb,
+now normalized. Passes B, C and D (this run's scheduled scope) are otherwise
+unchanged from the prior reconciliation; passes E through K remain
+unscheduled and untouched. The next visit should implement pass B starting
+from 8.8's remaining planner work, in the order this file states, writing the
+runtime engine cases beside the binding they prove.
