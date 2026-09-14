@@ -2053,19 +2053,41 @@ fn a_promotion_step_that_refuses_keeps_the_store_and_names_that_step() {
     };
 
     for needle in ["fetch", "update-ref -m", "update-ref -d"] {
-        let staged = stage_seat_store(&repo.scope).unwrap();
-        commit(&staged);
-        let store = staged.store_path().to_path_buf();
-        let anchor = staged.promotion_ref.clone();
+        // The shim is written once per needle; a freshly written script
+        // exec'd under parallel `cargo test --workspace` load once
+        // answered `ETXTBSY` ("Text file busy", os error 26) on its first
+        // `rev-parse` instead of the refusal under test. That transient is
+        // the harness's, not the driver's, so the test retries it with a
+        // fresh store — the kept store from the busy attempt is swept here,
+        // the anchor never landed because the failure precedes the fetch.
         let shim = fake_git(dir.path(), needle);
-        let refused =
-            promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope).unwrap_err();
-        assert!(refused.contains("fake git refusing"), "{needle}: {refused}");
-        assert!(refused.contains(&store.display().to_string()), "{refused}");
-        assert!(store.exists(), "{needle}: the store is kept");
-        std::fs::remove_dir_all(&store).unwrap();
-        repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
-        repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
+        let mut attempts: u64 = 0;
+        loop {
+            let staged = stage_seat_store(&repo.scope).unwrap();
+            commit(&staged);
+            let store = staged.store_path().to_path_buf();
+            let anchor = staged.promotion_ref.clone();
+            let refused = promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope)
+                .unwrap_err();
+            if refused.contains("fake git refusing") {
+                assert!(refused.contains(&store.display().to_string()), "{refused}");
+                assert!(store.exists(), "{needle}: the store is kept");
+                std::fs::remove_dir_all(&store).unwrap();
+                repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
+                repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
+                break;
+            }
+            assert!(
+                refused.contains("Text file busy") && attempts < 3,
+                "{needle}: {refused}"
+            );
+            // The busy spawn kept its store through the same keep path; sweep
+            // it here so the retry starts clean, then back off briefly.
+            std::fs::remove_dir_all(&store).unwrap_or(());
+            repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
+            attempts += 1;
+            std::thread::sleep(std::time::Duration::from_millis(5 * attempts));
+        }
     }
 }
 
@@ -2237,6 +2259,14 @@ fn fake_git(dir: &Path, needle: &str) -> PathBuf {
     )
     .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Close the write window before any exec: a freshly written script
+    // exec'd under parallel `cargo test --workspace` load once answered
+    // `ETXTBSY` on its first `rev-parse` instead of the refusal under
+    // test. The retry in the caller covers that transient, and the sync
+    // here shrinks it.
+    if let Ok(file) = std::fs::File::open(&path) {
+        let _ = file.sync_all();
+    }
     path
 }
 

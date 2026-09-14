@@ -165,6 +165,17 @@ fn workspace() -> PathBuf {
 /// Sol/Flash/Astra seats and inherited deterministic gates are its identity.
 /// Decision 0058's citation in the recipe README moves its manifest digest
 /// once more, because the README bytes are part of the recipe's identity.
+/// Decision 0035's 2026-09-11 addendum moves it again: the dsh adapter
+/// lists an effortless route, and every bundle resolving an agent
+/// through that adapter pins its digest — the roster's Flash seats do.
+/// The dsh pin to the installed 0.1.5-rc.1 moves it once more for one
+/// named reason: `hands.unsupported` re-measured on that release, which
+/// moves the dsh adapter digest every Flash resolution witnesses.
+/// The review-first remediation corrects that reason once more for one
+/// named reason: `DSH_TOOLS_MODE` is documented (`native|ptc|both` into
+/// `tools.mode`), those are presentation modes rather than a capability
+/// restriction, and the installed tools/headless components identify as
+/// 0.1.5-rc.2 behind launcher 0.1.5-rc.1 — which moves the same digest.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -180,7 +191,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "ef129108b90730c2327aac50a13bdcfd2cfb43791885f02371896da6982e2d1e",
+        "a362ad2cf7290f7f07e4d857918adbea0a7e60855122ef17014997686b2105ef",
     ),
     (
         "recipes/wager-harness",
@@ -188,7 +199,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/triage",
-        "9b206fac6916f148655e0c4ef12f77cd1c2a3fdbe7b9f9b46289bc0eac5ea2e2",
+        "1f80150efbc263310669a73c7eb701dd880b24daab2f7122e1a4b70cdea08743",
     ),
     (
         "recipes/research",
@@ -200,7 +211,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "b1469d14d1965e39d3a9e8962fb69f225c8ba76365eec7000cadc8c36b4182ae",
+        "4bb805a34e9c131888c2e4f4ce100f3ff5e1c88208b66c29cebc4416f8d5a468",
     ),
     (
         "bundles/verify",

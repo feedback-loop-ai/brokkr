@@ -1,0 +1,124 @@
+{
+  "name": "review-first",
+  "description": "An existing branch judged first: Astra reviews, the suite verifies, Muse remediates findings on return, and the run ships.",
+  "cost": "medium",
+  "policy": "policy.json",
+  "protected_phase": "review",
+  "seats": {
+    "review": {
+      "role": "roles/reviewer.md",
+      "results": [
+        "clean",
+        "residual",
+        "security-hold"
+      ],
+      "class": "gate",
+      "inputs": [
+        "has_security_residual",
+        "max_residual_severity"
+      ],
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "codex",
+          "--",
+          "--model",
+          "gpt-6-astra",
+          "--effort",
+          "xhigh",
+          "--sandbox",
+          "workspace-write"
+        ]
+      }
+    },
+    "verify": {
+      "results": [
+        "pass",
+        "fail"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 3600
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "exec",
+          "--",
+          "bash",
+          "./scripts/verify-seat.sh",
+          "{prompt_file}"
+        ]
+      },
+      "hands": {
+        "kind": "workspace",
+        "network": false,
+        "binds": [
+          {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+          {"path": "~/.rustup", "mode": "ro"}
+        ]
+      }
+    },
+    "implement": {
+      "role": "roles/implementer.md",
+      "results": [
+        "complete",
+        "broken",
+        "blocked",
+        "oversized"
+      ],
+      "class": "work",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 5400
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "dsh",
+          "--",
+          "--model",
+          "meta-contributor/meta/muse-spark-1.3-contributor",
+          "--effort",
+          "xhigh"
+        ]
+      }
+    },
+    "ship": {
+      "results": [
+        "ready",
+        "shipped"
+      ],
+      "class": "gate",
+      "limits": {
+        "max_attempts": 2,
+        "timeout_seconds": 1800
+      },
+      "driver": {
+        "command": [
+          "{brokkr}",
+          "driver",
+          "exec",
+          "--",
+          "bash",
+          "./scripts/ship-seat.sh",
+          "{prompt_file}",
+          "{brokkr}"
+        ]
+      },
+      "hands": {
+        "kind": "workspace",
+        "network": false,
+        "binds": []
+      }
+    }
+  }
+}
