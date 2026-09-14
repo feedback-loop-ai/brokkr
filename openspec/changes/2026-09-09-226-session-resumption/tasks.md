@@ -1,6 +1,37 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current commission: the 2026-09-12 operator ruling adopts all work at
+Current commission: run `current-successor-issue-226-pass-838309ce`, tasks
+phase, adopts `31cd6fa` and this run's proposal `cf35cc7` and design `1a04751`.
+**Pass B alone** covers the remaining planner portion of 8.8(d) and its 8.10
+cases under proposal T and design D5/D6/D10. The ledger is **82 complete /
+19 pending** across the same 101 identifiers. Preserve all ticks, the delivered
+Pass A binding/reader and roster-comment correction, and the inherited Rust
+planner, private context and single composite producer. A preparation commit
+claims no completed implementation or provider support.
+
+Within Pass B, work 8.8(d) and its matching 8.10 checks together in dependency
+order: carry the originating home through the private target first; close
+control and diagnostic gaps; retain bound-route validation; prove the gate and
+identity comparisons; admit bounded owned storage; then verify lossless command
+and overlay construction. Write each focused check beside its change. The
+8.10 paragraphs label the engine, planner, C and D evidence owners. Record
+partial progress under the existing IDs, not new checkboxes; 8.8, 8.10 and 9.6
+remain unticked while their entire acceptance still depends on C/D. Stop once
+B's implementation and planner checks are evidenced and its local gates and
+unsigned commit are complete. Child exchange, held launch, post-resume root
+confirmation and recovery belong to C; event folding, deduplication, usage and
+the remaining acceptance matrix belong to D. Passes A and E–K are not scheduled.
+Keep their inherited code, tests and obligations without undertaking them here.
+
+The current staffing ruling supersedes every historical assignment below:
+Codex `gpt-6-astra` at `xhigh` holds triage, clarify, chief architect, analyze
+and review chief; stable `deepseek-v4-flash` holds implementation, task planning
+and every design/review position. No Claude seat is commissioned. This records
+an operator ruling, not a recipe/configuration edit or provider evidence.
+
+Earlier commission and execution history, retained for the whole change:
+
+The 2026-09-12 operator ruling adopts all work at
 `cf06034`, inherited through `b049224`, for
 `current-successor-operator-rulin-eef1e666`. The change stays whole. This visit
 adopts the inherited 82-complete/19-pending ledger and reopens only 13.1 on
@@ -743,8 +774,17 @@ saved for the phase commit.
       effort overlay; use the plugin's explicit `--new --output-format
       stream-json` cold form and `--session <owned-id> --output-format
       stream-json` warm form. Extend only the private engine/start context so
-      DSH receives an owned target containing the provider ID and the
-      already-recorded persistence locator; leave `Body::Resume` and driver
+      DSH receives an owned target containing the provider ID, the
+      already-recorded persistence locator and its recorded home. First complete
+      `ResumeTarget`/`OriginatingRoot` and `start_context` in
+      `crates/brokkr-runtime/src/engine/resume.rs`: read `transcript.home` from
+      the same confirmed checkpoint as the root and locator and carry it as
+      `owned_target.persistence_home` at both existing callers in `engine.rs`.
+      Never borrow a missing field from another checkpoint, site or older owner;
+      missing evidence stays missing for the DSH planner to decline. Verify the
+      runtime unit/integration cases assigned in 8.10 before the consuming
+      planner work (site / SR2, site / SR3, site / SR5, safety / AS2).
+      Leave `Body::Resume` and driver
       protocol v1 unchanged, and publish `root_session` plus the complete
       `transcript` locator atomically on the same stamped launch checkpoint.
       Resolve that locator beneath the admitted originating DSH home, require
@@ -832,47 +872,31 @@ saved for the phase commit.
       describes the composite as read for launch, not lifetime integrity;
       D6's accepted later same-host patch-mutation residual adds no continuous
       verifier or exemption from the qualified-mode and current-restriction
-      proof. (d) Then
-      build the planner. Record the observed core
-      version in `harness_version` and the composite in `wrapper_digest` and
-      the assessment/instance identity. The engine passes the offered root's
-      `root_session.wrapper_digest` as the private
-      `resume_context.originating_wrapper_digest` beside the existing
-      `originating_harness_version`. While the shape is `unmeasured`, close
-      the gate before any probe: every DSH seat runs the shipped cold
-      invocation unchanged, with no version probe, no recompute and no
-      `--new`. Where the gate is open, compare the probed version with
-      `applies_to` and the recomputed composite with the declared
-      `identity.wrapper_digest`, and on an offer compare both with the
-      originating root's recorded values. A `supported` shape without the
-      member, a member outside the grammar, any mismatch, or an originating
-      root with no recorded digest declines as `unverified-harness`, runs the
-      shipped cold invocation unchanged and records no offerable root.
-      Confirm the launched root before publishing: do not treat the
-      plugin's request-derived `session_id` value by itself as
-      confirmation. Require a valid prior depth-zero header retained at
-      the resolved locator for the offered ID, the pinned plugin's
-      post-`await agents.resume` init event read from the stream-json
-      child on that selected persistence root, no fresh sibling
-      root/session in the retained store, and new sequence activity past
-      the recorded `firstSeq` in that same root, before the launch hold
-      releases. Same-root nonce continuity is 10.7's probe-only
-      model-recall device (design D6): it is never planted in a prompt or
-      read at run time, and this run-time confirmation names only the
-      mechanically observable header, init event, sibling-root and
-      sequence facts above. A missing or different root, whether followed
-      by a clean child exit
-      or by a delivered result file, remains failed or indeterminate
-      under D7: it publishes no `root_session`, no `transcript` locator
-      and no launch row, and authorizes no cold replacement by itself.
-      Reject user `--session`, tag resume, `--new`, `--list`, `--workdir`,
-      `--profile`, `--output-format`, model/effort or settings controls, and
-      every `--patch` other than the one authorized route overlay, on cold and
-      warm paths. Build D5/D6's route overlay exactly as answers Q-S and AS3
-      specify; this task does not re-derive AS3's byte-exact grammar. At every
-      model-site start, cold, offered or `unmeasured`, independent of the resume
-      gate, at both `start_context` call sites: bind the seat's single `--patch`
-      value from the argv, the run's working directory and the compiled leaf
+      proof. (d) Complete the inherited `dsh_launch`/`dsh_launch_with` planner
+      in this order, with the corresponding 8.10 cases beside each repair.
+      Pass B adopts (a)–(c); it adds no digest producer, public planner seam,
+      dependency, generic argument grammar or live-provider qualification.
+      First extract and validate the authorized DSH inputs: exactly one
+      separate-value `--model <id>` where present, the shared effort splitter's
+      existing separate or equals-joined form, and, where supplied, one exact
+      `--patch <value>`.
+      Refuse `--model=<id>`, duplicate/malformed/valueless model or effort
+      controls, and effort without a model, before any route read, version
+      probe, composite call or staging. Keep the shared splitter's behavior
+      for other adapters. After extraction, refuse every residual argument,
+      including selectors, profile/settings/output overrides, extra positional
+      text, `--`, aliases, joined/clustered forms, `--from-default-profile` and
+      unverified `--verbose`; the inherited selector-only deny-list is not the
+      admission rule. Use fixed field/category diagnostics in model validation,
+      `split_dsh_patch`, `dsh_control_conflict` and storage refusals; never echo
+      an unknown option name, joined value, model, ID or path. Prove these
+      refusals on cold, offered and disabled paths with private marker values
+      absent from the errors (safety / AS3, evidence / LE2).
+      Next retain D5/D6's delivered route binding and reader exactly as answers
+      Q-S and AS3 specify; this task does not re-derive their byte-exact grammar.
+      At every model-site start, cold, offered or `unmeasured`, independent of
+      the resume gate, at both `start_context` call sites: bind the seat's
+      single `--patch` value from the argv, the run's working directory and the compiled leaf
       layer's directory and manifest to a `files` member of that manifest,
       withholding the binding for an absolute path, `..` or symlink escape and
       any value the leaf layer does not carry as its own `files` member (an
@@ -896,22 +920,94 @@ saved for the phase commit.
       set (`displayName`, `api`, `baseURL`, `compat`, `models`, `apiKeyEnv`) with
       `apiKeyEnv` required as an environment-variable name and `baseURL`, when
       present, the closed lowercase-`https` endpoint grammar excluding every
-      credential-bearing position and character. Fold the validated rows ahead
-      of the transcript, model and settings rows in `dsh_seat_overlay_in` so the
-      launcher receives exactly one `--patch` and Brokkr's rows apply last, on
-      the cold, resume and closed/`unmeasured`-gate paths alike, re-imposed from
-      the current bundle rather than inherited from the persisted session.
-      Every other `--patch` — a second one, an unbound or digest-mismatched
-      file, a grammar or field-set breach, a foreign provider/row or a
-      `baseURL` outside the endpoint grammar — refuses before staging or
-      provider work on both paths, never forwarded and never dropped. No route
-      byte enters the composite, the launch row or the journal. Correct
-      `crates/brokkr-runtime/tests/roster.rs`'s doc comment on
-      `the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter`,
-      which still calls the overlay "the fetch grant", to state the overlay is
-      the route overlay and the fetch grant is the composed profile's own
-      (decision 0044 ruling 5's erratum), without moving that assertion,
-      `bundle.json`, `research-web.yml` or the research-dsh witness digest.
+      credential-bearing position and character. Require the binding and its
+      argv agreement before reading, digest equality before shape validation,
+      and recognize those same once-read bytes before staging. Every other
+      `--patch` refuses through the existing pre-work failure path, never
+      forwarded or dropped (safety / AS3).
+      Then close every disabled assessment gate before the version probe or
+      composite producer, with or without an offer. Missing/malformed declared
+      `identity.wrapper_digest` also prevents either observation. Only an
+      enabled shape with a valid declared digest probes the selected binary's
+      version once, bounded inside the existing deadline; only a matching
+      `applies_to` reaches the sole Rust producer. Compare the recomputed
+      canonical composite with the declared digest. On an offer compare both
+      observations with `resume_context.originating_harness_version` and
+      `originating_wrapper_digest` from the same confirmed root. Missing,
+      mistyped, malformed, unreadable or mismatched evidence declines an offer
+      as `unverified-harness`; a disabled assessment retains its own bounded
+      refusal reason. Preserve the engine's `root_session.wrapper_digest` to
+      `resume_context.originating_wrapper_digest` binding beside the originating
+      version. Carry observed core version as `harness_version` and composite
+      as `wrapper_digest` in the plan, separately from desired pins; their
+      confirmed recording and assessment/instance association remain required.
+      An origin mismatch follows the current observations; it does not imply
+      zero producer calls (safety / AS1, site / SR5).
+      Only after identity agreement admit the complete owned target: require
+      string provider ID, locator and `persistence_home`, with the provider ID
+      equal to the negotiated ID. Canonicalize the recorded and current admitted
+      homes and require equality before retained-session reads; a canonical
+      alias is equivalent, but a missing, unresolvable or different home declines
+      as `unverified-harness`. Never switch homes to honour an offer, even when
+      both homes contain the same ID and locator. Resolve the offered locator
+      losslessly beneath that home and enforce the existing 80-character bound
+      using Rust `chars`, not UTF-8 bytes. Do not truncate, rewrite separators
+      or use lossy path conversion to obtain a different address; validate the
+      planned locator before the shared `Transcript::record` clamp and before
+      staging too, keeping that clamp unchanged for other producers.
+      Require canonical containment of each project/session directory before
+      enumerating it and of the selected regular `session.jsonl` before opening
+      it, within the owned root as well as the admitted home. A contained alias
+      may pass; an escape into another root inside the same home must fail.
+      Complete the exact-one valid depth-zero header check for the offered ID,
+      refusing missing, malformed/truncated, unreadable or ambiguous evidence
+      instead of skipping unsafe candidates or finding a substitute. Give the
+      directory enumeration and existing pre-spawn header/sequence reads
+      explicit finite DSH-local budgets and bounded IO; a size check after an
+      unbounded allocation is insufficient. A truncated, invalid or unreadable
+      boundary must decline, never become zero or a partial-prefix maximum.
+      Preserve the inherited `firstSeq` convention and all current-event folds;
+      B repairs admission reads only (safety / AS2, safety / AS3, site / SR3,
+      site / SR5; design D6).
+      Finally settle the persistence root and lossless locator, then fold the
+      validated route ahead of the transcript/model/settings rows in
+      `dsh_seat_overlay_in` and stage exactly one overlay. Qualified cold builds
+      `--new --output-format stream-json`; qualified warm builds exactly
+      `--session <owned-id> --output-format stream-json` on the originating
+      root. Both retain the admitted `headless` profile, current workdir and
+      Rust-owned model/effort/settings. A disabled gate or identity/storage
+      mismatch builds the shipped `dsh --profile headless --patch <overlay>`
+      cold command under the current home, with no `--new`, `--session` or
+      `--output-format`, no rejoining target and no offerable root. Only a
+      declined offer carries a refusal token; no-offer cold has none. The
+      bound current route folds on qualified cold, warm and disabled/mismatched
+      cold alike. No route byte or binding enters the composite, launch row or
+      journal. Retain `confirms_from_locator: false`: a plan and stored header
+      are not launch confirmation (safety / AS1, safety / AS2, safety / AS3,
+      evidence / LE1, evidence / LE2).
+      Preserve `1d21319`'s completed roster-comment correction: the route is
+      the overlay's and the fetch grant is the composed profile's own (decision
+      0044 ruling 5's erratum). Do not move the roster assertion, `bundle.json`,
+      `research-web.yml`, compiled staffing or research-dsh witness digest.
+      The remaining launch half of (d) belongs to Pass C, after B; preserve its
+      inherited partial implementation without extending or crediting it here.
+      Confirm the launched root before publishing: do not treat the
+      plugin's request-derived `session_id` value by itself as
+      confirmation. Require a valid prior depth-zero header retained at
+      the resolved locator for the offered ID, the pinned plugin's
+      post-`await agents.resume` init event read from the stream-json
+      child on that selected persistence root, no fresh sibling
+      root/session in the retained store, and new sequence activity past
+      the recorded `firstSeq` in that same root, before the launch hold
+      releases. Same-root nonce continuity is 10.7's probe-only
+      model-recall device (design D6): it is never planted in a prompt or
+      read at run time, and this run-time confirmation names only the
+      mechanically observable header, init event, sibling-root and
+      sequence facts above. A missing or different root, whether followed
+      by a clean child exit
+      or by a delivered result file, remains failed or indeterminate
+      under D7: it publishes no `root_session`, no `transcript` locator
+      and no launch row, and authorizes no cold replacement by itself.
       Never forward the launcher's TUI example, treat the retained
       directory as a provider handle, alter the live global pin/profile, add
       an SDK runner or admit hands. If 10.7 demonstrates that the documented
@@ -935,7 +1031,9 @@ saved for the phase commit.
       `crates/brokkr-runtime/src/engine/resume_tests.rs`, the engine
       integration cases 8.10 assigns to that suite, read off the `Start.input`
       that suite's logging drivers actually received at both call sites, a
-      single site and a panel member;
+      single site and a panel member; also verify the originating-home
+      propagation in that unit case and the runtime checkpoint/actual-Start
+      cases named in 8.10, independently of the delivered route binding;
       the loader cases in `crates/brokkr-runtime/src/agents/tests.rs` (a
       measured identity without the member loads, a well-formed member loads
       and is carried, a malformed member or one beside `unknown` is refused
@@ -948,8 +1046,10 @@ saved for the phase commit.
       recomputed delta digest equals the note's, and substituting the upstream
       expression back reproduces upstream `lib/index.js` SHA-256
       `a40b52b3891485821ad01b00c322006abee8a51a0d4a2ae4ddb8427a0183d99b`,
-      before ticking — safety / AS1, safety / AS2, safety / AS3, safety / AS4,
-      site / SR3, site / SR5, evidence / LE1, evidence / LE3.
+      before ticking. Full 8.8 remains pending through C/D; completing B
+      alone never ticks it — safety / AS1, safety / AS2, safety / AS3, safety / AS4,
+      site / SR2, site / SR3, site / SR5, evidence / LE1, evidence / LE2,
+      evidence / LE3.
 - [x] 8.9 Implement SR3's two identity origins: harvest the
       provider-generated root for the known Claude and Codex paths, and
       support a fresh engine- or adapter-assigned creation ID only where
@@ -965,31 +1065,107 @@ saved for the phase commit.
       representation rather than widening a start payload — site / SR3,
       site / SR5.
 - [ ] 8.10 Complete each provider-local planner guard and its tests in
-      `adapters/tests.rs` from the captured grammar, and the engine-side
-      route-overlay binding's cases in the runtime engine suite assigned
-      below: exact arity plus
-      duplicate and precedence checks for every authoritative restriction,
-      on cold and resume paths, without introducing a generic provider
-      grammar. Preserve the completed Claude cases that independently refuse a
-      second or last-wins permission mode, tools list, strictness/MCP document,
-      allowed/disallowed-tools list (including alias spellings), model or effort
-      control rather than appending `extra` wholesale. Add the forward-pinned
-      DSH pair's exact `--new` and
-      `--session <owned-id>` argv, `stream-json`, admitted profile, current directory,
-      originating persistence root and Rust-owned model/effort/settings overlay;
-      prove no user selector/profile/output/model/effort/settings spelling, and
-      no `--patch` other than the bound route overlay, competes, and that core,
-      Node, dependency, plugin, patch, composed-profile
-      or optional extension drift yields `unverified-harness` before provider
-      work. Cover each digest case design D6 and AS1 name: a `supported` shape
-      whose identity lacks `wrapper_digest`, a private start context carrying
-      one outside the grammar, and a declared digest that differs from the
-      recompute each decline as `unverified-harness`, run the shipped cold
-      invocation and record no offerable root; an offer whose originating root
-      recorded a different version or digest, or no digest, declines the same
-      way even when the declaration matches the recompute; an `unmeasured`
-      shape on a home holding the qualified pair spawns no version probe, no
-      recompute and no `--new` or `--session`. Add the DSH route overlay's
+      `crates/brokkr-protocol/src/adapters/tests.rs` from the captured grammar,
+      and the engine's private-target and route-binding cases in the runtime
+      suites below. Keep exact arity, duplicate and precedence checks for every
+      authoritative restriction on cold and resume paths without a generic
+      provider grammar. Preserve the completed Claude cases that independently
+      refuse a second or last-wins permission mode, tools list, strictness/MCP
+      document, allowed/disallowed-tools list (including aliases), model or
+      effort control. This Pass B visit extends only DSH admission/planning;
+      C/D paragraphs below remain pending with their existing tests retained.
+      Verify each following case alongside its 8.8(d) implementation before
+      advancing to the next planner step; the full 8.10 checkbox awaits C/D.
+      First prove the originating-home carrier in
+      `crates/brokkr-runtime/src/engine/resume.rs`'s existing
+      `the_private_context_carries_the_owned_target_and_originating_digest`
+      test and checkpoint tests in `engine/resume_tests.rs`: provider ID,
+      locator, home, version and digest describe the same confirmed checkpoint;
+      a missing/mistyped home or locator never borrows a value from an older
+      checkpoint or another site. In `engine/resume_tests.rs`, use the existing
+      bundle/logging-driver pattern to read actual `Start.input` at both
+      production callers, a single site and a panel member: an offered start
+      carries the recorded `owned_target.persistence_home` beside its ID and
+      locator, and a no-offer start carries no owned target. Assert the private
+      carrier is absent from rendered prompt/context and is not copied as
+      `resume_context` or `owned_target` into launch evidence; retain the existing
+      confirmed `root_session` and `transcript` fields. Preserve gate/no-offer
+      behavior and Pass A's binding cases independently (site / SR2, site / SR3,
+      site / SR5, safety / AS2, evidence / LE2).
+      Then exercise `dsh_launch_with` in temporary homes for exact authorized
+      model, effort and patch inputs and every competing residual category:
+      duplicate/missing/invalid model and effort, equals-joined model, mixed
+      effort spellings, effort without a model, bare/duplicate/odd patch,
+      session/new/resume/list/profile/workdir/output/settings controls,
+      `--from-default-profile`, `--verbose`, unknown option names, option
+      terminators, positional text and short/joined/clustered forms. Retain
+      both existing effort spellings as positive cases, with no guessed aliases.
+      Exercise cold, offered and disabled paths. Pair bad controls with a route
+      that would fail to read and require the control refusal first; record
+      zero version calls, a never-called composite closure and no staged overlay
+      or retained-root allocation on these failures. Include synthetic private
+      markers in rejected option names, equals-joined values, malformed
+      model/path/selector-control values and odd patch spellings; assert no
+      diagnostic echoes them (safety / AS3, evidence / LE2).
+      Prove the full gate-before-probe matrix, with and without an offer:
+      missing/unmeasured/unsupported assessments and missing accounting evidence
+      (`unsupported-resume`), incompatible boundary/hands
+      (`restrictions-unavailable`), missing/mistyped applicable identity and
+      absent/mistyped/malformed declared digest (`unverified-harness`). Use a
+      recording version shim and a panicking or counted composite closure;
+      assert zero calls to both. A nonexistent executable alone does not prove
+      no version attempt. Assert the complete shipped cold argv and overlay,
+      not merely `stream_json == false`: no `--new`, `--session` or
+      `--output-format`, no rejoining target or offerable-root claim, and a
+      refusal token only when an offer was declined (safety / AS1, evidence / LE1).
+      For the enabled path, independently exercise matching observations,
+      absent/malformed/unreadable version output, version-command failure and
+      version drift, producer error and canonical-composite mismatch. A matching
+      version invokes the sole producer once; earlier failures invoke it zero
+      times. On an offer with matching current observations, independently vary
+      originating version and digest through missing, mistyped, malformed and
+      different values; these declines may follow one producer call. Require
+      `unverified-harness`, the exact shipped cold route under the current home
+      and no offerable root on any failed qualification. No-offer mismatch has
+      no refusal token. Observed version/digest must not be replaced by requested
+      pins. Retain the producer's existing component-drift suites; extending the
+      full composite/doctor/adaptation matrix below belongs to D (safety / AS1,
+      site / SR5, evidence / LE1).
+      Next prove owned storage at the planner boundary with otherwise matching
+      identity: missing/mistyped provider ID, locator or home, ID disagreement,
+      a missing/unresolvable/different home, and two homes holding the identical
+      ID/locator must decline to cold in the current home without reading the
+      other store. A symlinked spelling of the same canonical home is a positive
+      case. Cover empty, absolute, traversal, non-directory, missing and escaping
+      locators; offered and planned locator round-trip at 80/81 Rust characters,
+      including multibyte values, and an overlong value whose 80-character prefix
+      names another valid root, which must never be selected by truncation.
+      No lossy conversion or separator rewrite repairs an address. Include
+      project-directory, session-directory and `session.jsonl` symlink escapes,
+      including an escape to another root within the same home; contained aliases
+      remain admissible. Require one matching valid depth-zero header; missing,
+      nonregular, unreadable, malformed/truncated, delegated or ambiguous stored
+      evidence cannot qualify. Exercise each finite enumeration/header/sequence
+      budget at its admitted limit and beyond, read/iteration failure, malformed
+      or truncated boundary data and a valid prefix followed by invalid data:
+      decline rather than skip an unsafe candidate, use a partial maximum or
+      default to zero. Assert no other store changes, history copies or
+      substitute-root search; the sole safe cold plan may allocate its own fresh
+      root, never reuse the refused one. Put synthetic private markers in
+      invalid offered IDs and stored addresses and assert bounded storage
+      diagnostics never echo them. These are pre-spawn admission cases;
+      current-event folding and accounting remain D (safety / AS2, safety / AS3,
+      site / SR3, site / SR5).
+      Finish with exact qualified cold/warm argv and overlay assertions: cold
+      `--new --output-format stream-json`, warm exactly `--session <owned-id>
+      --output-format stream-json`, one `--patch`, admitted profile and current
+      Rust-owned model/effort/settings, with warm selecting the original root
+      rather than allocating a replacement. Preserve current-directory conformance
+      and `confirms_from_locator: false`. A built-driver conformance case in
+      `crates/brokkr-cli/tests/driver_conformance.rs` is added only if it proves
+      a distinct planner observation; no child-confirmation acceptance is added
+      in B (safety / AS1, safety / AS2, safety / AS3, evidence / LE1).
+      Complete the DSH route overlay's
       deterministic cases (answers Q-S), split by the crate that can observe
       each. The engine-side binding cases belong to the runtime engine suite,
       `crates/brokkr-runtime/src/engine/resume_tests.rs`, in the pattern of
@@ -1018,7 +1194,8 @@ saved for the phase commit.
       the manifest's recorded value, not a hash of the resolved file, at
       either call site. The adapter suite, `adapters/tests.rs`, which receives
       only argv, a working directory and the private context, owns the
-      remaining cases: the shipped `recipes/research-dsh`
+      remaining planner cases: call `dsh_launch_with`, reusing the existing
+      `route_overlay.rs` reader vectors and the shipped `recipes/research-dsh`
       overlay as the positive vector under the cold, offered and `unmeasured`
       gate, its bound `route_overlay` member folded ahead of the transcript/
       model/settings rows with the composite, launch row and journal left free
@@ -1042,11 +1219,19 @@ saved for the phase commit.
       schemeless); and executable or unrecognized syntax at any depth in either
       representation (a `!!js` or other tagged scalar, a `__jsExpr` mapping, a
       flow collection, anchor, alias, merge key or block/quoted scalar). Prove
-      the binding and digest check run before any shape check, so a bound,
-      digest-matching member whose `baseURL` fails the grammar still refuses.
-      Add the DSH stream-json confirmation exchange's deterministic cases
-      design D6 and D7 name, each built from a captured synthetic child
-      transcript with no installed provider: a post-`await agents.resume`
+      the binding and digest check run before any shape check: bytes invalid
+      on both digest and shape axes must yield the digest refusal first, while
+      a bound, digest-matching member with an invalid `baseURL` yields its
+      grammar refusal. In every negative route-overlay planner vector assert
+      no overlay is staged and no probe/producer is called; helper-reader success alone is
+      not evidence for these three launch paths. Keep one resulting patch,
+      unchanged reasoning levels and current route rows before Rust-owned rows
+      on each positive path, including identity-mismatch cold. Retain the
+      existing engine privacy assertions; B's plan is not an emitted launch
+      (safety / AS1, safety / AS2, safety / AS3, evidence / LE2).
+      Pass C, after B, owns the following DSH stream-json confirmation cases
+      design D6 and D7 name; do not implement or credit them in B. Each uses a
+      captured synthetic child transcript with no installed provider: a post-`await agents.resume`
       init event confirming the offered root, no fresh sibling
       root/session and new sequence activity past the recorded
       `firstSeq`, followed by current work, publishes
@@ -1068,8 +1253,12 @@ saved for the phase commit.
       launch. Label these the DSH arm of LE1/LE3/AS4/D7 rather than a
       restatement of 7.9's or 9.7's generic cross-adapter coverage, which
       exercise no DSH child-process init event.
-      Pin the canonical composite's byte form
-      byte form with one worked vector per lock dialect (the npm lockfile-3
+      Pass D owns completion of the remaining composite/containment/doctor/
+      adaptation-bytes/retained-storage matrix; keep its passing cases without
+      extending that matrix in B. Prove core, Node, dependency, plugin, patch,
+      composed-profile or optional extension drift yields `unverified-harness`
+      before provider work. Pin the canonical composite's byte form
+      with one worked vector per lock dialect (the npm lockfile-3
       hidden lock and pnpm lockfile 9.0, as committed synthetic excerpts in the
       measured grammar). The npm vector includes top-level and nested
       unscoped names, scoped names under unscoped and scoped parents,
@@ -1128,8 +1317,8 @@ saved for the phase commit.
       identifier injection, unsupported hands and cold/resume inability to
       honour the class. Label these deterministic planner/storage shims rather
       than live DSH compatibility or enforcement evidence — safety / AS1,
-      safety / AS2, safety / AS3, safety / AS4, site / SR3, site / SR5,
-      evidence / LE1, evidence / LE3, evidence / LE5.
+      safety / AS2, safety / AS3, safety / AS4, site / SR2, site / SR3,
+      site / SR5, evidence / LE1, evidence / LE2, evidence / LE3, evidence / LE5.
 - [x] 8.11 Assignment tests: a confirmed assigned creation reports
       `launch: cold` with root evidence; an assigned ID echoed in a
       start, argv or configuration with unmeasured opening semantics
@@ -3617,3 +3806,64 @@ unchanged from the prior reconciliation; passes E through K remain
 unscheduled and untouched. The next visit should implement pass B starting
 from 8.8's remaining planner work, in the order this file states, writing the
 runtime engine cases beside the binding they prove.
+
+
+## Current tasks visit — Pass B breakdown reconciliation, 2026-09-14
+
+Run `current-successor-issue-226-pass-838309ce`, tasks phase and its only seat,
+adopts `31cd6fa`, specify `cf35cc7` and design `1a04751`. Read the full pass
+framing, current B intake, predecessor's final journal result
+`721fc65d-da69-4b95-9039-6f6469fadd91`, DSH declaration, proposed 0056,
+proposal, five deltas, design D5/D6 and the current D10 reconciliation/open
+questions, tasks 8.8/8.10/9.6 and finalization, and relevant Rust planner,
+storage, private-context and test code through workspace hands. Read the
+repository's OpenSpec tasks/return instructions and the rendered tasks
+instructions. No `returned_from` finding is present in this visit; the current
+design supplies the bounded implementation details under existing requirements.
+
+Only the current framing, 8.8 and 8.10 descriptions and this progress entry
+change. The breakdown now orders private originating-home propagation before
+its consumer, then control validation and fixed diagnostics, delivered route
+validation, gate/identity comparisons, bounded owned-storage reads, and exact
+cold/warm command and overlay construction. Each step names its requirement
+and corresponding verification. 8.10 assigns same-checkpoint and actual-Start
+home cases to the runtime suites at both callers and planner outcomes to the
+protocol suite. It requires recorded zero-call evidence only where ordering
+prevents observations, retains legitimate observations before origin/storage
+declines, and distinguishes route digest-before-shape refusal from a
+matching-digest grammar refusal. D6's character bound and canonical homes,
+selected-file containment and finite read budgets are explicit acceptance.
+
+All 101 identifiers and ticks are unchanged: **82 complete / 19 pending**.
+Only 8.8 and 8.10 task descriptions move; the other 99 descriptions, including
+9.6 and group 15, and all earlier dated progress sections retain their bytes.
+Pass A is adopted, including the roster-comment correction. C's confirmation
+outcomes remain intact; C/D and E–K are unscheduled. 8.8, 8.10 and 9.6 stay
+unticked, and this tasks draft claims no completed Pass B implementation.
+The change stays whole under AS1/0030 with LaneTally's sole 11.4 exception;
+DSH stays `unmeasured` and 0056 stays `proposed`.
+
+Strict active OpenSpec validation, status/delta parsing, task/requirement
+coverage and `git diff --check` pass. All 20 requirements / 150 scenarios and
+their five delta files are unchanged. Structural evidence and command results
+are under `.forge/tasks-838309ce/`. Production, declarations, decisions,
+recipes, pins, frozen paths and living capabilities are unchanged from the
+adopted head. No test is added for this tasks-only preparation edit.
+
+With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and #282's environment workaround,
+format, all-target/all-feature clippy, the workspace test listing and unfiltered
+suite, both bundle compiles and the release build cannot launch: Cargo is
+absent (`ENOENT`). No Rust gate passes here. They remain required before the
+implementing pass's final commit, using
+`env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` for Git and validation processes.
+The known machine-proof failure is not newly diagnosed or exempted; no skip was
+used and the single archive-dependent assertion/full archived suite remain
+pending under unchanged 15.3/15.7. Exact coverage remains pending controller
+host evidence outside the box, with CI, release admission and coverage still
+consuming `rust-nightly-version.txt`; remote results remain pending.
+
+This is a `drafted` task-planning checkpoint, not implementation completion.
+No earlier artifact must change to write an honest breakdown, so `upstream`
+is not warranted. Commit this preparation unsigned in the repository style;
+no provider probe, workflow runner, archive, task tick, push, merge, activation
+or new Brokkr run occurs in this visit.
