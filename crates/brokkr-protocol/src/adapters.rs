@@ -1906,9 +1906,16 @@ fn fold_dsh_event(
     }
 }
 
-/// The fixed transcript filename the JSONL backend writes inside each
-/// session-owned directory (`<root>/--<cwd>--/<id>/session.jsonl`).
-const DSH_TRANSCRIPT: &str = "session.jsonl";
+/// The fixed transcript filename the selected JSONL backend writes inside
+/// each session-owned directory
+/// (`<root>/--<cwd>--/<id>/session.v3.jsonl`).
+///
+/// The selected `0.1.5-rc.1` core sets `SESSION_FORMAT_VERSION = 3`, so
+/// `sessionFormatLogFilename(3)` is `session.v3.jsonl`; the seat overlay
+/// disables compression (`compression: none`), which changes only the
+/// suffix, so the plaintext artifact keeps that generation name (design
+/// D6; task 8.8(d)).
+const DSH_TRANSCRIPT: &str = "session.v3.jsonl";
 
 /// The existing transcript locator bound (Rust `chars`, not UTF-8 bytes),
 /// repeated here so the DSH planner can validate an OFFERED locator and the
@@ -2916,7 +2923,7 @@ fn plain_dsh_session_id(id: &str) -> bool {
     recordable_session_id(id)
 }
 
-/// What one stored `session.jsonl`'s first line states. `None` is unsafe
+/// What one stored `session.v3.jsonl`'s first line states. `None` is unsafe
 /// evidence — absent, unreadable, truncated, over budget, non-JSON, not a
 /// session header at all, or a depth-zero header with no string id — and
 /// declines the whole admission rather than being skipped in favour of a
@@ -2957,12 +2964,13 @@ fn dsh_stored_session_with(candidate: &std::path::Path, budget: u64) -> Option<D
     if event.get("type").and_then(Value::as_str) != Some("session") {
         return None;
     }
-    if event
-        .get("delegationDepth")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-        != 0
-    {
+    // The selected core's header requires a non-negative safe-integer
+    // `delegationDepth`. `as_u64` refuses a string, null, negative,
+    // fractional or missing value instead of defaulting malformed storage
+    // to the seat's own depth and admitting a partial/mismatched boundary
+    // (design D6; task 8.8(d)).
+    let depth = event.get("delegationDepth").and_then(Value::as_u64)?;
+    if depth != 0 {
         return Some(DshStoredSession::Delegated);
     }
     event
@@ -2975,7 +2983,7 @@ fn dsh_stored_session_with(candidate: &std::path::Path, budget: u64) -> Option<D
 /// header names `expected`, or a refusal. Exactly one candidate is
 /// required: a missing or ambiguous set is unreadable rather than resolved
 /// to a substitute. Each project/session directory and the selected
-/// `session.jsonl` is canonicalized and required to stay inside the
+/// `session.v3.jsonl` is canonicalized and required to stay inside the
 /// retained root, and the whole walk is charged against a finite
 /// enumeration budget. A directory, file or header that cannot be admitted
 /// fails the whole selection rather than being skipped for a convenient
@@ -3067,7 +3075,20 @@ fn dsh_session_file_with(
 /// over-budget, truncated or malformed row refuses the offer rather than
 /// guessing a baseline; a truncated boundary is never a zero or a
 /// partial-prefix maximum (design D8; task 8.8(d)).
+///
+/// The first row is the header, read inside the header budget; every later
+/// row is one whole serialized provider event, so it gets the file-sized
+/// event budget instead. A normal user message or tool result serializes
+/// into ONE row and easily exceeds a header-sized line while staying far
+/// below the file budget, so the event rows must not be cut at the header
+/// bound (design D6; task 8.8(d)).
 fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
+    dsh_session_last_seq_with(path, DSH_SESSION_FILE_LIMIT)
+}
+
+/// `dsh_session_last_seq` over an injected event budget, so an over-budget
+/// event row is reachable from a test without a 64 MiB file.
+fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Option<u64> {
     let file = std::fs::File::open(path).ok()?;
     if file.metadata().ok()?.len() > DSH_SESSION_FILE_LIMIT {
         return None;
@@ -3075,11 +3096,15 @@ fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
     let mut reader = std::io::BufReader::new(file);
     let mut last = 0u64;
     let mut line = Vec::new();
+    // The header is the first row and stays inside the header budget;
+    // every row after it is a whole event bounded by the file budget.
+    let mut budget = DSH_HEADER_LIMIT;
+    let mut first = true;
     loop {
         line.clear();
         let read = reader
             .by_ref()
-            .take(DSH_HEADER_LIMIT)
+            .take(budget)
             .read_until(b'\n', &mut line)
             .ok()?;
         if read == 0 {
@@ -3092,9 +3117,22 @@ fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
             return None;
         }
         let event = serde_json::from_slice::<Value>(&line).ok()?;
-        if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
-            last = last.max(seq);
+        if first {
+            // The header names the session and carries no `seq`; it is not
+            // part of the current-work boundary.
+            if event.get("type").and_then(Value::as_str) != Some("session") {
+                return None;
+            }
+            first = false;
+            budget = event_budget;
+            continue;
         }
+        // A complete row that is not an event carrying a non-negative
+        // integer sequence is malformed storage, not a row to skip:
+        // skipping it would report a lower maximum as if the boundary were
+        // complete (design D6; task 8.8(d)).
+        let seq = event.get("seq").and_then(Value::as_u64)?;
+        last = last.max(seq);
     }
     Some(last)
 }
@@ -4038,13 +4076,14 @@ fn dsh_transcript_root_in(
 ///
 /// Accepted by the installed 0.1.0-rc.6 and re-measured on 0.1.2-rc.1
 /// (2026-09-04: without `compression: none` that release writes
-/// `session.jsonl.zstd`; with this row, the plain file below): `dsh
-/// --profile headless --dump-config` composes this row over the
-/// `session-persistence-jsonl` id that `@deepseek-ai/dsh-base` already
-/// contributes (whose only default is `root: dshHomePath('sessions')`),
-/// and a real headless session run with it wrote a plain-text
-/// `<root>/--<cwd>--/session-<uuid>/session.jsonl` — the layout
-/// `find_dsh_transcript` walks and `DSH_TRANSCRIPT` names.
+/// `session.jsonl.zstd`; with this row, the generation-addressed plain
+/// file below): `dsh --profile headless --dump-config` composes this row
+/// over the `session-persistence-jsonl` id that `@deepseek-ai/dsh-base`
+/// already contributes (whose only default is `root:
+/// dshHomePath('sessions')`), and a real headless session run with it
+/// wrote a plain-text `<root>/--<cwd>--/session-<uuid>/session.v3.jsonl`
+/// on the selected `0.1.5-rc.1` core — the layout `find_dsh_transcript`
+/// walks and `DSH_TRANSCRIPT` names.
 fn dsh_transcript_row(root: &std::path::Path) -> Result<String, String> {
     let root = root.to_string_lossy();
     if root.contains('\n') || root.contains('\r') {

@@ -787,10 +787,10 @@ fn dsh_driver_turns_the_model_pair_into_the_overlay_the_launcher_reads() {
              if [ \"$prev\" = --patch ]; then cp \"$a\" {overlay}; fi; prev=$a; done\n\
              root=$(awk -F\"'\" '/^    root: /{{print $2}}' {overlay}); d=\"$root/--p--/s\"; mkdir -p \"$d\"\n\
              sp=$(awk -F\"'\" '/^    path: /{{print $2}}' {overlay}); [ -n \"$sp\" ] && cp \"$sp\" {settings}\n\
-             printf '{{\"type\":\"session\",\"version\":0,\"id\":\"session-served\"}}\n' > \"$d/session.jsonl\"\n\
+             printf '{{\"type\":\"session\",\"version\":0,\"id\":\"session-served\"}}\n' > \"$d/session.v3.jsonl\"\n\
              if [ -n \"$sp\" ]; then lvl=$(awk -F\"'\" '/reasoningEffort/{{print $2}}' \"$sp\"); \
-             printf '{{\"type\":\"request/header\",\"data\":{{\"header\":{{\"config\":{{\"reasoningEffort\":\"%s\"}}}}}}}}\n' \"$lvl\" >> \"$d/session.jsonl\"; fi\n\
-             printf '{{\"type\":\"assistant/message\",\"data\":{{\"turn\":1,\"step\":1,\"message\":{{\"source\":{{\"model\":\"served-by-dsh\"}}}}}}}}\n' >> \"$d/session.jsonl\"\n",
+             printf '{{\"type\":\"request/header\",\"data\":{{\"header\":{{\"config\":{{\"reasoningEffort\":\"%s\"}}}}}}}}\n' \"$lvl\" >> \"$d/session.v3.jsonl\"; fi\n\
+             printf '{{\"type\":\"assistant/message\",\"data\":{{\"turn\":1,\"step\":1,\"message\":{{\"source\":{{\"model\":\"served-by-dsh\"}}}}}}}}\n' >> \"$d/session.v3.jsonl\"\n",
             argv = argv.display(),
             overlay = overlay.display(),
             settings = settings.display()
@@ -3972,7 +3972,7 @@ for a in "$@"; do
 done
 d="$root/--project--/session-fake"
 mkdir -p "$d"
-f="$d/session.jsonl"
+f="$d/session.v3.jsonl"
 printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
 printf 'not json, ignorable noise\n' >> "$f"
 printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4,"reasoningTokens":1,"totalTokens":16}}}\n' >> "$f"
@@ -4175,7 +4175,7 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     // dsh creates the file before its first append, and a header still
     // being written is not JSON. Neither names a session yet, so neither
     // is the answer yet — the poll loop asks again.
-    let transcript = session.join("session.jsonl");
+    let transcript = session.join(DSH_TRANSCRIPT);
     std::fs::write(&transcript, b"").unwrap();
     assert!(find_dsh_transcript(&root).is_none());
     std::fs::write(&transcript, b"{\"type\":\"session\",\"id\":\"s").unwrap();
@@ -4236,7 +4236,7 @@ fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
         let project = dir.path().join("root").join("--project--");
         let mut wanted = std::path::PathBuf::new();
         for (name, depth) in [(seat, 0), (delegated, 1)] {
-            let transcript = project.join(name).join("session.jsonl");
+            let transcript = project.join(name).join(DSH_TRANSCRIPT);
             std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
             std::fs::write(
                 &transcript,
@@ -5952,26 +5952,62 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
         "workdir": dir.path(),
         "resume_context": {"assessment": {DSH_SHAPE: {"status": "unmeasured"}}},
     });
+    let mut unsupported = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+    unsupported["resume_context"]["assessment"][DSH_SHAPE]["status"] = json!("unsupported");
+    let mut missing_accounting = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+    missing_accounting["resume_context"]["assessment"][DSH_SHAPE]["evidence"]
+        .as_object_mut()
+        .unwrap()
+        .remove("accounting");
     let mut restricted = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
     restricted["boundary"] = json!("none");
+    let mut hands_mismatch = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+    hands_mismatch["resume_context"]["assessment"][DSH_SHAPE]["hands"] = json!("none");
     let mut no_identity = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
     no_identity["resume_context"]["assessment"][DSH_SHAPE]["identity"] = json!({});
+    let mut mistyped_identity = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+    mistyped_identity["resume_context"]["assessment"][DSH_SHAPE]["identity"] =
+        json!({"applies_to": 5});
+    let mut mistyped_digest = enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path());
+    mistyped_digest["resume_context"]["assessment"][DSH_SHAPE]["identity"]["wrapper_digest"] =
+        json!(7);
 
-    for (case, input) in [
+    for (case, reason, input) in [
         // No assessment at all: the fail-closed default.
-        ("absent", json!({"workdir": dir.path()})),
-        ("unmeasured", unmeasured),
-        // A supported shape whose boundary is not the one standing here.
-        ("restrictions", restricted),
+        (
+            "absent",
+            "unsupported-resume",
+            json!({"workdir": dir.path()}),
+        ),
+        ("unmeasured", "unsupported-resume", unmeasured),
+        ("unsupported", "unsupported-resume", unsupported),
+        // A supported shape whose accounting evidence was never measured
+        // cannot be enabled (proposed decision 0056 ruling 9).
+        (
+            "missing-accounting",
+            "unsupported-resume",
+            missing_accounting,
+        ),
+        // A supported shape whose measured boundary or hands mode is not
+        // the one standing here is measured somewhere else.
+        ("restrictions", "restrictions-unavailable", restricted),
+        ("hands-mismatch", "restrictions-unavailable", hands_mismatch),
         // A supported shape with no measured identity reaches the gate as
         // an unverified harness, never an enabled one.
-        ("no-identity", no_identity),
+        ("no-identity", "unverified-harness", no_identity),
+        ("mistyped-identity", "unverified-harness", mistyped_identity),
         // A supported shape that never declared the composite member: the
-        // gate is open but the declared digest is missing, so neither the
-        // version probe nor the producer runs.
+        // gate is open but the declared digest is absent or mistyped, so
+        // neither the version probe nor the producer runs.
         (
             "no-declared-digest",
+            "unverified-harness",
             enabled_input(DSH_SHAPE, "0.1.5-rc.1", dir.path()),
+        ),
+        (
+            "mistyped-declared-digest",
+            "unverified-harness",
+            mistyped_digest,
         ),
     ] {
         for session in [None, Some("session-1")] {
@@ -6000,9 +6036,9 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
             assert!(!launch.stream_json, "{case}");
             assert!(launch.rejoining.is_none(), "{case}");
             assert_eq!(
-                launch.refusal.is_some(),
-                session.is_some(),
-                "{case}: only a declined offer carries a refusal token"
+                launch.refusal,
+                session.is_some().then_some(reason),
+                "{case}: only a declined offer carries its exact refusal token"
             );
             let command = &launch.command;
             assert_eq!(
@@ -6014,11 +6050,28 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
                 ["--profile", "headless", "--patch"],
                 "{case}: the admitted headless profile and one patch"
             );
+            assert_eq!(
+                command.iter().filter(|part| *part == "--patch").count(),
+                1,
+                "{case}: exactly one patch"
+            );
             assert!(
                 !command.contains(&"--new".to_string())
                     && !command.contains(&"--session".to_string())
                     && !command.iter().any(|part| part == "--output-format"),
                 "{case}: the shipped cold route carries no streaming selector: {command:?}"
+            );
+            // The shipped overlay carries the seat's transcript root and
+            // the Rust-owned model row, never a session or `--new` selector.
+            let overlay = std::fs::read_to_string(launch.overlay.path()).unwrap();
+            assert!(
+                overlay.contains("session-persistence-jsonl"),
+                "{case}: {overlay}"
+            );
+            assert!(overlay.contains("compression: none"), "{case}: {overlay}");
+            assert!(
+                overlay.contains("model: deepseek-v4-flash"),
+                "{case}: {overlay}"
             );
         }
     }
@@ -6211,91 +6264,133 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
     let shim = dsh_recording_version_shim(dir.path(), "dsh-ctl", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
     let digest = "b".repeat(64);
-    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let mut enabled = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     // A route binding that would fail to read: every control refusal must
-    // precede the route read and any provider observation.
-    input["resume_context"]["route_overlay"] =
+    // precede the route read and any provider observation, on every path.
+    enabled["resume_context"]["route_overlay"] =
         json!({"value": "does-not-exist.yml", "digest": "a".repeat(64)});
+    let disabled = json!({
+        "workdir": dir.path(),
+        "resume_context": {
+            "route_overlay": {"value": "does-not-exist.yml", "digest": "a".repeat(64)},
+        },
+    });
 
     let s = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
-    for (case, extra) in [
-        (
-            "unknown option",
-            s(&[
-                "--model",
-                "deepseek-v4-flash",
-                "--patch",
-                "does-not-exist.yml",
-                "--unknown",
-            ]),
-        ),
-        (
-            "option terminator",
-            s(&["--model", "deepseek-v4-flash", "--", "x"]),
-        ),
-        (
-            "unverified verbose",
-            s(&["--model", "deepseek-v4-flash", "--verbose"]),
-        ),
-        (
-            "from-default-profile",
-            s(&["--model", "deepseek-v4-flash", "--from-default-profile"]),
-        ),
-        (
-            "competing session",
-            s(&["--model", "deepseek-v4-flash", "--session", "session-9"]),
-        ),
-        ("joined model", s(&["--model=deepseek-v4-flash"])),
-        (
-            "positional text",
-            s(&["--model", "deepseek-v4-flash", "extra"]),
-        ),
-        (
-            "duplicate patch",
-            s(&[
-                "--model",
-                "deepseek-v4-flash",
-                "--patch",
-                "a.yml",
-                "--patch",
-                "b.yml",
-            ]),
-        ),
-        (
-            "bare patch",
-            s(&["--model", "deepseek-v4-flash", "--patch"]),
-        ),
-        ("effort without model", s(&["--effort", "high"])),
-        (
-            "duplicate effort",
-            s(&[
-                "--model",
-                "deepseek-v4-flash",
-                "--effort",
-                "high",
-                "--effort",
-                "low",
-            ]),
-        ),
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("enabled", enabled, None),
     ] {
-        let calls = std::cell::Cell::new(0u32);
-        let result = dsh_launch_with(
-            &shim_text,
-            &extra,
-            dir.path().to_str().unwrap(),
-            Some("session-1"),
-            &input,
-            || {
-                calls.set(calls.get() + 1);
-                Ok(synthetic_dsh_composite(&digest))
-            },
-        );
-        let error = result.err().unwrap_or_else(|| panic!("{case} must refuse"));
-        assert_eq!(calls.get(), 0, "{case}: no producer call");
-        assert!(!marker.exists(), "{case}: no version probe");
-        for echo in ["does-not-exist", "session-9", "deepseek-v4-flash", "a.yml"] {
-            assert!(!error.contains(echo), "{case}: {echo} echoed in {error}");
+        for (case, control, extra) in [
+            (
+                "unknown option",
+                true,
+                s(&[
+                    "--model",
+                    "deepseek-v4-flash",
+                    "--patch",
+                    "does-not-exist.yml",
+                    "--unknown",
+                ]),
+            ),
+            (
+                "option terminator",
+                true,
+                s(&["--model", "deepseek-v4-flash", "--", "x"]),
+            ),
+            (
+                "unverified verbose",
+                true,
+                s(&["--model", "deepseek-v4-flash", "--verbose"]),
+            ),
+            (
+                "from-default-profile",
+                true,
+                s(&["--model", "deepseek-v4-flash", "--from-default-profile"]),
+            ),
+            (
+                "competing session",
+                true,
+                s(&["--model", "deepseek-v4-flash", "--session", "session-9"]),
+            ),
+            ("joined model", false, s(&["--model=deepseek-v4-flash"])),
+            (
+                "positional text",
+                true,
+                s(&["--model", "deepseek-v4-flash", "extra"]),
+            ),
+            (
+                "duplicate patch",
+                false,
+                s(&[
+                    "--model",
+                    "deepseek-v4-flash",
+                    "--patch",
+                    "a.yml",
+                    "--patch",
+                    "b.yml",
+                ]),
+            ),
+            (
+                "bare patch",
+                false,
+                s(&["--model", "deepseek-v4-flash", "--patch"]),
+            ),
+            ("effort without model", false, s(&["--effort", "high"])),
+            (
+                "duplicate effort",
+                true,
+                s(&[
+                    "--model",
+                    "deepseek-v4-flash",
+                    "--effort",
+                    "high",
+                    "--effort",
+                    "low",
+                ]),
+            ),
+        ] {
+            let calls = std::cell::Cell::new(0u32);
+            let result = dsh_launch_with(
+                &shim_text,
+                &extra,
+                dir.path().to_str().unwrap(),
+                session,
+                &input,
+                || {
+                    calls.set(calls.get() + 1);
+                    Ok(synthetic_dsh_composite(&digest))
+                },
+            );
+            let error = result
+                .err()
+                .unwrap_or_else(|| panic!("{path}/{case} must refuse"));
+            assert_eq!(calls.get(), 0, "{path}/{case}: no producer call");
+            assert!(!marker.exists(), "{path}/{case}: no version probe");
+            assert!(
+                !error.contains("route"),
+                "{path}/{case}: the control refusal precedes the route read: {error}"
+            );
+            if control {
+                assert!(
+                    error.contains("the seat's arguments carry"),
+                    "{path}/{case}: the control category: {error}"
+                );
+            }
+            for echo in ["does-not-exist", "session-9", "deepseek-v4-flash", "a.yml"] {
+                assert!(
+                    !error.contains(echo),
+                    "{path}/{case}: {echo} echoed in {error}"
+                );
+            }
         }
+        // Every refusal on this path precedes retained-root allocation and
+        // overlay staging, so the seat's own store was never created.
+        assert!(
+            !dir.path().join("sessions").exists(),
+            "{path}: no retained root or staged overlay"
+        );
     }
 
     match prior_home {
@@ -6731,7 +6826,7 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
 
     // An over-budget header is unreadable; a complete one within the
     // budget is admitted. Neither is a partial prefix.
-    let header = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}\n");
+    let header = format!("{{\"type\":\"session\",\"id\":\"{id}\",\"delegationDepth\":0}}\n");
     std::fs::write(&transcript, &header).unwrap();
     assert!(dsh_stored_session_with(&transcript, 16).is_none());
     match dsh_stored_session_with(&transcript, DSH_HEADER_LIMIT) {
@@ -6740,7 +6835,8 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     }
 
     // A header whose newline lands exactly at the budget is complete.
-    let mut exact = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}").into_bytes();
+    let mut exact =
+        format!("{{\"type\":\"session\",\"id\":\"{id}\",\"delegationDepth\":0}}").into_bytes();
     exact.resize(DSH_HEADER_LIMIT as usize - 1, b' ');
     exact.push(b'\n');
     std::fs::write(&transcript, &exact).unwrap();
@@ -6751,7 +6847,8 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
 
     // Valid JSON padded to the whole budget and followed by further bytes
     // is not a complete line: the truncated prefix is never admitted.
-    let mut padded = format!("{{\"type\":\"session\",\"id\":\"{id}\"}}").into_bytes();
+    let mut padded =
+        format!("{{\"type\":\"session\",\"id\":\"{id}\",\"delegationDepth\":0}}").into_bytes();
     padded.resize(DSH_HEADER_LIMIT as usize, b' ');
     padded.extend_from_slice(b"tail");
     std::fs::write(&transcript, &padded).unwrap();
@@ -6779,6 +6876,37 @@ fn dsh_admission_reads_are_complete_within_their_bounds_or_decline() {
     assert!(dsh_stored_session(&transcript).is_none());
     std::fs::write(&transcript, b"").unwrap();
     assert!(dsh_stored_session(&transcript).is_none());
+
+    // The selected core's header requires a non-negative safe-integer
+    // `delegationDepth`: a string, null, negative, fractional or missing
+    // depth is malformed storage, never the seat's own depth zero
+    // (design D6; task 8.8(d)).
+    let depth_malformed: [(&str, &[u8]); 5] = [
+        (
+            "string depth",
+            b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":\"0\"}\n",
+        ),
+        (
+            "null depth",
+            b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":null}\n",
+        ),
+        (
+            "negative depth",
+            b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":-1}\n",
+        ),
+        (
+            "fractional depth",
+            b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":1.5}\n",
+        ),
+        (
+            "missing depth",
+            b"{\"type\":\"session\",\"id\":\"session-1\"}\n",
+        ),
+    ];
+    for (label, body) in depth_malformed {
+        std::fs::write(&transcript, body).unwrap();
+        assert!(dsh_stored_session(&transcript).is_none(), "{label}");
+    }
 
     // The enumeration budget is finite: the project and its session are
     // both charged, so a one-entry budget declines rather than walking on.
@@ -6816,27 +6944,35 @@ fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
     let dir = tempfile::tempdir().unwrap();
     let header = b"{\"type\":\"session\",\"id\":\"session-1\",\"delegationDepth\":0}\n";
     let write = |rows: &[u8]| -> std::path::PathBuf {
-        let path = dir.path().join("session.jsonl");
+        // Named for the direct reader only; the planner's generation
+        // basename is asserted by `a_dsh_warm_offer_reads_the_selected_storage_generation`.
+        let path = dir.path().join("stored.jsonl");
         let mut bytes = header.to_vec();
         bytes.extend_from_slice(rows);
         std::fs::write(&path, &bytes).unwrap();
         path
     };
 
-    // Complete rows report their true maximum.
+    // A header with no stored events is the zero boundary, and complete
+    // rows report their true maximum.
+    assert_eq!(dsh_session_last_seq(&write(b"")), Some(0));
     assert_eq!(
         dsh_session_last_seq(&write(b"{\"seq\":3}\n{\"seq\":7}\n")),
         Some(7)
     );
 
-    // A complete final row longer than the per-line budget is truncated
-    // evidence: it must not be skipped while reporting the lower maximum.
-    let mut oversized = b"{\"seq\":8,\"pad\":\"".to_vec();
-    oversized.resize(5052 - 2, b'x');
-    oversized.extend_from_slice(b"\"}\n");
-    let mut rows = b"{\"seq\":7}\n".to_vec();
-    rows.extend_from_slice(&oversized);
-    assert_eq!(dsh_session_last_seq(&write(&rows)), None);
+    // A complete provider event far larger than the 4 KiB header budget is
+    // ordinary storage — the selected writer serializes each whole event
+    // into ONE row — so its newline is still found and its sequence
+    // admitted (design D6; task 8.8(d)).
+    let text = "x".repeat(4096);
+    let large = format!("{{\"type\":\"user/message\",\"seq\":8,\"text\":\"{text}\"}}\n");
+    assert!(large.len() > DSH_HEADER_LIMIT as usize);
+    assert_eq!(dsh_session_last_seq(&write(large.as_bytes())), Some(8));
+
+    // An event row cut at the event budget is truncated evidence: it must
+    // not be skipped while reporting the lower maximum.
+    assert_eq!(dsh_session_last_seq_with(&write(b"{\"seq\":7}\n"), 4), None);
 
     // A valid prefix followed by a truncated final JSON row declines.
     assert_eq!(
@@ -6849,6 +6985,100 @@ fn dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum() {
         dsh_session_last_seq(&write(b"{\"seq\":7}\nnot-json\n")),
         None
     );
+
+    // Complete-but-malformed sequence evidence declines: a non-integer,
+    // null, negative, missing or non-object row must not be silently
+    // skipped while the reader reports the lower maximum (design D6;
+    // task 8.8(d)).
+    let malformed: [(&str, &[u8]); 6] = [
+        ("string sequence", b"{\"seq\":\"8\"}\n"),
+        ("null sequence", b"{\"seq\":null}\n"),
+        ("negative sequence", b"{\"seq\":-1}\n"),
+        ("missing sequence", b"{\"type\":\"user/message\"}\n"),
+        ("json null row", b"null\n"),
+        ("non-object row", b"[]\n"),
+    ];
+    for (label, rows) in malformed {
+        assert_eq!(dsh_session_last_seq(&write(rows)), None, "{label}");
+    }
+}
+
+/// The selected `0.1.5-rc.1` core writes the generation-addressed
+/// basename `session.v3.jsonl` under the overlay's `compression: none`;
+/// the planner must resolve that artifact, not the obsolete
+/// `session.jsonl`. The literal generation name is asserted here so the
+/// shared `DSH_TRANSCRIPT` constant cannot hide a mismatch with the
+/// selected storage interface, and the stored event is deliberately
+/// larger than the 4 KiB header budget so a header-sized row bound
+/// cannot decline an ordinary warm offer (design D6; task 8.8(d)).
+#[cfg(unix)]
+#[test]
+fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let digest = "b".repeat(64);
+    let shim = dsh_version_shim(dir.path(), "dsh-generation", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = dir.path().to_str().unwrap();
+
+    let session_dir = dir.path().join("sessions/brokkr/seat-1/--w--/session-1");
+    std::fs::create_dir_all(&session_dir).unwrap();
+    let header = "{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\
+                  \"delegationDepth\":0}\n";
+    let text = "x".repeat(4096);
+    let event = format!("{{\"type\":\"user/message\",\"seq\":4,\"text\":\"{text}\"}}\n");
+    assert!(event.len() > DSH_HEADER_LIMIT as usize);
+    std::fs::write(
+        session_dir.join("session.v3.jsonl"),
+        format!("{header}{event}"),
+    )
+    .unwrap();
+
+    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    input["resume_context"]["originating_wrapper_digest"] = json!(digest);
+    input["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-1",
+        "persistence_locator": "sessions/brokkr/seat-1",
+        "persistence_home": dir.path().to_str().unwrap(),
+    });
+    let warm = dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert!(warm.stream_json, "{:?}", warm.refusal);
+    assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
+    assert_eq!(warm.first_seq, 4);
+    assert_eq!(warm.locator, "sessions/brokkr/seat-1");
+    assert!(warm
+        .command
+        .windows(2)
+        .any(|window| window == ["--session", "session-1"]));
+
+    // The obsolete basename is not the selected generation: a store that
+    // holds only `session.jsonl` declines to the shipped cold route under
+    // the current home and claims no offerable root.
+    std::fs::remove_file(session_dir.join("session.v3.jsonl")).unwrap();
+    std::fs::write(
+        session_dir.join("session.jsonl"),
+        "{\"type\":\"session\",\"version\":0,\"id\":\"session-1\",\
+         \"delegationDepth\":0}\n{\"type\":\"user/message\",\"seq\":4}\n",
+    )
+    .unwrap();
+    let declined = dsh_launch_with(&shim_text, &[], workdir, Some("session-1"), &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_eq!(declined.refusal, Some("unverified-harness"));
+    assert!(!declined.stream_json && declined.rejoining.is_none());
+    assert_shipped_cold_command(&declined.command, &shim_text);
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 #[cfg(unix)]
@@ -6982,7 +7212,7 @@ fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
     std::fs::write(non_dir_session.join("--n--/session-9"), b"x").unwrap();
     assert!(dsh_session_file(&non_dir_session, "session-1").is_err());
 
-    // A missing or non-regular stored `session.jsonl`.
+    // A missing or non-regular stored `session.v3.jsonl`.
     let missing = make_root("missing-file");
     std::fs::create_dir_all(missing.join("--m--/session-9")).unwrap();
     assert!(dsh_session_file(&missing, "session-1").is_err());

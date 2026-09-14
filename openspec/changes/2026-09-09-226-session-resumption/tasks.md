@@ -956,7 +956,7 @@ saved for the phase commit.
       planned locator before the shared `Transcript::record` clamp and before
       staging too, keeping that clamp unchanged for other producers.
       Require canonical containment of each project/session directory before
-      enumerating it and of the selected regular `session.jsonl` before opening
+      enumerating it and of the selected regular `session.v3.jsonl` before opening
       it, within the owned root as well as the admitted home. A contained alias
       may pass; an escape into another root inside the same home must fail.
       Complete the exact-one valid depth-zero header check for the offered ID,
@@ -1141,7 +1141,7 @@ saved for the phase commit.
       including multibyte values, and an overlong value whose 80-character prefix
       names another valid root, which must never be selected by truncation.
       No lossy conversion or separator rewrite repairs an address. Include
-      project-directory, session-directory and `session.jsonl` symlink escapes,
+      project-directory, session-directory and `session.v3.jsonl` symlink escapes,
       including an escape to another root within the same home; contained aliases
       remain admissible. Require one matching valid depth-zero header; missing,
       nonregular, unreadable, malformed/truncated, delegated or ambiguous stored
@@ -3895,7 +3895,7 @@ Delivered, with its verification beside it:
   categories echo no option, model, ID or path.
 - **Bounded pre-spawn reads.** The header line, the retained-root
   enumeration and the stored sequence each carry a finite DSH-local budget;
-  every project/session directory and the selected `session.jsonl` is
+  every project/session directory and the selected `session.v3.jsonl` is
   canonicalized and confined to the retained root; an ambiguous, truncated,
   escaping, non-regular or over-budget boundary declines rather than
   selecting a substitute or a partial maximum.
@@ -3925,3 +3925,69 @@ and the stale pin failed at the adopted head independently of this visit.
 No checkbox, contract, policy, reference, fixture, declaration, recipe,
 provider proof, activation or archive changes; DSH stays `unmeasured`,
 0056 stays `proposed`, and Passes C–D and E–K are untouched.
+
+## Current implement return — Pass B review residual repair, 2026-09-14
+
+Returned implement answering the Pass B review residual at `86bae3d`
+(findings B1–B4), still **Pass B alone**: the planner portion of 8.8(d) and
+its matching 8.10 cases. 8.8, 8.10 and 9.6 stay unticked — their whole
+acceptance still depends on Pass C's child confirmation and Pass D's
+accounting and remaining matrix, neither of which this visit begins. The
+predecessor visit's counts above measure `86bae3d`; this visit's are below.
+
+- **B1 — selected storage generation.** The selected `0.1.5-rc.1` core sets
+  `SESSION_FORMAT_VERSION = 3` (`@deepseek-ai/dsh-session/lib/index.js`),
+  names generation 3 `session.v3.jsonl` (`dsh-session-format`), and the
+  overlay's `compression: none` changes only the suffix
+  (`dsh-session-persistence-jsonl`), so the retained plaintext artifact is
+  `session.v3.jsonl`. `DSH_TRANSCRIPT` now names that generation, for the
+  planner's owned-file lookup and the shipped route's cold fold alike; D6
+  and 8.8(d)/8.10's basename literal reconcile to it.
+  `a_dsh_warm_offer_reads_the_selected_storage_generation` writes the
+  literal generation name rather than the shared constant, admits a warm
+  plan, then proves a store holding only `session.jsonl` declines to the
+  shipped cold route with no offerable root.
+- **B2 — header versus event budgets.** `dsh_session_last_seq_with` reads
+  the first row (the header) inside `DSH_HEADER_LIMIT` and every later whole
+  event inside the file-sized budget, so an ordinary large user message or
+  tool result — one serialized row — is no longer cut at the header bound.
+  Over-budget event rows, a truncated final row and an over-budget file
+  still decline. Both the reader vector and the planner-level warm case
+  store a 4096-character event.
+- **B3 — strict admission fields.** `dsh_stored_session_with` requires the
+  selected core's non-negative safe-integer `delegationDepth`; a string,
+  null, negative, fractional or missing depth declines instead of defaulting
+  malformed storage to depth zero. `dsh_session_last_seq` treats the first
+  row as the header and every later row as malformed unless it carries a
+  non-negative integer `seq`; a JSON `null`, non-object, string, null,
+  negative or sequence-less complete row declines instead of being skipped
+  to a partial maximum.
+- **B4 — planner acceptance matrix.** The closed-gate test now exercises
+  absent, unmeasured and unsupported assessments, missing accounting
+  evidence (`unsupported-resume`), a boundary mismatch and a hands mismatch
+  (`restrictions-unavailable`), and missing/mistyped identity and
+  absent/mistyped declared digest (`unverified-harness`), with and without
+  an offer, asserting each exact refusal reason, the complete shipped cold
+  argv and its transcript/model overlay. The residual-control test now runs
+  the full control list on the disabled, offered and enabled paths,
+  asserting zero producer calls, no version probe, no route read and no
+  retained-root allocation.
+
+Verification on this tree, under `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`
+and #282's `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`: `cargo fmt --all
+-- --check` clean; `cargo clippy --workspace --all-targets --all-features
+--locked -- -D warnings` clean; `cargo test -p brokkr-protocol
+--all-features` 199/199; `cargo test -p brokkr-cli --test driver_conformance`
+13/13, including the DSH usage fold that now follows `session.v3.jsonl`.
+With the named pre-archive `--skip
+every_capability_names_the_archived_changes_that_wrote_it` (which
+`-- --list` matches exactly once), the workspace suite is 1422 passed / 1
+failed: the sole failure is the pre-existing #282
+`machine_proof::dialect_validate_expands_the_chiefs_change_and_records_tool_evidence`,
+and `provenance`'s `every_archived_change_is_named_by_the_capabilities_it_promoted`
+passes beside exactly one filtered test. Both bundles compile and the
+release binary builds. `openspec validate
+2026-09-09-226-session-resumption --strict` passes. No checkbox, contract,
+policy, reference, fixture, declaration, recipe, provider proof, activation
+or archive change; DSH stays `unmeasured`, 0056 stays `proposed`, and
+Passes C–D and E–K are untouched.

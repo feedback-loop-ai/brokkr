@@ -113,7 +113,7 @@ for a in "$@"; do
 done
 d="$root/--conformance--/session-served"
 mkdir -p "$d"
-f="$d/session.jsonl"
+f="$d/session.v3.jsonl"
 printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
 if [ -n "$sp" ]; then
   lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")

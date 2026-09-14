@@ -773,7 +773,7 @@ resolve to the same recorded root declines; length alone cannot retrospectively
 prove that an arbitrary historical string was truncated. The fresh-root
 construction stays short by construction and is checked at its output too.
 
-Canonical containment applies to the selected regular `session.jsonl` file
+Canonical containment applies to the selected regular `session.v3.jsonl` file
 beneath the resolved owned root, including its project/session directories,
 not just to the locator directory beneath the home. Check a directory before
 enumerating it and the selected file before opening it. An escaping symlink,
