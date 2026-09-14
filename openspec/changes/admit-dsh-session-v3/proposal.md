@@ -51,7 +51,19 @@ CLARIFY-279-5, which asks for the `sourceEventSeqs` permission cells
 themselves: they exist only in the installed writer, which no
 specification box of this run reaches, so the specification refuses to
 carry them as a requirement and assigns their read to the design council
-at its next sitting (S6, S8).
+at its next sitting (S6, S8). The eighth sitting answers the clarify
+judge's fourth visit of CLARIFY-279-5 (S8), which found that the seventh
+sitting's repair had left a contradiction of its own: the growth rule
+still demanded, as a condition of a version joining the set, a record of
+the two conditional members on every row that carries them, while S6
+placed the `sourceEventSeqs` cells this change does not deliver out of
+scope. The operator ruled that the original commission's allowance
+governs: a part the performed reads did not reach is left refused or
+unread with the specific further read named, and that is a correct and
+complete outcome. The growth rule and the envelope requirement now state
+what the reads established and what is unread pending the named read, S6
+records the ruling, and a scenario falsifies the claim that no
+disposition rests on an unread cell (S2, S6, S8).
 
 ## What Changes
 
@@ -63,7 +75,10 @@ at its next sitting (S6, S8).
   spellings, judged on the recorded token's digit signature and the parsed
   value together, with the token bound to the one decoded top-level
   `version` member; versions 1, 2 and every other value keep the refusal.
-  The growth rule stays and names what a further version must record (S2).
+  The growth rule names what a further version's change records from its
+  own reads and how it leaves what those reads did not reach: refused or
+  unread, with the lifting read named, never demanded as an inventory
+  (S2).
 - **BREAKING, bounded to shapes no writer emits:** two corrections to the
   shipped reader's exactness judgment, applied under version zero as well
   as three. A token with a nonzero mantissa digit that underflows to zero,
@@ -148,7 +163,8 @@ at its next sitting (S6, S8).
 
 - `transcript-reading`: "Discovery identifies one owned local file" (the
   admitted set `{0, 3}`, exact-three spellings, the evidence behind both
-  versions and the two unread paths, the exactness scope, `isSeeded` over
+  versions, the two unread paths and the unread permission, the growth
+  rule that demands no inventory, the exactness scope, `isSeeded` over
   every shape and its one effect, the sibling and filename/version
   pinnings); "DSH sessions expose assembled or provisional content once"
   (whole messages under version three, the payload projection on the
@@ -292,8 +308,10 @@ exactly the rule each could break and names the read that lifts it:
   declaring type in the session package's `types.d.ts` and the per-type
   branch of the codec's validation pass. It is assigned to the design
   council's next sitting, the one phase of this run whose seats have
-  reached the writer, and the specification does not carry the cells as
-  a requirement (S6).
+  reached the writer; the specification does not carry the cells as a
+  requirement, and neither the growth rule nor the envelope requirement
+  demands them: each states what the read established and names the
+  read for the rest (S2, S6).
 
 ### S2 — The admitted set is `{0, 3}`, spelled exactly, classified per version
 
@@ -369,15 +387,27 @@ the reader projects differs between the versions once the payloads are
 measured; the cost of the per-version vocabulary is one argument through
 dispatch and one second list.
 
-**Growth rule.** A version joins only through a change that records, from
-the writer's own source, its package identity and files with digests; the
-record vocabulary; the message and block definitions behind every
-projected payload, mapped field by field; how fragments persist; the
-meaning of every added header field; the meaning of `surfaceOp` and
-`sourceEventSeqs` where carried; the identity of a seeded session's
-inherited rows; a disposition for every type; and whether admitted
-meanings are preserved. A part that was not read keeps the rule it could
-break withheld, never admitted with its version.
+**Growth rule.** A version joins only through a change that reads the
+writer's own source and records, cited by package, file, digest and line,
+what that read established of each of the following and, for each it did
+not reach, that fact and the specific read that would: the package
+identity and files; the record vocabulary; the message and block
+definitions behind every projected payload, mapped field by field; how
+fragments persist; the meaning of every added header field; the physical
+envelope and the meaning of `surfaceOp` and `sourceEventSeqs` where the
+read found them; the identity of a seeded session's inherited rows; a
+disposition for every type; and whether admitted meanings are preserved.
+A part not reached is left refused or withheld with the lifting read
+named, never admitted with its version: a rule that rests on it is
+withheld, and a part on which no rule rests is recorded unread. The
+version is admitted on the parts read, and that admission is complete,
+not incomplete: the rule demands no inventory the change's reads did not
+deliver and states nothing they did not record. The seventh sitting's
+rule demanded the meaning of the two members "on every row that carries
+them" as a condition of joining while S6 placed the `sourceEventSeqs`
+cells out of scope; the operator ruled at the eighth sitting that the
+original commission's allowance governs, and the rule now says so (S6,
+S8; CLARIFY-279-5, fourth visit).
 
 ### S3 — The six questions of #279, as the specification answers them
 
@@ -415,9 +445,9 @@ scenarios naming exact counts, order and suppression. The append and
 replace writer paths remain unread; no rule rests on them, and a later
 change that reads them may add a marker-aware presentation but never a
 removal. The per-type permission of `sourceEventSeqs` beyond
-`assistant/message` is likewise unread (U4); no rule rests on it, and its
-read is the design council's at its next sitting, not a later change's
-(S6).
+`assistant/message` is likewise unread (U4); no rule rests on it, the
+requirement demands no inventory of it, and its read is the design
+council's at its next sitting, not a later change's (S2, S6).
 
 **Corroboration** follows the writer and never leads. After the writer
 read, the simplicity seat ran a type-only, content-free histogram over the
@@ -446,13 +476,17 @@ row, cites D2's digest table, and rules:
 1. **Admitted versions are measured, closed and named.** Zero on the
    0.1.2-rc.1 capture, three on the 0.1.5-rc.1 read with session packages
    0.1.5-rc.2 (the D2 digests). A version joins only through a change
-   recording the writer's package identity and files with digests, the
-   record vocabulary, the message and block definitions behind every
+   that reads the writer's own source and records what that read
+   established of the writer's package identity and files with digests,
+   the record vocabulary, the message and block definitions behind every
    projected payload mapped field by field, how fragments persist, the
-   meaning of every added header field, the meaning of `surfaceOp` and
-   `sourceEventSeqs` where carried, the identity of a seeded session's
-   inherited rows, a disposition for every type, and whether admitted
-   meanings are preserved. Reach to the writer's source is an operation the
+   meaning of every added header field, the physical envelope and the
+   meaning of `surfaceOp` and `sourceEventSeqs` where found, the identity
+   of a seeded session's inherited rows, a disposition for every type,
+   and whether admitted meanings are preserved; a part the read did not
+   reach is recorded as such with the read that would reach it named,
+   and the version is admitted on the parts read, which is a complete
+   admission. Reach to the writer's source is an operation the
    reading seat performs at the file it cites, never inherited from another
    seat or sitting; a resolved binary is not source access. A versioned
    filename, a header number and the resemblance of sampled rows are not
@@ -505,8 +539,11 @@ row, cites D2's digest table, and rules:
    requirement is unchanged and no writer emits the affected shapes.
 8. **Unread parts withhold, never admit.** Any name outside the 56-name
    catalogue and the version-zero storage rows are refused under version
-   three; the seeded association is withheld; the record says which read
-   lifts each.
+   three; the seeded association is withheld; the per-type permission of
+   `sourceEventSeqs` beyond `assistant/message` is recorded unread, with
+   no rule resting on it and no inventory demanded; the record says which
+   read lifts each. A part left refused, withheld or unread with its read
+   named is a complete outcome, not an incomplete one.
 
 Enforcement bindings: the version-matrix, disposition, projection,
 interrupted-message, attempt, citation, replacement-copy,
@@ -568,31 +605,42 @@ are preserved.
   others would record an inference as a measurement. The permission is
   recorded unread at no cost, because no reader rule consults it (S1, U4).
 - **No per-type `sourceEventSeqs` inventory as a requirement of this
-  change, and no inferred cell.** The commission asks for the allowed,
+  change, no inferred cell, and no requirement that demands one.** The
+  reconciliation commission of the fifth sitting asked for the allowed,
   required, optional and conditional top-level key sets by relevant event
-  type. For the four kinds the reader projects, the record states every
-  cell with its standing (design D2 E4): the base four and `surfaceOp`
-  measured on all four; `sourceEventSeqs` forbidden on `assistant/message`
-  by measurement and unread on `user/message`, `tool/result` and
-  `tool/call`, as on the other 52 types. The requirement is complete
-  without the unread cells: the reader validates no row's key set and
-  reads the member on its three kinds wherever present, so no scenario's
-  outcome moves whichever way a cell resolves, and the writer-validity
-  scenario pins that across a forbidden cell, an unread cell and two
-  members the reader never reads. The cells exist only in the installed
-  writer's `types.d.ts` and `worker.cjs`, which no specification box of
-  this run reaches (S1; this sitting reconfirmed no `dsh`, `volta`, npm
-  cache, `~/.dsh` or network) and which the commission forbids this seat
-  to re-read; an inferred cell would repeat the defect the second visit
-  withdrew. The specification therefore refuses to carry the inventory
-  and decides its owner instead: read (d) is assigned to the design
+  type. The clarify judge's fourth visit found that the seventh sitting
+  had refused that inventory here while the delta's growth rule still
+  demanded a record of the two members on every row that carries them as
+  a condition of a version joining the set, so the artifacts demanded in
+  one place what they placed out of scope in another. The operator ruled
+  at the eighth sitting that the original commission's allowance
+  governs: a part the performed reads did not reach is left refused or
+  unread with the specific further read named, and that is a correct and
+  complete outcome. So reconciled, in that direction. For the four kinds
+  the reader projects, the record states every cell with its standing
+  (design D2 E4): the base four and `surfaceOp` measured on all four;
+  `sourceEventSeqs` forbidden on `assistant/message` by measurement and
+  unread on `user/message`, `tool/result` and `tool/call`, as on the
+  other 52 types. The growth rule and the envelope paragraph state what
+  the read established, record the rest as unread pending read (d), and
+  demand no inventory (S2). No rule rests on the unread cells: the reader
+  validates no row's key set and reads the member on its three kinds
+  wherever present, and two scenarios now falsify that across every
+  disposition class, the writer-validity scenario over the content kinds
+  and the unread-cell scenario over a quiet, a counted-omission and a
+  required-unknown row, each carrying a member that would refuse the
+  read if the reader consulted it there. The cells exist only in the
+  installed writer's `types.d.ts` and `worker.cjs`, which no
+  specification box of this run reaches (S1; this sitting reconfirmed no
+  `dsh`, `volta`, npm cache, `~/.dsh` or network) and which the operator
+  rules this seat is not to re-read; an inferred cell would repeat the
+  defect the second visit withdrew. Read (d) stays assigned to the design
   council's next sitting, the one phase of this run whose seats have
   reached the writer, to be performed by the seat that reaches it, cited
   by package, file, digest and line, with E4 completed there; a council
   without reach records that and leaves the cells unread, and the change
-  proceeds either way (design D13). Recording a cell as unread is not
-  this closure; the closure is that no rule depends on the cell and the
-  read has an owner and a sitting (S8, CLARIFY-279-5, third visit).
+  is complete either way (design D13; S8, CLARIFY-279-5, third and fourth
+  visits).
 - **No compatibility wrappers to keep old test lines compiling.** Keeping
   `zero_number_token` and the one-argument helpers as shims so that no
   existing test line changes would leave dead code under the exact-coverage
@@ -601,50 +649,52 @@ are preserved.
 - **No `upstream` result from this seat.** The commission supports a sound
   specification: every rule the delta states rests on evidence in this
   run's record, and the one evidence cell the record lacks is no rule's
-  premise, is refused above as a requirement and has an owner within this
-  run.
+  premise, is refused above as a requirement, has an owner within this
+  run, and is left unread under an operator ruling that calls that
+  complete.
 
 ### S7 — Validation of this sitting
 
 Read the dialect through `openspec instructions proposal`, `specs` and
 `tasks` for this change; they declare `proposal.md`, `specs/**/*.md` and
 `tasks.md`, and no workflow runner was invoked. Adopted the existing change
-at `2e7163e` and revised it for the one finding of the seventh sitting,
-CLARIFY-279-5 on its third visit, in dependency order: the proposal's
-refusal and assignment (Why, What Changes, S1, S3, S4, S6, S8), the
-design's evidence record (Context, D1, D2's reach table, E4 and U4, D5,
-D12, D13), the `transcript-reading` delta's evidence and envelope
-paragraphs and its writer-validity scenario, each delta edit an
-exact-match replacement over the requirement text, task 2.9 to match that
-scenario, and the adopted simplicity report's third erratum. The
+at `1f68fee` and revised it for the one finding of the eighth sitting,
+CLARIFY-279-5 on its fourth visit, under the operator's ruling, in
+dependency order: the proposal's growth rule, rulings and refusal (Why,
+What Changes, S1, S2, S4, S5 rulings 1 and 8, S6, S8), the
+`transcript-reading` delta's growth-rule, evidence and envelope sentences
+and its new unread-cell scenario, each delta edit an exact-match
+replacement over the requirement text, the design's evidence record
+(Context, D1, D2's reach table and U4, D12, and its validation record),
+task 2.10 for the new scenario and task 6.1 for the rulings as they now
+stand, and the adopted simplicity report's fourth erratum. The
 `transcript-tui` delta is unchanged. No task reads the writer, and no
 scenario's outcome depends on the unread cells. Reconfirmed this box
 cannot reach the writer by any route: no `dsh`, `volta`, `npm`, `cargo`
 or `~/.dsh`, HOME `/runtime/home`, `/home/vyanakiev` holding only
 `source`, no npm cache, and no network (the registry host does not
-resolve), so neither the installed packages nor a digest-matched copy
-could be read; nothing was re-measured and no E4 cell changed standing.
-Verified in the tree that `dsh_citations` is called from the message arm
-and the `tool/result` arm only (`transcript.rs:2412`, `:2474`), which the
-extended writer-validity scenario relies on. The sixth sitting's
-verification of the direct helper calls and the fifth sitting's of the
-message arm, the association pass, the shipped zero predicate, the
-first-match scanner and the fall-open header stand as recorded in the
-change's history (`2e7163e`, `95ba4a8`). Strict OpenSpec validation was
-run over the whole tree after authoring. Cargo is absent from this box,
-so no format, clippy, test or bundle gate ran here; they belong to the
-implementation seat before its activation commit, and the exact-coverage
-gate to host validation outside the box. This sitting commits the
-proposal, the reading delta, the design and the tasks, unsigned, and
-pushes nothing.
+resolve); nothing was re-measured and no E4 cell changed standing.
+Verified in the tree that `project_dsh` reads only `seq` and `ignorable`
+from a quiet, counted-omission or unrecognized row
+(`transcript.rs:2011-2032`) and that `dsh_citations` is called from the
+message arm and the `tool/result` arm only (`:2412`, `:2474`), which the
+new scenario relies on; the earlier sittings' verifications stand as
+recorded in the change's history (`1f68fee`, `2e7163e`, `95ba4a8`).
+Strict OpenSpec validation was run over the whole tree after authoring.
+Cargo is absent from this box, so no format, clippy, test or bundle gate
+ran here; they belong to the implementation seat before its activation
+commit, and the exact-coverage gate to host validation outside the box.
+This sitting commits the proposal, the reading delta, the design and the
+tasks, unsigned, and pushes nothing.
 
 ### S8 — The judges' findings, answered
 
 The clarify judge's four findings on the second sitting, the analyze
 judge's seven on the third, the clarify judge's four on the fourth, its
-four on the fifth and its one on the sixth are answered here; the earlier
-answers that later sittings superseded are recorded in the change's
-history (`36bf374`, `f34279e`, `50d2c28`, `95ba4a8`, `2e7163e`).
+four on the fifth, its one on the sixth and its one on the seventh are
+answered here; the earlier answers that later sittings superseded are
+recorded in the change's history (`36bf374`, `f34279e`, `50d2c28`,
+`95ba4a8`, `2e7163e`, `1f68fee`).
 
 | Finding | Answer | Where |
 |---|---|---|
@@ -665,6 +715,7 @@ history (`36bf374`, `f34279e`, `50d2c28`, `95ba4a8`, `2e7163e`).
 | CLARIFY-279-8: escaped or duplicate `version` members escape the exact-number promise. | The token is bound to the one decoded member; duplicates refuse as ambiguous; a missing token for a parsed number refuses; the same binding serves `time` and `time0`. | S2, S5 ruling 7, S6; design D3, D12; delta version and time paragraphs, the decoded-member scenario and the duplicated-time scenario; tasks 1.3 to 1.5. |
 | CLARIFY-279-5, second visit: E4 presented an inferred `sourceEventSeqs` permission as measured and left 52 types unrecorded. | Answered as far as the adopted evidence reaches, and no further: the read records `surfaceOp` for every type, the `sourceEventSeqs` prohibition on `assistant/message` and the validation of a present member, and no permission on any other type. The "optional" cell is withdrawn as a measurement; the permission on the other 55 types is recorded unread as U4 with the read that fixes it named, and no reader rule rests on it. That left the full-envelope question open on this record, bounded to that one unread permission; the third visit, below, decides who closes it and when. | S1 item 4 and U4, S3 Q4, S4, S6; design D1, D2 E3/E4 and U4, D5 Q1/Q4, D13 read (d); delta evidence and envelope paragraphs; the simplicity report's second erratum. |
 | CLARIFY-279-5, third visit: the `sourceEventSeqs` permission inventory for the 55 types other than `assistant/message` is incomplete, and the evidence that completes it is the member's declaring type in `types.d.ts` around `:429-446` with the per-type validation branch at `worker.cjs:9824-9930`. | Refused as a specification obligation and assigned as a read, not relabelled. The requirement is complete without the cells: the reader validates no key set and reads the member on its three kinds wherever present, which the writer-validity scenario now pins across a forbidden cell, an unread cell and two members the reader never reads. The cells exist only in the installed writer, which no specification box of this run reaches and which the commission forbids this seat to re-read; an inferred cell would repeat the defect the second visit withdrew. Read (d) is therefore assigned to the design council's next sitting, the one phase of this run whose seats have reached the writer, to be performed by the seat that reaches it and cited by package, file, digest and line, with E4 completed there; a council without reach records that and leaves the cells unread, and the change proceeds either way because no rule rests on them. | S1 item 4 and U4, S3 Q4, S4, S6; design Context, D1, D2 reach table, E4 and U4, D5 Q1/Q4, D12, D13 read (d); delta evidence and envelope paragraphs and the writer-validity scenario; tasks 2.9; the simplicity report's third erratum. |
+| CLARIFY-279-5, fourth visit: S6 removes the commissioned envelope inventory from scope and declares closure while the requirement still demands the record, and no operator amendment replaced the commission's criterion. | Answered on the operator's ruling of the eighth sitting, which amends the criterion: the original commission's allowance governs, so a part the performed reads did not reach is left refused or unread with the specific further read named, and that is a correct and complete outcome. The contradiction was real and is repaired in the owning rule first: the growth rule no longer demands the meaning of the two members on every row that carries them as a condition of joining, and states instead what a change records from its reads and how it leaves the rest; the envelope paragraph states no permission the read did not record and demands no inventory; S5 rulings 1 and 8 and S6 say the same, and every dependent summary follows. A new scenario falsifies the closure claim across the disposition classes the writer-validity scenario does not cover: a quiet, a counted-omission and a required-unknown row each carry a member that would refuse the read if the reader consulted it there, and none is read. Read (d) stays assigned as before, nothing was re-measured and no cell changed standing. | Why, What Changes, S1 U4, S2 growth rule, S4, S5 rulings 1 and 8, S6, S7; design Context, D1, D2 reach table and U4, D12, validation record; delta growth-rule, evidence and envelope sentences and the unread-cell scenario; tasks 2.10 and 6.1; the simplicity report's fourth erratum. |
 | CLARIFY-279-9: S5 ruling 7 generalised the signature to every integer timestamp, which would invalidate `1e3`. | Ruling 7 is restated per site: header admission for `{0, 3}` on parsed value and signature together; the time sites on the parsed value as a signed safe integer, the signature deciding only whether a parsed zero is a zero spelling; the binding shared by all three. `1e3` and `1000.0` render `1000`, and the version-three time scenario now spells `1000.0` beside `1e3`. | S2 Timestamps, S5 ruling 7; design D3, D12; delta version and time paragraphs and the version-three time scenario; tasks 1.5 and 6.1. |
 | CLARIFY-279-10: the helper algorithm gave `.` the empty signature while requiring `None`. | The helper's grammar requires at least one mantissa digit and, after an `e`, at least one exponent digit; it validates no more of the JSON grammar because the parser has already read the token as a number; `.` has no signature because it has no digit. | Design D3, D12; tasks 1.2. |
 | CLARIFY-279-11: task 4.3 required every existing test unmodified while tasks 1 and 2 change the helpers those tests call. | Preservation means behavioural assertions, not bytes: the six tests that call the changed helpers directly adapt their calls mechanically and are named, the version matrix is the one test extended on purpose, no compatibility wrapper is added, and no existing assertion changes because none spells an affected token. | Impact, S6; design D12; tasks 1.2 to 1.5, 2.1, 2.3 and 4.3. |

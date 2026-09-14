@@ -156,7 +156,10 @@ packages. It did not reach the writer's append and replace paths, which
 decide what a replace-marked row carries, the seed and fork path that
 writes a seeded session's inherited prefix, or the permission of
 `sourceEventSeqs` on any type but `assistant/message`, which no reader
-rule consults. Under version three the four content kinds therefore
+rule consults and which this requirement records as unread, stating
+none, with the read that records it, the member's declaring type and the
+codec's per-type validation branch, named in that change. Under version
+three the four content kinds therefore
 project by the content rules below; a replace-marked row projects by its
 type at its recorded position because the reader parses no marker; and the
 one rule that rests on inherited identities, the dedicated-tool
@@ -164,17 +167,25 @@ association, runs only for a session whose header records `isSeeded`
 exactly `false`. Versions 1 and 2 are not admitted:
 no core of this fleet wrote them to disk under an admitted name and their
 codecs were not read. A version SHALL join the set only through a change
-that records, from the writer's own source, its package identity and
-files with digests; the record vocabulary it emits; the message and block
-definitions behind every payload it projects, mapped field by field; how
-streaming fragments persist; the meaning of every header field it adds;
-the meaning of `surfaceOp` and `sourceEventSeqs` on every row that
-carries them; the identity of a seeded session's inherited rows; a
+that reads the writer's own source and records, cited by package, file,
+digest and line, what that read established of each of the following
+and, for each it did not reach, that it was not reached and the specific
+read that would: the writer's package identity and files; the record
+vocabulary it emits; the message and block definitions behind every
+payload it projects, mapped field by field; how streaming fragments
+persist; the meaning of every header field it adds; the physical
+envelope, and the meaning of `surfaceOp` and `sourceEventSeqs` where the
+read found them; the identity of a seeded session's inherited rows; a
 disposition for every record type; and whether every admitted-version
-meaning is preserved or a per-version projection is required. A part of
-the writer such a change did not read SHALL keep withheld the one rule
-that rests on it, with the lifting read named, rather than be admitted
-with its version. A versioned filename, a header number and the
+meaning is preserved or a per-version projection is required. A payload
+or part of the writer such a change did not reach SHALL be left refused
+or withheld, with the specific further read that lifts it named, rather
+than be admitted with its version: a rule that rests on it is withheld,
+and a part on which no rule rests is recorded as unread. The version is
+admitted on the parts read, and that admission is complete, not
+incomplete: this requirement demands no inventory of a part the change's
+reads did not reach and states no meaning or permission the change did
+not record. A versioned filename, a header number and the
 resemblance of sampled rows to admitted shapes are not admission
 evidence. The filename and the header
 version are independent facts: `session.v3.jsonl` carrying a version-zero
@@ -538,10 +549,13 @@ surface-eligible types `system/message`, `user/message`,
 `assistant/message` and `tool/result` and forbidden on every other type,
 and `sourceEventSeqs`, forbidden on `assistant/message` and validated
 wherever the codec finds one. The writer's permission of
-`sourceEventSeqs` on each other type is a cell of that change's evidence
-record, measured or unread as its design states, and is not a premise of
-any rule here: the reader's outcome for a row is the same whether the
-writer permits, requires or forbids the member on that row's type. A
+`sourceEventSeqs` on each other type was not read for #279: this
+requirement states none, demands no inventory of them, rests no rule on
+one, and leaves them unread pending the read named above; the reader's
+outcome for a row is the same whether the writer permits, requires or
+forbids the member on that row's type, which the two scenarios below pin
+across every disposition class, the content kinds and the quiet,
+counted-omission and required-unknown rows alike. A
 top-level packed row, which carries `seq0` and `time0` in place of `seq`
 and `time`, is outside every type's permitted set and cannot be written
 by that codec. Writer validity is not reader admission: the reader SHALL
@@ -699,6 +713,10 @@ either version.
 #### Scenario: Writer-required and writer-forbidden members are not reader admission
 - **WHEN** a version-three session holds a readable `user/message` without `surfaceOp`, which the writer requires there; a `tool/call` carrying `surfaceOp: "append"`, which the writer forbids there, and `sourceEventSeqs: null`, whose permission on that type the read did not record; a readable `tool/result` carrying a valid `sourceEventSeqs` to earlier rows, whose permission on that type the read did not record; an `assistant/message` carrying a valid `sourceEventSeqs` to earlier rows, which the writer forbids there; and a `step/end` row carrying `sourceEventSeqs: null`; and two otherwise identical files give the `assistant/message`, respectively the `tool/result`, `sourceEventSeqs: null` instead
 - **THEN** the first read projects the user message, the call, the result and the assistant message once each in source order with zero diagnostic counts and no notice, because the reader validates no row's key set, requires no marker, refuses no marker and reads a citation only on the three content kinds, so the members on the `tool/call` and the quiet `step/end` are never read; each of the other two returns `unsupported-format` with one unrecognized record and no turns, because the citation rules validate the member on an assistant message and on a tool result wherever it appears; no outcome in this scenario depends on whether the writer permits, requires or forbids the member on the row's type
+
+#### Scenario: A member on a type whose writer permission was not read changes no disposition
+- **WHEN** a version-three session holds a readable `user/message` at sequence 1, a `todo/write` at sequence 2 and a `deliverables/presented` at sequence 3 each carrying `sourceEventSeqs: null`, and an `assistant/attempt` at sequence 4 carrying a stream and `sourceEventSeqs: [[5, 1]]`; a second file appends a `text-chunks` packed row carrying `sourceEventSeqs: null`; and a third appends instead an `assistant/chunk` row carrying `sourceEventSeqs: null` and top-level `ignorable: true`
+- **THEN** the first read projects the user message once with one unrecognized record, the attempt's, and its notice, the two quiet rows counting in neither diagnostic; the second returns `unsupported-format` with two unrecognized records and no turns, refused on the packed row's type alone; the third projects the user message once with two unrecognized records; every one of those members would refuse the read if the reader validated it where it sits, and none is read, because a quiet, counted-omission or required-unknown row supplies only its sequence and its ignorable marker, and the writer's permission of the member on those types, which the read for #279 did not record, is no rule's premise
 
 #### Scenario: Embedded copies are owned only in an unseeded version-3 session
 - **WHEN** a version-three session whose header records `isSeeded: false` holds an `assistant/message` at turn 1 step 1 embedding text and a `tool-call` block with id `c1`, a dedicated `tool/call` with `callId: "c1"` at turn 1 step 1 and its `tool/result`; and otherwise identical files record `isSeeded` as `true`, a string, an object, null or absent

@@ -77,6 +77,24 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   there by measurement or its cells left unread if no council seat
   reaches the writer (U4, D13). Nothing was re-measured and no cell
   changed standing.
+- **The change at the eighth specification sitting.** The clarify judge
+  returned CLARIFY-279-5 a fourth time: the seventh sitting's refusal had
+  placed the `sourceEventSeqs` cells out of scope while the delta's growth
+  rule still demanded the meaning of the two members on every row that
+  carries them as a condition of a version joining the set, and no
+  operator amendment had replaced the reconciliation commission's
+  inventory criterion. The operator then ruled that the original
+  commission's allowance governs: a part the performed reads did not
+  reach is left refused or unread with the specific further read named,
+  and that is a correct and complete outcome. The specify seat repaired
+  the owning rule first, the proposal's growth rule and rulings 1 and 8
+  and the delta's growth-rule, evidence and envelope sentences, so that
+  they state what the reads established and leave the rest unread
+  pending read (d), and added the delta's unread-cell scenario, which
+  carries a refusing member on a quiet, a counted-omission and a
+  required-unknown row (D12). This design's evidence record follows: U4
+  records the ruling, read (d) stays assigned as before, nothing was
+  re-measured and no cell changed standing.
 - **The recipe's return budget is spent.** `recipes/triage/policy.json`
   rule `DESIGN-UPSTREAM-EXHAUSTED` parks a run whose design reports
   `upstream` after three specification visits; specification has now sat
@@ -131,7 +149,7 @@ See proposal.md — Why for the motivation. The facts that shape this design:
 | Simplicity §3.2: the version-three codec admits only `type`, `seq`, `time`, `data` at the top level; the timed stream is nested under `data.stream`. | **Adopt as corrected.** The base check at `worker.cjs:9824` is the four members; the same validation pass at `:9824-9930`, which simplicity §3.4 cites, admits and validates the conditional top-level members `surfaceOp` and `sourceEventSeqs` per type (E4). "Only" overstated the base check as the whole envelope; E3 now records the base plus the conditional members, and the conclusion stands that a top-level packed row cannot be written, because it lacks the base `seq` and `time` and carries members no type permits (E3, D6; CLARIFY-279-5). |
 | Simplicity: `assistant/attempt` is quiet. | **Reject; counted omission stands.** An attempt carries model output the writer never surfaced. The reader's existing signal for "recognized envelope, content not projected" is the counted `DshRow::Omission` (`transcript.rs:2245`), and its count is the only trace an operator gets that model text exists which the read does not show. Quiet would erase that trace. Simplicity's §8 accepts this outcome. |
 | Simplicity §6.9: apply the dedicated-tool association under version three everywhere and accept a cosmetic duplicate in the seeded case. | **Adopt for `isSeeded: false`; reject for every other header value.** The identities the rule keys on are carried on the version-three rows (D13), and a non-seeded session has no prefix from another session, so the version-zero rule applies there on measured fields. A seeded prefix is the one way foreign identities enter a file and its path was not read (U2); the delta withholds the pass there, which shows every embedded copy and hides nothing. The fleet's driver never seeds a session, so the gate is open for every transcript it writes. |
-| Simplicity §3.4: `assistant/message` forbids `sourceEventSeqs`; the codec requires unique earlier source sequences and replacement endpoints below the event's `seq`. | **Adopt, as far as it reaches.** The reader's earlier-than-owning citation rule matches the writer's validator; under version three a valid citation suppresses nothing because no chunk row exists (D7). Both members are top-level members of the event row, as the reader has always read `sourceEventSeqs` and as the delta's scenarios place `surfaceOp`. The report records one prohibition and the validation of a present member; it records no permission of `sourceEventSeqs` on any other type, and the previous sitting's "optional on the other surface-eligible types" was an inference from that one prohibition, not a measurement. E4 now separates the measured cells from that inference and records the other 55 types as unread (U4); no reader rule rests on the difference (CLARIFY-279-5, second visit). The third visit asked for the unread cells themselves; no seat of a specification sitting can read them, so the proposal refuses to carry them as a requirement and assigns the read to the council's next sitting, where the seat that reaches the writer completes E4 by measurement (proposal S6; U4, D13; CLARIFY-279-5, third visit). |
+| Simplicity §3.4: `assistant/message` forbids `sourceEventSeqs`; the codec requires unique earlier source sequences and replacement endpoints below the event's `seq`. | **Adopt, as far as it reaches.** The reader's earlier-than-owning citation rule matches the writer's validator; under version three a valid citation suppresses nothing because no chunk row exists (D7). Both members are top-level members of the event row, as the reader has always read `sourceEventSeqs` and as the delta's scenarios place `surfaceOp`. The report records one prohibition and the validation of a present member; it records no permission of `sourceEventSeqs` on any other type, and the previous sitting's "optional on the other surface-eligible types" was an inference from that one prohibition, not a measurement. E4 now separates the measured cells from that inference and records the other 55 types as unread (U4); no reader rule rests on the difference (CLARIFY-279-5, second visit). The third visit asked for the unread cells themselves; no seat of a specification sitting can read them, so the proposal refuses to carry them as a requirement and assigns the read to the council's next sitting, where the seat that reaches the writer completes E4 by measurement (proposal S6; U4, D13; CLARIFY-279-5, third visit). At the eighth sitting the operator ruled that leaving those cells unread with the read named is complete; the growth rule and the envelope requirement no longer demand them, and this row's adoption stands (CLARIFY-279-5, fourth visit). |
 | Simplicity §3.7: a version-three `user/message` carries no `turn`/`step`, so its positions are `None` and association still works. | **Adopt the measurement, correct the inference.** The writer omits the fields (E5, corroborated by the key histogram), but the shipped message arm reads `data.turn` and `data.step` for both roles (`transcript.rs:2427-2428`) and the association pass has no role exception (`:2142-2173`), so a supplied pair would let a crafted row own or lose an embedded copy. Under `Three` the arm reads no position from a `user/message` (D4; CLARIFY-279-6). |
 | Robustness §1: reach is a property of an operation, not of a seat; a third shape exists (binary resolvable, source unreadable). | **Adopt.** D2's reach table carries the shape, and the decision's ruling 1 says reach is performed by the reading seat at the file it cites and is never inherited (D11). |
 | Robustness §2: a payload refusal renders the same string as a never-admitted version; surface the distinction. | **Moot.** No payload refusal exists in the revised delta; `unsupported-format` under version three arises only from the version-zero causes, an invalid citation or packed encoding or a required unknown without the marker (D10). |
@@ -149,7 +167,7 @@ across this run's seats:
 | Seat | `which dsh` | Read the source tree | Box |
 |---|---|---|---|
 | specify, three sittings; design chief, `c1d57e9` and this sitting | not found | no | HOME `/runtime/home`, user `runner`; no `volta`, `npm`, `cargo` or `~/.dsh`; `/home/vyanakiev` holds only `source` |
-| specify, fourth to seventh sittings | not found | no | the same; at the seventh sitting also no npm cache and no network route to the registry, so no digest-matched copy of the packages either |
+| specify, fourth to eighth sittings | not found | no | the same; from the seventh sitting also no npm cache and no network route to the registry, so no digest-matched copy of the packages either |
 | design robustness, first sitting | not found | no | the same |
 | design robustness, this sitting | resolved `/home/vyanakiev/.volta/bin/dsh` | no: `test -r` on `dsh-session/lib/types/types.js` failed and `find` over the install root was refused | the third shape |
 | design simplicity, both sittings | resolved; `dsh --version` printed `0.1.5-rc.1` | yes; digests and line citations taken; every access a read | the install root under `/home/vyanakiev/.volta/tools/image/packages/@deepseek-ai/dsh/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`, packages at 0.1.5-rc.2 |
@@ -305,7 +323,14 @@ simplicity seat's, into the 0.1.5-rc.2 packages above):
   the change proceeds either way, because the delta's writer-validity
   scenario pins that no reader outcome moves with them and the design
   cannot return the change on an evidence cell no rule rests on
-  (CLARIFY-279-5, third visit).
+  (CLARIFY-279-5, third visit). **The requirement demands no inventory.**
+  At the eighth sitting the operator ruled that a part the performed
+  reads did not reach is left unread with its read named and that this
+  is a complete outcome; the delta's growth rule and envelope paragraph
+  now say so instead of demanding a record of the members on every row
+  that carries them, and the unread-cell scenario (D12) falsifies the
+  closure across the quiet, counted-omission and required-unknown
+  classes (proposal S2, S6; CLARIFY-279-5, fourth visit).
 
 **Corroboration, after the writer.** The simplicity seat's type-only,
 content-free histogram over the `session.v3.jsonl` files under
@@ -752,6 +777,20 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
   forbidden and an unread cell of E4, the two `null` members the reader
   never reads on two unread cells; no assertion moves if any cell
   resolves differently.
+- **Unread cells across dispositions.** The delta's unread-cell scenario:
+  a version-three `user/message` at sequence 1, a `todo/write` at 2 and a
+  `deliverables/presented` at 3 each with `sourceEventSeqs: null`, and an
+  `assistant/attempt` at 4 with a stream and `sourceEventSeqs: [[5, 1]]`
+  project the user message with one count, the attempt's; the same file
+  plus a `text-chunks` packed row with `sourceEventSeqs: null` refuses
+  with two counts and no turns; the same file plus an `assistant/chunk`
+  with `sourceEventSeqs: null` and `ignorable: true` projects the user
+  message with two counts. Every one of those members would refuse the
+  read if the reader validated it, and `project_dsh` reads only `seq`
+  and `ignorable` from a quiet, counted-omission or unrecognized row
+  (`transcript.rs:2011-2032`), so the claim that no disposition rests on
+  an unread E4 cell is falsifiable on every class, not only the content
+  kinds; no assertion moves if any cell resolves differently.
 - **Seeded association.** The delta's seeded scenario as a matrix over
   `isSeeded` `false`, `true`, `"yes"`, `{}`, null and absent under version
   three: only `false` suppresses the embedded call block; every value
@@ -1015,3 +1054,19 @@ cannot reach the writer by any route (no `dsh`, `volta`, `npm`, `cargo`,
 `~/.dsh`, npm cache or network). The council's next sitting performs read
 (d) if any of its seats reaches the writer, re-verifies this design
 against the delta and the tree, and owns it from there.
+
+**Revision at the eighth specification sitting.** On the clarify judge's
+fourth visit of CLARIFY-279-5 and the operator's ruling that answers it,
+the specify seat changed no cell's standing and re-measured nothing: the
+Context, D1 (the §3.4 row), D2 (the reach table's specify row and U4),
+D12 (the unread-cell bullet) and this record follow the proposal's
+reconciled growth rule and refusal (S2, S5 rulings 1 and 8, S6, S8).
+Reconfirmed this box cannot reach the writer by any route (no `dsh`,
+`volta`, `npm`, `cargo`, `~/.dsh`, npm cache or network). Verified in the
+tree that `project_dsh` reads only `seq` and `ignorable` from a quiet,
+counted-omission or unrecognized row (`transcript.rs:2011-2032`) and
+that `dsh_citations` is reached from the message and `tool/result` arms
+only (`:2412`, `:2474`), which the new scenario relies on. The council's
+next sitting performs read (d) if any of its seats reaches the writer,
+re-verifies this design against the delta and the tree, and owns it from
+there.
