@@ -1045,6 +1045,26 @@ fn originating_harness_version(input: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
+/// The composite digest the offered root was opened under, as the engine
+/// read it back off the same row the offer came from. A DSH root recorded
+/// without one can never be re-offered (task 8.8(d)).
+fn originating_wrapper_digest(input: &Value) -> Option<&str> {
+    input
+        .pointer("/resume_context/originating_wrapper_digest")
+        .and_then(Value::as_str)
+}
+
+/// A declared composite digest in seat-record v5's grammar: exactly 64
+/// lowercase hexadecimal characters. A `supported` DSH shape that declares
+/// anything else is refused by the loader, and this is the same check at
+/// the point of use.
+fn recordable_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 /// One line of wire text, whitespace-collapsed and clamped: every field
 /// a refusal reason quotes comes off the harness's stream, so it is
 /// arbitrary-length and may carry newlines. The journal is append-only
@@ -1777,10 +1797,21 @@ fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
 /// unparsed JSON string, so no target is derived from it at all.
 fn fold_dsh_event(
     event: &Value,
+    first_seq: u64,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
 ) {
+    // Current-only accounting (design D8; task 9.6): a resumed session's
+    // file holds its restored history beside the new work, and only
+    // events past the owned pre-followup sequence are this invocation's.
+    if event
+        .get("seq")
+        .and_then(Value::as_u64)
+        .is_some_and(|seq| seq <= first_seq)
+    {
+        return;
+    }
     match event.get("type").and_then(Value::as_str) {
         Some("session") => {
             // The dsh locator is the retained seat root, known and
@@ -1964,6 +1995,7 @@ struct DshTail {
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
+    first_seq: u64,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
@@ -1982,7 +2014,7 @@ fn drain_dsh_transcript(
         let Ok(event) = serde_json::from_slice::<Value>(&line) else {
             continue;
         };
-        fold_dsh_event(&event, turns, session_meta, emit);
+        fold_dsh_event(&event, first_seq, turns, session_meta, emit);
     }
 }
 
@@ -2804,48 +2836,394 @@ fn invoke_dsh(
     })
 }
 
-/// Why a dsh offer is declined, and the bounded v5 token that says so.
-///
-/// Measured against the installed
-/// `@deepseek-ai/dsh` 0.1.2-rc.1 source
-/// (`.forge/controller-dsh-resume-source-interface.json`, 2026-09-09).
-///
-/// The launcher's own help shows `--resume <session>` in a **TUI**
-/// example, and the launcher forwards everything after its own flags to
-/// the booted app verbatim — so that example says nothing about
-/// headless. The headless app's command line
-/// (`dsh-headless/lib/startup.js`) parses one positional, the task, and
-/// `--help`. Its runner (`dsh-headless/lib/index.js`) calls
-/// `agents.create({sessionId: brandString(\`session-${randomUUID()}\`)})`
-/// unconditionally and applies its followup, its `firstSeq` and its
-/// summary to that newly created agent; its whole config schema is
-/// `z.object({ task: z.string().required() })`, and the bundle patch
-/// (`dsh-headless/cordis.patch.yml`) configures the runner row with
-/// `task` alone.
-///
-/// The restoration interfaces the same capture shows are real —
-/// `agents.resume` delegating to the registered factory in `dsh-agent`,
-/// `Config.agents[].resumeSessionId` and its `resumeWith` call in
-/// `dsh-agent-loop`, and the factory loading through
-/// `sessionPersistence.prepare` — but they restore a CONFIGURED agent,
-/// and the headless caller does not run its admitted task on that agent.
-/// Closing that gap needs a mechanism this change is not authorized to
-/// use: replacing the installed runner plugin, monkey-patching
-/// `agents.create`, overriding UUID generation, editing the installed
-/// package, or substituting the TUI. So `adapters/dsh.json` declares the
-/// shape `unsupported` with that measured reason, and every offer is
-/// declined here rather than forwarded on a guessed route.
-///
-/// The token is the assessment's own where the gate names one, and
-/// `unsupported-resume` otherwise: even an assessment that somehow said
-/// `supported` could not be honoured by this arm, because it confirms no
-/// provider root and a launch it called `resumed` would be a guess.
-fn dsh_resume_refusal(input: &Value, session: Option<&str>) -> Option<&'static str> {
-    session?;
-    match resume_gate(input, DSH_SHAPE) {
-        ResumeGate::Disabled(reason) => Some(reason),
-        ResumeGate::Enabled { .. } => Some("unsupported-resume"),
+/// The DSH plugin's own value-taking selectors and the launcher's control
+/// spellings. The engine decides which session a seat runs (proposed
+/// decision 0056 ruling 4) and composes every restriction the seat applies
+/// (ruling 6); a seat's argv carrying one of these would decide or
+/// override that instead, and a last-wins plugin resolves the conflict in
+/// the seat's favour. So each is refused before any provider work rather
+/// than forwarded. `--patch` is validated separately (AS3): `split_dsh_patch`
+/// admits exactly the one authorized route overlay.
+const DSH_VALUE_SELECTORS: [&str; 7] = [
+    "-o",
+    "--output-format",
+    "-s",
+    "--session",
+    "-w",
+    "--workdir",
+    "--json-schema",
+];
+const DSH_BARE_SELECTORS: [&str; 11] = [
+    "-n",
+    "--new",
+    "-r",
+    "--resume",
+    "-l",
+    "--list",
+    "-h",
+    "--help",
+    "--profile",
+    "--dump-config",
+    "--dump-default-config",
+];
+
+/// The first control in the seat's remaining argv that decides a session
+/// or a restriction the engine owns, if there is one (proposed decision
+/// 0056 rulings 4 and 6).
+fn dsh_control_conflict(extra: &[String]) -> Option<String> {
+    extra
+        .iter()
+        .find(|part| {
+            let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
+            DSH_VALUE_SELECTORS.contains(&name) || DSH_BARE_SELECTORS.contains(&name)
+        })
+        .cloned()
+}
+
+/// A DSH session id in the grammar the pinned plugin mints
+/// (`session-<uuid>`) and seat-record v5 admits. Anything else is refused
+/// rather than passed as a `--session` value that could read as a flag.
+fn plain_dsh_session_id(id: &str) -> bool {
+    recordable_session_id(id)
+}
+
+/// The id a transcript's first line names as a depth-zero session header,
+/// or `None` when the file is absent, unreadable, not JSON, not a session
+/// header, or one a delegated child wrote.
+fn dsh_session_header_id(candidate: &std::path::Path) -> Option<String> {
+    let file = std::fs::File::open(candidate).ok()?;
+    let mut header = String::new();
+    std::io::BufReader::new(file).read_line(&mut header).ok()?;
+    let event = serde_json::from_str::<Value>(&header).ok()?;
+    if event.get("type").and_then(Value::as_str) != Some("session") {
+        return None;
     }
+    if event
+        .get("delegationDepth")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        != 0
+    {
+        return None;
+    }
+    event.get("id").and_then(Value::as_str).map(str::to_string)
+}
+
+/// The one stored depth-zero session file under a retained root whose
+/// header names `expected`, or a refusal. Exactly one candidate is
+/// required: a missing or ambiguous set is unreadable rather than resolved
+/// to a substitute (task 8.8(d)).
+fn dsh_session_file(root: &std::path::Path, expected: &str) -> Result<std::path::PathBuf, String> {
+    let mut matches = Vec::new();
+    let projects = std::fs::read_dir(root)
+        .map_err(|_| format!("dsh driver: retained root {root:?} is unreadable"))?;
+    for project in projects.flatten() {
+        let Ok(sessions) = std::fs::read_dir(project.path()) else {
+            continue;
+        };
+        for session in sessions.flatten() {
+            let candidate = session.path().join(DSH_TRANSCRIPT);
+            if dsh_session_header_id(&candidate).as_deref() == Some(expected) {
+                matches.push(candidate);
+            }
+        }
+    }
+    match matches.len() {
+        0 => Err(format!(
+            "dsh driver: no stored depth-zero session names {expected:?}"
+        )),
+        1 => Ok(matches.remove(0)),
+        _ => Err(format!(
+            "dsh driver: more than one stored session names {expected:?}"
+        )),
+    }
+}
+
+/// The highest sequence number stored in a session file — the owned
+/// pre-followup boundary a warm invocation folds past — or `None` when the
+/// file cannot be read. An unreadable file refuses the offer rather than
+/// guessing a baseline (design D8).
+fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut last = 0u64;
+    for line in text.lines() {
+        let Ok(event) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
+            last = last.max(seq);
+        }
+    }
+    Some(last)
+}
+
+/// Resolve one owned DSH persistence locator beneath the admitted home.
+/// The locator is a bounded relative path; an absolute path, a `..`
+/// component or a symlink escape is refused, and the resolved directory
+/// must hold exactly one depth-zero session header naming the offered id
+/// (task 8.8(d)).
+fn resolve_dsh_root(
+    home: &std::path::Path,
+    locator: &str,
+    expected: &str,
+) -> Result<std::path::PathBuf, String> {
+    if locator.is_empty() {
+        return Err("dsh driver: the owned target carries no persistence locator".into());
+    }
+    let relative = std::path::Path::new(locator);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(
+            "dsh driver: the owned persistence locator is not a bounded relative path".into(),
+        );
+    }
+    let canonical_home = std::fs::canonicalize(home)
+        .map_err(|_| "dsh driver: the admitted dsh home is unreadable".to_string())?;
+    let resolved = std::fs::canonicalize(canonical_home.join(relative))
+        .map_err(|_| "dsh driver: the owned persistence locator does not resolve".to_string())?;
+    if !resolved.starts_with(&canonical_home) {
+        return Err("dsh driver: the owned persistence locator escapes the dsh home".into());
+    }
+    if !resolved.is_dir() {
+        return Err("dsh driver: the owned persistence locator is not a directory".into());
+    }
+    dsh_session_file(&resolved, expected)?;
+    Ok(resolved)
+}
+
+/// One DSH invocation's settled plan: the argv (minus the prompt), the
+/// root it intends to rejoin, the bounded reason an offer was declined,
+/// the version and composite OBSERVED on the enabled path, and the staged
+/// seat overlay that must outlive the child.
+struct DshLaunch {
+    command: Vec<String>,
+    rejoining: Option<String>,
+    refusal: Option<&'static str>,
+    observed: Option<String>,
+    wrapper_digest: Option<String>,
+    /// Whether this invocation uses the plugin's `--output-format
+    /// stream-json` exchange. False on the shipped cold route, where the
+    /// driver folds the retained transcript instead.
+    stream_json: bool,
+    /// Fold only transcript events past this sequence (0 on a fresh root).
+    first_seq: u64,
+    locator: String,
+    /// The absolute retained root the transcript fold follows.
+    root: std::path::PathBuf,
+    /// Held for the child's lifetime; dropping it removes the staged file.
+    #[allow(dead_code)]
+    overlay: DshSeatOverlay,
+}
+
+impl DshLaunch {
+    fn plan(&self) -> LaunchPlan {
+        LaunchPlan {
+            command: self.command.clone(),
+            rejoining: self.rejoining.clone(),
+            refusal: self.refusal,
+            sandbox: None,
+            kind: "dsh-session",
+            harness_version: self.observed.clone(),
+            wrapper_digest: self.wrapper_digest.clone(),
+            persistent: true,
+            // Confirmation is the stream-json init event, never the
+            // retained locator: a directory is not a provider handle
+            // (proposed decision 0056 ruling 3). The invocation drives
+            // `LaunchHold::confirm` itself on that event.
+            confirms_from_locator: false,
+        }
+    }
+}
+
+/// How a DSH seat is launched for this attempt (task 8.8(d)).
+///
+/// The gate closes before any probe: while the shape is `unmeasured` (or
+/// otherwise disabled) the seat runs the shipped cold invocation unchanged,
+/// with no version probe, no composite recompute and no `--new`/`--session`.
+/// Where the gate is open the driver probes the core version, recomputes
+/// the canonical composite through the one Rust producer, and compares both
+/// against the declared identity and — on an offer — against the
+/// originating root's recorded values. Any mismatch, a `supported` shape
+/// without the member, or an originating root with no recorded digest
+/// declines as `unverified-harness`, ships the cold route and records no
+/// offerable root.
+fn dsh_launch(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+) -> Result<DshLaunch, String> {
+    dsh_launch_with(bin, extra, workdir, session, input, || {
+        let seams = DshSeams::resolve()
+            .map_err(|error| format!("dsh driver: the dsh seams are unreadable: {error}"))?;
+        dsh_composite(&seams)
+            .map_err(|error| format!("dsh driver: the composite identity is unreadable: {error}"))
+    })
+}
+
+/// `dsh_launch` over an injected composite producer, so every drift and
+/// mismatch case is a plain test over synthetic homes.
+fn dsh_launch_with(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    composite: impl FnOnce() -> Result<DshComposite, String>,
+) -> Result<DshLaunch, String> {
+    let (model, passthrough) = split_dsh_model(extra)?;
+    let (effort, passthrough) = split_effort(&passthrough);
+    let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
+    if let Some(conflict) = dsh_control_conflict(&passthrough) {
+        return Err(format!(
+            "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
+             selects a session or overrides a restriction the engine owns (proposed decision \
+             0056 rulings 4 and 6); it is refused before any provider work rather than resolved \
+             last-wins by the harness"
+        ));
+    }
+    let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
+    let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
+    let home = transcript.home().to_path_buf();
+    let gate = resume_gate(input, DSH_SHAPE);
+
+    let mut observed: Option<String> = None;
+    let mut digest: Option<String> = None;
+    let mut qualified = false;
+    let mut refusal: Option<&'static str> = None;
+    match &gate {
+        ResumeGate::Disabled(reason) => {
+            // A closed gate reports its reason only beside an OFFER it
+            // declined; a cold seat that never offered a session carries
+            // no refusal token at all.
+            if session.is_some() {
+                refusal = Some(reason);
+            }
+        }
+        ResumeGate::Enabled { applies_to } => {
+            let declared = input
+                .pointer("/resume_context/assessment/headless-work/identity/wrapper_digest")
+                .and_then(Value::as_str)
+                .filter(|value| recordable_digest(value));
+            if let Some(declared) = declared {
+                if let Some(version) = observed_version(&[bin.to_string(), "--version".to_string()])
+                {
+                    observed = Some(version.clone());
+                    if &version == applies_to {
+                        if let Ok(value) = composite() {
+                            if value.canonical == declared {
+                                digest = Some(value.canonical.clone());
+                                qualified = true;
+                            }
+                        }
+                    }
+                }
+            }
+            // An offer must be opened under the same version AND the same
+            // composite it was recorded with; a root with no recorded
+            // digest is not offerable.
+            if qualified && session.is_some() {
+                qualified = originating_harness_version(input) == observed.as_deref()
+                    && originating_wrapper_digest(input) == digest.as_deref();
+            }
+            if !qualified && session.is_some() {
+                refusal = Some("unverified-harness");
+            }
+        }
+    }
+
+    let mut stream_json = qualified;
+    let mut rejoining: Option<String> = None;
+    let mut first_seq = 0;
+    let fresh = |home: &std::path::Path| -> Result<std::path::PathBuf, String> {
+        dsh_transcript_root_in(|| dsh_transcript_root_under(Some(home.to_path_buf())))
+    };
+    let root = if qualified {
+        match session {
+            Some(id) => match owned_dsh_root(&home, input, id) {
+                Ok((root, boundary)) => {
+                    rejoining = Some(id.to_string());
+                    first_seq = boundary;
+                    root
+                }
+                Err(_) => {
+                    refusal = Some("unverified-harness");
+                    stream_json = false;
+                    fresh(&home)?
+                }
+            },
+            None => fresh(&home)?,
+        }
+    } else {
+        fresh(&home)?
+    };
+
+    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), &root, route.as_deref())?;
+    let locator = transcript.locator_under_home(&root)?;
+    let mut command = vec![
+        bin.to_string(),
+        "--profile".into(),
+        "headless".into(),
+        "--patch".into(),
+        overlay.path().to_string_lossy().into_owned(),
+    ];
+    if stream_json {
+        command.push("--output-format".into());
+        command.push("stream-json".into());
+        match &rejoining {
+            Some(id) => {
+                command.push("--session".into());
+                command.push(id.clone());
+            }
+            None => command.push("--new".into()),
+        }
+    }
+    command.extend(passthrough);
+    Ok(DshLaunch {
+        command,
+        rejoining,
+        refusal,
+        observed,
+        wrapper_digest: digest,
+        stream_json,
+        first_seq,
+        locator,
+        root,
+        overlay,
+    })
+}
+
+/// The offered root resolved beneath the admitted home, plus the sequence
+/// boundary a warm fold starts after.
+fn owned_dsh_root(
+    home: &std::path::Path,
+    input: &Value,
+    id: &str,
+) -> Result<(std::path::PathBuf, u64), String> {
+    if !plain_dsh_session_id(id) {
+        return Err("dsh driver: the offered session id is outside the admitted grammar".into());
+    }
+    if let Some(provider) = input
+        .pointer("/resume_context/owned_target/provider_id")
+        .and_then(Value::as_str)
+    {
+        if provider != id {
+            return Err("dsh driver: the owned target names a different root".into());
+        }
+    }
+    let locator = input
+        .pointer("/resume_context/owned_target/persistence_locator")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "dsh driver: the owned target carries no persistence locator".to_string())?;
+    let root = resolve_dsh_root(home, locator, id)?;
+    let file = dsh_session_file(&root, id)?;
+    let boundary = dsh_session_last_seq(&file)
+        .ok_or_else(|| "dsh driver: the stored session sequence is unreadable".to_string())?;
+    Ok((root, boundary))
 }
 
 /// The same invocation with the one question the OS answers — "is the
@@ -2862,79 +3240,59 @@ fn invoke_dsh_with(
     input: &Value,
     session: Option<&str>,
     emit: &mut impl FnMut(&Value),
-    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-    let (model, passthrough) = split_dsh_model(extra)?;
-    // The effort pin is forwarded, and the seam it rides was measured
-    // rather than guessed (2026-09-05, dsh 0.1.2-rc.1). `dsh --help`
-    // still lists no effort control, and the composition row that pins
-    // the model (`agent-default-model`) refuses to carry a level by that
-    // package's own design. What dsh does read is its SETTINGS layer:
-    // the `agent-default-model` settings section is a complete
-    // selection — provider, model, reasoningEffort — that wins over the
-    // composition entry, and the `settings` row's whole config is the
-    // path of that document. So a seat with an effort gets a settings
-    // document of its own naming the pinned model with the pinned
-    // level, the overlay points the settings row at it, and a real
-    // headless turn then echoed `reasoningEffort` in its
-    // `request/header`, which is what the fold reads back (decision
-    // 0035 addendum of 2026-09-05). The pin is in the bundle either
-    // way, and therefore in its digest.
-    let (effort, passthrough) = split_effort(&passthrough);
-    // The seat's own `--patch` is the one authorized route overlay, and it
-    // is never forwarded: the validated bytes are folded into Brokkr's one
-    // overlay below, so the launcher receives exactly one `--patch` (AS3;
-    // design D6 mechanism 1). A second, bare or unrecognized `--patch` is
-    // refused before staging.
-    let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
-    let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
+    let launch = dsh_launch(&bin, extra, workdir, session, input)?;
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
-    // The seat's own root under the operator's harness home. Nothing
-    // here removes it: the transcript is the operator's (see
-    // `dsh_transcript_root_under`), and the journal names the path below.
-    let root_dir = dsh_transcript_root_in(|| {
-        dsh_transcript_root_under(Some(transcript.home().to_path_buf()))
-    })?;
-    let root = root_dir.as_path();
-    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), root, route.as_deref())?;
-    let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
-    transcript.record(&locator, &mut session_meta, emit);
-    // The launch row. dsh's locator above is a retained DIRECTORY, not a
-    // provider session identifier, so this arm confirms no root and can
-    // offer none to a later retry — the directory is transcript evidence
-    // and nothing more (proposed decision 0056 ruling 3). An offer that
-    // reaches here is declined with the token that says the shape has no
-    // supported resume interface, never forwarded on the launcher's TUI
-    // spelling; see `DSH_HEADLESS_REFUSAL` for the source that measures
-    // it. `run_seat` buffers this row until work begins, exactly as
-    // before.
-    let mut launch = Map::new();
-    launch.insert("step".into(), Value::String("harness-started".into()));
-    launch.insert("harness".into(), Value::String("deepseek".into()));
-    launch.insert("profile".into(), Value::String("headless".into()));
-    // The pin travels in the manifest, not here: "model" on a seat's
-    // checkpoints means what SERVED (decision 0031).
-    launch.insert("launch".into(), Value::String("cold".into()));
-    if let Some(refusal) = dsh_resume_refusal(input, session) {
-        launch.insert("resume_refusal".into(), Value::String(refusal.into()));
+    // The retained locator is published before anything spawns, exactly as
+    // before; `run_seat` holds it until a turn begins (decision 0053).
+    transcript.record(&launch.locator, &mut session_meta, emit);
+    let mut hold = LaunchHold::new("deepseek", launch.plan());
+    // The shipped cold route confirms nothing, so its one launch row is
+    // published before the spawn — exactly where it always was, and the
+    // only reason a spawn failure still flushes the held rows. The
+    // stream-json route waits for the init event instead.
+    if !launch.stream_json {
+        hold.finish(emit);
     }
-    emit(&Value::Object(launch));
-    let mut command = vec![
-        bin,
-        "--profile".into(),
-        "headless".into(),
-        "--patch".into(),
-        overlay.path().to_string_lossy().into_owned(),
-    ];
-    command.extend(passthrough);
-    command.push(prompt.into());
+    let mut command = launch.command.clone();
+    command.push(prompt.to_string());
+    let mut invocation = if launch.stream_json {
+        invoke_dsh_stream_json(
+            &command,
+            &launch,
+            workdir,
+            &mut hold,
+            &mut session_meta,
+            emit,
+        )?
+    } else {
+        invoke_dsh_shipped(&command, workdir, &launch, wait, &mut session_meta, emit)?
+    };
+    // The qualified route's launch row was held until the harness named
+    // its root, or until the invocation ended without one (`finish` is a
+    // no-op once a confirmation has already published).
+    if launch.stream_json {
+        hold.finish(emit);
+    }
+    invocation.launch = hold.terminal();
+    Ok(invocation)
+}
+
+/// Spawn one dsh child with the given stdout disposition, and drain its
+/// stderr on a thread so a chatty session cannot deadlock the fold.
+fn spawn_dsh(
+    command: &[String],
+    workdir: &str,
+    stdout: Stdio,
+) -> Result<(std::process::Child, std::thread::JoinHandle<String>), String> {
     let child = Command::new(&command[0])
         .args(&command[1..])
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(stdout)
         .stderr(Stdio::piped())
         .spawn();
     let mut child = io_context(child, "could not invoke the agent CLI")?;
@@ -2945,17 +3303,123 @@ fn invoke_dsh_with(
         let _ = pipe.read_to_end(&mut captured);
         String::from_utf8_lossy(&captured).into_owned()
     });
+    Ok((child, stderr_thread))
+}
+
+/// The shipped cold route: stdout is `/dev/null` (the headless runner
+/// prints only its final answer, which this driver has never journaled),
+/// and the surviving signal is the JSONL transcript the persistence
+/// plugin appends as the session runs.
+fn invoke_dsh_shipped(
+    command: &[String],
+    workdir: &str,
+    launch: &DshLaunch,
+    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null())?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
         || wait(&mut child),
-        || drain_dsh_transcript(&mut tail, root, &mut turns, &mut session_meta, emit),
+        || {
+            drain_dsh_transcript(
+                &mut tail,
+                &launch.root,
+                launch.first_seq,
+                &mut turns,
+                session_meta,
+                emit,
+            )
+        },
     )?;
+    finish_dsh(session_meta, exit_code, stderr_thread)
+}
+
+/// The qualified `--output-format stream-json` exchange (task 8.8(d)):
+/// stdout is the pinned plugin's two-event envelope, whose
+/// post-`await agents.resume` init event is the ONLY root confirmation this
+/// driver accepts. The retained transcript is folded alongside it, only
+/// past the offered root's own sequence boundary, so a warm session never
+/// re-counts its restored history.
+fn invoke_dsh_stream_json(
+    command: &[String],
+    launch: &DshLaunch,
+    workdir: &str,
+    hold: &mut LaunchHold,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped())?;
+    let stdout = child.stdout.take().expect("piped");
+    let mut turns = 0u64;
+    let mut tail = DshTail::default();
+    for line in std::io::BufReader::new(stdout).lines() {
+        let Ok(line) = line else { break };
+        let Ok(event) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        fold_dsh_stream_event(&event, hold, session_meta, emit);
+        drain_dsh_transcript(
+            &mut tail,
+            &launch.root,
+            launch.first_seq,
+            &mut turns,
+            session_meta,
+            emit,
+        );
+    }
+    let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    drain_dsh_transcript(
+        &mut tail,
+        &launch.root,
+        launch.first_seq,
+        &mut turns,
+        session_meta,
+        emit,
+    );
+    finish_dsh(session_meta, status.code().unwrap_or(-1), stderr_thread)
+}
+
+/// One line of the plugin's stream-json envelope. The init event names the
+/// session the plugin actually opened after `agents.resume`; that is the
+/// one fact the launch hold waits for. The result envelope carries no
+/// per-message boundary, so the transcript fold — not this event — owns
+/// usage.
+fn fold_dsh_stream_event(
+    event: &Value,
+    hold: &mut LaunchHold,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+) {
+    let is_init = event.get("type").and_then(Value::as_str) == Some("system")
+        && event.get("subtype").and_then(Value::as_str) == Some("init");
+    if !is_init {
+        return;
+    }
+    let Some(id) = event
+        .get("session_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    else {
+        return;
+    };
+    session_meta.insert("session_id".into(), Value::String(id.to_string()));
+    hold.confirm(id, emit);
+}
+
+/// The common tail of both dsh invocations: the harness and profile the
+/// lane always is, and the redacted stderr. No pin lands in `session_meta`:
+/// `model` there is only ever what the transcript said served (decision
+/// 0031).
+fn finish_dsh(
+    session_meta: &mut Map<String, Value>,
+    exit_code: i32,
+    stderr_thread: std::thread::JoinHandle<String>,
+) -> Result<Invocation, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
-    // No pin lands in session_meta: "model" there is only ever what the
-    // transcript said served (decision 0031).
-    //
     // Decision 0053: dsh's headless profile makes no machine-readable
     // pre-session refusal available. Its stdout is the final answer or
     // nothing, and a provider rejection reaches this driver only as
@@ -2966,7 +3430,7 @@ fn invoke_dsh_with(
     // and codex.
     Ok(Invocation {
         exit_code,
-        session_meta,
+        session_meta: session_meta.clone(),
         stdout: String::new(),
         stderr: redact_dsh_reasoning(&stderr_thread.join().unwrap_or_default()),
         state: None,

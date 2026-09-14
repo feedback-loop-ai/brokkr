@@ -1088,7 +1088,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
     let mut emitted: Vec<serde_json::Value> = Vec::new();
     let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
         "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
-    fold_dsh_event(&step, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&step, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(
@@ -1099,24 +1099,24 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
 
     let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
         {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
-    fold_dsh_event(&header, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&header, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
     assert_eq!(meta["effort"], "xhigh");
-    fold_dsh_event(&step, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&step, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(emitted[1]["effort"], "xhigh");
     let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
-    fold_dsh_event(&call, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&call, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(emitted[2]["effort"], "xhigh");
     assert_eq!(emitted[2]["tool"], "bash");
 
     let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
-    fold_dsh_event(&hostile, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&hostile, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(
@@ -1124,7 +1124,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
         "a value that fails the clamp changes nothing"
     );
     let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
-    fold_dsh_event(&none, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&none, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(
@@ -3194,30 +3194,490 @@ fn work_that_began_is_never_replaced_and_a_replacement_counts_only_its_own() {
 /// dsh's arm, measured against its installed source rather than its
 /// launcher's TUI example (proposed decision 0056 ruling 5).
 ///
-/// The launcher forwards everything after its own flags to the booted
-/// app verbatim, so `dsh --profile tui --resume <session>` says nothing
-/// about headless — whose startup parses one positional, the task, and
-/// whose runner calls `agents.create` with a fresh random id. So an
-/// offer is declined with the token that says the shape has no supported
-/// resume interface, and the retained transcript DIRECTORY is never
-/// mistaken for a provider handle.
+/// While the shape is `unmeasured` the gate closes before any probe: the
+/// seat runs the shipped cold invocation with no version probe, no
+/// composite recompute and no `--new`/`--session`, and a per-seat
+/// transcript directory is never mistaken for a provider handle. A
+/// `supported` assessment without the declared composite member declines
+/// the same way.
+#[cfg(unix)]
 #[test]
 fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+
     // No assessment: the fail-closed default every unmeasured shape gets.
-    let bare = json!({"workdir": "/w"});
-    assert_eq!(dsh_resume_refusal(&bare, None), None, "no offer, no reason");
+    let bare = json!({"workdir": dir.path()});
+    let launch = dsh_launch_with(
+        "/nonexistent/dsh",
+        &[],
+        dir.path().to_str().unwrap(),
+        None,
+        &bare,
+        || panic!("the disabled gate must not recompute the composite"),
+    )
+    .unwrap();
     assert_eq!(
-        dsh_resume_refusal(&bare, Some("session-019c4b7e")),
-        Some("unsupported-resume")
+        launch.refusal, None,
+        "a cold seat that offered nothing carries no refusal token"
     );
-    // And even an assessment that somehow said `supported` could not be
-    // honoured by this arm: it confirms no provider root, so a launch it
-    // called `resumed` would be a guess.
-    let enabled = enabled_input(DSH_SHAPE, "0.1.2-rc.1", std::path::Path::new("/w"));
+    assert!(!launch.stream_json);
+    assert!(launch.rejoining.is_none());
+
+    // An offer on the disabled gate is declined and ships cold.
+    let offered = dsh_launch_with(
+        "/nonexistent/dsh",
+        &[],
+        dir.path().to_str().unwrap(),
+        Some("session-019c4b7e"),
+        &bare,
+        || panic!("the disabled gate must not probe"),
+    )
+    .unwrap();
+    assert_eq!(offered.refusal, Some("unsupported-resume"));
+    assert!(offered.rejoining.is_none());
+
+    // A `supported` shape that never declared a composite digest cannot be
+    // honoured: no version probe runs and the cold route ships.
+    let enabled = enabled_input(DSH_SHAPE, "0.1.2-rc.1", dir.path());
+    let missing = dsh_launch_with(
+        "/nonexistent/dsh",
+        &[],
+        dir.path().to_str().unwrap(),
+        Some("session-019c4b7e"),
+        &enabled,
+        || panic!("a shape without the member is refused before the recompute"),
+    )
+    .unwrap();
+    assert_eq!(missing.refusal, Some("unverified-harness"));
+    assert!(!missing.stream_json);
+    assert!(missing.rejoining.is_none());
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// A synthetic composite with a chosen canonical digest, so every
+/// qualifying and drifting planner case is a plain unit test.
+fn synthetic_dsh_composite(digest: &str) -> DshComposite {
+    DshComposite {
+        canonical: digest.to_string(),
+        core: "core".to_string(),
+        node: "v22.23.2".to_string(),
+        plugin: "plugin".to_string(),
+        dependencies: Vec::new(),
+        plugin_patch: "patch".to_string(),
+        profile_patch: "profile".to_string(),
+        profile_bundles: Vec::new(),
+        profile_patch_reload: "startup".to_string(),
+        home_patch: "absent".to_string(),
+        extension: None,
+        core_root: std::path::PathBuf::new(),
+        profile: std::path::PathBuf::new(),
+    }
+}
+
+#[cfg(unix)]
+fn dsh_version_shim(dir: &Path, name: &str, version: &str) -> std::path::PathBuf {
+    executable(
+        dir,
+        name,
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf '{version}\\n'; exit 0 ;; esac\n\
+             exit 0\n"
+        ),
+    )
+}
+
+/// A retained seat root holding one depth-zero session file for `id`,
+/// with `last_seq` sequence rows behind it.
+fn plant_dsh_session(home: &Path, locator: &str, project: &str, id: &str, last_seq: u64) {
+    let session = home.join(locator).join(project).join(id);
+    std::fs::create_dir_all(&session).unwrap();
+    let mut text =
+        format!("{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"delegationDepth\":0}}\n");
+    for seq in 0..=last_seq {
+        text.push_str(&format!(
+            "{{\"type\":\"permission/preset\",\"seq\":{seq}}}\n"
+        ));
+    }
+    std::fs::write(session.join(DSH_TRANSCRIPT), text).unwrap();
+}
+
+fn dsh_enabled_input(version: &str, digest: &str, workdir: &Path) -> Value {
+    let mut input = enabled_input(DSH_SHAPE, version, workdir);
+    input["resume_context"]["assessment"][DSH_SHAPE]["identity"]["wrapper_digest"] = json!(digest);
+    input
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_controls_that_decide_the_session_or_a_restriction_are_refused() {
+    assert_eq!(dsh_control_conflict(&[]), None);
+    assert_eq!(dsh_control_conflict(&["--verbose".to_string()]), None);
+    for control in [
+        "--session",
+        "-s",
+        "--new",
+        "-n",
+        "--resume",
+        "-r",
+        "--list",
+        "-l",
+        "--workdir",
+        "-w",
+        "--output-format",
+        "-o",
+        "--profile",
+        "--json-schema",
+        "--dump-config",
+    ] {
+        let argv = vec![control.to_string()];
+        assert!(dsh_control_conflict(&argv).is_some(), "{control}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_session_ids_and_composite_digests_use_their_closed_grammars() {
+    assert!(plain_dsh_session_id("session-019c4b7e-1"));
+    assert!(!plain_dsh_session_id(""));
+    assert!(!plain_dsh_session_id("-starts-with-flag"));
+    assert!(!plain_dsh_session_id("has space"));
+    assert!(recordable_digest(&"a".repeat(64)));
+    assert!(!recordable_digest(&"A".repeat(64)));
+    assert!(!recordable_digest(&"g".repeat(64)));
+    assert!(!recordable_digest(&"a".repeat(63)));
+}
+
+#[cfg(unix)]
+#[test]
+fn dsh_owned_locators_resolve_only_beneath_the_home_and_name_the_offered_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    plant_dsh_session(home, "sessions/brokkr/seat-1", "--w--", "session-1", 27);
+    let root = resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-1").unwrap();
     assert_eq!(
-        dsh_resume_refusal(&enabled, Some("session-019c4b7e")),
-        Some("unsupported-resume")
+        dsh_session_last_seq(&dsh_session_file(&root, "session-1").unwrap()),
+        Some(27)
     );
+    // Absolute, traversal, missing and id-mismatched locators all refuse.
+    assert!(resolve_dsh_root(home, "/sessions/brokkr/seat-1", "session-1").is_err());
+    assert!(resolve_dsh_root(home, "sessions/../seat-1", "session-1").is_err());
+    assert!(resolve_dsh_root(home, "sessions/brokkr/absent", "session-1").is_err());
+    assert!(resolve_dsh_root(home, "sessions/brokkr/seat-1", "session-2").is_err());
+
+    // A second depth-zero file naming the same id is ambiguous.
+    plant_dsh_session(home, "sessions/brokkr/seat-1", "--x--", "session-1", 3);
+    assert!(dsh_session_file(&root, "session-1").is_err());
+
+    // A symlink to an equal-shaped tree outside the home is an escape.
+    let outside = tempfile::tempdir().unwrap();
+    plant_dsh_session(outside.path(), "tree", "--w--", "session-9", 1);
+    std::os::unix::fs::symlink(outside.path().join("tree"), home.join("escape")).unwrap();
+    assert!(resolve_dsh_root(home, "escape", "session-9").is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_qualified_dsh_launch_uses_the_stream_json_forms_and_records_observed_identity() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let digest = "b".repeat(64);
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let shim = dsh_version_shim(dir.path(), "dsh-cold", "0.1.5-rc.1");
+    let extra = vec!["--model".to_string(), "deepseek-v4-flash".to_string()];
+
+    let cold = dsh_launch_with(
+        &shim.to_string_lossy(),
+        &extra,
+        dir.path().to_str().unwrap(),
+        None,
+        &input,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert!(cold.stream_json);
+    assert_eq!(cold.observed.as_deref(), Some("0.1.5-rc.1"));
+    assert_eq!(cold.wrapper_digest.as_deref(), Some(digest.as_str()));
+    assert!(cold
+        .command
+        .windows(2)
+        .any(|window| window == ["--output-format", "stream-json"]));
+    assert!(cold.command.contains(&"--new".to_string()));
+    assert!(!cold.command.contains(&"--session".to_string()));
+
+    // Version drift declines as unverified-harness and ships cold.
+    let drifted = dsh_launch_with(
+        &dsh_version_shim(dir.path(), "dsh-drift", "9.9.9").to_string_lossy(),
+        &extra,
+        dir.path().to_str().unwrap(),
+        None,
+        &input,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(
+        drifted.refusal, None,
+        "a cold drift ships silently; only an offer carries a refusal token"
+    );
+    assert!(!drifted.stream_json);
+    assert_eq!(drifted.observed.as_deref(), Some("9.9.9"));
+    assert!(!drifted.command.contains(&"--new".to_string()));
+    assert!(!drifted
+        .command
+        .windows(2)
+        .any(|window| window == ["--output-format", "stream-json"]));
+
+    // Composite drift declines the same way.
+    let other = "c".repeat(64);
+    let mismatched = dsh_launch_with(
+        &shim.to_string_lossy(),
+        &extra,
+        dir.path().to_str().unwrap(),
+        None,
+        &input,
+        || Ok(synthetic_dsh_composite(&other)),
+    )
+    .unwrap();
+    assert_eq!(mismatched.refusal, None);
+    assert!(!mismatched.stream_json);
+    assert!(
+        mismatched.wrapper_digest.is_none(),
+        "a mismatched composite never records a declared identity"
+    );
+
+    // A competing selector refuses before the route or the composite.
+    let conflicted = dsh_launch_with(
+        &shim.to_string_lossy(),
+        &["--session".to_string(), "session-9".to_string()],
+        dir.path().to_str().unwrap(),
+        None,
+        &input,
+        || panic!("a refused control never reaches the recompute"),
+    );
+    assert!(conflicted.is_err());
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let digest = "b".repeat(64);
+    plant_dsh_session(
+        dir.path(),
+        "sessions/brokkr/seat-1",
+        "--w--",
+        "session-1",
+        27,
+    );
+    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    input["resume_context"]["originating_wrapper_digest"] = json!(digest);
+    input["resume_context"]["owned_target"] =
+        json!({"provider_id": "session-1", "persistence_locator": "sessions/brokkr/seat-1"});
+    let shim = dsh_version_shim(dir.path(), "dsh-warm", "0.1.5-rc.1");
+
+    let warm = dsh_launch_with(
+        &shim.to_string_lossy(),
+        &[],
+        dir.path().to_str().unwrap(),
+        Some("session-1"),
+        &input,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert!(warm.stream_json);
+    assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
+    assert_eq!(warm.first_seq, 27);
+    assert!(warm
+        .command
+        .windows(2)
+        .any(|window| window == ["--session", "session-1"]));
+    assert!(!warm.command.contains(&"--new".to_string()));
+
+    // An offer with no recorded originating digest is not offerable.
+    let mut absent = input.clone();
+    absent["resume_context"]["originating_wrapper_digest"] = Value::Null;
+    let declined = dsh_launch_with(
+        &shim.to_string_lossy(),
+        &[],
+        dir.path().to_str().unwrap(),
+        Some("session-1"),
+        &absent,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(declined.refusal, Some("unverified-harness"));
+    assert!(!declined.stream_json);
+    assert!(declined.rejoining.is_none());
+
+    // An offer whose locator escapes the home declines and ships cold.
+    let mut escaping = input.clone();
+    escaping["resume_context"]["owned_target"] =
+        json!({"provider_id": "session-1", "persistence_locator": "../outside"});
+    let declined = dsh_launch_with(
+        &shim.to_string_lossy(),
+        &[],
+        dir.path().to_str().unwrap(),
+        Some("session-1"),
+        &escaping,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(declined.refusal, Some("unverified-harness"));
+    assert!(!declined.stream_json);
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dsh_init_event_is_the_only_root_confirmation() {
+    let digest = "a".repeat(64);
+    let plan = |rejoining: Option<&str>| LaunchPlan {
+        command: Vec::new(),
+        rejoining: rejoining.map(str::to_string),
+        refusal: None,
+        sandbox: None,
+        kind: "dsh-session",
+        harness_version: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: Some(digest.clone()),
+        persistent: true,
+        confirms_from_locator: false,
+    };
+    // A result envelope alone confirms nothing.
+    let mut hold = LaunchHold::new("deepseek", plan(Some("session-1")));
+    let mut meta = Map::new();
+    let mut emitted = Vec::new();
+    fold_dsh_stream_event(
+        &json!({"type":"result","subtype":"success","session_id":"session-1"}),
+        &mut hold,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    );
+    assert!(emitted.is_empty());
+    assert_eq!(hold.terminal(), LaunchTerminal::Unconfirmed);
+
+    // The post-resume init event naming the offered root confirms it.
+    fold_dsh_stream_event(
+        &json!({"type":"system","subtype":"init","session_id":"session-1"}),
+        &mut hold,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    );
+    assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
+    let launch = emitted
+        .iter()
+        .find(|row| row["step"] == "harness-started")
+        .expect("the init event publishes the one launch row");
+    assert_eq!(launch["launch"], "resumed");
+    assert_eq!(launch["root_session"]["kind"], "dsh-session");
+    assert_eq!(launch["root_session"]["id"], "session-1");
+    assert_eq!(launch["root_session"]["harness_version"], "0.1.5-rc.1");
+    assert_eq!(launch["root_session"]["wrapper_digest"], digest);
+
+    // A different root is a mismatch and publishes nothing.
+    let mut mismatched = LaunchHold::new("deepseek", plan(Some("session-1")));
+    let mut out = Vec::new();
+    fold_dsh_stream_event(
+        &json!({"type":"system","subtype":"init","session_id":"session-2"}),
+        &mut mismatched,
+        &mut meta,
+        &mut |value| out.push(value.clone()),
+    );
+    assert!(out.is_empty());
+    assert_eq!(mismatched.terminal(), LaunchTerminal::Mismatch);
+}
+
+/// The qualified stream-json exchange end to end: a synthetic child emits
+/// the init event and appends one current event past the offered root's
+/// own sequence, and the driver confirms the exact root and counts only
+/// that event.
+#[cfg(unix)]
+#[test]
+fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    let session = root.join("--w--").join("session-1");
+    std::fs::create_dir_all(&session).unwrap();
+    let file = session.join(DSH_TRANSCRIPT);
+    let mut history =
+        "{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"delegationDepth\":0}\n"
+            .to_string();
+    for seq in 0..=27 {
+        history.push_str(&format!(
+            "{{\"type\":\"permission/preset\",\"seq\":{seq}}}\n"
+        ));
+    }
+    std::fs::write(&file, history).unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-stream",
+        &format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}}\\n'\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+             \"outputTokens\":2}}}}}}\\n' >> '{file}'\n\
+             printf '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}}\\n'\n",
+            file = file.display()
+        ),
+    );
+    let overlay = dsh_seat_overlay(None, None, &root, None).unwrap();
+    let launch = DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
+        rejoining: Some("session-1".to_string()),
+        refusal: None,
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: Some("a".repeat(64)),
+        stream_json: true,
+        first_seq: 27,
+        locator: "seat".to_string(),
+        root: root.clone(),
+        overlay,
+    };
+    let mut hold = LaunchHold::new("deepseek", launch.plan());
+    let mut meta = Map::new();
+    let mut emitted = Vec::new();
+    let invocation = invoke_dsh_stream_json(
+        &launch.command,
+        &launch,
+        dir.path().to_str().unwrap(),
+        &mut hold,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    )
+    .unwrap();
+    assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
+    let row = emitted
+        .iter()
+        .find(|row| row["step"] == "harness-started")
+        .expect("the init event publishes one launch row");
+    assert_eq!(row["launch"], "resumed");
+    assert_eq!(row["root_session"]["id"], "session-1");
+    // Only the event past the offered boundary is counted.
+    assert_eq!(invocation.session_meta["num_turns"], 1);
+    assert_eq!(invocation.session_meta["input_tokens"], 5);
+    assert_eq!(invocation.session_meta["output_tokens"], 2);
 }
 
 /// The dsh arm end to end: the launch row it writes when an offer was
@@ -3660,7 +4120,7 @@ fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
         json!({"type": "turn/end", "data": {"turn": 1}}),
         json!({}),
     ] {
-        fold_dsh_event(&event, &mut turns, &mut meta, &mut |value| {
+        fold_dsh_event(&event, 0, &mut turns, &mut meta, &mut |value| {
             emitted.push(value.clone())
         });
     }
@@ -3718,7 +4178,7 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
-    drain_dsh_transcript(&mut tail, &root, &mut turns, &mut meta, &mut |value| {
+    drain_dsh_transcript(&mut tail, &root, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert!(tail.file.is_none());
@@ -3733,7 +4193,7 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     // A header with no depth at all is the seat's own session: dsh
     // writes `delegationDepth` from the root session onward, and an
     // absent one has never meant "delegated".
-    drain_dsh_transcript(&mut tail, &root, &mut turns, &mut meta, &mut |value| {
+    drain_dsh_transcript(&mut tail, &root, 0, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert!(tail.file.is_some());
@@ -4239,6 +4699,7 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
     let mut emitted: Vec<Value> = Vec::new();
     fold_dsh_event(
         &json!({"type": "tool/call", "data": {"name": "fs_read"}}),
+        0,
         &mut turns,
         &mut meta,
         &mut |value| emitted.push(value.clone()),
