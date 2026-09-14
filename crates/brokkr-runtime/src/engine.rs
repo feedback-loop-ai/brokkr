@@ -1252,6 +1252,7 @@ impl Engine {
         started_here: bool,
     ) -> BTreeMap<Site, SitePlan> {
         let holds = pinned_bundle_holds(events, &self.bundle);
+        let workdir = self.workdir();
         let mut plans = BTreeMap::new();
         for entry in resume::structural_sites(body, seat_name, case, gate) {
             let label = match &entry.site {
@@ -1288,6 +1289,16 @@ impl Engine {
             let assessment = selection
                 .get(&entry.site)
                 .map_or(Value::Null, |candidate| candidate.resume.value());
+            // The route-overlay binding (design D6 mechanism 1; AS3): the
+            // seat's single `--patch` value bound to the compiled leaf
+            // layer, computed where the private context is built and
+            // independent of the resume gate. A value that does not bind
+            // yields no member; it never fails the start.
+            let route_overlay = route_overlay_binding(
+                &self.bundle,
+                argv_for(selection, &entry.site, &entry.command),
+                &workdir,
+            );
             plans.insert(
                 entry.site,
                 SitePlan {
@@ -1295,6 +1306,7 @@ impl Engine {
                     offer,
                     assessment,
                     originating,
+                    route_overlay,
                 },
             );
         }
@@ -1576,6 +1588,7 @@ impl Engine {
                 plan.assessment.clone(),
                 plan.originating.as_ref(),
                 plan.offer.as_ref(),
+                plan.route_overlay.as_ref(),
             );
         }
         let stamp = plan.map(|plan| plan.context.clone());
@@ -1823,6 +1836,7 @@ impl Engine {
                         plan.assessment.clone(),
                         plan.originating.as_ref(),
                         plan.offer.as_ref(),
+                        plan.route_overlay.as_ref(),
                     );
                 }
                 MemberRun {
@@ -3632,6 +3646,11 @@ struct SitePlan {
     /// underneath it (proposed decision 0056 ruling 5). Absent when no
     /// offer is made.
     originating: Option<resume::OriginatingRoot>,
+    /// The engine's binding of this site's single `--patch` value to the
+    /// compiled leaf layer (design D6 mechanism 1; AS3). `None` when the
+    /// argv carries no `--patch` or the value does not bind; the adapter
+    /// refuses a present `--patch` beside an absent binding.
+    route_overlay: Option<resume::RouteOverlay>,
 }
 
 /// Every invocation site of a seat body, with the site's fallback chain.
@@ -3811,6 +3830,87 @@ fn argv_for<'a>(selection: &'a Selection, site: &Site, inline: &'a [String]) -> 
         Some(candidate) => &candidate.argv,
         None => inline,
     }
+}
+
+/// The seat's single `--patch` value, or `None`. One exact `--patch` with
+/// a non-empty, non-flag value is the only shape; a second `--patch`, a
+/// bare `--patch`, or any other `--patch…` spelling (an `=`-joined value
+/// or a longer token) is ambiguous and yields no value. The engine's
+/// outcome for every non-binding value is withholding the binding, never
+/// failing the start (design D6 mechanism 1; AS3).
+fn single_patch_value(command: &[String]) -> Option<&str> {
+    let mut found: Option<&str> = None;
+    let mut index = 0;
+    while index < command.len() {
+        let part = command[index].as_str();
+        if part == "--patch" {
+            if found.is_some() {
+                return None;
+            }
+            let value = command.get(index + 1)?;
+            if value.is_empty() || value.starts_with("--") {
+                return None;
+            }
+            found = Some(value);
+            index += 2;
+            continue;
+        }
+        if part.starts_with("--patch") {
+            return None;
+        }
+        index += 1;
+    }
+    found
+}
+
+/// Bind one seat's single `--patch` value to the compiled leaf layer
+/// (design D6 mechanism 1; AS3). The value resolves relative to the
+/// run's working directory, without an absolute path or `..` component
+/// or symlink escape, to a regular file inside the compiled bundle's own
+/// layer directory that is a `files` member of the compiled manifest;
+/// the binding carries the argv value and that member's recorded digest.
+/// A value that does not bind yields no member — an ancestor layer's
+/// file, a same-shaped file outside the layer, a working-directory
+/// shadow and the bundle-relative `./` expansion (already absolute) all
+/// take this same outcome, and the adapter's pre-work failure to start is
+/// the single refusal.
+fn route_overlay_binding(
+    bundle: &Bundle,
+    command: &[String],
+    workdir: &Path,
+) -> Option<resume::RouteOverlay> {
+    let value = single_patch_value(command)?;
+    let relative = Path::new(value);
+    if relative.is_absolute() {
+        return None;
+    }
+    if relative
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    // Canonicalize both sides: an in-layer symlink whose target resolves
+    // outside the layer is not a binding, and a working-directory shadow
+    // canonicalizes outside the compiled layer too.
+    let resolved = std::fs::canonicalize(workdir.join(relative)).ok()?;
+    let layer = std::fs::canonicalize(&bundle.dir).ok()?;
+    if !resolved.is_file() {
+        return None;
+    }
+    let inside = resolved.strip_prefix(&layer).ok()?;
+    // Manifest keys are component-joined with `/` on every platform
+    // (bundle.rs's `walk_files`), so spell the looked-up key the same way.
+    let key = inside
+        .components()
+        .map(|component| component.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()?
+        .join("/");
+    let digest = bundle.manifest.get("files")?.get(key.as_str())?.as_str()?;
+    Some(resume::RouteOverlay {
+        value: value.to_string(),
+        digest: digest.to_string(),
+    })
 }
 
 /// The STRUCTURAL fail-to-start predicate (decision 0016): `Failed`, and

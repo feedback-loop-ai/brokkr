@@ -1331,3 +1331,330 @@ fn envelope(event_type: EventType, payload: Value, attempt_id: Option<&str>) -> 
         event_hash: "a".repeat(64),
     }
 }
+
+// ---------------------------------------------------------------------------
+// The engine-side route-overlay binding (design D6 mechanism 1; AS3; 8.10).
+//
+// The adapter receives only argv, a working directory and the private
+// context, so which SHAPE withheld the binding — a nonmember, a shadow,
+// an ancestor-layer file, a `..` component, an escaping symlink, the
+// `./` expansion — is observable only where the engine builds that
+// context. These cases read the `resume_context.route_overlay` member off
+// the `Start.input` the logging driver actually received, at both
+// production `start_context` call sites: the single site (`run_driver`)
+// and a panel member (`MemberRun`).
+// ---------------------------------------------------------------------------
+
+/// The manifest digest of one route-overlay file, computed the way the
+/// compiler's `walk_files` computes it.
+fn overlay_digest(bytes: &[u8]) -> String {
+    brokkr_core::canonical::sha256_bytes(bytes)
+}
+
+/// Make a driver command carry the seat's one `--patch` pair. The shim
+/// ignores trailing arguments; the engine reads the pair off the compiled
+/// command it spawns.
+fn patched(mut command: Vec<String>, value: &str) -> Vec<String> {
+    command.push("--patch".into());
+    command.push(value.into());
+    command
+}
+
+/// The `start` message the named driver was sent, whose `input` carries
+/// the private context.
+fn route_start(dir: &Path, tag: &str) -> Value {
+    received(dir, tag)
+        .into_iter()
+        .find(|message| message["type"] == "start")
+        .unwrap_or_else(|| panic!("{tag}: the driver logged no start message"))
+}
+
+/// The `route_overlay` member of that start context, if any.
+fn route_binding(dir: &Path, tag: &str) -> Value {
+    route_start(dir, tag)["input"]["resume_context"]["route_overlay"].clone()
+}
+
+/// A valid leaf-manifest member binds at the SINGLE site: the context
+/// carries the actual argv value and the member's compiled manifest
+/// digest. The seat is inline, so its assessment is `unmeasured` — the
+/// binding is independent of the resume gate and present on a cold start
+/// with no offer.
+#[test]
+fn a_valid_route_overlay_binds_at_the_single_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let layer = dir.path().join("work").join("recipe");
+    let bytes = b"route: one\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), bytes).unwrap();
+    let digest = overlay_digest(bytes);
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            single(
+                patched(
+                    driver(dir.path(), "work", &["complete"]),
+                    "recipe/route.yml",
+                ),
+                Vec::new(),
+            ),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+
+    run(dir.path(), bundle);
+
+    let binding = route_binding(dir.path(), "work");
+    assert_eq!(binding["value"], "recipe/route.yml");
+    assert_eq!(binding["digest"], digest);
+}
+
+/// The same valid member binds at the PANEL-MEMBER call site, from that
+/// member's own composed argv.
+#[test]
+fn a_valid_route_overlay_binds_at_the_panel_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let layer = dir.path().join("work").join("recipe");
+    let bytes = b"route: panel\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), bytes).unwrap();
+    let digest = overlay_digest(bytes);
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![member(
+                "alpha",
+                patched(
+                    driver(dir.path(), "alpha", &["complete"]),
+                    "recipe/route.yml",
+                ),
+            )]),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+
+    run(dir.path(), bundle);
+
+    let binding = route_binding(dir.path(), "alpha");
+    assert_eq!(binding["value"], "recipe/route.yml");
+    assert_eq!(binding["digest"], digest);
+}
+
+/// Every shape whose binding the engine withholds yields the SAME
+/// outcome — no `route_overlay` member — never a start failure. Each
+/// member of one panel carries one shape, and every member still starts
+/// and is sent its context.
+#[test]
+fn a_non_binding_route_overlay_withholds_the_member_at_both_call_sites() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    let layer = work.join("recipe");
+    let ancestor = work.join("base");
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::create_dir_all(&ancestor).unwrap();
+    let member_bytes = b"route: member\n";
+    std::fs::write(layer.join("route.yml"), member_bytes).unwrap();
+    // A same-shaped file at the working-directory path, not inside the
+    // layer: the shadow of the bundled path.
+    std::fs::write(work.join("route.yml"), b"route: shadow\n").unwrap();
+    // A file inside the layer the manifest does not record.
+    std::fs::write(layer.join("other.yml"), b"route: other\n").unwrap();
+    // An ancestor layer's file, bindable only through that ancestor's
+    // aggregate digest.
+    std::fs::write(ancestor.join("ancestor.yml"), b"route: ancestor\n").unwrap();
+    // An in-layer symlink whose target resolves outside the layer but
+    // inside the working directory.
+    std::fs::write(work.join("outside.yml"), b"route: outside\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(work.join("outside.yml"), layer.join("link.yml")).unwrap();
+
+    let absolute = layer.join("route.yml").display().to_string();
+    let shapes: Vec<(&str, String)> = vec![
+        ("nonmember", "recipe/other.yml".into()),
+        ("shadow", "route.yml".into()),
+        ("ancestor", "base/ancestor.yml".into()),
+        ("traversal", "../escape.yml".into()),
+        ("absolute", absolute),
+    ];
+    #[cfg(unix)]
+    let shapes = {
+        let mut shapes = shapes;
+        shapes.push(("symlink", "recipe/link.yml".into()));
+        shapes
+    };
+
+    let members: Vec<PanelMember> = shapes
+        .iter()
+        .map(|(tag, value)| member(tag, patched(driver(dir.path(), tag, &["complete"]), value)))
+        .collect();
+    let mut seats = BTreeMap::new();
+    seats.insert("work".into(), seat(panel(members), &["complete"], 1));
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.roots = vec![layer.clone(), ancestor.clone()];
+    bundle.chain = vec![crate::Ancestor {
+        name: "base".into(),
+        reached_as: None,
+        dir: ancestor.clone(),
+        digest: "c".repeat(64),
+        files: serde_json::Map::new(),
+    }];
+    // The manifest records only the real member, so the shadow, the
+    // nonmember and the ancestor file are all non-members.
+    bundle.manifest["files"] = json!({ "route.yml": overlay_digest(member_bytes) });
+
+    run(dir.path(), bundle);
+
+    for (tag, _) in &shapes {
+        let binding = route_binding(dir.path(), tag);
+        assert!(
+            binding.is_null() || binding.get("value").is_none(),
+            "{tag}: a non-binding --patch must carry no route_overlay, got {binding}"
+        );
+    }
+}
+
+/// A member whose bytes changed after compilation still binds with the
+/// MANIFEST's recorded digest, never a fresh hash of the resolved file:
+/// the adapter's required comparison is what refuses the new bytes.
+#[test]
+fn a_changed_route_overlay_member_carries_the_manifest_digest() {
+    let dir = tempfile::tempdir().unwrap();
+    let layer = dir.path().join("work").join("recipe");
+    std::fs::create_dir_all(&layer).unwrap();
+    let compiled = b"route: before\n";
+    let compiled_digest = overlay_digest(compiled);
+    std::fs::write(layer.join("route.yml"), b"route: after\n").unwrap();
+
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            single(
+                patched(
+                    driver(dir.path(), "work", &["complete"]),
+                    "recipe/route.yml",
+                ),
+                Vec::new(),
+            ),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": compiled_digest.clone() });
+
+    run(dir.path(), bundle);
+
+    let binding = route_binding(dir.path(), "work");
+    assert_eq!(binding["value"], "recipe/route.yml");
+    assert_eq!(
+        binding["digest"], compiled_digest,
+        "the carried digest is the manifest's, never a hash of the changed file"
+    );
+    assert_ne!(binding["digest"], overlay_digest(b"route: after\n"));
+}
+
+/// The binding is present on an OFFERED start exactly as on a cold one:
+/// the same route member and manifest digest ride beside the assessment,
+/// the originating-root facts and the owned target. The candidate's
+/// argv supplies the `--patch`, so the binding follows the argv the
+/// engine actually spawns, and the retry that receives an offer does not
+/// lose it.
+#[test]
+fn a_valid_route_overlay_binds_on_an_offered_start_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let layer = dir.path().join("work").join("recipe");
+    let bytes = b"route: offered\n";
+    std::fs::create_dir_all(&layer).unwrap();
+    std::fs::write(layer.join("route.yml"), bytes).unwrap();
+    let digest = overlay_digest(bytes);
+
+    let argv = patched(
+        model_driver(dir.path(), "work", &["fail", "complete"]),
+        "recipe/route.yml",
+    );
+    let candidate = Candidate {
+        agent: "implementer".into(),
+        model: "deepseek-v4-flash".into(),
+        effort: Some("medium".into()),
+        provider: "dsh".into(),
+        argv: argv.clone(),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: Default::default(),
+    };
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(single(argv, vec![candidate]), &["complete"], 2),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(&layer, seats);
+    bundle.manifest["files"] = json!({ "route.yml": digest.clone() });
+
+    run(dir.path(), bundle);
+
+    let starts: Vec<Value> = received(dir.path(), "work")
+        .into_iter()
+        .filter(|message| message["type"] == "start")
+        .collect();
+    assert_eq!(starts.len(), 2, "the failing first attempt is retried");
+    // The retry is the offered start; both starts carry the same binding.
+    assert_eq!(
+        offers(&received(dir.path(), "work")),
+        [None, Some("work-1".into())]
+    );
+    for (index, start) in starts.iter().enumerate() {
+        let binding = &start["input"]["resume_context"]["route_overlay"];
+        assert_eq!(binding["value"], "recipe/route.yml", "start {index}");
+        assert_eq!(binding["digest"], digest, "start {index}");
+    }
+}

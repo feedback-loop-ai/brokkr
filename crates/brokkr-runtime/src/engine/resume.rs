@@ -718,16 +718,32 @@ fn describe(key: &SiteKey) -> String {
     }
 }
 
+/// The engine's binding of a seat's single `--patch` value to the
+/// compiled bundle (design D6 mechanism 1; AS3): the argv value the seat
+/// spawns and the compiled manifest's recorded digest of the leaf-layer
+/// `files` member it names. The engine computes it where it builds the
+/// private start context, at both `start_context` call sites, and never
+/// from a hash of the file the value resolves to — so a member edited
+/// since compilation still travels with the manifest's digest and the
+/// adapter's required hash comparison is what refuses its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RouteOverlay {
+    pub(super) value: String,
+    pub(super) digest: String,
+}
+
 /// The private start context an adapter reads beside its prompt: which
 /// resume assessment was selected for this site, the harness facts the
-/// offered root was opened under, and the owned target (provider ID plus
-/// its persistence locator) that a two-coordinate provider needs. It
-/// rides the existing `Start.input` object under one key, never the
-/// rendered prompt.
+/// offered root was opened under, the owned target (provider ID plus
+/// its persistence locator) that a two-coordinate provider needs, and
+/// the engine's route-overlay binding where the seat's argv carries one
+/// `--patch`. It rides the existing `Start.input` object under one key,
+/// never the rendered prompt.
 pub(super) fn start_context(
     assessment: Value,
     originating: Option<&OriginatingRoot>,
     target: Option<&ResumeTarget>,
+    route_overlay: Option<&RouteOverlay>,
 ) -> Value {
     let mut context = Map::new();
     context.insert("assessment".into(), assessment);
@@ -751,6 +767,15 @@ pub(super) fn start_context(
             json!({
                 "provider_id": target.provider_id,
                 "persistence_locator": target.persistence_locator,
+            }),
+        );
+    }
+    if let Some(binding) = route_overlay {
+        context.insert(
+            "route_overlay".into(),
+            json!({
+                "value": binding.value,
+                "digest": binding.digest,
             }),
         );
     }
@@ -853,6 +878,7 @@ mod tests {
             json!({"headless-work": {"status": "supported"}}),
             Some(&originating),
             Some(&target),
+            None,
         );
         assert_eq!(context["originating_harness_version"], "0.1.5-rc.1");
         assert_eq!(context["originating_wrapper_digest"], "a".repeat(64));
@@ -870,10 +896,49 @@ mod tests {
             json!({"headless-work": {"status": "unmeasured"}}),
             None,
             None,
+            None,
         );
         assert_eq!(cold["assessment"]["headless-work"]["status"], "unmeasured");
         assert!(cold.get("owned_target").is_none());
         assert!(cold.get("originating_harness_version").is_none());
         assert!(cold.get("originating_wrapper_digest").is_none());
+        assert!(cold.get("route_overlay").is_none());
+    }
+
+    /// The route-overlay binding rides the private context as exactly the
+    /// argv value and the compiled digest the engine handed it, and is
+    /// absent when no binding was supplied. It never appears elsewhere in
+    /// the object, `owned_target` still travels beside it, and an
+    /// unmeasured assessment changes nothing about it (AS3; 8.10's engine
+    /// list (i)).
+    #[test]
+    fn the_private_context_carries_a_supplied_route_overlay_binding() {
+        let binding = RouteOverlay {
+            value: "recipes/research-dsh/drivers/research-web.yml".into(),
+            digest: "b".repeat(64),
+        };
+        let context = start_context(
+            json!({"headless-work": {"status": "unmeasured"}}),
+            None,
+            None,
+            Some(&binding),
+        );
+        assert_eq!(
+            context["route_overlay"]["value"],
+            "recipes/research-dsh/drivers/research-web.yml"
+        );
+        assert_eq!(context["route_overlay"]["digest"], "b".repeat(64));
+        assert_eq!(
+            context["assessment"]["headless-work"]["status"],
+            "unmeasured"
+        );
+
+        let none = start_context(
+            json!({"headless-work": {"status": "supported"}}),
+            None,
+            None,
+            None,
+        );
+        assert!(none.get("route_overlay").is_none());
     }
 }
