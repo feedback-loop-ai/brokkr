@@ -1017,7 +1017,9 @@ fn codex_composite_event_keeps_its_uncovered_output() {
 
 #[test]
 fn dsh_header_version_matrix_admits_only_numeric_zero() {
-    for version in ["0", "0.0", "0e0", "-0"] {
+    for version in [
+        "0", "0.0", "0e0", "-0", "0.000", "3", "3.0", "3e0", "30e-1", "0.3e1",
+    ] {
         let header = format!("{{\"type\":\"session\",\"version\":{version}}}\n");
         let projection = dsh(&header);
         assert!(
@@ -1026,7 +1028,28 @@ fn dsh_header_version_matrix_admits_only_numeric_zero() {
         );
         assert!(projection.turns.is_empty());
     }
-    for version in ["null", "false", "\"0\"", "[]", "{}", "1", "-1", "0.5"] {
+    for version in [
+        "null",
+        "false",
+        "\"0\"",
+        "\"3\"",
+        "[]",
+        "{}",
+        "1",
+        "2",
+        "4",
+        "-1",
+        "-3",
+        "0.5",
+        "3.1",
+        "3e1",
+        "2.9999999999999999",
+        "3.0000000000000001",
+        "1e-400",
+        "10e-400",
+        "0.1e-400",
+        "1.0e-400",
+    ] {
         let header = format!("{{\"type\":\"session\",\"version\":{version}}}\n");
         let projection = dsh(&header);
         assert_eq!(
@@ -1040,6 +1063,99 @@ fn dsh_header_version_matrix_admits_only_numeric_zero() {
     }
     let projection = dsh("{\"type\":\"session\"}\n");
     assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+}
+
+#[test]
+fn digit_signature_reads_the_recorded_spelling() {
+    for token in ["0", "0.0", "-0", "0e0", "0.000"] {
+        assert_eq!(digit_signature(token), Some(String::new()), "{token}");
+    }
+    for token in ["1e-400", "10e-400", "0.1e-400", "1.0e-400", "1e3", "1000.0"] {
+        assert_eq!(digit_signature(token), Some("1".to_string()), "{token}");
+    }
+    for token in ["3", "3.0", "3e0", "30e-1", "0.3e1", "-3", "3e1", "300"] {
+        assert_eq!(digit_signature(token), Some("3".to_string()), "{token}");
+    }
+    assert_eq!(digit_signature("3.1"), Some("31".to_string()));
+    assert_eq!(
+        digit_signature("2.9999999999999999"),
+        Some("29999999999999999".to_string())
+    );
+    assert_eq!(
+        digit_signature("3.0000000000000001"),
+        Some("30000000000000001".to_string())
+    );
+    // The dot-only mantissa carries no digit, which is the case the
+    // at-least-one-digit condition exists for.
+    for token in ["3e", ".", "e5", ""] {
+        assert_eq!(digit_signature(token), None, "{token}");
+    }
+}
+
+#[test]
+fn raw_top_level_token_counts_and_decodes_member_names() {
+    assert_eq!(
+        raw_top_level_token("{\"version\":3,\"version\":3.0000000000000001}", "version"),
+        RawToken::Many
+    );
+    assert_eq!(
+        raw_top_level_token("{\"version\":3,\"\\u0076ersion\":3}", "version"),
+        RawToken::Many
+    );
+    assert_eq!(
+        raw_top_level_token("{\"data\":{\"version\":3}}", "version"),
+        RawToken::None
+    );
+    assert_eq!(
+        raw_top_level_token("{\"cwd\":\"version\"}", "version"),
+        RawToken::None
+    );
+    assert_eq!(
+        raw_top_level_token("{\"version\":  3e0 }", "version"),
+        RawToken::One("3e0")
+    );
+    assert_eq!(
+        raw_top_level_token("{\"\\u0076ersion\":3}", "version"),
+        RawToken::One("3")
+    );
+}
+
+#[test]
+fn dsh_header_binds_the_version_token_to_the_decoded_member() {
+    // The escaped name decodes to `version`, so its one token admits.
+    let text = concat!(
+        "{\"type\":\"session\",\"\\u0076ersion\":3,\"delegationDepth\":0}\n",
+        "{\"type\":\"system/message\",\"data\":{}}\n",
+    );
+    let projection = dsh(text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert!(projection.turns.is_empty());
+
+    // The same decoded member with a rounding artefact refuses, because
+    // the parsed three cannot admit alone.
+    let text =
+        "{\"type\":\"session\",\"\\u0076ersion\":3.0000000000000001,\"delegationDepth\":0}\n";
+    assert_eq!(dsh(text).unavailable, Some(Unavailable::UnsupportedFormat));
+
+    // Four duplicate headers each refuse as an ambiguous recording,
+    // whichever occurrence the parser retains.
+    for text in [
+        "{\"type\":\"session\",\"version\":3,\"version\":3.0000000000000001}\n",
+        "{\"type\":\"session\",\"version\":3.0000000000000001,\"version\":3}\n",
+        "{\"type\":\"session\",\"version\":3,\"\\u0076ersion\":3}\n",
+        "{\"type\":\"session\",\"version\":0,\"version\":3}\n",
+    ] {
+        let projection = dsh(text);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "{text}"
+        );
+        assert_eq!(projection.skipped_lines, 0, "{text}");
+        assert_eq!(projection.unrecognized_records, 0, "{text}");
+        assert!(projection.turns.is_empty());
+    }
 }
 
 #[test]
@@ -2229,7 +2345,12 @@ fn packed_empty_members_allocate_no_events_but_stay_observed() {
     let object = json!({"type":"text-chunks","seq0":5,"time0":100,
         "data":{"turn":1,"step":1,"index":0,"dt":[0,0],"texts":["","",""]}});
     let map = object.as_object().expect("object");
-    match dsh_packed("text-chunks", map, object.get("data").unwrap(), "") {
+    match dsh_packed(
+        "text-chunks",
+        map,
+        object.get("data").unwrap(),
+        &object.to_string(),
+    ) {
         DshRow::Packed(events, observed) => {
             assert!(
                 events.is_empty(),
@@ -2243,7 +2364,12 @@ fn packed_empty_members_allocate_no_events_but_stay_observed() {
     let object = json!({"type":"tool-call-chunks","seq0":5,"time0":100,
         "data":{"turn":1,"step":1,"index":0,"dt":[0],"args":["a","b"],"id":"c1"}});
     let map = object.as_object().expect("object");
-    match dsh_packed("tool-call-chunks", map, object.get("data").unwrap(), "") {
+    match dsh_packed(
+        "tool-call-chunks",
+        map,
+        object.get("data").unwrap(),
+        &object.to_string(),
+    ) {
         DshRow::Packed(events, observed) => {
             assert!(
                 events.is_empty(),
@@ -2733,35 +2859,44 @@ fn codex_event_and_completed_items_cover_declared_variants() {
 
 #[test]
 fn raw_top_level_token_and_zero_number_edges() {
-    assert!(dsh_quiet_event("command/run"));
-    assert!(!dsh_quiet_event("mystery"));
+    assert!(dsh_quiet_event("command/run", DshVersion::Zero));
+    assert!(!dsh_quiet_event("mystery", DshVersion::Zero));
 
-    assert_eq!(raw_top_level_token("{\"a", "a"), None);
-    assert_eq!(raw_top_level_token("{\"version\":0}", "version"), Some("0"));
+    assert_eq!(raw_top_level_token("{\"a", "a"), RawToken::None);
+    assert_eq!(
+        raw_top_level_token("{\"version\":0}", "version"),
+        RawToken::One("0")
+    );
     assert_eq!(
         raw_top_level_token("{\"version\" : 1e-400 }", "version"),
-        Some("1e-400")
+        RawToken::One("1e-400")
     );
     assert_eq!(
         raw_top_level_token("{\"x\":{\"version\":0}}", "version"),
-        None
+        RawToken::None
     );
     assert_eq!(
         raw_top_level_token("{\"a\":\"b\",\"version\":0}", "version"),
-        Some("0")
+        RawToken::One("0")
     );
-    assert_eq!(raw_top_level_token("{\"version\":}", "version"), None);
-    assert_eq!(raw_top_level_token("{\"version\":0}", "other"), None);
+    assert_eq!(
+        raw_top_level_token("{\"version\":}", "version"),
+        RawToken::None
+    );
+    assert_eq!(
+        raw_top_level_token("{\"version\":0}", "other"),
+        RawToken::None
+    );
 
-    assert!(zero_number_token("0"));
-    assert!(zero_number_token("0.0"));
-    assert!(zero_number_token("-0"));
-    assert!(zero_number_token("0e-400"));
-    assert!(!zero_number_token("1e-400"));
-    assert!(!zero_number_token("123"));
-    assert!(!zero_number_token("e5"));
-    assert!(!zero_number_token("0e"));
-    assert!(!zero_number_token("0ex"));
+    assert_eq!(digit_signature("0"), Some(String::new()));
+    assert_eq!(digit_signature("0.0"), Some(String::new()));
+    assert_eq!(digit_signature("-0"), Some(String::new()));
+    assert_eq!(digit_signature("0e-400"), Some(String::new()));
+    assert_eq!(digit_signature("1e-400"), Some("1".to_string()));
+    assert_eq!(digit_signature("123"), Some("123".to_string()));
+    assert_eq!(digit_signature("e5"), None);
+    assert_eq!(digit_signature("0e"), None);
+    assert_eq!(digit_signature("0ex"), None);
 }
 
 #[test]
@@ -2870,33 +3005,43 @@ fn dsh_message_blocks_count_wrong_typed_members() {
 #[test]
 fn dsh_row_refuses_out_of_contract_rows_and_quiet_empty_chunks() {
     assert!(matches!(
-        dsh_row(&json!("nope"), "\"nope\""),
+        dsh_row(&json!("nope"), "\"nope\"", DshVersion::Zero),
         DshRow::Unrecognized
     ));
-    assert!(matches!(dsh_row(&json!({}), "{}"), DshRow::Unrecognized));
+    assert!(matches!(
+        dsh_row(&json!({}), "{}", DshVersion::Zero),
+        DshRow::Unrecognized
+    ));
     assert!(matches!(
         dsh_row(
             &json!({"type":"tool/result","seq":5,"sourceEventSeqs":5,"data":{}}),
-            "{}"
+            "{}",
+            DshVersion::Zero
         ),
         DshRow::Refused
     ));
     assert!(matches!(
         dsh_row(
             &json!({"type":"assistant/chunk","data":{"chunk":{"type":"text-delta","text":""}}}),
-            "{}"
+            "{}",
+            DshVersion::Zero
         ),
         DshRow::Quiet
     ));
     assert!(matches!(
         dsh_row(
             &json!({"type":"assistant/chunk","data":{"chunk":{"type":"reasoning-delta","text":""}}}),
-            "{}"
+            "{}",
+            DshVersion::Zero
         ),
         DshRow::Quiet
     ));
     assert!(matches!(
-        dsh_row(&json!({"type":"command/run","data":{}}), "{}"),
+        dsh_row(
+            &json!({"type":"command/run","data":{}}),
+            "{}",
+            DshVersion::Zero
+        ),
         DshRow::Quiet
     ));
 }
@@ -3080,11 +3225,11 @@ fn position_and_time_cover_the_float_edges() {
         Some(Position::Float((-1.8446744073709552e19f64).to_bits()))
     );
 
-    assert_eq!(dsh_time(Some(&json!(5)), None), "5");
-    assert_eq!(dsh_time(Some(&json!(-5)), None), "-5");
-    assert_eq!(dsh_time(None, None), "");
-    assert_eq!(dsh_time(Some(&json!(9.3e18)), None), "");
-    assert_eq!(dsh_time(Some(&json!(0.5)), None), "");
+    assert_eq!(dsh_time(Some(&json!(5)), RawToken::One("5")), "5");
+    assert_eq!(dsh_time(Some(&json!(-5)), RawToken::One("-5")), "-5");
+    assert_eq!(dsh_time(None, RawToken::None), "");
+    assert_eq!(dsh_time(Some(&json!(9.3e18)), RawToken::One("9.3e18")), "");
+    assert_eq!(dsh_time(Some(&json!(0.5)), RawToken::One("0.5")), "");
 }
 
 #[test]
@@ -3150,16 +3295,22 @@ fn home_spellings_cover_the_short_forms() {
 fn raw_token_scans_whitespace_and_nonmatching_keys() {
     assert_eq!(
         raw_top_level_token("{\"version\":   0 }", "version"),
-        Some("0")
+        RawToken::One("0")
     );
-    assert_eq!(raw_top_level_token("{\"version\" 0}", "version"), None);
+    assert_eq!(
+        raw_top_level_token("{\"version\" 0}", "version"),
+        RawToken::None
+    );
     assert_eq!(
         raw_top_level_token("{\"version\":0,\"a\":1}", "a"),
-        Some("1")
+        RawToken::One("1")
     );
-    assert_eq!(raw_top_level_token("{\"version\":", "version"), None);
-    assert!(!zero_number_token("0x"));
-    assert!(!zero_number_token("-e5"));
+    assert_eq!(
+        raw_top_level_token("{\"version\":", "version"),
+        RawToken::None
+    );
+    assert_eq!(digit_signature("0x"), None);
+    assert_eq!(digit_signature("-e5"), None);
 }
 
 #[test]
@@ -3168,10 +3319,19 @@ fn home_time_and_key_scans_cover_their_false_branches() {
     assert!(valid_home("\\\\s"));
     assert_eq!(
         raw_top_level_token("{\"version\": \t0}", "version"),
-        Some("0")
+        RawToken::One("0")
     );
-    assert_eq!(dsh_time(Some(&json!(9007199254740992i64)), None), "");
-    assert_eq!(raw_top_level_token("\"version\"", "version"), None);
+    assert_eq!(
+        dsh_time(
+            Some(&json!(9007199254740992i64)),
+            RawToken::One("9007199254740992")
+        ),
+        ""
+    );
+    assert_eq!(
+        raw_top_level_token("\"version\"", "version"),
+        RawToken::None
+    );
     assert_eq!(dsh_millis(&json!(-1e30)), None);
 
     let object: serde_json::Map<String, Value> = serde_json::from_str("{\"a\":1}").unwrap();
@@ -3207,4 +3367,776 @@ fn dsh_quiet_row_without_a_sequence_contributes_no_position() {
     assert_eq!(projection.unrecognized_records, 0);
     assert_eq!(projection.skipped_lines, 0);
     assert!(!projection.truncated);
+}
+
+// -------------------------------------- version-three admission (D3-D8)
+
+/// A version-three header with an explicit `isSeeded` spelling, or none.
+fn dsh3_header(seed: Option<&str>) -> String {
+    match seed {
+        Some(seed) => format!(
+            "{{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":{seed}}}\n"
+        ),
+        None => "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0}\n".to_string(),
+    }
+}
+
+#[test]
+fn dsh_quiet_lists_hold_the_version_relation() {
+    let mut expected: Vec<&str> = DSH_QUIET_ZERO
+        .iter()
+        .copied()
+        .filter(|name| !matches!(*name, "tool/code-dispatch" | "tool/code-dispatch-start"))
+        .collect();
+    expected.extend([
+        "system/message",
+        "deliverables/presented",
+        "feedback/message-delete",
+        "feedback/message-put",
+        "subagent/catalog",
+        "tool/ptc-dispatch",
+        "tool/ptc-dispatch-start",
+    ]);
+    expected.sort_unstable();
+    let mut three = DSH_QUIET_THREE.to_vec();
+    three.sort_unstable();
+    assert_eq!(three, expected);
+    assert_eq!(DSH_QUIET_ZERO.len(), 46);
+    assert_eq!(DSH_QUIET_THREE.len(), 51);
+    for list in [DSH_QUIET_ZERO, DSH_QUIET_THREE] {
+        for forbidden in [
+            "assistant/attempt",
+            "assistant/chunk",
+            "text-chunks",
+            "reasoning-chunks",
+            "tool-call-chunks",
+        ] {
+            assert!(!list.contains(&forbidden), "{forbidden}");
+        }
+    }
+}
+
+#[test]
+fn dsh_v3_quiet_names_project_without_counts() {
+    let quiet = [
+        "system/message",
+        "deliverables/presented",
+        "feedback/message-delete",
+        "feedback/message-put",
+        "subagent/catalog",
+        "tool/ptc-dispatch",
+        "tool/ptc-dispatch-start",
+        "todo/write",
+        "turn/end",
+        "request/header",
+    ];
+    let mut rows = String::new();
+    rows.push_str(&row(json!({
+        "type": "user/message",
+        "seq": 1,
+        "time": 1,
+        "data": {"content": [{"type": "text", "text": "q"}]}
+    })));
+    for (offset, kind) in quiet.iter().enumerate() {
+        let seq = offset as i64 + 2;
+        let surface = if *kind == "system/message" {
+            json!({"op": "replace", "startSeq": 1, "endSeq": 1})
+        } else {
+            json!("append")
+        };
+        rows.push_str(&row(json!({
+            "type": kind,
+            "seq": seq,
+            "surfaceOp": surface,
+            "data": {"content": [{"type": "text", "text": "quiet"}]}
+        })));
+    }
+    let projection = dsh(&format!("{}{rows}", dsh3_header(Some("false"))));
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.skipped_lines, 0);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("q")]);
+}
+
+#[test]
+fn dsh_v3_fragment_and_packed_names_are_required_unknowns() {
+    for kind in [
+        "assistant/chunk",
+        "text-chunks",
+        "reasoning-chunks",
+        "tool-call-chunks",
+        "tool/code-dispatch",
+        "tool/code-dispatch-start",
+    ] {
+        let base = row(json!({
+            "type": "user/message",
+            "seq": 1,
+            "data": {"content": [{"type": "text", "text": "q"}]}
+        }));
+        let refused = format!(
+            "{}{base}{}",
+            dsh3_header(Some("false")),
+            row(json!({"type": kind, "seq": 2, "data": {}})),
+        );
+        let projection = dsh(&refused);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "{kind}"
+        );
+        assert_eq!(projection.unrecognized_records, 1, "{kind}");
+        assert!(projection.turns.is_empty(), "{kind}");
+
+        let omitted = format!(
+            "{}{base}{}",
+            dsh3_header(Some("false")),
+            row(json!({"type": kind, "seq": 2, "ignorable": true, "data": {}})),
+        );
+        let projection = dsh(&omitted);
+        assert!(projection.unavailable.is_none(), "{kind}");
+        assert_eq!(projection.unrecognized_records, 1, "{kind}");
+        assert_eq!(projection.turns.len(), 1, "{kind}");
+    }
+}
+
+#[test]
+fn dsh_v3_invalid_packed_row_is_unknown_before_decoding() {
+    let base = row(json!({
+        "type": "user/message",
+        "seq": 1,
+        "data": {"content": [{"type": "text", "text": "q"}]}
+    }));
+    let invalid = "{\"type\":\"text-chunks\",\"seq\":2,\"time0\":0,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[],\"texts\":\"x\"}}\n";
+    let projection = dsh(&format!("{}{base}{invalid}", dsh3_header(Some("false"))));
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 1);
+
+    let marked = "{\"type\":\"text-chunks\",\"ignorable\":true,\"seq\":2,\"time0\":0,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[],\"texts\":\"x\"}}\n";
+    let projection = dsh(&format!("{}{base}{marked}", dsh3_header(Some("false"))));
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+
+    // The same hostile row under version zero refuses with one count
+    // whether or not it carries the marker, because the packed decoder
+    // reads its shape.
+    for extra in ["", ",\"ignorable\":true"] {
+        let packed = format!(
+            "{{\"type\":\"text-chunks\"{extra},\"seq\":2,\"time0\":0,\"data\":{{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[],\"texts\":\"x\"}}}}\n"
+        );
+        let text = format!("{}{packed}", row(json!({"type": "session", "version": 0})));
+        let projection = dsh(&text);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "{extra}"
+        );
+        assert_eq!(projection.unrecognized_records, 1, "{extra}");
+    }
+}
+
+#[test]
+fn dsh_v3_only_names_are_unknown_under_version_zero() {
+    for kind in [
+        "assistant/attempt",
+        "deliverables/presented",
+        "feedback/message-delete",
+        "feedback/message-put",
+        "subagent/catalog",
+        "system/message",
+        "tool/ptc-dispatch",
+        "tool/ptc-dispatch-start",
+    ] {
+        let base = row(json!({
+            "type": "user/message",
+            "seq": 1,
+            "data": {"content": [{"type": "text", "text": "q"}]}
+        }));
+        let refused = format!(
+            "{}{base}{}",
+            row(json!({"type": "session", "version": 0})),
+            row(json!({"type": kind, "seq": 2, "data": {}})),
+        );
+        let projection = dsh(&refused);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "{kind}"
+        );
+        assert_eq!(projection.unrecognized_records, 1, "{kind}");
+        assert!(projection.turns.is_empty(), "{kind}");
+
+        let omitted = format!(
+            "{}{base}{}",
+            row(json!({"type": "session", "version": 0})),
+            row(json!({"type": kind, "seq": 2, "ignorable": true, "data": {}})),
+        );
+        let projection = dsh(&omitted);
+        assert!(projection.unavailable.is_none(), "{kind}");
+        assert_eq!(projection.unrecognized_records, 1, "{kind}");
+        assert_eq!(projection.turns.len(), 1, "{kind}");
+    }
+}
+
+#[test]
+fn dsh_version_zero_rules_the_three_sampled_types() {
+    let base = format!(
+        "{}{}{}",
+        row(json!({"type": "session", "version": 0})),
+        row(json!({"type": "todo/write", "seq": 1, "data": {}})),
+        row(json!({"type": "turn/end", "seq": 2, "data": {}})),
+    );
+    let user = row(json!({
+        "type": "user/message",
+        "seq": 3,
+        "data": {"content": [{"type": "text", "text": "q"}]}
+    }));
+    let system = row(json!({
+        "type": "system/message",
+        "seq": 4,
+        "data": {"content": [{"type": "text", "text": "sys"}]}
+    }));
+    let projection = dsh(&format!("{base}{user}{system}"));
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert!(projection.turns.is_empty());
+    assert_eq!(projection.unrecognized_records, 1);
+
+    let marked = row(json!({
+        "type": "system/message",
+        "seq": 4,
+        "ignorable": true,
+        "data": {"content": [{"type": "text", "text": "sys"}]}
+    }));
+    let projection = dsh(&format!("{base}{user}{marked}"));
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+}
+
+#[test]
+fn dsh_v3_attempt_is_counted_and_shows_nothing() {
+    for marker in ["", ",\"ignorable\":true"] {
+        let attempt = format!(
+            "{{\"type\":\"assistant/attempt\"{marker},\"seq\":2,\"data\":{{\"stream\":[{{\"type\":\"text-delta\",\"text\":\"x\"}}]}}}}\n"
+        );
+        let rows = format!(
+            "{}{attempt}{}",
+            row(
+                json!({"type": "user/message", "seq": 1, "data": {"content": [{"type": "text", "text": "q"}]}})
+            ),
+            row(
+                json!({"type": "assistant/message", "seq": 3, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "text", "text": "a"}]}}})
+            ),
+        );
+        let projection = dsh(&format!("{}{rows}", dsh3_header(Some("false"))));
+        assert!(projection.unavailable.is_none(), "{marker}");
+        assert_eq!(projection.unrecognized_records, 1, "{marker}");
+        assert_eq!(projection.turns.len(), 2, "{marker}");
+        assert_eq!(projection.turns[0].blocks, vec![Block::text("q")]);
+        assert_eq!(projection.turns[1].blocks, vec![Block::text("a")]);
+    }
+}
+
+#[test]
+fn dsh_v3_content_projects_on_the_writers_definitions() {
+    let user = row(json!({
+        "type": "user/message",
+        "seq": 1,
+        "time": 1000,
+        "surfaceOp": "append",
+        "data": {
+            "id": "u1",
+            "role": "user",
+            "source": {"kind": "cli"},
+            "content": [{"type": "text", "text": "q"}],
+            "turn": 7,
+            "step": 9
+        }
+    }));
+    let call = row(json!({
+        "type": "tool/call",
+        "seq": 2,
+        "time": 1001,
+        "data": {"callId": "c1", "name": "Read", "arguments": {"path": "a"}, "turn": 1, "step": 1}
+    }));
+    let result = row(json!({
+        "type": "tool/result",
+        "seq": 3,
+        "time": 1002,
+        "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "tool-result", "toolCallId": "c1", "content": "out"}]}}
+    }));
+    let assistant = row(json!({
+        "type": "assistant/message",
+        "seq": 4,
+        "time": 1003,
+        "surfaceOp": "append",
+        "data": {
+            "turn": 1,
+            "step": 1,
+            "stream": [{"type": "text-delta", "text": "ignored"}],
+            "usage": {"input": 1},
+            "interrupted": false,
+            "message": {"content": [
+                {"type": "reasoning", "text": "r"},
+                {"type": "text", "text": "a"},
+                {"type": "image", "attachment": {"x": 1}},
+                {"type": "file", "name": "f"}
+            ]}
+        }
+    }));
+    for header in [
+        dsh3_header(Some("false")),
+        row(json!({"type": "session", "version": 0})),
+    ] {
+        let text = format!("{header}{user}{call}{result}{assistant}");
+        let projection = dsh(&text);
+        assert!(projection.unavailable.is_none(), "{projection:?}");
+        assert_eq!(projection.unrecognized_records, 1, "{header}");
+        assert_eq!(projection.skipped_lines, 0);
+        assert_eq!(projection.turns.len(), 4);
+        assert_eq!(projection.turns[0].role, "user");
+        assert_eq!(projection.turns[0].ts, "1000");
+        assert_eq!(projection.turns[0].blocks, vec![Block::text("q")]);
+        assert_eq!(projection.turns[1].role, "assistant");
+        assert_eq!(
+            projection.turns[1].blocks,
+            vec![Block::tool("Read {\"path\":\"a\"} [c1]")]
+        );
+        assert_eq!(projection.turns[2].role, "tool");
+        assert_eq!(
+            projection.turns[2].blocks,
+            vec![Block::tool_result("out [c1]")]
+        );
+        assert_eq!(projection.turns[3].role, "assistant");
+        assert_eq!(
+            projection.turns[3].blocks,
+            vec![
+                Block::reasoning("r"),
+                Block::text("a"),
+                Block::omitted("[image omitted]"),
+            ]
+        );
+    }
+
+    // A string `content` projects as the one text block.
+    let stringly = row(json!({
+        "type": "user/message",
+        "seq": 1,
+        "data": {"content": "plain"}
+    }));
+    let projection = dsh(&format!("{}{stringly}", dsh3_header(Some("false"))));
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("plain")]);
+}
+
+fn dsh3_embedded_call_rows() -> String {
+    format!(
+        "{}{}{}",
+        row(
+            json!({"type": "assistant/message", "seq": 1, "time": 1, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "text", "text": "see"}, {"type": "tool-call", "id": "c1", "name": "f", "arguments": {}}]}}})
+        ),
+        row(
+            json!({"type": "tool/call", "seq": 2, "time": 2, "data": {"turn": 1, "step": 1, "callId": "c1", "name": "f", "arguments": {}}})
+        ),
+        row(
+            json!({"type": "tool/result", "seq": 3, "time": 3, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "tool-result", "toolCallId": "c1", "content": "out"}]}}})
+        ),
+    )
+}
+
+#[test]
+fn dsh_v3_seeded_gate_suppresses_only_for_boolean_false() {
+    for seed in [Some("false"), None] {
+        let text = format!("{}{}", dsh3_header(seed), dsh3_embedded_call_rows());
+        let projection = dsh(&text);
+        assert!(projection.unavailable.is_none(), "{seed:?}");
+        assert_eq!(projection.unrecognized_records, 0, "{seed:?}");
+        assert_eq!(projection.turns.len(), 3, "{seed:?}");
+    }
+    // Only `false` suppresses the embedded copy.
+    let suppressed = dsh(&format!(
+        "{}{}",
+        dsh3_header(Some("false")),
+        dsh3_embedded_call_rows()
+    ));
+    assert_eq!(suppressed.turns[0].blocks, vec![Block::text("see")]);
+    for seed in ["true", "\"yes\"", "{}", "null"] {
+        let text = format!("{}{}", dsh3_header(Some(seed)), dsh3_embedded_call_rows());
+        let projection = dsh(&text);
+        assert!(projection.unavailable.is_none(), "{seed}");
+        assert_eq!(projection.unrecognized_records, 0, "{seed}");
+        assert_eq!(projection.turns.len(), 3, "{seed}");
+        assert_eq!(projection.turns[0].blocks.len(), 2, "{seed}");
+        assert!(projection.turns[0].blocks[0].text.contains("see"), "{seed}");
+        assert!(projection.turns[0].blocks[1].text.contains("c1"), "{seed}");
+    }
+
+    // Under version zero the association runs whatever `isSeeded` carries.
+    for seed in [
+        None,
+        Some("false"),
+        Some("true"),
+        Some("\"yes\""),
+        Some("{}"),
+        Some("null"),
+    ] {
+        let header = match seed {
+            None => row(json!({"type": "session", "version": 0})),
+            Some(seed) => format!("{{\"type\":\"session\",\"version\":0,\"isSeeded\":{seed}}}\n"),
+        };
+        let text = format!("{header}{}", dsh3_embedded_call_rows());
+        let projection = dsh(&text);
+        assert!(projection.unavailable.is_none(), "{seed:?}");
+        assert_eq!(projection.turns.len(), 3, "{seed:?}");
+        assert_eq!(
+            projection.turns[0].blocks,
+            vec![Block::text("see")],
+            "{seed:?}"
+        );
+    }
+}
+
+#[test]
+fn dsh_v3_ambiguous_identity_keeps_both_dedicated_calls_and_the_copy() {
+    let text = format!(
+        "{}{}{}",
+        row(
+            json!({"type": "assistant/message", "seq": 1, "time": 1, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "text", "text": "see"}, {"type": "tool-call", "id": "c1", "name": "f", "arguments": {}}]}}})
+        ),
+        row(
+            json!({"type": "tool/call", "seq": 2, "time": 2, "data": {"turn": 1, "step": 1, "callId": "c1", "name": "f", "arguments": {}}})
+        ),
+        row(
+            json!({"type": "tool/call", "seq": 3, "time": 3, "data": {"turn": 1, "step": 1, "callId": "c1", "name": "f", "arguments": {}}})
+        ),
+    );
+    let projection = dsh(&format!("{}{text}", dsh3_header(Some("false"))));
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 3);
+    assert_eq!(projection.turns[0].blocks.len(), 2);
+}
+
+#[test]
+fn dsh_v3_user_message_positions_do_not_own_an_embedded_result() {
+    let rows = format!(
+        "{}{}",
+        row(
+            json!({"type": "user/message", "seq": 1, "time": 1, "data": {"turn": 1, "step": 1, "content": [{"type": "text", "text": "see"}, {"type": "tool-result", "toolCallId": "c1", "content": "out"}]}})
+        ),
+        row(
+            json!({"type": "tool/result", "seq": 2, "time": 2, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "tool-result", "toolCallId": "c1", "content": "out"}]}}})
+        ),
+    );
+    for seed in [Some("false"), Some("true"), None] {
+        let text = format!("{}{rows}", dsh3_header(seed));
+        let projection = dsh(&text);
+        assert!(projection.unavailable.is_none(), "{seed:?}");
+        assert_eq!(projection.unrecognized_records, 0, "{seed:?}");
+        assert_eq!(projection.turns.len(), 2, "{seed:?}");
+        assert_eq!(projection.turns[0].role, "user", "{seed:?}");
+        assert_eq!(
+            projection.turns[0].blocks,
+            vec![Block::text("see"), Block::tool_result("out [c1]")],
+            "{seed:?}"
+        );
+        assert_eq!(projection.turns[1].role, "tool", "{seed:?}");
+        assert_eq!(
+            projection.turns[1].blocks,
+            vec![Block::tool_result("out [c1]")],
+            "{seed:?}"
+        );
+    }
+    // Version zero reads the user message's positions, so the dedicated
+    // result owns the embedded copy.
+    let zero = format!("{}{rows}", row(json!({"type": "session", "version": 0})));
+    let projection = dsh(&zero);
+    assert!(projection.unavailable.is_none());
+    assert_eq!(projection.turns.len(), 2);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("see")]);
+}
+
+#[test]
+fn dsh_v3_citations_share_the_grammar_and_suppress_nothing() {
+    let prefix = concat!(
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false}\n",
+        "{\"type\":\"system/message\",\"seq\":3,\"time\":3,\"data\":{}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":4,\"time\":4,\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"}]}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":5,\"time\":5,\"data\":{\"callId\":\"c1\",\"name\":\"f\",\"arguments\":{}}}\n",
+    );
+    let text = format!(
+        "{prefix}{}{}{}",
+        "{\"type\":\"user/message\",\"seq\":20,\"time\":20,\"sourceEventSeqs\":[[3,5],7],\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"u\"}]}}\n",
+        "{\"type\":\"tool/result\",\"seq\":21,\"time\":21,\"sourceEventSeqs\":[10],\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"c1\",\"content\":\"out\"}]}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":22,\"time\":22,\"sourceEventSeqs\":[4],\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"b\"}]}}}\n",
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 5);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("a")]);
+    assert_eq!(projection.turns[2].blocks, vec![Block::text("u")]);
+    assert_eq!(
+        projection.turns[3].blocks,
+        vec![Block::tool_result("out [c1]")]
+    );
+    assert_eq!(projection.turns[4].blocks, vec![Block::text("b")]);
+
+    for cite in ["null", "[[10, 3]]", "[20]"] {
+        let text = format!(
+            "{prefix}{{\"type\":\"user/message\",\"seq\":20,\"time\":20,\"sourceEventSeqs\":{cite},\"data\":{{\"content\":[{{\"type\":\"text\",\"text\":\"u\"}}]}}}}\n"
+        );
+        let projection = dsh(&text);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "{cite}"
+        );
+        assert_eq!(projection.unrecognized_records, 1, "{cite}");
+        assert!(projection.turns.is_empty(), "{cite}");
+    }
+}
+
+#[test]
+fn dsh_v3_replacement_copy_keeps_the_audit_order() {
+    let text = format!(
+        "{}{}{}{}{}",
+        dsh3_header(Some("false")),
+        row(
+            json!({"type": "user/message", "seq": 1, "time": 1, "data": {"content": [{"type": "text", "text": "u"}]}})
+        ),
+        row(
+            json!({"type": "assistant/message", "seq": 2, "time": 2, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "text", "text": "a"}]}}})
+        ),
+        row(
+            json!({"type": "system/message", "seq": 3, "time": 3, "surfaceOp": {"op": "replace", "startSeq": 1, "endSeq": 2}, "data": {"content": [{"type": "text", "text": "sys"}]}})
+        ),
+        row(
+            json!({"type": "assistant/message", "seq": 4, "time": 4, "surfaceOp": {"op": "replace", "startSeq": 1, "endSeq": 2}, "data": {"turn": 1, "step": 1, "message": {"content": [{"type": "text", "text": "b"}]}}})
+        ),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 3);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("u")]);
+    assert_eq!(projection.turns[1].blocks, vec![Block::text("a")]);
+    assert_eq!(projection.turns[2].blocks, vec![Block::text("b")]);
+}
+
+#[test]
+fn dsh_v3_writer_validity_is_not_reader_admission() {
+    let prefix = concat!(
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false}\n",
+        "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"u\"}]}}\n",
+    );
+    let scene = |tool_result_cite: &str, assistant_cite: &str| {
+        let tool_result = format!(
+            "{{\"type\":\"tool/result\",\"seq\":3,\"time\":3,\"sourceEventSeqs\":{tool_result_cite},\"data\":{{\"turn\":1,\"step\":1,\"message\":{{\"content\":[{{\"type\":\"tool-result\",\"toolCallId\":\"c1\",\"content\":\"out\"}}]}}}}}}\n"
+        );
+        let assistant = format!(
+            "{{\"type\":\"assistant/message\",\"seq\":4,\"time\":4,\"sourceEventSeqs\":{assistant_cite},\"data\":{{\"turn\":1,\"step\":1,\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"a\"}}]}}}}}}\n"
+        );
+        format!(
+            "{prefix}{}{tool_result}{assistant}{}",
+            "{\"type\":\"tool/call\",\"seq\":2,\"time\":2,\"surfaceOp\":\"append\",\"sourceEventSeqs\":null,\"data\":{\"callId\":\"c1\",\"name\":\"f\",\"arguments\":{}}}\n",
+            "{\"type\":\"step/end\",\"seq\":5,\"time\":5,\"sourceEventSeqs\":null,\"data\":{}}\n",
+        )
+    };
+
+    let projection = dsh(&scene("[1]", "[1]"));
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 4);
+
+    let projection = dsh(&scene("[1]", "null"));
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 1);
+
+    let projection = dsh(&scene("null", "[1]"));
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 1);
+}
+
+fn dsh3_unread_base() -> String {
+    format!(
+        "{}{}{}{}{}",
+        dsh3_header(Some("false")),
+        row(
+            json!({"type": "user/message", "seq": 1, "time": 1, "data": {"content": [{"type": "text", "text": "u"}]}})
+        ),
+        row(json!({"type": "todo/write", "seq": 2, "sourceEventSeqs": null, "data": {}})),
+        row(
+            json!({"type": "deliverables/presented", "seq": 3, "sourceEventSeqs": null, "data": {}})
+        ),
+        row(
+            json!({"type": "assistant/attempt", "seq": 4, "sourceEventSeqs": [[5, 1]], "data": {"stream": [{"type": "text-delta", "text": "x"}]}})
+        ),
+    )
+}
+
+#[test]
+fn dsh_v3_unread_cells_change_no_disposition() {
+    let projection = dsh(&dsh3_unread_base());
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 1);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("u")]);
+
+    let second = format!(
+        "{}{}",
+        dsh3_unread_base(),
+        row(
+            json!({"type": "text-chunks", "seq0": 5, "time0": 5, "sourceEventSeqs": null, "data": {"turn": 1, "step": 1, "index": 0, "dt": [], "texts": ["t"]}})
+        ),
+    );
+    let projection = dsh(&second);
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 2);
+    assert!(projection.turns.is_empty());
+
+    let third = format!(
+        "{}{}",
+        dsh3_unread_base(),
+        row(
+            json!({"type": "assistant/chunk", "seq": 5, "ignorable": true, "sourceEventSeqs": null, "data": {"turn": 1, "step": 1, "chunk": {"type": "text-delta", "text": "c"}}})
+        ),
+    );
+    let projection = dsh(&third);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 2);
+    assert_eq!(projection.turns.len(), 1);
+
+    let fourth = format!(
+        "{}{}{}{}{}",
+        dsh3_header(Some("false")),
+        row(
+            json!({"type": "user/message", "seq": 1, "time": 1, "sourceEventSeqs": null, "data": {"content": [{"type": "text", "text": "u"}]}})
+        ),
+        row(json!({"type": "todo/write", "seq": 2, "sourceEventSeqs": null, "data": {}})),
+        row(
+            json!({"type": "deliverables/presented", "seq": 3, "sourceEventSeqs": null, "data": {}})
+        ),
+        row(
+            json!({"type": "assistant/attempt", "seq": 4, "sourceEventSeqs": [[5, 1]], "data": {"stream": [{"type": "text-delta", "text": "x"}]}})
+        ),
+    );
+    let projection = dsh(&fourth);
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 2);
+    assert!(projection.turns.is_empty());
+}
+
+#[test]
+fn dsh_v3_interrupted_message_projects_its_finalized_text() {
+    let text = format!(
+        "{}{}{}",
+        dsh3_header(Some("false")),
+        row(json!({"type": "assistant/message", "seq": 1, "time": 1000, "data": {"turn": 1, "step": 1, "interrupted": true, "stream": [{"type": "text-delta", "text": "prefix"}], "usage": {"input": 1}, "message": {"content": [{"type": "text", "text": "prefix"}]}}})),
+        "{\"type\":\"assistant/message\",\"seq\":2,\"time\":1001,\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"te",
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.skipped_lines, 0);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("prefix")]);
+    assert_eq!(projection.turns[0].ts, "1000");
+}
+
+#[test]
+fn dsh_v3_partial_support_counts_unsupported_blocks_once() {
+    for header in [
+        row(json!({"type": "session", "version": 0})),
+        dsh3_header(Some("false")),
+    ] {
+        let text = format!(
+            "{header}{}",
+            row(
+                json!({"type": "assistant/message", "seq": 1, "time": 1, "data": {"turn": 1, "step": 1, "message": {"content": [
+                    {"type": "text", "text": "kept"},
+                    {"type": "file", "name": "f"},
+                    {"type": "future-block"}
+                ]}}})
+            ),
+        );
+        let projection = dsh(&text);
+        assert!(projection.unavailable.is_none(), "{header}");
+        assert_eq!(projection.unrecognized_records, 1, "{header}");
+        assert_eq!(projection.turns.len(), 1, "{header}");
+        assert_eq!(projection.turns[0].blocks, vec![Block::text("kept")]);
+    }
+}
+
+#[test]
+fn dsh_v3_time_keeps_the_recorded_token_exactness() {
+    let text = concat!(
+        "{\"type\":\"session\",\"version\":3e0}\n",
+        "{\"type\":\"tool/call\",\"seq\":1,\"time\":1e-400,\"data\":{\"callId\":\"c1\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":2,\"time\":1e3,\"data\":{\"callId\":\"c2\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":3,\"time\":1000.0,\"data\":{\"callId\":\"c3\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":4,\"time\":-0.0,\"data\":{\"callId\":\"c4\",\"name\":\"f\",\"arguments\":{}}}\n",
+    );
+    let projection = dsh(text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 4);
+    let stamps: Vec<&str> = projection
+        .turns
+        .iter()
+        .map(|turn| turn.ts.as_str())
+        .collect();
+    assert_eq!(stamps, vec!["", "1000", "1000", "0"]);
+}
+
+#[test]
+fn dsh_zero_digit_underflow_and_duplicate_members_are_not_zero() {
+    let three = concat!(
+        "{\"type\":\"session\",\"version\":3}\n",
+        "{\"type\":\"tool/call\",\"seq\":1,\"time\":10e-400,\"data\":{\"callId\":\"c1\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":2,\"time\":0.1e-400,\"data\":{\"callId\":\"c2\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":3,\"time\":1.0e-400,\"data\":{\"callId\":\"c3\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":4,\"time\":1000,\"time\":2000,\"data\":{\"callId\":\"c4\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":5,\"\\u0074ime\":1e-400,\"data\":{\"callId\":\"c5\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":6,\"time\":0,\"data\":{\"callId\":\"c6\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":7,\"time\":0.0,\"data\":{\"callId\":\"c7\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":8,\"time\":-0,\"data\":{\"callId\":\"c8\",\"name\":\"f\",\"arguments\":{}}}\n",
+        "{\"type\":\"tool/call\",\"seq\":9,\"time\":0e0,\"data\":{\"callId\":\"c9\",\"name\":\"f\",\"arguments\":{}}}\n",
+    );
+    let projection = dsh(three);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 9);
+    let stamps: Vec<&str> = projection
+        .turns
+        .iter()
+        .map(|turn| turn.ts.as_str())
+        .collect();
+    assert_eq!(stamps, vec!["", "", "", "", "", "0", "0", "0", "0"]);
+
+    let zero = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":1,\"time\":10e-400,\"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"a\"}}}\n",
+        "{\"type\":\"assistant/chunk\",\"seq\":2,\"time\":1000,\"time\":2000,\"data\":{\"turn\":1,\"step\":1,\"chunk\":{\"type\":\"text-delta\",\"text\":\"b\"}}}\n",
+    );
+    let projection = dsh(zero);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.turns.len(), 2);
+    assert_eq!(projection.turns[0].ts, "");
+    assert_eq!(projection.turns[1].ts, "");
+
+    for body in [
+        "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":10e-400,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[],\"texts\":[\"a\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[],\"texts\":[\"a\"]}}\n",
+    ] {
+        let text = format!("{}{body}", row(json!({"type": "session", "version": 0})));
+        let projection = dsh(&text);
+        assert_eq!(
+            projection.unavailable,
+            Some(Unavailable::UnsupportedFormat),
+            "{body}"
+        );
+        assert_eq!(projection.unrecognized_records, 1, "{body}");
+    }
 }
