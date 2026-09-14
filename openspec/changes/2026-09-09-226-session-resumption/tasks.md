@@ -879,7 +879,15 @@ saved for the phase commit.
       aggregate digest does not bind, and the bundle-relative `./` spelling is
       refused as absolute); carry the argv value and that member's
       64-lowercase-hex digest as the private `route_overlay` beside the
-      assessment and owned target. In the adapter, read the file once from the
+      assessment and owned target. The binding is the engine's alone: it is an
+      input of `start_context` in `crates/brokkr-runtime/src/engine/resume.rs`,
+      computed in `crates/brokkr-runtime/src/engine.rs` at the single-site call
+      site in `run_driver` and at the panel-member call site where each
+      `MemberRun` is composed, from the compiled manifest's `files` entry and
+      never from a hash of the file the value resolves to, so a member edited
+      since compilation still travels with the manifest's recorded digest and
+      the adapter's digest comparison below is what refuses its bytes. In the
+      adapter, read the file once from the
       working directory, require SHA-256 equality with the bound digest before
       any shape check, then apply AS3's closed, data-only line reader — no tag,
       anchor, alias, flow collection, block scalar, merge key or quoted scalar
@@ -915,6 +923,18 @@ saved for the phase commit.
       set in the composite identity, then rerun 10.7; do not patch provider packages,
       fork the plugin a second time outside this adaptation or intercept
       UUIDs. Verify with the DSH planner/storage shim cases in 8.10 and 9.6;
+      the route-overlay binding's engine cases in the runtime crate, which
+      `adapters/tests.rs` cannot supply because the adapter receives only
+      argv, a working directory and the private context: in
+      `crates/brokkr-runtime/src/engine/resume.rs`'s test module, beside
+      `the_private_context_carries_the_owned_target_and_originating_digest`
+      and in its pattern, that `start_context` carries a supplied binding as
+      `route_overlay` with exactly the argv value and digest it was handed
+      and carries no `route_overlay` when none is supplied; and in
+      `crates/brokkr-runtime/src/engine/resume_tests.rs`, the engine
+      integration cases 8.10 assigns to that suite, read off the `Start.input`
+      that suite's logging drivers actually received at both call sites, a
+      single site and a panel member;
       the loader cases in `crates/brokkr-runtime/src/agents/tests.rs` (a
       measured identity without the member loads, a well-formed member loads
       and is carried, a malformed member or one beside `unknown` is refused
@@ -944,7 +964,9 @@ saved for the phase commit.
       representation rather than widening a start payload — site / SR3,
       site / SR5.
 - [ ] 8.10 Complete each provider-local planner guard and its tests in
-      `adapters/tests.rs` from the captured grammar: exact arity plus
+      `adapters/tests.rs` from the captured grammar, and the engine-side
+      route-overlay binding's cases in the runtime engine suite assigned
+      below: exact arity plus
       duplicate and precedence checks for every authoritative restriction,
       on cold and resume paths, without introducing a generic provider
       grammar. Preserve the completed Claude cases that independently refuse a
@@ -967,16 +989,46 @@ saved for the phase commit.
       way even when the declaration matches the recompute; an `unmeasured`
       shape on a home holding the qualified pair spawns no version probe, no
       recompute and no `--new` or `--session`. Add the DSH route overlay's
-      deterministic cases (answers Q-S): the shipped `recipes/research-dsh`
+      deterministic cases (answers Q-S), split by the crate that can observe
+      each. The engine-side binding cases belong to the runtime engine suite,
+      `crates/brokkr-runtime/src/engine/resume_tests.rs`, in the pattern of
+      the private-context unit case
+      `the_private_context_carries_the_owned_target_and_originating_digest`
+      in `engine/resume.rs`: each builds a bundle through that suite's
+      `bundle` helper, whose `dir` and `manifest.files` are what the engine
+      binds against, with a site the binding rule applies to (a dsh site
+      whose compiled command carries one `--patch`, design D5) and that
+      suite's logging driver standing in for the provider process, plants the
+      named file under the run's working directory, and reads the
+      `resume_context.route_overlay` member off the `Start.input` the driver
+      actually received — at both production `start_context` call sites, a
+      single site and a panel member, and for the positive case on a cold
+      start, an offered start and a start under an `unmeasured` assessment
+      alike. (i) A valid leaf-manifest member carries the actual argv value
+      and that member's compiled manifest digest. (ii) A same-shaped
+      nonmember outside the layer, a working-directory shadow of the bundled
+      path, an ancestor-layer file and the absolute path produced by `./`
+      expansion each receive no binding: the context carries no
+      `route_overlay`, at either call site. (iii) A member whose bytes changed
+      after compilation cannot authorize its new bytes: the carried digest is
+      the manifest's recorded value, not a hash of the resolved file, at
+      either call site. The adapter suite, `adapters/tests.rs`, which receives
+      only argv, a working directory and the private context, owns the
+      remaining cases: the shipped `recipes/research-dsh`
       overlay as the positive vector under the cold, offered and `unmeasured`
       gate, its bound `route_overlay` member folded ahead of the transcript/
       model/settings rows with the composite, launch row and journal left free
       of route bytes; and, each refusing before staging on the cold, resume and
       disabled-gate paths and naming a depth, field or URL part but never a
       value: a second or bare `--patch`; an absolute, `..`, symlink-escaping,
-      non-regular, oversized or non-UTF-8 path; a same-shaped nonmember, a
-      shadow, changed bytes, an ancestor-layer file, the `./` expansion, an
-      absent binding, a binding without `--patch` and a disagreeing binding; a
+      non-regular, oversized or non-UTF-8 path; an absent binding beside a
+      present `--patch`, a binding without `--patch`, a disagreeing binding,
+      and a bound digest the bytes read do not hash to — the two outcomes the
+      engine cases hand the adapter, no binding for a nonmember, shadow,
+      ancestor-layer file or `./` expansion and the manifest's digest against
+      changed bytes, so each of those five refusals is proven end to end by
+      the two suites together and never by adapter cases in place of engine
+      ones; a
       Rust-owned or foreign row ID, a second entry or provider, a provider the
       seat did not pin or an absent model pin; each field outside the closed
       six-field set, a literal authentication header beside a valid
@@ -3421,3 +3473,95 @@ closed. Passes B, C and D (this run's scheduled scope) and passes E through K
 (out of scope) are otherwise unchanged from the prior visit's reconciliation.
 The next visit should implement pass B starting from 8.8's remaining planner
 work, in the order this file states.
+
+## Current specify return — engine-side route-overlay verification ownership, 2026-09-14
+
+This visit belongs to run `current-successor-issue-226-pass-c2d8f6ec`
+(specify phase, the run's only seat). Its predecessor,
+`current-successor-issue-226-pass-972adad6`, parked at
+`ANALYZE-DRIFT-EXHAUSTED` after its final analyze visit raised one MEDIUM
+coverage-gap finding against this file at HEAD `2e157c5`, owned by tasks.
+This visit adopts all committed work at that head, including `d14c97b` and
+`2e157c5`, under the unchanged `2026-09-09-226-session-resumption`
+identifier; the predecessor's planning stands, its recount (20 requirements /
+150 scenarios, 82 complete / 19 pending across 101 identifiers) is inherited,
+and neither the framing, the installed-writer reads nor the qualification
+reads are repeated. Read in full, through the workspace hands: the pass
+framing and its A–D supplement, the September 12 controller Codex note, the
+015rc1 qualification, incompatibility and upstream-discovery records,
+`adapters/dsh.json`, proposed 0056, the proposal, all five deltas, design and
+this file, plus `engine/resume.rs::start_context` with its test module, both
+`resume_context` call sites in `engine.rs` and the fixtures of
+`engine/resume_tests.rs`.
+
+**The finding.** D5/D6 and AS3 place the route-overlay binding in the engine
+at both `start_context` call sites, and AS3's scenario "An unbound or drifted
+route overlay is refused" makes the engine-side outcome observable per case:
+a same-shaped nonmember, a working-directory shadow, an ancestor-layer file,
+the `./` expansion, a member whose bytes changed since compilation, and the
+carried digest being the manifest's rather than a hash of the resolved file.
+But 8.10 assigned every route-overlay case to `adapters/tests.rs`, and
+8.8(d)'s verify clause named no runtime-crate suite. The adapter receives
+only argv, a working directory and the private context: its suite can prove
+an absent binding and a digest mismatch, but it cannot distinguish a
+nonmember from a shadow from an ancestor-layer file, cannot show that the
+engine withholds a binding for each, and cannot show that the engine carries
+the manifest's digest rather than a hash of the file it resolved.
+
+**Repaired in this visit, tasks-only, no tick.** 8.8(d) now states where the
+binding lives and what it carries: an input of `start_context` in
+`crates/brokkr-runtime/src/engine/resume.rs`, computed in
+`crates/brokkr-runtime/src/engine.rs` at the single-site call site in
+`run_driver` and at the panel-member call site where each `MemberRun` is
+composed, from the compiled manifest's `files` entry and never from a hash of
+the resolved file, so the adapter's digest comparison is what refuses edited
+bytes. 8.8's verify clause gains the runtime crate's suites beside the
+adapter, loader, doctor and committed-bytes cases: the unit case in
+`engine/resume.rs`'s test module, in the pattern of
+`the_private_context_carries_the_owned_target_and_originating_digest`, that
+`start_context` carries a supplied binding exactly and carries none when none
+is supplied; and the engine integration cases in
+`crates/brokkr-runtime/src/engine/resume_tests.rs`, read off the `Start.input`
+that suite's logging drivers actually received at both call sites. 8.10's
+heading names both suites, and its route-overlay list is split by the crate
+that can observe each case. The runtime suite owns, at both call sites: (i)
+a valid leaf-manifest member carrying the actual argv value and that member's
+compiled digest, for the positive case on cold, offered and `unmeasured`
+starts alike; (ii) a same-shaped nonmember, a working-directory shadow, an
+ancestor-layer file and the `./` expansion each receiving no binding; and
+(iii) a member changed after compilation travelling with the manifest's
+digest, not a hash of the resolved file. The adapter suite keeps every case
+it can observe — the positive fold, arity and path refusals, an absent
+binding beside a present `--patch`, a binding without `--patch`, a
+disagreeing binding and a bound digest the read bytes do not hash to, the
+row, provider, field-set, `apiKeyEnv`, `baseURL` and executable-syntax
+refusals, and the binding-before-shape ordering — with the five engine-side
+outcomes proven end to end by the two suites together and never by adapter
+cases in place of engine ones. AS3, D5, D6, proposed 0056 and the requirement
+citations are unchanged: the finding adds verification ownership to this
+file, not a requirement or a design change. No case is dropped, no adapter
+case stands in for an engine one, and no task moves between identifiers.
+
+Recounted directly against this file: **82 complete / 19 pending**, the same
+101 identifiers, none added, removed, renumbered or ticked. The five deltas
+still parse at **20 requirements / 150 scenarios**.
+`openspec validate 2026-09-09-226-session-resumption --strict` exits 0:
+`Change '2026-09-09-226-session-resumption' is valid`. `git diff --check`
+reports no whitespace errors. Cargo is absent from this seat's box, as every
+predecessor planning visit in this feature recorded from this box, so format,
+clippy, the workspace tests, both bundle compiles and the release build could
+not launch here; they remain the implementing pass's obligation before its
+final commit, and the engine cases named above are pass B's to write and run.
+No production code, contract, decision, adapter declaration, doctor output,
+guide, recipe, living specification or evidence file was written by this
+visit — only this planning artifact and the proposal's dated visit record.
+Evidence is under `.forge/specify-c2d8f6ec/`.
+
+`upstream` is not reported: the specification and design already state the
+engine-side binding and its observable outcomes; the defect was this file's
+verification ownership, and it is now closed. Passes B, C and D (this run's
+scheduled scope) are otherwise unchanged from the predecessor's
+reconciliation; passes E through K remain unscheduled and untouched. The next
+visit should implement pass B starting from 8.8's remaining planner work, in
+the order this file states, writing the runtime engine cases beside the
+binding they prove.

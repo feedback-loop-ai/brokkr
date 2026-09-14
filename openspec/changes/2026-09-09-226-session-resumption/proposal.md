@@ -1929,3 +1929,46 @@ bundle compiles and the release build could not launch here and remain the
 implementing pass's obligation before its commit. No provider probe, task
 tick, archive, push, merge or new Brokkr run was performed. Evidence is under
 `.forge/specify-972adad6/`.
+
+## Current successor specify — pass A engine-verification ownership, 2026-09-14
+
+Run `current-successor-issue-226-pass-c2d8f6ec`, phase specify and the run's
+only seat, adopted HEAD `2e157c5` and the whole active change, including the
+predecessor run's `d14c97b` and `2e157c5`. That predecessor,
+`current-successor-issue-226-pass-972adad6`, parked at
+`ANALYZE-DRIFT-EXHAUSTED` with one MEDIUM coverage-gap finding open, owned by
+tasks: 8.10 assigned every DSH route-overlay case to `adapters/tests.rs` and
+8.8(d)'s verify clause named no runtime-crate suite, although AS3's "An
+unbound or drifted route overlay is refused" and D5/D6 make the engine-side
+binding's outcomes observable only in the engine, at both `start_context`
+call sites. Read in full, through the workspace hands: the pass framing and
+its A–D supplement, the September 12 controller Codex note, the 015rc1
+qualification, incompatibility and upstream-discovery records,
+`adapters/dsh.json`, proposed 0056, this proposal, all five deltas, design
+and tasks, plus `engine/resume.rs`, both `resume_context` call sites in
+`engine.rs` and the fixtures of `engine/resume_tests.rs`. The dialect's own
+specify and return instructions and the rendered OpenSpec proposal
+instructions were read; no workflow runner was invoked.
+
+The repair is tasks-only, as the finding is: 8.8(d) now states the binding's
+engine locus and that its digest is the compiled manifest's rather than a
+hash of the resolved file; 8.8's verify clause and 8.10 name the runtime
+engine suites — the unit case in `engine/resume.rs`'s test module beside
+`the_private_context_carries_the_owned_target_and_originating_digest`, and
+the integration cases in `engine/resume_tests.rs` at a single site and a
+panel member — for the valid member's binding on cold, offered and
+`unmeasured` starts, the withheld binding for a nonmember, shadow,
+ancestor-layer file and `./` expansion, and the manifest's digest carried for
+changed bytes, while `adapters/tests.rs` keeps every case the adapter can
+observe. This proposal's answers A–S, the five deltas, design D5/D6, proposed
+0056, the selected pair, the recipe, the overlay, the roster assertion, the
+witness digest and every task tick are untouched. Counts after this visit:
+20 requirements / 150 scenarios, and 82 complete / 19 pending across the same
+101 task identifiers.
+
+Strict active validation passes. Cargo is absent in this box, as every
+predecessor specify visit recorded, so format, clippy, workspace tests, both
+bundle compiles and the release build could not launch here and remain the
+implementing pass's obligation before its commit. No provider probe, task
+tick, archive, push, merge or new Brokkr run was performed. Evidence is under
+`.forge/specify-c2d8f6ec/`.
