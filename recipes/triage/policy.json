@@ -17,7 +17,7 @@
     {"id":"SPECIFY-UPSTREAM","from":"specify","result":"upstream","park":true,"reason":"The commission itself cannot support a sound specification; park for triage's operator."},
     {"id":"SPECIFY-DRAFTED","from":"specify","result":"drafted","next":"clarify","reason":"The what is drafted and validated; ambiguity is judged next."},
 
-    {"id":"CLARIFY-AMBIGUOUS-EXHAUSTED","from":"clarify","result":"ambiguous","when":{"visits_clarify_gte":3},"park":true,"reason":"Three clarification passes leave open questions; park with those questions for the operator."},
+    {"id":"CLARIFY-AMBIGUOUS-EXHAUSTED","from":"clarify","result":"ambiguous","when":{"visits_clarify_gte":5},"park":true,"reason":"Five clarification passes leave open questions; park with those questions for the operator."},
     {"id":"CLARIFY-AMBIGUOUS","from":"clarify","result":"ambiguous","next":"specify","severity":"flagged","reason":"Open questions return to the specification author with the judge's evidence."},
     {"id":"CLARIFY-CLEAR","from":"clarify","result":"clear","next":"design","reason":"No ambiguity remains; proceed to high-level design."},
 
@@ -33,7 +33,7 @@
     {"id":"TASKS-UPSTREAM","from":"tasks","result":"upstream","next":"design","severity":"flagged","reason":"The design owns this breakdown defect; return one artifact phase."},
     {"id":"TASKS-DRAFTED","from":"tasks","result":"drafted","next":"analyze","reason":"The work breakdown is drafted and validated; analyze the complete change."},
 
-    {"id":"ANALYZE-DRIFT-EXHAUSTED","from":"analyze","result":"drift","when":{"visits_analyze_gte":3},"park":true,"reason":"Three analysis passes leave residual drift; park with the findings for the operator."},
+    {"id":"ANALYZE-DRIFT-EXHAUSTED","from":"analyze","result":"drift","when":{"visits_analyze_gte":5},"park":true,"reason":"Five analysis passes leave residual drift; park with the findings for the operator."},
     {"id":"ANALYZE-DRIFT-SPECIFY","from":"analyze","result":"drift","when":{"drift_in":["specify"]},"next":"specify","severity":"flagged","reason":"Analysis found the earliest defect in the specification."},
     {"id":"ANALYZE-DRIFT-DESIGN","from":"analyze","result":"drift","when":{"drift_in":["design"]},"next":"design","severity":"flagged","reason":"Analysis found the earliest defect in the design."},
     {"id":"ANALYZE-DRIFT-TASKS","from":"analyze","result":"drift","when":{"drift_in":["tasks"]},"next":"tasks","severity":"flagged","reason":"Analysis found the earliest defect in the work breakdown."},
