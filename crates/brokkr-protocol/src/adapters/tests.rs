@@ -996,11 +996,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
         "a/b c/d",
     ] {
         assert!(
-            dsh_seat_overlay(Some(bad), None, root).is_err(),
+            dsh_seat_overlay(Some(bad), None, root, None).is_err(),
             "{bad:?} must be refused"
         );
     }
-    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), None, root).is_ok());
+    assert!(dsh_seat_overlay(Some("deepseek-v4-flash"), None, root, None).is_ok());
 }
 
 /// An effort pinned with no model beside it is refused, not dropped: the
@@ -1010,10 +1010,11 @@ fn dsh_driver_refuses_a_dangling_or_doubled_or_malformed_model() {
 #[test]
 fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
-    let refused = dsh_seat_overlay(None, Some("high"), root).unwrap_err();
+    let refused = dsh_seat_overlay(None, Some("high"), root, None).unwrap_err();
     assert!(refused.contains("needs a `--model` beside it"), "{refused}");
 
-    let overlay = dsh_seat_overlay(Some("dashscope/qwen3.8-max"), Some("xhigh"), root).unwrap();
+    let overlay =
+        dsh_seat_overlay(Some("dashscope/qwen3.8-max"), Some("xhigh"), root, None).unwrap();
     let written = std::fs::read_to_string(overlay.path()).unwrap();
     assert_eq!(written.matches("- id: ").count(), 3, "{written}");
     assert!(
@@ -1605,6 +1606,7 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         Some("meta-contributor/meta/muse-spark-1.3-contributor"),
         Some("xhigh"),
         std::path::Path::new("/nonexistent/dsh-root"),
+        None,
     )
     .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
@@ -1626,6 +1628,7 @@ fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
         Some("dashscope/qwen3.8-max"),
         None,
         std::path::Path::new("/nonexistent/dsh-root"),
+        None,
     )
     .unwrap();
     let written = std::fs::read_to_string(file.path()).unwrap();
@@ -3774,13 +3777,15 @@ fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
 #[test]
 fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
     let root = std::path::Path::new("/nonexistent/dsh-root");
-    let refused =
-        dsh_seat_overlay_in(None, None, root, || Err(std::io::Error::other("no tmp"))).unwrap_err();
+    let refused = dsh_seat_overlay_in(None, None, root, None, || {
+        Err(std::io::Error::other("no tmp"))
+    })
+    .unwrap_err();
     assert!(
         refused.contains("could not stage the dsh seat overlay"),
         "{refused}"
     );
-    let sealed = dsh_seat_overlay_in(None, None, root, || {
+    let sealed = dsh_seat_overlay_in(None, None, root, None, || {
         let staged = tempfile::NamedTempFile::new()?;
         let (_, path) = staged.into_parts();
         let readonly = std::fs::File::open(&path)?;
@@ -5344,4 +5349,69 @@ fn a_refusal_never_discards_a_session_that_delivered_its_result() {
             .any(|body| matches!(body, Body::Accepted { .. })),
         "a delivering attempt accepts: {messages:?}"
     );
+}
+
+/// The shipped research lane's route overlay is admitted and folded AHEAD
+/// of the transcript, model and settings rows, so the launcher receives
+/// exactly one `--patch` and Brokkr's rows apply last (AS3; design D6
+/// mechanism 1; the 8.10 positive vector). The test reads the committed
+/// file at test time, never a hand-typed copy.
+#[test]
+fn the_shipped_route_overlay_folds_ahead_of_the_rust_owned_rows() {
+    let route = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../recipes/research-dsh/drivers/research-web.yml"),
+    )
+    .unwrap();
+    let root = std::path::Path::new("/nonexistent/dsh-root");
+    let overlay = dsh_seat_overlay(
+        Some("dashscope/qwen3.8-max"),
+        Some("xhigh"),
+        root,
+        Some(&route),
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(overlay.path()).unwrap();
+    assert_eq!(written.matches("- id: llm-pi-ai").count(), 1, "{written}");
+    assert_eq!(
+        written.matches("- id: agent-default-model").count(),
+        1,
+        "{written}"
+    );
+    assert_eq!(
+        written.matches("- id: session-persistence-jsonl").count(),
+        1,
+        "{written}"
+    );
+    assert_eq!(written.matches("- id: settings").count(), 1, "{written}");
+    let route_at = written.find("- id: llm-pi-ai").unwrap();
+    let model_at = written.find("- id: agent-default-model").unwrap();
+    let transcript_at = written.find("- id: session-persistence-jsonl").unwrap();
+    let settings_at = written.find("- id: settings").unwrap();
+    assert!(
+        route_at < model_at && model_at < transcript_at && transcript_at < settings_at,
+        "the route rows must be folded ahead of Brokkr's: {written}"
+    );
+    assert!(
+        written.contains(
+            "baseURL: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        ),
+        "{written}"
+    );
+    assert_eq!(written.matches("reasoningEfforts:").count(), 1, "{written}");
+}
+
+/// One exact `--patch <value>` is the only admitted spelling; a second, a
+/// bare one and an `=`-joined one refuse by arity before staging.
+#[test]
+fn a_second_bare_or_odd_patch_is_refused_by_arity() {
+    let s = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+    let (route, rest) = split_dsh_patch(&s(&["--patch", "a.yml", "--x"])).unwrap();
+    assert_eq!(route.as_deref(), Some("a.yml"));
+    assert_eq!(rest, ["--x"]);
+    assert_eq!(split_dsh_patch(&s(&["--x"])).unwrap(), (None, s(&["--x"])));
+    assert!(split_dsh_patch(&s(&["--patch", "a.yml", "--patch", "b.yml"])).is_err());
+    assert!(split_dsh_patch(&s(&["--patch"])).is_err());
+    assert!(split_dsh_patch(&s(&["--patch", "--model"])).is_err());
+    assert!(split_dsh_patch(&s(&["--patch=a.yml"])).is_err());
 }

@@ -20,6 +20,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Map, Value};
 
 mod composite;
+mod route_overlay;
 pub use composite::{
     canonical_composite, dsh_composite, dsh_composite_with, npm_dependencies, npm_name,
     plugin_component, plugin_file_digests, pnpm_dependencies, spawn_node_runtime, CompositeError,
@@ -2881,6 +2882,13 @@ fn invoke_dsh_with(
     // 0035 addendum of 2026-09-05). The pin is in the bundle either
     // way, and therefore in its digest.
     let (effort, passthrough) = split_effort(&passthrough);
+    // The seat's own `--patch` is the one authorized route overlay, and it
+    // is never forwarded: the validated bytes are folded into Brokkr's one
+    // overlay below, so the launcher receives exactly one `--patch` (AS3;
+    // design D6 mechanism 1). A second, bare or unrecognized `--patch` is
+    // refused before staging.
+    let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
+    let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     // The seat's own root under the operator's harness home. Nothing
     // here removes it: the transcript is the operator's (see
@@ -2889,7 +2897,7 @@ fn invoke_dsh_with(
         dsh_transcript_root_under(Some(transcript.home().to_path_buf()))
     })?;
     let root = root_dir.as_path();
-    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), root)?;
+    let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), root, route.as_deref())?;
     let locator = transcript.locator_under_home(root)?;
     let mut session_meta = Map::new();
     transcript.record(&locator, &mut session_meta, emit);
@@ -3256,6 +3264,37 @@ fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
     Ok((model, passthrough))
 }
 
+/// Split the seat's single `--patch` value out of the passthrough. One
+/// exact `--patch` with a non-empty, non-flag value is the only admitted
+/// shape; a second `--patch`, a bare `--patch` and any other `--patch…`
+/// spelling are refused by arity before staging, never forwarded and never
+/// dropped to make the launch admissible (AS3; design D6 mechanism 1).
+fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), String> {
+    let mut route = None;
+    let mut passthrough = Vec::with_capacity(extra.len());
+    let mut parts = extra.iter();
+    while let Some(part) = parts.next() {
+        if part == "--patch" {
+            let value = parts
+                .next()
+                .ok_or_else(|| "dsh driver: --patch needs an overlay path after it".to_string())?;
+            if value.is_empty() || value.starts_with("--") {
+                return Err("dsh driver: --patch needs an overlay path after it".to_string());
+            }
+            if route.replace(value.clone()).is_some() {
+                return Err("dsh driver: --patch given twice".to_string());
+            }
+        } else if part.starts_with("--patch") {
+            return Err(format!(
+                "dsh driver: {part:?} is not the one admitted `--patch <overlay>` shape"
+            ));
+        } else {
+            passthrough.push(part.clone());
+        }
+    }
+    Ok((route, passthrough))
+}
+
 /// The pinned-model row of the seat overlay, in the loader-patch
 /// grammar dsh composes after every bundle and profile layer, staged
 /// over an injected file so the two ways staging can fail — no file, a
@@ -3263,13 +3302,28 @@ fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
 /// disk. The id is written into YAML verbatim, so it is confined to the
 /// characters a model id is made of — a model name is data the operator
 /// pinned, never a place to smuggle a second row into the tree.
+/// The standalone model overlay stage, used by the staging-failure tests:
+/// production composes the model row into the one per-seat overlay beside
+/// the route rows.
+#[cfg(test)]
 fn dsh_model_overlay_in(
     model: &str,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<tempfile::NamedTempFile, String> {
-    let DshModel { provider, model } = parse_dsh_model(model)?;
+    let body = dsh_model_row(model)?;
     let mut file = io_context(create(), "could not stage the dsh model overlay")?;
-    let body = format!(
+    io_context(
+        file.write_all(body.as_bytes()),
+        "could not write the dsh model overlay",
+    )?;
+    Ok(file)
+}
+
+/// The pinned-model row alone, so the one per-seat overlay can place the
+/// validated route rows ahead of it (design D6 mechanism 1; AS3).
+fn dsh_model_row(model: &str) -> Result<String, String> {
+    let DshModel { provider, model } = parse_dsh_model(model)?;
+    Ok(format!(
         "# Written by `brokkr driver dsh` for one seat: the pinned model, as the\n\
          # overlay dsh's launcher composes last. A patch replaces the targeted\n\
          # row's whole config, so the provider is restated beside the model.\n\
@@ -3277,12 +3331,7 @@ fn dsh_model_overlay_in(
          \x20 config:\n\
          \x20   provider: {provider}\n\
          \x20   model: {model}\n"
-    );
-    io_context(
-        file.write_all(body.as_bytes()),
-        "could not write the dsh model overlay",
-    )?;
-    Ok(file)
+    ))
 }
 
 /// The root over an injected creator, so the one way staging can fail
@@ -3359,8 +3408,9 @@ fn dsh_seat_overlay(
     model: Option<&str>,
     effort: Option<&str>,
     root: &std::path::Path,
+    route: Option<&[u8]>,
 ) -> Result<DshSeatOverlay, String> {
-    dsh_seat_overlay_in(model, effort, root, || {
+    dsh_seat_overlay_in(model, effort, root, route, || {
         tempfile::Builder::new()
             .prefix("brokkr-dsh-seat-")
             .suffix(".yml")
@@ -3374,10 +3424,17 @@ fn dsh_seat_overlay(
 /// staged beside it under its own prefix. Every row after the model's
 /// is composed first and written once, so the one way the write can
 /// fail is the one way a test can make it fail.
+///
+/// The validated route rows, when the seat carries one, are folded AHEAD
+/// of the transcript, model and settings rows, so the launcher receives
+/// exactly one `--patch` and Brokkr's own rows apply last (AS3; design D6
+/// mechanism 1). The route bytes are already grammar-checked and their
+/// provenance is the bound manifest digest the bundle digest covers.
 fn dsh_seat_overlay_in(
     model: Option<&str>,
     effort: Option<&str>,
     root: &std::path::Path,
+    route: Option<&[u8]>,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<DshSeatOverlay, String> {
     let mut rows = dsh_transcript_row(root)?;
@@ -3402,12 +3459,22 @@ fn dsh_seat_overlay_in(
         }
         _ => None,
     };
-    let mut patch = match model {
-        Some(model) => dsh_model_overlay_in(model, create)?,
-        None => io_context(create(), "could not stage the dsh seat overlay")?,
-    };
+    let mut body = String::new();
+    if let Some(route) = route {
+        let text = std::str::from_utf8(route)
+            .map_err(|_| "dsh driver: validated route overlay is not UTF-8".to_string())?;
+        body.push_str(text);
+        if !text.ends_with('\n') {
+            body.push('\n');
+        }
+    }
+    if let Some(model) = model {
+        body.push_str(&dsh_model_row(model)?);
+    }
+    body.push_str(&rows);
+    let mut patch = io_context(create(), "could not stage the dsh seat overlay")?;
     io_context(
-        patch.write_all(rows.as_bytes()),
+        patch.write_all(body.as_bytes()),
         "could not write the dsh seat overlay",
     )?;
     Ok(DshSeatOverlay { patch, settings })
