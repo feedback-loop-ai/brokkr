@@ -1008,9 +1008,12 @@ saved for the phase commit.
       alike. (i) A valid leaf-manifest member carries the actual argv value
       and that member's compiled manifest digest. (ii) A same-shaped
       nonmember outside the layer, a working-directory shadow of the bundled
-      path, an ancestor-layer file and the absolute path produced by `./`
-      expansion each receive no binding: the context carries no
-      `route_overlay`, at either call site. (iii) A member whose bytes changed
+      path, an ancestor-layer file, a `..` component and an in-layer symlink
+      whose target resolves outside the layer directory while remaining
+      inside the working directory (present at compilation and therefore a
+      `files` member), and the absolute path produced by `./` expansion each
+      receive no binding: the context carries no `route_overlay`, at either
+      call site. (iii) A member whose bytes changed
       after compilation cannot authorize its new bytes: the carried digest is
       the manifest's recorded value, not a hash of the resolved file, at
       either call site. The adapter suite, `adapters/tests.rs`, which receives
