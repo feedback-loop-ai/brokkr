@@ -1759,71 +1759,165 @@ fn codex_completed_item(item: &Value) -> (Vec<CodexBlock>, String, bool) {
 
 // ----------------------------------------------------------------- DSH
 
-/// DSH's recognized quiet operational/context event vocabulary
-/// (design D6's captured catalog minus the five content kinds).
-fn dsh_quiet_event(kind: &str) -> bool {
-    matches!(
-        kind,
-        "agent-preset/selected"
-            | "agent/inbox/spliced"
-            | "approval/asked"
-            | "approval/decided"
-            | "approval/policy"
-            | "command/done"
-            | "command/run"
-            | "compaction/end"
-            | "compaction/prune"
-            | "compaction/start"
-            | "compaction/summary"
-            | "feedback/record"
-            | "goal/change"
-            | "hook/invoked"
-            | "hook/result"
-            | "llm/retry"
-            | "llm/retry-started"
-            | "model/selection"
-            | "permission/preset"
-            | "plan/mode"
-            | "request/context"
-            | "request/header"
-            | "sandbox/mode"
-            | "schedule/change"
-            | "session-log-deepseek/delivery-accepted"
-            | "session/end-seed"
-            | "session/title"
-            | "session/title-llm-request"
-            | "step/end"
-            | "step/start"
-            | "subagent/descriptor"
-            | "subagent/model-selection-policy"
-            | "team/member"
-            | "team/message/delivered"
-            | "team/message/queued"
-            | "team/task"
-            | "todo/write"
-            | "tool-workflow/agent-end"
-            | "tool-workflow/agent-start"
-            | "tool-workflow/run-end"
-            | "tool-workflow/run-start"
-            | "tool/code-dispatch"
-            | "tool/code-dispatch-start"
-            | "turn/end"
-            | "turn/start"
-            | "web/deepseek-search-llm-request"
-    )
+/// The DSH on-disk format versions this reader admits (design D3). The set
+/// is closed and exactly `{0, 3}`; the enum makes every dispatch site
+/// exhaustive so a third version cannot be added silently.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DshVersion {
+    Zero,
+    Three,
+}
+
+/// The version-zero recognized quiet vocabulary: the captured 0.1.2-rc.1
+/// catalogue minus the five content kinds (46 names). Untouched by this
+/// change.
+const DSH_QUIET_ZERO: &[&str] = &[
+    "agent-preset/selected",
+    "agent/inbox/spliced",
+    "approval/asked",
+    "approval/decided",
+    "approval/policy",
+    "command/done",
+    "command/run",
+    "compaction/end",
+    "compaction/prune",
+    "compaction/start",
+    "compaction/summary",
+    "feedback/record",
+    "goal/change",
+    "hook/invoked",
+    "hook/result",
+    "llm/retry",
+    "llm/retry-started",
+    "model/selection",
+    "permission/preset",
+    "plan/mode",
+    "request/context",
+    "request/header",
+    "sandbox/mode",
+    "schedule/change",
+    "session-log-deepseek/delivery-accepted",
+    "session/end-seed",
+    "session/title",
+    "session/title-llm-request",
+    "step/end",
+    "step/start",
+    "subagent/descriptor",
+    "subagent/model-selection-policy",
+    "team/member",
+    "team/message/delivered",
+    "team/message/queued",
+    "team/task",
+    "todo/write",
+    "tool-workflow/agent-end",
+    "tool-workflow/agent-start",
+    "tool-workflow/run-end",
+    "tool-workflow/run-start",
+    "tool/code-dispatch",
+    "tool/code-dispatch-start",
+    "turn/end",
+    "turn/start",
+    "web/deepseek-search-llm-request",
+];
+
+/// The version-three recognized quiet vocabulary: the read 0.1.5-rc.2
+/// catalogue minus the four content kinds and `assistant/attempt`
+/// (51 names) — the 44 version-zero quiet names other than the two
+/// `tool/code-dispatch*` names, plus `system/message` and the six log-only
+/// names (design D4, D8).
+const DSH_QUIET_THREE: &[&str] = &[
+    "agent-preset/selected",
+    "agent/inbox/spliced",
+    "approval/asked",
+    "approval/decided",
+    "approval/policy",
+    "command/done",
+    "command/run",
+    "compaction/end",
+    "compaction/prune",
+    "compaction/start",
+    "compaction/summary",
+    "deliverables/presented",
+    "feedback/message-delete",
+    "feedback/message-put",
+    "feedback/record",
+    "goal/change",
+    "hook/invoked",
+    "hook/result",
+    "llm/retry",
+    "llm/retry-started",
+    "model/selection",
+    "permission/preset",
+    "plan/mode",
+    "request/context",
+    "request/header",
+    "sandbox/mode",
+    "schedule/change",
+    "session-log-deepseek/delivery-accepted",
+    "session/end-seed",
+    "session/title",
+    "session/title-llm-request",
+    "step/end",
+    "step/start",
+    "subagent/catalog",
+    "subagent/descriptor",
+    "subagent/model-selection-policy",
+    "system/message",
+    "team/member",
+    "team/message/delivered",
+    "team/message/queued",
+    "team/task",
+    "todo/write",
+    "tool-workflow/agent-end",
+    "tool-workflow/agent-start",
+    "tool-workflow/run-end",
+    "tool-workflow/run-start",
+    "tool/ptc-dispatch",
+    "tool/ptc-dispatch-start",
+    "turn/end",
+    "turn/start",
+    "web/deepseek-search-llm-request",
+];
+
+/// DSH's recognized quiet operational/context event vocabulary, enumerated
+/// per admitted version from evidence rather than inferred from a prefix
+/// (design D4, D8).
+fn dsh_quiet_event(kind: &str, version: DshVersion) -> bool {
+    match version {
+        DshVersion::Zero => DSH_QUIET_ZERO.contains(&kind),
+        DshVersion::Three => DSH_QUIET_THREE.contains(&kind),
+    }
 }
 
 const DSH_SAFE_MAX: i64 = 9_007_199_254_740_991;
 
-/// The raw recorded JSON number token for a key of a top-level object
-/// row, when present. `serde_json` stores `f64` values, so a nonzero
-/// literal such as `1e-400` collapses to `0.0`; the raw token preserves
-/// the recorded spelling for the exact-zero checks the version and time
-/// contracts require.
-fn raw_top_level_token<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
+/// The outcome of scanning a top-level JSON object for one member name
+/// (design D3): the name is recorded exactly once with a JSON number
+/// token, not recorded at all, or recorded more than once. The token is
+/// the recorded spelling, because `serde_json` stores `f64` values and a
+/// nonzero literal such as `1e-400` collapses to `0.0`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RawToken<'a> {
+    /// Exactly one top-level member of the name with a recorded number
+    /// token.
+    One(&'a str),
+    /// No top-level member of the name, or a lone member whose value is
+    /// not a JSON number literal: no token is established.
+    None,
+    /// More than one top-level member of the name: an ambiguous recording.
+    Many,
+}
+
+/// Scan a raw JSON object for one top-level member name, decoding JSON
+/// string escapes in the name before comparing. The scan skips nested
+/// depths and string contents, counts every top-level match, and binds a
+/// number token only when the name is recorded exactly once.
+fn raw_top_level_token<'a>(raw: &'a str, key: &str) -> RawToken<'a> {
     let bytes = raw.as_bytes();
     let mut index = 0usize;
     let mut depth = 0i32;
+    let mut count = 0u32;
+    let mut token: Option<&'a str> = None;
     while index < bytes.len() {
         match bytes[index] {
             b'"' => {
@@ -1837,14 +1931,16 @@ fn raw_top_level_token<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
                     }
                 }
                 if end >= bytes.len() {
-                    return None;
+                    return RawToken::None;
                 }
-                let name = &raw[start..end];
+                let decoded = serde_json::from_str::<String>(&raw[index..=end]).ok();
                 let mut cursor = end + 1;
                 while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
                     cursor += 1;
                 }
-                if depth == 1 && name == key && bytes.get(cursor) == Some(&b':') {
+                if depth == 1 && decoded.as_deref() == Some(key) && bytes.get(cursor) == Some(&b':')
+                {
+                    count += 1;
                     cursor += 1;
                     while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
                         cursor += 1;
@@ -1856,7 +1952,9 @@ fn raw_top_level_token<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
                     {
                         cursor += 1;
                     }
-                    return (cursor > value_start).then(|| &raw[value_start..cursor]);
+                    if cursor > value_start && token.is_none() {
+                        token = Some(&raw[value_start..cursor]);
+                    }
                 }
                 index = end + 1;
                 continue;
@@ -1867,13 +1965,21 @@ fn raw_top_level_token<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
         }
         index += 1;
     }
-    None
+    match count {
+        0 => RawToken::None,
+        1 => token.map_or(RawToken::None, RawToken::One),
+        _ => RawToken::Many,
+    }
 }
 
-/// True when the recorded token is an exact numeric zero: only zero
-/// mantissa digits and, if present, an exponent. `1e-400` is a nonzero
-/// literal whose `f64` collapses to zero, so it is not a zero spelling.
-fn zero_number_token(token: &str) -> bool {
+/// The digit signature of a recorded JSON number token (design D3): the
+/// mantissa digits with the decimal point and every leading and trailing
+/// zero removed. `None` when the token is outside this helper's grammar
+/// (an optional sign, a mantissa of `0-9.` with at least one digit, and a
+/// present exponent of an optional sign and at least one digit). The
+/// helper is applied only to tokens the JSON parser already read as
+/// numbers, so it validates no more of the JSON number grammar than that.
+fn digit_signature(token: &str) -> Option<String> {
     let unsigned = token.strip_prefix(['-', '+']).unwrap_or(token);
     let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
         Some(position) => (&unsigned[..position], Some(&unsigned[position + 1..])),
@@ -1881,55 +1987,80 @@ fn zero_number_token(token: &str) -> bool {
     };
     if mantissa.is_empty()
         || !mantissa.chars().all(|c| c.is_ascii_digit() || c == '.')
-        || !mantissa.chars().any(|c| c == '0')
+        || !mantissa.chars().any(|c| c.is_ascii_digit())
     {
-        return false;
+        return None;
     }
     if let Some(exponent) = exponent {
         let digits = exponent.strip_prefix(['-', '+']).unwrap_or(exponent);
         if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
-            return false;
+            return None;
         }
     }
-    true
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    Some(digits.trim_matches('0').to_string())
 }
 
-/// A recorded millisecond count that also rejects a nonzero literal
-/// whose `f64` spelling underflows to zero. The raw token is only
-/// consulted for a parsed zero.
-fn dsh_millis_exact(value: &Value, raw: Option<&str>) -> Option<i64> {
+/// A recorded millisecond count that also checks the recorded spelling:
+/// a duplicated member is invalid whatever the value, a parsed number with
+/// no established token is invalid, and a parsed zero is a zero spelling
+/// only when its token's digit signature is empty. A nonzero parsed
+/// integer is judged on its parsed value alone, so `1e3` and `1000.0`
+/// stay the millisecond `1000`.
+fn dsh_millis_exact(value: &Value, raw: RawToken<'_>) -> Option<i64> {
     let millis = dsh_millis(value)?;
-    if millis == 0 && raw.is_some_and(|token| !zero_number_token(token)) {
-        return None;
+    match raw {
+        RawToken::Many | RawToken::None => return None,
+        RawToken::One(token) => {
+            if millis == 0 && digit_signature(token).as_deref() != Some("") {
+                return None;
+            }
+        }
     }
     Some(millis)
 }
 
-fn dsh_numeric_zero(value: &Value) -> bool {
-    value.as_f64() == Some(0.0)
+/// The admitted opening-header facts the projector threads into the row
+/// loop (design D3, D4): the admitted version and the header's
+/// `isSeeded` value, read once as a header fact. A JSON boolean yields
+/// `Some`, every other shape `None`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct DshHeader {
+    version: DshVersion,
+    is_seeded: Option<bool>,
 }
 
-/// Admit the opening DSH ownership header. Ownership was established by
-/// discovery; this validates the version and reports the projection
-/// refusal when it is not numeric zero.
-fn dsh_header(value: &Value, raw: &str) -> bool {
-    let Some(object) = value.as_object() else {
-        return false;
-    };
+/// Admit the opening DSH ownership header (design D3). Ownership was
+/// established by discovery; this validates the version against the
+/// recorded token and its parsed value together, admitting exactly
+/// `{0, 3}`, and reports the projection refusal otherwise. A duplicated
+/// `version` member, or a parsed number whose token cannot be
+/// established, refuses rather than falling open to the parsed value.
+fn dsh_header(value: &Value, raw: &str) -> Option<DshHeader> {
+    let object = value.as_object()?;
     if object.get("type").and_then(Value::as_str) != Some("session") {
-        return false;
+        return None;
     }
     match object.get("delegationDepth") {
         None => {}
-        Some(depth) if depth.as_u64() != Some(0) => return false,
+        Some(depth) if depth.as_u64() != Some(0) => return None,
         Some(_) => {}
     }
-    // A nonzero literal whose `f64` spelling underflows to zero is not an
-    // exact numeric-zero version.
-    object.get("version").is_some_and(|version| {
-        dsh_numeric_zero(version)
-            && raw_top_level_token(raw, "version").is_none_or(zero_number_token)
-    })
+    let parsed = object.get("version")?.as_f64()?;
+    let token = match raw_top_level_token(raw, "version") {
+        RawToken::One(token) => token,
+        RawToken::None | RawToken::Many => return None,
+    };
+    let signature = digit_signature(token)?;
+    let version = if parsed == 0.0 && signature.is_empty() {
+        DshVersion::Zero
+    } else if parsed == 3.0 && signature == "3" {
+        DshVersion::Three
+    } else {
+        return None;
+    };
+    let is_seeded = object.get("isSeeded").and_then(Value::as_bool);
+    Some(DshHeader { version, is_seeded })
 }
 
 /// The first participating physical row of a DSH snapshot, before any
@@ -1971,15 +2102,23 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
     // counted or retained (design D4).
-    match first_physical_row(admitted) {
-        FirstRow::Value(header, raw) if dsh_header(&header, raw) => {}
-        FirstRow::Value(_, _) | FirstRow::Malformed | FirstRow::Absent => {
+    let admitted_header = match first_physical_row(admitted) {
+        FirstRow::Value(header, raw) => match dsh_header(&header, raw) {
+            Some(header) => header,
+            None => {
+                projection.skipped_lines = 0;
+                projection.unrecognized_records = 0;
+                projection.unavailable = Some(Unavailable::UnsupportedFormat);
+                return;
+            }
+        },
+        FirstRow::Malformed | FirstRow::Absent => {
             projection.skipped_lines = 0;
             projection.unrecognized_records = 0;
             projection.unavailable = Some(Unavailable::UnsupportedFormat);
             return;
         }
-    }
+    };
     let mut events: Vec<DshEvent> = Vec::new();
     // Every observed logical identity counts once, including quiet
     // omissions, so a duplicate sequence stays ambiguous for citation
@@ -1992,7 +2131,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
         if index == 0 {
             return;
         }
-        match dsh_row(&value, raw) {
+        match dsh_row(&value, raw, admitted_header.version) {
             DshRow::Events(mut rows, row_unrecognized) => {
                 if row_unrecognized {
                     unrecognized += 1;
@@ -2090,8 +2229,13 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     }
     // Dedicated call/result events own matching embedded tool blocks at
     // their own source positions; the owning message keeps every other
-    // block in recorded order.
-    associate_dsh_tools(&mut events);
+    // block in recorded order. The pass rests on inherited identities in a
+    // seeded session, so under version three it runs only when the header
+    // records `isSeeded` exactly `false` (design D4, D7); under version
+    // zero it runs whatever the field carries.
+    if admitted_header.version == DshVersion::Zero || admitted_header.is_seeded == Some(false) {
+        associate_dsh_tools(&mut events);
+    }
     let mut turns = Vec::new();
     for (index, event) in events.into_iter().enumerate() {
         if suppressed.contains(&index) {
@@ -2265,8 +2409,9 @@ fn dsh_millis(value: &Value) -> Option<i64> {
 }
 
 /// The signed epoch-millisecond string DSH turns carry, or empty. The
-/// raw token rejects a nonzero literal that collapsed to a zero `f64`.
-fn dsh_time(value: Option<&Value>, raw: Option<&str>) -> String {
+/// recorded token's signature rejects a nonzero literal that collapsed to
+/// a zero `f64` and a duplicated or unestablished `time` member.
+fn dsh_time(value: Option<&Value>, raw: RawToken<'_>) -> String {
     match value.and_then(|value| dsh_millis_exact(value, raw)) {
         Some(millis) if millis.unsigned_abs() <= DSH_SAFE_MAX as u64 => millis.to_string(),
         _ => String::new(),
@@ -2391,13 +2536,34 @@ fn dsh_seq(value: &Value) -> Option<i64> {
         .and_then(Value::as_i64)
 }
 
-fn dsh_row(value: &Value, raw: &str) -> DshRow {
+fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
     let Some(object) = value.as_object() else {
         return DshRow::Unrecognized;
     };
     let Some(kind) = object.get("type").and_then(Value::as_str) else {
         return DshRow::Unrecognized;
     };
+    // Under version three the counted omission, the per-version quiet set
+    // and the version-zero-only required unknowns are selected from the
+    // kind and the version together, before any payload member is read, so
+    // the fragment and packed decoders are reachable only under version
+    // zero (design D4). The packed decoder returns `Refused` on a shape
+    // violation and `Refused` refuses the read whatever the marker, so
+    // decoding a packed name first would refuse the read even when the
+    // marker lifts the row's required-unknown status.
+    if version == DshVersion::Three {
+        match kind {
+            "assistant/attempt" => return DshRow::Omission,
+            "assistant/chunk"
+            | "text-chunks"
+            | "reasoning-chunks"
+            | "tool-call-chunks"
+            | "tool/code-dispatch"
+            | "tool/code-dispatch-start" => return DshRow::Unrecognized,
+            _ if dsh_quiet_event(kind, DshVersion::Three) => return DshRow::Quiet,
+            _ => {}
+        }
+    }
     let raw_time = raw_top_level_token(raw, "time");
     let data = object.get("data").unwrap_or(&Value::Null);
     match kind {
@@ -2419,13 +2585,28 @@ fn dsh_row(value: &Value, raw: &str) -> DshRow {
             } else {
                 "assistant"
             };
+            // The version-three `user/message` definition declares no
+            // `turn` or `step`, so under `Three` a user message supplies
+            // no position whatever its `data` carries;
+            // `assistant/message` declares both and reads them under
+            // either version, and version zero reads a user message's
+            // positions as today (design D4, D13).
+            let read_positions = kind == "assistant/message" || version == DshVersion::Zero;
+            let (turn, step) = if read_positions {
+                (
+                    data.get("turn").and_then(Position::parse),
+                    data.get("step").and_then(Position::parse),
+                )
+            } else {
+                (None, None)
+            };
             let event = DshEvent {
                 blocks,
                 role: role.to_string(),
                 ts,
                 seq: owning,
-                turn: data.get("turn").and_then(Position::parse),
-                step: data.get("step").and_then(Position::parse),
+                turn,
+                step,
                 chunk: false,
                 assembly: kind == "assistant/message",
                 cited,
@@ -2552,7 +2733,7 @@ fn dsh_row(value: &Value, raw: &str) -> DshRow {
         "text-chunks" | "reasoning-chunks" | "tool-call-chunks" => {
             dsh_packed(kind, object, data, raw)
         }
-        _ if dsh_quiet_event(kind) => DshRow::Quiet,
+        _ if dsh_quiet_event(kind, version) => DshRow::Quiet,
         _ => DshRow::Unrecognized,
     }
 }

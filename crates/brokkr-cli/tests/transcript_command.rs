@@ -414,6 +414,19 @@ fn write_dsh(world: &World, locator: &str, header: &str) -> String {
     )
 }
 
+/// Materialize a full DSH source under the versioned filename the newer
+/// core writes.
+fn write_dsh_versioned(world: &World, locator: &str, body: &str) -> String {
+    let session = world.home.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let file = session.join("session.v3.jsonl");
+    std::fs::write(&file, body).unwrap();
+    format!(
+        "{}/{locator}/project/seat/session.v3.jsonl",
+        world.home.canonicalize().unwrap().display()
+    )
+}
+
 /// A Codex rollout needs no header: a `turn_context`-only file is a
 /// readable zero-turn result with its confirmed path and shared hint.
 #[test]
@@ -544,6 +557,162 @@ fn a_foreign_dsh_version_refuses_with_its_document() {
             "full session: path {}",
             brokkr_view::transcript::portable_display_literal(&path)
         )
+    );
+}
+
+/// The located version-three scenario: one versioned root projects its
+/// user, call, result and assistant turns through CLI text and CLI JSON,
+/// and `--turn 1` through `--turn 4` reaches each.
+#[test]
+fn a_located_version_three_session_projects_through_the_cli() {
+    let world = world_effects(&[("eff1", "review", None)]);
+    let body = concat!(
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false,\"id\":\"s\",\"createdAt\":\"2026-09-13T00:00:00Z\",\"cwd\":\"/w\"}\n",
+        "{\"type\":\"system/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"sys\"}]}}\n",
+        "{\"type\":\"todo/write\",\"seq\":2,\"time\":2,\"data\":{}}\n",
+        "{\"type\":\"turn/end\",\"seq\":3,\"time\":3,\"data\":{}}\n",
+        "{\"type\":\"user/message\",\"seq\":4,\"time\":1000,\"surfaceOp\":\"append\",\"data\":{\"id\":\"u1\",\"role\":\"user\",\"source\":{\"kind\":\"cli\"},\"content\":[{\"type\":\"text\",\"text\":\"q\"}]}}\n",
+        "{\"type\":\"tool/call\",\"seq\":5,\"time\":1001,\"data\":{\"callId\":\"c1\",\"name\":\"Read\",\"arguments\":{\"path\":\"a\"},\"turn\":1,\"step\":1}}\n",
+        "{\"type\":\"tool/result\",\"seq\":6,\"time\":1002,\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"c1\",\"content\":\"out\"}]}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":7,\"time\":1003,\"surfaceOp\":\"append\",\"data\":{\"turn\":1,\"step\":1,\"stream\":[{\"type\":\"text-delta\",\"text\":\"x\"}],\"usage\":{\"input\":1},\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"}]}}}\n",
+    );
+    let path = write_dsh_versioned(&world, "sessions/one", body);
+    checkpoint(
+        &world,
+        "eff1",
+        "att0",
+        json!({
+            "step": "session-finished",
+            "transcript": dsh_reference(&world, "sessions/one"),
+        }),
+    );
+
+    let output = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = read_document(&output);
+    assert_eq!(document["unavailable"], Value::Null);
+    assert_eq!(document["path"], path);
+    assert_eq!(document["unrecognized_records"], 0);
+    let turns = document["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 4);
+    assert_eq!(turns[0]["blocks"][0]["text"], "q");
+    assert_eq!(turns[1]["blocks"][0]["text"], "Read {\"path\":\"a\"} [c1]");
+    assert_eq!(turns[2]["blocks"][0]["text"], "out [c1]");
+    assert_eq!(turns[3]["blocks"][0]["text"], "a");
+
+    let expected = [
+        (1_i64, "q"),
+        (2, "Read {\"path\":\"a\"} [c1]"),
+        (3, "out [c1]"),
+        (4, "a"),
+    ];
+    for (turn, text) in expected {
+        let index = turn.to_string();
+        let output = run(
+            &world,
+            &[
+                "transcript",
+                "--run",
+                "r222",
+                "--seat",
+                "eff1",
+                "--json",
+                "--turn",
+                index.as_str(),
+            ],
+        );
+        let selected = read_document(&output);
+        assert_eq!(
+            selected["turns"].as_array().unwrap().len(),
+            1,
+            "turn {turn}"
+        );
+        assert_eq!(
+            selected["turns"][0]["blocks"][0]["text"], text,
+            "turn {turn}"
+        );
+    }
+
+    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(
+        text.status.success(),
+        "{}",
+        String::from_utf8_lossy(&text.stderr)
+    );
+    let rendered = String::from_utf8_lossy(&text.stdout);
+    for needle in ["q", "out [c1]", "a"] {
+        assert!(
+            rendered.contains(needle),
+            "text missing {needle}: {rendered}"
+        );
+    }
+}
+
+/// The interrupted version-three message is the writer's finalized text:
+/// one turn through whole, `--turn 1` and CLI text, with the partial
+/// append uncounted.
+#[test]
+fn a_version_three_interrupted_message_reaches_the_cli() {
+    let world = world_effects(&[("eff1", "review", None)]);
+    let body = concat!(
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false}\n",
+        "{\"type\":\"assistant/message\",\"seq\":1,\"time\":1000,\"data\":{\"turn\":1,\"step\":1,\"interrupted\":true,\"stream\":[{\"type\":\"text-delta\",\"text\":\"prefix\"}],\"usage\":{\"input\":1},\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"prefix\"}]}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":2,\"time\":1001,\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"te",
+    );
+    write_dsh_versioned(&world, "sessions/one", body);
+    checkpoint(
+        &world,
+        "eff1",
+        "att0",
+        json!({
+            "step": "session-finished",
+            "transcript": dsh_reference(&world, "sessions/one"),
+        }),
+    );
+
+    let whole = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(whole.status.success());
+    let document = read_document(&whole);
+    assert_eq!(document["unrecognized_records"], 0);
+    assert_eq!(document["skipped_lines"], 0);
+    assert_eq!(document["turns"].as_array().unwrap().len(), 1);
+    assert_eq!(document["turns"][0]["blocks"][0]["text"], "prefix");
+    assert_eq!(document["turns"][0]["ts"], "1000");
+
+    let one = run(
+        &world,
+        &[
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+            "--turn",
+            "1",
+        ],
+    );
+    assert_eq!(
+        read_document(&one)["turns"][0]["blocks"][0]["text"],
+        "prefix"
+    );
+
+    let text = run(&world, &["transcript", "--run", "r222", "--seat", "eff1"]);
+    assert!(text.status.success());
+    assert!(
+        String::from_utf8_lossy(&text.stdout).contains("prefix"),
+        "{}",
+        String::from_utf8_lossy(&text.stdout)
     );
 }
 

@@ -30,9 +30,9 @@ prose or active reading door. In particular, DSH `unsupported-format` SHALL
 show the shared `DSH transcript format is not supported` explanation, retained
 path/hint and source diagnostics, while clearing every old turn and closing
 any open transcript overlay. Header-version refusal SHALL use R16's zero
-row counts and only observed source-cap notice; version-zero event/storage
-refusal SHALL keep R14's complete-prefix counts. A positive diagnostic count
-or source-cap flag
+row counts and only observed source-cap notice; event/storage refusal under
+any admitted version SHALL keep R14's complete-prefix counts. A positive
+diagnostic count or source-cap flag
 SHALL not make a refused projection readable. A readable zero-turn result
 SHALL still permit opening the whole transcript's empty/capped explanation
 and any malformed-line or unrecognized-record notices.
@@ -267,3 +267,4 @@ reads and read-only journal/provider access.
 ## Provenance
 
 - `2026-09-10-read-every-transcript-kind` — folded 2026-09-10
+- `2026-09-14-admit-dsh-session-v3` — folded 2026-09-14

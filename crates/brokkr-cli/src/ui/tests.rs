@@ -3681,6 +3681,202 @@ fn a_session_directory_holding_both_names_admits_the_versioned_one() {
     );
 }
 
+/// The versioned name beside the plain name is decisive whatever its
+/// version: a version-three `session.v3.jsonl` beside a version-zero
+/// `session.jsonl` reads the versioned file's message and never the plain
+/// name's.
+#[test]
+fn a_versioned_and_plain_pair_reads_the_versioned_files_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("session.v3.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false}\n",
+            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"newest\"}]}}\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        session.join("session.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"version\":0,\"delegationDepth\":0}\n",
+            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"superseded\"}]}}\n",
+        ),
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert!(
+        read.path.as_deref().unwrap().ends_with("session.v3.jsonl"),
+        "{:?}",
+        read.path
+    );
+    assert_eq!(read.turns.len(), 1);
+    assert_eq!(read.turns[0].blocks[0].text, "newest");
+}
+
+/// A foreign-versioned name beside a readable plain name refuses with the
+/// confirmed versioned path, zero counts and no turns; the plain name is
+/// never read once the versioned name carries a valid session header.
+#[test]
+fn a_foreign_versioned_name_beside_a_readable_plain_name_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let session = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join("session.v3.jsonl"),
+        "{\"type\":\"session\",\"version\":4,\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        session.join("session.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"version\":0,\"delegationDepth\":0}\n",
+            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"superseded\"}]}}\n",
+        ),
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert!(
+        read.path.as_deref().unwrap().ends_with("session.v3.jsonl"),
+        "{:?}",
+        read.path
+    );
+    assert_eq!(read.unrecognized_records, 0);
+    assert_eq!(read.skipped_lines, 0);
+    assert!(read.turns.is_empty());
+}
+
+/// The filename and the header version are independent facts: neither name
+/// infers a version and neither version infers a name.
+#[test]
+fn the_filename_and_the_header_version_are_independent_facts() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+
+    // `session.jsonl` carrying a version-three header reads under the
+    // version-three vocabulary.
+    let three_plain = home.join("sessions/one/project/seat");
+    std::fs::create_dir_all(&three_plain).unwrap();
+    std::fs::write(
+        three_plain.join("session.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0}\n",
+            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"three\"}]}}\n",
+        ),
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert_eq!(read.turns.len(), 1);
+    assert_eq!(read.turns[0].blocks[0].text, "three");
+
+    // `session.v3.jsonl` carrying a version-zero header reads under the
+    // version-zero vocabulary.
+    let zero_versioned = home.join("sessions/two/project/seat");
+    std::fs::create_dir_all(&zero_versioned).unwrap();
+    std::fs::write(
+        zero_versioned.join("session.v3.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"version\":0,\"delegationDepth\":0}\n",
+            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"zero\"}]}}\n",
+        ),
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/two", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert!(read.is_readable(), "{read:?}");
+    assert_eq!(read.turns.len(), 1);
+    assert_eq!(read.turns[0].blocks[0].text, "zero");
+
+    // Either name carrying version 4 refuses.
+    let foreign = home.join("sessions/three/project/seat");
+    std::fs::create_dir_all(&foreign).unwrap();
+    std::fs::write(
+        foreign.join("session.v3.jsonl"),
+        "{\"type\":\"session\",\"version\":4,\"delegationDepth\":0}\n",
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/three", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert!(read.turns.is_empty());
+}
+
+/// A seeded header changes neither ownership nor admission under either
+/// admitted version, and the depth rule governs ownership regardless of
+/// `isSeeded`.
+#[test]
+fn a_seeded_header_changes_neither_ownership_nor_admission() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    for (version, seed) in [
+        ("0", "true"),
+        ("0", "false"),
+        ("0", "\"yes\""),
+        ("0", "{}"),
+        ("0", "null"),
+        ("3", "true"),
+        ("3", "false"),
+        ("3", "\"yes\""),
+        ("3", "{}"),
+        ("3", "null"),
+    ] {
+        let session = home.join(format!("sessions/v{version}-{seed}/project/seat"));
+        std::fs::create_dir_all(&session).unwrap();
+        let header = format!(
+            "{{\"type\":\"session\",\"version\":{version},\"delegationDepth\":0,\"isSeeded\":{seed}}}\n"
+        );
+        let user = "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"q\"}]}}\n";
+        std::fs::write(session.join("session.jsonl"), format!("{header}{user}")).unwrap();
+        let locator = format!("sessions/v{version}-{seed}");
+        let reference = common("dsh-session", &locator, home.to_str().unwrap());
+        let read = read_common(&reference);
+        assert!(read.is_readable(), "v{version} seed {seed}: {read:?}");
+        assert_eq!(read.turns.len(), 1, "v{version} seed {seed}");
+        assert_eq!(read.turns[0].blocks[0].text, "q");
+        assert_eq!(read.unrecognized_records, 0, "v{version} seed {seed}");
+        assert_eq!(read.skipped_lines, 0, "v{version} seed {seed}");
+    }
+
+    // An absent `isSeeded` under both versions.
+    for version in ["0", "3"] {
+        let session = home.join(format!("sessions/v{version}-absent/project/seat"));
+        std::fs::create_dir_all(&session).unwrap();
+        let header =
+            format!("{{\"type\":\"session\",\"version\":{version},\"delegationDepth\":0}}\n");
+        let user = "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"q\"}]}}\n";
+        std::fs::write(session.join("session.jsonl"), format!("{header}{user}")).unwrap();
+        let locator = format!("sessions/v{version}-absent");
+        let reference = common("dsh-session", &locator, home.to_str().unwrap());
+        let read = read_common(&reference);
+        assert!(read.is_readable(), "v{version} absent: {read:?}");
+        assert_eq!(read.turns.len(), 1);
+    }
+
+    // Version 3 with `isSeeded: true` and depth 1 is not a candidate.
+    let delegated = home.join("sessions/delegated/project/seat");
+    std::fs::create_dir_all(&delegated).unwrap();
+    std::fs::write(
+        delegated.join("session.jsonl"),
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":1,\"isSeeded\":true}\n",
+    )
+    .unwrap();
+    let reference = common("dsh-session", "sessions/delegated", home.to_str().unwrap());
+    let read = read_common(&reference);
+    assert_eq!(read.unavailable, Some(Unavailable::NotFound));
+    assert_eq!(read.path, None);
+    assert_eq!(read.full_session, None);
+}
+
 /// The set is closed: a name outside it is never read, however plausible.
 #[test]
 fn a_session_filename_outside_the_admitted_set_is_not_read() {

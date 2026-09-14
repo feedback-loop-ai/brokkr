@@ -5493,6 +5493,86 @@ fn six_packed_members_are_readable_through_both_doors() {
     );
 }
 
+/// Project one version-three body and wrap it as the shared read the pane
+/// and both doors consume.
+fn read_dsh_v3(body: &str) -> TranscriptRead {
+    let projection = brokkr_view::transcript::project(
+        brokkr_view::transcript::TranscriptKind::DshSession,
+        &brokkr_view::transcript::Snapshot {
+            bytes: body.as_bytes(),
+            overflow: false,
+            eof: true,
+        },
+    );
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    read_kind(
+        brokkr_view::transcript::TranscriptKind::DshSession,
+        "seat/v3",
+        "/home/operator",
+        Some("/home/operator/seat/v3/project/seat/session.v3.jsonl"),
+        projection.turns,
+    )
+}
+
+#[test]
+fn a_version_three_root_reaches_the_pane_and_both_tui_doors() {
+    let body = concat!(
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false}\n",
+        "{\"type\":\"system/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"sys\"}]}}\n",
+        "{\"type\":\"user/message\",\"seq\":2,\"time\":1000,\"surfaceOp\":\"append\",\"data\":{\"id\":\"u1\",\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"q\"}]}}\n",
+        "{\"type\":\"tool/call\",\"seq\":3,\"time\":1001,\"data\":{\"callId\":\"c1\",\"name\":\"Read\",\"arguments\":{\"path\":\"a\"},\"turn\":1,\"step\":1}}\n",
+        "{\"type\":\"tool/result\",\"seq\":4,\"time\":1002,\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"c1\",\"content\":\"out\"}]}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":5,\"time\":1003,\"surfaceOp\":\"append\",\"data\":{\"turn\":1,\"step\":1,\"stream\":[],\"usage\":{\"input\":1},\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"}]}}}\n",
+    );
+    let mut views = views();
+    views.transcript = Some(read_dsh_v3(body));
+    let mut tui = at_transcript(&views);
+    let frame = frame_of(&tui, &views, 120, 30);
+    assert!(frame.contains("#1"), "{frame}");
+    assert!(frame.contains("#4"), "{frame}");
+
+    // Turn three alone through the selected-turn door.
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
+    apply(&mut tui, &views, Key::Char('j'));
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("turn three opens");
+    assert!(one.starts_with("#3 "), "{one}");
+    assert!(one.contains("out [c1]"), "{one}");
+    assert!(!one.contains("Read {\"path\":\"a\"}"), "{one}");
+
+    // The whole door carries every turn in source order.
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole transcript opens");
+    for needle in ["q", "Read {\"path\":\"a\"} [c1]", "out [c1]", "a"] {
+        assert!(all.contains(needle), "{all}");
+    }
+}
+
+#[test]
+fn a_version_three_interrupted_message_reaches_both_tui_doors() {
+    let body = concat!(
+        "{\"type\":\"session\",\"version\":3,\"delegationDepth\":0,\"isSeeded\":false}\n",
+        "{\"type\":\"assistant/message\",\"seq\":1,\"time\":1000,\"data\":{\"turn\":1,\"step\":1,\"interrupted\":true,\"stream\":[{\"type\":\"text-delta\",\"text\":\"prefix\"}],\"usage\":{\"input\":1},\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"prefix\"}]}}}\n",
+        "{\"type\":\"assistant/message\",\"seq\":2,\"time\":1001,\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"te",
+    );
+    let mut views = views();
+    views.transcript = Some(read_dsh_v3(body));
+    let mut tui = at_transcript(&views);
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("the one turn opens");
+    assert!(one.starts_with("#1 "), "{one}");
+    assert!(one.contains("prefix"), "{one}");
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole transcript opens");
+    assert!(all.contains("prefix"), "{all}");
+}
+
 #[test]
 fn each_kind_names_only_its_own_full_session_and_unresolved_codex_says_so() {
     let cases = [
