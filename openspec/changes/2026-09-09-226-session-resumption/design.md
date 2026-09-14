@@ -1,5 +1,28 @@
 ## Context
 
+This council visit belongs to run `current-successor-issue-226-pass-c2d8f6ec`
+(design phase, 2026-09-14). It adopts all committed work at `2e157c5` on this
+branch, including the predecessor's `d14c97b` and `2e157c5`, and this run's
+own specify commit `b1caf37`, under the unchanged
+`2026-09-09-226-session-resumption` identifier. The predecessor,
+`current-successor-issue-226-pass-972adad6`, parked at
+`ANALYZE-DRIFT-EXHAUSTED` with one MEDIUM coverage-gap finding owned by tasks:
+8.10 assigned every route-overlay case to `adapters/tests.rs` and 8.8(d)'s
+verify clause named no runtime-crate suite, although only the engine can show
+which of a nonmember, a shadow, an ancestor-layer file or the `./` expansion
+withheld the binding, or that the carried digest is the manifest's rather
+than a hash of the resolved file. `b1caf37` answered it where it lives, in
+tasks, naming the runtime engine suite at both `start_context` call sites.
+Clarify returned `clear`; this visit reads both fresh positions in full,
+disposes of them under D10, records the engine's uniform no-binding outcome
+as one coherence clause of D6, carries robustness's two implementation risks
+into Risks, and orders the tasks phase's one residual verb normalization in
+8.8(d). No decision, requirement, scenario, identifier, file or test module
+is added. The ledger stays 82 complete / 19 pending across 101 identifiers;
+the five deltas hold 20 requirements / 150 scenarios; no provider is enabled
+and 0056 stays `proposed`. The following history retains each prior visit's
+evidence boundary.
+
 This council visit belongs to run `current-successor-issue-226-pass-972adad6`
 (design phase, 2026-09-14). It adopts all committed work at
 `8f93894267069ff9ec5d101bbaeefbd49a2e6b8d` and this run's three specify
@@ -1080,8 +1103,20 @@ one closed. AS3 owns the byte-exact grammar and it is not copied here.
    and the bundle-relative `./` spelling expands to an absolute path and is
    refused as one — admitting either is a recorded amendment. A seat composed
    outside a compiled bundle has no manifest to bind against, so its `--patch`
-   refuses. The binding rides the existing private carrier; driver protocol
-   v1, `Body::Resume`, the store and every contract are unchanged.
+   receives no binding and refuses. The engine's own outcome for every value
+   that does not bind — an absolute path, `..` or symlink escape, a nonmember,
+   a shadow, an ancestor-layer file, the `./` expansion or a seat with no
+   manifest — is the same and is never a failure of the start: the context
+   carries no `route_overlay` member, and the refusal AS3 names is the
+   adapter's existing pre-work failure to start on seeing a `--patch` beside
+   an absent binding, the single refusal path. A member whose bytes changed
+   since compilation still binds, with the manifest's recorded digest, and the
+   adapter's digest comparison is what refuses its bytes. Which of those
+   shapes withheld the binding is observable only in the engine, so 8.8(d) and
+   8.10 place those cases in the runtime engine suite at both call sites and
+   leave the adapter suite the outcomes it alone observes. The binding rides
+   the existing private carrier; driver protocol v1, `Body::Resume`, the store
+   and every contract are unchanged.
 2. *The grammar is closed and data-only, and the reader recognizes every line
    at every depth or refuses* (answer R). dsh's patch parser turns a `!!js`
    tagged scalar into an expression node and its loader evaluates any mapping
@@ -1910,6 +1945,50 @@ both. No earlier artifact is at fault: the specification already owns and
 states the rule, and the stale sentences were this design's and the proposed
 decision's own.
 
+#### Engine-suite ownership council sitting — 2026-09-14, run `current-successor-issue-226-pass-c2d8f6ec`
+
+Adopted all committed work at `2e157c5`, including the predecessor's
+`d14c97b` and `2e157c5`, and this run's specify commit `b1caf37`. Clarify
+returned `clear` on its first visit. The one open finding is the predecessor's
+final analyze verdict (`.forge/results/872995b2-…-judge.json`, MEDIUM,
+coverage gap, owned by tasks), which has two clauses: (a) name the runtime
+engine suite and its cases for the binding at both `start_context` call
+sites, because `adapters/tests.rs` receives only argv, a working directory and
+the private context; and (b) state that the engine's outcome for a
+non-bindable value is no binding, so the adapter's existing pre-work failure
+to start stays the single refusal path. Read both fresh position files in
+full. Their pins supersede the pass A pins for this sitting, and every earlier
+disposition remains evidence of its own visit:
+
+- `.forge/design/positions/robustness.md`: SHA-256
+  `531683a57cdb9a84413da344d4783d2d55347582d646bc809831bbd7829fff35`.
+- `.forge/design/positions/simplicity.md`: SHA-256
+  `5f9e966e42cb7474b576464da33f26dd70b0918970e9c82b0d0704478cc7453f`.
+
+| Position / claim | Disposition and evidence |
+|---|---|
+| Both: the finding is verification ownership in `tasks.md`, and `b1caf37` already answered clause (a) at the right size — the unit case beside `the_private_context_carries_the_owned_target_and_originating_digest` in `engine/resume.rs` and the `engine/resume_tests.rs` integration cases at both call sites, the adapter suite keeping only what it alone observes; no design decision, requirement, scenario, identifier, file or test module is owed. | Adopt. Verified against the artifacts and the code rather than the specify return: D5 (`route_overlay` at both call sites), D6 mechanism 1, AS3's two binding scenarios, `start_context` at `engine/resume.rs:727` with exactly two production callers (`engine.rs:1575` in `run_driver`, `engine.rs:1822` in the `MemberRun` composition), the unit case at `engine/resume.rs:842`, and the `bundle()`, `driver()`, `model_driver()`, `received()`, `member()` and `panel()` helpers of `engine/resume_tests.rs`. This visit adds no decision, scenario or identifier; its edits are the bookkeeping of that fact. |
+| Robustness: AS3's THEN clause is correctly adapter-scoped — it names what the seat experiences, not which crate proves which precondition — and needs no wording edit. | Adopt. AS3 and every delta are byte-unchanged by this visit. |
+| Simplicity: clause (b) has a residual — 8.8(d)'s engine-half verb "refusing an absolute path, `..` or symlink escape and any value the leaf layer does not carry" (tasks.md:877–879) still reads as an engine-side failure, which AS3/D6 do not specify; normalize it to "withholding the binding for", and add at most one clause to D6 mechanism 1 that a value which does not resolve or is not a `files` member yields no binding. | Adopt both halves. D6 mechanism 1 now states the engine's uniform outcome for every non-bindable value — no `route_overlay` member, never a start failure — with the adapter's pre-work failure to start as the single refusal path and the digest comparison as the changed-bytes half; the tasks phase normalizes the 8.8(d) verb under its existing identifier, without a tick, as the dependent-artifact order below records. |
+| Robustness: both call sites already share one `start_context`, which could tempt pass B to collapse the two `resume_tests.rs` integration cases into one; they are not redundant, because each caller composes which argv and manifest feed the shared function. | Adopt as a recorded risk with its mitigation, not as new scope. 8.10 already names the unit case and both integration cases; the Risks table now states why the shared function proves less than the two callers, so the checkbox and the shared body cannot be read together as a reason to stop. |
+| Robustness: gate independence (mechanism 4) must reach the engine fixtures — cold, offered and `unmeasured` per positive case — or the engine suite proves a narrower claim than AS3/D5 make. | Adopt as a recorded risk. 8.10's own phrase requires the three starts at both call sites; the Risks table names the fixture trap so an enabled-only fixture is recognized as under-testing, not as the tree's pattern. |
+| Simplicity's twelve cuts: no new test file or module, test-only seam, public or `pub(crate)` type, second manifest reader, task identifier, capability, decision, store, wire or contract change, committed live or `.forge/`-reading test, design mirror of AS3's case list, matrix expansion, recipe/roster/witness/pair movement, reopening of settled planning, or pass E–K work. | Adopt every cut. This visit adds none of them; D11's cell and D6's clause name where the proof lives, not the case list's bytes, which stay in AS3 and 8.10. |
+| Simplicity: `b1caf37`'s 150 added task lines are larger than the finding's mechanism; keep them and refuse further growth. | Adopt. The tasks phase's only ordered edit is the verb; no new case, vector or identifier. |
+| Simplicity: `cargo 1.98.0` is present on this box, so the Rust gates can run here. | Reject as a claim about this seat's box, as the pass A sitting did: `cargo --version` and `rustc --version` return command-not-found here, recorded in this visit's validation. The framing assigns the Rust gates to the implementing pass before its commits; no Rust result is claimed by this visit, and none is needed for a design-only edit. |
+| Both, with the predecessor's judge: D11's AS1/AS2/AS3 row label and proposed 0056 ruling 6's "route-overlay cases in `adapters/tests.rs`" are non-blocking and need not move. | Adopt for proposed 0056: its enforcement binding names the reader's cases at decision altitude and does not preclude the engine suite; the decision is byte-unchanged and stays `proposed`. D11's cell gains one phrase because it is this design's own requirement-to-suite map and must agree with 8.10; the label does not move. |
+| Both: no tick; 82 complete / 19 pending across 101 identifiers; 20 requirements / 150 scenarios; 0056 `proposed`; no provider enabled; LaneTally's sole 11.4 exception; the unsplit delivery; passes E–K unscheduled. | Adopt. |
+
+Dependent artifacts after this design, in dependency order: the tasks phase
+normalizes 8.8(d)'s engine-half verb at tasks.md:877–879 — "refusing an
+absolute path, `..` or symlink escape and any value the leaf layer does not
+carry as its own `files` member" becomes "withholding the binding for" those
+values, and "the bundle-relative `./` spelling is refused as absolute" becomes
+"expands to an absolute path and receives no binding" — under the existing
+identifier, without a tick, and changes nothing else in 8.8(d) or 8.10. Pass B
+implements the cases as 8.10 already names them. No earlier artifact is at
+fault: AS3 already owns and states the rule, `b1caf37` already placed the
+engine cases, and the residual was one verb in the task text.
+
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
@@ -1930,7 +2009,7 @@ modify frozen evaluator fixtures.
 | SR1/SR2 | Runtime `resume_tests`, agent/panel/sequence tests: four work/gate topologies, repeated labels, collision refusal, case switch, per-member chain change, latest incompatible owner, all identity axes, import/local origin and manifest mismatch. Assert actual wire offers and absence. |
 | SR3/SR5 | Runtime/provider tests: generated root, assigned creation/confirmation if implemented, child distinction, DSH provider-ID/persistence-root/composite-identity binding, unsafe/truncated/ambiguous locators and IDs, held-window death, park/fresh-engine retry, indeterminate non-reexecution, legacy Codex and composite cold migration. |
 | SR4 | Protocol `process/tests.rs`, adapter loop, CLI conformance: negotiation, effect/attempt mismatch, duplicate/malformed offers, two starts, cancel/shutdown/EOF, current result door, private context not rendered. |
-| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. A symlinked home ancestor resolving the same selected bundles yields the same composite, using canonical containment while preserving the original lookup anchor; an unresolvable boundary, escaped plugin/extension or outside first hit stays unreadable without raw-path fallback, near-prefix acceptance or later-candidate search. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. The DSH route overlay (answers Q–S) has the shipped overlay as the positive vector under cold, offer and `unmeasured`; refusals for a second or bare `--patch`; an absolute, `..`, symlink-escaping, non-regular, oversized or non-UTF-8 path; a Rust-owned or foreign row id, a second entry or provider, a provider the seat did not pin or an absent model pin; each foreign field, a literal authentication header beside a valid `apiKeyEnv`, a missing or non-name `apiKeyEnv`; each `baseURL` grammar breach (userinfo, query, fragment, percent-escape, backslash, whitespace, brackets, empty segment, `http`, uppercase scheme, schemeless); executable or unrecognized syntax at depth in both representations; a same-shaped nonmember, a shadow, changed bytes, an ancestor-layer file, the `./` expansion, an absent binding, a binding without `--patch` and a disagreeing binding — every refusal before staging on the cold, resume and disabled-gate paths, naming depth, field or URL part and never a value; and the folded overlay leaves the composite, launch row and journal free of route bytes. Separate installed enforcement/root/accounting observations for every enabled shape. |
+| AS1/AS2/AS3 | Declaration/packaging and planner tests: captured argv, current class/model/effort, generated fragment versus passthrough, duplicate and last-wins permission/tool/MCP/model/effort controls rejected on cold and resume paths, no ambient cold/gate continuation, nonpersistence and changed CLI/wrapper. DSH additionally proves the committed six-file adaptation against its provenance (exact set, per-file lines, reverse-substituted upstream digest, delta digest). It proves the optional `wrapper_digest` loader grammar: absent and well-formed members load; a malformed member or one beside `unknown` is refused naming the field; the content digest moves. It proves the closed gate running the shipped cold invocation with no probe, recompute or `--new` while `unmeasured`. `unverified-harness` follows for a `supported` shape without the member, a malformed member in the private context, a declared digest that differs from the recompute, an originating root whose recorded version or digest differs or is missing, and every component drift or unreadable component. The canonical composite's byte form has synthetic npm nested/scoped key and entry-version vectors, including three package groups with distinct version/integrity from shallower namesakes, scoped-parent/unscoped-terminal extraction and malformed intermediate-group refusal, complete-triple deduplication, distinct-version/integrity retention, malformed-key/version refusals and npm/pnpm-equivalent value bytes, plus the pnpm and plugin-path-order vectors. The conditional extension has absent/present, changed-byte, missing-file and unsafe-resolution cases, with committed-set/provenance equality only when the real extension is needed. It excludes the plugin's own lock entry and is equal across two homes at different absolute paths and different per-seat overlays. A symlinked home ancestor resolving the same selected bundles yields the same composite, using canonical containment while preserving the original lookup anchor; an unresolvable boundary, escaped plugin/extension or outside first hit stays unreadable without raw-path fallback, near-prefix acceptance or later-candidate search. It moves when a profile bundle is added, dropped or reordered, when `patchReload` changes and when a home-level patch appears, and a rewritten `cordis.yml` does not move it. The identity is unreadable when a listed bundle resolves outside the core root and the profile, when the executable is not the core's `env node` script, when the manifest's `bundles` or `patchReload` is missing or malformed, and when the pnpm reader meets an unrecognized construct. These cases use synthetic homes in temporary directories. No suite reads `.forge/`, and the end-to-end rejoin is D6's recorded driver exchange, not a suite case. The doctor line reports a matching, differing, undeclared and unreadable composite. It also proves explicit new/session spelling, the originating persistence root and no global mutation. The DSH route overlay (answers Q–S) has the shipped overlay as the positive vector under cold, offer and `unmeasured`; refusals for a second or bare `--patch`; an absolute, `..`, symlink-escaping, non-regular, oversized or non-UTF-8 path; a Rust-owned or foreign row id, a second entry or provider, a provider the seat did not pin or an absent model pin; each foreign field, a literal authentication header beside a valid `apiKeyEnv`, a missing or non-name `apiKeyEnv`; each `baseURL` grammar breach (userinfo, query, fragment, percent-escape, backslash, whitespace, brackets, empty segment, `http`, uppercase scheme, schemeless); executable or unrecognized syntax at depth in both representations; a same-shaped nonmember, a shadow, changed bytes, an ancestor-layer file, the `./` expansion, an absent binding, a binding without `--patch` and a disagreeing binding — every refusal before staging on the cold, resume and disabled-gate paths, naming depth, field or URL part and never a value, split by the crate that can observe each: the engine's half is read off `Start.input` in the runtime engine suite (the `engine/resume.rs` unit case beside `the_private_context_carries_the_owned_target_and_originating_digest`, and `engine/resume_tests.rs` at both `start_context` call sites, a single site and a panel member — the valid member bound on cold, offered and `unmeasured` starts, no binding for the nonmember, shadow, ancestor-layer file and `./` expansion, and the manifest's digest against changed bytes), and `adapters/tests.rs` proves the refusal each outcome hands it, never standing in for an engine case; and the folded overlay leaves the composite, launch row and journal free of route bytes. Separate installed enforcement/root/accounting observations for every enabled shape. |
 | AS4/AS5/LE3 | Adapter/process/runtime sequences: confirmation, conclusive rejection, error then work/delivery, different/missing root followed by clean exit or a valid result still ending failed/indeterminate without an accepted success, post-work failure, failed replacement, watchdog/deadline/cancellation race, classified refusal without Accepted/checkpoints and held-row order. |
 | LE1/LE2/LE5 | Every built-in: cold/no offer, supported resume, decline/replacement, exec absence and independent member launch. Validate emitted checkpoints/results at the store; refused append writes nothing; export/import/offline verify agree; v1–v4 compatibility and embedded-byte pins. |
 | boundary-record / The seat record carries the boundary as seat-record/v4 | Store version/record tests and runtime `engine/boundary_tests.rs`: all four fences agree at 0.8/0.9/0.10 boundaries and later versions, v5-only fields fail under v4, unstamped historical 0.10.0 rows stay valid, stamped violations fail, the tagged 0.9.0/0.9.1 example and every boundary-stamping scenario remain intact. Published/embedded v1–v4 bytes stay pinned beside v5. |
@@ -2155,9 +2234,11 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 - [A `--patch` that looks like the route overlay is not the bundle's file, or
   the bundled file changed after compilation] → The engine binds the argv value
   to a `files` member of the compiled leaf manifest and the adapter requires
-  digest equality before the shape check; a shadow, a nonmember, changed bytes,
-  an ancestor-layer file, the `./` expansion or a missing or disagreeing
-  binding refuses before staging on every path, including the closed gate.
+  digest equality before the shape check; a shadow, a nonmember, an
+  ancestor-layer file or the `./` expansion receives no binding from the
+  engine, changed bytes travel with the manifest's digest, and each, like a
+  missing or disagreeing binding, refuses at the adapter before staging on
+  every path, including the closed gate.
 - [The bound route overlay's own content carries a credential or executable
   syntax, by authoring error or a later edit] → The closed data-only grammar,
   the closed field set and the `apiKeyEnv`/`baseURL` value grammars refuse it
@@ -2166,6 +2247,22 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
   home's `cordis.patch.yml` are hashed into the composite but not
   grammar-checked: an accepted residual of the same class as live patch
   reapplication, recorded and not closed in this pass.
+- [Pass B reads the shared `start_context` as license to write one engine
+  integration case instead of the two 8.10 names, because both `engine.rs`
+  call sites invoke the same function] → The shared body proves only the
+  binding rule; each caller composes the argv and manifest it feeds it — the
+  single site from its own spawn in `run_driver`, the panel member from its
+  own `MemberRun` composition — and a caller feeding the wrong member passes
+  the unit case while every panel member carries the wrong binding. The unit
+  case in `engine/resume.rs` proves the function; the two
+  `engine/resume_tests.rs` cases prove the callers, read off the `Start.input`
+  each driver received; neither is collapsed into the other.
+- [The engine cases run only under an enabled assessment, because that is the
+  fixture most of `engine/resume_tests.rs` reaches for] → Mechanism 4 binds
+  independent of the gate, and the shipped recipe runs under the closed gate
+  today; 8.10's positive case runs on a cold start, an offered start and a
+  start under an `unmeasured` assessment alike, three fixtures per call site,
+  or the suite proves a narrower claim than AS3 and D5 make.
 
 ## Migration Plan
 
@@ -2241,8 +2338,10 @@ facts are not current references to replace.
 ## Open Questions
 
 No open design question remains. The DSH route overlay is settled by answers
-Q–S, AS3 and D6 (pass A); its deterministic cases belong to 8.10 and its
-implementation to pass B. D13 establishes the supported dated
+Q–S, AS3 and D6 (pass A); its deterministic cases belong to 8.10, split by
+the crate that can observe each — the engine's half in the runtime engine
+suite at both `start_context` call sites, as this run's `b1caf37` records —
+and its implementation to pass B. D13 establishes the supported dated
 same-change path from decision 0042 and installed OpenSpec behavior. D6 selects
 the latest DSH core with the repository-owned adaptation, names its location,
 its composite's byte form, sole producer and doctor entry point, the locators
@@ -2865,3 +2964,56 @@ proposed decision's own. No provider probe, task tick, archive, push, merge or
 new Brokkr run was performed; proposed 0056 remains proposed; every provider
 proof, enablement, pin, gate and readiness task remains pending, as passes E–K
 are not scheduled.
+
+## Council design reconciliation — engine-suite ownership, 2026-09-14
+
+Run `current-successor-issue-226-pass-c2d8f6ec`, design phase, adopted HEAD
+`2e157c5` (including the predecessor's `d14c97b` and `2e157c5`) and this
+run's specify commit `b1caf37`, the tree this visit edits. Read in full,
+through the workspace hands: the pass framing
+`.forge/tasks/current-successor-226-passes.md`, both fresh council positions,
+the predecessor's final analyze verdict, the specify commit `b1caf37` and its
+proposal note, design D5, D6, D10, D11, Risks and Open Questions, tasks
+8.8(d) and 8.10, AS3's binding rule and its two binding scenarios, proposed
+0056 ruling 6's dated note and enforcement binding,
+`engine/resume.rs::start_context` and its test module, both `resume_context`
+call sites in `engine.rs`, and the fixtures of `engine/resume_tests.rs`. Read
+the dialect's own design and return instructions and `openspec instructions
+design --change 2026-09-09-226-session-resumption --json`; no workflow runner
+was invoked. The September 12 controller Codex note, the 015rc1 qualification,
+incompatibility and upstream-discovery records and `adapters/dsh.json` were
+read by this run's earlier seats and by the pass A sitting; the finding does
+not touch them, and the commission forbids repeating the installed-writer and
+qualification reads.
+
+This visit reconciles the two positions on the one finding. Both agree it is
+verification ownership already answered in tasks by `b1caf37`; the design
+records that agreement and the two implementation risks robustness named,
+states in D6 mechanism 1 that the engine's outcome for a non-bindable value
+is no binding with the adapter's pre-work failure to start as the single
+refusal path, notes in D11's AS1/AS2/AS3 cell where each half of the proof
+lives, and orders the tasks phase's one verb normalization in 8.8(d). The
+Context, Risks and Open Questions follow. Proposed 0056, the five deltas, the
+proposal, the tasks, the living specifications, frozen paths, production
+code, declarations, recipes and provider settings are byte-unchanged from
+`b1caf37`.
+
+- `openspec validate 2026-09-09-226-session-resumption --strict
+  --no-interactive` exits 0 after the edits; `openspec status` reports all
+  four planning artifacts done; the source headings count 20 requirements /
+  150 scenarios (27 + 59 + 11 + 20 + 33).
+- The task artifact is untouched: 82 complete / 19 pending across 101
+  identifiers, recounted directly against the file.
+- `git diff --check` passes; exactly `design.md` changes.
+- With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`, all six commissioned Cargo
+  commands exit 127: `cargo` and `rustc` are absent from this seat's box. No
+  Rust, bundle or release-build result is claimed; the implementing pass runs
+  the exact gates before its commits.
+- Command and structural evidence is under `.forge/design-chief-c2d8f6ec/`.
+
+The design is `drafted`, not `upstream`: the specification already owns and
+states the rule, `b1caf37` placed the engine cases in tasks, and the residual
+is one verb in the task text that the tasks phase owns. No provider probe,
+task tick, archive, push, merge or new Brokkr run was performed; proposed
+0056 remains proposed; every provider proof, enablement, pin, gate and
+readiness task remains pending, as passes E–K are not scheduled.
