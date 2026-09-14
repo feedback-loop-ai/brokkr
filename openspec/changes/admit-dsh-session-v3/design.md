@@ -105,7 +105,7 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   never consults, and a fourth file that adds the member to the user
   message alone refuses, as the negative control. D12 and task 2.10
   carry the same concrete rows; no rule, ruling or cell moved.
-- **The change at the design council's third sitting, this one.** The
+- **The change at the design council's third sitting.** The
   clarify judge cleared the ninth sitting's head on its second visit
   (`8923558d`), so this sitting is the council's, not a return: it
   adopts the reconciliation as committed and adds nothing to its
@@ -127,6 +127,24 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   coverage gate (D12; task 8.3). The one clause the simplicity position
   asked to tighten, the proposal's summary of the `assistant/message`
   cell, now reads forbidden.
+- **The change at the design council's fourth sitting, this one.** The
+  analyze judge returned the third sitting's head (`457e458`) with one
+  low finding (`ANALYZE-DRIFT-DESIGN`): D3's Type paragraph said
+  `dsh_header` returns `Option<DshVersion>`, while D4's association
+  paragraph, the proposal's Impact bullet and task 1.1 say it returns an
+  `Option` of a small private struct carrying the admitted version and
+  the header's `isSeeded` as `Option<bool>`. D3 was stale from before the
+  seed gate was designed. Both positions of this council pass and ask for
+  the same one-sentence correction in the same direction, the struct;
+  this sitting makes it in D3, records the rejected bare-enum
+  alternative there, and moves no ruling, requirement, scenario,
+  disposition, count or task. The operator-ruled reconciliation, the
+  marker-ignorance decision, the measured absence of top-level packed
+  rows and read (d)'s standing are not reopened, and no seat performed a
+  read. The judge's observation for the controller, that the unarchived
+  `2026-09-13-dsh-session-v3` change would overwrite this change's
+  Discovery text if archived after it folds, is verified and carried in
+  the Migration Plan.
 - **The recipe's return budget is spent.** `recipes/triage/policy.json`
   rule `DESIGN-UPSTREAM-EXHAUSTED` parks a run whose design reports
   `upstream` after three specification visits; specification has now sat nine times. This design cannot return the change; it designs to the
@@ -206,6 +224,16 @@ specification sitting.
 | Simplicity open question: tighten the proposal's summary of the `assistant/message` `sourceEventSeqs` cell from "for `assistant/message` only" to forbidden. | **Adopt.** The proposal's What Changes bullet now states the cell as forbidden, the one type whose permission the read recorded, and the other types as unread; it matches E4 and changes no outcome. |
 | Simplicity risk 3: the settled `assistant/attempt` and seed-gate dispositions stand. | **Adopt; settled.** The rows above record the reasons; the commission forbids reopening them. |
 
+**The council's fourth sitting.** The rows below reconcile the two
+positions written against HEAD `457e458`, after the analyze judge's
+return with one low finding.
+
+| Position / claim | Resolution and evidence |
+|---|---|
+| Both positions: D3's Type paragraph contradicts D4, the proposal's Impact bullet and task 1.1 on `dsh_header`'s return type, and the correction runs toward the struct, not toward a bare `Option<DshVersion>`. | **Adopt.** D3 now states the struct D4 and task 1.1 already define and records the bare-enum alternative as rejected on the ground both positions give: `project_dsh` calls `dsh_header` in a match guard and discards its result while the header `Value` stays bound (`transcript.rs:1975-1976`), so a bare version return invites a second, independently coerced `isSeeded` read at the call site, and D4 already rejects a header re-read. Three of four sites and the association gate required the struct; collapsing to the enum would keep `DshVersion` and add a side read. Nothing else moves. |
+| Robustness: the struct extends to a later header fact (the seed or fork identity of U2) without a tuple or another ad hoc re-read. | **Adopt as a property, not a field.** The struct carries exactly the two facts this change reads; the seed-path change of D13 adds its own member when it reads the path. No member is reserved now. |
+| Simplicity: add nothing else, including no scenario for the D3 fix, which is internal and unfalsifiable by behaviour. | **Adopt.** The return type is not observable through the projector's outputs; the delta's seeded and supplied-positions scenarios already pin the gate's behaviour, and D12's tests are unchanged. The cell inventory, any inferred cell, any writer re-read or read (d) at this sitting, and every other item on the position's cut list stay cut, as the third sitting ruled. |
+
 ### D2 — Evidence: what the run read, from where, and what it did not reach
 
 **Reach, per seat and per operation, on 2026-09-13.** The commission
@@ -221,6 +249,7 @@ across this run's seats:
 | design robustness, second sitting | resolved `/home/vyanakiev/.volta/bin/dsh` | no: `test -r` on `dsh-session/lib/types/types.js` failed and `find` over the install root was refused | the third shape |
 | design simplicity, first and second sittings | resolved; `dsh --version` printed `0.1.5-rc.1` | yes; digests and line citations taken; every access a read | the install root under `/home/vyanakiev/.volta/tools/image/packages/@deepseek-ai/dsh/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`, packages at 0.1.5-rc.2 |
 | design council, third sitting (2026-09-14): chief, robustness, simplicity | chief: not found; the positions record no resolution | no: no seat attempted a read, because the commission that opened this run rules the installed-writer read stands and is not repeated | chief in the specify seat's box shape; read (d) not performed (U4, D13) |
+| design council, fourth sitting (2026-09-14): chief, robustness, simplicity | chief: not found; the positions record no resolution | no: no seat attempted a read, for the same reason | the same; read (d) not performed (U4, D13) |
 
 **Ruling.** Reach is an operation the reading seat performs at the moment
 of the read, at the granularity of the file it cites. A resolved binary is
@@ -412,11 +441,20 @@ disk under an admitted name and no seat read their codecs. A version
 outside the set refuses exactly as today.
 
 **Type.** `enum DshVersion { Zero, Three }` in `transcript.rs`, private to
-the projector. `dsh_header` returns `Option<DshVersion>` instead of `bool`;
-`project_dsh` keeps the admitted version for the row loop. Alternative
-rejected: an integer, because a `u8` invites arithmetic and a default; the
-enum makes every match exhaustive so a third version cannot be added
-without visiting every dispatch site.
+the projector. `dsh_header` returns, instead of `bool`, an `Option` of a
+small private struct carrying the admitted `DshVersion` and the header's
+`isSeeded` as `Option<bool>` (a JSON boolean, else `None`), the shape D4's
+association paragraph and task 1.1 state; `project_dsh` keeps the admitted
+version for the row loop and the seed value for the association gate, and
+reads neither from the header a second time. Alternatives rejected: an
+integer for the version, because a `u8` invites arithmetic and a default,
+while the enum makes every match exhaustive so a third version cannot be
+added without visiting every dispatch site; a bare `Option<DshVersion>`
+return with `isSeeded` read again at the call site, because `project_dsh`
+calls `dsh_header` in a match guard and discards its result while the
+header `Value` stays bound (`:1975-1976`), so that shape invites a second,
+independently coerced read of the same header, the divergent-read class
+this change closes elsewhere, and D4 already rejects a header re-read.
 
 **Spellings: one signature helper, a predicate per site.**
 `zero_number_token` is replaced by a digit-signature helper over the
@@ -1074,7 +1112,13 @@ tests. Nothing else in this design moves.
    activation commit unsigned; nothing pushed.
 4. Controller: remote CI on the final head, host corroboration against the
    version-three sessions (reading, never committing), review, landing,
-   closure of #279 with the seed-path change opened on D13.
+   closure of #279 with the seed-path change opened on D13. Fold order:
+   the unarchived `2026-09-13-dsh-session-v3` change (PR #278, on main)
+   carries a Discovery delta that is byte-identical to the living text
+   before this change folds (verified at the council's fourth sitting),
+   so it must be archived before this change, or its delta dropped; an
+   archive of it after this change would overwrite the `{0, 3}` admission
+   text with the version-zero-only text.
 
 Rollback: revert the activation commit. Version-zero files read as before
 except for the two exactness corrections of D3, which the revert also
@@ -1227,3 +1271,28 @@ changed. Strict OpenSpec validation was run over the whole tree after
 authoring. Cargo is absent from this box, so no code changed and no Cargo
 gate ran; they belong to the implementation seat. This sitting commits
 the design and those dependent edits, unsigned, and pushes nothing.
+
+**Revision at the design council's fourth sitting (2026-09-14).** On the
+analyze judge's return with one low finding (Context, D1), read the
+dialect through `openspec instructions design --change
+admit-dsh-session-v3 --json`, which declares only `design.md`; no
+workflow runner was invoked. Read the judge's finding, both council
+positions, D3, D4, the proposal's Impact bullet and task 1.1, and
+reconciled the positions claim by claim in D1. Verified in the tree the
+one fact the correction rests on: `project_dsh` calls `dsh_header` in a
+match guard and discards its result while the header `Value` stays bound
+(`transcript.rs:1975-1976`). Verified the judge's observation by
+extracting the Discovery requirement from the unarchived
+`2026-09-13-dsh-session-v3` delta and from the living spec: the two are
+byte-identical. Edited: D3's Type paragraph (the return type now matches
+D4 and task 1.1, with the rejected bare-enum alternative recorded), the
+Context (D1's bullets), D1 (the fourth-sitting rows), D2's reach table,
+the Migration Plan (fold order) and this record. No requirement sentence,
+ruling, scenario, disposition, count, task, proposal line or delta
+changed; the proposal and tasks already state the struct. No seat
+performed read (d); this box has the specify seat's shape (no `dsh`,
+`volta`, `npm`, `cargo` or `~/.dsh`; HOME `/runtime/home`). Strict
+OpenSpec validation was run over the whole tree after authoring. Cargo is
+absent from this box, so no code changed and no Cargo gate ran; they
+belong to the implementation seat. This sitting commits the design,
+unsigned, and pushes nothing.
