@@ -95,6 +95,16 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   required-unknown row (D12). This design's evidence record follows: U4
   records the ruling, read (d) stays assigned as before, nothing was
   re-measured and no cell changed standing.
+- **The change at the ninth specification sitting.** The clarify judge
+  returned one finding on that scenario (CLARIFY-279-12): "each carrying
+  `sourceEventSeqs: null`" could be read to reach the readable user
+  message, which the settled citation rule refuses, so the three stated
+  outcomes could not all follow from the stated input. The specify seat
+  repaired the owning scenario in the delta: the user message carries
+  no `sourceEventSeqs` member, `null` sits only on the rows the reader
+  never consults, and a fourth file that adds the member to the user
+  message alone refuses, as the negative control. D12 and task 2.10
+  carry the same concrete rows; no rule, ruling or cell moved.
 - **The recipe's return budget is spent.** `recipes/triage/policy.json`
   rule `DESIGN-UPSTREAM-EXHAUSTED` parks a run whose design reports
   `upstream` after three specification visits; specification has now sat
@@ -778,18 +788,31 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
   never reads on two unread cells; no assertion moves if any cell
   resolves differently.
 - **Unread cells across dispositions.** The delta's unread-cell scenario:
-  a version-three `user/message` at sequence 1, a `todo/write` at 2 and a
-  `deliverables/presented` at 3 each with `sourceEventSeqs: null`, and an
+  a version-three `user/message` at sequence 1 with no `sourceEventSeqs`
+  member, then a `todo/write` at 2 and a `deliverables/presented` at 3,
+  those two each with `sourceEventSeqs: null`, and an
   `assistant/attempt` at 4 with a stream and `sourceEventSeqs: [[5, 1]]`
   project the user message with one count, the attempt's; the same file
-  plus a `text-chunks` packed row with `sourceEventSeqs: null` refuses
-  with two counts and no turns; the same file plus an `assistant/chunk`
-  with `sourceEventSeqs: null` and `ignorable: true` projects the user
-  message with two counts. Every one of those members would refuse the
-  read if the reader validated it, and `project_dsh` reads only `seq`
-  and `ignorable` from a quiet, counted-omission or unrecognized row
-  (`transcript.rs:2011-2032`), so the claim that no disposition rests on
-  an unread E4 cell is falsifiable on every class, not only the content
+  plus a `text-chunks` packed row
+  with `sourceEventSeqs: null` refuses with two counts and no turns; the
+  same file plus an `assistant/chunk` with `sourceEventSeqs: null` and
+  `ignorable: true` projects the user message with two counts; and the
+  first file with `sourceEventSeqs: null` added to the user message
+  alone refuses with two counts, the user message's and the attempt's,
+  and no turns. The fourth file is the negative control: the member that
+  refuses on the user message is the member the other rows carry, so a
+  reader that consulted it on a quiet, counted-omission or unrecognized
+  row would fail the first three files, and a reader that consulted it
+  nowhere would fail the fourth. The rows are built explicitly, never by
+  a shared modifier, so the user message of the first three files has no
+  `sourceEventSeqs` key at all; the settled citation rule refuses a
+  present `null` there, which is why the eighth sitting's wording, read
+  as applying `null` to the user message too, could not yield its own
+  outcomes (CLARIFY-279-12). `project_dsh` reads only `seq` and
+  `ignorable` from those rows (`transcript.rs:2011-2032`) and
+  `dsh_citations` is reached from the message and `tool/result` arms
+  only (`:2412`, `:2474`), so the claim that no disposition rests on an
+  unread E4 cell is falsifiable on every class, not only the content
   kinds; no assertion moves if any cell resolves differently.
 - **Seeded association.** The delta's seeded scenario as a matrix over
   `isSeeded` `false`, `true`, `"yes"`, `{}`, null and absent under version
@@ -1070,3 +1093,21 @@ only (`:2412`, `:2474`), which the new scenario relies on. The council's
 next sitting performs read (d) if any of its seats reaches the writer,
 re-verifies this design against the delta and the tree, and owns it from
 there.
+
+**Revision at the ninth specification sitting.** On the clarify judge's
+one finding on the eighth sitting's scenario, CLARIFY-279-12, the specify
+seat changed no cell's standing and re-measured nothing: the Context and
+D12 (the unread-cell bullet) follow the delta's repaired scenario, which
+gives the readable user message no `sourceEventSeqs` member and adds a
+fourth file, the same rows with `null` on the user message alone, that
+refuses as the negative control. Reconfirmed this box cannot reach the
+writer by any route (no `dsh`, `volta`, `npm`, `cargo`, `~/.dsh`, npm
+cache or network). Verified in the tree that a present non-array
+`sourceEventSeqs`, `null` included, is refused by `dsh_citations`
+(`transcript.rs:2349-2351`), that the message arm turns that refusal
+into a refused row (`:2412-2414`) and that `project_dsh` then clears the
+turns and keeps the counts (`:2033-2045`), which is the counterexample
+the finding derived from the eighth sitting's wording and the outcome
+the fourth file now pins. The council's next sitting performs read (d)
+if any of its seats reaches the writer, re-verifies this design against
+the delta and the tree, and owns it from there.

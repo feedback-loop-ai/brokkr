@@ -63,7 +63,16 @@ unread with the specific further read named, and that is a correct and
 complete outcome. The growth rule and the envelope requirement now state
 what the reads established and what is unread pending the named read, S6
 records the ruling, and a scenario falsifies the claim that no
-disposition rests on an unread cell (S2, S6, S8).
+disposition rests on an unread cell (S2, S6, S8). The ninth sitting
+answers the clarify judge's one finding on that scenario
+(CLARIFY-279-12, S8): its modifier "each carrying
+`sourceEventSeqs: null`" could be read to reach the readable user
+message, which the settled citation rule refuses, so the three stated
+outcomes could not all follow from the stated input. The scenario now gives the user
+message no citation member, places the refusing members only on the
+rows the reader never consults, and adds a fourth file that moves the
+same member onto the user message and refuses, as the negative control;
+design D12 and task 2.10 carry the same concrete rows.
 
 ## What Changes
 
@@ -629,7 +638,9 @@ are preserved.
   disposition class, the writer-validity scenario over the content kinds
   and the unread-cell scenario over a quiet, a counted-omission and a
   required-unknown row, each carrying a member that would refuse the
-  read if the reader consulted it there. The cells exist only in the
+  read if the reader consulted it there, beside a fourth file that puts
+  the same member on the readable user message and refuses (S8,
+  CLARIFY-279-12). The cells exist only in the
   installed writer's `types.d.ts` and `worker.cjs`, which no
   specification box of this run reaches (S1; this sitting reconfirmed no
   `dsh`, `volta`, npm cache, `~/.dsh` or network) and which the operator
@@ -658,28 +669,33 @@ are preserved.
 Read the dialect through `openspec instructions proposal`, `specs` and
 `tasks` for this change; they declare `proposal.md`, `specs/**/*.md` and
 `tasks.md`, and no workflow runner was invoked. Adopted the existing change
-at `1f68fee` and revised it for the one finding of the eighth sitting,
-CLARIFY-279-5 on its fourth visit, under the operator's ruling, in
-dependency order: the proposal's growth rule, rulings and refusal (Why,
-What Changes, S1, S2, S4, S5 rulings 1 and 8, S6, S8), the
-`transcript-reading` delta's growth-rule, evidence and envelope sentences
-and its new unread-cell scenario, each delta edit an exact-match
-replacement over the requirement text, the design's evidence record
-(Context, D1, D2's reach table and U4, D12, and its validation record),
-task 2.10 for the new scenario and task 6.1 for the rulings as they now
-stand, and the adopted simplicity report's fourth erratum. The
-`transcript-tui` delta is unchanged. No task reads the writer, and no
-scenario's outcome depends on the unread cells. Reconfirmed this box
-cannot reach the writer by any route: no `dsh`, `volta`, `npm`, `cargo`
+at `edee622` and revised it for the one finding of the ninth sitting,
+CLARIFY-279-12, in dependency order: the `transcript-reading` delta's
+unread-cell scenario first, as the owning artifact, by an exact-match
+replacement of its two lines that gives the readable user message no
+`sourceEventSeqs` member and adds a fourth file as the negative control;
+then design D12's unread-cell bullet, task 2.10, and this proposal's
+narrative, S6 and S8, which summarise it, with the design's Context and
+validation record. No requirement sentence, no other scenario, the
+growth rule, the rulings, the refusal and read (d) are unchanged; the
+eighth sitting's reconciliation stands as recorded in its commit
+(`edee622`). The `transcript-tui` delta is unchanged. No task reads the
+writer, and no scenario's outcome depends on the unread cells.
+Reconfirmed this box cannot reach the writer by any route: no `dsh`, `volta`, `npm`, `cargo`
 or `~/.dsh`, HOME `/runtime/home`, `/home/vyanakiev` holding only
 `source`, no npm cache, and no network (the registry host does not
 resolve); nothing was re-measured and no E4 cell changed standing.
 Verified in the tree that `project_dsh` reads only `seq` and `ignorable`
 from a quiet, counted-omission or unrecognized row
-(`transcript.rs:2011-2032`) and that `dsh_citations` is called from the
-message arm and the `tool/result` arm only (`:2412`, `:2474`), which the
-new scenario relies on; the earlier sittings' verifications stand as
-recorded in the change's history (`1f68fee`, `2e7163e`, `95ba4a8`).
+(`transcript.rs:2011-2032`), that `dsh_citations` is called from the
+message arm and the `tool/result` arm only (`:2412`, `:2474`), and that
+a present non-array member, `null` included, returns the refusal from
+that helper (`:2349-2351`), which the message arm turns into a refused
+row (`:2412-2414`) and `project_dsh` into a whole-read
+`unsupported-format` that keeps the counts (`:2033-2045`): the
+counterexample the finding derived, which the scenario's fourth file now
+pins; the earlier sittings' verifications stand as recorded in the
+change's history (`edee622`, `1f68fee`, `2e7163e`, `95ba4a8`).
 Strict OpenSpec validation was run over the whole tree after authoring.
 Cargo is absent from this box, so no format, clippy, test or bundle gate
 ran here; they belong to the implementation seat before its activation
@@ -691,10 +707,10 @@ tasks, unsigned, and pushes nothing.
 
 The clarify judge's four findings on the second sitting, the analyze
 judge's seven on the third, the clarify judge's four on the fourth, its
-four on the fifth, its one on the sixth and its one on the seventh are
-answered here; the earlier answers that later sittings superseded are
-recorded in the change's history (`36bf374`, `f34279e`, `50d2c28`,
-`95ba4a8`, `2e7163e`, `1f68fee`).
+four on the fifth, its one on the sixth, its one on the seventh and its
+one on the eighth are answered here; the earlier answers that later
+sittings superseded are recorded in the change's history (`36bf374`,
+`f34279e`, `50d2c28`, `95ba4a8`, `2e7163e`, `1f68fee`, `edee622`).
 
 | Finding | Answer | Where |
 |---|---|---|
@@ -719,3 +735,4 @@ recorded in the change's history (`36bf374`, `f34279e`, `50d2c28`,
 | CLARIFY-279-9: S5 ruling 7 generalised the signature to every integer timestamp, which would invalidate `1e3`. | Ruling 7 is restated per site: header admission for `{0, 3}` on parsed value and signature together; the time sites on the parsed value as a signed safe integer, the signature deciding only whether a parsed zero is a zero spelling; the binding shared by all three. `1e3` and `1000.0` render `1000`, and the version-three time scenario now spells `1000.0` beside `1e3`. | S2 Timestamps, S5 ruling 7; design D3, D12; delta version and time paragraphs and the version-three time scenario; tasks 1.5 and 6.1. |
 | CLARIFY-279-10: the helper algorithm gave `.` the empty signature while requiring `None`. | The helper's grammar requires at least one mantissa digit and, after an `e`, at least one exponent digit; it validates no more of the JSON grammar because the parser has already read the token as a number; `.` has no signature because it has no digit. | Design D3, D12; tasks 1.2. |
 | CLARIFY-279-11: task 4.3 required every existing test unmodified while tasks 1 and 2 change the helpers those tests call. | Preservation means behavioural assertions, not bytes: the six tests that call the changed helpers directly adapt their calls mechanically and are named, the version matrix is the one test extended on purpose, no compatibility wrapper is added, and no existing assertion changes because none spells an affected token. | Impact, S6; design D12; tasks 1.2 to 1.5, 2.1, 2.3 and 4.3. |
+| CLARIFY-279-12: the unread-cell scenario's modifier "each carrying `sourceEventSeqs: null`" reads onto its readable user message, which the settled citation rule refuses, so its three stated outcomes cannot all follow from its stated input; design D12 and task 2.10 repeat the ambiguity. | The user message was never meant to carry the member, and the scenario now says so: the readable `user/message` at sequence 1 carries no `sourceEventSeqs` member, `null` sits only on the two quiet rows and on the appended packed and ignorable rows, and the attempt keeps its reversed range. A fourth file, the first with `sourceEventSeqs: null` added to the user message alone, refuses with `unsupported-format`, two unrecognized records and no turns, as the settled rule requires; it is the negative control that makes the other three outcomes falsifiable, since the member that refuses there is the member the unread rows carry. The citation rule, the quiet, counted-omission and required-unknown dispositions, the inventory ruling and read (d) are untouched. | Delta unread-cell scenario; design Context and D12; tasks 2.10; this proposal's Why, S6 and S7. |
