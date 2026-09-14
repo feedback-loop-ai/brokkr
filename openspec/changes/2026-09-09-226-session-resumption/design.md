@@ -1,5 +1,27 @@
 ## Context
 
+This council visit belongs to run `current-successor-issue-226-pass-838309ce`
+(design phase, 2026-09-14). It adopts `31cd6fa434996e6e491a5f20c473e984349d83bb`
+and this run's specify commit `cf35cc7` under the same dated change. Proposal
+answer T and the current commission govern **Pass B alone**: the planner half
+of 8.8(d) and its 8.10 cases. Pass A's binding and reader are delivered; the
+predecessor's final result `721fc65d-da69-4b95-9039-6f6469fadd91` identifies
+partial C/D work that this visit preserves without completing or crediting it.
+Both current positions were read in full and reconciled in D10. D6 records
+how the existing ownership, bounded-storage and closed-control requirements
+close the demonstrated planner gaps. There is no new capability, requirement,
+scenario, task identifier, contract or numbered decision. The ledger remains
+82 complete / 19 pending across 101 identifiers, including unticked 8.8,
+8.10 and 9.6; 0056 stays `proposed` and DSH stays `unmeasured`.
+
+The current staffing ruling supersedes every historical assignment below:
+Codex `gpt-6-astra` at `xhigh` holds this chief office and the commissioned
+triage, clarify, analyze and review-chief offices; stable `deepseek-v4-flash`
+holds implementation, task planning and all council positions. No Claude seat
+is commissioned. These assignments supply no provider-support evidence.
+Earlier council visits follow as dated history, not instructions to repeat
+completed work or expand this pass.
+
 This council visit belongs to run `current-successor-issue-226-pass-c2d8f6ec`
 (design phase, 2026-09-14). It adopts all committed work at `2e157c5` on this
 branch, including the predecessor's `d14c97b` and `2e157c5`, and this run's
@@ -200,6 +222,13 @@ new DSH hands admission, boundary, version bump, packaging, publication or
 sibling-worktree change. The commissioned local release-profile build is a gate.
 The controller integrates #222 overlap; this design uses the commissioned base
 and supplied controller evidence.
+
+**This visit's boundary:** Complete the design reconciliation needed to finish
+DSH admission and command planning using the inherited Rust planner, private
+carrier and sole digest producer. The stored-header and pre-spawn boundary
+reads are admission work; the child exchange, held launch, post-resume root
+confirmation, recovery and accounting folds remain C/D work. A completed
+planner neither confirms a launch nor completes the encompassing tasks.
 
 ## Decisions
 
@@ -714,6 +743,53 @@ one depth-zero header with the offered ID and remain owned by the same
 site/instance/attempt. Missing, truncated, ambiguous or unsafe storage evidence
 declines the offer without scanning for a newer directory or copying history.
 
+**Pass B completion of the existing owned-storage rule (2026-09-14).** The
+recorded admitted home above is part of the complete transcript address;
+`Transcript::value` already records `home` beside `locator`. The inherited
+`OriginatingRoot`/`ResumeTarget` and `start_context` omit that home, and
+`owned_dsh_root` instead opens the locator under the current environment's
+home. Complete this private metadata path: carry `persistence_home` from the
+same confirmed checkpoint's `transcript.home` beside the owned target's
+provider ID and locator, at both existing start-context call sites. Require
+all three to be present and correctly typed for a DSH offer, with the provider
+ID equal to the negotiated ID. Canonicalize the current admitted home and the
+recorded home and require equality before reading retained session content.
+A missing, unresolvable or different home declines as `unverified-harness`
+to the safe shipped cold route under the current home; never switch homes to
+honour an offer. A symlinked spelling of the same canonical home is equivalent.
+This completes 8.8's already-required originating-home association, adds no
+wire/record field and hashes no home path into the location-independent
+composite. It does not authenticate credentials or detect a store replaced at
+the same canonical address; 0056's same-host residual remains.
+
+The offered relative locator and the locator returned by planning must both
+round-trip unchanged under the existing **80-character** record bound.
+`Transcript::record` counts Rust `chars`, not UTF-8 bytes; its shared clamp
+is retained for other transcript producers. Validate DSH's value before that
+clamp can alter it, and before staging the overlay. Do not use lossy path
+conversion, separator rewriting or truncation to turn an invalid offered
+address into another one. Missing or already-truncated evidence that cannot
+resolve to the same recorded root declines; length alone cannot retrospectively
+prove that an arbitrary historical string was truncated. The fresh-root
+construction stays short by construction and is checked at its output too.
+
+Canonical containment applies to the selected regular `session.jsonl` file
+beneath the resolved owned root, including its project/session directories,
+not just to the locator directory beneath the home. Check a directory before
+enumerating it and the selected file before opening it. An escaping symlink,
+unreadable candidate, invalid/truncated header or ambiguous selection cannot
+supply the one valid depth-zero header matching the offered ID. Do not search
+outside that root, skip an unsafe candidate to find a convenient match, or
+copy history. Bound the directory enumeration and the header/sequence reads
+with explicit finite DSH-local budgets; reach complete stored evidence within
+those bounds or decline. Use bounded reads, not an unbounded allocation with
+a size check afterwards, and never turn a truncated or unreadable boundary
+into a zero or a partial-prefix maximum. This protects the pre-spawn reader
+already called by `owned_dsh_root`; it changes no `firstSeq` convention,
+current-event fold, deduplication or usage arithmetic. Pass C still owns the
+independent child confirmation and atomic publication, and Pass D owns the
+accounting acceptance.
+
 **Run-time verification of the composite (answers N2 and O).** Brokkr
 verifies a composite; it never installs one. The adapter resolves the
 executable through `BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH,
@@ -1155,18 +1231,48 @@ one closed. AS3 owns the byte-exact grammar and it is not copied here.
    refusal already takes — never forwarded and never dropped to make the
    launch admissible.
 
-The planner's order, which pass B implements: split `--model`, `--effort` and
-the single `--patch` from the passthrough (a second or bare `--patch` refuses
-by arity); require the binding and its agreement with the argv; read the file
-once; require digest equality; check the grammar, the field set and the value
-grammars; fold the validated bytes ahead of the transcript, model and settings
-rows in `dsh_seat_overlay_in`, so the launcher receives one `--patch` and
-Brokkr's rows apply last; then, and only then, the gate, version and composite
-comparisons and the `--new`/`--session` construction of the paragraphs above.
-The composite is unchanged: the folded rows are part of the per-seat overlay it
-excludes, and the file's provenance is the bound manifest digest the bundle
-digest already covers. No route byte or binding enters the prompt, the launch
-row or the journal.
+The planner's order required for Pass B completion: extract and validate the model,
+effort and single route-patch inputs, then refuse competing or unverified
+residual arguments before any route read, probe or staging. Require the
+binding and its agreement with argv; read once; require digest equality;
+validate those same bytes by AS3's grammar and fields. Close the assessment
+gate before either the version probe or composite producer. Only an enabled
+shape with a valid declared digest reaches the bounded version observation
+and, if the version matches, the sole composite producer. Compare the
+originating version/digest for an offer, then admit its complete owned storage
+or choose the safe cold route. Once the persistence root and lossless locator
+are settled, fold the validated route bytes ahead of the Rust-owned rows and
+stage exactly one overlay. Qualified cold uses `--new --output-format
+stream-json`; qualified warm uses exactly `--session <owned-id>
+--output-format stream-json`. A disabled or mismatched shape keeps the shipped
+cold argv without either selector or `--output-format`; only a declined offer
+carries a refusal token. The earlier wording placed staging before the gate,
+although the overlay needs the selected persistence root; this ordering
+correction changes no AS3 outcome and preserves validation before staging.
+
+The input grammar stays DSH-local. `--model <id>` is the declaration's
+separate-value pin; refuse `--model=<id>` rather than forwarding a second
+model channel. Retain the shared effort splitter's two existing spellings,
+but DSH refuses every leftover duplicate, malformed or valueless effort
+control, and effort without a model, before reading or staging. Keep the
+single exact `--patch <value>` rule. After those authorized inputs, no
+residual argument has a measured safe admission in this shape: refuse it,
+including extra positional text, option terminators, aliases and joined or
+clustered forms, rather than maintaining a selector-only deny-list. The
+selected plugin's `lib/startup.js` gives its positional arguments to the task
+and owns session/output/workdir selectors; the task-owned 0.1.5-rc.1 launcher
+also owns `--from-default-profile`, which the inherited deny-list misses.
+`--verbose` in a unit assertion is not evidence of a supported DSH input.
+This enacts D5's existing measured allow-list and AS3's unverified-passthrough
+rule without a generic grammar, guessed alias support or a provider probe.
+
+Every planner refusal uses fixed field/category names and the existing
+bounded refusal vocabulary. Neither an equals-joined value nor an unknown
+option's attacker-controlled name may be interpolated into the error. Apply
+that rule to model validation and odd `--patch` spellings as well as
+`dsh_control_conflict`; bounding the eventual string does not redact it.
+The composite excludes the folded per-seat route bytes as before, and no
+route byte or private binding enters the prompt, launch row or journal.
 
 Binding and grammar answer different questions, and neither stands in for the
 other. The binding is the provenance rule — which bytes are authorized: the
@@ -1193,9 +1299,9 @@ parser, a Rust constant carrying the vendor host, or a mirror of dsh's provider
 schema; not a second manifest reader in the adapter, which receives argv, a
 working directory and the private context and nothing else. `bundle.json`,
 `research-web.yml`, the compiled staffing, the roster assertion and the
-research-dsh witness digest do not move. The roster test's doc comment still
-says the overlay "is the fetch grant", which the erratum and AS3 state the
-other way round; pass B corrects that comment when it touches the planner,
+research-dsh witness digest do not move. The roster test's doc comment was
+corrected in `1d21319` to distinguish the route from the profile's fetch grant;
+adopt that completed correction
 without moving the assertion. Answers Q, R and S in [proposal.md](proposal.md)
 record the rejected alternatives in full.
 
@@ -1989,6 +2095,52 @@ implements the cases as 8.10 already names them. No earlier artifact is at
 fault: AS3 already owns and states the rule, `b1caf37` already placed the
 engine cases, and the residual was one verb in the task text.
 
+#### Pass B council sitting — 2026-09-14, run `current-successor-issue-226-pass-838309ce`
+
+Adopted `31cd6fa` plus specify `cf35cc7`; clarify returned `clear`, with no
+`returned_from` finding for this visit. The two current position files were
+read in full. Their hashes identify this sitting; earlier pins above remain
+historical even though these run-local paths were reused:
+
+- Robustness: `.forge/design/positions/robustness.md`, SHA-256
+  `3c2f8c01a30e32f1c724356d2817e90dce56a88954f10a75dd1f9c74316861d7`.
+- Simplicity: `.forge/design/positions/simplicity.md`, SHA-256
+  `78b1f4f563e5ec89f44c1de338a16671c938efd1c0256126f9e9590cf6910e12`.
+
+| Position / claim | Disposition and evidence |
+|---|---|
+| Both: inherit the gate, identity comparisons, qualified argv, reader and Pass A binding; finish existing 8.8(d)/8.10, with no new numbered decision or requirement. Simplicity: only a sitting and pins are needed, and four guards are the complete repair. | Adopt the inherited architecture and existing obligations; reject bookkeeping-only reconciliation and the claim that four guards suffice. Current source additionally shows value-echoing errors, unbounded pre-spawn reads and the omitted recorded home. D6 supplies their mechanism within its existing ownership, privacy and bounded-read rules; none is repaired by calling the happy path complete. |
+| Robustness: the gate must structurally precede every probe for every disabled reason. Simplicity: the enabled match arm already does so. | Combine. The current match is a valid guard; no rewrite to a new type or early-return framework is required. Extend planner tests across `unsupported-resume`, `restrictions-unavailable` and `unverified-harness`, with and without an offer. A panicking composite closure proves no recomputation but a nonexistent executable does not prove that a version probe was never attempted; use a recording version shim and assert zero calls. Assert the full shipped cold command, not just `stream_json == false`. |
+| Robustness: qualification is an equality chain over observed, declared and originating identity; absence never removes a constraint. Simplicity: this is implemented but the drift/malformed/unreadable vectors are incomplete. | Adopt both. Keep the one producer and private `dsh_launch_with` test injection. Test each existing comparison and failure independently, including a producer error and originating-version drift; observed facts remain distinct from requested pins. An origin mismatch necessarily follows the current observations, so reject a blanket assertion that every declined offer calls no producer. The zero-call assertion belongs to disabled/pre-observation failures. |
+| Both: require the offered provider ID and enforce the locator bound. Simplicity: a byte-length input check is sufficient; robustness: the producer and consumer must agree. | Combine the local guards with robustness's complete round-trip invariant. `Transcript::record` clamps by characters, so reject a byte-count substitute and a consumer-only check. D6 checks the offered and planned DSH locator, keeps the shared clamp unchanged, and requires 80/81-character tests, including multibyte input and a prefix that must not be selected by truncation. No new locator type or transcript contract is needed. |
+| Simplicity: canonicalize the selected file inside the root; no blanket prohibition on every symlink. Robustness: the root and locator must denote the originating store. | Adopt both checks. D6's recorded-home clause and 8.8's originating-home clause already require the complete address. `OriginatingRoot` reads only `/transcript/locator`; `start_context` omits `/transcript/home`; `owned_dsh_root` uses the current home. Carry the existing recorded home through the private target and compare canonical homes before session reads. Reject robustness's alternative of declaring ID/header agreement sufficient: that would weaken the already-specified originating address. Keep canonical aliases within the same root admissible and reject selected-file escape into another root, even inside the same home. |
+| Robustness: `dsh_session_header_id` and `dsh_session_last_seq` allocate without bounds before spawn. Simplicity: the walk is bounded by its exact-one rule and sequence work belongs to D. | Adopt bounded admission IO; reject those reasons to leave it unbounded. Exact-one selection bounds the result cardinality, not directory enumeration or file allocation. D6 bounds these existing pre-spawn reads and declines incomplete evidence; it does not implement C's child exchange or D's fold/dedup/usage semantics. |
+| Robustness: cover joined model, duplicate/invalid effort and unknown residual controls; derive rejection from the declaration. Simplicity: add only duplicate effort and do not guess aliases or add a generic grammar. | Combine the demonstrated closures and DSH-local scope; reject deriving the whole CLI grammar from the two declaration flag names and reject a growing deny-list as sufficient. The committed plugin startup and task-owned launcher expose the actual control surfaces, including `--from-default-profile`; D6 permits the existing extracted input forms and no unverified residual. No invented `-m`/`-e` support, generic parser or shared Codex/Claude splitter change follows. |
+| Robustness: refusals must not echo values. Simplicity: the existing `Err(String)` and bounded vocabulary suffice without a new error type. | Adopt both. The representation can stay; the content must change. `dsh_control_conflict` returns the whole token, `split_dsh_patch` formats an odd token, and `parse_dsh_model` formats the rejected model. D6 requires fixed field/category diagnostics across those paths, proven with synthetic private markers absent from errors. No new refusal token or diagnostic field is needed. |
+| Both: reader tests and direct overlay folding do not prove the cold/offered/disabled planner matrix. Simplicity: keep the grammar suite, avoid a second case catalogue or redundant conformance test. | Adopt. 8.10 remains the case catalogue. Extend its existing planner suite with the required cross-path outcomes and pre-read/pre-stage ordering; reuse reader vectors and prove digest failure precedes shape validation with a file invalid on both axes. Retain Pass A's separate engine tests. A built-driver test is justified only by a distinct planner observation; no child-confirmation case is added in B. |
+| Simplicity's cuts: no module, new plan/root type, public seam, digest/manifest producer, dependency, schema mirror, wire/store/contract change, scenario or task ID, live Cargo test, provider proof, recipe/witness/pair edit or task tick. Robustness: no enablement or C/D work. | Adopt these cuts. The private home metadata completes an existing requirement and is not a public wire/record field. Reject the proposed roster-comment edit as already delivered in `1d21319`. Keep 0056 proposed, DSH unmeasured, all provider minima and LaneTally's sole 11.4 exception. Preserve inherited C/D code and passing tests without claiming their acceptance. |
+
+The source check used the committed plugin `lib/startup.js` (SHA-256
+`3526be1cd885f99592f1cfb5133f065879411f13bffba2672a74a55a11e66491`)
+and the task-owned core's `lib/bin.js` (SHA-256
+`0ff7f1d72c4e0cbe14001709c81e20a04b70464118a7f78568952988e28f2ac5`).
+They were read, not executed; this is interface evidence, not a repeated
+qualification or an inspection of the global installation.
+
+Dependent work remains under the existing IDs. The task-planning office
+records these bounded implementation/verification details under 8.8(d)/8.10:
+private originating-home propagation from the same checkpoint and its runtime
+unit/integration cases at both callers; planner tests for home drift (including
+an identical ID/locator in two different homes), missing/mistyped target fields,
+lossless locator bounds, selected-file containment, bounded stored reads,
+control/diagnostic guards and the already-listed route/identity matrix. No
+proposal or delta change is needed: AS2's owned session/transcript relationship,
+AS3's settings and identifier scenarios, and D6/8.8's originating-home and
+bounded-storage rules already own those outcomes. This office commits only
+`design.md`. The tasks office preserves every identifier and tick; the smith
+extends the existing suites and stops when B is evidenced. C/D dependencies
+keep 8.8, 8.10 and 9.6 unticked. No earlier specification fault was found.
+
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
@@ -2121,6 +2273,23 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
+- [A partial private target silently changes the originating address] → Carry
+  the recorded home and locator from the same confirmed checkpoint, require
+  the offered ID, and compare canonical homes before retained-file reads.
+  Matching headers in different homes do not substitute for this association;
+  same-address replacement and credential authentication remain outside it.
+- [A bounded locator still points through an escaping stored-file symlink, or
+  a retained file exhausts memory before a child starts] → Check the selected
+  regular file within the owned root and bound enumeration/header/boundary
+  reads. Decline incomplete evidence; do not use a prefix as a valid boundary.
+- [A selector-only deny-list misses a joined, duplicate or new control, or its
+  error copies a private value] → DSH admits only the extracted measured forms;
+  residual arguments refuse with fixed field/category diagnostics before any
+  route read or staging. The existing shared effort behavior stays local to
+  its other consumers.
+- [Planner-only evidence is mistaken for confirmed launch or accounting] →
+  Preserve `confirms_from_locator: false`; B's tests inspect admission/argv
+  and do not discharge C/D's independent acceptance or tick 8.8/8.10/9.6.
 - [A returned change's archive-dependent assertion makes readiness circular]
   → D9 defers exactly the named assertion in 15.3, verifies a unique listing
   match and one filtered test, and requires the full unfiltered archived suite
@@ -2266,6 +2435,15 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Migration Plan
 
+For this Pass B visit, adopt the delivered binding, reader, planner and all
+other committed work before extending the existing guards and deterministic
+suites. Complete the recorded-home metadata path within the existing private
+carrier; a DSH target without that evidence starts cold. No journal backfill,
+provider installation, activation or archive occurs. The local gates precede
+the implementing pass's final commit; exact coverage and remote results remain
+pending with the controller. The whole-change sequence below is retained for
+its later owners and does not schedule C/D or E–K in this run.
+
 1. The smith adopts this design for numbered requirement-linked tasks with
    separate unchecked evidence/enablement/delivery obligations. Tasks validation
    and the normal analyze-to-zero loop precede implementation.
@@ -2337,11 +2515,15 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No open design question remains. The DSH route overlay is settled by answers
-Q–S, AS3 and D6 (pass A); its deterministic cases belong to 8.10, split by
-the crate that can observe each — the engine's half in the runtime engine
-suite at both `start_context` call sites, as this run's `b1caf37` records —
-and its implementation to pass B. D13 establishes the supported dated
+No open design question remains for Pass B. Proposal T and this sitting's
+D6/D10 reconciliation identify implementation gaps against existing rules;
+they do not reopen the selected pair, AS1 minimum or Pass A. The route-overlay
+binding and reader are delivered; retain their existing suites and complete
+the 8.10 planner matrix. Private originating-home propagation is the concrete
+runtime repair needed by the already-required complete stored address, with
+proof at both callers; it is separate from the delivered overlay binding.
+Historical `b1caf37` and its successors continue to own that binding's suite
+placement. D13 establishes the supported dated
 same-change path from decision 0042 and installed OpenSpec behavior. D6 selects
 the latest DSH core with the repository-owned adaptation, names its location,
 its composite's byte form, sole producer and doctor entry point, the locators
@@ -3017,3 +3199,43 @@ is one verb in the task text that the tasks phase owns. No provider probe,
 task tick, archive, push, merge or new Brokkr run was performed; proposed
 0056 remains proposed; every provider proof, enablement, pin, gate and
 readiness task remains pending, as passes E–K are not scheduled.
+
+
+## Council design validation — Pass B, 2026-09-14
+
+Run `current-successor-issue-226-pass-838309ce` adopts `31cd6fa` and specify
+`cf35cc7`. Read the full pass framing, predecessor's final result, current
+Pass B intake, declaration, proposed 0056, proposal, D5/D6, AS1–AS3 and
+8.8/8.10/9.6, both complete council positions and the relevant Rust code and
+tests through workspace hands. Read `dialects/openspec/design.md`,
+`dialects/openspec/return.md` and OpenSpec's rendered design instructions.
+D10 records each council disposition and its source evidence. D6 completes
+the implementation account of the existing rules, and Context, Goals, Risks,
+Migration and Open Questions agree with the Pass B boundary.
+
+- Strict active OpenSpec validation, delta parsing and `git diff --check`
+  pass. Structural checks confirm every required design section, both current
+  position hashes, 20 requirements / 150 scenarios, and all 101 unchanged
+  task IDs/ticks: 82 complete / 19 pending. 8.8, 8.10 and 9.6 remain pending.
+- Exactly `design.md` changes. Proposal, all five deltas, tasks, proposed 0056,
+  declarations and all other tracked paths retain `cf35cc7`'s bytes. D7–D9
+  and D11–D13 retain their bytes. This visit extends no production suite and
+  claims no completed planner, launch or accounting acceptance.
+- With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and #282's environment
+  workaround, format, all-target/all-feature clippy, the workspace test
+  listing and unfiltered suite, both bundle compiles and the release-binary
+  build all fail to launch with `ENOENT`: Cargo is absent in this seat.
+  No Rust gate passes here and no pre-archive assertion was skipped. Those
+  gates remain required before the implementing pass's final commit; the
+  predecessor's results remain dated evidence of its own tree.
+- Exact coverage remains pending controller-host evidence outside the box.
+  CI, release admission and `coverage-exact.sh` still consume the same
+  `rust-nightly-version.txt`. Remote CI and delivery results remain pending.
+  Validation records are under `.forge/design-chief-838309ce/`.
+
+This design preparation checkpoint reports `drafted`: the earlier behavioral
+requirements remain sound and no upstream specification repair is owed.
+The task-planning office carries D10's bounded details under existing IDs;
+Pass B implementation/verification remains with the smith. The visit starts
+no workflow runner, provider probe, archive or new Brokkr run, and performs
+no push, merge, provider activation or task tick.
