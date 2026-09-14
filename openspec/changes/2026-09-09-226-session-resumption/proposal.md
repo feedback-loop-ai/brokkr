@@ -1,5 +1,15 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+The current specify visit, run `current-successor-issue-226-pass-838309ce`,
+adopts all committed work at `31cd6fa434996e6e491a5f20c473e984349d83bb` and
+this same dated change. Its scope is **Pass B alone**: the remaining DSH
+admission/planner portion of 8.8(d) and corresponding 8.10 acceptance.
+Answer T records that boundary and the current provider ruling. The whole
+feature's delivery minimum remains unchanged; earlier adoption and return
+accounts below are retained history, not instructions to repeat their work.
+
+Earlier specify adoption, retained as history:
+
 This specify visit adopts `b049224e2968d0df22d25a7a77139b12278cce59`, which
 contains all committed work at `cf06034`, under the same change identifier,
 `2026-09-09-226-session-resumption`, for run
@@ -1104,6 +1114,69 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   B implements them. The recipe, `research-web.yml`, the roster assertion,
   the compiled staffing and the research-dsh witness digest do not move.
 
+- **T — Pass B adoption, 2026-09-14: finish planner acceptance within the
+  existing contract.** This run adopts `31cd6fa` and the predecessor's final
+  journal result, retained at
+  `.forge/results/721fc65d-da69-4b95-9039-6f6469fadd91.json`. Its committed
+  planner, route reader, compiled-leaf binding, private context and sole Rust
+  composite producer are inherited work. Its report of partial init-based
+  confirmation and current-sequence folding is also preserved, with its
+  explicitly missing C/D acceptance; neither the commit title nor the report's
+  `B_planner` label establishes completion of the full 8.10 planner matrix.
+
+  D5/D6, AS1–AS3 and 8.8(d)/8.10 already require the necessary behavior.
+  Adopt the five deltas unchanged: no new capability, requirement, scenario,
+  decision or task identifier is needed for this pass. The implementing seat
+  extends the existing deterministic suites and repairs demonstrated planner
+  defects against those requirements. This specify inspection identifies
+  three concrete remaining checks in the adopted code:
+
+  - The DSH planner uses `split_effort`, which returns duplicate or invalid
+    effort controls to passthrough, and its conflict list does not reject
+    those leftovers. `split_dsh_model` handles only the separate-value
+    spelling. Exact arity, duplicate/alias/precedence refusal and bounded
+    diagnostics must hold before route reads or staging under existing AS3;
+    parsing a value or forwarding it for the provider to reject is not proof.
+  - `resolve_dsh_root` checks the locator directory's canonical containment
+    but has no explicit 80-character round-trip check; `dsh_session_file`
+    follows project/session candidates without establishing the selected
+    stored file's containment. Existing D6/8.10 require bounded owned storage
+    without truncation or symlink escape, including that file. Prove the
+    refusals at the planner boundary without searching for a substitute root.
+  - Existing reader tests and the direct overlay-fold test do not prove all
+    8.10 route cases through cold, offered and disabled planner paths. Complete
+    that matrix together with gate-before-probe observation, missing/malformed/
+    unreadable declared and originating identities, exact cold/warm argv and
+    preservation of the shipped cold route on mismatch. Reuse the inherited
+    cases; do not redo Pass A or the sole producer's completed implementation.
+
+  These are implementation/acceptance gaps against sound requirements, not
+  upstream specification defects. Reject weakening those requirements to fit
+  the inherited code or adding duplicate scenarios just to record another
+  pass. The specification's existing AS1 gate/composite scenarios, AS2's DSH
+  current-settings scenario and AS3's control/overlay/identifier scenarios
+  remain their owning behavioral answers; D6 and 8.10 supply the locator and
+  test detail. No design amendment or operator acceptance of 0056 is inferred.
+
+  Pass C's child exchange, held launch, independent root confirmation and
+  recovery, Pass D's accounting/deduplication and remaining acceptance, and
+  passes A and E–K are outside this run. Preserve their inherited work and
+  checkboxes. Tasks 8.8, 8.10 and 9.6 stay unchecked while their entire
+  acceptance depends on C/D; report Pass B completion separately and stop at
+  that boundary. The change remains whole under AS1 and decision 0030, with
+  LaneTally's sole 11.4 exception and no provider enabled by analogy.
+
+  The current commission supersedes every older staffing statement: no Claude
+  seat; Codex `gpt-6-astra` at `xhigh` for triage, clarify, chief architect,
+  analyze and review chief; stable `deepseek-v4-flash` for implementation,
+  task planning and every design/review position. No recipe or provider
+  configuration edit follows from recording that ruling. Defects #281 and
+  #282 supply no provider change or branch-defect claim. Git and validation
+  subprocesses use `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`; the known
+  machine-proof failure is not a newly discovered defect. A capacity-limited
+  implementation reports `oversized`; this specify office uses its own
+  `drafted`/`upstream` result contract.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -1972,3 +2045,38 @@ bundle compiles and the release build could not launch here and remain the
 implementing pass's obligation before its commit. No provider probe, task
 tick, archive, push, merge or new Brokkr run was performed. Evidence is under
 `.forge/specify-c2d8f6ec/`.
+
+
+## Current successor specify — Pass B adoption, 2026-09-14
+
+Run `current-successor-issue-226-pass-838309ce` adopts `31cd6fa` in proposal
+then capability-delta order. Read the full pass framing, predecessor's final
+journal result, current Pass B intake, `adapters/dsh.json`, proposed 0056,
+proposal, design D5/D6, AS1–AS3 and tasks 8.8/8.10 through the workspace
+hands, together with the relevant planner, reader, binding and test code.
+Read the dialect's own specify/return and rendered proposal/specs instructions;
+no workflow runner was invoked. Answer T records the bounded adoption and
+source-based remaining planner checks without changing any behavior contract.
+
+Strict active validation, delta parsing and `git diff --check` pass. The five
+deltas retain their exact adopted bytes: 20 requirements / 150 scenarios,
+15 ADDED and five MODIFIED. A read-only prospective-fold comparison retains
+only the existing AS1–AS3 and PM4 semantic replacements. All 101 task IDs and
+ticks are unchanged: 82 complete / 19 pending, including 8.8, 8.10 and 9.6.
+Design and proposed 0056 are unchanged; no provider is enabled.
+
+With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and #282's Git-environment
+workaround, format, clippy, workspace test listing/tests, both bundle compiles
+and the release-binary build cannot launch: `cargo` returns `ENOENT` in this
+seat. None is claimed passing, and no pre-archive assertion was skipped or
+counted as complete. The predecessor's gate results remain dated evidence.
+The final implementation commit still requires the commissioned local gates;
+this specification preparation checkpoint claims neither their completion
+nor completed Pass B implementation. Exact coverage remains pending controller
+host evidence, with CI, release admission and the unchanged coverage script
+all reading `rust-nightly-version.txt`. Remote results remain pending.
+
+Evidence is under `.forge/specify-838309ce/`. Only this proposal is changed
+for the specification checkpoint; the deltas are adopted unchanged. Frozen
+paths, production, declarations, recipes and witness pins retain the adopted
+bytes. No task tick, provider probe, archive, push, merge or new run occurred.
