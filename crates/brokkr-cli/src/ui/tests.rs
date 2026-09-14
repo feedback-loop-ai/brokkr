@@ -3818,7 +3818,10 @@ fn the_filename_and_the_header_version_are_independent_facts() {
 fn a_seeded_header_changes_neither_ownership_nor_admission() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
-    for (version, seed) in [
+    // The seed spelling reaches the header and the assertion messages only:
+    // a raw `"yes"` cannot be a directory component on Windows, so paths and
+    // locators use a portable per-case index instead.
+    for (case, (version, seed)) in [
         ("0", "true"),
         ("0", "false"),
         ("0", "\"yes\""),
@@ -3829,15 +3832,18 @@ fn a_seeded_header_changes_neither_ownership_nor_admission() {
         ("3", "\"yes\""),
         ("3", "{}"),
         ("3", "null"),
-    ] {
-        let session = home.join(format!("sessions/v{version}-{seed}/project/seat"));
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let session = home.join(format!("sessions/v{version}-case{case}/project/seat"));
         std::fs::create_dir_all(&session).unwrap();
         let header = format!(
             "{{\"type\":\"session\",\"version\":{version},\"delegationDepth\":0,\"isSeeded\":{seed}}}\n"
         );
         let user = "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"q\"}]}}\n";
         std::fs::write(session.join("session.jsonl"), format!("{header}{user}")).unwrap();
-        let locator = format!("sessions/v{version}-{seed}");
+        let locator = format!("sessions/v{version}-case{case}");
         let reference = common("dsh-session", &locator, home.to_str().unwrap());
         let read = read_common(&reference);
         assert!(read.is_readable(), "v{version} seed {seed}: {read:?}");

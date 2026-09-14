@@ -14,7 +14,8 @@ ruling keeps its meaning, and a new number carries the second admitted
 version and the evidence standard a later version must meet.
 
 The evidence is the run's local read of the installed writer, recorded
-in the change's design `openspec/changes/admit-dsh-session-v3/design.md`
+in the change's design
+`openspec/changes/archive/2026-09-14-admit-dsh-session-v3/design.md`
 section D2: the `@deepseek-ai/dsh` 0.1.5-rc.1 core installed on the
 fleet's host, whose session packages at 0.1.5-rc.2 were read and cited by
 package, file, SHA-256 digest and line. D2's digest table names those
@@ -33,7 +34,7 @@ field-by-field table from the read message, block and event definitions to
 `dsh_row` and `dsh_message_blocks`, including the `file` block the reader
 does not name and the `turn`/`step` a version-three `user/message` does
 not declare. The specification and its scenarios are the change's
-`openspec/changes/admit-dsh-session-v3/specs/` deltas.
+`openspec/changes/archive/2026-09-14-admit-dsh-session-v3/specs/` deltas.
 
 **Rulings.**
 
