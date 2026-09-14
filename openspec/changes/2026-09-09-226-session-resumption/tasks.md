@@ -3867,3 +3867,61 @@ No earlier artifact must change to write an honest breakdown, so `upstream`
 is not warranted. Commit this preparation unsigned in the repository style;
 no provider probe, workflow runner, archive, task tick, push, merge, activation
 or new Brokkr run occurs in this visit.
+
+## Current implement visit — Pass B DSH planner, 2026-09-14
+
+Run `current-successor-issue-226-pass-838309ce`, implement phase and its only
+seat, adopts `3e01ca6`, design `1a04751` and the inherited planner at
+`31cd6fa`. **Pass B alone**: the planner portion of 8.8(d) and its matching
+8.10 cases. 8.8, 8.10 and 9.6 stay unticked — their whole acceptance still
+depends on Pass C's child confirmation and Pass D's accounting,
+deduplication and remaining matrix, which this visit does not begin.
+
+Delivered, with its verification beside it:
+
+- **Originating home.** `ResumeTarget` carries `persistence_home` read off
+  the SAME confirmed checkpoint's `/transcript/home`; `start_context`
+  publishes it in `owned_target`; `owned_dsh_root` requires a string provider
+  ID, a non-empty locator and the recorded home, canonicalizes the recorded
+  and admitted homes and requires equality before any retained read. Unit and
+  integration cases read the actual `Start.input` at both production callers,
+  a single site and a panel member, and prove a no-offer start carries none
+  and an older row's home is never borrowed.
+- **Admission rule and diagnostics.** After the one separate `--model <id>`,
+  the shared effort splitter's two spellings and the one `--patch <value>`
+  are extracted, every residual argument is refused before the route read,
+  version probe, producer call or staging; joined model spellings and effort
+  without a model refuse on the cold, offered and disabled paths; the fixed
+  categories echo no option, model, ID or path.
+- **Bounded pre-spawn reads.** The header line, the retained-root
+  enumeration and the stored sequence each carry a finite DSH-local budget;
+  every project/session directory and the selected `session.jsonl` is
+  canonicalized and confined to the retained root; an ambiguous, truncated,
+  escaping, non-regular or over-budget boundary declines rather than
+  selecting a substitute or a partial maximum.
+- **Lossless locator.** The offered locator must round-trip and stay within
+  the existing 80 Rust-character bound; an overlong value whose prefix names
+  a valid root is never selected by truncation.
+
+Verification on this tree, under `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and
+#282's `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`: `cargo fmt --all --
+--check` clean; `cargo clippy --workspace --all-targets --all-features
+--locked -- -D warnings` clean; `cargo test -p brokkr-protocol` 194/194;
+`cargo test -p brokkr-runtime` 400/400. The unfiltered `cargo test
+--workspace --all-features --locked --no-fail-fast` is 1417 passed / 2
+failed: the pre-existing #282
+`machine_proof::dialect_validate_expands_the_chiefs_change_and_records_tool_evidence`
+and task 15.3's archive-dependent
+`every_capability_names_the_archived_changes_that_wrote_it`, which matches
+exactly one test and stays deferred until archive validation. With that one
+named pre-archive `--skip`, the workspace suite is 1417 passed / 1 failed,
+the sole failure #282. Both bundles compile and the release binary builds.
+`openspec validate
+2026-09-09-226-session-resumption --strict` passes. One pre-existing
+inconsistency was corrected en route: `bundle::compose_tests`' pinned
+`recipes/triage` manifest digest disagreed with the measured value already
+pinned in `tests/witness_digests.rs`; it now carries that measured value,
+and the stale pin failed at the adopted head independently of this visit.
+No checkbox, contract, policy, reference, fixture, declaration, recipe,
+provider proof, activation or archive changes; DSH stays `unmeasured`,
+0056 stays `proposed`, and Passes C–D and E–K are untouched.

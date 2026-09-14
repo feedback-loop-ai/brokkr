@@ -1579,7 +1579,8 @@ impl Engine {
         // The private start context (design D5): which resume assessment
         // this site selected, the harness facts its offered root was
         // opened under, and the owned target (provider ID plus the
-        // persistence locator read off the same confirmed checkpoint). It
+        // persistence locator and recorded home read off the same
+        // confirmed checkpoint). It
         // rides the existing `Start.input` object under one key, separate
         // from the rendered `context` and the phase inputs, and never
         // reaches the prompt.

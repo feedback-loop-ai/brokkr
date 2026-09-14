@@ -129,6 +129,35 @@ fn model_driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
     vec![command[0].clone(), command[1].clone(), script]
 }
 
+/// The same stamped driver, but emitting the row a DSH attempt writes: a
+/// `dsh-session` root carrying the certified harness version and the
+/// optional wrapper digest, plus the `transcript` object whose `home` and
+/// `locator` are the other two coordinates of the owned target. The
+/// invocation counter still mints `<tag>-<n>`, so the offered id is the
+/// one the first attempt opened.
+fn dsh_model_driver(
+    dir: &Path,
+    tag: &str,
+    results: &[&str],
+    locator: &str,
+    home: &str,
+) -> Vec<String> {
+    let command = driver(dir, tag, results);
+    let digest = "a".repeat(64);
+    let legacy = format!("\"data\":{{\"step\":\"session-started\",\"session_id\":\"{tag}-%s\"}}");
+    let stamped = format!(
+        "\"data\":{{\"step\":\"harness-started\",\"model\":\"deepseek-v4-flash\",\
+         \"launch\":\"cold\",\"root_session\":{{\"kind\":\"dsh-session\",\
+         \"id\":\"{tag}-%s\",\"harness_version\":\"0.1.5-rc.1\",\
+         \"wrapper_digest\":\"{digest}\",\"persistent\":true}},\
+         \"transcript\":{{\"kind\":\"dsh-session\",\"locator\":\"{locator}\",\
+         \"home\":\"{home}\"}}}}"
+    );
+    let script = command[2].replace(&legacy, &stamped);
+    assert_ne!(script, command[2], "the {tag} shim must emit a stamped row");
+    vec![command[0].clone(), command[1].clone(), script]
+}
+
 fn seat(body: SeatBody, results: &[&str], max_attempts: u64) -> Seat {
     gate_seat(body, results, max_attempts, false)
 }
@@ -1074,8 +1103,11 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     // optional wrapper digest from that one row — never per field from
     // whichever checkpoint is newest.
     let mut with_locator = row(SITE_A, OWNER, "session-one", true);
-    with_locator["transcript"] =
-        json!({"kind": "dsh-session", "locator": "sessions/brokkr/seat-1"});
+    with_locator["transcript"] = json!({
+        "kind": "dsh-session",
+        "locator": "sessions/brokkr/seat-1",
+        "home": "/home/operator/.dsh"
+    });
     with_locator["root_session"]["wrapper_digest"] = json!("a".repeat(64));
     let journaled = journal(with_locator.clone());
     let target = offer_for_site(&journaled, &key, &mine, "work", true, true, &started)
@@ -1084,6 +1116,11 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     assert_eq!(
         target.persistence_locator.as_deref(),
         Some("sessions/brokkr/seat-1")
+    );
+    assert_eq!(
+        target.persistence_home.as_deref(),
+        Some("/home/operator/.dsh"),
+        "the home travels off the SAME checkpoint as the root and locator"
     );
     let originating = resume::originating_root(&journaled, SITE_A).expect("a confirmed root");
     assert_eq!(originating.harness_version.as_deref(), Some("2.1.266"));
@@ -1109,6 +1146,27 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     )
     .expect("the root is offered");
     assert_eq!(locatorless.persistence_locator, None);
+    assert_eq!(locatorless.persistence_home, None);
+
+    // A newer confirmed row for the SAME site and instance that records no
+    // transcript never borrows the home (or locator) of an older row: the
+    // address is one fact off one checkpoint, and missing evidence stays
+    // missing for a home-requiring planner to decline.
+    let mut borrowed = journal(with_locator.clone());
+    borrowed.push(envelope(
+        EventType::EffectCheckpointed,
+        json!({"effect_id":"fx", "attempt_id":"a1",
+               "checkpoint": row(SITE_A, OWNER, "session-two", true)}),
+        Some("a1"),
+    ));
+    let newest = offer_for_site(&borrowed, &key, &mine, "work", true, true, &started)
+        .expect("the newest root is offered");
+    assert_eq!(newest.provider_id, "session-two");
+    assert_eq!(
+        newest.persistence_home, None,
+        "the newest row records no home; an older row's home is not borrowed"
+    );
+    assert_eq!(newest.persistence_locator, None);
 }
 
 /// The four topologies get four different keys, and every identity axis
@@ -1657,4 +1715,136 @@ fn a_valid_route_overlay_binds_on_an_offered_start_too() {
         assert_eq!(binding["value"], "recipe/route.yml", "start {index}");
         assert_eq!(binding["digest"], digest, "start {index}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// The engine-side originating-home carrier (design D6, Pass B completion;
+// 8.10). The private `owned_target` at the offered start carries the
+// recorded `transcript.home` beside the provider ID and locator, read off
+// the same confirmed checkpoint, at both production `start_context` call
+// sites — the single site (`run_driver`) and a panel member (`MemberRun`).
+// The check runs beside the route-overlay binding that already reads those
+// two `Start.input`s.
+// ---------------------------------------------------------------------------
+
+/// The recorded home rides beside the id and locator at the SINGLE site.
+/// The first attempt is cold and carries no `owned_target`; the retry is
+/// offered the confirmed root and its complete three-coordinate address.
+#[test]
+fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("dsh-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let home_text = home.display().to_string();
+    let locator = "sessions/brokkr/seat-1";
+    let argv = dsh_model_driver(
+        dir.path(),
+        "work",
+        &["fail", "complete"],
+        locator,
+        &home_text,
+    );
+    let candidate = Candidate {
+        agent: "implementer".into(),
+        model: "deepseek-v4-flash".into(),
+        effort: Some("medium".into()),
+        provider: "dsh".into(),
+        argv: argv.clone(),
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: Default::default(),
+    };
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(single(argv, vec![candidate]), &["complete"], 2),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    run(dir.path(), bundle(dir.path(), seats));
+
+    let starts: Vec<Value> = received(dir.path(), "work")
+        .into_iter()
+        .filter(|message| message["type"] == "start")
+        .collect();
+    assert_eq!(starts.len(), 2, "the failing first attempt is retried");
+    assert_eq!(
+        offers(&received(dir.path(), "work")),
+        [None, Some("work-1".into())]
+    );
+    assert!(
+        starts[0]["input"]["resume_context"]
+            .get("owned_target")
+            .is_none(),
+        "a no-offer start carries no owned target"
+    );
+    let owned = &starts[1]["input"]["resume_context"]["owned_target"];
+    assert_eq!(owned["provider_id"], "work-1");
+    assert_eq!(owned["persistence_locator"], locator);
+    assert_eq!(owned["persistence_home"], home_text);
+    // The private carrier is not rendered into the prompt context.
+    assert!(
+        starts[1]["context"].get("owned_target").is_none(),
+        "the owned target never reaches the rendered context"
+    );
+}
+
+/// The same complete address travels at the PANEL-MEMBER call site, from
+/// that member's own confirmed checkpoint rather than the panel's.
+#[test]
+fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("dsh-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let home_text = home.display().to_string();
+    let locator = "sessions/brokkr/alpha";
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "work".into(),
+        seat(
+            panel(vec![member(
+                "alpha",
+                dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text),
+            )]),
+            &["pass", "fail"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(
+                model_driver(dir.path(), "review", &["residual", "clean"]),
+                Vec::new(),
+            ),
+            &["residual", "clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(dir.path(), seats);
+    bundle.machine = panel_machine();
+    run(dir.path(), bundle);
+
+    let starts: Vec<Value> = received(dir.path(), "alpha")
+        .into_iter()
+        .filter(|message| message["type"] == "start")
+        .collect();
+    assert_eq!(starts.len(), 2, "the panel is re-entered once");
+    assert_eq!(
+        offers(&received(dir.path(), "alpha")),
+        [None, Some("alpha-1".into())]
+    );
+    assert!(starts[0]["input"]["resume_context"]
+        .get("owned_target")
+        .is_none());
+    let owned = &starts[1]["input"]["resume_context"]["owned_target"];
+    assert_eq!(owned["provider_id"], "alpha-1");
+    assert_eq!(owned["persistence_locator"], locator);
+    assert_eq!(owned["persistence_home"], home_text);
 }

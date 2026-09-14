@@ -281,11 +281,19 @@ fn pointer(map: &str, label: &str) -> String {
 /// in which the offered ID was never opened. The locator is `None` for a
 /// provider whose confirmed row carries no transcript reference; such a
 /// target still offers its provider ID, and a planner that requires the
-/// locator declines rather than guessing one.
+/// locator declines rather than guessing one. The same is true of the
+/// recorded home: it is read off the same row, and a home-requiring
+/// planner that finds none declines instead of borrowing another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ResumeTarget {
     pub(super) provider_id: String,
     pub(super) persistence_locator: Option<String>,
+    /// The admitted harness home the SAME checkpoint recorded beside the
+    /// locator. It is the third coordinate of a DSH offer's complete
+    /// address: a provider that must reopen the retained store compares
+    /// this recorded home against the current admitted home before reading
+    /// anything (design D6, Pass B completion).
+    pub(super) persistence_home: Option<String>,
 }
 
 /// The harness facts the offered root was opened under, read off the same
@@ -484,6 +492,11 @@ pub(super) fn eligible_offer(
                 .and_then(Value::as_str)
                 .filter(|locator| !locator.is_empty())
                 .map(str::to_string),
+            persistence_home: checkpoint
+                .pointer("/transcript/home")
+                .and_then(Value::as_str)
+                .filter(|home| !home.is_empty())
+                .map(str::to_string),
         });
     }
     // Decision 0030's evidence, kept readable (design D8). Only an
@@ -496,9 +509,12 @@ pub(super) fn eligible_offer(
     legacy_offer(events, &seat_effects, &legacy).map(|provider_id| ResumeTarget {
         // The legacy shape's locator IS the session it hands over
         // (decision 0032's codex-thread locator, or the old flat id), so
-        // the two coordinates coincide.
+        // the two coordinates coincide — and no transcript home was ever
+        // recorded, so a home-requiring planner declines rather than
+        // borrowing the current environment's.
         persistence_locator: Some(provider_id.clone()),
         provider_id,
+        persistence_home: None,
     })
 }
 
@@ -767,6 +783,7 @@ pub(super) fn start_context(
             json!({
                 "provider_id": target.provider_id,
                 "persistence_locator": target.persistence_locator,
+                "persistence_home": target.persistence_home,
             }),
         );
     }
@@ -860,9 +877,9 @@ mod tests {
     /// The private context carries the two things a two-coordinate
     /// provider needs and nothing it does not: the harness facts of the
     /// offered root (version and the optional wrapper digest) and the
-    /// owned target's provider ID and persistence locator. With no offer,
-    /// no target and no originating digest travel — only the assessment,
-    /// exactly as before.
+    /// owned target's provider ID, persistence locator and recorded home.
+    /// With no offer, no target and no originating digest travel — only
+    /// the assessment, exactly as before.
     #[test]
     fn the_private_context_carries_the_owned_target_and_originating_digest() {
         let originating = OriginatingRoot {
@@ -873,6 +890,7 @@ mod tests {
         let target = ResumeTarget {
             provider_id: "session-1".into(),
             persistence_locator: Some("sessions/brokkr/seat-1".into()),
+            persistence_home: Some("/home/operator/.dsh".into()),
         };
         let context = start_context(
             json!({"headless-work": {"status": "supported"}}),
@@ -886,6 +904,10 @@ mod tests {
         assert_eq!(
             context["owned_target"]["persistence_locator"],
             "sessions/brokkr/seat-1"
+        );
+        assert_eq!(
+            context["owned_target"]["persistence_home"],
+            "/home/operator/.dsh"
         );
         assert_eq!(
             context["assessment"]["headless-work"]["status"],

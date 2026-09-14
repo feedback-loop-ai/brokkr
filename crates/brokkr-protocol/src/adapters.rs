@@ -1910,6 +1910,22 @@ fn fold_dsh_event(
 /// session-owned directory (`<root>/--<cwd>--/<id>/session.jsonl`).
 const DSH_TRANSCRIPT: &str = "session.jsonl";
 
+/// The existing transcript locator bound (Rust `chars`, not UTF-8 bytes),
+/// repeated here so the DSH planner can validate an OFFERED locator and the
+/// locator it plans before the shared `Transcript::record` clamp can turn
+/// one address into another (design D6; task 8.8(d)).
+const DSH_LOCATOR_LIMIT: usize = 80;
+
+/// Bounded pre-spawn admission IO: one session header line, one stored
+/// session file and one retained-root enumeration each have a finite
+/// DSH-local budget, so a malformed store cannot force an unbounded
+/// allocation before the provider starts (design D6; task 8.8(d)). A
+/// truncated or over-budget boundary refuses the offer rather than
+/// degrading to a zero or a partial maximum.
+const DSH_HEADER_LIMIT: u64 = 4096;
+const DSH_SESSION_FILE_LIMIT: u64 = 64 * 1024 * 1024;
+const DSH_DIRECTORY_ENTRIES: usize = 4096;
+
 /// The seat's own transcript under a per-seat root. NEVER "the newest
 /// file": the root is fresh and belongs to this invocation alone, so no
 /// directory scan can lose a race against a concurrent seat.
@@ -2867,17 +2883,30 @@ const DSH_BARE_SELECTORS: [&str; 11] = [
     "--dump-default-config",
 ];
 
-/// The first control in the seat's remaining argv that decides a session
-/// or a restriction the engine owns, if there is one (proposed decision
-/// 0056 rulings 4 and 6).
-fn dsh_control_conflict(extra: &[String]) -> Option<String> {
-    extra
-        .iter()
-        .find(|part| {
-            let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
-            DSH_VALUE_SELECTORS.contains(&name) || DSH_BARE_SELECTORS.contains(&name)
-        })
-        .cloned()
+/// The first residual argument in the seat's argv after the engine's own
+/// model, effort and single route overlay have been extracted, as a fixed
+/// category. The engine decides which session a seat runs (proposed
+/// decision 0056 ruling 4) and composes every restriction the seat applies
+/// (ruling 6); any residual argument — a value selector, a profile or
+/// settings override, extra positional text, the option terminator, a
+/// joined/clustered spelling, `--from-default-profile` or an unverified
+/// `--verbose` — is refused before any provider work rather than
+/// forwarded. The returned category never echoes the token, its joined
+/// value, a model, an ID or a path (AS3; tasks 8.8(d)/8.10).
+fn dsh_control_conflict(extra: &[String]) -> Option<&'static str> {
+    let part = extra.first()?;
+    let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
+    if DSH_VALUE_SELECTORS.contains(&name) || DSH_BARE_SELECTORS.contains(&name) {
+        Some("a session or restriction control the engine owns")
+    } else if name == "--from-default-profile" || name == "--verbose" {
+        Some("an unverified launcher control")
+    } else if part == "--" {
+        Some("the option terminator")
+    } else if part.starts_with('-') {
+        Some("an unrecognized or joined option")
+    } else {
+        Some("extra positional text")
+    }
 }
 
 /// A DSH session id in the grammar the pinned plugin mints
@@ -2889,11 +2918,22 @@ fn plain_dsh_session_id(id: &str) -> bool {
 
 /// The id a transcript's first line names as a depth-zero session header,
 /// or `None` when the file is absent, unreadable, not JSON, not a session
-/// header, or one a delegated child wrote.
+/// header, or one a delegated child wrote. The first line is read under a
+/// finite budget, so a malformed store cannot force an unbounded
+/// allocation before the provider starts (task 8.8(d)).
 fn dsh_session_header_id(candidate: &std::path::Path) -> Option<String> {
+    dsh_session_header_id_with(candidate, DSH_HEADER_LIMIT)
+}
+
+/// `dsh_session_header_id` over an injected line budget, so the admission
+/// bound is reachable from a test without a 4 KiB file.
+fn dsh_session_header_id_with(candidate: &std::path::Path, budget: u64) -> Option<String> {
     let file = std::fs::File::open(candidate).ok()?;
     let mut header = String::new();
-    std::io::BufReader::new(file).read_line(&mut header).ok()?;
+    std::io::BufReader::new(file)
+        .take(budget)
+        .read_line(&mut header)
+        .ok()?;
     let event = serde_json::from_str::<Value>(&header).ok()?;
     if event.get("type").and_then(Value::as_str) != Some("session") {
         return None;
@@ -2912,42 +2952,101 @@ fn dsh_session_header_id(candidate: &std::path::Path) -> Option<String> {
 /// The one stored depth-zero session file under a retained root whose
 /// header names `expected`, or a refusal. Exactly one candidate is
 /// required: a missing or ambiguous set is unreadable rather than resolved
-/// to a substitute (task 8.8(d)).
+/// to a substitute. Each project/session directory and the selected
+/// `session.jsonl` is canonicalized and required to stay inside the
+/// retained root, and the whole walk is charged against a finite
+/// enumeration budget, so an escaping symlink or an oversized store cannot
+/// redirect or stall admission (task 8.8(d)).
 fn dsh_session_file(root: &std::path::Path, expected: &str) -> Result<std::path::PathBuf, String> {
+    dsh_session_file_with(root, expected, DSH_DIRECTORY_ENTRIES)
+}
+
+/// `dsh_session_file` over an injected enumeration budget, so the finite
+/// bound is reachable from a test with a handful of entries.
+fn dsh_session_file_with(
+    root: &std::path::Path,
+    expected: &str,
+    budget: usize,
+) -> Result<std::path::PathBuf, String> {
+    let root = std::fs::canonicalize(root)
+        .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
     let mut matches = Vec::new();
-    let projects = std::fs::read_dir(root)
-        .map_err(|_| format!("dsh driver: retained root {root:?} is unreadable"))?;
-    for project in projects.flatten() {
-        let Ok(sessions) = std::fs::read_dir(project.path()) else {
+    let mut visited = 0usize;
+    let charge = |visited: &mut usize| -> Result<(), String> {
+        *visited += 1;
+        if *visited > budget {
+            return Err("dsh driver: the retained root exceeds its enumeration budget".to_string());
+        }
+        Ok(())
+    };
+    let projects = std::fs::read_dir(&root)
+        .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
+    for project in projects {
+        let project =
+            project.map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
+        charge(&mut visited)?;
+        let Ok(project_dir) = std::fs::canonicalize(project.path()) else {
             continue;
         };
-        for session in sessions.flatten() {
-            let candidate = session.path().join(DSH_TRANSCRIPT);
+        if !project_dir.starts_with(&root) || !project_dir.is_dir() {
+            continue;
+        }
+        let Ok(sessions) = std::fs::read_dir(&project_dir) else {
+            continue;
+        };
+        for session in sessions {
+            let session =
+                session.map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
+            charge(&mut visited)?;
+            let Ok(session_dir) = std::fs::canonicalize(session.path()) else {
+                continue;
+            };
+            if !session_dir.starts_with(&root) || !session_dir.is_dir() {
+                continue;
+            }
+            let Ok(candidate) = std::fs::canonicalize(session_dir.join(DSH_TRANSCRIPT)) else {
+                continue;
+            };
+            if !candidate.starts_with(&root) || !candidate.is_file() {
+                continue;
+            }
             if dsh_session_header_id(&candidate).as_deref() == Some(expected) {
                 matches.push(candidate);
             }
         }
     }
     match matches.len() {
-        0 => Err(format!(
-            "dsh driver: no stored depth-zero session names {expected:?}"
-        )),
+        0 => Err("dsh driver: no stored depth-zero session names the offered id".to_string()),
         1 => Ok(matches.remove(0)),
-        _ => Err(format!(
-            "dsh driver: more than one stored session names {expected:?}"
-        )),
+        _ => Err("dsh driver: more than one stored session names the offered id".to_string()),
     }
 }
 
 /// The highest sequence number stored in a session file — the owned
 /// pre-followup boundary a warm invocation folds past — or `None` when the
-/// file cannot be read. An unreadable file refuses the offer rather than
-/// guessing a baseline (design D8).
+/// file cannot be read inside the finite admission budget. An unreadable
+/// or over-budget file refuses the offer rather than guessing a baseline;
+/// a truncated boundary is never a zero or a partial-prefix maximum
+/// (design D8; task 8.8(d)).
 fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
-    let text = std::fs::read_to_string(path).ok()?;
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > DSH_SESSION_FILE_LIMIT {
+        return None;
+    }
+    let mut reader = std::io::BufReader::new(file);
     let mut last = 0u64;
-    for line in text.lines() {
-        let Ok(event) = serde_json::from_str::<Value>(line) else {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader
+            .by_ref()
+            .take(DSH_HEADER_LIMIT)
+            .read_line(&mut line)
+            .ok()?;
+        if read == 0 {
+            break;
+        }
+        let Ok(event) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
@@ -2959,9 +3058,15 @@ fn dsh_session_last_seq(path: &std::path::Path) -> Option<u64> {
 
 /// Resolve one owned DSH persistence locator beneath the admitted home.
 /// The locator is a bounded relative path; an absolute path, a `..`
-/// component or a symlink escape is refused, and the resolved directory
-/// must hold exactly one depth-zero session header naming the offered id
-/// (task 8.8(d)).
+/// component, a symlink escape or a locator over the 80-character bound is
+/// refused, and the resolved directory must hold exactly one depth-zero
+/// session header naming the offered id (task 8.8(d)).
+///
+/// The returned root keeps the caller's admitted-home spelling (rather
+/// than the canonical target) so the planned locator can be recomputed
+/// from the same address without a lossy conversion: a symlinked spelling
+/// of the same canonical home is equivalent, and the canonical containment
+/// check is what rejects an escape.
 fn resolve_dsh_root(
     home: &std::path::Path,
     locator: &str,
@@ -2969,6 +3074,9 @@ fn resolve_dsh_root(
 ) -> Result<std::path::PathBuf, String> {
     if locator.is_empty() {
         return Err("dsh driver: the owned target carries no persistence locator".into());
+    }
+    if locator.chars().count() > DSH_LOCATOR_LIMIT {
+        return Err("dsh driver: the owned persistence locator exceeds the admitted bound".into());
     }
     let relative = std::path::Path::new(locator);
     if relative.is_absolute()
@@ -2991,7 +3099,7 @@ fn resolve_dsh_root(
         return Err("dsh driver: the owned persistence locator is not a directory".into());
     }
     dsh_session_file(&resolved, expected)?;
-    Ok(resolved)
+    Ok(home.join(relative))
 }
 
 /// One DSH invocation's settled plan: the argv (minus the prompt), the
@@ -3078,13 +3186,31 @@ fn dsh_launch_with(
     let (model, passthrough) = split_dsh_model(extra)?;
     let (effort, passthrough) = split_effort(&passthrough);
     let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
-    if let Some(conflict) = dsh_control_conflict(&passthrough) {
+    // The inherited selector-only deny-list is not the admission rule:
+    // after the engine's own model, effort and single route overlay are
+    // extracted, EVERY residual argument is refused before any route read,
+    // version probe, composite call or staging. The fixed category never
+    // echoes the token (AS3; tasks 8.8(d)/8.10).
+    if let Some(category) = dsh_control_conflict(&passthrough) {
         return Err(format!(
-            "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
-             selects a session or overrides a restriction the engine owns (proposed decision \
-             0056 rulings 4 and 6); it is refused before any provider work rather than resolved \
-             last-wins by the harness"
+            "refusing to invoke the agent CLI: the seat's arguments carry {category}, which the \
+             engine owns or does not recognize (proposed decision 0056 rulings 4 and 6); it is \
+             refused before any provider work rather than resolved last-wins by the harness"
         ));
+    }
+    // Validate the extracted model and the effort/model relationship before
+    // any provider observation, so a malformed pin refuses on the cold,
+    // offered and disabled paths alike (task 8.8(d)).
+    if let Some(model) = model.as_deref() {
+        parse_dsh_model(model)?;
+    }
+    if effort.is_some() && model.is_none() {
+        return Err(
+            "dsh driver: `--effort` needs a `--model` beside it: the level rides the seat's \
+             default-model selection, which names its provider and model, and this driver does \
+             not read the profile's default back to restate it"
+                .to_string(),
+        );
     }
     let route = route_overlay::claim(input, workdir, model.as_deref(), route_arg.as_deref())?;
     let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
@@ -3163,7 +3289,15 @@ fn dsh_launch_with(
     };
 
     let overlay = dsh_seat_overlay(model.as_deref(), effort.as_deref(), &root, route.as_deref())?;
+    // The planned locator is validated against the same 80-character
+    // bound, before the shared `Transcript::record` clamp can shorten it
+    // into a different address (task 8.8(d)).
     let locator = transcript.locator_under_home(&root)?;
+    if locator.is_empty() || locator.chars().count() > DSH_LOCATOR_LIMIT {
+        return Err(
+            "dsh driver: the planned dsh locator is outside the admitted bound".to_string(),
+        );
+    }
     let mut command = vec![
         bin.to_string(),
         "--profile".into(),
@@ -3198,7 +3332,13 @@ fn dsh_launch_with(
 }
 
 /// The offered root resolved beneath the admitted home, plus the sequence
-/// boundary a warm fold starts after.
+/// boundary a warm fold starts after. The complete owned target is
+/// required: a string provider ID equal to the negotiated ID, a
+/// non-empty persistence locator and the recorded persistence home, all
+/// read off the SAME confirmed checkpoint. The recorded home is
+/// canonicalized and required to equal the current admitted home before
+/// any retained store is read, so two homes holding the identical
+/// ID/locator never redirect the offer (task 8.8(d); design D6).
 fn owned_dsh_root(
     home: &std::path::Path,
     input: &Value,
@@ -3207,18 +3347,30 @@ fn owned_dsh_root(
     if !plain_dsh_session_id(id) {
         return Err("dsh driver: the offered session id is outside the admitted grammar".into());
     }
-    if let Some(provider) = input
+    let provider = input
         .pointer("/resume_context/owned_target/provider_id")
         .and_then(Value::as_str)
-    {
-        if provider != id {
-            return Err("dsh driver: the owned target names a different root".into());
-        }
+        .ok_or_else(|| "dsh driver: the owned target carries no provider id".to_string())?;
+    if provider != id {
+        return Err("dsh driver: the owned target names a different root".into());
     }
     let locator = input
         .pointer("/resume_context/owned_target/persistence_locator")
         .and_then(Value::as_str)
+        .filter(|locator| !locator.is_empty())
         .ok_or_else(|| "dsh driver: the owned target carries no persistence locator".to_string())?;
+    let recorded_home = input
+        .pointer("/resume_context/owned_target/persistence_home")
+        .and_then(Value::as_str)
+        .filter(|home| !home.is_empty())
+        .ok_or_else(|| "dsh driver: the owned target carries no persistence home".to_string())?;
+    let canonical_home = std::fs::canonicalize(home)
+        .map_err(|_| "dsh driver: the admitted dsh home is unreadable".to_string())?;
+    let canonical_recorded = std::fs::canonicalize(recorded_home)
+        .map_err(|_| "dsh driver: the recorded persistence home is unreadable".to_string())?;
+    if canonical_home != canonical_recorded {
+        return Err("dsh driver: the owned target names a different persistence home".into());
+    }
     let root = resolve_dsh_root(home, locator, id)?;
     let file = dsh_session_file(&root, id)?;
     let boundary = dsh_session_last_seq(&file)
@@ -3694,10 +3846,11 @@ fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
         None => (DSH_PROVIDER, pinned),
     };
     if !plain(provider) || !model.split('/').all(plain) {
-        return Err(format!(
-            "dsh driver: model {pinned:?} is not `<id>` or `<provider>/<id>` of plain \
+        return Err(
+            "dsh driver: the pinned model is not `<id>` or `<provider>/<id>` of plain \
              identifiers (the id may carry slashes between plain segments)"
-        ));
+                .to_string(),
+        );
     }
     Ok(DshModel { provider, model })
 }
@@ -3718,9 +3871,16 @@ fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
             let id = parts
                 .next()
                 .ok_or_else(|| "dsh driver: --model needs a model id after it".to_string())?;
+            if id.is_empty() || id.starts_with('-') {
+                return Err("dsh driver: --model needs a model id after it".to_string());
+            }
             if model.replace(id.clone()).is_some() {
                 return Err("dsh driver: --model given twice".to_string());
             }
+        } else if part.starts_with("--model") {
+            // Only the separate `--model <id>` spelling is admitted; a
+            // joined spelling is refused before any provider observation.
+            return Err("dsh driver: --model needs a model id after it".to_string());
         } else {
             passthrough.push(part.clone());
         }
@@ -3749,9 +3909,10 @@ fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
                 return Err("dsh driver: --patch given twice".to_string());
             }
         } else if part.starts_with("--patch") {
-            return Err(format!(
-                "dsh driver: {part:?} is not the one admitted `--patch <overlay>` shape"
-            ));
+            return Err(
+                "dsh driver: only the one separate `--patch <overlay>` spelling is admitted"
+                    .to_string(),
+            );
         } else {
             passthrough.push(part.clone());
         }
@@ -3913,13 +4074,13 @@ fn dsh_seat_overlay_in(
             rows.push_str(&dsh_settings_row(settings.path())?);
             Some(settings)
         }
-        (None, Some(effort)) => {
-            return Err(format!(
-                "dsh driver: `--effort {effort}` needs a `--model` beside it: the \
-                 level rides the seat's default-model selection, which names its \
-                 provider and model, and this driver does not read the profile's \
-                 default back to restate it"
-            ));
+        (None, Some(_)) => {
+            return Err(
+                "dsh driver: `--effort` needs a `--model` beside it: the level rides the \
+                 seat's default-model selection, which names its provider and model, and this \
+                 driver does not read the profile's default back to restate it"
+                    .to_string(),
+            );
         }
         _ => None,
     };
@@ -3962,9 +4123,7 @@ fn dsh_effort_settings_in(
 ) -> Result<tempfile::NamedTempFile, String> {
     let DshModel { provider, model } = parse_dsh_model(model)?;
     let Some(effort) = effort_token(effort) else {
-        return Err(format!(
-            "dsh driver: effort {effort:?} is not one bounded word"
-        ));
+        return Err("dsh driver: the pinned effort is not one bounded word".to_string());
     };
     let mut file = io_context(create(), "could not stage the dsh seat settings")?;
     let body = format!(

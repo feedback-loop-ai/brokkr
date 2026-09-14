@@ -1191,8 +1191,10 @@ fn a_composed_bundles_manifest_is_pinned() {
         // is adapter data, so it rides the declaration digest the manifest
         // pins — which is exactly what makes a declaration edit spawn cold.
         // Its ruling 10 moves it again through the SDD smith's charter,
-        // which every phase of this route resolves.
-        "81e1e76eed90176479f20b449c7b9ac482bbb63bdc8fb23f6f48ac4ebed814d6",
+        // which every phase of this route resolves. The value agrees with
+        // the `recipes/triage` pin in `tests/witness_digests.rs`; the two
+        // had drifted apart and this restores the measured value.
+        "602cae2b53bfc1ef6b0806c6f286b088e1f92fb43d200b6ef51723a6cb943f1c",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
