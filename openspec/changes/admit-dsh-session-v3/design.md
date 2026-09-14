@@ -105,18 +105,37 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   never consults, and a fourth file that adds the member to the user
   message alone refuses, as the negative control. D12 and task 2.10
   carry the same concrete rows; no rule, ruling or cell moved.
+- **The change at the design council's third sitting, this one.** The
+  clarify judge cleared the ninth sitting's head on its second visit
+  (`8923558d`), so this sitting is the council's, not a return: it
+  adopts the reconciliation as committed and adds nothing to its
+  direction. Both positions of this council pass and agree that the
+  growth rule, S6 and every dependent summary now read the operator's
+  way, with no residual demand; this sitting re-verified that by the
+  grep and the two scenario reads the simplicity position names
+  (validation record). The council performed no read (d): the
+  commission that opened this run rules the installed-writer read
+  stands and is not repeated, so no seat attempted it, and U4, D2's
+  reach table and D13 record the cells as unread with the read carried
+  to a later change, which the operator's ruling calls complete. The
+  robustness position's two implementation asks are adopted, one on a
+  corrected ground: the version guard for the six version-zero-only
+  names is placed in the row match before any payload member is read
+  (D4), with a packed-parse-hostile row as the falsifying case (D12;
+  the delta's fragment-rows scenario; task 2.4), and the implementing
+  seat self-checks each task's added branches before the host-only
+  coverage gate (D12; task 8.3). The one clause the simplicity position
+  asked to tighten, the proposal's summary of the `assistant/message`
+  cell, now reads forbidden.
 - **The recipe's return budget is spent.** `recipes/triage/policy.json`
   rule `DESIGN-UPSTREAM-EXHAUSTED` parks a run whose design reports
-  `upstream` after three specification visits; specification has now sat
-  four times. This design cannot return the change; it designs to the
+  `upstream` after three specification visits; specification has now sat nine times. This design cannot return the change; it designs to the
   delta and reports `drafted`.
-- **This sitting's box** is the specify seat's box: HOME `/runtime/home`,
-  user `runner`, no `dsh`, `volta`, `npm`, `cargo` or `~/.dsh`;
-  `/home/vyanakiev` holds only `source`; no npm cache and no network (the
-  registry host does not resolve), so neither the installed packages nor
-  a digest-matched copy of them is reachable by any route. It cannot
-  re-read the writer or run Cargo. OpenSpec 1.12.0, Node and Git are
-  present.
+- **This sitting's box** has the specify seat's shape: HOME
+  `/runtime/home`, user `runner`, no `dsh`, `volta`, `npm`, `cargo` or
+  `~/.dsh`; `/home/vyanakiev` holds only `source`. It did not attempt the
+  writer read, which the commission rules stands and is not repeated, and
+  it cannot run Cargo. OpenSpec 1.12.0, Node, Python and Git are present.
 - **Constraints carried unchanged:** frozen `contracts/`, `policy/`,
   `reference/`, `fixtures/`; the global `dsh` install and its sessions are
   read-only to every seat and never become test inputs (decision 0032); a
@@ -136,6 +155,9 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   record.
 - Reconcile both positions claim by claim on evidence, and keep every
   dependent artifact coherent with the specification.
+- Record what this council sitting did with read (d), and place the one
+  implementation guard the council found underspecified where the row
+  match reaches it before any payload member is read.
 
 **Non-Goals:**
 - No replay of `surfaceOp`, no reconstruction of the model-visible surface,
@@ -147,6 +169,8 @@ See proposal.md — Why for the motivation. The facts that shape this design:
   a seat, no committed capture of the install, no re-measurement here.
 - No association across a seeded or unattested version-three prefix until
   the seed path is read.
+- No repetition of the installed-writer read at this sitting, and no
+  inference of an unread cell.
 
 ## Decisions
 
@@ -159,13 +183,28 @@ See proposal.md — Why for the motivation. The facts that shape this design:
 | Simplicity §3.2: the version-three codec admits only `type`, `seq`, `time`, `data` at the top level; the timed stream is nested under `data.stream`. | **Adopt as corrected.** The base check at `worker.cjs:9824` is the four members; the same validation pass at `:9824-9930`, which simplicity §3.4 cites, admits and validates the conditional top-level members `surfaceOp` and `sourceEventSeqs` per type (E4). "Only" overstated the base check as the whole envelope; E3 now records the base plus the conditional members, and the conclusion stands that a top-level packed row cannot be written, because it lacks the base `seq` and `time` and carries members no type permits (E3, D6; CLARIFY-279-5). |
 | Simplicity: `assistant/attempt` is quiet. | **Reject; counted omission stands.** An attempt carries model output the writer never surfaced. The reader's existing signal for "recognized envelope, content not projected" is the counted `DshRow::Omission` (`transcript.rs:2245`), and its count is the only trace an operator gets that model text exists which the read does not show. Quiet would erase that trace. Simplicity's §8 accepts this outcome. |
 | Simplicity §6.9: apply the dedicated-tool association under version three everywhere and accept a cosmetic duplicate in the seeded case. | **Adopt for `isSeeded: false`; reject for every other header value.** The identities the rule keys on are carried on the version-three rows (D13), and a non-seeded session has no prefix from another session, so the version-zero rule applies there on measured fields. A seeded prefix is the one way foreign identities enter a file and its path was not read (U2); the delta withholds the pass there, which shows every embedded copy and hides nothing. The fleet's driver never seeds a session, so the gate is open for every transcript it writes. |
-| Simplicity §3.4: `assistant/message` forbids `sourceEventSeqs`; the codec requires unique earlier source sequences and replacement endpoints below the event's `seq`. | **Adopt, as far as it reaches.** The reader's earlier-than-owning citation rule matches the writer's validator; under version three a valid citation suppresses nothing because no chunk row exists (D7). Both members are top-level members of the event row, as the reader has always read `sourceEventSeqs` and as the delta's scenarios place `surfaceOp`. The report records one prohibition and the validation of a present member; it records no permission of `sourceEventSeqs` on any other type, and the previous sitting's "optional on the other surface-eligible types" was an inference from that one prohibition, not a measurement. E4 now separates the measured cells from that inference and records the other 55 types as unread (U4); no reader rule rests on the difference (CLARIFY-279-5, second visit). The third visit asked for the unread cells themselves; no seat of a specification sitting can read them, so the proposal refuses to carry them as a requirement and assigns the read to the council's next sitting, where the seat that reaches the writer completes E4 by measurement (proposal S6; U4, D13; CLARIFY-279-5, third visit). At the eighth sitting the operator ruled that leaving those cells unread with the read named is complete; the growth rule and the envelope requirement no longer demand them, and this row's adoption stands (CLARIFY-279-5, fourth visit). |
+| Simplicity §3.4: `assistant/message` forbids `sourceEventSeqs`; the codec requires unique earlier source sequences and replacement endpoints below the event's `seq`. | **Adopt, as far as it reaches.** The reader's earlier-than-owning citation rule matches the writer's validator; under version three a valid citation suppresses nothing because no chunk row exists (D7). Both members are top-level members of the event row, as the reader has always read `sourceEventSeqs` and as the delta's scenarios place `surfaceOp`. The report records one prohibition and the validation of a present member; it records no permission of `sourceEventSeqs` on any other type, and the previous sitting's "optional on the other surface-eligible types" was an inference from that one prohibition, not a measurement. E4 now separates the measured cells from that inference and records the other 55 types as unread (U4); no reader rule rests on the difference (CLARIFY-279-5, second visit). The third visit asked for the unread cells themselves; no seat of a specification sitting can read them, so the proposal refuses to carry them as a requirement and assigns the read to the council's next sitting, where the seat that reaches the writer completes E4 by measurement (proposal S6; U4, D13; CLARIFY-279-5, third visit). At the eighth sitting the operator ruled that leaving those cells unread with the read named is complete; the growth rule and the envelope requirement no longer demand them, and this row's adoption stands (CLARIFY-279-5, fourth visit). At the council's third sitting no seat performed the read, so the cells stay unread (the third-sitting rows below; U4, D13). |
 | Simplicity §3.7: a version-three `user/message` carries no `turn`/`step`, so its positions are `None` and association still works. | **Adopt the measurement, correct the inference.** The writer omits the fields (E5, corroborated by the key histogram), but the shipped message arm reads `data.turn` and `data.step` for both roles (`transcript.rs:2427-2428`) and the association pass has no role exception (`:2142-2173`), so a supplied pair would let a crafted row own or lose an embedded copy. Under `Three` the arm reads no position from a `user/message` (D4; CLARIFY-279-6). |
 | Robustness §1: reach is a property of an operation, not of a seat; a third shape exists (binary resolvable, source unreadable). | **Adopt.** D2's reach table carries the shape, and the decision's ruling 1 says reach is performed by the reading seat at the file it cites and is never inherited (D11). |
 | Robustness §2: a payload refusal renders the same string as a never-admitted version; surface the distinction. | **Moot.** No payload refusal exists in the revised delta; `unsupported-format` under version three arises only from the version-zero causes, an invalid citation or packed encoding or a required unknown without the marker (D10). |
 | Robustness §3: the tool-call-only synthetic session is a wiring proof and should say so. | **Superseded.** The delta's located scenario projects a full session end to end; no separate wiring proof remains (D12). |
 | Both positions: one projector, a vocabulary per version, no registry. | **Adopt** (D4). |
 | Simplicity: the six answers live in `design.md` and the decision, with no separate evidence document. | **Adopt** (D5). The rulings themselves live in proposal S5 and are cited, not restated (D11). |
+
+**The council's third sitting.** The rows above reconcile the council's
+first two sittings. The rows below reconcile the two positions written
+against HEAD `5704acf`, after the operator's ruling and the ninth
+specification sitting.
+
+| Position / claim | Resolution and evidence |
+|---|---|
+| Both positions: the growth-rule/S6 contradiction is resolved with no residual trace across the four artifacts. | **Adopt, verified.** The owning rule states what a joining change's reads established and leaves each unreached part refused, withheld or unread with its read named; the envelope paragraph states no permission the read did not record; every surviving occurrence of "every row that carries them" or "inventory" in the change is past-tense narration of the repaired defect (proposal Why, S2, S6, S8; this Context and U4) or the sentence that the requirement demands none, and the unread-cell scenario's fourth file is the mechanical guard against the demand returning (simplicity risk 2). Nothing is reopened. |
+| Robustness §1: the version guard for the demoted packed names must run before any packed-envelope field access rather than override the decoder's result, with one packed-parse-hostile case. | **Adopt, on a corrected ground.** The exposure is not a panic: `dsh_packed` (`transcript.rs:2581-2660`) reads every member through `Option`-checked accessors and returns `DshRow::Refused` on any shape violation. It is a wrong outcome: `project_dsh` refuses on `Refused` whatever the marker (`:2033-2036`) and on `Unrecognized` only without `ignorable: true` (`:2016-2024`). An implementation that decoded first and overrode the result under `Three` would therefore refuse a hostile `text-chunks` row that carries the marker, against the delta's rule that such a row is a required unknown the marker lifts. D4 fixes the placement, D12 and the delta's fragment-rows scenario carry the hostile row beside its version-zero contrast, and task 2.4 carries both. The chunk arm (`:2494-2551`) returns no `Refused`, so its misplacement would cost nothing observable; the same structural guard covers it at no extra cost. |
+| Robustness §2: the implementing seat should walk each task's added branches against its Verify bullet before relying on the host-only coverage gate. | **Adopt as process.** Recorded in D12's gates paragraph and task 8.3; it costs a read-through and turns the external gate into confirmation. No design element changes. |
+| Simplicity: the smallest design is already in the tree; the design phase should add no artifact, type, field, vocabulary, scenario class, read or gate. | **Adopt for the design's shape.** This sitting adds no element to D3, D4, D8 or D11 and no scenario class; the projector remains one enum, one helper, one scan change, one dispatch argument, one second list and one association condition. The hostile row is the one addition simplicity's item 11 would cut, and it is kept because it meets simplicity's own test: it fails an implementation the existing fragment-rows scenario passes. |
+| Simplicity: cut the ~55-cell inventory, inferred cells, any writer re-read and any admission gate on read (d). | **Adopt.** No cell was inferred or read at this sitting; the council performed no read (d) because the commission rules the installed-writer read stands and is not repeated (D2 reach table, U4, D13); the change is complete without it under the operator's ruling. |
+| Simplicity open question: tighten the proposal's summary of the `assistant/message` `sourceEventSeqs` cell from "for `assistant/message` only" to forbidden. | **Adopt.** The proposal's What Changes bullet now states the cell as forbidden, the one type whose permission the read recorded, and the other types as unread; it matches E4 and changes no outcome. |
+| Simplicity risk 3: the settled `assistant/attempt` and seed-gate dispositions stand. | **Adopt; settled.** The rows above record the reasons; the commission forbids reopening them. |
 
 ### D2 — Evidence: what the run read, from where, and what it did not reach
 
@@ -176,11 +215,12 @@ across this run's seats:
 
 | Seat | `which dsh` | Read the source tree | Box |
 |---|---|---|---|
-| specify, three sittings; design chief, `c1d57e9` and this sitting | not found | no | HOME `/runtime/home`, user `runner`; no `volta`, `npm`, `cargo` or `~/.dsh`; `/home/vyanakiev` holds only `source` |
+| specify, three sittings; design chief, `c1d57e9` and `f34279e` | not found | no | HOME `/runtime/home`, user `runner`; no `volta`, `npm`, `cargo` or `~/.dsh`; `/home/vyanakiev` holds only `source` |
 | specify, fourth to eighth sittings | not found | no | the same; from the seventh sitting also no npm cache and no network route to the registry, so no digest-matched copy of the packages either |
 | design robustness, first sitting | not found | no | the same |
-| design robustness, this sitting | resolved `/home/vyanakiev/.volta/bin/dsh` | no: `test -r` on `dsh-session/lib/types/types.js` failed and `find` over the install root was refused | the third shape |
-| design simplicity, both sittings | resolved; `dsh --version` printed `0.1.5-rc.1` | yes; digests and line citations taken; every access a read | the install root under `/home/vyanakiev/.volta/tools/image/packages/@deepseek-ai/dsh/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`, packages at 0.1.5-rc.2 |
+| design robustness, second sitting | resolved `/home/vyanakiev/.volta/bin/dsh` | no: `test -r` on `dsh-session/lib/types/types.js` failed and `find` over the install root was refused | the third shape |
+| design simplicity, first and second sittings | resolved; `dsh --version` printed `0.1.5-rc.1` | yes; digests and line citations taken; every access a read | the install root under `/home/vyanakiev/.volta/tools/image/packages/@deepseek-ai/dsh/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`, packages at 0.1.5-rc.2 |
+| design council, third sitting (2026-09-14): chief, robustness, simplicity | chief: not found; the positions record no resolution | no: no seat attempted a read, because the commission that opened this run rules the installed-writer read stands and is not repeated | chief in the specify seat's box shape; read (d) not performed (U4, D13) |
 
 **Ruling.** Reach is an operation the reading seat performs at the moment
 of the read, at the granularity of the file it cites. A resolved binary is
@@ -279,9 +319,10 @@ simplicity seat's, into the 0.1.5-rc.2 packages above):
   and `tool/result` and forbidden on `tool/call`, measured;
   `sourceEventSeqs`, forbidden on `assistant/message` by measurement and
   unread on `user/message`, `tool/result` and `tool/call`. The unread
-  cells, here and on the other 52 types, are completed by read (d) at the
-  council's next sitting or stay unread; they are not inferred (U4;
-  CLARIFY-279-5, third visit).
+  cells, here and on the other 52 types, were to be completed by read (d)
+  at the council's next sitting or stay unread; that sitting performed no
+  read (U4), so they stay unread and are not inferred (CLARIFY-279-5,
+  third visit).
 - **E5 The message and block definitions.** `Message` is `{id, role,
   content, source}` (`dsh-llm/lib/types/message.d.ts:120-153`); the block
   union is `text`, `reasoning`, `image`, `tool-call`, `tool-result` and
@@ -340,7 +381,16 @@ simplicity seat's, into the 0.1.5-rc.2 packages above):
   now say so instead of demanding a record of the members on every row
   that carries them, and the unread-cell scenario (D12) falsifies the
   closure across the quiet, counted-omission and required-unknown
-  classes (proposal S2, S6; CLARIFY-279-5, fourth visit).
+  classes (proposal S2, S6; CLARIFY-279-5, fourth visit). **Outcome at
+  the assigned sitting.** The council's next sitting is this one, the
+  design's third, and no seat performed read (d): the commission that
+  opened this run rules the installed-writer read stands and is not to
+  be repeated, so no council seat attempted it (reach table). The 55
+  cells stay unread, which the operator's ruling makes a complete
+  outcome rather than a pending one, and the read is carried forward
+  unchanged, cited by the same files and lines, as read (d) of D13 for
+  a later change beside reads (b) and (c). No rule, scenario, task or
+  line of the implementation moves with it.
 
 **Corroboration, after the writer.** The simplicity seat's type-only,
 content-free histogram over the `session.v3.jsonl` files under
@@ -477,7 +527,7 @@ Under `Three`:
 | `user/message`, `assistant/message`, `tool/call`, `tool/result` | the existing arms, with one version condition | The envelopes and block definitions carry every field the arms read (D13). The `user/message` definition declares no `turn` or `step`, so under `Three` the shared message arm reads neither from a `user/message`, whatever its `data` carries: the two `Position::parse` reads at `:2427-2428` are taken only for `assistant/message` or under `Zero`. The shipped arm reads both for both roles, so "unchanged" would not keep the delta's promise (CLARIFY-279-6). `assistant/message` and `tool/result` read `data.message`, `data.turn` and `data.step` as today; `tool/call` reads `callId`, `name`, `arguments`, `turn` and `step`. `dsh_message_blocks` (`:2278`) is unchanged: a `file` block falls to its unrecognized-block branch, keeps its siblings and counts the row once; `interrupted`, `stream`, `usage`, `error`, `meta`, `id` and `source` are never read. `dsh_citations` (`:2342`) runs on the three surface kinds as today. |
 | `assistant/attempt` | `DshRow::Omission` | Counted, no content, read available, whatever the payload or marker (D6). |
 | the 51 quiet names | `DshRow::Quiet` | `dsh_quiet_event(kind, version)` matching on `Three` (below). |
-| `assistant/chunk`, `text-chunks`, `reasoning-chunks`, `tool-call-chunks`, `tool/code-dispatch`, `tool/code-dispatch-start` | `DshRow::Unrecognized` | The ignorable rule applies as to any unknown; the row is never decoded by the fragment or packed path (E3, E6). |
+| `assistant/chunk`, `text-chunks`, `reasoning-chunks`, `tool-call-chunks`, `tool/code-dispatch`, `tool/code-dispatch-start` | `DshRow::Unrecognized` | The ignorable rule applies as to any unknown; the row is never decoded by the fragment or packed path (E3, E6). The guard is structural: the match is on the kind and the version together, so under `Three` these six names reach `Unrecognized` from that match alone, before any `data` member is read, and the chunk arm (`:2494`) and `dsh_packed` (`:2581`) are reachable only under `Zero`. Alternative rejected: decode first and override the result under `Three`. `dsh_packed` returns `Refused` on any shape violation, and `project_dsh` refuses on `Refused` whatever the marker (`:2033-2036`), so a `text-chunks` row that is not a valid packed encoding would refuse the read under version three even with `ignorable: true`, against the delta's rule that such a row is a required unknown the marker lifts; the decoder has no unguarded access, so the misplacement costs a wrong outcome, not a panic (D1, robustness §1 at the third sitting). |
 | any other name | `DshRow::Unrecognized` | Including a later `session` row, unchanged. |
 
 Under `Zero` the eight version-three names (`assistant/attempt`,
@@ -538,10 +588,10 @@ are D2's; the specification consequences are proposal S3's.
 
 | # | Question | Measured answer and evidence | Reader consequence | Unmeasured |
 |---|---|---|---|---|
-| 1 | Record types and shapes the v3 writer emits | `SESSION_FORMAT_VERSION = 3` (`types.js:54`); catalogue `currentVersion: 3`, codecs `v0..v3`, lossless migrations `v0→v1→v2→v3` (`dsh-session-format-catalog/lib/index.js:33-46`); the vocabulary is the 56-name generated set (E1); payload envelopes are `SessionEventMap` (`types.d.ts:309-338`): content in `data` for `user/message`, `data.message` for `assistant/message` and `tool/result`, `callId`, `name` and `arguments` on `tool/call`; the physical envelope is the base `type`, `seq`, `time`, `data` on every row plus the conditional top-level `surfaceOp` and `sourceEventSeqs`, with E4's per-type table: measured for `surfaceOp` on every type and for `sourceEventSeqs` on `assistant/message`, unread for `sourceEventSeqs` elsewhere (E3, E4, U4); the message and block definitions are E5 and map onto the parser (D13); surface-eligible types are exactly `system/message`, `user/message`, `assistant/message`, `tool/result` (`types.d.ts:413`), every other type log-only (`surface.d.ts:52-64`). | Per-version vocabulary (D4); dispositions in D8; the four content kinds project through the existing arms; `file` is a counted unrecognized block. | The permission of `sourceEventSeqs` on the 55 types other than `assistant/message` (U4, read (d) at the council's next sitting); nothing the projection depends on. |
+| 1 | Record types and shapes the v3 writer emits | `SESSION_FORMAT_VERSION = 3` (`types.js:54`); catalogue `currentVersion: 3`, codecs `v0..v3`, lossless migrations `v0→v1→v2→v3` (`dsh-session-format-catalog/lib/index.js:33-46`); the vocabulary is the 56-name generated set (E1); payload envelopes are `SessionEventMap` (`types.d.ts:309-338`): content in `data` for `user/message`, `data.message` for `assistant/message` and `tool/result`, `callId`, `name` and `arguments` on `tool/call`; the physical envelope is the base `type`, `seq`, `time`, `data` on every row plus the conditional top-level `surfaceOp` and `sourceEventSeqs`, with E4's per-type table: measured for `surfaceOp` on every type and for `sourceEventSeqs` on `assistant/message`, unread for `sourceEventSeqs` elsewhere (E3, E4, U4); the message and block definitions are E5 and map onto the parser (D13); surface-eligible types are exactly `system/message`, `user/message`, `assistant/message`, `tool/result` (`types.d.ts:413`), every other type log-only (`surface.d.ts:52-64`). | Per-version vocabulary (D4); dispositions in D8; the four content kinds project through the existing arms; `file` is a counted unrecognized block. | The permission of `sourceEventSeqs` on the 55 types other than `assistant/message` (U4; read (d), not performed at the council and named for a later change); nothing the projection depends on. |
 | 2 | `assistant/chunk` absent from v3 | Removed, not renamed and not conditional. It is outside the 56-name catalogue (E1); the codec treats it as opaque unknown (E6) and cannot write a top-level packed row (E3). The v1→v2 package is the assistant-stream migration; in v3 the timed stream is embedded: `assistant/message` carries `message`, `stream`, optional `usage` and `interrupted?: true` (`types.d.ts:309-317`); `assistant/attempt` carries a stream with no surface message (`types.d.ts:323-327`); "a turn cancelled mid-stream finalizes its delivered text/reasoning prefix as this event with `interrupted: true`" (`types.d.ts:303-307`). | Whole messages only under version three; the fragment rule's text stands and has nothing to concatenate; the reader assembles nothing under either version. A finalized message, interrupted or not, projects as one turn with no marker. `stream`, `usage` and `interrupted` are never expanded. `assistant/attempt` is a counted omission. `assistant/chunk` and the packed rows are required unknowns under version three (D6). | Nothing for the disposition. |
 | 3 | `isSeeded` new in the header | A required v3 header boolean (E2) meaning the session contains a fork-inherited event prefix (`types.d.ts:72-76`); the prefix length is `inheritedEventCount` session state (`types.d.ts:105-109`, `:139`), not header metadata; the cut is the `session/end-seed` marker and the codec enforces their agreement (E7); delegation depth is a separate field (`types.d.ts:82-87`). Ownership is `type: session` plus depth, and the reader's header admission reads no other field. | Inert for ownership, depth, admission, classification and counts; pinned over true, false, string, object, null and absent under both versions; no provenance or delegation claim rests on it. Under version three it gates the association pass: `Some(false)` runs it, anything else withholds it (D4, D7). | Whether inherited rows keep their originating `seq`, `turn`, `step` and call identities (U2); the gate confines that gap to seeded and unattested files. |
-| 4 | `surfaceOp` and `sourceEventSeqs` rise to about 21% of rows | `surfaceOp` is `'append' \| {op: 'replace', startSeq, endSeq}`, required on the four surface types and forbidden elsewhere; `assistant/message` forbids `sourceEventSeqs`; the codec validates unique earlier sources and replacement endpoints below the event's `seq` (E4). `sourceEventSeqs` is individual non-negative integers plus inclusive `[start, end]` pairs, strictly increasing (`seq-ranges.js`, byte-identical to 0.1.2-rc.1): the grammar `dsh_citations` (`:2342`) accepts. The rise is the writer placing every surface message on the surface with an explicit marker. The writer's contract: the surface "is the wrong source for a human transcript — a landed replacement would erase conversation the user already saw. Append-origin events are that transcript's durable source material; replacement copies stay model-only" (`surface.d.ts:27-33`). | The reader never parses `surfaceOp`, never removes, reorders or replaces a row on it and never replays the surface: measured, and 0055 ruling 3's audit rule. A replace-marked message projects as a message at its recorded position, as version zero's compaction message does; a replace-marked `system/message` is quiet. Citations validate identically and suppress nothing under version three (D7). | What a persisted replacement copy carries (U1), and whether any type but `assistant/message` permits `sourceEventSeqs` (U4, read (d) at the council's next sitting); no rule rests on either. |
+| 4 | `surfaceOp` and `sourceEventSeqs` rise to about 21% of rows | `surfaceOp` is `'append' \| {op: 'replace', startSeq, endSeq}`, required on the four surface types and forbidden elsewhere; `assistant/message` forbids `sourceEventSeqs`; the codec validates unique earlier sources and replacement endpoints below the event's `seq` (E4). `sourceEventSeqs` is individual non-negative integers plus inclusive `[start, end]` pairs, strictly increasing (`seq-ranges.js`, byte-identical to 0.1.2-rc.1): the grammar `dsh_citations` (`:2342`) accepts. The rise is the writer placing every surface message on the surface with an explicit marker. The writer's contract: the surface "is the wrong source for a human transcript — a landed replacement would erase conversation the user already saw. Append-origin events are that transcript's durable source material; replacement copies stay model-only" (`surface.d.ts:27-33`). | The reader never parses `surfaceOp`, never removes, reorders or replaces a row on it and never replays the surface: measured, and 0055 ruling 3's audit rule. A replace-marked message projects as a message at its recorded position, as version zero's compaction message does; a replace-marked `system/message` is quiet. Citations validate identically and suppress nothing under version three (D7). | What a persisted replacement copy carries (U1), and whether any type but `assistant/message` permits `sourceEventSeqs` (U4; read (d), not performed at the council and named for a later change); no rule rests on either. |
 | 5 | `system/message`, `todo/write`, `turn/end` in v3 and not in version zero | `system/message` is the rendered system prompt as surface node 0 (`types.d.ts:288-298`; the v2→v3 migration's `emitSystem`, `dsh-session-format-v2-to-v3/lib/index.js:780-810`), the successor of version zero's `request/context`, which is quiet (`transcript.rs:1787`). `todo/write` and `turn/end` are in both catalogues, quiet today (`:1803`, `:1810`), and log-only under v3. | All three quiet under version three, whatever their payload or `surfaceOp`; `system/message` under version zero stays a required unknown because the 0.1.2-rc.1 catalogue does not contain it. A displayed `system` turn would be new command and TUI capability, not asked for. | Nothing the quiet disposition depends on: quiet reads no payload. |
 | 6 | Is version 3 a superset of version zero? | **No as a vocabulary; yes as a payload.** Versions are physical generations joined by migrations: v3 removes `assistant/chunk` and the two `tool/code-dispatch*` names, adds eight names, moves the prompt from `request/context` to `system/message` and the stream from chunk rows into the message (E1, E3, E6). The event map keeps the envelope nesting the reader reads for the four content kinds (Q1), and E5 reads the block definitions as field-compatible with the version-zero parser (D13). | Admit `3` beside `0` with a per-version vocabulary and one projector; every version-zero meaning is preserved for version-zero files and every projected version-three meaning is measured. | Nothing; if a later writer moves a block's meaning, its admission adds a per-version payload projection rather than widening this one. |
 
@@ -823,7 +873,15 @@ delta scenario it is named after. In `crates/brokkr-view/src/transcript/tests.rs
   under a version-zero header associate whatever `isSeeded` carries.
 - **Fragment rows under version three.** `assistant/chunk` and each of
   the three packed rows after a `user/message` refuse with one count; with
-  `ignorable: true` each projects the message with one count.
+  `ignorable: true` each projects the message with one count. A fifth
+  file whose `text-chunks` row is not a valid packed encoding, with no
+  `time0` member and `texts` a string, behaves exactly like the four: it
+  refuses with one count without the marker and projects the message
+  with one count with it; the same hostile row under a version-zero
+  header refuses with one count whether or not it carries the marker, as
+  the existing packed-encoding tests already pin. The pair fails an
+  implementation that decodes the row before it consults the version
+  (D4).
 - **Time exactness.** A `3e0` header with `tool/call` rows at `1e-400`,
   `1e3`, `1000.0` and `-0.0` projects stamps `""`, `"1000"`, `"1000"`,
   `"0"`, the two nonzero integers on their parsed value alone; the
@@ -888,8 +946,12 @@ Gates before the activation commit: `openspec validate --all --strict`,
 --all-features --locked -- -D warnings`, `cargo test --workspace
 --all-features --locked`, both bundle compiles. Exact coverage runs
 outside the box and is recorded pending until its result exists; the gate
-is not lowered. Remote CI, host corroboration, publication and closure are
-the controller's.
+is not lowered. Before a task is marked done, the implementing seat walks
+the branches that task added against the task's own Verify bullet, so the
+coverage gate, which a later session reads outside the box, confirms a
+check already made rather than discovering an uncovered branch first
+(robustness §2 at the third sitting; task 8.3). Remote CI, host
+corroboration, publication and closure are the controller's.
 
 ### D13 — What was read, and what a later change starts from
 
@@ -917,16 +979,20 @@ persisted replacement copy carries (U1), which gates no rule and may
 warrant a marker-aware presentation; (c) the seed and fork path and
 inherited identities (U2), which lifts the association gate.
 
-**Read (d), for this run's design council at its next sitting:** the
-declaring type and per-type validation branch that fix the permission of
-`sourceEventSeqs` on every type but `assistant/message` (U4), which gates
-no rule and completes E4's table. The council seat that reaches the
-writer performs it, cited by package, file, digest and line, and the
-chief enters each of the 55 cells as permitted, required or forbidden by
-measurement; a council whose seats all report no reach records that in
-D2's reach table and leaves the cells unread. Neither outcome changes a
-delta scenario, a task or a line of the implementation, and the design
-cannot return the change on it (Context).
+**Read (d), assigned to this run's design council, not performed there,
+and so for a later change:** the declaring type and per-type validation
+branch that fix the permission of `sourceEventSeqs` on every type but
+`assistant/message` (U4), which gates no rule and completes E4's table.
+The council's next sitting, this design's third, performed no read: the
+commission that opened it rules the installed-writer read stands and is
+not repeated, so no seat attempted the files, and D2's reach table
+records that. The cells stay unread, a complete outcome under the
+operator's ruling; a later change that reaches the writer performs the
+read, cited by package, file, digest and line, and enters each of the 55
+cells as permitted, required or forbidden by measurement. Neither
+outcome changes a delta scenario, a task or a line of the
+implementation, and the design cannot return the change on it
+(Context).
 
 **Scenarios a later change writes:** seeded scenarios in which inherited
 and new embedded and dedicated calls and results suppress a genuine
@@ -978,6 +1044,16 @@ tests. Nothing else in this design moves.
   no writer of this fleet emits either shape, because JSON serialisation
   writes a zero as `0` and never repeats or escapes an ASCII member name;
   every affected token is pinned by a regression in D12.
+- [Read (d) was assigned to this council and not performed, so the 55
+  `sourceEventSeqs` cells of E4 stay unread] → No reader rule consults
+  them, and the writer-validity and unread-cell scenarios fail if one
+  starts to; the read is named by file and line for a later change; the
+  operator's ruling makes the unread state complete, not pending, so
+  nothing waits on it.
+- [The version guard for the six version-zero-only names could be
+  written as a decode-then-override] → D4 places the guard in the row
+  match before any payload read, and the hostile-row pair in D12 fails
+  the other placement because `Refused` ignores the marker.
 - [The decision number is contested by two other branches] → Re-read at
   the PR; the file and its README row are written by the implementation
   seat, not reserved here.
@@ -989,7 +1065,8 @@ tests. Nothing else in this design moves.
    second quiet list with its relation test; the association gate; the
    projector tests; the discovery tests; the CLI and TUI end-to-end tests;
    the decision and its README row; guides only where a line says "version
-   zero only" (none found at this sitting).
+   zero only" (none found at this sitting). Task 2.4 carries D4's guard
+   placement and the hostile-row pair; task 8.3 carries D12's self-check.
 2. Implementation in `crates/brokkr-view/src/transcript.rs` and the four
    test suites; no `ui.rs`, protocol, contract, policy, reference or
    fixture change.
@@ -1111,3 +1188,42 @@ the finding derived from the eighth sitting's wording and the outcome
 the fourth file now pins. The council's next sitting performs read (d)
 if any of its seats reaches the writer, re-verifies this design against
 the delta and the tree, and owns it from there.
+
+**Revision at the design council's third sitting (2026-09-14).** Read the
+dialect through `openspec instructions design --change
+admit-dsh-session-v3 --json`; it declares only `design.md`, and no
+workflow runner was invoked. Read the proposal, both deltas, the tasks and
+both council positions completely, and reconciled every claim of the two
+current positions in D1. The clarify judge had cleared the ninth sitting's
+head (`8923558d`), so this sitting is not a return and reports `drafted`;
+the return budget (Context) was in any case spent. Verified that the
+operator-ruled contradiction leaves no live trace: a grep over the change
+for "every row that carries" and "inventory" finds only past-tense
+narration of the repaired defect (proposal Why, S2, S6, S8; this Context
+and U4) beside the two sentences that now state the requirement demands
+no inventory (the delta's growth rule and envelope paragraph), and the
+writer-validity and unread-cell scenarios read as the simplicity position
+describes them. Verified in the tree the facts the new D1 rows cite:
+`dsh_packed` (`transcript.rs:2581-2660`) reads every member through
+`Option`-checked accessors and returns `Refused` on each shape violation;
+the chunk arm (`:2494-2551`) returns no `Refused`; `project_dsh` refuses
+on `Unrecognized` only without the marker (`:2016-2024`) and on `Refused`
+whatever the marker (`:2033-2036`). No council seat performed read (d):
+the commission rules the installed-writer read stands and is not
+repeated, and this box has the specify seat's shape (no `dsh`, `volta`,
+`npm`, `cargo` or `~/.dsh`; HOME `/runtime/home`). Nothing was
+re-measured, no E4 cell changed standing and no rule moved. Edited: this
+Context, the Goals, D1, D2's reach table, E4 and U4, D4's required-unknown
+row, D5's two read (d) mentions, D12's fragment-rows bullet and gates
+paragraph, D13's read (d), the Risks, the Migration Plan and this record.
+For coherence with the council's outcome and D4, three dependent spots
+outside this file follow it: the delta's fragment-rows scenario gains the
+hostile row and its version-zero contrast as a falsifying case; the
+proposal's What Changes clause, S1 U4, S3 Q4, S4 and S6 record that read
+(d) was not performed at the council and state the `assistant/message`
+cell as forbidden; tasks 2.4 and 8.3 carry D4's placement and D12's
+self-check. No requirement sentence, ruling, disposition or count
+changed. Strict OpenSpec validation was run over the whole tree after
+authoring. Cargo is absent from this box, so no code changed and no Cargo
+gate ran; they belong to the implementation seat. This sitting commits
+the design and those dependent edits, unsigned, and pushes nothing.

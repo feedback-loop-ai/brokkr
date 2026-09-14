@@ -131,13 +131,14 @@ design D12 and task 2.10 carry the same concrete rows.
   keeps every embedded copy visible (S3, Q3; S4).
 - The version-three physical envelope is recorded as a base of `type`,
   `seq`, `time` and `data` on every event row plus two conditional
-  top-level members, `surfaceOp` and `sourceEventSeqs`, with the per-type
-  permissions the read recorded: `surfaceOp` for every type,
-  `sourceEventSeqs` for `assistant/message` only, its permission on every
-  other type recorded as unread and assigned to the design council's
-  read (d) at its next sitting (design D2 E3, E4, U4, D13; S6); the reader
-  validates no row's key set and neither requires nor refuses either
-  member.
+  top-level members, `surfaceOp` and `sourceEventSeqs`, with the per-type permissions the read recorded: `surfaceOp` for every
+  type; `sourceEventSeqs` forbidden on `assistant/message`, the one type
+  whose permission the read recorded, and unread on every other type,
+  pending read (d), which the design council did not perform at its
+  sitting because the commission rules the installed-writer read is not
+  repeated, and which a later change performs (design D2 E3, E4, U4,
+  D13; S6); the reader validates no row's key set and neither requires
+  nor refuses either member.
   `surfaceOp` is never parsed and never removes, reorders or replaces a
   row. A replace-marked row projects by its type at its recorded position,
   exactly as version zero's compaction message does; the append and replace
@@ -276,8 +277,9 @@ version zero.
    base members overstated the base check as the whole envelope; E3 and E4
    cite one validation pass over the same lines and now read together
    (S8, CLARIFY-279-5, first and second visits). The unread cells are
-   assigned, not inferred: read (d) at the council's next sitting (S6;
-   third visit).
+   assigned, not inferred: read (d) at the council's next sitting, where
+   no seat performed it, so they stay unread (S6; third visit; design
+   D13).
 5. The message and block definitions: `Message` is `{id, role, content,
    source}` and the block union is `text`, `reasoning`, `image`,
    `tool-call`, `tool-result` and `file`; every field the reader consumes
@@ -315,12 +317,14 @@ exactly the rule each could break and names the read that lifts it:
   validates the member wherever its version-zero rules read it, never on
   the writer's permission. The read that records it is the member's
   declaring type in the session package's `types.d.ts` and the per-type
-  branch of the codec's validation pass. It is assigned to the design
-  council's next sitting, the one phase of this run whose seats have
-  reached the writer; the specification does not carry the cells as a
-  requirement, and neither the growth rule nor the envelope requirement
-  demands them: each states what the read established and names the
-  read for the rest (S2, S6).
+  branch of the codec's validation pass. It was assigned to the design council's next sitting, the one phase of
+  this run whose seats had reached the writer; at that sitting no seat
+  performed it, because the commission rules the installed-writer read
+  stands and is not repeated (design D2, D13), so the cells stay unread
+  and the read is named for a later change. The specification does not
+  carry the cells as a requirement, and neither the growth rule nor the
+  envelope requirement demands them: each states what the read
+  established and names the read for the rest (S2, S6).
 
 ### S2 — The admitted set is `{0, 3}`, spelled exactly, classified per version
 
@@ -428,7 +432,7 @@ the specification consequence of each.
 | 1 | Record types and shapes | A per-version vocabulary closed at the 56 transcribed names. The four content kinds project on the version-three envelope and the 0.1.5-rc.2 message and block definitions (D13): `content` as an array of blocks or a string; `text.text`; `reasoning.text`; `tool-call.id/name/arguments`; `tool-result.toolCallId/content`; `image` as the omission marker; `file` as a counted unrecognized block that keeps its siblings; `Message.id` and `.source` inert. Under version three no `turn` or `step` is read from a `user/message`, whose definition declares neither, even when a row supplies them. `tool/call` projects from `callId`, `name` and `arguments` on the event. |
 | 2 | `assistant/chunk` absent | Removed, not renamed and not conditional. Whole messages only under version three; an interrupted step is one `assistant/message` with `interrupted: true`, projected as recorded with no marker; `interrupted`, `stream` and `usage` are never expanded; `assistant/attempt` is a counted omission; `assistant/chunk` and the packed rows are required unknowns under version three. The fragment rule's text is unchanged and has nothing to concatenate. |
 | 3 | `isSeeded` new in the header | Inert for ownership, depth, admission, classification and counts, whatever its JSON shape. Because the seed path is unread, it has one effect under version three: the dedicated-tool association runs only when the header records `isSeeded` exactly `false`. A seeded or unattested version-three session shows every embedded copy beside its dedicated event, which is the existing absent-partner outcome, never a hidden row. Under version zero the field has no effect. |
-| 4 | `surfaceOp` and `sourceEventSeqs` at about 21% of rows | Both are top-level members beside the base envelope of `type`, `seq`, `time` and `data`: `surfaceOp` required on the four surface types and forbidden elsewhere, `sourceEventSeqs` forbidden on `assistant/message` and unrecorded elsewhere pending the council's read (d) (S1 items 3 and 4, U4, S6); the reader validates no row's key set and neither requires nor refuses either. The writer places every surface message on the surface with an explicit marker. `sourceEventSeqs` is validated identically under both versions; under version three a valid citation suppresses nothing, because no chunk row exists and the writer never puts a citation on `assistant/message`, and an invalid one refuses as today. `surfaceOp` is never parsed: a replace-marked row projects by its type at its recorded position, no earlier row is removed, reordered or replaced, and the surface is never replayed. |
+| 4 | `surfaceOp` and `sourceEventSeqs` at about 21% of rows | Both are top-level members beside the base envelope of `type`, `seq`, `time` and `data`: `surfaceOp` required on the four surface types and forbidden elsewhere, `sourceEventSeqs` forbidden on `assistant/message` and unread elsewhere pending read (d), which the council did not perform and a later change does (S1 items 3 and 4, U4, S6); the reader validates no row's key set and neither requires nor refuses either. The writer places every surface message on the surface with an explicit marker. `sourceEventSeqs` is validated identically under both versions; under version three a valid citation suppresses nothing, because no chunk row exists and the writer never puts a citation on `assistant/message`, and an invalid one refuses as today. `surfaceOp` is never parsed: a replace-marked row projects by its type at its recorded position, no earlier row is removed, reordered or replaced, and the surface is never replayed. |
 | 5 | `system/message`, `todo/write`, `turn/end` | All three quiet under version three, whatever payload or marker they carry; `system/message` is the rendered prompt that `request/context` was, and a displayed `system` turn would be new command and TUI capability. `system/message` stays a required unknown under version zero; `todo/write` and `turn/end` were already quiet there. |
 | 6 | Superset? | No as a vocabulary, yes as a payload. Version three removes three names, adds eight, moves the prompt into `system/message` and the stream into the message; the four content kinds keep their envelope nesting and their block definitions map field for field. So `3` is admitted beside `0` with a per-version vocabulary and one projector; every version-zero meaning is preserved for version-zero files and every projected version-three meaning is measured. |
 
@@ -455,8 +459,9 @@ replace writer paths remain unread; no rule rests on them, and a later
 change that reads them may add a marker-aware presentation but never a
 removal. The per-type permission of `sourceEventSeqs` beyond
 `assistant/message` is likewise unread (U4); no rule rests on it, the
-requirement demands no inventory of it, and its read is the design
-council's at its next sitting, not a later change's (S2, S6).
+requirement demands no inventory of it, and its read, assigned to the design council's next sitting and not
+performed there because the commission rules the installed-writer read
+is not repeated, is named for a later change (S2, S6; design D13).
 
 **Corroboration** follows the writer and never leads. After the writer
 read, the simplicity seat ran a type-only, content-free histogram over the
@@ -645,13 +650,17 @@ are preserved.
   specification box of this run reaches (S1; this sitting reconfirmed no
   `dsh`, `volta`, npm cache, `~/.dsh` or network) and which the operator
   rules this seat is not to re-read; an inferred cell would repeat the
-  defect the second visit withdrew. Read (d) stays assigned to the design
-  council's next sitting, the one phase of this run whose seats have
+  defect the second visit withdrew. Read (d) was assigned to the design
+  council's next sitting, the one phase of this run whose seats had
   reached the writer, to be performed by the seat that reaches it, cited
   by package, file, digest and line, with E4 completed there; a council
   without reach records that and leaves the cells unread, and the change
-  is complete either way (design D13; S8, CLARIFY-279-5, third and fourth
-  visits).
+  is complete either way. At that sitting, the design's third, no seat
+  performed it: the commission that opened this run rules the
+  installed-writer read stands and is not to be repeated, so the council
+  recorded no read, the cells stay unread, and the read is carried to a
+  later change beside the append-and-replace and seed-path reads (design
+  D2, D13; S8, CLARIFY-279-5, third and fourth visits).
 - **No compatibility wrappers to keep old test lines compiling.** Keeping
   `zero_number_token` and the one-argument helpers as shims so that no
   existing test line changes would leave dead code under the exact-coverage
