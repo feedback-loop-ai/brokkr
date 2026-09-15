@@ -18,7 +18,9 @@ requirement is changed or refuted to excuse the implementation.
 The two fresh positions agree on F1 but disagree about boxed Codex support.
 Source at main `f4392a73b1b4472bc0614749e62b4143ed3a83d9` settles that dispute:
 boxed composition appends MCP `-c` arguments that its resume allow-list refuses.
-D10 now scopes preservation to the shipping harness work seat, leaves the
+D10 now scopes preservation to the shipping harness work seat and, on the F1
+return, the inline work-seat coordinate `recipes/standby`/`recipes/wager-harness`
+also ship; it leaves the
 single-string hands grammar and admission predicates intact, and requires a
 proof tied to actual composition as well as provider launch. It explicitly
 reconciles every position and answers all four robustness questions.
@@ -610,8 +612,13 @@ measurement drift alone does not withdraw support: the operator's 2026-09-15
 ruling preserves Codex `work-site` under accepted 0030 while full remeasurement
 remains owed. Keep `identity.version = 0.148.0` and `applies_to = 0.153.4`,
 name the existing dated accounting evidence, and explain preservation in
-`reason`. D10's F1 reconciliation sets `boundaries: ["harness"]` and
-`hands: "none"` for the shipping work seat. The boxed workspace fragment has
+`reason`. D10's F1 reconciliation sets
+`boundaries: ["harness", "not applicable"]` and `hands: "none"` for the two
+shipping work-seat coordinates: the engine-composed harness argv
+(`--sandbox workspace-write`) and the author-written inline argv
+(`recipes/standby`/`recipes/wager-harness`), whose compiled adapter assessment
+the engine now carries into the private start context exactly as it does for an
+agent-resolved site. The boxed workspace fragment has
 MCP `-c` arguments that main already refused for resume; it is not enabled by
 this ruling. Do not relabel partial evidence as a new enforcement measurement.
 
@@ -2486,7 +2493,7 @@ markers unchanged. No new shape selector, status, marker or provider bypass.
 
 | Shipped shape | Required disposition and why |
 |---|---|
-| Codex `work-site` | Set `supported`, `boundaries: ["harness"]`, `hands: "none"`. This names main's shipping harness work-seat rejoin, where absent input hands means `none`; it does not claim the seat has no native harness tools. Keep measured `version: 0.148.0`, `applies_to: 0.153.4`, classes and existing evidence. Add the accounting reference below. Preserve every existing limitations byte/order, then append the dated scope explanation below. Amend `reason` to cite the operator ruling, the preserved harness path and full remeasurement still owed. |
+| Codex `work-site` | Set `supported`, `boundaries: ["harness", "not applicable"]`, `hands: "none"`. This names main's two shipping work-seat rejoins — the engine-composed harness argv, where absent input hands means `none`, and the author-written inline argv, whose compiled adapter assessment the engine carries — and it does not claim the seat has no native harness tools. Keep measured `version: 0.148.0`, `applies_to: 0.153.4`, classes and existing evidence. Add the accounting reference below. Preserve every existing limitations byte/order, then append the dated scope explanation below. Amend `reason` to cite the operator ruling, the preserved coordinates and full remeasurement still owed. |
 | Claude `boxed-workspace` | Remain `unmeasured`; main does not perform this rejoin. Reason prose alone explains that partial observations lack complete restrictions, filesystem boundary and precedence on installed 2.1.270. Preserve declared 2.1.266/2.1.266 identity, evidence, scope and limitations. |
 | DSH `headless-work` | Remain `unmeasured`; main does not perform this rejoin. Reason prose alone explains the isolated 0.1.5-rc.1/adapted-plugin pair's incomplete exact-root, restriction, multi-message-accounting and composite proof. No identity/evidence/scope change, wrapper digest or session-selector enablement. |
 | LaneTally `wrapper-work-site` | Remain `unmeasured`; main does not perform this rejoin. Reason prose alone explains that unknown wrapper identity and forwarding cannot inherit Claude evidence. Preserve unknown identity, absent evidence, scope, limitations and hands deferral. |
@@ -2510,9 +2517,13 @@ under workspace-write on 0.153.4.
 Observed `0.153.4` must still match applicability and any recorded origin
 version. Observed `0.148.0` or a third version refuses. The existing narrow
 legacy mapping keeps its ownership/origin/manifest checks without fabricating
-historical fields. Excluding `not applicable`, `open` and boxed boundaries
-from this declaration enables none of them; this slice adds no support for
-custom no-hands configurations merely because a hand-written argv can resume.
+historical fields. Excluding `open` and boxed boundaries from this declaration
+enables neither of them. `not applicable` is named because main ships it — the
+inline work seats above — and the engine supplies each inline built-in model
+driver's compiled adapter assessment exactly as it does for an agent-resolved
+site. A custom no-hands configuration whose driver no declaration names still
+carries no assessment and is refused `unsupported-resume`; this slice enables no
+shape merely because a hand-written argv can resume.
 
 **2. Proposed 0056 and dependent artifacts.** Keep this semantic amendment in
 the same proposed decision. Before implementation reports preservation:

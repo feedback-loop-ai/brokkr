@@ -178,6 +178,15 @@ accepted decision 0030. Its declaration SHALL describe that disposition and
 ruling, retain the dated 0.148.0 measurement and 0.153.4 applicability, and
 name the interface, restriction, exact-root and current-accounting evidence
 without relabelling old or partial observations as a new live measurement.
+The preserved shape SHALL name BOTH work-seat coordinates main rejoins: the
+engine-composed `harness` argv (`--sandbox workspace-write`, no hands marker)
+AND the author-written INLINE argv (`boundary: not applicable`, the command's
+own `--sandbox` class). The compiler SHALL carry each inline built-in model
+driver's adapter resume assessment into the engine so the driver judges an
+inline site exactly as an agent-resolved one; a custom no-hands driver no
+declaration names still carries none and cannot rejoin. The resume SHALL still
+re-impose the inline argv's sandbox class, and a missing or unsupported class
+SHALL refuse cold.
 Installed-version remeasurement remains a delivery obligation; preserving this
 shipping behavior SHALL NOT complete that obligation or an enablement task.
 
@@ -387,6 +396,12 @@ read as history, not as a current claim.
 - **THEN** the shipped adapter rejoins that exact thread with current restrictions re-expressed and, on provider confirmation before work, reports `launch: resumed` without `unsupported-resume` merely because the measurement names 0.148.0
 - **AND** its declaration identifies preservation under the 2026-09-15 operator ruling; the 0.148.0 measurement remains historical, 0.153.4 remains the applicable target, and full remeasurement and task 11.1 remain pending
 - **AND** later cold sandbox startup/enforcement evidence does not become a claim of resumed enforcement, exact-root confirmation or current-only accounting; each cited observation retains its actual scope
+
+#### Scenario: The preserved inline Codex coordinate is judged by its adapter
+- **GIVEN** `recipes/standby` and `recipes/wager-harness` seat implement as a raw `brokkr driver codex` command whose own `--sandbox` class is the author's, with no Brokkr boundary and no hands marker, and the compiled bundle carries that adapter's `work-site` assessment
+- **WHEN** a same-instance retry offers the thread the cold invocation confirmed
+- **THEN** the engine supplies the compiled assessment to the driver's private start context exactly as it does for an agent-resolved site, admits the coordinate (`boundary: not applicable`, `hands: none`) and the driver rejoins with the argv's sandbox class re-expressed
+- **AND** the cold invocation records the qualified root the retry offers; removing the compiled assessment or the declared `not applicable` boundary makes the retry cold rather than resumed
 
 #### Scenario: The other shipped declarations describe unmeasured new rejoins
 - **GIVEN** main does not perform the Claude boxed-workspace, DSH headless-work or LaneTally wrapper-work-site rejoin, and each declaration is unmeasured

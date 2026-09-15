@@ -1063,11 +1063,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "2702b5d6c07be0fba4f82136637f218568728c3e616c3bb7e90d49bc0617827a",
+        "28078bff14c153e429847ac064b5bd4e1f9cb9726c6004e965ece913cfff244a",
     ),
     (
         "bundles/self",
-        "be74edfd50959cf1763477237aacdee34fda31c3e81122d9208f9cb562965d3c",
+        "4009a5b24d8d1064fe6a052e9fdbbffbf17cc0f2c16ae875743be0b2326342ce",
     ),
     (
         "bundles/verify",
@@ -1191,10 +1191,13 @@ fn a_composed_bundles_manifest_is_pinned() {
         // is adapter data, so it rides the declaration digest the manifest
         // pins — which is exactly what makes a declaration edit spawn cold.
         // Its ruling 10 moves it again through the SDD smith's charter,
-        // which every phase of this route resolves. The value agrees with
+        // which every phase of this route resolves. The F1 return moves it
+        // once more: the Codex declaration's preserved shape now names the
+        // inline `not applicable` coordinate too, so the adapter digest the
+        // route's Codex lanes witness moved. The value agrees with
         // the `recipes/triage` pin in `tests/witness_digests.rs`; the two
         // had drifted apart and this restores the measured value.
-        "4082e56940cfbd448dbcc93ebca5bc8a501eaddd260dd705b3e415bc0a5c5635",
+        "85fdb273d4fe2ef921749132672515a2c3c283e49a699f15f5670b8b982ccb19",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

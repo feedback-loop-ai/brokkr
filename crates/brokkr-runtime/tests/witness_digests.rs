@@ -197,7 +197,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "ef0ed0ac4454374d86cd1be0af8661a2c135642f1095f1ecc6b244296366931d",
+        "cc650ac3a407a372f3ab193e2ad0186f96a118f0974b7eedfe19efc615056755",
     ),
     (
         "recipes/wager-harness",
@@ -205,7 +205,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/triage",
-        "4082e56940cfbd448dbcc93ebca5bc8a501eaddd260dd705b3e415bc0a5c5635",
+        "85fdb273d4fe2ef921749132672515a2c3c283e49a699f15f5670b8b982ccb19",
     ),
     (
         "recipes/research",
@@ -217,7 +217,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "2d95cb0a4cf8dad3404e3eb09c3bc0a5725942ba2a6d938294b8f5e65f76cffa",
+        "04cf396d92618fc5f363be6cad7da5b4069ae9d92c66e4b5318696275951534e",
     ),
     (
         "bundles/verify",

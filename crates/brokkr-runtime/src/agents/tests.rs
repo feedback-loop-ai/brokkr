@@ -1917,10 +1917,10 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
     }
 
     // The shipped resume dispositions (operator ruling 2026-09-15). Codex
-    // `work-site` preserves main's harness/none rejoin as `supported`,
-    // keeping the historical 0.148.0 measurement and the applicable
-    // 0.153.4 with the dated current-accounting reference; the other
-    // three are new rejoins main does not perform and stay `unmeasured`.
+    // `work-site` preserves main's harness/none AND inline/not-applicable
+    // rejoins as `supported`, keeping the historical 0.148.0 measurement and
+    // the applicable 0.153.4 with the dated current-accounting reference; the
+    // other three are new rejoins main does not perform and stay `unmeasured`.
     let codex_resume = adapters.adapter("codex").unwrap().resume.shape("work-site");
     let codex_resume = codex_resume.expect("codex declares work-site");
     assert_eq!(codex_resume.status, ResumeStatus::Supported);
@@ -1932,7 +1932,10 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
             wrapper_digest: None,
         }
     );
-    assert_eq!(codex_resume.boundaries, vec!["harness".to_string()]);
+    assert_eq!(
+        codex_resume.boundaries,
+        vec!["harness".to_string(), "not applicable".to_string()]
+    );
     assert_eq!(codex_resume.hands, "none");
     for reference in [
         &codex_resume.evidence.interface,

@@ -1597,6 +1597,133 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
     assert!(resume_line.contains("gpt-6-astra"), "{resume_line}");
 }
 
+/// The operator's 2026-09-15 ruling at the INLINE coordinate main actually
+/// ships: `recipes/standby` and `recipes/wager-harness` seat implement as a
+/// raw `brokkr driver codex` command whose own `--sandbox` class is the
+/// author's, with no Brokkr boundary and no hands marker. That is the
+/// coordinate the engine reports as `boundary: not applicable`,
+/// `hands: none`, and the declaration now names it. A cold invocation must
+/// establish the qualified root and a fresh driver must rejoin it with the
+/// author's sandbox re-expressed as `-c sandbox_mode`. Reverting the shipped
+/// status to `unmeasured` — or dropping `not applicable` from the declared
+/// boundaries — makes the retry cold and fails this test.
+#[test]
+fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let assessment = adapters
+        .adapter("codex")
+        .expect("the shipped codex adapter")
+        .resume
+        .value();
+
+    // The exact argv `recipes/standby`/`recipes/wager-harness` ship for
+    // implement: author-written, self-sandboxed, no engine-composed hands.
+    let driver: Vec<String> = [
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "xhigh",
+        "--sandbox",
+        "danger-full-access",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+
+    let workdir = tempfile::tempdir().unwrap();
+    let result_path = workdir.path().join("results/fx.json");
+    std::fs::create_dir_all(workdir.path().join("results")).unwrap();
+    let result = result_path.to_str().unwrap();
+    let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let argv_log = workdir.path().join("argv.log");
+    let shim = make_shim(
+        workdir.path(),
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+             printf '%s\\n' \"$*\" >> {log}\n\
+             cat > /dev/null\n\
+             printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+            log = argv_log.display(),
+            result = result,
+            offered = offered,
+        ),
+    );
+    // An inline site carries no `boundary` and no `hands`: the gate reads
+    // the engine's own words, `not applicable` and `none`.
+    let input = json!({
+        "feature": "conformance", "phase": "work", "seat": "work",
+        "role_path": workdir.path().join("missing-role.md"),
+        "workdir": workdir.path(),
+        "result_path": result_path,
+        "allowed_results": ["resolved"], "context": {},
+        "resume_context": {"assessment": assessment},
+    });
+
+    let cold = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"shutdown"}),
+        ],
+    );
+    let cold_launch = launch_row(&cold, "cold");
+    assert_eq!(
+        cold_launch["root_session"]["id"], offered,
+        "the enabled inline shape records the qualified root the retry offers: {cold:?}"
+    );
+
+    let resumed = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ],
+    );
+    let resumed_launch = launch_row(&resumed, "resumed");
+    assert_eq!(resumed_launch["root_session"]["id"], offered, "{resumed:?}");
+    assert_eq!(
+        resumed_launch["sandbox"], "danger-full-access",
+        "{resumed:?}"
+    );
+    assert!(
+        resumed_launch.get("resume_refusal").is_none(),
+        "a preserved rejoin carries no refusal: {resumed:?}"
+    );
+
+    let log = std::fs::read_to_string(&argv_log).unwrap();
+    let resume_line = log
+        .lines()
+        .find(|line| line.contains("exec resume"))
+        .unwrap_or_else(|| panic!("the shim saw a resume argv: {log:?}"));
+    assert!(resume_line.contains(offered), "{resume_line}");
+    assert!(
+        resume_line.contains("sandbox_mode=\"danger-full-access\""),
+        "{resume_line}"
+    );
+}
+
 /// The one `harness-started` launch row with the expected word, or a
 /// panic naming what the driver actually emitted.
 fn launch_row<'a>(parsed: &'a [Value], word: &str) -> &'a Value {

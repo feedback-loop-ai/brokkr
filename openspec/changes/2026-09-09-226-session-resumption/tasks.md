@@ -24,9 +24,15 @@ none creates a new task identifier or completes a whole checkbox. Record each
 actual control and remaining proof here before proceeding to the next clause.
 
 Proposal W/AS1 and design D5/D10 resolve the draft conflict. Returned F1
-requires preservation of the engine-composed harness work seat: declaration
-`boundaries: ["harness"]`, `hands: "none"`, actual input `boundary: harness`
-with no `hands` marker, and the shipped `--sandbox workspace-write` argv.
+requires preservation of BOTH shipping Codex work-site coordinates: the
+engine-composed harness work seat (declaration `boundaries: ["harness"]`,
+`hands: "none"`, actual input `boundary: harness` with no `hands` marker, and
+the shipped `--sandbox workspace-write` argv) and the INLINE work seat main
+also rejoins (`recipes/standby`, `recipes/wager-harness`: the author's own
+`--sandbox danger-full-access`, reported as `boundary: not applicable` with
+`hands: "none"`). The declaration names both, and the compiled bundle carries
+each inline built-in model driver's adapter assessment so the engine supplies
+it exactly as it does for an agent-resolved site.
 Main's boxed work seat carries MCP `-c` settings its resume allow-list already
 refuses; it stays cold. Use the composition bridge and independent status/hands
 controls below. The scalar gate/loader and argv allow-list stay unchanged.
@@ -1789,11 +1795,29 @@ itself (`safety / AS1`).
       unmeasured. Analyze F1 establishes that retaining `hands: boxed` would
       also refuse the shipping harness retry after a status flip. This
       implementation visit landed D10's amendment: `adapters/codex.json`
-      `work-site` is now `supported`, scoped to `boundaries: ["harness"]` with
+      `work-site` is now `supported`, scoped to
+      `boundaries: ["harness", "not applicable"]` with
       `hands: "none"`, keeping the historical 0.148.0 measurement and 0.153.4
       applicability and adding the dated 0.153.4 current-accounting reference;
       proposed 0056 ruling 5 and the provider guide state the
-      preservation/new-shape distinction. The runtime boundary suite gained the
+      preservation/new-shape distinction. The judging pass at `b4dbfd5`
+      returned F1: the engine-composed harness coordinate was preserved, but
+      the INLINE Codex work seats main also rejoins (`recipes/standby`,
+      `recipes/wager-harness`) still regressed, because
+      `Bundle::compile_with` carried no assessment for a raw `driver.command`,
+      so the engine supplied `assessment: null`, the gate declined an offered
+      retry as `unsupported-resume`, and a cold launch recorded no qualified
+      root. This return attaches each inline built-in model driver's adapter
+      resume assessment to the compiled bundle and reads it in `site_plans`,
+      names `not applicable` in the declared boundaries, and proves both the
+      composition (`inline_resume` read off the shipped recipes) and the
+      inline coordinate behaviorally through a real `brokkr driver codex`
+      cold-then-resume exchange in `driver_conformance.rs`. Its controls:
+      reverting only the shipped status to `unmeasured` made the inline cold
+      launch record no qualified root and failed the retry; dropping only
+      `not applicable` from the declared boundaries failed it cold; removing
+      only the inline population or the engine fallback failed the composition
+      and engine cases. The runtime boundary suite also gained the
       composition bridge (shipped `Adapters::load`, the production resolver and
       `compose_site` under harness, `seat_input`/`mark_hands`), and
       `crates/brokkr-cli/tests/driver_conformance.rs` drives a cold
@@ -1807,7 +1831,8 @@ itself (`safety / AS1`).
       `boxed` failed it cold with `restrictions-unavailable`; suppressing the
       harness fragment append in `compose_site` and the boundary write in
       `mark_hands` each failed the bridge; every mutation was restored and the
-      tests rerun green. The regression is removed and full 10.5/11.1
+      tests rerun green. The regression is removed on both the harness and inline
+      coordinates and full 10.5/11.1
       qualification is still owed; this checkbox stays unchecked. The earlier
       cold/unsupported observation remains dated evidence, never an authorized
       current disposition.

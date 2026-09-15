@@ -4166,7 +4166,12 @@ fn invoke_with_stager(
             {
                 // The rejected child's candidates go with it: a
                 // replacement inherits none of its launch, root,
-                // locator or accounting.
+                // locator or accounting. The cold argv reuses `extra`
+                // unchanged because `codex_launch` already validated
+                // exactly these immutable arguments — the selector and
+                // incompatible-argv guards ran on them before the first
+                // spawn — so a second builder guard here would repeat a
+                // check that cannot have become false.
                 let cold = LaunchPlan::cold(
                     codex_cold(&bin, extra, &workdir),
                     "codex-thread",

@@ -380,6 +380,16 @@ pub struct Bundle {
     /// the manifest's `hands` key is — seat, `seat:member`, `seat:step`,
     /// `seat:step:member` — and as the engine labels the driver seat.
     pub hands: BTreeMap<String, HandsSpec>,
+    /// The resume assessment each INLINE driver-bearing site's adapter
+    /// declares, keyed as `hands` is. An agent-resolved site carries its
+    /// assessment on the selected `Candidate`; a raw `driver.command`
+    /// does not resolve through the library, so the compiler reads the
+    /// adapter it names and carries the closed assessment here for the
+    /// engine to place in the driver's private start context (proposed
+    /// decision 0056 ruling 5). Absent for a site whose driver no adapter
+    /// declares, which the driver reads as unmeasured — never implicit
+    /// support.
+    pub inline_resume: BTreeMap<String, Value>,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
     /// Dialect-owned prose, resolved once at compile time and keyed by the
@@ -690,6 +700,10 @@ struct Unpinned {
     /// identity beside decision 0021's — un-listing a route moves the
     /// digest of every bundle it excused.
     witnessed: Map<String, Value>,
+    /// Proposed decision 0056 ruling 5: per inline driver-bearing site,
+    /// the resume assessment the adapter it names declares, carried to
+    /// [`Bundle::inline_resume`] for the driver's private start context.
+    resume: Map<String, Value>,
 }
 
 /// Adapter data for the effortless-route exemption (decision 0035
@@ -761,12 +775,22 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
     // pin nor an effort to pin, and a custom driver owns its own
     // contract. So a site is asked for both pins or for neither, and a
     // seat missing both is named in both halves of one refusal.
-    if built_in_model_driver(raw).is_some() {
+    if let Some(kind) = built_in_model_driver(raw) {
         if !command_pins_model(raw) {
             out.model.push(what.to_string());
         }
         if !command_pins_effort(raw) && !effort_exempt(what, raw, adapters, &mut out.witnessed) {
             out.effort.push(what.to_string());
+        }
+        // The adapter a built-in model driver names answers for this
+        // INLINE site as it does for an agent-resolved one: its measured
+        // resume assessment travels to the engine so the driver's gate
+        // can judge an offer at this site. Unmeasured stays unmeasured —
+        // an adapter with no resume block contributes the null the gate
+        // reads as `unsupported-resume` — and a missing or malformed
+        // adapters root contributes nothing at all.
+        if let Some(adapter) = adapters.and_then(|adapters| adapters.adapter(kind)) {
+            out.resume.insert(what.to_string(), adapter.resume.value());
         }
         return;
     }
@@ -805,15 +829,24 @@ fn labels(sites: &[String]) -> String {
         .join(", ")
 }
 
+/// What `enforce_model_pins` returns: the adapter digests whose effortless
+/// listings exempted inline seats, for the manifest, and the resume
+/// assessment each inline built-in model driver's adapter declares, for the
+/// engine. Two maps rather than one because they answer different
+/// questions from the same walk.
+type PinWitness = (Map<String, Value>, Map<String, Value>);
+
 /// One refusal names the complete repair set, on BOTH axes. A model pin
 /// without an effort pin is half a hire (decision 0035 ruling 5), so the
 /// two clauses stand beside each other rather than the first hiding the
 /// second behind a second compile. Returns the adapter digests whose
-/// effortless listings exempted inline seats, for the manifest.
+/// effortless listings exempted inline seats, for the manifest, beside
+/// the resume assessment each inline built-in model driver's adapter
+/// declares, for the engine's private start context.
 fn enforce_model_pins(
     seats: &Map<String, Value>,
     adapters: Option<&Adapters>,
-) -> Result<Map<String, Value>, CompileError> {
+) -> Result<PinWitness, CompileError> {
     let mut unpinned = Unpinned::default();
     for (phase, raw) in seats {
         collect_unpinned(phase, raw, adapters, &mut unpinned);
@@ -835,7 +868,7 @@ fn enforce_model_pins(
         ));
     }
     if refusals.is_empty() {
-        return Ok(unpinned.witnessed);
+        return Ok((unpinned.witnessed, unpinned.resume));
     }
     Err(CompileError::Invalid(refusals.join("; ")))
 }
@@ -962,10 +995,11 @@ impl Bundle {
         let table = resolved.table.clone();
         // One refusal names the complete repair set. Running this on the
         // flattened seats also means inherited omissions cannot hide in
-        // a composition layer. The returned map witnesses the adapter
+        // a composition layer. The returned maps carry the adapter
         // digests whose effortless listings exempted inline seats, for
-        // the manifest below.
-        let pin_drivers = enforce_model_pins(
+        // the manifest below, and the resume assessment each inline
+        // built-in model driver's adapter declares, for the engine.
+        let (pin_drivers, inline_resume) = enforce_model_pins(
             &resolved.seats,
             load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
         )?;
@@ -1434,6 +1468,7 @@ impl Bundle {
         )?;
         Ok(Bundle {
             hands,
+            inline_resume: inline_resume.into_iter().collect(),
             name,
             description,
             cost,

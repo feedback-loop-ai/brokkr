@@ -218,10 +218,17 @@ Alternatives weighed, each rejected on evidence rather than taste:
    `unverified-harness`. Historical acceptance of an earlier version is
    **preservation**, not a fresh grant: under the operator's 2026-09-15
    ruling, “keep decision 0030's rejoin live, do not regress codex,” the
-   Codex harness work seat main already rejoins stays live across the
+   Codex work seat main already rejoins stays live in BOTH coordinates it
+   ships — the engine-composed `harness` argv and the author-written INLINE
+   argv (`recipes/standby`, `recipes/wager-harness`, reported as
+   `boundary: not applicable` with `hands: none`) — across the
    difference between its historical 0.148.0 measurement and the
    applicable installed 0.153.4, with every observed/origin identity,
-   boundary, hands, ownership and accounting check still binding. The
+   boundary, hands, ownership and accounting check still binding. For the
+   inline coordinate the compiler carries the named adapter's assessment
+   into the engine exactly as an agent-resolved site's candidate does, so
+   the gate judges it rather than reading absence as unmeasured; a custom
+   no-hands driver no declaration names still carries none. The
    same history does not enable a new, never-supported shape: a rejoin
    main does not perform today stays disabled until its own
    installed-version measurement qualifies it. Preserving the shipping
@@ -492,9 +499,12 @@ Alternatives weighed, each rejected on evidence rather than taste:
   rejoin live, do not regress codex” — holds main's `work-site` rejoin
   live across the drift between 0030's 0.148.0 measurement and the
   installed 0.153.4. Its declaration says `supported`, scopes the
-  measurement to the harness boundary with no boxed-hands marker, and
+  measurement to the harness boundary and the inline `not applicable`
+  coordinate, with no boxed-hands marker, and
   cites the dated 0.153.4 current-accounting observation; observed
-  identity, boundary, hands and accounting mismatches still refuse. Full
+  identity, boundary, hands and accounting mismatches still refuse. The
+  compiler carries each inline built-in model driver's assessment into the
+  engine so the inline coordinate is judged, not read as unmeasured. Full
   installed-version remeasurement and task 11.1 remain owed. The Claude
   `boxed-workspace`, DSH `headless-work` and LaneTally `wrapper-work-site`
   rejoins stay `unmeasured` because main does not perform them; the

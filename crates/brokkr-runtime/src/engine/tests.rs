@@ -76,6 +76,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         }),
         protected_phase: "review".into(),
         hands: BTreeMap::new(),
+        inline_resume: BTreeMap::new(),
     }
 }
 

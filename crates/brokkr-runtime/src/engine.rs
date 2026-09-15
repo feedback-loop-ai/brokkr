@@ -1298,9 +1298,18 @@ impl Engine {
             let originating = offer
                 .as_ref()
                 .and_then(|_| resume::originating_root(events, &context.site_ref));
+            // An agent-resolved site carries its assessment on the selected
+            // candidate; an inline driver-bearing site carries the adapter's
+            // own, read at compile time where the adapters were opened
+            // (proposed decision 0056 ruling 5). A site no adapter answers
+            // for keeps the null the driver reads as unmeasured, never as
+            // implicit support; the shipped inline Codex work seat is the
+            // preserved rejoin and its adapter does answer.
             let assessment = selection
                 .get(&entry.site)
-                .map_or(Value::Null, |candidate| candidate.resume.value());
+                .map(|candidate| candidate.resume.value())
+                .or_else(|| self.bundle.inline_resume.get(&label).cloned())
+                .unwrap_or(Value::Null);
             // The route-overlay binding (design D6 mechanism 1; AS3): the
             // seat's single `--patch` value bound to the compiled leaf
             // layer, computed where the private context is built and
@@ -3659,8 +3668,11 @@ struct SitePlan {
     /// The selected adapter's typed resume assessment for this site
     /// (design D5), carried into the driver's private start context.
     /// `Value::Null` where no adapter answers for the site — an inline
-    /// command — which the adapter reads as unmeasured, never as
-    /// implicit support.
+    /// command whose driver no declaration names — which the adapter
+    /// reads as unmeasured, never as implicit support. An inline
+    /// built-in model driver carries the assessment its adapter
+    /// declares, so the preserved shipping Codex work seat is judged
+    /// exactly as an agent-resolved one.
     assessment: Value,
     /// The harness facts (version and optional wrapper digest) the offered
     /// root was opened under, read off the same row the offer came from so

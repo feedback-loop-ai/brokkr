@@ -70,7 +70,8 @@
         "work"
       ],
       "boundaries": [
-        "harness"
+        "harness",
+        "not applicable"
       ],
       "hands": "none",
       "evidence": {
@@ -84,7 +85,8 @@
         "a September 10 bounded cold/warm probe on the installed 0.153.4 re-announced the same thread id, recalled the cold nonce and recorded per-invocation (current-only) usage, so accounting evidence is no longer absent on every version; its read-only write attempt failed at sandbox startup, so resumed restriction enforcement across the rejoin is still unmeasured",
         "the September 12 host evidence establishes only the cold sandbox startup/enforcement precondition, not any resume axis",
         "the historical 47 cold / 19 resumed launches on the canonical journal are supplied history, not a measurement of the installed CLI",
-        "2026-09-15 operator ruling preserves the shipping harness work seat (boundary=harness, no boxed-hands marker, --sandbox workspace-write). Boxed hands.workspace adds MCP -c arguments main already refuses as incompatible-argv; this declaration declines that coordinate as restrictions-unavailable. Decision 0030's read-only measurement stays dated evidence; installed-version remeasurement is owed."
+        "2026-09-15 operator ruling preserves the shipping harness work seat (boundary=harness, no boxed-hands marker, --sandbox workspace-write). Boxed hands.workspace adds MCP -c arguments main already refuses as incompatible-argv; this declaration declines that coordinate as restrictions-unavailable. Decision 0030's read-only measurement stays dated evidence; installed-version remeasurement is owed.",
+        "2026-09-15 ruling also preserves main's INLINE Codex work seats: their author-written argv carries its own --sandbox class and no Brokkr boundary, reported as boundary=not applicable with hands=none, and named in boundaries beside harness. The resume re-imposes that class through -c sandbox_mode (decision 0030 ruling 2); a missing or unsupported class still refuses cold."
       ]
     }
   }

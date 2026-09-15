@@ -1704,7 +1704,10 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         .shape("work-site")
         .expect("codex declares work-site");
     assert_eq!(shape.status.word(), "supported");
-    assert_eq!(shape.boundaries, vec!["harness".to_string()]);
+    assert_eq!(
+        shape.boundaries,
+        vec!["harness".to_string(), "not applicable".to_string()]
+    );
     assert_eq!(shape.hands, "none");
 
     let _dir = tempfile::tempdir().unwrap();

@@ -284,6 +284,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
         }),
         protected_phase: "review".into(),
         hands: std::collections::BTreeMap::new(),
+        inline_resume: std::collections::BTreeMap::new(),
     }
 }
 
@@ -2148,4 +2149,88 @@ fn a_missing_dsh_checkpoint_row_fails_the_shim_without_repeating() {
         "the second invocation must not repeat the first checkpoint: {second}"
     );
     assert!(stderr.contains("no checkpoint row"), "{stderr}");
+}
+
+/// The workspace root: this file lives at
+/// `crates/brokkr-runtime/src/engine/`.
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/")
+        .parent()
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+/// A machine whose single work seat is named `implement`, so a test can
+/// lift the SHIPPED recipe's compiled assessment map — keyed by that same
+/// seat label — onto its own seats without renaming a thing.
+fn implement_machine() -> Machine {
+    Machine::from_table(&json!({
+        "phases":["implement", "review", "done", "stop"],
+        "initial":"implement",
+        "terminal":["done", "stop"],
+        "rules":[
+            {"id":"IMPL", "from":"implement", "result":"complete", "next":"review",
+             "reason":"implemented"},
+            {"id":"DONE", "from":"review", "result":"clean", "next":"done",
+             "reason":"clean"}
+        ]
+    }))
+    .unwrap()
+}
+
+/// The operator's 2026-09-15 ruling at the engine's own composition
+/// boundary: a shipped INLINE Codex work seat's adapter assessment, read
+/// by the compiler and carried on the bundle, reaches the driver's private
+/// start context exactly as an agent-resolved site's does. Emptying the
+/// compiled map makes this fail, so it proves the engine supplies the
+/// assessment rather than a test reading a declaration back.
+#[test]
+fn an_inline_codex_work_seat_carries_the_shipped_assessment_into_its_start() {
+    let root = workspace_root();
+    let compiled = Bundle::compile_with(
+        &root.join("recipes/standby"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .expect("the shipped standby recipe compiles");
+    assert_eq!(
+        compiled.inline_resume["implement"]["work-site"]["status"], "supported",
+        "the composition half: the shipped inline Codex seat carries the preserved assessment"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut seats = BTreeMap::new();
+    seats.insert(
+        "implement".into(),
+        seat(
+            single(driver(dir.path(), "implement", &["complete"]), Vec::new()),
+            &["complete"],
+            1,
+        ),
+    );
+    seats.insert(
+        "review".into(),
+        seat(
+            single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+            &["clean"],
+            1,
+        ),
+    );
+    let mut bundle = bundle(dir.path(), seats);
+    bundle.machine = implement_machine();
+    bundle.inline_resume = compiled.inline_resume;
+    run(dir.path(), bundle);
+
+    let start = route_start(dir.path(), "implement");
+    assert_eq!(
+        start["input"]["resume_context"]["assessment"]["work-site"]["status"], "supported",
+        "the shipped assessment reaches an INLINE site's private start context: {start}"
+    );
+    assert_eq!(
+        start["input"]["resume_context"]["assessment"]["work-site"]["boundaries"],
+        json!(["harness", "not applicable"]),
+        "the inline coordinate's boundary is the declared one: {start}"
+    );
 }
