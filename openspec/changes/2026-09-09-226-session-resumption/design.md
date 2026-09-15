@@ -1,5 +1,20 @@
 ## Context
 
+This council visit belongs to run `current-successor-issue-226-pass-84698352`
+(design phase, 2026-09-15). It adopts all committed work at `f63c113` and
+this run's existing proposal answer U under the same dated change. See
+[proposal.md](proposal.md) for motivation. **Pass B alone** owes the surviving
+R2 transport repair, R3/R4 planner evidence and the remaining planner clauses
+of 8.8(d)/8.10. The controller's dated R1 repair in tasks is adopted as closed:
+cold telemetry discovers both fixed filenames, selected first; strict warm
+admission still selects only `session.v3.jsonl`. Neither reader is reworked.
+D10 reconciles both complete current positions and resolves their implementation
+choices. No `returned_from` finding was supplied and no earlier specification
+fault was established. This draft completes no implementation task; 8.8, 8.10
+and 9.6 remain unchecked while their whole acceptance depends on C/D.
+
+Earlier council visits follow as dated history:
+
 This council visit belongs to run `current-successor-issue-226-pass-838309ce`
 (design phase, 2026-09-14). It adopts `31cd6fa434996e6e491a5f20c473e984349d83bb`
 and this run's specify commit `cf35cc7` under the same dated change. Proposal
@@ -742,6 +757,14 @@ recorded admitted home, contain no `..` or symlink escape, identify exactly
 one depth-zero header with the offered ID and remain owned by the same
 site/instance/attempt. Missing, truncated, ambiguous or unsafe storage evidence
 declines the offer without scanning for a newer directory or copying history.
+
+**Adoption, 2026-09-15.** The originating-home propagation and planner guards
+specified in the dated paragraph below are implemented in the adopted head.
+Preserve them and finish their existing 8.10 evidence under D10's current
+sitting; the earlier description of omitted metadata is historical. The
+selected-file rule below concerns strict warm admission only. The controller's
+R1 repair separately preserves shipped cold telemetry through both fixed
+filenames, as the dated tasks section records.
 
 **Pass B completion of the existing owned-storage rule (2026-09-14).** The
 recorded admitted home above is part of the complete transcript address;
@@ -2141,6 +2164,45 @@ bounded-storage rules already own those outcomes. This office commits only
 extends the existing suites and stops when B is evidenced. C/D dependencies
 keep 8.8, 8.10 and 9.6 unticked. No earlier specification fault was found.
 
+#### Pass B residual council sitting — 2026-09-15, run `current-successor-issue-226-pass-84698352`
+
+Adopt `f63c113`, proposal U and the controller's R1 repair. The predecessor's
+final implementation record `0f82b0de-b4e6-42e2-8d6c-c6cfd00f1ad9` and review
+chief's final readout `4d3507f3-eea1-4569-8eab-9a357c25938a-chief` under
+`.forge/results/` supply the inherited findings; the earlier `721fc65d-...`
+record describes `31cd6fa`'s C/D residual, which remains outside this pass.
+Those readouts are adopted records, not a new journal replay. Both current
+positions were read in full; these pins identify their reused run-local paths:
+
+- Robustness: `.forge/design/positions/robustness.md`, SHA-256
+  `eb3fae5398ae41a0f84a03f5a8afbb21db3a797d4071add2c18d10e6cc13b8cf`.
+- Simplicity: `.forge/design/positions/simplicity.md`, SHA-256
+  `6db6d00f7bb37cc819fc721c05ccfc8319c49151c1b9765344dfe15d2b72e1e8`.
+
+| Position / claim | Disposition and evidence |
+|---|---|
+| Both: R1 is repaired; preserve the inherited planner and existing task IDs. Simplicity: a sitting and fresh pins suffice. | Adopt the repair and existing architecture. `find_dsh_transcript` uses `DSH_TRANSCRIPT_NAMES`, selected first, while `dsh_session_file_with` uses only `DSH_TRANSCRIPT`. Retain the literal-filename regressions. A sitting must resolve the actual transport and observation choices below; a pin-only update would leave those choices unanswered. No new numbered decision, requirement or scenario follows. |
+| Both: R2 requires serialization and opaque transport, not hand escaping. Simplicity proposes indexed data rows beside the verdict file, with surplus rows and last-row fallback. | Combine serialization with the existing data-file pattern; reject surplus-and-repeat checkpoint identity. `dsh_model_driver` currently embeds raw home/locator in JSON inside the shell format. Serialize one complete checkpoint-data row per declared test invocation with `serde_json`, including that invocation's ID. The shim selects the indexed row and emits it as a `%s` argument in a fixed format. An unexpected missing row fails the shim explicitly; repeating the last checkpoint would falsely reuse an ID even though verdict repetition is legitimate. Keep arbitrary payload bytes out of shell source and format strings. No base64, environment protocol, provider flag, Rust driver replacement or production transport change is needed. |
+| Robustness: exercise the actual transport with Windows and other interpreting characters. Simplicity suggests a literal-backslash directory and retains both carriers. | Adopt the real transport test and both named carriers; reject requiring a Windows-shaped directory to exist on POSIX or rewriting its separators. Treat the representative Windows home as data, decode the checkpoint bytes the same shim actually emits and assert exact values. Cover quotes, percent signs, backslashes and an embedded newline without splitting the JSONL frame. A synthetic locator for this transport check is not planner admission evidence. The existing single-site and panel-member tests still run on their actual temporary homes and assert their original offers and `Start.input`. Native Windows/macOS evidence remains pending CI. |
+| Robustness: two scans and presence-only assertions do not prove all five coordinates belong to one checkpoint; either merge scans or demonstrate the association. | Adopt the evidence gap, not a speculative merge. `eligible_offer` reads ID/locator/home from its selected checkpoint; `originating_root` separately reads version/digest, and `engine.rs` calls it only when an offer exists. Their filters differ, so the unit case that supplies both objects directly is insufficient. Extend the existing journal/actual-start cases with distinct old/new coordinates, absent or mistyped latest fields and another site's row. When the newest owner is eligible, assert the five-coordinate context from that checkpoint at both callers; an incompatible newest owner supplies no offer, and a no-offer start carries no owned target. The current two-row test checks only missing locator/home. Preserve current filtering unless a failing B case demonstrates a correction is necessary; do not assert that the scans cannot diverge merely because both exist. |
+| Both: R3 ordering and patch arity must be observed on each planned result. Robustness proposes an originating-identity mismatch; simplicity proposes a declared-composite mismatch with no offer. | Combine these complementary comparisons in the existing positive planner matrix. Use the shipped research file and its model/effort, with a bound digest. Qualified cold, qualified warm, disabled cold and identity-mismatch cold each assert exact command shape, exactly one patch and route rows before every Rust-owned persistence/model/settings row, with reasoning levels unchanged. Exercise declared-composite mismatch without an offer and originating-identity mismatch with an offer, asserting the refusal-token and observation counts appropriate to each case. The current helper-only ordering assertion and synthetic warm/disabled `contains` assertions do not establish these facts. |
+| Both: negatives must directly observe no staging. Robustness prefers an injected stager or moving staging out of planning; simplicity prefers a test-only thread-local counter. | Select a private `#[cfg(test)]` thread-local counter at entry to the existing `dsh_seat_overlay_in`, before either the settings file or patch can be created. Reset it for each planner call; assert zero for every control/route refusal and exactly one on positive plans to calibrate the observation. The planner is synchronous and stages at this existing function; no production ordering change is required. Reject a process-global counter (parallel tests interfere), temp-directory scans (non-hermetic), a new planner signature and moving staging into invocation (unnecessary lifecycle change). Retain the recording version shim and counted/panicking sole-producer closure alongside this observation. |
+| Both: the full grammar/path/binding matrix belongs at `dsh_launch_with`, not only the reader. Simplicity rejects expanding the acceptance contract. | Adopt the existing 8.10 catalogue and reuse reader vectors, extending them where a named class lacks a vector. Run each through cold, offered and disabled planning, including digest-before-shape and a matching-digest invalid `baseURL`, with zero staging/probe/producer observations and no value echo. Preserve the runtime binding cases at both callers; adapter input cannot prove which engine location withheld a binding. Reject a duplicate prose catalogue, a generic parser or new admitted syntax. Additional representative values within AS3's existing grammar are evidence, not new behavior contracts. |
+| Both: R4 needs an admitted multibyte warm round trip. Robustness additionally asks for one shared bound and re-running the full resolver on planned output. Simplicity asks for no production character-count change. | Adopt the behavioral round trip and preserve the correct production checks. Use an 80-Rust-character locator whose UTF-8 encoding exceeds 80 bytes, including its path prefix; assert original root, exact output locator, warm argv and no replacement allocation. Keep the 81-character and valid-prefix refusals. Exercise the existing `Transcript::record` clamp with the planned value as well, without emitting a provider launch, so producer and consumer agreement is observed. Reject a mandatory constant/locator refactor: both constants are 80, the offered path is already checked and fresh names are short by construction; no contrary production result was found. Re-running storage resolution would add reads, not prove losslessness. No shared-clamp behavior change is authorized. |
+| Robustness: unsafe/unreadable siblings must fail the whole selection, and fixed diagnostics must survive. Both: gate, identity and storage evidence beyond R2-R4 remains owed. | Adopt under the existing 8.8(d)/8.10 clauses. Preserve complete bounded reads, exact-one depth-zero selection, canonical home/file containment and non-echoing errors. Close remaining planner vectors, including typed/missing origin/target fields and admitted/beyond-budget outcomes. Do not skip a bad candidate or infer no observation from a cold decline: origin/storage declines legitimately follow current version/composite observations and may stage a fresh safe cold plan. R3's zero-call rule applies to pre-observation control/route refusals, not all declines. |
+| Simplicity's remaining cuts: no module, type, public seam, token, digest/manifest producer, dependency, protocol, contract, provider proof, recipe/roster/witness/pair edit or task tick. Both: preserve C/D and all other passes. | Adopt. The existing `DshLaunch`, private context, reader and sole Rust producer suffice. Current restrictions, `confirms_from_locator: false`, proposed 0056, unmeasured DSH, the whole AS1 minimum and LaneTally's sole 11.4 exception remain. No position supplies a gate verdict, destination or another office's authority; R5's standing rule governs how these technical claims are used. |
+
+This sitting resolves robustness's three open questions: observe the existing
+stager without moving it; prove same-checkpoint association before considering
+a scan change; retain the existing offered-path and planned-output checks,
+proven through the multibyte round trip. Existing AS1 gate/composite, AS2 DSH
+and AS3 control/route/identifier scenarios already own the outcomes. There is
+no newly answered behavioral ambiguity to encode as a duplicate scenario and
+no upstream specification repair. 8.10 remains the acceptance catalogue;
+record executable evidence under those existing IDs as it becomes available.
+The current source check establishes R2's transport defect and R3/R4's missing
+observations, not completed tests. This office authors only `design.md`.
+
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
@@ -2273,6 +2335,16 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
+- [Serialized checkpoint data is interpreted again by the shell or printf] →
+  Carry it as an argument read from an indexed data row; exercise actual emitted
+  JSON with Windows-shaped and interpreting-character values. A local transport
+  pass does not supply the pending native Windows/macOS CI result.
+- [A no-staging assertion observes nothing even on a positive plan] → Count
+  entry before either settings or patch staging and calibrate with a positive
+  plan. Keep the observation thread-local and reset for each synchronous call.
+- [Independent checkpoint scans appear coherent only because a test has one
+  row] → Distinct old/new coordinates and missing/latest fields must reach the
+  actual context at both callers; preserve absence rather than filling it.
 - [A partial private target silently changes the originating address] → Carry
   the recorded home and locator from the same confirmed checkpoint, require
   the offered ID, and compare canonical homes before retained-file reads.
@@ -2435,14 +2507,16 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Migration Plan
 
-For this Pass B visit, adopt the delivered binding, reader, planner and all
-other committed work before extending the existing guards and deterministic
-suites. Complete the recorded-home metadata path within the existing private
-carrier; a DSH target without that evidence starts cold. No journal backfill,
-provider installation, activation or archive occurs. The local gates precede
-the implementing pass's final commit; exact coverage and remote results remain
-pending with the controller. The whole-change sequence below is retained for
-its later owners and does not schedule C/D or E–K in this run.
+For this Pass B successor, preserve the delivered home carrier, binding,
+reader, planner and controller R1 repair. Correct R2's test transport, complete
+R3/R4 and the remaining existing 8.10 planner evidence, and record the measured
+outcomes under existing IDs. No data migration or journal backfill is needed:
+a DSH target without complete evidence continues to decline safely. Keep the
+implementation and its tests in their existing Rust modules. The commissioned
+local gates precede the final commit; unavailable gates remain pending. Exact
+coverage and remote results require controller evidence. The whole-change
+sequence below remains for its later owners and schedules no C/D or E–K work
+in this run.
 
 1. The smith adopts this design for numbered requirement-linked tasks with
    separate unchecked evidence/enablement/delivery obligations. Tasks validation
@@ -2515,13 +2589,13 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No open design question remains for Pass B. Proposal T and this sitting's
-D6/D10 reconciliation identify implementation gaps against existing rules;
-they do not reopen the selected pair, AS1 minimum or Pass A. The route-overlay
-binding and reader are delivered; retain their existing suites and complete
-the 8.10 planner matrix. Private originating-home propagation is the concrete
-runtime repair needed by the already-required complete stored address, with
-proof at both callers; it is separate from the delivered overlay binding.
+No open design question remains for this Pass B successor. Proposal U and
+D10's 2026-09-15 sitting settle the transport and test-observation choices.
+The home carrier and controller R1 repair are adopted; their existing tests
+remain; the missing same-checkpoint evidence is still owed at both callers.
+R2-R4 and the other existing planner cases require executable evidence, not
+another specification or task catalogue. The selected pair, AS1 minimum and
+Pass A remain settled.
 Historical `b1caf37` and its successors continue to own that binding's suite
 placement. D13 establishes the supported dated
 same-change path from decision 0042 and installed OpenSpec behavior. D6 selects
@@ -3239,3 +3313,37 @@ The task-planning office carries D10's bounded details under existing IDs;
 Pass B implementation/verification remains with the smith. The visit starts
 no workflow runner, provider probe, archive or new Brokkr run, and performs
 no push, merge, provider activation or task tick.
+
+
+## Council design validation — Pass B residual, 2026-09-15
+
+Run `current-successor-issue-226-pass-84698352` adopted `f63c113` and the
+existing specify draft without modifying that proposal. Read the controller
+R1 repair first, the full pass framing, predecessor implementation/review
+readouts, DSH declaration, proposed 0056, proposal, D5/D6, AS1-AS3, 8.8/8.10
+and their dated returns, both complete current positions and relevant Rust
+code/tests. Read `dialects/openspec/design.md`, `return.md` and the rendered
+OpenSpec design instructions through workspace hands. D10 explicitly resolves
+the claims and alternatives; no workflow runner or provider probe was invoked.
+
+Strict active OpenSpec validation, status/delta parsing and whitespace checks
+pass. Structural checks preserve all five deltas (20 requirements / 150
+scenarios), all 101 task IDs/ticks (82 complete / 19 pending), the inherited
+proposal bytes, proposed 0056 and the unmeasured DSH declaration. This office's
+only tracked edit is `design.md`; production and frozen paths are unchanged.
+No implementation test, task completion, provider enablement or C/D acceptance
+is claimed by this design draft.
+
+With `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and the #282 environment workaround,
+format, all-target/all-feature clippy, protocol/runtime suites, driver
+conformance, workspace listing/tests, both bundle compiles and the release
+build all fail to launch with `ENOENT`: Cargo is absent in this seat's box.
+No Rust gate passed, no new test exception was introduced and the named
+pre-archive assertion remains pending. Evidence is under
+`.forge/design-chief-84698352/`. The commission requires the gates before the
+final commit, so this design remains uncommitted beside the inherited proposal
+draft until those gates can run. Missing toolchain evidence is not an upstream
+specification defect and does not reopen R1. Exact coverage stays pending
+controller host/CI evidence; CI, release admission and coverage all consume
+`rust-nightly-version.txt`. Native Windows/macOS CI and every remote handoff
+remain pending. No archive, push, merge or new Brokkr run occurred.

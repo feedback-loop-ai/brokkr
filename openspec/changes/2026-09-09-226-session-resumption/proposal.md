@@ -1,6 +1,15 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
-The current specify visit, run `current-successor-issue-226-pass-838309ce`,
+The current specify visit, run `current-successor-issue-226-pass-84698352`,
+adopts all committed work at `f63c113dd0531270eee0b7d36a3606f4f85bc5d4`
+under this same dated change. Its scope is **Pass B alone**. Answer U records
+the surviving R2–R4 evidence obligations and R5's office boundary, adopting
+the controller's completed R1 repair. The existing requirements and task
+identifiers stand; no completed pass or whole-feature delivery is inferred.
+
+Earlier Pass B specify adoption, retained as history:
+
+The earlier specify visit, run `current-successor-issue-226-pass-838309ce`,
 adopts all committed work at `31cd6fa434996e6e491a5f20c473e984349d83bb` and
 this same dated change. Its scope is **Pass B alone**: the remaining DSH
 admission/planner portion of 8.8(d) and corresponding 8.10 acceptance.
@@ -1177,6 +1186,63 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   implementation reports `oversized`; this specify office uses its own
   `drafted`/`upstream` result contract.
 
+- **U — Pass B successor adoption, 2026-09-15: complete the surviving
+  evidence, preserving the controller repair.** Adopt `f63c113`, including
+  `31cd6fa` and `5a38fb9`, and the predecessor's final implementation
+  result `0f82b0de-b4e6-42e2-8d6c-c6cfd00f1ad9` and review-chief readout
+  `4d3507f3-eea1-4569-8eab-9a357c25938a-chief` under `.forge/results/`.
+  The controller concluded predecessor `838309ce` after
+  `REVIEW-REFORGE-EXHAUSTED-MEDIUM`; that state does not invalidate its
+  committed work. The current intake is
+  `.forge/tasks/226-pass-b-residuals.md`. No `returned_from` finding was
+  supplied for this specify visit, and no earlier specification fault was
+  found. D5/D6, AS1–AS3 and 8.8(d)/8.10 already own the required behavior.
+
+  - **R1 is closed.** Adopt the dated controller-repair section in
+    `tasks.md` first: cold telemetry discovery reads both fixed transcript
+    names, selected generation first; strict warm admission reads only
+    `session.v3.jsonl`. The source preserves that separation and the
+    literal-filename tests. Reunifying the readers is rejected because it
+    would repeat the demonstrated loss of shipped cold telemetry under AS1.
+  - **R2 is an existing carrier-test defect.** The DSH checkpoint helper
+    interpolates raw home and locator values into JSON inside a shell
+    `printf` format. Preserve both actual-Start carriers while serializing
+    the checkpoint and transporting it without JSON or format
+    reinterpretation. A Windows-shaped home must decode unchanged through
+    the actual transport. The case must prove SR2/SR3's same-checkpoint
+    address; it supplies no native Windows or macOS result. Those signals remain pending
+    controller CI after a push, as the commission requires.
+  - **R3 is missing planner evidence.** AS3's existing route scenarios and
+    8.10 already require the shipped file on qualified cold, warm and
+    disabled cold, plus identity-mismatch cold, with exactly one patch,
+    unchanged reasoning levels and route rows before Rust-owned rows.
+    Complete the existing grammar/path/binding matrix through all three
+    planner paths, directly observing no staging or probe/producer call
+    for each refusal and digest-before-shape order. The inspected production
+    ordering is correct; helper-only assertions do not discharge these
+    observations or replace the runtime binding cases at both callers.
+  - **R4 is missing positive evidence.** D6 and 8.10 already specify Rust
+    characters. An eligible locator of at most 80 characters but more than
+    80 UTF-8 bytes must survive warm planning unchanged on its original
+    root. Retain the 81-character and valid-prefix refusals. Replacing the
+    bound with byte length is rejected because it changes that contract;
+    no production character-count fault was found.
+  - **R5 is an office-boundary defect in prior prose.** Positions state
+    findings and evidence. Directions about a gate's verdict or destination,
+    and claims of another office's authority, have no authority and are
+    rejected. This adoption supplies no verdict for any subsequent gate.
+
+  Adopt all five capability deltas unchanged. These findings expose test
+  defects or missing evidence, not unanswered behavioral ambiguities; adding
+  duplicate scenarios, another task catalogue or a new design mechanism is
+  rejected. Finish the remaining planner cases under the existing 8.8(d)
+  and 8.10 clauses using the inherited private context and sole Rust digest
+  producer. Preserve answer T's current staffing ruling and the whole AS1
+  delivery minimum, with only LaneTally's existing 11.4 exception.
+  Passes A and C–K remain outside this run. The ledger stays 82/101;
+  8.8, 8.10 and 9.6 remain unchecked while their complete acceptance depends
+  on C/D. Pass B completion requires executable evidence, not this adoption.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -2080,3 +2146,33 @@ Evidence is under `.forge/specify-838309ce/`. Only this proposal is changed
 for the specification checkpoint; the deltas are adopted unchanged. Frozen
 paths, production, declarations, recipes and witness pins retain the adopted
 bytes. No task tick, provider probe, archive, push, merge or new run occurred.
+
+
+## Specify validation — Pass B residual adoption, 2026-09-15
+
+Run `current-successor-issue-226-pass-84698352` adopted `f63c113` in
+proposal-then-deltas order. Read the dialect's own specify/return instructions
+and OpenSpec's rendered proposal/specs instructions through workspace hands.
+The predecessor's final implementation and review-chief result files supply
+the readouts; the box's workspace journal has no matching predecessor run,
+so no independent replay of that journal is claimed.
+
+Strict active OpenSpec validation, status, delta parsing and whitespace checks
+pass. All five deltas retain their adopted bytes: 20 requirements / 150
+scenarios, 15 ADDED and five MODIFIED requirements. All 101 task IDs/ticks,
+design, proposed 0056 and the unmeasured DSH declaration remain unchanged.
+Only this proposal has a tracked diff; frozen paths and production are intact.
+
+The commissioned format, all-target/all-feature clippy, affected crate suites,
+driver conformance, workspace listing/tests, both bundle compiles and release
+build each exit 127 because Cargo is absent in this box. Commands used
+`CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2` and the #282 environment workaround;
+no test skip or passing Rust result is claimed. Evidence is retained under
+`.forge/specify-84698352/`. The commission requires those gates before the
+final commit, so the proposal remains uncommitted pending their execution in
+a toolchain-equipped workspace. This does not waive a gate or reopen R1.
+Exact coverage remains pending controller host evidence; CI, release admission
+and coverage still consume `rust-nightly-version.txt`. Native Windows/macOS
+CI and other remote results remain pending. No workflow runner, provider probe,
+archive, task tick, push, merge or new Brokkr run was performed. This is a
+specification draft, with R2–R4 implementation and Pass B completion unclaimed.

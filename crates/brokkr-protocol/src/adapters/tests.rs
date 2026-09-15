@@ -6712,6 +6712,7 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
         "workdir": dir.path(),
         "resume_context": {"route_overlay": {"value": "route.yml", "digest": digest(valid)}},
     });
+    reset_dsh_staging_calls();
     let error = dsh_launch_with("dsh-does-not-run", &extra, workdir, None, &wrong, || {
         panic!("a refusal never reaches the producer")
     })
@@ -6719,12 +6720,14 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
     .unwrap();
     assert!(error.contains("do not hash"), "{error}");
     assert!(!error.contains("environment-variable"), "{error}");
+    assert_eq!(dsh_staging_calls(), 0, "a digest refusal precedes staging");
 
     // A digest-matching file leaves the shape check to decide.
     let matching = json!({
         "workdir": dir.path(),
         "resume_context": {"route_overlay": {"value": "route.yml", "digest": digest(&invalid)}},
     });
+    reset_dsh_staging_calls();
     let error = dsh_launch_with("dsh-does-not-run", &extra, workdir, None, &matching, || {
         panic!("a refusal never reaches the producer")
     })
@@ -6732,6 +6735,7 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
     .unwrap();
     assert!(error.contains("environment-variable"), "{error}");
     assert!(!error.contains("do not hash"), "{error}");
+    assert_eq!(dsh_staging_calls(), 0, "a shape refusal precedes staging");
 
     // A binding with no `--patch`, and a `--patch` with no binding, both
     // refuse before any provider observation.
@@ -6739,6 +6743,7 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
         "--model".to_string(),
         "deepseek/deepseek-v4-flash".to_string(),
     ];
+    reset_dsh_staging_calls();
     let error = dsh_launch_with(
         "dsh-does-not-run",
         &no_patch,
@@ -6753,13 +6758,16 @@ fn a_dsh_route_overlay_planner_checks_the_digest_before_the_shape_and_before_sta
         error.contains("disagrees") || error.contains("no bound"),
         "{error}"
     );
+    assert_eq!(dsh_staging_calls(), 0, "a binding refusal precedes staging");
     let unbound = json!({"workdir": dir.path()});
+    reset_dsh_staging_calls();
     let error = dsh_launch_with("dsh-does-not-run", &extra, workdir, None, &unbound, || {
         panic!("a refusal never reaches the producer")
     })
     .err()
     .unwrap();
     assert!(error.contains("no bound route overlay"), "{error}");
+    assert_eq!(dsh_staging_calls(), 0, "an absent binding precedes staging");
 
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
@@ -6808,6 +6816,7 @@ fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
             ("enabled", enabled(digest), None),
         ] {
             let calls = std::cell::Cell::new(0u32);
+            reset_dsh_staging_calls();
             let result = dsh_launch_with(&shim_text, &extra, workdir, session, &input, || {
                 calls.set(calls.get() + 1);
                 Ok(synthetic_dsh_composite(&declared))
@@ -6816,6 +6825,11 @@ fn dsh_route_overlay_path_refusals_precede_any_probe_or_staging() {
                 .err()
                 .unwrap_or_else(|| panic!("{label}/{path} must refuse"));
             assert_eq!(calls.get(), 0, "{label}/{path}: no producer call");
+            assert_eq!(
+                dsh_staging_calls(),
+                0,
+                "{label}/{path}: the refusal precedes staging"
+            );
             assert!(!marker.exists(), "{label}/{path}: no version probe");
             assert!(
                 error.contains("route_overlay") || error.contains("route overlay"),
@@ -7435,6 +7449,633 @@ fn a_dsh_route_overlay_planner_folds_on_the_offered_and_unmeasured_paths() {
     assert!(!cold.stream_json && cold.rejoining.is_none());
     let folded = std::fs::read_to_string(cold.overlay.path()).unwrap();
     assert!(folded.contains("- id: llm-pi-ai"), "{folded}");
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pass B residual evidence (answer U's R3/R4): the planner-level route
+// positives, the calibrated no-staging observation on every refusal, the
+// full grammar/binding matrix through cold, offered and disabled planning,
+// and the admitted multibyte round trip.
+// ---------------------------------------------------------------------------
+
+/// The committed research lane route, read at test time, with its digest:
+/// the 8.10 positive vector, never a hand-typed copy.
+#[cfg(unix)]
+fn shipped_dsh_route() -> (Vec<u8>, String) {
+    use sha2::{Digest, Sha256};
+    let route = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../recipes/research-dsh/drivers/research-web.yml"),
+    )
+    .unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(&route);
+    (route, hex::encode(hasher.finalize()))
+}
+
+/// One planned result's overlay must carry the route rows ahead of every
+/// Rust-owned persistence, model and settings row, behind exactly one
+/// `--patch`. `stream` selects the qualified (`--new`/`--session
+/// --output-format stream-json`) or shipped cold shape.
+#[cfg(unix)]
+fn assert_dsh_planner_overlay(launch: &DshLaunch, stream: bool) {
+    let command = &launch.command;
+    assert_eq!(
+        command.iter().filter(|part| *part == "--patch").count(),
+        1,
+        "exactly one patch: {command:?}"
+    );
+    let streamed = command
+        .windows(2)
+        .any(|pair| pair[0] == "--output-format" && pair[1] == "stream-json");
+    assert_eq!(streamed, stream, "stream-json selector: {command:?}");
+    if stream {
+        assert_eq!(
+            command.contains(&"--session".to_string()) ^ command.contains(&"--new".to_string()),
+            stream,
+            "exactly one of --session/--new: {command:?}"
+        );
+    } else {
+        assert_shipped_cold_command(command, &command[0]);
+    }
+    let written = std::fs::read_to_string(launch.overlay.path()).unwrap();
+    for id in [
+        "- id: llm-pi-ai",
+        "- id: agent-default-model",
+        "- id: session-persistence-jsonl",
+        "- id: settings",
+    ] {
+        assert_eq!(written.matches(id).count(), 1, "{id} once: {written}");
+    }
+    let route_at = written.find("- id: llm-pi-ai").unwrap();
+    let model_at = written.find("- id: agent-default-model").unwrap();
+    let transcript_at = written.find("- id: session-persistence-jsonl").unwrap();
+    let settings_at = written.find("- id: settings").unwrap();
+    assert!(
+        route_at < model_at && model_at < transcript_at && transcript_at < settings_at,
+        "the route rows must be folded ahead of Brokkr's: {written}"
+    );
+}
+
+/// R3: every positive planner path folds the shipped instrument route with
+/// exactly one `--patch`, stages exactly once and keeps the route rows
+/// ahead of the Rust-owned rows with the route's reasoning levels
+/// unchanged — qualified cold, qualified warm, disabled cold, a
+/// declared-composite mismatch without an offer, and an originating-
+/// identity mismatch with an offer.
+#[cfg(unix)]
+#[test]
+fn dsh_positive_planner_paths_fold_the_shipped_route_ahead_of_rust_owned_rows() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let (route, route_digest) = shipped_dsh_route();
+    std::fs::write(dir.path().join("route.yml"), &route).unwrap();
+    let declared = "b".repeat(64);
+    let binding = json!({"value": "route.yml", "digest": route_digest});
+    let workdir = dir.path().to_str().unwrap();
+    let extra = vec![
+        "--model".to_string(),
+        "dashscope/qwen3.8-max".to_string(),
+        "--effort".to_string(),
+        "xhigh".to_string(),
+        "--patch".to_string(),
+        "route.yml".to_string(),
+    ];
+    let shim = dsh_version_shim(dir.path(), "dsh-positive", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let levels = |launch: &DshLaunch| {
+        let written = std::fs::read_to_string(launch.overlay.path()).unwrap();
+        assert_eq!(written.matches("reasoningEfforts:").count(), 1, "{written}");
+        for level in ["low: low", "medium: medium", "xhigh: xhigh"] {
+            assert!(written.contains(level), "{level}: {written}");
+        }
+        assert!(
+            written.contains(
+                "baseURL: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+            ),
+            "{written}"
+        );
+    };
+
+    // Qualified cold — matching version and declared composite, no offer.
+    let mut cold = dsh_enabled_input("0.1.5-rc.1", &declared, dir.path());
+    cold["resume_context"]["route_overlay"] = binding.clone();
+    let calls = std::cell::Cell::new(0u32);
+    reset_dsh_staging_calls();
+    let cold = dsh_launch_with(&shim_text, &extra, workdir, None, &cold, || {
+        calls.set(calls.get() + 1);
+        Ok(synthetic_dsh_composite(&declared))
+    })
+    .unwrap();
+    assert_eq!(calls.get(), 1, "qualified cold recomputes once");
+    assert_eq!(dsh_staging_calls(), 1, "qualified cold stages exactly once");
+    assert!(cold.stream_json && cold.rejoining.is_none());
+    assert_dsh_planner_overlay(&cold, true);
+    levels(&cold);
+
+    // Qualified warm — the offer's originating identity matches.
+    plant_dsh_session(
+        dir.path(),
+        "sessions/brokkr/seat-1",
+        "--w--",
+        "session-1",
+        5,
+    );
+    let mut warm = dsh_enabled_input("0.1.5-rc.1", &declared, dir.path());
+    warm["resume_context"]["route_overlay"] = binding.clone();
+    warm["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    warm["resume_context"]["originating_wrapper_digest"] = json!(declared);
+    warm["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-1",
+        "persistence_locator": "sessions/brokkr/seat-1",
+        "persistence_home": dir.path().to_str().unwrap(),
+    });
+    reset_dsh_staging_calls();
+    let warm = dsh_launch_with(
+        &shim_text,
+        &extra,
+        workdir,
+        Some("session-1"),
+        &warm,
+        || Ok(synthetic_dsh_composite(&declared)),
+    )
+    .unwrap();
+    assert_eq!(dsh_staging_calls(), 1, "qualified warm stages exactly once");
+    assert!(warm.stream_json && warm.rejoining.as_deref() == Some("session-1"));
+    assert_eq!(warm.locator, "sessions/brokkr/seat-1");
+    assert_dsh_planner_overlay(&warm, true);
+    levels(&warm);
+
+    // Disabled cold — no assessment, no probe, no producer.
+    let mut bare = json!({"workdir": dir.path()});
+    bare["resume_context"]["route_overlay"] = binding.clone();
+    reset_dsh_staging_calls();
+    let disabled = dsh_launch_with("dsh-does-not-run", &extra, workdir, None, &bare, || {
+        panic!("the disabled gate never recomputes")
+    })
+    .unwrap();
+    assert_eq!(dsh_staging_calls(), 1, "disabled cold stages exactly once");
+    assert!(!disabled.stream_json && disabled.rejoining.is_none());
+    assert_dsh_planner_overlay(&disabled, false);
+    levels(&disabled);
+
+    // Declared-composite mismatch without an offer: still one cold plan,
+    // no refusal token, and the one permitted producer call.
+    let mut mismatched = dsh_enabled_input("0.1.5-rc.1", &declared, dir.path());
+    mismatched["resume_context"]["route_overlay"] = binding.clone();
+    reset_dsh_staging_calls();
+    let mismatched = dsh_launch_with(&shim_text, &extra, workdir, None, &mismatched, || {
+        Ok(synthetic_dsh_composite(&"c".repeat(64)))
+    })
+    .unwrap();
+    assert_eq!(
+        dsh_staging_calls(),
+        1,
+        "a mismatch still stages one cold plan"
+    );
+    assert!(!mismatched.stream_json && mismatched.refusal.is_none());
+    assert_dsh_planner_overlay(&mismatched, false);
+    levels(&mismatched);
+
+    // Originating-identity mismatch with an offer: cold route and the
+    // exact refusal token, with the route still folded once.
+    let mut origin = dsh_enabled_input("0.1.5-rc.1", &declared, dir.path());
+    origin["resume_context"]["route_overlay"] = binding;
+    origin["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    origin["resume_context"]["originating_wrapper_digest"] = json!("d".repeat(64));
+    origin["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-1",
+        "persistence_locator": "sessions/brokkr/seat-1",
+        "persistence_home": dir.path().to_str().unwrap(),
+    });
+    reset_dsh_staging_calls();
+    let origin = dsh_launch_with(
+        &shim_text,
+        &extra,
+        workdir,
+        Some("session-1"),
+        &origin,
+        || Ok(synthetic_dsh_composite(&declared)),
+    )
+    .unwrap();
+    assert_eq!(
+        dsh_staging_calls(),
+        1,
+        "an origin mismatch stages one cold plan"
+    );
+    assert_eq!(origin.refusal, Some("unverified-harness"));
+    assert!(!origin.stream_json && origin.rejoining.is_none());
+    assert_dsh_planner_overlay(&origin, false);
+    levels(&origin);
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// R3: the route grammar matrix through all three planner paths. Each
+/// vector is bound to its own bytes, so the digest check passes and the
+/// shape check is what refuses; every refusal happens before staging, any
+/// producer call or the version probe, and names no value.
+#[cfg(unix)]
+#[test]
+fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
+    use sha2::{Digest, Sha256};
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let declared = "b".repeat(64);
+    let marker = dir.path().join("m-matrix");
+    let shim = dsh_recording_version_shim(dir.path(), "dsh-matrix", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = dir.path().to_str().unwrap();
+    let extra = vec![
+        "--model".to_string(),
+        "deepseek/deepseek-v4-flash".to_string(),
+        "--patch".to_string(),
+        "route.yml".to_string(),
+    ];
+    let valid = "- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        \
+                 apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n";
+    let with_line = |line: &str| {
+        valid.replace(
+            "        apiKeyEnv: DEEPSEEK_API_KEY\n",
+            &format!("        apiKeyEnv: DEEPSEEK_API_KEY\n{line}\n"),
+        )
+    };
+    let vectors: Vec<(&str, String, &str)> = vec![
+        (
+            "foreign row",
+            valid.replace("- id: llm-pi-ai", "- id: session-persistence-jsonl"),
+            "route entry id",
+        ),
+        (
+            "provider not pinned",
+            valid.replace("      deepseek:", "      openrouter:"),
+            "provider the seat did not pin",
+        ),
+        (
+            "model not pinned",
+            valid.replace("- id: deepseek-v4-flash", "- id: qwen3-max"),
+            "model the seat did not pin",
+        ),
+        (
+            "second provider",
+            format!(
+                "{valid}      other:\n        apiKeyEnv: OTHER_KEY\n        models:\n          - id: deepseek-v4-flash\n"
+            ),
+            "exactly one provider",
+        ),
+        (
+            "field outside the set",
+            with_line("        apiKey: sk-live"),
+            "outside the closed set",
+        ),
+        (
+            "literal auth header",
+            with_line("        headers:\n          Authorization: Bearer sk-live"),
+            "outside the closed set",
+        ),
+        (
+            "missing apiKeyEnv",
+            valid.replace("        apiKeyEnv: DEEPSEEK_API_KEY\n", ""),
+            "missing `apiKeyEnv`",
+        ),
+        (
+            "malformed apiKeyEnv",
+            valid.replace("DEEPSEEK_API_KEY", "9LIVE"),
+            "environment-variable name",
+        ),
+        (
+            "http endpoint",
+            with_line("        baseURL: http://host/x"),
+            "endpoint",
+        ),
+        (
+            "query endpoint",
+            with_line("        baseURL: https://host/x?q=1"),
+            "endpoint",
+        ),
+        (
+            "backslash endpoint",
+            with_line("        baseURL: https://host\\x"),
+            "endpoint",
+        ),
+        (
+            "tagged scalar",
+            "- id: llm-pi-ai\n  config: !!js ctx\n".to_string(),
+            "reserved character",
+        ),
+        (
+            "flow collection",
+            "- id: llm-pi-ai\n  config: {providers: x}\n".to_string(),
+            "reserved character",
+        ),
+        (
+            "anchor",
+            "- id: llm-pi-ai\n  config: &anchor x\n".to_string(),
+            "reserved character",
+        ),
+        (
+            "merge key",
+            "- id: llm-pi-ai\n  config:\n    <<: x\n".to_string(),
+            "plain identifier",
+        ),
+    ];
+
+    for (name, body, needle) in vectors {
+        std::fs::write(dir.path().join("route.yml"), &body).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(body.as_bytes());
+        let digest = hex::encode(hasher.finalize());
+        for (path, mut input, session) in [
+            ("disabled", json!({"workdir": dir.path()}), None),
+            (
+                "offered",
+                dsh_enabled_input("0.1.5-rc.1", &declared, dir.path()),
+                Some("session-1"),
+            ),
+            (
+                "enabled",
+                dsh_enabled_input("0.1.5-rc.1", &declared, dir.path()),
+                None,
+            ),
+        ] {
+            input["resume_context"]["route_overlay"] =
+                json!({"value": "route.yml", "digest": digest});
+            let calls = std::cell::Cell::new(0u32);
+            reset_dsh_staging_calls();
+            let result = dsh_launch_with(&shim_text, &extra, workdir, session, &input, || {
+                calls.set(calls.get() + 1);
+                Ok(synthetic_dsh_composite(&declared))
+            });
+            let error = result
+                .err()
+                .unwrap_or_else(|| panic!("{name}/{path} must refuse"));
+            assert_eq!(dsh_staging_calls(), 0, "{name}/{path}: no staging");
+            assert_eq!(calls.get(), 0, "{name}/{path}: no producer call");
+            assert!(!marker.exists(), "{name}/{path}: no version probe");
+            assert!(
+                error.contains(needle),
+                "{name}/{path}: expected {needle:?} in {error:?}"
+            );
+            for echo in ["route.yml", "deepseek-v4-flash", "DEEPSEEK_API_KEY"] {
+                assert!(
+                    !error.contains(echo),
+                    "{name}/{path}: {echo} echoed in {error}"
+                );
+            }
+        }
+    }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// R3: the binding-relationship matrix through all three planner paths.
+/// A `--patch` without a binding, a binding without a `--patch`, a
+/// disagreeing value and a bound digest the bytes do not hash to each
+/// refuse pre-staging; the digest check runs before the shape check.
+#[cfg(unix)]
+#[test]
+fn dsh_route_binding_matrix_refuses_before_staging_on_every_planner_path() {
+    use sha2::{Digest, Sha256};
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let declared = "b".repeat(64);
+    let marker = dir.path().join("m-binding");
+    let shim = dsh_recording_version_shim(dir.path(), "dsh-binding", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = dir.path().to_str().unwrap();
+    let valid = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        models:\n          - id: deepseek-v4-flash\n";
+    let digest = |bytes: &[u8]| {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        hex::encode(hasher.finalize())
+    };
+    let with_patch = vec![
+        "--model".to_string(),
+        "deepseek/deepseek-v4-flash".to_string(),
+        "--patch".to_string(),
+        "route.yml".to_string(),
+    ];
+    let without_patch = vec![
+        "--model".to_string(),
+        "deepseek/deepseek-v4-flash".to_string(),
+    ];
+    // The first vector is invalid on both axes: a mistyped apiKeyEnv AND a
+    // digest for other bytes. The digest refusal must win.
+    let broken = String::from_utf8(valid.to_vec())
+        .unwrap()
+        .replace("DEEPSEEK_API_KEY", "9LIVE")
+        .into_bytes();
+    let shaped = b"- id: llm-pi-ai\n  config:\n    providers:\n      deepseek:\n        apiKeyEnv: DEEPSEEK_API_KEY\n        baseURL: http://host/x\n        models:\n          - id: deepseek-v4-flash\n";
+    /// One binding-relationship vector: the argv, the named value (empty
+    /// when no binding is supplied), the bytes on disk and the bound digest.
+    struct Case {
+        name: &'static str,
+        argv: Vec<String>,
+        value: &'static str,
+        body: Vec<u8>,
+        bound: String,
+    }
+    let cases = vec![
+        Case {
+            name: "digest before shape",
+            argv: with_patch.clone(),
+            value: "route.yml",
+            body: broken,
+            bound: digest(valid),
+        },
+        Case {
+            name: "shape after digest",
+            argv: with_patch.clone(),
+            value: "route.yml",
+            body: shaped.to_vec(),
+            bound: digest(shaped),
+        },
+        Case {
+            name: "disagreeing value",
+            argv: with_patch.clone(),
+            value: "other.yml",
+            body: valid.to_vec(),
+            bound: digest(valid),
+        },
+        Case {
+            name: "no binding beside a patch",
+            argv: with_patch.clone(),
+            value: "",
+            body: valid.to_vec(),
+            bound: digest(valid),
+        },
+        Case {
+            name: "binding without a patch",
+            argv: without_patch,
+            value: "route.yml",
+            body: valid.to_vec(),
+            bound: digest(valid),
+        },
+    ];
+
+    for Case {
+        name,
+        argv,
+        value,
+        body,
+        bound,
+    } in cases
+    {
+        std::fs::write(dir.path().join("route.yml"), &body).unwrap();
+        for (path, mut input, session) in [
+            ("disabled", json!({"workdir": dir.path()}), None),
+            (
+                "offered",
+                dsh_enabled_input("0.1.5-rc.1", &declared, dir.path()),
+                Some("session-1"),
+            ),
+            (
+                "enabled",
+                dsh_enabled_input("0.1.5-rc.1", &declared, dir.path()),
+                None,
+            ),
+        ] {
+            if !value.is_empty() {
+                input["resume_context"]["route_overlay"] = json!({"value": value, "digest": bound});
+            }
+            let calls = std::cell::Cell::new(0u32);
+            reset_dsh_staging_calls();
+            let result = dsh_launch_with(&shim_text, &argv, workdir, session, &input, || {
+                calls.set(calls.get() + 1);
+                Ok(synthetic_dsh_composite(&declared))
+            });
+            let error = result
+                .err()
+                .unwrap_or_else(|| panic!("{name}/{path} must refuse"));
+            assert_eq!(dsh_staging_calls(), 0, "{name}/{path}: no staging");
+            assert_eq!(calls.get(), 0, "{name}/{path}: no producer call");
+            assert!(!marker.exists(), "{name}/{path}: no version probe");
+            match name {
+                "digest before shape" => {
+                    assert!(error.contains("do not hash"), "{name}/{path}: {error}");
+                    assert!(
+                        !error.contains("environment-variable"),
+                        "{name}/{path}: {error}"
+                    );
+                }
+                "shape after digest" => {
+                    assert!(error.contains("endpoint"), "{name}/{path}: {error}");
+                    assert!(!error.contains("do not hash"), "{name}/{path}: {error}");
+                }
+                "disagreeing value" => {
+                    assert!(error.contains("disagrees"), "{name}/{path}: {error}");
+                }
+                "no binding beside a patch" => {
+                    assert!(
+                        error.contains("no bound route overlay"),
+                        "{name}/{path}: {error}"
+                    );
+                }
+                _ => assert!(error.contains("disagrees"), "{name}/{path}: {error}"),
+            }
+            assert!(
+                !error.contains("route.yml") && !error.contains("other.yml"),
+                "{name}/{path}: a value is echoed in {error}"
+            );
+        }
+    }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// R4: an eligible locator of at most 80 Rust characters whose UTF-8
+/// encoding exceeds 80 bytes survives warm planning unchanged — the exact
+/// output locator on the original root, with no replacement allocation —
+/// and the shared `Transcript::record` clamp leaves it unchanged too.
+/// Replacing `chars().count()` with a byte length would refuse it.
+#[cfg(unix)]
+#[test]
+fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let digest = "b".repeat(64);
+    let shim = dsh_version_shim(dir.path(), "dsh-multibyte", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let workdir = dir.path().to_str().unwrap();
+
+    // `sessions/brokkr/` is 16 characters, so 64 two-byte characters make
+    // an 80-character locator whose encoding is 144 bytes.
+    let prefix = "sessions/brokkr/";
+    let locator = format!("{prefix}{}", "é".repeat(80 - prefix.chars().count()));
+    assert_eq!(locator.chars().count(), 80, "at the character bound");
+    assert!(locator.len() > 80, "and over the byte count");
+    plant_dsh_session(dir.path(), &locator, "--mb--", "session-mb", 3);
+
+    let mut input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    input["resume_context"]["originating_wrapper_digest"] = json!(digest);
+    input["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-mb",
+        "persistence_locator": locator,
+        "persistence_home": dir.path().to_str().unwrap(),
+    });
+    reset_dsh_staging_calls();
+    let launch = dsh_launch_with(&shim_text, &[], workdir, Some("session-mb"), &input, || {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert!(
+        launch.stream_json,
+        "the admitted multibyte locator is offered"
+    );
+    assert_eq!(launch.rejoining.as_deref(), Some("session-mb"));
+    assert_eq!(launch.locator, locator, "the planned locator is unchanged");
+    assert_eq!(
+        launch
+            .command
+            .iter()
+            .filter(|part| *part == "--session")
+            .count(),
+        1,
+        "{:?}",
+        launch.command
+    );
+    assert!(!launch.command.contains(&"--new".to_string()));
+    assert_eq!(
+        launch.root,
+        dir.path().join(&locator),
+        "the original root, not a replacement allocation"
+    );
+    assert_eq!(dsh_staging_calls(), 1);
+
+    // The shared clamp is the consumer's bound; it must leave the planned
+    // value unchanged rather than shortening it into another address.
+    let mut transcript = Transcript::resolve(TranscriptKind::DshSession).unwrap();
+    let mut meta = serde_json::Map::new();
+    let mut emitted = Vec::new();
+    transcript.record(&locator, &mut meta, &mut |value| {
+        emitted.push(value.clone())
+    });
+    assert_eq!(meta["transcript"]["locator"], locator);
 
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),

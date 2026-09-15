@@ -4161,6 +4161,27 @@ fn dsh_seat_overlay(
     })
 }
 
+// Test-only observation that `dsh_seat_overlay_in` was entered, so a
+// refusing planner path can prove that staging never happened: an error
+// or an absent retained directory does not establish that fact (task
+// 8.10; answer U's R3). The planner is synchronous and the counter is
+// thread-local, so parallel tests never observe one another's staging;
+// a process-global counter would.
+#[cfg(test)]
+thread_local! {
+    static DSH_STAGING_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn dsh_staging_calls() -> usize {
+    DSH_STAGING_CALLS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn reset_dsh_staging_calls() {
+    DSH_STAGING_CALLS.with(|calls| calls.set(0));
+}
+
 /// The seat overlay over an injected file, so the ways staging can fail
 /// are reachable from a test without a full disk. The injected creator
 /// stages the patch; the settings document, when one is needed, is
@@ -4180,6 +4201,8 @@ fn dsh_seat_overlay_in(
     route: Option<&[u8]>,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<DshSeatOverlay, String> {
+    #[cfg(test)]
+    DSH_STAGING_CALLS.with(|calls| calls.set(calls.get() + 1));
     let mut rows = dsh_transcript_row(root)?;
     let settings = match (model, effort) {
         (Some(model), Some(effort)) => {
