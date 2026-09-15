@@ -1524,8 +1524,9 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
         // The engine's own facts for the harness work seat (composition
-        // bridge): the word, no boxed-hands marker.
+        // bridge): the word and the affirmative no-hands marker.
         "boundary": "harness",
+        "hands": "none",
         "resume_context": {"assessment": assessment},
     });
 
@@ -1660,14 +1661,17 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
             offered = offered,
         ),
     );
-    // An inline site carries no `boundary` and no `hands`: the gate reads
-    // the engine's own words, `not applicable` and `none`.
+    // The engine's own words for an inline no-hands site are affirmative
+    // now: `not applicable` and `none`, present on the input the adapter
+    // gate requires (design D10 F1).
     let input = json!({
         "feature": "conformance", "phase": "work", "seat": "work",
         "role_path": workdir.path().join("missing-role.md"),
         "workdir": workdir.path(),
         "result_path": result_path,
         "allowed_results": ["resolved"], "context": {},
+        "boundary": "not applicable",
+        "hands": "none",
         "resume_context": {"assessment": assessment},
     });
 

@@ -7,6 +7,7 @@
 use super::tests::{bundle, checkpointing_command, driver_command, member, single_body, state};
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
+use crate::bundle::{HandsState, SiteFacts};
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
@@ -87,6 +88,13 @@ fn boxed_bundle(dir: &Path, boundary: Boundary, command: Vec<String>) -> Bundle 
     let mut bundle = bundle(dir, single_body(command));
     bundle.boundary = boundary;
     bundle.hands.insert("work".into(), HandsSpec::default());
+    bundle.sites.insert(
+        "work".into(),
+        SiteFacts {
+            hands: HandsState::Hands(HandsSpec::default()),
+            ..Default::default()
+        },
+    );
     bundle.manifest["hands"] = json!({"work": HandsSpec::default().to_value()});
     bundle.manifest["boundary"] = json!({"work": boundary.word()});
     bundle
@@ -1577,14 +1585,39 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     file_door.result = ResultDoor::File;
     let filed = candidate("codex", CODEX_FRAGMENT.to_vec(), file_door);
 
-    // No hands: neither field, under any boundary.
+    // Unknown confinement: no affirmative marker, under any boundary.
     for boundary in brokkr_core::realms::BOUNDARIES {
         engine.boundary = boundary;
         let mut input = json!({});
         engine.mark_hands("work", &mut input);
         engine.mark_delivery("work", true, Some(&codex), &mut input);
-        assert_eq!(input, json!({}));
+        assert_eq!(input, json!({"boundary": null, "hands": null}));
     }
+    // A registered, resolved no-hands site names both fields
+    // affirmatively, under every boundary.
+    engine.bundle.sites.insert(
+        "work".into(),
+        SiteFacts {
+            hands: HandsState::NoHands,
+            ..Default::default()
+        },
+    );
+    for boundary in brokkr_core::realms::BOUNDARIES {
+        engine.boundary = boundary;
+        let mut input = json!({});
+        engine.mark_hands("work", &mut input);
+        assert_eq!(
+            input,
+            json!({"boundary": "not applicable", "hands": "none"})
+        );
+    }
+    engine.bundle.sites.insert(
+        "work".into(),
+        SiteFacts {
+            hands: HandsState::Hands(HandsSpec::default()),
+            ..Default::default()
+        },
+    );
     engine
         .bundle
         .hands
@@ -1607,26 +1640,26 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     engine.mark_delivery("work", true, Some(&codex), &mut input);
     assert_eq!(
         input,
-        json!({"boundary": "harness", "result_delivery": "last-message"})
+        json!({"boundary": "harness", "hands": "none", "result_delivery": "last-message"})
     );
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", true, Some(&filed), &mut input);
-    assert_eq!(input, json!({"boundary": "harness"}));
+    assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", false, Some(&codex), &mut input);
-    assert_eq!(input, json!({"boundary": "harness"}));
+    assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", true, None, &mut input);
-    assert_eq!(input, json!({"boundary": "harness"}));
+    assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     // `open`: the word and nothing else.
     engine.boundary = Boundary::Open;
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", true, Some(&codex), &mut input);
-    assert_eq!(input, json!({"boundary": "open"}));
+    assert_eq!(input, json!({"boundary": "open", "hands": "none"}));
 
     // The requested input carries the word through `seat_input`, and a
     // panel member's derived input through `member_runs`.
@@ -1635,11 +1668,8 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
     assert_eq!(seat["boundary"], "harness");
-    assert!(seat.get("hands").is_none());
-    engine
-        .bundle
-        .hands
-        .insert("review:left".into(), HandsSpec::default());
+    assert_eq!(seat["hands"], "none");
+    super::tests::set_site_hands(&mut engine.bundle, "review:left", HandsSpec::default());
     let members = vec![
         member("left", vec!["driver".into()]),
         member("right", vec!["driver".into()]),
@@ -1665,7 +1695,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     );
     assert_eq!(runs[0].input["boundary"], "harness");
     assert_eq!(runs[0].boundary, Some(Boundary::Harness));
-    assert!(runs[1].input.get("boundary").is_none());
+    assert_eq!(runs[1].input["boundary"], Value::Null);
     assert_eq!(runs[1].boundary, None);
 }
 
@@ -1764,15 +1794,12 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
     // The input facts the driver proof pins: the word, no boxed marker.
     let (_bundle_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let seat = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
     assert_eq!(seat["boundary"], "harness");
-    assert!(seat.get("hands").is_none());
+    assert_eq!(seat["hands"], "none");
 
     // The boxed coordinate composes its complete MCP-bearing fragment and
     // the narrowed declaration does not cover it.
@@ -2225,8 +2252,12 @@ fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_bo
             .unwrap();
         assert_eq!(input["boundary"], boundary.word());
         assert_eq!(
-            input.get("hands").is_some(),
-            boundary == Boundary::Namespace
+            input["hands"],
+            if boundary == Boundary::Namespace {
+                json!("boxed")
+            } else {
+                json!("none")
+            }
         );
         let prompt = brokkr_protocol::adapters::render_prompt(
             &input,

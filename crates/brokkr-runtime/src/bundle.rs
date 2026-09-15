@@ -349,6 +349,56 @@ impl Default for Limits {
     }
 }
 
+/// The confinement state of one execution site's hands (design D10 F1).
+///
+/// `Unknown` is not `none`: a site the compiler registered but never
+/// resolved must never read as an affirmative no-hands fact, because the
+/// adapter gate spends that absence as permission.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum HandsState {
+    /// Registered, but no declaration established whether this site has
+    /// hands. Never reads as `none`.
+    #[default]
+    Unknown,
+    /// The site's own declaration was read successfully and establishes
+    /// no hands.
+    NoHands,
+    /// The site's declaration (or resolved agent) carries these hands.
+    Hands(HandsSpec),
+}
+
+/// One site's pinned driver digests, keyed by provider: the shape both
+/// decision 0021's witness and decision 0035's effortless-listing witness
+/// carry, merged into the manifest's `drivers` projection.
+pub type DriverDigests = Map<String, Value>;
+
+/// Every execution-site-owned fact of one compiled label (design D10 F1):
+/// the resume assessment, the pinned driver digests, the hands state, the
+/// agent resolution record and the inline driver evidence. One value, so
+/// the whole family relocates at once when a dialect wrapper changes the
+/// executing coordinate — a sixth field follows the value rather than
+/// needing a fifth remembered move.
+#[derive(Debug, Clone, Default)]
+pub struct SiteFacts {
+    pub inline_resume: Option<Value>,
+    pub pin_drivers: Option<DriverDigests>,
+    pub hands: HandsState,
+    pub record: Option<Value>,
+    pub driver: Option<DriverDigests>,
+}
+
+impl SiteFacts {
+    /// The hands this site resolved, when it has any. `Unknown` and
+    /// `NoHands` both answer `None`; the two are told apart by the
+    /// `hands` state itself, never by this answer.
+    pub fn hands_spec(&self) -> Option<&HandsSpec> {
+        match &self.hands {
+            HandsState::Hands(spec) => Some(spec),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Bundle {
     pub name: String,
@@ -390,6 +440,13 @@ pub struct Bundle {
     /// declares, which the driver reads as unmeasured — never implicit
     /// support.
     pub inline_resume: BTreeMap<String, Value>,
+    /// The canonical execution-site family (design D10 F1). Every fact a
+    /// dialect wrapper must carry to the executing coordinate lives in
+    /// one `SiteFacts` per label, so relocation moves the whole family.
+    /// The engine reads confinement and assessment facts from here;
+    /// `hands` and `inline_resume` beside it are serialization
+    /// projections, never separately mutable authorities.
+    pub sites: BTreeMap<String, SiteFacts>,
     /// The phase every path to a non-stop terminal must traverse.
     pub protected_phase: String,
     /// Dialect-owned prose, resolved once at compile time and keyed by the
@@ -416,14 +473,6 @@ pub const DEFAULT_ADAPTERS_DIR: &str = "adapters";
 struct AgentContext {
     library: Option<Library>,
     adapters: Adapters,
-    records: Map<String, Value>,
-    /// Per INLINE driver-bearing site, the adapter digests decision
-    /// 0021's refusals consulted to let it stand. An agent site pins its
-    /// adapters through the resolution record in `records`; a raw
-    /// `driver.command` had nothing to pin, so the declaration that
-    /// authorised a gate would otherwise sit outside the bundle's
-    /// identity — a demotion could not be told from a re-run.
-    drivers: Map<String, Value>,
     /// Decision 0036 ruling 4: the egress class a seat's resolved route
     /// must MEET before that seat may declare secret bindings. The
     /// operator rules it into the bundle; absence is `Contracted`, which
@@ -699,7 +748,7 @@ struct Unpinned {
     /// declaration that authorised the exemption rides the bundle's
     /// identity beside decision 0021's — un-listing a route moves the
     /// digest of every bundle it excused.
-    witnessed: Map<String, Value>,
+    witnessed: BTreeMap<String, DriverDigests>,
     /// Proposed decision 0056 ruling 5: per inline driver-bearing site,
     /// the resume assessment the adapter it names declares, carried to
     /// [`Bundle::inline_resume`] for the driver's private start context.
@@ -710,7 +759,7 @@ struct Unpinned {
     /// `drivers` pin with it: an edit to the resume block must move the
     /// bundle identity `pinned_bundle_holds` compares, or a changed
     /// assessment would reuse a root the old one opened.
-    resume_witness: Map<String, Value>,
+    resume_witness: BTreeMap<String, DriverDigests>,
 }
 
 /// Adapter data for the effortless-route exemption (decision 0035
@@ -744,7 +793,7 @@ fn effort_exempt(
     what: &str,
     raw: &Value,
     adapters: Option<&Adapters>,
-    witnessed: &mut Map<String, Value>,
+    witnessed: &mut BTreeMap<String, DriverDigests>,
 ) -> bool {
     let adapters = match adapters {
         Some(adapters) => adapters,
@@ -762,7 +811,7 @@ fn effort_exempt(
         ModelPin::Concrete(id) if route_is_effortless(adapter, &id) => {
             let mut authorised = Map::new();
             authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
-            witnessed.insert(what.to_string(), Value::Object(authorised));
+            witnessed.insert(what.to_string(), authorised);
             true
         }
         _ => false,
@@ -810,8 +859,7 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
             // different facts; both ride the manifest's `drivers` pin.
             let mut authorised = Map::new();
             authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
-            out.resume_witness
-                .insert(what.to_string(), Value::Object(authorised));
+            out.resume_witness.insert(what.to_string(), authorised);
         }
         return;
     }
@@ -857,7 +905,11 @@ fn labels(sites: &[String]) -> String {
 /// than one because they answer different questions from the same walk —
 /// the third rides the manifest's `drivers` pin beside the first, while
 /// the second travels to the driver's private start context.
-type PinWitness = (Map<String, Value>, Map<String, Value>, Map<String, Value>);
+type PinWitness = (
+    BTreeMap<String, DriverDigests>,
+    Map<String, Value>,
+    BTreeMap<String, DriverDigests>,
+);
 
 /// One refusal names the complete repair set, on BOTH axes. A model pin
 /// without an effort pin is half a hire (decision 0035 ruling 5), so the
@@ -1028,11 +1080,21 @@ impl Bundle {
         // `drivers` pin the exemptions do: a site that already has an
         // exemption names the same provider and digest, so extending
         // the map leaves that fact unchanged rather than duplicating it.
-        let (mut pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
+        let (pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
             &resolved.seats,
             load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
         )?;
-        pin_drivers.extend(resume_witness);
+        // The one canonical family table (design D10 F1). Seeded with the
+        // inline pins and assessments before any parse writes beside
+        // them; every later fact is written into an entrant of this same
+        // map, and a wrapper moves whole entrants.
+        let mut sites: BTreeMap<String, SiteFacts> = BTreeMap::new();
+        for (label, value) in pin_drivers.into_iter().chain(resume_witness) {
+            site_facts(&mut sites, &label).pin_drivers = Some(value);
+        }
+        for (label, value) in inline_resume {
+            site_facts(&mut sites, &label).inline_resume = Some(value);
+        }
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases
@@ -1106,14 +1168,11 @@ impl Bundle {
                          agent, seats a gate, or declares a secret binding"
                     ))
                 })?,
-                records: Map::new(),
-                drivers: Map::new(),
                 egress_minimum,
             }),
         };
 
         let mut seats = BTreeMap::new();
-        let mut hands: BTreeMap<String, HandsSpec> = BTreeMap::new();
         for (phase, raw) in &resolved.seats {
             // An inherited seat's `role` and `./`-prefixed argv resolve
             // against the layer that WROTE them, found by name — the
@@ -1191,6 +1250,7 @@ impl Bundle {
                 false => None,
                 true => Some(resolve_reference(
                     &mut agents,
+                    &mut sites,
                     dir,
                     phase,
                     phase,
@@ -1218,7 +1278,7 @@ impl Bundle {
                     &results,
                     &secrets,
                     &mut agents,
-                    &mut hands,
+                    &mut sites,
                     boundary,
                 )?;
                 SeatBody::Panel { members, aggregate }
@@ -1229,7 +1289,7 @@ impl Bundle {
                         phase,
                         raw,
                         &mut agents,
-                        &mut hands,
+                        &mut sites,
                         BodyCompile {
                             results: &results,
                             secrets: &secrets,
@@ -1244,7 +1304,7 @@ impl Bundle {
                     phase,
                     raw,
                     &mut agents,
-                    &mut hands,
+                    &mut sites,
                     SelectCompile {
                         results: &results,
                         secrets: &secrets,
@@ -1267,13 +1327,21 @@ impl Bundle {
                     crate::dialect::CommandOrUnsupported::Unsupported(_) => None,
                 }) {
                     if let SeatBody::Single { candidates, .. } = &body {
-                        enforce_model_policy(phase, raw, candidates, &secrets, &mut agents, law)?;
+                        enforce_model_policy(
+                            phase,
+                            raw,
+                            candidates,
+                            &secrets,
+                            &mut agents,
+                            law,
+                            &mut sites,
+                        )?;
                         record_hands(
                             phase,
                             raw,
                             agent_seat.as_ref().and_then(resolved_hands),
                             &secrets,
-                            &mut hands,
+                            &mut sites,
                         )?;
                     }
                     let prior_body =
@@ -1305,17 +1373,12 @@ impl Bundle {
                         results: results.clone(),
                         body: prior_body,
                     };
-                    if let Some(spec) = hands.remove(phase) {
-                        hands.insert(format!("{phase}:checks"), spec);
-                    }
-                    let context = agents
-                        .as_mut()
-                        .expect("dialect compilation opens the adapter context");
-                    for records in [&mut context.records, &mut context.drivers] {
-                        if let Some(record) = records.remove(phase) {
-                            records.insert(format!("{phase}:checks"), record);
-                        }
-                    }
+                    // One indivisible move (design D10 F1): every fact of
+                    // this authored site relocates to the executing
+                    // coordinate, whole `SiteFacts` values drained before
+                    // any destination is inserted so a member `x` beside
+                    // `checks:x` cannot overwrite a still-needed source.
+                    relocate_verify_facts(&mut sites, phase);
                     let dialect_site = format!("{phase}:dialect-verify");
                     let synthetic = dialect_gate_site(&dialect_site, boundary)?;
                     enforce_model_policy(
@@ -1325,8 +1388,9 @@ impl Bundle {
                         &secrets,
                         &mut agents,
                         law,
+                        &mut sites,
                     )?;
-                    record_hands(&dialect_site, &synthetic, None, &secrets, &mut hands)?;
+                    record_hands(&dialect_site, &synthetic, None, &secrets, &mut sites)?;
                     body = SeatBody::Sequence {
                         steps: vec![
                             prior,
@@ -1353,13 +1417,21 @@ impl Bundle {
             // each checked where they were built.
             match &body {
                 SeatBody::Single { candidates, .. } => {
-                    enforce_model_policy(phase, raw, candidates, &secrets, &mut agents, law)?;
+                    enforce_model_policy(
+                        phase,
+                        raw,
+                        candidates,
+                        &secrets,
+                        &mut agents,
+                        law,
+                        &mut sites,
+                    )?;
                     record_hands(
                         phase,
                         raw,
                         agent_seat.as_ref().and_then(resolved_hands),
                         &secrets,
-                        &mut hands,
+                        &mut sites,
                     )?;
                 }
                 SeatBody::Select { .. } => refuse_class_without_a_driver(phase, raw)?,
@@ -1457,7 +1529,7 @@ impl Bundle {
             }
         }
 
-        refuse_aliasing_sites(&seats)?;
+        refuse_global_aliasing(&seats)?;
 
         let select_records: Map<String, Value> = seats
             .iter()
@@ -1470,27 +1542,36 @@ impl Bundle {
         // effortless listings exempted inline seats ride beside decision
         // 0021's — un-listing a route moves the digest of every bundle
         // it excused, and a bundle no listing excused keeps its shape.
-        let mut drivers = pin_drivers;
-        if let Some(context) = agents.as_ref() {
-            for (site, record) in &context.drivers {
-                match (drivers.get_mut(site), record) {
-                    (Some(Value::Object(into)), Value::Object(extra)) => {
-                        for (provider, digest) in extra {
-                            into.insert(provider.clone(), digest.clone());
-                        }
-                    }
-                    _ => {
-                        drivers.insert(site.clone(), record.clone());
-                    }
-                }
-            }
-        }
+        // The manifest fields are serialization projections of the one
+        // canonical family table (design D10 F1), read in one place and
+        // never separately mutated.
+        let hands: BTreeMap<String, HandsSpec> = sites
+            .iter()
+            .filter_map(|(label, facts)| {
+                facts.hands_spec().map(|spec| (label.clone(), spec.clone()))
+            })
+            .collect();
+        let inline_resume: BTreeMap<String, Value> = sites
+            .iter()
+            .filter_map(|(label, facts)| {
+                facts
+                    .inline_resume
+                    .clone()
+                    .map(|value| (label.clone(), value))
+            })
+            .collect();
+        let records: Map<String, Value> = sites
+            .iter()
+            .filter_map(|(label, facts)| facts.record.clone().map(|record| (label.clone(), record)))
+            .collect();
+        let mut drivers: Map<String, Value> = Map::new();
+        fold_driver_facts(&mut drivers, &sites);
         let drivers = (!drivers.is_empty()).then_some(&drivers);
         let manifest = manifest_for(
             dir,
             &name,
             &resolved.chain,
-            agents.as_ref().map(|a| &a.records),
+            Some(&records),
             drivers,
             &hands,
             &select_records,
@@ -1498,7 +1579,8 @@ impl Bundle {
         )?;
         Ok(Bundle {
             hands,
-            inline_resume: inline_resume.into_iter().collect(),
+            inline_resume,
+            sites,
             name,
             description,
             cost,
@@ -1561,6 +1643,65 @@ fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileEr
                      key on that one string, so one site would answer for the other; rename \
                      one of them"
                 )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// One flattened address must name exactly one structural owner across
+/// the WHOLE compiled bundle (design D10 F2; proposal SR1). The
+/// within-body pass above cannot see a distinct phase, a literal
+/// `verify:checks` beside the wrapped `verify`, the injected validator,
+/// or a literal member-destination phase; engine `site_plans`,
+/// `argv_for`, `mark_hands` and the boundary map all key on that one
+/// string, so two owners sharing it would serve each other's assessment,
+/// hands and boundary. The walk is structural: it registers factless and
+/// deterministic owners too, so an empty map can never excuse an alias.
+/// Earlier wrapper handling can transiently overwrite evidence, but the
+/// ambiguous bundle is refused here before it is published.
+fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileError> {
+    refuse_aliasing_sites(seats)?;
+    let mut seen: BTreeMap<String, crate::engine::resume::SiteKey> = BTreeMap::new();
+    for (phase, seat) in seats {
+        // Each selectable body, with the case that selects it; selection
+        // never nests, so every case body resolves.
+        let bodies: Vec<(Option<&str>, &SeatBody)> = match &seat.body {
+            SeatBody::Select { cases, default, .. } => cases
+                .iter()
+                .map(|(case, body)| (Some(case.as_str()), body))
+                .chain(default.as_deref().map(|body| (Some("default"), body)))
+                .collect(),
+            body => vec![(None, body)],
+        };
+        let executable = bodies
+            .into_iter()
+            .filter_map(|(case, body)| body.selected(None).map(|(body, _)| (case, body)));
+        for (case, executable) in executable {
+            let site_name = match case {
+                Some(case) => format!("{phase}:{case}"),
+                None => phase.clone(),
+            };
+            for (tag, owner) in crate::engine::resume::owner_sites(executable, phase, case) {
+                let label = match &tag {
+                    None => site_name.clone(),
+                    Some(tag) => format!("{site_name}:{tag}"),
+                };
+                match seen.get(&label) {
+                    Some(first) => {
+                        return Err(CompileError::Invalid(format!(
+                            "seat '{phase}' addresses two different sites as '{label}': {} and \
+                             {}. The selection, the argv lookup, the hands map and the boundary \
+                             map all key on that one string, so one site would answer for the \
+                             other; rename one of them",
+                            crate::engine::resume::describe(first),
+                            crate::engine::resume::describe(&owner)
+                        )));
+                    }
+                    None => {
+                        seen.insert(label, owner);
+                    }
+                }
             }
         }
     }
@@ -1812,6 +1953,7 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
 #[allow(clippy::too_many_arguments)]
 fn resolve_reference(
     agents: &mut Option<AgentContext>,
+    sites: &mut BTreeMap<String, SiteFacts>,
     dir: &Path,
     what: &str,
     site_key: &str,
@@ -1875,6 +2017,7 @@ fn resolve_reference(
                 dir,
                 agent_hands: report.agent.hands.as_ref(),
             },
+            sites,
         )?;
     }
     let context = agents.as_mut().expect("agent context opened above");
@@ -1912,9 +2055,7 @@ fn resolve_reference(
             resume: candidate.resume.clone(),
         });
     }
-    context
-        .records
-        .insert(site_key.to_string(), resolution.record.clone());
+    site_facts(sites, site_key).record = Some(resolution.record.clone());
     Ok(ResolvedSeat {
         role_path: resolution.charter.clone(),
         command: candidates[0].argv.clone(),
@@ -2142,6 +2283,7 @@ fn enforce_model_policy(
     secrets: &[String],
     agents: &mut Option<AgentContext>,
     law: SiteLaw<'_>,
+    sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     // The hands law is the FIRST statement (decision 0046 ruling 4;
     // design DD22): it judges every site that declares hands whatever
@@ -2161,18 +2303,14 @@ fn enforce_model_policy(
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
     }
-    // Destructured rather than borrowed whole: the lookup reads the
-    // adapters while the witness writes beside them, and they are
-    // disjoint fields of the same context.
-    let AgentContext {
-        adapters,
-        drivers: witnessed,
-        egress_minimum,
-        ..
-    } = agents
-        .as_mut()
+    // Read the adapter data without writing beside it: the inline
+    // witness now lands in the one canonical site table (design D10 F1),
+    // so no split borrow of the context is needed.
+    let context = agents
+        .as_ref()
         .expect("a gate-class or secret-binding seat opens the adapters");
-    let minimum = *egress_minimum;
+    let adapters = &context.adapters;
+    let minimum = context.egress_minimum;
     let mut authorised = Map::new();
     // Each site as (driver, concrete model id): the id is what carries
     // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
@@ -2333,7 +2471,7 @@ fn enforce_model_policy(
         }
     }
     if !authorised.is_empty() {
-        witnessed.insert(what.to_string(), Value::Object(authorised));
+        site_facts(sites, what).driver = Some(authorised);
     }
     Ok(())
 }
@@ -2642,24 +2780,66 @@ fn record_hands(
     raw: &Value,
     from_agent: Option<HandsSpec>,
     secrets: &[String],
-    hands: &mut BTreeMap<String, HandsSpec>,
+    sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     let spec = match (from_agent, raw.get("hands")) {
-        (Some(spec), _) => spec,
-        (None, Some(declared)) => HandsSpec::parse(declared).map_err(|problem| {
+        (Some(spec), _) => Some(spec),
+        (None, Some(declared)) => Some(HandsSpec::parse(declared).map_err(|problem| {
             CompileError::Invalid(format!("seat '{what}' hands: {problem} (decision 0043)"))
-        })?,
-        (None, None) => return Ok(()),
+        })?),
+        (None, None) => None,
     };
-    if !secrets.is_empty() {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' declares hands and secret bindings {secrets:?}; the box \
-             clears the environment, so a boxed seat cannot receive a binding \
-             (decision 0043)"
-        )));
-    }
-    hands.insert(what.to_string(), spec);
+    let state = match spec {
+        Some(spec) => {
+            if !secrets.is_empty() {
+                return Err(CompileError::Invalid(format!(
+                    "seat '{what}' declares hands and secret bindings {secrets:?}; the box \
+                     clears the environment, so a boxed seat cannot receive a binding \
+                     (decision 0043)"
+                )));
+            }
+            HandsState::Hands(spec)
+        }
+        // The declaration was read successfully and establishes no
+        // hands: an affirmative fact, distinct from an unregistered or
+        // unresolved site (design D10 F1).
+        None => HandsState::NoHands,
+    };
+    site_facts(sites, what).hands = state;
     Ok(())
+}
+
+/// The one accessor into the canonical site family (design D10 F1):
+/// entrant creation is the only way a fact reaches the table, so a
+/// site's whole value is the unit collection and relocation operate on.
+fn site_facts<'a>(sites: &'a mut BTreeMap<String, SiteFacts>, label: &str) -> &'a mut SiteFacts {
+    sites.entry(label.to_string()).or_default()
+}
+
+/// Relocate the whole execution-site family of a dialect-wrapped `verify`
+/// seat (design D10 F1): `verify` becomes `verify:checks` and
+/// `verify:<member>` becomes `verify:checks:<member>`. The family moves
+/// as one value; every source is drained before any destination is
+/// inserted, so a member named `x` beside one named `checks:x` — whose
+/// destination is the other's source label — cannot overwrite a
+/// still-needed source or manufacture a false collision.
+fn relocate_verify_facts(sites: &mut BTreeMap<String, SiteFacts>, phase: &str) {
+    let prefix = format!("{phase}:");
+    let moved: Vec<(String, SiteFacts)> = sites
+        .iter()
+        .filter(|(label, _)| label.as_str() == phase || label.starts_with(&prefix))
+        .map(|(label, facts)| (label.clone(), facts.clone()))
+        .collect();
+    for (source, _) in &moved {
+        sites.remove(source);
+    }
+    for (source, facts) in moved {
+        let destination = match source.strip_prefix(&prefix) {
+            Some(rest) => format!("{phase}:checks:{rest}"),
+            None => format!("{phase}:checks"),
+        };
+        sites.insert(destination, facts);
+    }
 }
 
 /// A seat's decision-0006 bounds, as written inline.
@@ -2705,7 +2885,7 @@ fn parse_selected_body(
     what: &str,
     raw: &Value,
     agents: &mut Option<AgentContext>,
-    hands: &mut BTreeMap<String, HandsSpec>,
+    sites: &mut BTreeMap<String, SiteFacts>,
     compile: BodyCompile<'_>,
 ) -> Result<SeatBody, CompileError> {
     let BodyCompile {
@@ -2736,15 +2916,24 @@ fn parse_selected_body(
         )));
     }
     if has_agent {
-        let resolved =
-            resolve_reference(agents, dir, what, what, raw, secrets, Site::Seat, boundary)?;
+        let resolved = resolve_reference(
+            agents,
+            sites,
+            dir,
+            what,
+            what,
+            raw,
+            secrets,
+            Site::Seat,
+            boundary,
+        )?;
         let law = SiteLaw {
             boundary,
             dir,
             agent_hands: resolved.hands.as_ref(),
         };
-        enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law)?;
-        record_hands(what, raw, resolved.hands, secrets, hands)?;
+        enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law, sites)?;
+        record_hands(what, raw, resolved.hands, secrets, sites)?;
         let body = SeatBody::Single {
             role_path: resolved.role_path,
             command: resolved.command,
@@ -2753,11 +2942,11 @@ fn parse_selected_body(
         Ok(body)
     } else if has_panel {
         let (members, aggregate) =
-            parse_panel(dir, what, raw, results, secrets, agents, hands, boundary)?;
+            parse_panel(dir, what, raw, results, secrets, agents, sites, boundary)?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
-        let steps = parse_sequence(dir, what, raw, agents, hands, compile)?;
+        let steps = parse_sequence(dir, what, raw, agents, sites, compile)?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
@@ -2766,8 +2955,8 @@ fn parse_selected_body(
             dir,
             agent_hands: None,
         };
-        enforce_model_policy(what, raw, &[], secrets, agents, law)?;
-        record_hands(what, raw, None, secrets, hands)?;
+        enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
+        record_hands(what, raw, None, secrets, sites)?;
         let body = SeatBody::Single {
             role_path: parse_role(dir, what, raw)?,
             command: parse_command(dir, what, raw, secrets)?,
@@ -2791,7 +2980,7 @@ fn parse_select(
     phase: &str,
     raw: &Value,
     agents: &mut Option<AgentContext>,
-    hands: &mut BTreeMap<String, HandsSpec>,
+    sites: &mut BTreeMap<String, SiteFacts>,
     compile: SelectCompile<'_>,
 ) -> Result<SeatBody, CompileError> {
     let select = raw
@@ -2847,7 +3036,7 @@ fn parse_select(
                 &label,
                 body,
                 agents,
-                hands,
+                sites,
                 BodyCompile {
                     results: compile.results,
                     secrets: compile.secrets,
@@ -2865,7 +3054,7 @@ fn parse_select(
                 &format!("{phase}:default"),
                 body,
                 agents,
-                hands,
+                sites,
                 BodyCompile {
                     results: compile.results,
                     secrets: compile.secrets,
@@ -2893,7 +3082,7 @@ fn parse_panel(
     declared_results: &[String],
     secrets: &[String],
     agents: &mut Option<AgentContext>,
-    hands: &mut BTreeMap<String, HandsSpec>,
+    sites: &mut BTreeMap<String, SiteFacts>,
     boundary: Boundary,
 ) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
     let members_raw = raw
@@ -2962,6 +3151,7 @@ fn parse_panel(
             Some(_) => {
                 let resolved = resolve_reference(
                     agents,
+                    sites,
                     dir,
                     &site,
                     &site,
@@ -2983,8 +3173,8 @@ fn parse_panel(
             dir,
             agent_hands: agent_hands.as_ref(),
         };
-        enforce_model_policy(&site, member_raw, &candidates, secrets, agents, law)?;
-        record_hands(&site, member_raw, agent_hands, secrets, hands)?;
+        enforce_model_policy(&site, member_raw, &candidates, secrets, agents, law, sites)?;
+        record_hands(&site, member_raw, agent_hands, secrets, sites)?;
         members.push(PanelMember {
             name: name.clone(),
             role_path,
@@ -3003,7 +3193,7 @@ fn parse_sequence(
     phase: &str,
     raw: &Value,
     agents: &mut Option<AgentContext>,
-    hands: &mut BTreeMap<String, HandsSpec>,
+    sites: &mut BTreeMap<String, SiteFacts>,
     compile: BodyCompile<'_>,
 ) -> Result<Vec<SequenceStep>, CompileError> {
     let BodyCompile {
@@ -3145,8 +3335,8 @@ fn parse_sequence(
                 dir,
                 agent_hands: None,
             };
-            enforce_model_policy(&what, &synthetic, &[], secrets, agents, law)?;
-            record_hands(&what, &synthetic, None, secrets, hands)?;
+            enforce_model_policy(&what, &synthetic, &[], secrets, agents, law, sites)?;
+            record_hands(&what, &synthetic, None, secrets, sites)?;
             StepBody::Dialect {
                 execution: DialectExecution {
                     argv: command.argv.clone(),
@@ -3156,6 +3346,7 @@ fn parse_sequence(
         } else if has_agent {
             let resolved = resolve_reference(
                 agents,
+                sites,
                 dir,
                 &what,
                 &what,
@@ -3178,7 +3369,7 @@ fn parse_sequence(
                 &step_results,
                 secrets,
                 agents,
-                hands,
+                sites,
                 boundary,
             )?;
             StepBody::Panel { members, aggregate }
@@ -3207,8 +3398,8 @@ fn parse_sequence(
                     dir,
                     agent_hands: agent_hands.as_ref(),
                 };
-                enforce_model_policy(&what, step_raw, candidates, secrets, agents, law)?;
-                record_hands(&what, step_raw, agent_hands, secrets, hands)?;
+                enforce_model_policy(&what, step_raw, candidates, secrets, agents, law, sites)?;
+                record_hands(&what, step_raw, agent_hands, secrets, sites)?;
             }
             StepBody::Panel { .. } => refuse_class_without_a_driver(&what, step_raw)?,
             StepBody::Dialect { .. } => {}
@@ -3431,6 +3622,25 @@ fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
     }
     names.sort();
     names
+}
+
+/// Fold every site's pinned driver digests into the manifest's `drivers`
+/// projection, merging a site's exemption/resume witness with its inline
+/// driver evidence under the one label the family table keys on (design
+/// D10 F1). A site with neither fact contributes no entry, exactly as the
+/// two formerly separate maps did.
+fn fold_driver_facts(drivers: &mut Map<String, Value>, sites: &BTreeMap<String, SiteFacts>) {
+    for (label, facts) in sites {
+        let mut merged = Map::new();
+        for extra in [&facts.pin_drivers, &facts.driver].into_iter().flatten() {
+            for (provider, digest) in extra {
+                merged.insert(provider.clone(), digest.clone());
+            }
+        }
+        if !merged.is_empty() {
+            drivers.insert(label.clone(), Value::Object(merged));
+        }
+    }
 }
 
 /// The pinned, content-addressed identity of a bundle. `chain` is the

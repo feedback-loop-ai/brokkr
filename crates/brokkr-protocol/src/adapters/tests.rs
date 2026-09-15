@@ -1917,6 +1917,86 @@ fn enabled_assessment(shape: &str, version: &str, boundary: &str, hands: &str) -
 }
 
 #[test]
+fn a_supported_assessment_without_both_affirmative_markers_declines() {
+    // Design D10 F1, the independent guard: an otherwise supported and
+    // accounted assessment is enabled only when the engine's own
+    // confinement markers are present and recognized. Missing, null,
+    // non-string or unknown markers mean the site's confinement is
+    // unknown, and unknown declines `restrictions-unavailable`; an
+    // absent assessment keeps `unsupported-resume`.
+    let baseline = enabled_assessment(CODEX_SHAPE, "0.153.4", "harness", "none");
+    assert!(
+        matches!(
+            resume_gate(&baseline, CODEX_SHAPE),
+            ResumeGate::Enabled { .. }
+        ),
+        "the control enables"
+    );
+
+    let remove = |key: &str| {
+        let mut value = baseline.clone();
+        value.as_object_mut().unwrap().remove(key);
+        value
+    };
+    let set = |key: &str, marker: Value| {
+        let mut value = baseline.clone();
+        value[key] = marker;
+        value
+    };
+    let mut both_absent = baseline.clone();
+    both_absent.as_object_mut().unwrap().remove("boundary");
+    both_absent.as_object_mut().unwrap().remove("hands");
+    let mut absent_assessment = baseline.clone();
+    absent_assessment["resume_context"] = json!({"assessment": {}});
+
+    for (case, gate, reason) in [
+        (
+            "boundary absent",
+            remove("boundary"),
+            "restrictions-unavailable",
+        ),
+        ("hands absent", remove("hands"), "restrictions-unavailable"),
+        ("both absent", both_absent, "restrictions-unavailable"),
+        (
+            "boundary null",
+            set("boundary", Value::Null),
+            "restrictions-unavailable",
+        ),
+        (
+            "hands null",
+            set("hands", Value::Null),
+            "restrictions-unavailable",
+        ),
+        (
+            "boundary non-string",
+            set("boundary", json!(7)),
+            "restrictions-unavailable",
+        ),
+        (
+            "hands non-string",
+            set("hands", json!(7)),
+            "restrictions-unavailable",
+        ),
+        (
+            "boundary unknown",
+            set("boundary", json!("moon")),
+            "restrictions-unavailable",
+        ),
+        (
+            "hands unknown",
+            set("hands", json!("gloves")),
+            "restrictions-unavailable",
+        ),
+        ("assessment absent", absent_assessment, "unsupported-resume"),
+    ] {
+        match resume_gate(&gate, CODEX_SHAPE) {
+            ResumeGate::Disabled(token) => assert_eq!(token, reason, "{case}"),
+            ResumeGate::Enabled { .. } => panic!("{case}: must not enable"),
+        }
+    }
+}
+
+#[test]
 fn dsh_model_names_a_route_before_the_slash_and_the_official_one_without() {
     let official = parse_dsh_model("deepseek-v4-flash").unwrap();
     assert_eq!(

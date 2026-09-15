@@ -4159,7 +4159,7 @@ fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
     let raw = json!({"driver": {"command": [
         "{brokkr}", "driver", "codex", "--", "--model", "gpt-5.6-sol",
     ]}});
-    let mut witnessed = Map::new();
+    let mut witnessed = BTreeMap::new();
     assert!(!effort_exempt(
         "work",
         &raw,

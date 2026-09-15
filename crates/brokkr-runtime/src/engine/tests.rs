@@ -77,7 +77,27 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         protected_phase: "review".into(),
         hands: BTreeMap::new(),
         inline_resume: BTreeMap::new(),
+        sites: Default::default(),
     }
+}
+
+/// Test-only: register a site's hands in both the canonical family table
+/// and its `hands` projection, the way the compiler does. The engine's
+/// marker composition reads the table, its boundary readers the
+/// projection.
+pub(super) fn set_site_hands(
+    bundle: &mut Bundle,
+    label: &str,
+    spec: brokkr_protocol::hands::HandsSpec,
+) {
+    bundle.hands.insert(label.into(), spec.clone());
+    bundle.sites.insert(
+        label.into(),
+        crate::bundle::SiteFacts {
+            hands: crate::bundle::HandsState::Hands(spec),
+            ..Default::default()
+        },
+    );
 }
 
 pub(super) fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
@@ -3186,22 +3206,19 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
     let plain = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
-    assert!(plain.get("hands").is_none());
+    // An unregistered site's confinement is unknown, and unknown publishes
+    // no affirmative marker (design D10 F1).
+    assert_eq!(plain["hands"], Value::Null);
+    assert_eq!(plain["boundary"], Value::Null);
 
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let boxed = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
     assert_eq!(boxed["hands"], "boxed");
 
     // A panel member is marked by its own label, never by the seat's.
-    engine
-        .bundle
-        .hands
-        .insert("review:security".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "review:security", HandsSpec::default());
     let member = |name: &str| PanelMember {
         name: name.into(),
         role_path: PathBuf::from(format!("{name}.md")),
@@ -3229,7 +3246,7 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         false,
     );
     assert_eq!(runs[0].input["hands"], "boxed");
-    assert!(runs[1].input.get("hands").is_none());
+    assert_eq!(runs[1].input["hands"], Value::Null);
 }
 
 #[test]
@@ -4742,6 +4759,7 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     // These unit scenarios replace the compiled commands with the protocol
     // fake below; the box itself has its dedicated boxed proof.
     bundle.hands.clear();
+    bundle.sites.clear();
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir(&work).unwrap();

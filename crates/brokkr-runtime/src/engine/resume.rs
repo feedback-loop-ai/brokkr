@@ -715,6 +715,63 @@ pub(crate) fn structural_sites(
     }
 }
 
+/// Every execution coordinate of one body as its relative tag and
+/// structural owner, INCLUDING deterministic dialect steps (design D10
+/// F2). `structural_sites` deliberately omits a dialect leaf because it
+/// receives no model offer; ownership must not, because a literal phase
+/// can flatten to the injected validator's label and one site would then
+/// answer for the other.
+pub(crate) fn owner_sites(
+    body: ExecutableBody<'_>,
+    seat: &str,
+    case: Option<&str>,
+) -> Vec<(Option<String>, SiteKey)> {
+    match body {
+        ExecutableBody::Single { .. } => vec![(None, SiteKey::single(seat, case))],
+        ExecutableBody::Panel { members, .. } => members
+            .iter()
+            .enumerate()
+            .map(|(index, member)| {
+                (
+                    Some(member.name.clone()),
+                    SiteKey::panel_member(seat, case, &member.name, index),
+                )
+            })
+            .collect(),
+        ExecutableBody::Sequence { steps } => steps
+            .iter()
+            .enumerate()
+            .flat_map(|(step_index, step)| match &step.body {
+                StepBody::Single { .. } => vec![(
+                    Some(step.name.clone()),
+                    SiteKey::sequence_step(seat, case, &step.name, step_index),
+                )],
+                StepBody::Panel { members, .. } => members
+                    .iter()
+                    .enumerate()
+                    .map(|(member_index, member)| {
+                        (
+                            Some(format!("{}:{}", step.name, member.name)),
+                            SiteKey::sequence_panel_member(
+                                seat,
+                                case,
+                                &step.name,
+                                step_index,
+                                &member.name,
+                                member_index,
+                            ),
+                        )
+                    })
+                    .collect(),
+                StepBody::Dialect { .. } => vec![(
+                    Some(step.name.clone()),
+                    SiteKey::sequence_step(seat, case, &step.name, step_index),
+                )],
+            })
+            .collect(),
+    }
+}
+
 /// The compiled-address uniqueness check (design D2). `Selection`,
 /// `argv_for` and `bundle.hands` all key on the FLATTENED site label, so
 /// two structurally different sites that flatten to one string can
@@ -746,7 +803,7 @@ fn describe_pair(first: &SiteKey, second: &SiteKey) -> String {
     format!("{} and {}", describe(first), describe(second))
 }
 
-fn describe(key: &SiteKey) -> String {
+pub(crate) fn describe(key: &SiteKey) -> String {
     match &key.path {
         SitePath::Single => format!("the single body of seat '{}'", key.seat),
         SitePath::PanelMember { member, .. } => {

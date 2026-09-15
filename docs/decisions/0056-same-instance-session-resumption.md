@@ -129,6 +129,22 @@ Alternatives weighed, each rejected on evidence rather than taste:
    `crates/brokkr-runtime/src/engine/resume_tests.rs` asserts the actual
    wire offers and their absence for every work and gate topology.
 
+   **2026-09-16 — the whole execution-site family moves as one, and the
+   uniqueness check is global.** Every fact a site owns — its resume
+   assessment, its pinned driver digests, its hands state, its agent
+   resolution record and its inline driver evidence — lives in one
+   `SiteFacts` value in one canonical table, so a dialect wrapper that
+   relocates `verify` to `verify:checks` moves the whole value once and a
+   sixth fact follows it rather than being left behind. The compile-time
+   uniqueness check is not scoped to one selected body: it compares the
+   full executing label across every phase, selector case and default,
+   step, panel member and deterministic dialect leaf, including the
+   labels the wrapper and the injected validator create, and refuses two
+   distinct structural owners under one label. This note is appended and
+   the ruling text above is preserved as written; the specification is
+   SR1/SR2 of `site-session-resumption` and D10 of the change
+   `2026-09-09-226-session-resumption`.
+
 2. **The same run, site, instance and local origin, and the newest owner
    is the only one asked.** An offer requires the same selected
    agent, provider, model, effort and chain index, the same normalized
@@ -333,6 +349,21 @@ Alternatives weighed, each rejected on evidence rather than taste:
    `crates/brokkr-runtime/src/engine/resume.rs` and the bounded
    route-overlay reader beside the DSH planner in `adapters.rs`, with the
    route-overlay cases in `adapters/tests.rs`.
+
+   **2026-09-16 — absence is not a confinement fact.** The engine writes
+   both confinement markers affirmatively at every model dispatch: a
+   resolved no-hands site publishes `boundary: not applicable` and
+   `hands: none`, a hands site publishes the current boundary word and
+   `boxed` only where Brokkr builds the box (otherwise `none`), and a
+   registered-but-unresolved or unregistered site publishes no
+   affirmative marker. `resume_gate` requires both markers as recognized
+   strings before an otherwise supported assessment is enabled; a missing,
+   null, non-string or unknown marker declines `restrictions-unavailable`,
+   while an absent or unsupported assessment and missing accounting keep
+   `unsupported-resume`. A refused or unknown confinement therefore never
+   resumes a work-site assessment. This note is appended and the ruling
+   text above is preserved as written; the specification is AS1/AS2 of
+   `adapter-resume-safety`.
 
 7. **One confirmed launch per executing model site, in v5's vocabulary,
    dispatched from 0.10.0.** `launch: resumed` is published only after

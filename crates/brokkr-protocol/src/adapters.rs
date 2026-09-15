@@ -932,18 +932,18 @@ fn resume_gate(input: &Value, shape: &str) -> ResumeGate {
     };
     // The site's own facts, as the engine wrote them into this input:
     // the boundary that stands here (decision 0046 ruling 3) and whether
-    // Brokkr built the box (decision 0043). The engine's `mark_hands`
-    // writes both only for a site WITH hands and leaves a site without
-    // untouched, so absence is the engine's own statement of `not
-    // applicable` and `none` — and it buys nothing the assessment did
-    // not spell out: `not applicable` must be listed under `boundaries`
-    // and `none` must be the declared `hands` for the two to match, so a
-    // shape measured only in a box declines an unboxed site here.
-    let boundary = input
-        .get("boundary")
-        .and_then(Value::as_str)
-        .unwrap_or("not applicable");
-    let hands = input.get("hands").and_then(Value::as_str).unwrap_or("none");
+    // Brokkr built the box (decision 0043). The engine now writes BOTH
+    // for every registered site — `not applicable`/`none` for a resolved
+    // no-hands site, the boundary word and `boxed`/`none` for a hands
+    // site — so a missing or non-string marker is not the engine's
+    // statement of `none`: it means this site's confinement is UNKNOWN,
+    // and unknown declines (design D10 F1). Absence must never enable.
+    let Some(boundary) = input.get("boundary").and_then(Value::as_str) else {
+        return ResumeGate::Disabled("restrictions-unavailable");
+    };
+    let Some(hands) = input.get("hands").and_then(Value::as_str) else {
+        return ResumeGate::Disabled("restrictions-unavailable");
+    };
     if !names("boundaries", boundary) || entry.get("hands").and_then(Value::as_str) != Some(hands) {
         return ResumeGate::Disabled("restrictions-unavailable");
     }

@@ -27,8 +27,8 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, ResultDoor};
 use crate::bundle::{
-    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, PanelMember, Seat, SeatBody,
-    SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
+    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState, PanelMember, Seat,
+    SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -1212,10 +1212,27 @@ impl Engine {
     /// statement under `harness` or `open`, where no workspace tool is
     /// served. A site without hands is untouched.
     fn mark_hands(&self, label: &str, input: &mut Value) {
-        if self.bundle.hands.contains_key(label) {
-            input["boundary"] = json!(self.boundary.word());
-            if self.boundary.is_boxed() {
-                input["hands"] = json!("boxed");
+        match self.bundle.sites.get(label).map(|facts| &facts.hands) {
+            Some(HandsState::Hands(_)) => {
+                input["boundary"] = json!(self.boundary.word());
+                input["hands"] = json!(if self.boundary.is_boxed() {
+                    "boxed"
+                } else {
+                    "none"
+                });
+            }
+            // A registered, resolved no-hands site is an affirmative
+            // fact: the adapter gate requires it rather than reading the
+            // absence as permission (design D10 F1).
+            Some(HandsState::NoHands) => {
+                input["boundary"] = json!("not applicable");
+                input["hands"] = json!("none");
+            }
+            // Unknown is not `none`. An unregistered or unresolved site
+            // publishes no affirmative marker, so the adapter declines.
+            Some(HandsState::Unknown) | None => {
+                input["boundary"] = Value::Null;
+                input["hands"] = Value::Null;
             }
         }
     }

@@ -1199,6 +1199,82 @@ fn two_sites_that_flatten_to_one_address_are_refused_at_compile_time() {
     assert!(fixture.compile(&config, &policy).is_ok());
 }
 
+/// Design D10 F2: uniqueness is GLOBAL, not per selected body. A
+/// selector's case and a literal phase can flatten to one address across
+/// two different seats, and the engine's `select_candidates`, `argv_for`,
+/// `mark_hands` and boundary readers key on that one string.
+#[test]
+fn a_literal_phase_that_aliases_a_selected_case_is_refused_globally() {
+    let fixture = Fixture::new();
+    let mut policy = Fixture::policy();
+    policy["phases"] = json!(["work", "work:chore", "review", "done"]);
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id":"WORKCHORE", "from":"work:chore", "result":"complete", "next":"review", "reason":"x"
+    }));
+    let mut config = Fixture::config();
+    config["seats"]["work"] = json!({
+        "results": ["complete"],
+        "select": {"on": "strategy", "cases": {
+            "chore": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+            "feature": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+            "design": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+            "engine": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+        }},
+    });
+    config["seats"]["work:chore"] = json!({
+        "results": ["complete"], "role": "roles/role.md", "driver": {"command": ["driver"]},
+    });
+    let message = error(fixture.compile(&config, &policy));
+    assert!(
+        message.contains("addresses two different sites as 'work:chore'"),
+        "{message}"
+    );
+    // Renaming only the conflicting literal phase compiles: the collision,
+    // not the shape, is what is refused.
+    let mut control = config.clone();
+    control["seats"]["work:other"] = control["seats"]["work:chore"].clone();
+    control["seats"]
+        .as_object_mut()
+        .unwrap()
+        .remove("work:chore");
+    let mut control_policy = policy.clone();
+    control_policy["phases"] = json!(["work", "work:other", "review", "done"]);
+    control_policy["rules"][2]["from"] = json!("work:other");
+    assert!(fixture.compile(&control, &control_policy).is_ok());
+}
+
+/// Design D10 F2: the wrapper creates labels after parsing, so the final
+/// global walk must reserve them too. A literal `verify:checks` phase
+/// aliases the step the dialect wrapper injects for a wrapped `verify`
+/// seat; the raw within-body pass cannot see it.
+#[test]
+fn a_literal_phase_that_aliases_the_wrapped_verify_step_is_refused() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let verify = json!({"results":["pass"],"role":"roles/role.md","driver":{"command":["driver"]}});
+    let (mut config, mut policy) = dialect_config(verify);
+    policy["phases"] = json!(["design", "verify", "verify:checks", "review", "done"]);
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id":"VC", "from":"verify:checks", "result":"pass", "next":"review", "reason":"pass"
+    }));
+    config["seats"]["verify:checks"] = json!({
+        "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]}
+    });
+    let message = error(compile_dialect_fixture(
+        &fixture,
+        &config,
+        &policy,
+        Some(&dialect),
+    ));
+    assert!(
+        message.contains("addresses two different sites as 'verify:checks'"),
+        "{message}"
+    );
+}
+
 /// And every bundle this tree ships walks clean, which is the other half
 /// of the same check: a rule that refused a shipped recipe would be a
 /// rule nobody could adopt.
