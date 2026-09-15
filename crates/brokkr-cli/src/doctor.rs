@@ -180,6 +180,21 @@ type CompositeProbe = fn(&Adapter) -> (bool, String);
 /// `supported` shape declares one; it is a warning when a supported
 /// shape's composite differs or is unreadable.
 fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
+    dsh_composite_line_with(adapter, || {
+        DshSeams::resolve()
+            .and_then(|seams| dsh_composite(&seams))
+            .map(|composite| (composite.canonical, composite.plugin))
+            .map_err(|error| error.to_string())
+    })
+}
+
+/// `dsh_composite_line` over an injected composite producer, so the
+/// success arm is a plain test without a real DSH install and its node
+/// probe. Production reaches it only through the real seams.
+fn dsh_composite_line_with(
+    adapter: &Adapter,
+    probe: impl FnOnce() -> Result<(String, String), String>,
+) -> (bool, String) {
     // The DSH work shape's name, one spelling in Rust so the guide
     // sample and this line cannot drift apart silently.
     const DSH_SHAPE: &str = "headless-work";
@@ -189,13 +204,11 @@ fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
         ResumeIdentity::Unknown { .. } => None,
     });
     let supported = shape.is_some_and(|shape| shape.status == ResumeStatus::Supported);
-    match DshSeams::resolve().and_then(|seams| dsh_composite(&seams)) {
-        Ok(composite) => composite_detail(
-            declared.as_deref(),
-            supported,
-            Ok((&composite.canonical, &composite.plugin)),
-        ),
-        Err(error) => composite_detail(declared.as_deref(), supported, Err(&error.to_string())),
+    match probe() {
+        Ok((digest, plugin)) => {
+            composite_detail(declared.as_deref(), supported, Ok((&digest, &plugin)))
+        }
+        Err(error) => composite_detail(declared.as_deref(), supported, Err(&error)),
     }
 }
 

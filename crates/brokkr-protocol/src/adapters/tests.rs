@@ -1943,6 +1943,63 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
     assert_eq!(invocation.exit_code, 0);
 }
 
+/// A qualified codex resume re-expresses the effort pin as the config
+/// override codex reads, exactly as it re-expresses the sandbox class: a
+/// rejoin inherits neither. The cold arm is already pinned; this drives
+/// the resume arm with a shim whose version answers, so the override is
+/// observed in the argv actually handed to the CLI.
+#[cfg(unix)]
+#[test]
+fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let argv = dir.path().join("argv");
+    let shim = codex_shim(dir.path(), "codex-effort", &argv);
+    let extra: Vec<String> = [
+        "--sandbox",
+        "read-only",
+        "--model",
+        "gpt-5.6-sol",
+        "--effort",
+        "high",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+    with_codex_bin(&shim, || {
+        invoke(
+            AdapterKind::Codex,
+            &extra,
+            "the prompt",
+            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+            Some(THREAD),
+            &[],
+            &mut |_| {},
+        )
+        .unwrap()
+    });
+
+    let recorded = recorded(&argv);
+    let effort = recorded
+        .windows(2)
+        .any(|pair| pair == ["-c", "model_reasoning_effort=\"high\""]);
+    assert!(
+        effort,
+        "the resume argv carries the effort override: {recorded:?}"
+    );
+    assert_eq!(
+        &recorded[..5],
+        [
+            "exec",
+            "resume",
+            "--json",
+            "-c",
+            "sandbox_mode=\"read-only\""
+        ],
+        "the effort override follows the re-imposed sandbox class: {recorded:?}"
+    );
+}
+
 /// The sandbox travels or the resume does not (decision 0030 ruling 2),
 /// and neither does anything else the seat declared that a resume cannot
 /// carry. Every way an offer can fail to be taken ends in the same
@@ -2577,11 +2634,23 @@ fn the_version_probe_reads_the_number_out_of_each_measured_banner() {
             &format!("probe-{case}"),
             &format!("#!/bin/sh\n{body}\n"),
         );
-        assert_eq!(
-            observed_version(&[shim.to_string_lossy().into_owned()]).as_deref(),
-            expected,
-            "{case}"
-        );
+        // Under the whole-workspace coverage load a transient spawn
+        // failure can make the first probe read None and has already
+        // aborted one exact-gate run. Retrying does not change what is
+        // asserted: a working shim must still answer with its version,
+        // and a broken one answers None on every attempt. Production's
+        // `observed_version` itself stays a single bounded spawn.
+        let mut observed = observed_version(&[shim.to_string_lossy().into_owned()]);
+        if expected.is_some() {
+            for _ in 0..7 {
+                if observed.is_some() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                observed = observed_version(&[shim.to_string_lossy().into_owned()]);
+            }
+        }
+        assert_eq!(observed.as_deref(), expected, "{case}");
     }
     // A binary that is not there answers nothing, which disables resume
     // rather than enabling it on a guess.
@@ -3803,6 +3872,117 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
     assert_eq!(invocation.session_meta["num_turns"], 1);
     assert_eq!(invocation.session_meta["input_tokens"], 5);
     assert_eq!(invocation.session_meta["output_tokens"], 2);
+}
+
+/// A qualified stream-json launch whose stdout carries a line the plugin's
+/// envelope does not name: the malformed line is skipped, and the valid
+/// init that follows still confirms. This drives the dispatch inside
+/// `invoke_dsh_launch` — production's own path once `dsh_launch` has
+/// settled a launch — rather than calling `invoke_dsh_stream_json`
+/// directly.
+#[cfg(unix)]
+#[test]
+fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    std::fs::create_dir_all(&root).unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-stream-malformed",
+        "#!/bin/sh\n\
+         printf 'this line is not JSON\\n'\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
+    );
+    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
+    let launch = DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
+        rejoining: None,
+        refusal: None,
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: None,
+        stream_json: true,
+        effortless: true,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq: 0,
+        locator: "seat".to_string(),
+        root: root.clone(),
+        overlay,
+    };
+    let mut emitted = Vec::new();
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        dir.path().to_str().unwrap(),
+        &mut |value| emitted.push(value.clone()),
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    // The malformed line was skipped rather than ending the stream, so the
+    // init line behind it named the session.
+    assert_eq!(invocation.session_meta["session_id"], "session-1");
+    let row = emitted
+        .iter()
+        .find(|row| row["step"] == "harness-started")
+        .expect("the confirmed launch publishes its row");
+    assert_eq!(row["launch"], "cold");
+}
+
+/// The same qualified dispatch when the child never names a root: the init
+/// lines with no usable id are skipped, and the held row is what ends the
+/// invocation.
+#[cfg(unix)]
+#[test]
+fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    std::fs::create_dir_all(&root).unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-stream-unconfirmed",
+        "#!/bin/sh\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\"}\\n'\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"\"}\\n'\n\
+         printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}\\n'\n",
+    );
+    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
+    let launch = DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
+        rejoining: None,
+        refusal: None,
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: None,
+        stream_json: true,
+        effortless: true,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq: 0,
+        locator: "seat".to_string(),
+        root: root.clone(),
+        overlay,
+    };
+    let mut emitted = Vec::new();
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        dir.path().to_str().unwrap(),
+        &mut |value| emitted.push(value.clone()),
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    // The unnamed init lines set no session id at all: a missing or empty
+    // one is not an identity, and no confirmation means the held row
+    // flushes the launch as cold.
+    assert_eq!(invocation.launch, LaunchTerminal::Cold);
+    assert!(
+        invocation.session_meta.get("session_id").is_none(),
+        "an init event with no usable id names no session"
+    );
+    let row = emitted
+        .iter()
+        .find(|row| row["step"] == "harness-started")
+        .expect("the held launch row is flushed even without a confirmation");
+    assert_eq!(row["launch"], "cold");
 }
 
 /// The dsh arm end to end: the launch row it writes when an offer was

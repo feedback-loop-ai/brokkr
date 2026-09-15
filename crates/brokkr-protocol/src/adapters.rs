@@ -3599,7 +3599,21 @@ fn invoke_dsh_with(
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
     let bin = adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-    let mut launch = dsh_launch(&bin, extra, workdir, session, input)?;
+    let launch = dsh_launch(&bin, extra, workdir, session, input)?;
+    invoke_dsh_launch(launch, prompt, workdir, emit, wait)
+}
+
+/// `invoke_dsh_with` over an already-settled launch, so the qualified
+/// stream-json arm is reachable from a test without a real composite
+/// install and its node probe. Production reaches it only through
+/// `dsh_launch`, which still performs every qualification check.
+fn invoke_dsh_launch(
+    mut launch: DshLaunch,
+    prompt: &str,
+    workdir: &str,
+    emit: &mut impl FnMut(&Value),
+    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     let staged = launch.staged.take();
     let mut session_meta = Map::new();

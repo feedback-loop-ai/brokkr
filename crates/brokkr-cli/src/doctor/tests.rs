@@ -2018,3 +2018,64 @@ fn dsh_composite_line_reads_the_real_adapter_and_its_seams() {
     let (_warning, line) = dsh_composite_line(adapter);
     assert!(line.contains("composite"), "{line}");
 }
+
+/// `dsh_composite_line`'s own arms: an Unknown identity declares no digest
+/// and a readable composite becomes the detail. Both are driven over the
+/// injected producer, because the real one needs a DSH install and a node
+/// probe that a unit test must not require.
+#[test]
+fn dsh_composite_line_reports_an_unknown_identity_and_a_readable_composite() {
+    use brokkr_runtime::agents::{ResumeAssessment, ResumeEvidence, ResumeShape};
+    use std::collections::BTreeMap;
+
+    let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
+    let base = adapters
+        .providers()
+        .find(|adapter| adapter.provider == "dsh")
+        .expect("the shipped dsh adapter")
+        .clone();
+    let digest = "a".repeat(64);
+    let shape = |identity: ResumeIdentity| ResumeShape {
+        status: ResumeStatus::Supported,
+        identity,
+        classes: vec!["work".into()],
+        boundaries: vec!["not applicable".into()],
+        hands: "none".into(),
+        evidence: ResumeEvidence::default(),
+        limitations: Vec::new(),
+        reason: None,
+    };
+    let with_identity = |identity: ResumeIdentity| {
+        let mut adapter = base.clone();
+        let mut shapes = BTreeMap::new();
+        shapes.insert("headless-work".to_string(), shape(identity));
+        adapter.resume = ResumeAssessment::new(shapes);
+        adapter
+    };
+
+    // An Unknown identity carries no declared digest, so the readable
+    // composite is informational and reports no comparison to make.
+    let unknown = with_identity(ResumeIdentity::Unknown {
+        reason: "nobody has identified this wrapper".into(),
+    });
+    let (warning, line) =
+        dsh_composite_line_with(&unknown, || Ok((digest.clone(), "plugin".into())));
+    assert!(!warning, "{line}");
+    assert!(line.contains("no declared wrapper_digest"), "{line}");
+    assert!(line.contains(&digest) && line.contains("plugin"), "{line}");
+
+    // A Measured digest that matches the composite is informational too,
+    // and names the match.
+    let measured = with_identity(ResumeIdentity::Measured {
+        version: "0.1.5-rc.1".into(),
+        applies_to: "0.1.5-rc.1".into(),
+        wrapper_digest: Some(digest.clone()),
+    });
+    let (warning, line) =
+        dsh_composite_line_with(&measured, || Ok((digest.clone(), "plugin".into())));
+    assert!(!warning, "{line}");
+    assert!(
+        line.contains("matches the declared wrapper_digest"),
+        "{line}"
+    );
+}

@@ -6442,3 +6442,17 @@ fn a_single_patch_value_admits_exactly_one_well_formed_pair() {
     assert_eq!(one(&["--patch=a"]), None);
     assert_eq!(one(&["--patch"]), None);
 }
+
+#[test]
+fn a_route_overlay_binding_refuses_a_resolved_path_that_is_not_a_regular_file() {
+    // `resolved` canonicalizes inside the layer but is a directory: the
+    // binding is absent, and the adapter's pre-work failure to start is
+    // the one refusal (design D6 mechanism 1). The manifest names the
+    // path, so only the regular-file check keeps this from binding.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("as-directory")).unwrap();
+    let mut bundle = bundle(dir.path(), single_body(vec!["missing-driver".into()]));
+    bundle.manifest["files"]["as-directory"] = json!("a".repeat(64));
+    let command = vec!["--patch".to_string(), "as-directory".to_string()];
+    assert!(route_overlay_binding(&bundle, &command, dir.path()).is_none());
+}

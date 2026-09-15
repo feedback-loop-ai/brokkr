@@ -61,6 +61,22 @@ pub(super) fn claim(
     model: Option<&str>,
     argv_value: Option<&str>,
 ) -> Result<Option<Vec<u8>>, String> {
+    claim_with(input, workdir, model, argv_value, |path| {
+        std::fs::read(path)
+    })
+}
+
+/// `claim` over an injected reader. The post-read byte bound guards the
+/// file against growing between its metadata check and its one read — a
+/// TOCTOU window no deterministic fixture can force — so the reader is
+/// injectable, the way this module's other syscalls already are.
+fn claim_with(
+    input: &Value,
+    workdir: &str,
+    model: Option<&str>,
+    argv_value: Option<&str>,
+    read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
+) -> Result<Option<Vec<u8>>, String> {
     let Some(binding) = input.pointer("/resume_context/route_overlay") else {
         if argv_value.is_some() {
             return Err(refusal("a `--patch` with no bound route overlay"));
@@ -124,8 +140,7 @@ pub(super) fn claim(
         return Err(refusal("route_overlay exceeds the reader's byte bound"));
     }
     // Read the bytes exactly once; no later check re-reads the file.
-    let bytes =
-        std::fs::read(&resolved).map_err(|_| refusal("route_overlay file is unreadable"))?;
+    let bytes = read(&resolved).map_err(|_| refusal("route_overlay file is unreadable"))?;
     if bytes.len() > MAX_BYTES {
         return Err(refusal("route_overlay exceeds the reader's byte bound"));
     }
@@ -866,6 +881,21 @@ mod tests {
         // An empty workdir is read as the current directory, not skipped.
         let error = claim(&input, "", Some(PIN), Some("route.yml")).unwrap_err();
         assert!(error.contains("unreadable"), "{error}");
+    }
+
+    #[test]
+    fn the_reader_refuses_bytes_that_exceed_the_bound_after_a_bound_metadata() {
+        // The metadata check sees a file inside the bound; the one read
+        // returns more than it. That TOCTOU window is what the post-read
+        // check exists for, and no deterministic fixture can force it, so
+        // the reader is injected.
+        let (dir, input) = binding(SHIPPED.as_bytes(), "route.yml");
+        let workdir = dir.path().to_string_lossy().into_owned();
+        let error = claim_with(&input, &workdir, Some(PIN), Some("route.yml"), |_| {
+            Ok(vec![b'a'; MAX_BYTES + 1])
+        })
+        .unwrap_err();
+        assert!(error.contains("byte bound"), "{error}");
     }
 
     #[test]
