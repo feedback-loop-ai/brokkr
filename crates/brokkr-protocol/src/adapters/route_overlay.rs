@@ -61,21 +61,30 @@ pub(super) fn claim(
     model: Option<&str>,
     argv_value: Option<&str>,
 ) -> Result<Option<Vec<u8>>, String> {
-    claim_with(input, workdir, model, argv_value, |path| {
-        std::fs::read(path)
+    claim_with(input, workdir, model, argv_value, read_route_file, |path| {
+        std::fs::metadata(path)
     })
 }
 
-/// `claim` over an injected reader. The post-read byte bound guards the
-/// file against growing between its metadata check and its one read — a
-/// TOCTOU window no deterministic fixture can force — so the reader is
-/// injectable, the way this module's other syscalls already are.
+/// The one file reader production uses; named so a fault test can inject a
+/// failing metadata read without spelling a reader that never runs.
+fn read_route_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    std::fs::read(path)
+}
+
+/// `claim` over injected readers. The post-read byte bound guards the file
+/// against growing between its metadata check and its one read — a TOCTOU
+/// window no deterministic fixture can force — so the reader is injectable,
+/// the way this module's other syscalls already are. The metadata read is
+/// injectable for the same reason: a successful canonicalization is a
+/// precondition, and no ordinary path makes the following `stat` fail.
 fn claim_with(
     input: &Value,
     workdir: &str,
     model: Option<&str>,
     argv_value: Option<&str>,
     read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
+    stat: impl FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
 ) -> Result<Option<Vec<u8>>, String> {
     let Some(binding) = input.pointer("/resume_context/route_overlay") else {
         if argv_value.is_some() {
@@ -131,8 +140,7 @@ fn claim_with(
             "route_overlay value resolves outside the working directory",
         ));
     }
-    let meta =
-        std::fs::metadata(&resolved).map_err(|_| refusal("route_overlay file is unreadable"))?;
+    let meta = stat(&resolved).map_err(|_| refusal("route_overlay file is unreadable"))?;
     if !meta.is_file() {
         return Err(refusal("route_overlay value is not a regular file"));
     }
@@ -893,11 +901,35 @@ mod tests {
         // the reader is injected.
         let (dir, input) = binding(SHIPPED.as_bytes(), "route.yml");
         let workdir = dir.path().to_string_lossy().into_owned();
-        let error = claim_with(&input, &workdir, Some(PIN), Some("route.yml"), |_| {
-            Ok(vec![b'a'; MAX_BYTES + 1])
-        })
+        let error = claim_with(
+            &input,
+            &workdir,
+            Some(PIN),
+            Some("route.yml"),
+            |_| Ok(vec![b'a'; MAX_BYTES + 1]),
+            |path| std::fs::metadata(path),
+        )
         .unwrap_err();
         assert!(error.contains("byte bound"), "{error}");
+    }
+
+    /// A canonicalized path whose metadata read then fails is a refusal, not
+    /// a panic or a skipped file. The injected `stat` makes the failure
+    /// deterministic; the real path is still canonicalized first.
+    #[test]
+    fn the_reader_refuses_a_metadata_failure_after_a_resolved_path() {
+        let (dir, input) = binding(SHIPPED.as_bytes(), "route.yml");
+        let workdir = dir.path().to_string_lossy().into_owned();
+        let error = claim_with(
+            &input,
+            &workdir,
+            Some(PIN),
+            Some("route.yml"),
+            read_route_file,
+            |_| Err(std::io::Error::other("the metadata read failed")),
+        )
+        .unwrap_err();
+        assert!(error.contains("file is unreadable"), "{error}");
     }
 
     #[test]

@@ -925,6 +925,23 @@ mod tests {
         assert!(cold.get("originating_harness_version").is_none());
         assert!(cold.get("originating_wrapper_digest").is_none());
         assert!(cold.get("route_overlay").is_none());
+
+        // An offered root whose harness version was not recorded still
+        // carries its wrapper digest: the absent version is not a reason to
+        // drop the digest (proposed decision 0056 ruling 5).
+        let versionless = OriginatingRoot {
+            harness_version: None,
+            wrapper_digest: Some("b".repeat(64)),
+            persistence_locator: None,
+        };
+        let context = start_context(
+            json!({"headless-work": {"status": "supported"}}),
+            Some(&versionless),
+            None,
+            None,
+        );
+        assert!(context.get("originating_harness_version").is_none());
+        assert_eq!(context["originating_wrapper_digest"], "b".repeat(64));
     }
 
     /// The route-overlay binding rides the private context as exactly the

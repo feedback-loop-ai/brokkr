@@ -752,8 +752,11 @@ mod tests {
 
         for unstamped in [&historical, &bare_refusal, &resumed_with_refusal] {
             validate_seat_record(unstamped, 2, SeatRecordVersion::V4).unwrap();
-            validate_seat_record(unstamped, 2, SeatRecordVersion::V5)
-                .unwrap_or_else(|e| panic!("{unstamped} must stay valid under v5: {e}"));
+            let valid = validate_seat_record(unstamped, 2, SeatRecordVersion::V5);
+            assert!(
+                valid.is_ok(),
+                "{unstamped} must stay valid under v5: {valid:?}"
+            );
 
             // The same row, once this engine stamps it, IS refused.
             let mut stamped = unstamped.clone();

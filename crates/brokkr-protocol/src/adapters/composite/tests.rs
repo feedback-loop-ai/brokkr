@@ -841,6 +841,47 @@ fn the_plugin_walk_refuses_symlinks_special_files_and_unreadable_roots() {
     assert!(error.to_string().contains("unreadable"), "{error}");
 }
 
+/// A directory entry the reader itself cannot yield is a component refusal;
+/// the injected `read_dir` makes the mid-walk iterator error deterministic
+/// where a real filesystem cannot be asked to fail.
+#[test]
+fn the_plugin_walk_refuses_a_directory_entry_the_reader_cannot_yield() {
+    let dir = tempfile::tempdir().unwrap();
+    let failing = |_: &Path| -> std::io::Result<DirEntries> {
+        Ok(Box::new(std::iter::once(Err(std::io::Error::other(
+            "the directory entry is unreadable",
+        )))))
+    };
+    let mut found = BTreeMap::new();
+    let error = walk(dir.path(), dir.path(), &mut found, &failing).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("the directory entry is unreadable"),
+        "{error}"
+    );
+}
+
+/// A directory can be listed with read permission alone while
+/// `symlink_metadata` needs search permission, so clearing search makes the
+/// per-entry metadata read fail without hiding the entry. Running as root
+/// defeats the denial, and the assertion then fails rather than passing on a
+/// fault that did not happen.
+#[cfg(unix)]
+#[test]
+fn the_plugin_walk_refuses_an_entry_metadata_it_cannot_read() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let locked = dir.path().join("locked");
+    fs::create_dir_all(&locked).unwrap();
+    write(&locked, "LICENSE", b"x");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o400)).unwrap();
+    let result = plugin_file_digests(&locked);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    let error = result.unwrap_err();
+    assert!(error.to_string().contains("Permission denied"), "{error}");
+}
+
 #[test]
 fn npm_keys_with_an_empty_or_dotted_component_are_refused() {
     for key in [

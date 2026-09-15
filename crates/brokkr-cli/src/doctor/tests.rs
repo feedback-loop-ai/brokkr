@@ -2019,6 +2019,32 @@ fn dsh_composite_line_reads_the_real_adapter_and_its_seams() {
     assert!(line.contains("composite"), "{line}");
 }
 
+/// The mapping `dsh_composite_line` applies to a readable composite: the
+/// canonical digest and the plugin component, and nothing else. Driven
+/// directly because the real producer needs a DSH install and a node probe.
+#[test]
+fn composite_identity_reads_the_canonical_digest_and_the_plugin() {
+    let composite = DshComposite {
+        canonical: "canonical-digest".into(),
+        core: "core".into(),
+        node: "v22.23.2".into(),
+        plugin: "plugin-digest".into(),
+        dependencies: Vec::new(),
+        plugin_patch: "plugin-patch".into(),
+        profile_patch: "profile-patch".into(),
+        profile_bundles: Vec::new(),
+        profile_patch_reload: "startup".into(),
+        home_patch: "absent".into(),
+        extension: None,
+        core_root: PathBuf::new(),
+        profile: PathBuf::new(),
+    };
+    assert_eq!(
+        composite_identity(composite),
+        ("canonical-digest".to_string(), "plugin-digest".to_string())
+    );
+}
+
 /// `dsh_composite_line`'s own arms: an Unknown identity declares no digest
 /// and a readable composite becomes the detail. Both are driven over the
 /// injected producer, because the real one needs a DSH install and a node

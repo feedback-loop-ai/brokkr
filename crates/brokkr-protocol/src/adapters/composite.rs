@@ -70,16 +70,27 @@ fn sha256_text(text: &str) -> String {
 /// names the offending path.
 pub fn plugin_file_digests(dir: &Path) -> Result<BTreeMap<String, String>, CompositeError> {
     let mut found = BTreeMap::new();
-    walk(dir, dir, &mut found)?;
+    walk(dir, dir, &mut found, &read_dir_entries)?;
     Ok(found)
+}
+
+/// One directory's entries as `std::fs::read_dir` yields them, in a shape a
+/// test can substitute a failing iterator for. The real reader stays the
+/// production read; only the source of the `ReadDir` is injectable, so the
+/// per-entry error arm is reachable without a filesystem that errors mid-walk.
+type DirEntries = Box<dyn Iterator<Item = std::io::Result<std::fs::DirEntry>>>;
+
+fn read_dir_entries(path: &Path) -> std::io::Result<DirEntries> {
+    Ok(Box::new(std::fs::read_dir(path)?))
 }
 
 fn walk(
     root: &Path,
     current: &Path,
     found: &mut BTreeMap<String, String>,
+    read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
 ) -> Result<(), CompositeError> {
-    let entries = std::fs::read_dir(current)
+    let entries = read_dir(current)
         .map_err(|error| CompositeError::Component(format!("{}: {error}", current.display())))?;
     for entry in entries {
         let entry = entry
@@ -100,7 +111,7 @@ fn walk(
             )));
         }
         if file_type.is_dir() {
-            walk(root, &path, found)?;
+            walk(root, &path, found, read_dir)?;
         } else if file_type.is_file() {
             let relative = path
                 .strip_prefix(root)
@@ -207,9 +218,12 @@ pub fn npm_name(key: &str) -> Result<String, CompositeError> {
         if tail.is_empty() {
             return Ok(package);
         }
+        // Both arms above set `tail` to the slice beginning at the `/` they
+        // just located, so a nonempty tail always begins with the separator;
+        // the old `ok_or_else` refusal could never fire.
         rest = tail
             .strip_prefix('/')
-            .ok_or_else(|| unreadable("expected a group separator"))?;
+            .expect("a nonempty package tail begins at a group separator");
     }
 }
 
@@ -303,13 +317,17 @@ pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, C
         };
         let integrity = integrity
             .ok_or_else(|| CompositeError::PnpmLock(format!("'{key}': no resolution integrity")))?;
+        // Every entry admitted into `flush` was already checked to carry an
+        // `@` after its first character, so the lookup always finds one.
         let at = key[1..]
             .find('@')
             .map(|index| index + 1)
-            .ok_or_else(|| CompositeError::PnpmLock(format!("'{key}': key has no '@'")))?;
+            .expect("a package key carries an '@' after its first character");
         let name = &key[..at];
         let version = &key[at + 1..];
-        if name.is_empty() || version.is_empty() {
+        // `at` is at least one byte, so the name is never empty; only an
+        // empty version is reachable from an admitted key.
+        if version.is_empty() {
             return Err(CompositeError::PnpmLock(format!(
                 "'{key}': empty name or version"
             )));
@@ -644,9 +662,12 @@ fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
                 .is_some_and(|name| name == "node_modules")
         })
         .ok_or_else(|| CompositeError::Config("core package is not under node_modules".into()))?;
+    // The filter above admitted only a path whose file name is
+    // `node_modules`, and a path with a file name always has a parent, so
+    // the old "core root is missing" refusal could never fire.
     let root = node_modules
         .parent()
-        .ok_or_else(|| CompositeError::Config("core root is missing".into()))?;
+        .expect("a path named node_modules has a parent");
     if root.join("node_modules").join("@deepseek-ai").join("dsh") != dir {
         return Err(CompositeError::Config(
             "core package is not at <core root>/node_modules/@deepseek-ai/dsh".into(),

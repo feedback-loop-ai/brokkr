@@ -2309,6 +2309,30 @@ fn the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name() {
         wrapped_adapters.digest("claude")
     );
 
+    // A digest whose bytes are decimal digits is the other half of the
+    // lowercase-hex predicate: `0` is a hex character, so it loads.
+    let digits = "0".repeat(64);
+    let numeric = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3", "wrapper_digest": digits},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let numeric_adapters = numeric.adapters();
+    let shape = numeric_adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(
+        shape.identity,
+        ResumeIdentity::Measured {
+            version: "1.2.3".into(),
+            applies_to: "1.2.3".into(),
+            wrapper_digest: Some(digits.clone()),
+        }
+    );
+
     // Malformed: refused, naming the field.
     for bad in [
         json!("A".repeat(64)),

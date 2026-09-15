@@ -2660,6 +2660,55 @@ fn the_version_probe_reads_the_number_out_of_each_measured_banner() {
     );
 }
 
+/// `qualify` compares the observed version against the assessment's
+/// `applies_to` and, on an offer, against the version the originating root
+/// was opened under. A drifted originating version refuses even when the
+/// assessment still matches; the same version does not.
+#[cfg(unix)]
+#[test]
+fn qualify_refuses_an_originating_version_drift() {
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "qualify-probe",
+        "#!/bin/sh\nprintf '0.153.4\\n'\n",
+    );
+    let probe = vec![shim.to_string_lossy().into_owned()];
+    let gate = ResumeGate::Enabled {
+        applies_to: "0.153.4".to_string(),
+    };
+
+    // The version probe can fail transiently under load; retry without
+    // changing what is asserted.
+    let mut plain = qualify(&gate, &probe, None);
+    for _ in 0..7 {
+        if plain.observed.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        plain = qualify(&gate, &probe, None);
+    }
+    assert_eq!(plain.observed.as_deref(), Some("0.153.4"));
+    assert_eq!(plain.refusal, None);
+
+    // An originating version that differs from the observed one is drift,
+    // even though the assessment's `applies_to` still matches.
+    let mut drifted = qualify(&gate, &probe, Some("0.150.0"));
+    for _ in 0..7 {
+        if drifted.observed.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        drifted = qualify(&gate, &probe, Some("0.150.0"));
+    }
+    assert_eq!(drifted.observed.as_deref(), Some("0.153.4"));
+    assert_eq!(drifted.refusal, Some("unverified-harness"));
+
+    // The version the root was actually opened under is not drift.
+    let same = qualify(&gate, &probe, Some("0.153.4"));
+    assert_eq!(same.refusal, None);
+}
+
 /// The claude resume argv, whole (proposed decision 0056 ruling 6): the
 /// print/stream-json shape this driver has always used, the seat's own
 /// composed restriction plan unchanged, and `--resume <owned-id>` — and
@@ -3983,6 +4032,54 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
         .find(|row| row["step"] == "harness-started")
         .expect("the held launch row is flushed even without a confirmation");
     assert_eq!(row["launch"], "cold");
+}
+
+/// A stdout line that is not valid UTF-8 is a read error, not a JSON line to
+/// skip: the stream ends and the held launch flushes cold rather than the
+/// bytes behind it being read as a session.
+#[cfg(unix)]
+#[test]
+fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    std::fs::create_dir_all(&root).unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-stream-non-utf8",
+        "#!/bin/sh\n\
+         printf '\\377\\n'\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
+    );
+    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
+    let launch = DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
+        rejoining: None,
+        refusal: None,
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: None,
+        stream_json: true,
+        effortless: true,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq: 0,
+        locator: "seat".to_string(),
+        root: root.clone(),
+        overlay,
+    };
+    let mut emitted = Vec::new();
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        dir.path().to_str().unwrap(),
+        &mut |value| emitted.push(value.clone()),
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    assert_eq!(invocation.launch, LaunchTerminal::Cold);
+    assert!(
+        invocation.session_meta.get("session_id").is_none(),
+        "the invalid line ended the stream before the init event"
+    );
 }
 
 /// The dsh arm end to end: the launch row it writes when an offer was
@@ -7979,6 +8076,14 @@ fn the_planned_locator_is_bounded_before_anything_is_staged() {
         "sessions/brokkr/seat-1"
     );
 
+    // A root equal to the admitted home has the empty locator; recording
+    // an empty persistence address is outside the admitted bound.
+    let empty = planned_dsh_locator(&transcript, dir.path()).unwrap_err();
+    assert!(
+        empty.contains("planned dsh locator is outside the admitted bound"),
+        "{empty}"
+    );
+
     let deep = dir
         .path()
         .join("aaaaaaaaaaaaaaaaaaaa")
@@ -9129,6 +9234,45 @@ fn a_retained_project_that_cannot_be_read_is_a_bounded_refusal() {
     assert!(error.contains("the retained root is unreadable"), "{error}");
 }
 
+/// A project entry the retained root's reader cannot yield is a bounded
+/// refusal. The injected reader makes the mid-enumeration error
+/// deterministic where a real filesystem cannot be asked to fail.
+#[test]
+fn a_retained_project_entry_the_reader_cannot_yield_is_a_bounded_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    std::fs::create_dir_all(&root).unwrap();
+    let failing = |_: &Path| -> std::io::Result<SessionDirEntries> {
+        Ok(Box::new(std::iter::once(Err(std::io::Error::other(
+            "the project entry is unreadable",
+        )))))
+    };
+    let error = dsh_session_file_reading(&root, "session-1", 64, &failing).unwrap_err();
+    assert!(error.contains("the retained root is unreadable"), "{error}");
+}
+
+/// A session entry the project's reader cannot yield is the same bounded
+/// refusal, reached only after the root has yielded one real project.
+#[test]
+fn a_retained_session_entry_the_reader_cannot_yield_is_a_bounded_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let project = std::fs::canonicalize(&project).unwrap();
+    let read_dir = |path: &Path| -> std::io::Result<SessionDirEntries> {
+        if path == project.as_path() {
+            Ok(Box::new(std::iter::once(Err(std::io::Error::other(
+                "the session entry is unreadable",
+            )))))
+        } else {
+            Ok(Box::new(std::fs::read_dir(path)?))
+        }
+    };
+    let error = dsh_session_file_reading(&root, "session-1", 64, &read_dir).unwrap_err();
+    assert!(error.contains("the retained root is unreadable"), "{error}");
+}
+
 #[cfg(unix)]
 #[test]
 fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
@@ -9163,6 +9307,36 @@ fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
     if let Some(value) = prior_legacy {
         std::env::set_var("FORGE_DSH_BIN", value);
     }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// `dsh_launch`'s own seam probe refuses an unreadable seam set; the
+/// injected resolver makes that arm reachable without an environment that
+/// has no DSH home. A refused seam set leaves the launch cold.
+#[cfg(unix)]
+#[test]
+fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let digest = "b".repeat(64);
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let shim = dsh_version_shim(dir.path(), "dsh-launch-seams", "0.1.5-rc.1");
+    let launch = dsh_launch_resolving(
+        &shim.to_string_lossy(),
+        &[],
+        dir.path().to_str().unwrap(),
+        None,
+        &input,
+        || Err(CompositeError::Config("the seam resolver failed".into())),
+    )
+    .unwrap();
+    assert!(!launch.stream_json);
+    assert!(launch.rejoining.is_none());
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
         None => std::env::remove_var("DSH_HOME"),

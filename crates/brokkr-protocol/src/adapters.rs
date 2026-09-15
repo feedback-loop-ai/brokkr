@@ -3052,12 +3052,33 @@ fn dsh_session_file(root: &std::path::Path, expected: &str) -> Result<std::path:
     dsh_session_file_with(root, expected, DSH_DIRECTORY_ENTRIES)
 }
 
+/// One directory's entries as `std::fs::read_dir` yields them, in a shape a
+/// test can substitute a failing iterator for. The real reader stays the
+/// production read.
+type SessionDirEntries = Box<dyn Iterator<Item = std::io::Result<std::fs::DirEntry>>>;
+
+fn read_session_dir(path: &std::path::Path) -> std::io::Result<SessionDirEntries> {
+    Ok(Box::new(std::fs::read_dir(path)?))
+}
+
 /// `dsh_session_file` over an injected enumeration budget, so the finite
 /// bound is reachable from a test with a handful of entries.
 fn dsh_session_file_with(
     root: &std::path::Path,
     expected: &str,
     budget: usize,
+) -> Result<std::path::PathBuf, String> {
+    dsh_session_file_reading(root, expected, budget, &read_session_dir)
+}
+
+/// `dsh_session_file_with` over an injected directory reader, so the
+/// per-entry iterator error arms are reachable from a test without a
+/// filesystem that fails mid-enumeration.
+fn dsh_session_file_reading(
+    root: &std::path::Path,
+    expected: &str,
+    budget: usize,
+    read_dir: &dyn Fn(&std::path::Path) -> std::io::Result<SessionDirEntries>,
 ) -> Result<std::path::PathBuf, String> {
     let root = std::fs::canonicalize(root)
         .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
@@ -3070,8 +3091,8 @@ fn dsh_session_file_with(
         }
         Ok(())
     };
-    let projects = std::fs::read_dir(&root)
-        .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
+    let projects =
+        read_dir(&root).map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
     for project in projects {
         let project =
             project.map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
@@ -3084,7 +3105,7 @@ fn dsh_session_file_with(
         if !project_dir.is_dir() {
             return Err("dsh driver: a retained project path is not a directory".to_string());
         }
-        let sessions = std::fs::read_dir(&project_dir)
+        let sessions = read_dir(&project_dir)
             .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
         for session in sessions {
             let session =
@@ -3360,8 +3381,22 @@ fn dsh_launch(
     session: Option<&str>,
     input: &Value,
 ) -> Result<DshLaunch, String> {
+    dsh_launch_resolving(bin, extra, workdir, session, input, DshSeams::resolve)
+}
+
+/// `dsh_launch` over an injected seam resolver, so the unreadable-seams
+/// refusal is a plain test without an environment that has no DSH home.
+/// The real resolver stays production's only path into a launch.
+fn dsh_launch_resolving(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    resolve: impl FnOnce() -> Result<DshSeams, CompositeError>,
+) -> Result<DshLaunch, String> {
     dsh_launch_with(bin, extra, workdir, session, input, || {
-        let seams = DshSeams::resolve()
+        let seams = resolve()
             .map_err(|error| format!("dsh driver: the dsh seams are unreadable: {error}"))?;
         dsh_composite(&seams)
             .map_err(|error| format!("dsh driver: the composite identity is unreadable: {error}"))

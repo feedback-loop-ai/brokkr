@@ -9,7 +9,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::{dsh_composite, DshSeams};
+use brokkr_protocol::adapters::{dsh_composite, DshComposite, DshSeams};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
@@ -173,6 +173,14 @@ impl Surface {
 /// synthetic homes instead of resolving the operator's real one.
 type CompositeProbe = fn(&Adapter) -> (bool, String);
 
+/// The composite's canonical digest and plugin component, as the detail
+/// line and the qualification record both need them. Named rather than
+/// inline so a unit test can read the mapping without a DSH install; the
+/// real `dsh_composite_line` reaches it only through the real seams.
+fn composite_identity(composite: DshComposite) -> (String, String) {
+    (composite.canonical, composite.plugin)
+}
+
 /// The composite detail for the DSH provider line (task 8.8(c)): the
 /// digest the adapter's own seam resolution reads, or the component that
 /// made it unreadable, and whether it equals, differs from or has no
@@ -183,7 +191,7 @@ fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
     dsh_composite_line_with(adapter, || {
         DshSeams::resolve()
             .and_then(|seams| dsh_composite(&seams))
-            .map(|composite| (composite.canonical, composite.plugin))
+            .map(composite_identity)
             .map_err(|error| error.to_string())
     })
 }
