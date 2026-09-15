@@ -8808,6 +8808,88 @@ fn a_session_file_whose_first_row_is_not_the_header_is_unreadable() {
     );
 }
 
+/// The real runner program reads this executable's path (or the explicit
+/// override) rather than naming a bare fallback: the scoped sandbox row
+/// must point at the very binary the store must reach. The wrapper is
+/// separate from `dsh_runner_program_from`, whose arms are unit-tested
+/// directly, so this covers the real call.
+#[test]
+fn the_runner_program_resolves_a_nonempty_program() {
+    assert!(!dsh_runner_program().is_empty());
+}
+
+/// A route whose bytes are not UTF-8 is refused by name after the model
+/// rows are composed but before any file is staged, the way the validated
+/// overlay is admitted elsewhere.
+#[test]
+fn a_route_overlay_that_is_not_utf8_is_refused_before_staging() {
+    let root = std::path::Path::new("/nonexistent/dsh-root");
+    let error = dsh_seat_overlay_with(None, None, root, Some(&[0xff, 0xfe]), None).unwrap_err();
+    assert!(error.contains("not UTF-8"), "{error}");
+    assert!(dsh_seat_overlay_with(None, None, root, Some(b"# route\n"), None).is_ok());
+}
+
+/// An offered root whose admitted home does not resolve, and one whose
+/// recorded home does not resolve, are both bounded refusals rather than
+/// a lost offer.
+#[test]
+fn owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "session-1";
+    let locator = "sessions/brokkr/seat-1";
+    let home = dir.path().to_str().unwrap();
+    let input = json!({
+        "resume_context": {"owned_target": {
+            "provider_id": id,
+            "persistence_locator": locator,
+            "persistence_home": home,
+        }}
+    });
+    let absent = dir.path().join("absent-home");
+    let error = owned_dsh_root(&absent, &input, id).unwrap_err();
+    assert!(error.contains("admitted dsh home is unreadable"), "{error}");
+
+    let recorded_absent = json!({
+        "resume_context": {"owned_target": {
+            "provider_id": id,
+            "persistence_locator": locator,
+            "persistence_home": absent.to_str().unwrap(),
+        }}
+    });
+    let error = owned_dsh_root(dir.path(), &recorded_absent, id).unwrap_err();
+    assert!(
+        error.contains("recorded persistence home is unreadable"),
+        "{error}"
+    );
+}
+
+/// `resolve_dsh_root` canonicalizes its admitted home before it looks for
+/// the locator, so an unreadable home is its own bounded refusal.
+#[test]
+fn resolve_dsh_root_refuses_an_unreadable_admitted_home() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("absent-home");
+    let error = resolve_dsh_root(&absent, "sessions/brokkr/seat-1", "session-1").unwrap_err();
+    assert!(error.contains("admitted dsh home is unreadable"), "{error}");
+}
+
+/// A project directory that canonicalizes but cannot be enumerated is a
+/// bounded refusal, not a partial walk: the retained root is charged as
+/// unreadable rather than reported as absent.
+#[cfg(unix)]
+#[test]
+fn a_retained_project_that_cannot_be_read_is_a_bounded_refusal() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::set_permissions(&project, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let error = dsh_session_file_with(&root, "session-1", 64).unwrap_err();
+    let _ = std::fs::set_permissions(&project, std::fs::Permissions::from_mode(0o700));
+    assert!(error.contains("the retained root is unreadable"), "{error}");
+}
+
 #[cfg(unix)]
 #[test]
 fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {

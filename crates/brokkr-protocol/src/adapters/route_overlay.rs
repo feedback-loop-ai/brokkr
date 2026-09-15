@@ -717,10 +717,9 @@ mod tests {
     /// build the private context that names it.
     fn binding(body: &[u8], value: &str) -> (tempfile::TempDir, Value) {
         let dir = tempfile::tempdir().unwrap();
+        // Every caller names one file directly under the temporary
+        // directory; the directory itself is the only parent to create.
         let path = dir.path().join(value);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
         std::fs::write(&path, body).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(body);
@@ -774,15 +773,12 @@ mod tests {
     fn claim_refuses_absolute_traversal_and_escaping_values() {
         let (dir, _) = binding(SHIPPED.as_bytes(), "route.yml");
         let workdir = dir.path().to_string_lossy().into_owned();
-        for value in ["/etc/passwd", "../escape.yml"] {
+        for (value, needle) in [("/etc/passwd", "absolute"), ("../escape.yml", "`..`")] {
             let input = json!({
                 "resume_context": { "route_overlay": { "value": value, "digest": "a".repeat(64) } }
             });
             let error = claim(&input, &workdir, Some(PIN), Some(value)).unwrap_err();
-            assert!(
-                error.contains("absolute") || error.contains("`..`"),
-                "{value:?}: {error}"
-            );
+            assert!(error.contains(needle), "{value:?}: {error}");
         }
     }
 
@@ -1040,5 +1036,47 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("working directory is unreadable"), "{error}");
+    }
+
+    #[test]
+    fn a_key_block_closed_by_a_sibling_line_is_an_empty_block() {
+        // `key:` is followed by a line at the same depth, so it has no
+        // child block: the reader refuses it rather than reading the
+        // sibling as a child.
+        refused("key:\nsibling: x\n", "empty `key:` block");
+    }
+
+    #[test]
+    fn a_mapping_ends_when_a_sequence_item_follows_it() {
+        // The mapping loop stops at an item at its own depth, and the
+        // leftover item is then an inconsistent indentation.
+        refused("id: x\n- item\n", "unexpected indentation");
+    }
+
+    #[test]
+    fn a_sequence_item_nested_under_the_first_item_ends_the_sequence() {
+        // The first item's mapping loop stops at a nested item, and the
+        // leftover line is then an inconsistent indentation.
+        refused("- id: x\n  - nested\n", "unexpected indentation");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn claim_refuses_a_bound_file_it_cannot_actually_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, input) = binding(SHIPPED.as_bytes(), "route.yml");
+        let path = dir.path().join("route.yml");
+        // `stat` succeeds on a mode-000 regular file; only the read is
+        // refused, which is the second unreadable-file guard.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let error = claim(
+            &input,
+            &dir.path().to_string_lossy(),
+            Some(PIN),
+            Some("route.yml"),
+        )
+        .unwrap_err();
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        assert!(error.contains("file is unreadable"), "{error}");
     }
 }

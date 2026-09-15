@@ -65,6 +65,60 @@ fn malformed_npm_keys_are_refused() {
     }
 }
 
+/// `valid_component` is the one gate every npm group component crosses.
+/// Its forbidden-byte arms are reachable only when a caller hands it a
+/// whole component, so they are exercised directly rather than through a
+/// key the earlier guards already reject.
+#[test]
+fn the_component_gate_refuses_each_forbidden_byte() {
+    for bad in ["a/b", "a\\b", "a\0b", "a b"] {
+        assert!(!valid_component(bad), "{bad:?} must not be a component");
+    }
+    // The early key guard refuses a NUL before any group is parsed.
+    assert!(npm_name("node_modules/a\0b").is_err());
+}
+
+/// A lock entry's own bytes decide its triple: an empty version and a
+/// NUL-bearing integrity are refusals, not shorter or truncated values.
+#[test]
+fn npm_lock_entry_bytes_are_read_rather_than_shortened() {
+    assert!(npm_dependencies(
+        r#"{"packages":{"node_modules/a":{"version":"","integrity":"x"}}}"#,
+        &[]
+    )
+    .is_err());
+    assert!(npm_dependencies(
+        "{\"packages\":{\"node_modules/a\":{\"version\":\"1\",\"integrity\":\"a\\u0000b\"}}}",
+        &[]
+    )
+    .is_err());
+}
+
+/// A pnpm key shorter than two characters has no room for its `@`, and a
+/// document marker is refused wherever it appears after the header.
+#[test]
+fn pnpm_refuses_a_short_key_and_a_document_marker() {
+    let short = pnpm_dependencies(
+        "lockfileVersion: '9.0'\npackages:\n  a:\n    resolution: {integrity: x}\n",
+        &[],
+    )
+    .unwrap_err();
+    assert!(
+        short
+            .to_string()
+            .contains("no '@' after its first character"),
+        "{short}"
+    );
+    for marker in ["---", "..."] {
+        let lock = format!("lockfileVersion: '9.0'\npackages:\n  {marker}\n");
+        let error = pnpm_dependencies(&lock, &[]).unwrap_err();
+        assert!(
+            error.to_string().contains("comment or document marker"),
+            "{marker}: {error}"
+        );
+    }
+}
+
 #[test]
 fn npm_three_group_and_dedup_vectors_retain_distinct_triples() {
     let lock = r#"{"lockfileVersion":3,"packages":{
@@ -672,6 +726,7 @@ fn executable_resolution_walks_path_entries_and_refuses_a_miss() {
     assert!(resolve_executable_in("not-here", path).is_err());
     // A command carrying a separator is canonicalized, not searched.
     assert!(resolve_executable_in("/definitely/not/here", None).is_err());
+    assert!(resolve_executable_in("a\\b", None).is_err());
 }
 
 #[test]
@@ -727,6 +782,11 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     assert!(spawn_node_runtime_at(failed).is_err());
     let empty = stage("node-empty", "#!/bin/sh\ntrue\n");
     assert!(spawn_node_runtime_at(empty).is_err());
+    // A version carrying a NUL or a second line is not one readable line.
+    let nul = stage("node-nul", "#!/bin/sh\nprintf 'v1\\0x\\n'\n");
+    assert!(spawn_node_runtime_at(nul).is_err());
+    let multiline = stage("node-multiline", "#!/bin/sh\nprintf 'v1\\nv2\\n'\n");
+    assert!(spawn_node_runtime_at(multiline).is_err());
     // A path that cannot be spawned at all.
     assert!(spawn_node_runtime_at(dir.path().join("absent")).is_err());
 }
@@ -1003,6 +1063,16 @@ fn resolve_core_refuses_a_lock_that_disagrees_with_the_package() {
         &root,
         br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
         br#"{"packages":{"node_modules/@deepseek-ai/dsh":{"version":"1.0.0","integrity":"a\nb"}}}"#,
+    );
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+
+    // The lock integrity carries a NUL.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        br#"{"packages":{"node_modules/@deepseek-ai/dsh":{"version":"1.0.0","integrity":"a\u0000b"}}}"#,
     );
     assert!(resolve_core(&bin.to_string_lossy()).is_err());
 }

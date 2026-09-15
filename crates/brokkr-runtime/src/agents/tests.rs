@@ -2227,6 +2227,13 @@ fn present_and_malformed_resume_data_is_refused_and_never_read_as_unmeasured() {
             "unknown key 'probe'",
         ),
         (
+            "a measured identity with a key behind the set",
+            json!({"work-site": {"status": "unmeasured",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3", "probe": "x"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "unknown key 'probe'",
+        ),
+        (
             "an unbounded reason",
             json!({"work-site": {"status": "unsupported",
                    "identity": {"version": "1", "applies_to": "1"},
