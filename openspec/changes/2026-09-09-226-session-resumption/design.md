@@ -1,5 +1,25 @@
 ## Context
 
+This visit is the **remediation slice**, run
+`remediation-slice-branch-integra-1d3bbafc` (design, 2026-09-15). Adopt
+`840de91` and specification commit `abfae0f` under
+`2026-09-09-226-session-resumption`; proposal answer V and its five new
+scenarios govern. The settled `38ed542`/`840de91` repairs stand. This is no
+pass of the #226 plan and advances no task. The dated Pass B commissions
+below are history, not this visit's work list.
+
+D10's remediation sitting reconciles both complete positions and resolves the
+remaining coverage diagnosis: the preserved report leaves the second session
+file-selection error closure unexecuted, while the sequence guard is covered.
+Preserve both checks and expose the second selection to a deterministic test;
+verify the adopted cold-route corrections and provenance bytes. No
+`returned_from` finding was supplied. V explicitly left the reported cause
+unresolved, so this diagnosis answers its evidence obligation without changing
+an upstream behavior requirement. Only `design.md` is this office's tracked
+artifact; proposed 0056, the five deltas and all 101 task IDs/ticks stay intact.
+
+Earlier council visits follow as dated history:
+
 This council visit belongs to run `current-successor-issue-226-pass-84698352`
 (design phase, 2026-09-15). It adopts all committed work at `f63c113` and
 this run's existing proposal answer U under the same dated change. See
@@ -225,6 +245,14 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
+**Remediation goal:** Make the remaining refusal executable under a controlled
+store change, with truthful gate evidence and controls for the adopted fixes.
+Retain the present ownership, selector, qualification and accounting semantics.
+
+**Remediation non-goals:** No gate rewrite, race-hardening redesign, provider
+measurement/enablement, plan advancement, Pass C/D, archive or living-spec fold.
+The broader original goals and earlier pass boundary follow for context.
+
 **Goals:** Derive one owned offer per executing work site from existing durable
 attempt evidence; reconstruct current restrictions; record one actual launch;
 preserve bounded recovery and truthful progress across process death. Separate
@@ -238,7 +266,7 @@ sibling-worktree change. The commissioned local release-profile build is a gate.
 The controller integrates #222 overlap; this design uses the commissioned base
 and supplied controller evidence.
 
-**This visit's boundary:** Complete the design reconciliation needed to finish
+**Historical Pass B boundary:** Complete the design reconciliation needed to finish
 DSH admission and command planning using the inherited Rust planner, private
 carrier and sole digest producer. The stored-header and pre-spawn boundary
 reads are admission work; the child exchange, held launch, post-resume root
@@ -2203,6 +2231,154 @@ record executable evidence under those existing IDs as it becomes available.
 The current source check establishes R2's transport defect and R3/R4's missing
 observations, not completed tests. This office authors only `design.md`.
 
+#### Remediation council sitting — 2026-09-15, run `remediation-slice-branch-integra-1d3bbafc`
+
+This sitting governs only proposal V's five items and measurement. Read both
+positions in full through workspace hands; their reused paths are pinned here:
+
+- Robustness, `.forge/design/positions/robustness.md`: SHA-256
+  `49db81b8609cde9ebf68aaf3afeb2c7d73cc48837fd1a84b84bd7220a06cf551`.
+- Simplicity, `.forge/design/positions/simplicity.md`: SHA-256
+  `005ed3aa020d3b30e5a0cd8c553230a79d737592702840a96ca1a36b3b6a8b99`.
+
+**1. Diagnosis and evidence boundary.** Replaying the literal `awk` body
+extracted from `scripts/coverage-exact.sh` over preserved `lcov.info` reproduces
+the saved gate summary exactly: **30,014/30,014 lines, 5,036/5,036 branches,
+2,860/2,861 functions** (covered/total). The independent `fns.awk` listing and
+raw JSON function table agree on the one uncovered logical function. At the
+adopted source coordinates:
+
+| Source function in `adapters.rs` | `CsTzvmSIcYVb` hits | `Csfa8PLSorvbg` hits | Logical result |
+|---|---:|---:|---|
+| `owned_dsh_root`, line 3685 | 0 | 38 | covered |
+| outer `dsh_session_file(...).map_err(...)` closure, line 3726 (`roots7_`) | 0 | 0 | uncovered |
+| unreadable-sequence `ok_or_else` closure, line 3728 (`roots8_`) | 0 | 2 | covered |
+
+The raw JSON also counts the unreadable-sequence test once. Its complete row
+without `seq` drives 3728, not 3726. Thus the inherited claim that both copies
+of the function and sequence guard have zero hits is refuted by the preserved
+records. The gate correctly combines compiled instances by source file/start
+line; execution of an expression's line does not prove its error closure ran.
+No attribution repair is supported. `abfae0f` changes specification only; the
+adopted Rust bytes still match the coordinates being analyzed.
+
+Adopt both positions' local diagnosis, but narrow their provenance claim:
+consistent saved JSON/LCOV/summary and matching source do not reconstruct an
+old invocation's compiler, executed binaries or deleted raw profiles. They
+supply no fresh before measurement or proof excluding every stale-report
+possibility. A new candidate-bound invocation must complete V's provenance
+chain. Current evidence identifies a real unexecuted error arm, not a reason
+to edit the gate. Audit output and report hashes are retained in
+`.forge/design/remediation-1d3bbafc/preserved-report-audit.json`.
+The preserved LCOV SHA-256 is
+`b576620d225351bff6c5ae85144bef71d53b12ced41facf91aaa23ad80181c78`;
+the JSON is
+`35b51900162c7f74d56fb7faab2473834607f28a10c4c3286c5a4a69ce8233d2`.
+
+**2. Preserve the second selection; inject its reader.** `resolve_dsh_root`
+validates containment and selects a matching depth-zero header at line 3369,
+then discards that selected file. `owned_dsh_root` selects again at 3726.
+A stable valid store passes both; the outer selection can fail if the store
+changes between the reads. `dsh_session_last_seq` checks the header's type,
+not its ID, so reading the first selection's cached path would not reproduce
+the second selection's refusal of a changed ID.
+
+Adopt robustness's behavior-preserving seam and simplicity's small local scope.
+Give the existing private `owned_dsh_root` an injected outer file-selector
+parameter; its production caller supplies the existing `dsh_session_file`.
+Keep the body, initial `resolve_dsh_root`, second selection/error mapping,
+sequence guard and existing tests. Only that second call is injected; no
+wrapper, ambient switch, dispatch input, public API, production test branch
+or new `#[cfg(...)]` is needed. The same function executes from the planner
+and tests, following the neighboring injected-reader pattern. Generic compiled
+instances remain subject to the unchanged source-function reduction.
+
+In `adapters/tests.rs`, start with a real contained root, matching header and
+readable event sequence. Establish that real initial resolution succeeds.
+The injected selector then changes that temporary store's header to a different
+ID and calls the real file selector, deterministically reproducing drift after
+initial validation. Assert exactly one injected call, the `unverified-harness`
+token and the real bounded selection reason; the later sequence reader must
+still be able to read the file, so it cannot mask a missing selection refusal.
+A stable-store positive control must return the exact root and boundary.
+Preserve `owned_dsh_root_refuses_a_store_whose_sequence_cannot_be_read` as the
+separate proof of the later guard.
+
+The new refusal test's mutation must break production error propagation:
+temporarily let the failing outer selection proceed with the test's known
+retained file. With its well-formed sequence, the function now succeeds and
+the refusal assertion must fail at runtime. Restore the exact production
+expression and rerun successfully. Merely changing the injected test input,
+renaming a message or causing a compiler error is insufficient for this new
+control. Retain `840de91`'s documented sequence-message mutation as inherited
+evidence; identify or reproduce its control separately, never attribute it to
+3726. No temporary defect survives delivery.
+
+Reject simplicity's cached-selection consolidation: the existing recheck is
+not proven unreachable, and removing it changes observable drift behavior.
+The earlier `1332428` consolidation is no evidence that this race is impossible.
+Preserving both guards satisfies the commission without seeking permission to
+remove one. The seam has no new semantic outcome; 0056 remains `proposed`
+without a new decision or addendum. Reject robustness's fixed expected final
+function denominator (its position also acknowledges possible growth): every
+production function remains counted, and only fresh gate integers determine
+the denominator and coverage. No predicted 2,861/2,861 claim is authorized.
+
+**3. Adopted corrections and their controls.** These are verification obligations
+under the existing LE2/LE4 and AS1/AS3 scenarios, not new plan tasks.
+
+| Item / positions | Decision and executable evidence |
+|---|---|
+| Both: optional DSH boundary already fixes cold sequence zero. | Adopt `None` on cold and `Some(last_historical_seq)` on warm, including `Some(0)`. Preserve the fold and real transcript-drain regression. Extend the existing planner case to assert cold `DshLaunch.first_seq == None` and feed that actual plan boundary into the real-file drain. The current regression passes boundaries directly, so by itself it cannot catch changing the planner's cold seed to `Some(0)`. Test shipped disabled cold as well as qualified cold; warm uses the stored zero boundary. No unsequenced conformance shim stands in for this proof. |
+| Both: prove the drop with a restored defect. | Temporarily restore `None`-as-zero filtering and observe the existing sequence-zero test fail, then restore/pass. Separately change the planner's cold seed to `Some(0)` and observe the plan-to-drain check fail, then restore/pass. Keep warm exclusion at/below the boundary and no-sequence behavior unchanged. Rust's last historical sequence differs from the plugin's first current sequence; no plugin convention moves. |
+| Robustness: distinguish selector refusal, gate decline, local defects and no offer. Simplicity: preserve gate-first ordering. | Combine: selector conflict always refuses before provider work. For an offer, the disabled gate's token wins over ID/sandbox/compatible-argv defects without a version probe; enabled gates retain local checks before qualification. No offer supplies no refusal. Correct robustness's blanket no-offer/no-probe claim: enabled no-offer planning may observe a version to record a useful cold root; disabled no-offer planning does not. Keep that shipped distinction. |
+| Both: the current Codex regression proves refusal-cause precedence. | Preserve `a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks`, byte-identical cold argv and absent observed version on gate decline. Restore the old check order temporarily; the no-sandbox/unmeasured case must fail with `sandbox-unavailable` instead of `unsupported-resume`, then restore/pass. Retain enabled local-defect and no-offer controls; no declaration or qualification changes. |
+| Both: one selector guard at `codex_launch` suffices. | Adopt. The replacement at `invoke` calls `codex_cold` only after a successful `codex_launch` with the same immutable `extra`. Document that invariant at the existing replacement call; keep the guard in the planner, not duplicated in the builder. Temporarily bypass the selector guard; `a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too` must fail through planner/invocation for cold and offered paths, including a disabled shape, then restore/pass. Observe no provider work and no handle echo in corrected refusal. Do not silently drop arguments. |
+| Both: the existing never-publish prose satisfies item 5; no `private: true`. Robustness: pin every committed byte in the suite. | Adopt the prose and preserve all six plugin files. Extend the existing committed-file-set test in `adapters/composite/tests.rs` to compare all six digests with the committed-adapted values recorded in PROVENANCE, retaining the one-expression reversal proof. This narrow test answers the evidenced gap: the present test checks names and the reversed index digest, not the other five file digests. Prefer the full map over a package-only pin. |
+| Robustness: a digest assertion mechanically enforces never-publish. | Reject that characterization. It detects byte drift; it cannot prevent npm publication from an unchanged directory. The publication prohibition remains an operator rule. Prove the byte assertion detects a one-byte manifest change in an isolated copy of the six-file set, with the test temporarily pointed at that copy; restore its source and rerun against the unchanged committed bytes. Never mutate the repository plugin for a control, add a publisher, or edit metadata. |
+
+Both positions' common scope cuts are adopted: no gate rewrite, markers,
+exclusions, threshold change, new coverage machinery, provider enablement,
+capability, frozen version, task tick, Pass C/D, archive or spec fold. The
+same-start-line collision limit of logical-function grouping is a recorded
+residual, not an observed defect here or authorization to redesign the gate.
+The retained second selection narrows a drift window; it does not make the
+subsequent open atomic or authenticate an agent-writable store.
+
+**4. Measurement and dependency handoff.** Before production edits, run V's
+unchanged gate using a verified writable disk-backed `TMPDIR` outside the
+repository, with #282's environment workaround inherited by all test children.
+Preserve each before/after command, status, source/tree identity, pinned
+compiler and cargo-llvm-cov versions, selected tests/binaries, profile identity,
+raw JSON, LCOV and summary. If raw profiles must be copied before the gate's
+EXIT cleanup, collect them outside the repository without changing counting
+or test selection. Check the gate's actual selected tests and the separately
+requested `cargo test --tests --workspace --all-features --locked`; do not
+assume they are identical commands. Reapply the literal reduction, identify
+the newly executed outer error closure and show every added production
+instance collapses correctly.
+
+Run focused mutation controls first, then the affected crate suites,
+`cargo test --workspace`, all-feature locked workspace tests, all-target/
+all-feature clippy, format, both bundle compiles and strict OpenSpec validation.
+CI, release admission and local coverage already consume
+`rust-nightly-version.txt` (`nightly-2026-09-05`); keep their pin intact.
+Report the gate's actual before/after covered/total pairs and exit statuses,
+including skipped boundary evidence. #286 prevents in-box equality; final host
+measurement is the controller's, pending its result. Neither inherited numbers
+nor a partial in-box run completes that handoff.
+
+The current specification permits this preservation and verification; no
+upstream requirement fault is established. This design adds no checkbox or
+identifier. The subsequent task office must preserve the 101-ID ledger and
+record this bounded work outside task completion; the implementation is limited
+to the existing adapters and their tests plus the replacement-call comment.
+The chosen seam preserves semantics. A correction requiring different
+ownership, qualification or accounting semantics returns to its owning
+specification/decision instead of being concealed in a test or gate. The
+operator alone rules on main's now-cold Codex retry interval before merge;
+`adapters/codex.json` and tasks 11.1's declaration stay as adopted.
+
 ### D11 — Verify transitions and trace every requirement
 
 Extend existing Rust suites with deterministic provider shims for behavior
@@ -2334,6 +2510,23 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 `crates/brokkr-cli/tests/provenance.rs`.
 
 ## Risks / Trade-offs
+
+Current remediation risks (D10's sitting owns their disposition):
+
+- [A cached path hides store drift] → Retain both selections; use a deterministic
+  reader seam to prove the second refusal. A later open still has a race window;
+  stronger atomic ownership is outside this slice.
+- [Saved reports are mistaken for fresh provenance] → Pin the inherited inputs,
+  then capture new before/after invocations and all three integer pairs.
+- [A helper test misses launch wiring] → Feed the planner's actual optional
+  boundary into the real transcript drain and mutate the cold seed separately.
+- [Digest proof is mistaken for publication enforcement] → Assert bytes in the
+  existing suite and preserve the explicit operator never-publish rule.
+- [A fixed predicted denominator conceals added code or skipped boundaries] →
+  Count every production function; report actual in-box results and leave host
+  equality pending with the controller (#286).
+
+Earlier whole-change and Pass B risks remain recorded below:
 
 - [Serialized checkpoint data is interpreted again by the shell or printf] →
   Carry it as an argument read from an indexed data row; exercise actual emitted
@@ -2507,6 +2700,17 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Migration Plan
 
+For this remediation only: preserve the inherited report, take a fresh baseline
+in a toolchain-equipped seat, introduce the narrow reader seam and its test,
+complete the adopted controls and byte assertions, then take fresh after
+measurement and local validation. No persisted data, journal, contract, plugin,
+provider declaration or task state migrates. Rollback can revert this slice's
+seam/tests/comment while retaining every adopted `840de91` correction and both
+refusal guards. Commit completed implementation unsigned; never push.
+Host equality, operator cold-interval ruling and remote delivery remain pending
+handoffs. The following Pass B and whole-change sequences are historical scope,
+not authorized work for this remediation:
+
 For this Pass B successor, preserve the delivered home carrier, binding,
 reader, planner and controller R1 repair. Correct R2's test transport, complete
 R3/R4 and the remaining existing 8.10 planner evidence, and record the measured
@@ -2588,6 +2792,15 @@ leave a new-run decision to the operator/controller. Historical version/channel
 facts are not current references to replace.
 
 ## Open Questions
+
+No design choice is deferred for this remediation: keep both guards, inject the
+outer selector, strengthen the existing evidence, and leave gate semantics
+unchanged. Fresh measured counts and controller host results are pending
+validation facts. The Codex cold interval is an already-raised operator ruling
+before merge, not a question this office can answer with code. Any new evidence
+that requires a semantic amendment returns upstream.
+
+Earlier whole-change questions and their resolutions follow:
 
 No open design question remains for this Pass B successor. Proposal U and
 D10's 2026-09-15 sitting settle the transport and test-observation choices.
@@ -3347,3 +3560,47 @@ specification defect and does not reopen R1. Exact coverage stays pending
 controller host/CI evidence; CI, release admission and coverage all consume
 `rust-nightly-version.txt`. Native Windows/macOS CI and every remote handoff
 remain pending. No archive, push, merge or new Brokkr run occurred.
+
+
+## Council design validation — remediation slice, 2026-09-15
+
+Adopted `abfae0f`/`840de91` under the existing dated change. Read the dialect's
+own `dialects/openspec.json`, design and return instructions and rendered
+`openspec instructions design` through workspace hands; invoked no workflow
+runner. Read both complete current positions, the framing, proposal V and its
+owning scenarios, relevant design/decision clauses, source/tests and commit
+history. D10 records the chosen seam, the rejected consolidation and gate
+rewrite, the corrected evidence claims and the controls still owed.
+
+Strict active OpenSpec validation passes; repository-wide strict validation
+reports **14 passed, 0 failed**. Status is valid planning-artifact state, not
+implementation completion. The inherited archive notices for absent living
+`adapter-resume-safety` and `sdd-progress-markers` targets remain informational;
+no archive or re-fold is attempted. The five deltas retain **20 requirements /
+155 scenarios** and the same **101 task IDs: 82 complete / 19 pending**.
+Only this design is changed. Proposal, deltas, tasks, proposed 0056, production,
+plugin bytes, declarations, living specs and all frozen surfaces stay unchanged.
+
+The literal gate reduction and independent uncovered-function listing were
+replayed over saved reports, and the JSON instances were inspected. This is
+read-only diagnosis of inherited **30,014/30,014 lines, 5,036/5,036 branches,
+2,860/2,861 functions**, not a new gate run. All six committed plugin digests
+match PROVENANCE in a read-only byte comparison; the Rust suite must still
+gain and execute the selected digest assertion/control.
+
+Format, all-target/all-feature clippy, protocol/runtime tests,
+`cargo test --workspace`, locked all-feature workspace tests, the requested
+`--tests` selection and both bundle compiles each exit **127**: Cargo is absent
+from this seat. These attempts inherit #282's Git-environment workaround and
+`CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. No Rust gate is reported passing;
+no new test or mutation was executed in this design phase. The coverage gate
+was not launched, preserving its saved outputs. Fresh before/after and in-box
+coverage are unavailable here; host measurement is the controller's to take,
+and #286's skipped namespace tests cannot be counted as covered.
+
+Logs, report/position hashes and the exact artifact audit are under
+`.forge/design/remediation-1d3bbafc/`. This unsigned design checkpoint completes
+the council artifact only. Implementation controls, Rust gates, fresh coverage,
+the operator's Codex cold-interval ruling and remote results remain pending.
+No plan task advanced, provider was enabled, plugin byte changed, archive,
+push, merge, publication or additional Brokkr run occurred.
