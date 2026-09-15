@@ -9,8 +9,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use brokkr_core::realms::Boundary;
 use brokkr_runtime::agents::{Adapters, Availability, Library};
+use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::{compose_site, BuiltBoundary};
+use brokkr_runtime::Bundle;
 use brokkr_runtime::{resolve_agent, SeatClass};
 use brokkr_store::{validate_seat_record, SeatRecordVersion};
 use serde_json::{json, Value};
@@ -1721,6 +1724,327 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     assert!(
         resume_line.contains("sandbox_mode=\"danger-full-access\""),
         "{resume_line}"
+    );
+}
+
+/// F1 (medium): the dialect wrapper MOVES the verify seat's executable
+/// coordinate into a `checks` sequence step, so the compiler must carry
+/// the assessment to `verify:checks` / `verify:checks:<member>` while the
+/// engine asks that executing label. Before the fix the private context
+/// held null at `verify:checks`, and the production Codex gate declined a
+/// supported rejoin as `unsupported-resume`. Compile the real wrapper,
+/// read the assessment it carries at the executing coordinate, and feed
+/// it unchanged to the real `brokkr driver codex` exchange: the wrapped
+/// no-hands work-class Codex single and the Codex panel member must launch
+/// `resumed` with no refusal, while its Claude sibling stays refused.
+#[test]
+fn the_wrapped_inline_codex_verify_seat_rejoins_through_the_real_gate() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let codex_driver: Vec<String> = [
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "xhigh",
+        "--sandbox",
+        "danger-full-access",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+    let codex = || {
+        json!({"role":"roles/role.md","driver":{"command":[
+            "{brokkr}","driver","codex","--","--model","gpt-6-astra",
+            "--effort","xhigh","--sandbox","danger-full-access"]}})
+    };
+    let claude = || {
+        json!({"role":"roles/role.md","driver":{"command":[
+            "{brokkr}","driver","claude","--","--model","claude-sonnet-4",
+            "--effort","high"]}})
+    };
+    let policy = json!({
+        "phases":["design","verify","review","done"], "initial":"design",
+        "terminal":["done"],
+        "rules":[
+            {"id":"D","from":"design","result":"drafted","next":"verify","reason":"drafted"},
+            {"id":"DF","from":"design","result":"fail","next":"design","reason":"retry"},
+            {"id":"V","from":"verify","result":"pass","next":"review","reason":"pass"},
+            {"id":"VF","from":"verify","result":"fail","next":"verify","reason":"retry"},
+            {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"}
+        ]
+    });
+    for panel in [false, true] {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::create_dir(fixture.path().join("roles")).unwrap();
+        std::fs::write(fixture.path().join("roles/role.md"), "# role").unwrap();
+        let verify = if panel {
+            json!({"results":["pass","fail"],"aggregate":"unanimous-pass","panel":{
+                "alpha": codex(), "beta": claude()}})
+        } else {
+            let mut seat = codex();
+            seat["results"] = json!(["pass", "fail"]);
+            seat
+        };
+        let config = json!({
+            "name":"wrapped-verify", "policy":"policy.json", "protected_phase":"review",
+            "seats":{
+                "design":{"results":["drafted","fail"],"sequence":[
+                    {"name":"author","results":["drafted"],"role":"roles/role.md",
+                     "driver":{"command":["driver"]}},
+                    {"name":"validate","dialect":"validate"}]},
+                "verify":verify,
+                "review":{"results":["clean"],"role":"roles/role.md",
+                    "driver":{"command":["driver"]}},
+            }
+        });
+        std::fs::write(fixture.path().join("bundle.json"), config.to_string()).unwrap();
+        std::fs::write(fixture.path().join("policy.json"), policy.to_string()).unwrap();
+        let bundle = Bundle::compile_with_realm(
+            fixture.path(),
+            &root.join("agents"),
+            &root.join("adapters"),
+            None,
+            Some(&dialect),
+            Boundary::Namespace,
+        )
+        .expect("the wrapped verify fixture compiles");
+
+        let case = if panel {
+            "verify:checks:alpha"
+        } else {
+            "verify:checks"
+        };
+        let assessment = bundle
+            .inline_resume
+            .get(case)
+            .unwrap_or_else(|| {
+                panic!(
+                    "the compiled wrapper carries '{case}': {:?}",
+                    bundle.inline_resume.keys().collect::<Vec<_>>()
+                )
+            })
+            .clone();
+        assert_eq!(
+            assessment["work-site"]["status"], "supported",
+            "{case}: the executing coordinate carries the compiled Codex assessment"
+        );
+
+        let workdir = tempfile::tempdir().unwrap();
+        let result_path = workdir.path().join("results/fx.json");
+        std::fs::create_dir_all(workdir.path().join("results")).unwrap();
+        let result = result_path.to_str().unwrap();
+        let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let argv_log = workdir.path().join("argv.log");
+        let shim = make_shim(
+            workdir.path(),
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; \
+                 exit 0 ;; esac\n\
+                 printf '%s\\n' \"$*\" >> {log}\n\
+                 cat > /dev/null\n\
+                 printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
+                 printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+                 printf '{{\"type\":\"turn.started\"}}\\n'\n\
+                 printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+                log = argv_log.display(),
+                result = result,
+                offered = offered,
+            ),
+        );
+        let input = |assessment: &Value| {
+            json!({
+                "feature":"conformance", "phase":"verify", "seat":"verify",
+                "role_path": workdir.path().join("missing-role.md"),
+                "workdir": workdir.path(), "result_path": result_path,
+                "allowed_results":["pass","fail"], "context": {},
+                "resume_context": {"assessment": assessment},
+            })
+        };
+
+        // The wrapped single / the Codex member: the real gate rejoins.
+        let resumed = drive_codex(
+            &codex_driver,
+            &shim,
+            &[
+                json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                       "engine_version":"test"}),
+                json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                       "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+                json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                       "effect_id":"fx","attempt_id":"a1","seat":"verify",
+                       "input": input(&assessment)}),
+                json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+            ],
+        );
+        let launch = launch_row(&resumed, "resumed");
+        assert_eq!(launch["root_session"]["id"], offered, "{resumed:?}");
+        assert!(
+            launch.get("resume_refusal").is_none(),
+            "{case}: a preserved rejoin carries no refusal: {resumed:?}"
+        );
+        let log = std::fs::read_to_string(&argv_log).unwrap();
+        assert!(
+            log.lines().any(|line| line.contains("exec resume")),
+            "{case}: the provider saw the resume argv: {log:?}"
+        );
+
+        if panel {
+            // The sibling's OWN assessment is Claude's unmeasured shape,
+            // and the Codex gate declines it rather than borrowing the
+            // Codex member's.
+            let sibling = bundle.inline_resume["verify:checks:beta"].clone();
+            assert_eq!(sibling["boxed-workspace"]["status"], "unmeasured");
+            let cold = drive_codex(
+                &codex_driver,
+                &shim,
+                &[
+                    json!({"proto":"forge-driver/v1","msg_id":"n1","type":"hello",
+                           "engine_version":"test"}),
+                    json!({"proto":"forge-driver/v1","msg_id":"n2","type":"resume",
+                           "effect_id":"fx","attempt_id":"a2","session_ref":offered}),
+                    json!({"proto":"forge-driver/v1","msg_id":"n3","type":"start",
+                           "effect_id":"fx","attempt_id":"a2","seat":"verify",
+                           "input": input(&sibling)}),
+                    json!({"proto":"forge-driver/v1","msg_id":"n4","type":"shutdown"}),
+                ],
+            );
+            let launch = launch_row(&cold, "cold");
+            assert_eq!(
+                launch["resume_refusal"], "unsupported-resume",
+                "the sibling stays closed: {cold:?}"
+            );
+        }
+    }
+}
+
+/// F2 (medium), the positive half: the colliding configuration is refused
+/// before dispatch, and the SAME configuration with the conflicting outer
+/// phase renamed compiles with the Codex site's own assessment at its own
+/// coordinate. Feed that compiled assessment to the real Codex gate: the
+/// supported retry stays live rather than losing or borrowing the sibling
+/// Claude phase's assessment.
+#[test]
+fn the_renamed_collision_control_rejoins_through_the_real_gate() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::create_dir(fixture.path().join("roles")).unwrap();
+    std::fs::write(fixture.path().join("roles/role.md"), "# role").unwrap();
+    let codex = || {
+        json!({"role":"roles/role.md","driver":{"command":[
+            "{brokkr}","driver","codex","--","--model","gpt-6-astra",
+            "--effort","xhigh","--sandbox","danger-full-access"]}})
+    };
+    let claude = || {
+        json!({"role":"roles/role.md","driver":{"command":[
+            "{brokkr}","driver","claude","--","--model","claude-sonnet-4",
+            "--effort","high"]}})
+    };
+    let policy = json!({
+        "phases":["work","work-chore","review","done"], "initial":"work",
+        "terminal":["done"],
+        "rules":[
+            {"id":"W","from":"work","result":"complete","next":"review","reason":"work"},
+            {"id":"O","from":"work-chore","result":"complete","next":"review","reason":"outer"},
+            {"id":"R","from":"review","result":"clean","next":"done","reason":"review"},
+        ],
+    });
+    let mut outer = claude();
+    outer["results"] = json!(["complete"]);
+    let config = json!({
+        "name":"renamed-control", "policy":"policy.json", "protected_phase":"review",
+        "seats":{
+            "work":{"results":["complete"],"select":{
+                "on":"strategy","cases":{"chore":codex()},"default":claude()}},
+            "work-chore":outer,
+            "review":{"results":["clean"],"role":"roles/role.md",
+                "driver":{"command":["driver"]}},
+        },
+    });
+    std::fs::write(fixture.path().join("bundle.json"), config.to_string()).unwrap();
+    std::fs::write(fixture.path().join("policy.json"), policy.to_string()).unwrap();
+    let bundle = Bundle::compile_with(fixture.path(), &root.join("agents"), &root.join("adapters"))
+        .expect("the renamed collision control compiles");
+    let assessment = bundle.inline_resume["work:chore"].clone();
+    assert_eq!(
+        assessment["work-site"]["status"], "supported",
+        "the renamed control's Codex site keeps its own assessment"
+    );
+    assert!(
+        bundle.manifest["drivers"]["work:chore"]["codex"].is_string(),
+        "the renamed control's executing coordinate pins the Codex declaration it read: {}",
+        bundle.manifest["drivers"]
+    );
+
+    let workdir = tempfile::tempdir().unwrap();
+    let result_path = workdir.path().join("results/fx.json");
+    std::fs::create_dir_all(workdir.path().join("results")).unwrap();
+    let result = result_path.to_str().unwrap();
+    let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let shim = make_shim(
+        workdir.path(),
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; \
+             exit 0 ;; esac\n\
+             cat > /dev/null\n\
+             printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+            result = result,
+            offered = offered,
+        ),
+    );
+    let driver: Vec<String> = [
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "xhigh",
+        "--sandbox",
+        "danger-full-access",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+    let resumed = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work:chore","input":{
+                       "feature":"conformance","phase":"work","seat":"work:chore",
+                       "role_path": workdir.path().join("missing-role.md"),
+                       "workdir": workdir.path(), "result_path": result_path,
+                       "allowed_results":["complete"], "context":{},
+                       "resume_context":{"assessment":assessment}}}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ],
+    );
+    let launch = launch_row(&resumed, "resumed");
+    assert_eq!(launch["root_session"]["id"], offered, "{resumed:?}");
+    assert!(
+        launch.get("resume_refusal").is_none(),
+        "the renamed control rejoins: {resumed:?}"
     );
 }
 

@@ -769,6 +769,108 @@ fn effort_exempt(
     }
 }
 
+/// One invocation site of one raw seat, addressed by its AUTHORING
+/// coordinates — the phase first, then each selector case, sequence step
+/// or panel member. `collect_unpinned` flattens these into one global
+/// label by joining with `:`, and phase names admit `:` (policy tables
+/// are arbitrary strings), so two structurally different owners can
+/// write the same full label: phase `work` case `chore` and phase
+/// `work:chore` both spell `work:chore`. The first assessment or witness
+/// to arrive would be silently overwritten by the second, and a
+/// different provider's shape would answer for the selected Codex site
+/// (F2). Refuse the ambiguity at its authoring coordinate, before any
+/// evidence is collected — a final-only check cannot see a collision the
+/// dialect wrapper later separates, after the evidence is already lost.
+/// Support is not an address property: agent and inline leaves are
+/// walked too.
+fn refuse_authoring_aliases(seats: &Map<String, Value>) -> Result<(), CompileError> {
+    let mut owners: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (phase, raw) in seats {
+        walk_authoring(std::slice::from_ref(phase), raw, &mut owners)?;
+    }
+    Ok(())
+}
+
+/// The spelling of one authoring coordinate: its components in order,
+/// quoted and joined so two owners that flatten to one label still read
+/// as two different sites in the refusal.
+fn spell_owner(path: &[String]) -> String {
+    path.iter()
+        .map(|part| format!("'{part}'"))
+        .collect::<Vec<_>>()
+        .join(" > ")
+}
+
+fn walk_authoring(
+    owner: &[String],
+    raw: &Value,
+    owners: &mut BTreeMap<String, Vec<String>>,
+) -> Result<(), CompileError> {
+    // A panel, sequence or selector is a CONTAINER: it owns no label of
+    // its own, only its leaves do. Record a collision owner where
+    // `collect_unpinned` would insert one — the single/agent/dialect
+    // leaf — so the check sees exactly the addresses evidence can share.
+    if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
+        for (member, member_raw) in panel {
+            let mut path = owner.to_vec();
+            path.push(member.clone());
+            walk_authoring(&path, member_raw, owners)?;
+        }
+        return Ok(());
+    }
+    if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
+        for (index, step) in sequence.iter().enumerate() {
+            let name = step
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("step-{}", index + 1));
+            let mut path = owner.to_vec();
+            path.push(name);
+            walk_authoring(&path, step, owners)?;
+        }
+        return Ok(());
+    }
+    if let Some(select) = raw.get("select").and_then(Value::as_object) {
+        if let Some(cases) = select.get("cases").and_then(Value::as_object) {
+            for (case, body) in cases {
+                let mut path = owner.to_vec();
+                path.push(case.clone());
+                walk_authoring(&path, body, owners)?;
+            }
+        }
+        if let Some(body) = select.get("default") {
+            let mut path = owner.to_vec();
+            path.push("default".into());
+            walk_authoring(&path, body, owners)?;
+        }
+        return Ok(());
+    }
+    let label = owner.join(":");
+    match owners.get(&label) {
+        // A collision WITHIN one phase's own body — step `a:b` member `c`
+        // beside step `a` member `b:c` — is the structural check's
+        // domain; it already names both sites in the engine's own
+        // vocabulary and runs on the final bodies. This guard covers the
+        // cross-phase case a flattened label hides from it: phase `work`
+        // case `chore` beside literal phase `work:chore`.
+        Some(previous) if previous.first() != owner.first() => {
+            return Err(CompileError::Invalid(format!(
+                "sites {} and {} both address '{label}'; phase names admit ':', so one \
+                 site's resume assessment, witness or hands would answer for the other. \
+                 Rename one of them",
+                spell_owner(previous),
+                spell_owner(owner),
+            )));
+        }
+        Some(_) => {}
+        None => {
+            owners.insert(label, owner.to_vec());
+        }
+    }
+    Ok(())
+}
+
 /// Inspect every driver-bearing invocation site in the already composed
 /// bundle. Agent references are pinned by their resolved candidate
 /// chains — a chain that names no effort for an effort-bearing provider
@@ -871,6 +973,7 @@ fn enforce_model_pins(
     seats: &Map<String, Value>,
     adapters: Option<&Adapters>,
 ) -> Result<PinWitness, CompileError> {
+    refuse_authoring_aliases(seats)?;
     let mut unpinned = Unpinned::default();
     for (phase, raw) in seats {
         collect_unpinned(phase, raw, adapters, &mut unpinned);
@@ -1028,7 +1131,7 @@ impl Bundle {
         // `drivers` pin the exemptions do: a site that already has an
         // exemption names the same provider and digest, so extending
         // the map leaves that fact unchanged rather than duplicating it.
-        let (mut pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
+        let (mut pin_drivers, mut inline_resume, resume_witness) = enforce_model_pins(
             &resolved.seats,
             load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
         )?;
@@ -1276,6 +1379,40 @@ impl Bundle {
                             &mut hands,
                         )?;
                     }
+                    // The wrapper moves the executable coordinate from the
+                    // seat to its `checks` step. Derive the exact pre/post
+                    // labels from the parsed body — the single becomes
+                    // `verify:checks`, each member `verify:checks:<member>`
+                    // — so each site's own assessment and the declaration
+                    // it was read from travel with it. A prefix scan would
+                    // move a separate phase that merely shares a prefix.
+                    let relocation: Vec<(String, String)> = match &body {
+                        SeatBody::Single { .. } | SeatBody::Panel { .. } => {
+                            let (executable, _) = body
+                                .selected(None)
+                                .expect("a single or panel selects itself");
+                            crate::engine::resume::structural_sites(
+                                executable,
+                                phase,
+                                None,
+                                is_gate_class(raw),
+                            )
+                            .into_iter()
+                            .map(|entry| {
+                                let from = entry
+                                    .site
+                                    .as_deref()
+                                    .map_or_else(|| phase.clone(), |tag| format!("{phase}:{tag}"));
+                                let to = entry.site.as_deref().map_or_else(
+                                    || format!("{phase}:checks"),
+                                    |tag| format!("{phase}:checks:{tag}"),
+                                );
+                                (from, to)
+                            })
+                            .collect()
+                        }
+                        _ => Vec::new(),
+                    };
                     let prior_body =
                         match body {
                             SeatBody::Single {
@@ -1346,6 +1483,8 @@ impl Bundle {
                             },
                         ],
                     };
+                    relocate_values(&mut inline_resume, &relocation)?;
+                    relocate_values(&mut pin_drivers, &relocation)?;
                 }
             }
             // Decision 0021, at the seat's own driver-bearing site. A
@@ -1517,6 +1656,35 @@ impl Bundle {
     pub fn manifest_digest(&self) -> String {
         brokkr_core::canonical::sha256_hex(&self.manifest)
     }
+}
+
+/// Move the exact site family the dialect wrapper preserves from its
+/// authoring coordinate to the `checks` step coordinate that actually
+/// executes (F1). Every source is removed before any destination is
+/// written, so a member whose destination is another member's source —
+/// `x` beside `checks:x`, whose destinations are `checks:x` and
+/// `checks:checks:x` — cannot overwrite it; a destination another site
+/// already owns is refused rather than silently replaced (F2).
+fn relocate_values(
+    map: &mut Map<String, Value>,
+    relocation: &[(String, String)],
+) -> Result<(), CompileError> {
+    let mut staged: Vec<(String, Value)> = Vec::with_capacity(relocation.len());
+    for (from, to) in relocation {
+        if let Some(value) = map.remove(from) {
+            staged.push((to.clone(), value));
+        }
+    }
+    for (to, value) in staged {
+        if map.contains_key(&to) {
+            return Err(CompileError::Invalid(format!(
+                "the dialect 'checks' wrapper would move a verify site's evidence onto \
+                 '{to}', which another site already owns; rename the conflicting site"
+            )));
+        }
+        map.insert(to, value);
+    }
+    Ok(())
 }
 
 /// Two structurally different sites of one selected body may not

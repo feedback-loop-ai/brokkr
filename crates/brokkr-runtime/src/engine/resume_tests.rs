@@ -9,6 +9,7 @@
 use super::*;
 use crate::agents::Candidate;
 use crate::bundle::{Limits, Seat};
+use crate::dialect::Dialect;
 use brokkr_core::policy::Machine;
 use brokkr_protocol::{Body, Message};
 use std::collections::BTreeMap;
@@ -2233,6 +2234,189 @@ fn an_inline_codex_work_seat_carries_the_shipped_assessment_into_its_start() {
         json!(["harness", "not applicable"]),
         "the inline coordinate's boundary is the declared one: {start}"
     );
+}
+
+/// A machine whose verify seat is the only thing that runs, so a test
+/// can drive the compiled `verify` wrapper without the design seat.
+fn verify_machine() -> Machine {
+    Machine::from_table(&json!({
+        "phases":["verify", "review", "done", "stop"],
+        "initial":"verify",
+        "terminal":["done", "stop"],
+        "rules":[
+            {"id":"V", "from":"verify", "result":"pass", "next":"review", "reason":"pass"},
+            {"id":"VF", "from":"verify", "result":"fail", "next":"verify", "reason":"retry"},
+            {"id":"R", "from":"review", "result":"clean", "next":"done", "reason":"clean"}
+        ]
+    }))
+    .unwrap()
+}
+
+/// An executable forge-driver shim that logs its `start` messages. Because
+/// it is a FILE, the compiler reads a driver-bearing leaf from the argv it
+/// is named in (`driver codex` / `driver claude`) while the engine spawns
+/// the script itself.
+fn executable_shim(dir: &Path, tag: &str, results: &[&str]) -> PathBuf {
+    let command = model_driver(dir, tag, results);
+    let path = dir.join(format!("{tag}.shim"));
+    std::fs::write(&path, format!("#!/bin/sh\n{}\n", command[2])).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    path
+}
+
+/// F1 (medium): the dialect wrapper MOVES the verify seat's executable
+/// coordinate into a `checks` sequence step, so the assessment the
+/// compiler read for `verify` and `verify:<member>` must move with it.
+/// `site_plans` asks the EXECUTING label — `verify:checks` or
+/// `verify:checks:<member>` — and a null answer makes the provider
+/// decline a supported Codex rejoin as `unsupported-resume`. Drive both
+/// topologies from a real compilation through the injected wrapper and
+/// the engine's private start context: the wrapped single seat and the
+/// wrapped panel member must each carry their own compiled assessment.
+#[test]
+fn the_dialect_wrapper_carries_the_inline_assessment_to_the_checks_site() {
+    for panel in [false, true] {
+        let root = workspace_root();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("roles")).unwrap();
+        std::fs::write(dir.path().join("roles/role.md"), "# role").unwrap();
+        let alpha = executable_shim(dir.path(), "alpha", &["pass"]);
+        let beta = executable_shim(dir.path(), "beta", &["pass"]);
+        let codex = |shim: &Path| {
+            json!({"role":"roles/role.md","driver":{"command":[
+                shim.display().to_string(),"driver","codex","--","--model","gpt-6-astra",
+                "--effort","xhigh","--sandbox","danger-full-access"]}})
+        };
+        let claude = |shim: &Path| {
+            json!({"role":"roles/role.md","driver":{"command":[
+                shim.display().to_string(),"driver","claude","--","--model",
+                "claude-sonnet-4","--effort","high"]}})
+        };
+        let verify = if panel {
+            json!({"results":["pass","fail"],"aggregate":"unanimous-pass","panel":{
+                "alpha": codex(&alpha), "beta": claude(&beta)}})
+        } else {
+            let mut seat = codex(&alpha);
+            seat["results"] = json!(["pass", "fail"]);
+            seat
+        };
+        let policy = json!({
+            "phases":["design","verify","review","done"], "initial":"design",
+            "terminal":["done"],
+            "rules":[
+                {"id":"D","from":"design","result":"drafted","next":"verify","reason":"drafted"},
+                {"id":"DF","from":"design","result":"fail","next":"design","reason":"retry"},
+                {"id":"V","from":"verify","result":"pass","next":"review","reason":"pass"},
+                {"id":"VF","from":"verify","result":"fail","next":"verify","reason":"retry"},
+                {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"}
+            ]
+        });
+        let config = json!({
+            "name":"wrapped-verify", "policy":"policy.json", "protected_phase":"review",
+            "seats":{
+                "design":{"results":["drafted","fail"],"sequence":[
+                    {"name":"author","results":["drafted"],"role":"roles/role.md",
+                     "driver":{"command":["driver"]}},
+                    {"name":"validate","dialect":"validate"}]},
+                "verify":verify,
+                "review":{"results":["clean"],"role":"roles/role.md",
+                    "driver":{"command":["driver"]}},
+            }
+        });
+        std::fs::write(dir.path().join("bundle.json"), config.to_string()).unwrap();
+        std::fs::write(dir.path().join("policy.json"), policy.to_string()).unwrap();
+        let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+            .unwrap()
+            .0;
+        let compiled = Bundle::compile_with_realm(
+            dir.path(),
+            &root.join("agents"),
+            &root.join("adapters"),
+            None,
+            Some(&dialect),
+            Boundary::Namespace,
+        )
+        .expect("the wrapped verify fixture compiles");
+
+        // The DECLARATION each assessment was read from rides the
+        // executing coordinate too: an edit to it must move the identity
+        // the root was opened under, and a missing pin would let a
+        // changed rule reuse the old root. The `drivers` pointer is part
+        // of the instance key, so this is the executing-site pin, not a
+        // whole-manifest digest.
+        let label = if panel {
+            "verify:checks:alpha"
+        } else {
+            "verify:checks"
+        };
+        assert!(
+            compiled.manifest["drivers"][label]["codex"].is_string(),
+            "the executing coordinate pins the declaration it read: {}",
+            compiled.manifest["drivers"]
+        );
+
+        // Keep the compiled `checks` coordinate exactly; replace only the
+        // synthetic dialect validator, whose boxed spawn needs a namespace
+        // this box cannot create (#286), with a work-class shim.
+        let mut verify_seat = compiled.seats["verify"].clone();
+        if let SeatBody::Sequence { steps } = &mut verify_seat.body {
+            let dialect_step = steps
+                .iter_mut()
+                .find(|step| step.name == "dialect-verify")
+                .expect("the wrapper creates the dialect step");
+            dialect_step.body = StepBody::Single {
+                role_path: PathBuf::from("role.md"),
+                command: driver(dir.path(), "validator", &["pass"]),
+                candidates: Vec::new(),
+            };
+        }
+        let mut hands = compiled.hands.clone();
+        hands.remove("verify:dialect-verify");
+        let mut seats = BTreeMap::new();
+        seats.insert("verify".into(), verify_seat);
+        seats.insert(
+            "review".into(),
+            seat(
+                single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+                &["clean"],
+                1,
+            ),
+        );
+        let mut bundle = bundle(dir.path(), seats);
+        bundle.machine = verify_machine();
+        bundle.inline_resume = compiled.inline_resume;
+        bundle.manifest = compiled.manifest;
+        bundle.hands = hands;
+        run(dir.path(), bundle);
+
+        let start = route_start(dir.path(), "alpha");
+        assert_eq!(
+            start["input"]["resume_context"]["assessment"]["work-site"]["status"],
+            "supported",
+            "the compiled Codex assessment reaches the executing {} site: {start}",
+            if panel { "checks member" } else { "checks" }
+        );
+        assert_eq!(
+            start["input"]["resume_context"]["assessment"]["work-site"]["boundaries"],
+            json!(["harness", "not applicable"]),
+            "the work-site coordinate is preserved at the executing site: {start}"
+        );
+        if panel {
+            // Each member carries its OWN compiled assessment: the Claude
+            // sibling stays unmeasured and is refused, never borrowing the
+            // Codex member's work-site.
+            let beta_start = route_start(dir.path(), "beta");
+            assert_eq!(
+                beta_start["input"]["resume_context"]["assessment"]["boxed-workspace"]["status"],
+                "unmeasured",
+                "the sibling member keeps its own assessment: {beta_start}"
+            );
+        }
+    }
 }
 
 /// Recursively copy one directory beside another — the shipped adapters
