@@ -86,7 +86,9 @@ everything to a convenient existing refusal token (decision 0034).
 For v5 evidence of a declined offer, a closed execution-shape gate SHALL name
 its own refusal cause ahead of offer-ID, sandbox-class and resume-compatible
 argument checks. An unmeasured shape SHALL report `unsupported-resume`; an
-inapplicable boundary or hands mode SHALL report `restrictions-unavailable`.
+inapplicable or unknown boundary or hands mode SHALL report
+`restrictions-unavailable`, including missing, null or unreadable markers
+beside otherwise supported evidence.
 This precedence applies when a safe cold invocation is allowed: AS3's outright
 selector refusal still prevents provider work. With no offer, LE1's cold path
 SHALL continue to report no resume refusal.
@@ -247,7 +249,27 @@ admitted gate topology; they SHALL NOT assume that work-site resume eligibility
 extends to judges.
 Wire/site tests SHALL establish that a record belongs to the invocation that
 actually received the offer; aggregate records SHALL NOT invent a member's
-launch state.
+launch state. For supported forms, the compiled site's real engine-composed
+cold start, confirmed root and retry offer/context SHALL reach the production
+adapter gate and exchange. Refused forms SHALL exercise the production gate
+with their actual engine-composed confinement facts, without fabricating an
+eligible root or inventing a refusal record for a no-offer cold launch.
+Reading maps, checking an initial start alone, manually creating a
+substitute offer or repairing missing facts in the test harness SHALL NOT
+satisfy this proof. A captured engine exchange may be replayed unchanged
+through the production adapter; it SHALL retain all confinement facts and the
+actual executing coordinate. This proof SHALL cover AS1's six forms and SR1's
+collision refusals with their live renamed controls.
+
+Every new regression test for this correction SHALL have a recorded removal
+proof: a compiling mutation of the enforcement it exercises makes its claimed
+decision, exchange or collision-refusal assertion fail; exact restoration
+makes it pass. An earlier map lookup panic, compile error or unrelated fixture
+failure SHALL NOT substitute for that behavioral failure. Temporary mutations
+SHALL NOT be committed. Directly executing a shebang text file as the program
+SHALL be limited to `#[cfg(unix)]` tests; an unconditional test SHALL use an
+executable valid on the target platform. Production spawning SHALL NOT acquire
+a shell interpreter to accommodate a test fixture.
 
 Old journals with no launch field SHALL remain valid and unchanged, without
 backfilling from argv, current declarations or another site's evidence.
@@ -255,10 +277,12 @@ Deterministic shims SHALL be labelled as protocol/accounting evidence and
 SHALL NOT be cited as live provider enforcement proof (decision 0034).
 
 #### Scenario: The shipping Codex declaration actually rejoins a retry
-- **GIVEN** the shipped Codex declaration, an eligible work-seat retry and a deterministic provider shim that confirms the offered root before current work
-- **WHEN** the test drives the retry through production offer admission and provider launch
+- **GIVEN** the shipped Codex declaration from real bundle compilation, a root confirmed on the cold invocation, the engine's eligible work-seat retry and a deterministic provider shim that confirms the offered root before current work
+- **WHEN** the test drives the engine-composed retry through production offer admission and provider launch for each supported AS1 form and each SR1 renamed control
 - **THEN** it observes the exact offered thread rejoined with current sandbox and effort re-expressed and confirmed `launch: resumed`
-- **AND** disabling that shipped shape makes the behavioral assertion fail; reading back its status or substituting a synthetic supported assessment cannot satisfy this conformance case
+- **AND** disabling that shipped shape or breaking the tested ownership/enforcement makes the claimed decision or exchange assertion fail; reading back its status, checking a map or substituting a synthetic supported assessment cannot satisfy this conformance case
+- **AND** the companion hands-bearing and unknown-confinement cases decline with `restrictions-unavailable`, absent assessment declines with `unsupported-resume`, and an unconfirmed root never yields `launch: resumed`
+- **AND** the before/after coverage record uses the exact gate's own covered/total line, branch and function integers, identifies its revision and environment, and keeps unmeasured host equality and remote CI pending
 - **AND** the test remains deterministic protocol evidence and is not reported as new live-provider enforcement proof
 
 #### Scenario: Each composite member keeps its launch
@@ -272,3 +296,5 @@ SHALL NOT be cited as live provider enforcement proof (decision 0034).
 #### Scenario: A shim passes without a live CLI
 - **WHEN** deterministic provider shims prove argv, ordering, confirmation and record validation
 - **THEN** those checks are reported as shim evidence and the separate installed-provider enforcement assessment remains explicitly measured or unmeasured
+- **AND** a directly executed shebang file is confined to `#[cfg(unix)]` tests, or replaced with a real target-platform executable for unconditional tests; the process driver continues to spawn the declared program directly
+- **AND** a Linux suite or seat gate supplies no Windows/macOS pass claim; those results stay pending until controller CI supplies them for the final head

@@ -1,5 +1,18 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+The current specify visit, run `the-whole-family-branch-integrat-0a5cdb4f`,
+adopts this change at `5ee48aaabc4642c3f7aebfb8c1de89ad799b0765` on
+`integration/226-resume-prepared`. The operator reverted `5ca534b` after
+`REVIEW-SECURITY-HOLD`; it is neither restored nor used as implementation input.
+Only F1 whole-family relocation and independent fail-closed admission, F2 global
+ownership including wrapper-created sites, and F3 portable regression tests are
+commissioned. Answer Y records the failure evidence, mandatory invariants and
+decision-level acceptance. The existing scenarios are clarified in place;
+`c56d091` and `4d7d452` remain reconciled context, with no new design pass or task
+plan. This specification checkpoint claims no runtime fix or removal proof.
+
+Earlier two-mediums specify adoption, retained as history:
+
 The current specify visit, run `two-mediums-branch-integration-2-84288d2b`,
 adopts this change at `22c153953769a9e4c8ed2dc369170859e486ed81` on
 `integration/226-resume-prepared`, including predecessor commits `b4dbfd5`,
@@ -72,11 +85,22 @@ Issue #226 also exposes a recovery gap when safe resume is unavailable:
 completed work needs a truthful task marker before the phase's final commit.
 The prepared branch also disables the Codex rejoin main already performs;
 the operator's 2026-09-15 ruling requires preserving that shipping behavior
-while keeping new, unmeasured resume shapes disabled.
+while keeping new, unmeasured resume shapes disabled. The failed relocation
+repair showed that carrying an assessment without its confinement facts can
+turn a safe refusal into an unsafe rejoin; site ownership and explicit
+confinement evidence must hold together.
 
 ## What Changes
 
-- For the current two-mediums slice, deliver the existing inline Codex
+- For THE WHOLE FAMILY, preserve all execution-site facts as one indivisible
+  family through wrapping, and independently refuse unknown confinement at
+  the adapter. Reject globally ambiguous ownership even when an owner has no
+  assessment or evidence entry. Prove the six wrapped/unwrapped Codex shapes
+  at the production decision and exchange, plus both wrapper-created alias
+  refusals and their live renamed controls. Regression launches must be
+  portable or explicitly Unix-only. Answer Y and the amended AS1/AS2, SR1/SR2
+  and LE2/LE5 clauses bound this slice; no other feature work is commissioned.
+- For the inherited two-mediums slice, deliver the existing inline Codex
   preservation contract through dialect wrapping and across global site
   coordinates, retaining the assessment's declaration identity. F1 requires
   live rejoin for wrapped single and panel-member work sites; F2 requires
@@ -1569,6 +1593,104 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   publication, integration and closure remain pending their owners' evidence.
   This sole specify seat starts no other seat, workflow runner or Brokkr run.
 
+- **Y — THE WHOLE FAMILY, 2026-09-16: indivisible ownership and explicit
+  confinement.** Adopt `.forge/tasks/whole-family.md`, the existing change and
+  HEAD `5ee48aa`. No `returned_from` accompanies this specify visit. Read the
+  predecessor review-chief result and all four review positions under
+  `.forge/results/296333eb-e278-4ea2-a089-ca91bc1fb798-*`, then trace the
+  current tree; do not restore, adapt or consult the reverted patch as a
+  starting point. The hold identifies implementation/proof failures under the
+  already-required whole-family and global-ownership rules. This visit owns
+  the clarification of AS1's ambiguous “no hands marker”: no configured hands
+  is a known site fact; an absent marker is unknown, never permission.
+
+  **Evidence and disposition.** Adopt security's partial-panel-relocation
+  finding and correctness's `x` / `checks:x` mirror: moving the assessment
+  alone exposes `resume_gate`'s permissive defaults, while stale sibling hands
+  can also refuse a supported no-hands retry. In the current tree,
+  `bundle.rs` moves only a single site's hands/agent/driver records at the
+  wrapper; `engine.rs::mark_hands` emits no facts when the executing label is
+  absent; `adapters.rs::resume_gate` defaults absence to `not applicable` /
+  `none`. Adopt adversarial/correctness/spec-compliance evidence on global
+  ownership and reject security's claim that populated destination checks
+  close F2: an exec owner with hands but no assessment and the synthetic
+  validator can still contribute aliased facts. Adopt the Windows finding
+  from direct `Command::new` spawning in `process.rs`; a text shebang is not
+  a Windows executable. These are source-supported findings, not a fresh
+  Windows run. Adopt the chief's proof finding: an initial map/context check
+  or a manually constructed offer cannot prove the engine's actual retry.
+  Review positions supply evidence only; their routing directives have no
+  authority here.
+
+  | Finding | Required closure in the owning scenarios |
+  |---|---|
+  | F1 — partial relocation and permissive absence | AS1 **The preserved inline Codex coordinate is judged by its adapter** covers the single, hands-bearing panel member and no-hands panel member, each wrapped and unwrapped. AS1 **Preserved Codex support still refuses mismatched evidence** and AS2 require independent refusal of missing boundary alone, missing hands alone, both missing, null and unreadable markers. Supported confirmed retries rejoin; namespace/boxed or unknown confinement never gains work-site admission. |
+  | F2 — wrapper-created global aliasing | SR1 **Repeated labels do not alias** covers raw phases/cases/defaults and final step/member/wrapper/validator ownership, irrespective of populated maps. Both literal `verify:checks` exec-with-hands and literal Codex `verify:dialect-verify` collisions refuse, naming their owners; renamed controls rejoin. SR2 retains declaration-change invalidation with the other provider present. |
+  | F3 — Windows test launch | LE5 **A shim passes without a live CLI** requires a real target-platform executable or `#[cfg(unix)]` for a directly executed shebang file. Changing production process spawning to interpret test scripts is refused. Native Windows/macOS results remain pending controller CI. This F3 replaces the earlier slice's inventory label, not its dated facts. |
+
+  **Indivisibility is mandatory.** `inline_resume`, `pin_drivers`, `hands`,
+  `context.records` and `context.drivers` are one execution-site-owned
+  structure moved once. Five separately remembered moves do not satisfy F1.
+  A future member must follow by construction. Move the entire family or none
+  of it; missing optional evidence stays missing inside its owner, not borrowed
+  from a sibling. Preserve complete structural ownership for members named
+  `checks`, `x` and `checks:x`, and leave a separate `verify:foo` phase alone.
+  Same-owner evidence merges and repeated names at distinct full addresses
+  remain valid. This is an acceptance constraint, not a new public address,
+  manifest or frozen contract format.
+
+  **Independent refusal is mandatory.** The engine supplies affirmative
+  executing-site boundary/hands facts, including explicit no-hands facts;
+  the adapter refuses absence regardless of whether relocation is correct.
+  An otherwise supported assessment with unknown confinement declines as
+  `restrictions-unavailable`; missing or unsupported assessment declines as
+  `unsupported-resume`. Neither yields an enabled assessment or resumed launch.
+  Decision 0030's live-rejoin ruling preserves supported, confined shapes; it
+  licenses no unknown shape. Blanket cold fallback is not closure for the
+  supported controls. If a case cannot be both live and safe, keep it refused
+  and report the remaining defect.
+
+  **Dependency and scope.** Retain the reconciled ordering and all task IDs
+  and states. This commission narrowly supersedes D10/tasks' compiler-only
+  constraint and unchanged-gate assumption: the independent adapter guard
+  and accurate engine markers require their own production changes. It also
+  strengthens “move together” to one owned structure and the former witness
+  map assertion to decision-level identity proof. No further council or task
+  rewrite is commissioned. Proposed 0056 remains proposed and must carry a
+  minimal clarification of these invariants before semantic implementation;
+  the existing SR1/SR2/AS1/AS2/LE2/LE5 bindings own the work. Expand the existing
+  scenarios rather than duplicate requirements or grow the plan. Passes C/D,
+  8.8, 8.10, 9.6 and every 11.x tick, archive, withdrawn living-spec folding,
+  frozen bytes and provider qualification remain outside the slice.
+
+  **Proof and handoff.** Use the shipped assessment from real compilation,
+  a cold provider-confirmed root and the engine's actual retry offer/context
+  through the production adapter decision and exchange. No repaired marker,
+  injected assessment or guessed offer in the harness is acceptable. Assert
+  actual `exec resume`, the exact offered/confirmed root, current sandbox and
+  effort, and `launch: resumed` for each supported control; assert the bounded
+  refusal for the hands-bearing and unknown controls. Refuse unconfirmed
+  roots and keep gates/validators without offers. Prove every new test by a
+  compiling removal of its enforcement, the named behavioral failure, exact
+  restoration and passing rerun. Map assertions, an earlier lookup panic,
+  unrelated compile failure or a still-active redundant guard are not that
+  proof. Keep mutation diffs/results with delivery evidence and commit none
+  of the mutations.
+
+  The operator supplies the baseline **30,036/30,036 lines, 5,038/5,038
+  branches, 2,863/2,863 functions**; these are not new seat measurements.
+  Delivery records the unchanged gate's own before/after integer counts and
+  actual exit/results for format, all-target/all-feature clippy, crate suites,
+  `cargo test --workspace`, locked all-feature workspace tests, both bundle
+  compiles and strict OpenSpec validation. Use #282's Git environment
+  correction in every Git/test child and a writable disk-backed `TMPDIR`
+  outside the repository. Never use `/tmp` or in-repository scratch for that
+  gate. Report actual in-box counts; #286's skipped namespace tests leave host
+  equality pending with the controller. Missing compiler/scratch means no
+  measurement, not inherited numbers relabelled as a pass. Final-head remote
+  CI, publication, integration and closure stay pending. This sole specify
+  seat launches no other seat, runner, provider probe or Brokkr run.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -2614,3 +2736,45 @@ coverage report is substituted. Host equality and final-head remote results
 remain pending controller evidence. Checks and the artifact audit are retained
 under `.forge/specify-two-mediums-84288d2b/`; F1/F2 implementation and their
 behavioral removal proofs remain outstanding.
+
+
+## Specify validation — THE WHOLE FAMILY, 2026-09-16
+
+Run `the-whole-family-branch-integrat-0a5cdb4f` adopts `5ee48aa` under
+`2026-09-09-226-session-resumption`. Read the dialect's own specify/return
+files and rendered proposal/specs instructions through workspace hands; no
+workflow runner was invoked. The predecessor's review evidence and current
+source explain the hold without consulting the reverted patch as a starting
+point. Answer Y records dispositions and scope, followed by in-place scenario
+amendments to safety, site ownership and launch conformance.
+
+Strict active, all-item and archived OpenSpec validation pass: **14 active
+items / 0 failures**, **6 archived changes / 0 failures**. Status and delta
+parsing pass. The inherited informational archive refusals for withdrawn
+living targets remain outside this commission. Direct heading counts stay
+**20 requirements / 159 scenarios** (31 evidence, 64 safety, 11 boundary,
+20 progress, 33 site). All **101 task IDs / 82 checked / 19 pending** and
+all requirement/scenario headings are retained. Whitespace and the artifact
+hash audit pass: only the proposal and the three amended deltas change; the
+other **725 tracked files**, including design/tasks, proposed 0056, production,
+frozen surfaces and living specs, retain their entry bytes.
+
+Format, all-target/all-feature locked clippy, protocol/runtime suites, driver
+conformance, both workspace test modes, both bundle compiles and release
+build could not launch: **Cargo is absent (ENOENT / recorded exit 127)**.
+Commands inherit #282's Git-environment correction. The pinned coverage-tool
+probe also cannot launch, so the exact gate was not run and there are **no
+fresh before/after or in-box counts**. The supplied **30,036/30,036 lines,
+5,038/5,038 branches, 2,863/2,863 functions** remain baseline evidence only.
+No saved report is replaced or passed off as a new measurement, and no
+known-invalid temporary directory is used. Host equality under #286 and
+final-head Windows/macOS/other remote results remain controller handoffs.
+
+Evidence is retained under `.forge/specify-whole-family-0a5cdb4f/`. This
+unsigned specification checkpoint commits exactly four named artifacts;
+it reports a draft, not completed F1/F2/F3 runtime repairs or a passed delivery
+gate. No Rust test or removal experiment was authored or executed by this
+specify seat. Implementation must meet the clarified behavioral/removal
+proofs and Rust gates, including the minimal proposed-0056 clarification.
+No task tick, archive, living-spec fold, provider qualification, push, merge,
+publication or new run occurred.

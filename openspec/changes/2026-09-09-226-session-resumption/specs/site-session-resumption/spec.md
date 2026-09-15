@@ -18,6 +18,18 @@ panel. A label reused under a different parent SHALL NOT identify the same
 site. Deterministic exec and dialect validation steps SHALL NOT receive
 provider session offers.
 
+Every execution-site evidence address SHALL have one structural owner across
+the whole compiled bundle: phases, selected cases and defaults, steps,
+members, wrapper-created sites and injected validators. Ownership SHALL be
+checked before evidence collection can combine distinct owners and again
+where wrapping creates executing addresses. Compilation SHALL refuse distinct
+owners of one lookup address, naming both owners and the address, before
+publishing an ambiguous bundle or dispatching work. This rule SHALL include
+owners with no resume assessment or no populated evidence entry and
+synthetic deterministic sites. Legitimate merges of evidence for the same
+owner SHALL remain valid; equality of evidence from different owners SHALL
+NOT make their alias legitimate.
+
 Every gate-class model invocation SHALL start without a session offer, even
 when its previous owned session would pass SR2. This applies to a single gate,
 each member of a gate panel, a gate model step and each member of a gate panel
@@ -56,8 +68,23 @@ admission, immutability and existing park/fallback rules SHALL remain in force.
 
 #### Scenario: Repeated labels do not alias
 - **GIVEN** two work-class sequence panels each have a member called alpha, and another work-class seat also has an alpha member
-- **WHEN** any alpha member retries
-- **THEN** sessions belonging to the other full site paths are never offered to it
+- **WHEN** compilation validates ownership and any alpha member retries
+- **THEN** distinct complete structural addresses remain valid and sessions or confinement evidence belonging to another site are never offered or applied to it
+- **AND** each otherwise valid collision below is refused at compilation with the shared address and both structural owners, irrespective of whether both owners populate an assessment or other evidence map
+
+| Collision | Distinct owners sharing one lookup address |
+|---|---|
+| Raw cross-phase | Codex at phase `work`, selected case `chore`, and another provider without Codex work-site support at literal phase `work:chore`. |
+| Raw cross-selector | Codex at phase `work`, case `chore`, step `engine:stage`, and the other provider at phase `work:chore`, case `engine`, step `stage`; both selectors carry valid defaults and pins. |
+| Default and literal phase | A selected default's model site and a distinct literal phase spelling that site's full lookup address. |
+| Wrapped single and literal exec phase | A no-hands Codex verify seat executing at `verify:checks` and a literal `verify:checks` exec phase carrying hands but no inline assessment. |
+| Wrapped member and literal phase | A verify panel member executing at `verify:checks:alpha` and a distinct literal phase with that address, including an owner without resume evidence. |
+| Injected validator and literal Codex phase | The deterministic validator at `verify:dialect-verify` and a no-hands Codex phase literally named `verify:dialect-verify`; the validator's hands and driver evidence cannot belong to that Codex site. |
+
+- **AND** renaming only the conflicting outer phase in each construction permits compilation and the supported Codex site's confirmed retry reaches `launch: resumed` through the production gate with its own restrictions and declaration identity
+- **AND** the validator and every gate-class site still receive no offer; ownership reservation grants no resume capability
+- **AND** members `x` and `checks:x` are not themselves a collision: their complete families move to distinct executing addresses together, with the no-hands site's live retry and the hands-bearing site's refusal proved under AS1
+- **AND** same-owner effort/resume witness merges remain valid, while removing collision enforcement makes the corresponding refusal assertion fail rather than an unrelated strategy, pin or vocabulary check
 
 #### Scenario: A sibling changes candidate
 - **GIVEN** alpha's instance is unchanged but beta's selected model changes within the same pinned work-class panel
@@ -108,6 +135,7 @@ model's claim about its identity (decisions 0004, 0007 and 0030).
 #### Scenario: A changed identity denies the offer
 - **WHEN** the selected provider, model, effort, agent, driver, adapter digest, engine identity, or pinned bundle differs from the originating invocation
 - **THEN** no session is offered; any existing manifest-mismatch refusal remains in force
+- **AND** changing only the copied Codex declaration with another provider still present invalidates the old pinned root at the actual retry decision, including wrapped sites; a map entry or whole-manifest digest assertion alone does not establish the refusal
 
 #### Scenario: An imported or unverifiable origin
 - **WHEN** the same event history is imported, copied to another installation, or lacks verifiable local origin

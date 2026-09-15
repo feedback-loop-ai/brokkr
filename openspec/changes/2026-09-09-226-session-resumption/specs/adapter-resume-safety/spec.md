@@ -179,14 +179,18 @@ ruling, retain the dated 0.148.0 measurement and 0.153.4 applicability, and
 name the interface, restriction, exact-root and current-accounting evidence
 without relabelling old or partial observations as a new live measurement.
 The preserved shape SHALL name BOTH work-seat coordinates main rejoins: the
-engine-composed `harness` argv (`--sandbox workspace-write`, no hands marker)
+engine-composed `harness` argv (`--sandbox workspace-write`, explicitly no boxed hands)
 AND the author-written INLINE argv (`boundary: not applicable`, the command's
 own `--sandbox` class). The compiler SHALL carry each inline built-in model
 driver's adapter resume assessment into the engine so the driver judges an
 inline site exactly as an agent-resolved one; a custom no-hands driver no
 declaration names still carries none and cannot rejoin. The resume SHALL still
 re-impose the inline argv's sandbox class, and a missing or unsupported class
-SHALL refuse cold.
+SHALL refuse cold. Wrapping SHALL preserve the executing site's assessment,
+adapter declaration pins, hands, agent record and driver evidence as one
+indivisible owned family, including panel members. Evidence SHALL neither
+remain at an old coordinate nor answer for a sibling. Unwrapped forms SHALL
+retain their existing supported or refused behavior.
 Installed-version remeasurement remains a delivery obligation; preserving this
 shipping behavior SHALL NOT complete that obligation or an enablement task.
 
@@ -207,7 +211,15 @@ The observed executable identity SHALL still match declared applicability and,
 when recorded, the originating root's identity. Missing or unreadable required
 identity and evidence, a mismatch in those identities, inapplicable boundary or
 hands, and absent or inapplicable current-accounting evidence SHALL still refuse
-rejoin. Same-site/instance ownership, local origin, exact-root confirmation,
+rejoin. The engine SHALL supply affirmative boundary and hands facts for the
+actual executing site, including explicit `not applicable` / `none` when that
+site has no Brokkr hands. Independently of compilation or relocation, the
+adapter SHALL treat a missing, null or unreadable boundary or hands marker as
+unknown confinement, never as those affirmative values. With otherwise
+supported evidence, unknown or mismatched confinement SHALL decline as
+`restrictions-unavailable`; absent or unsupported assessment SHALL decline as
+`unsupported-resume`. Neither case SHALL enable a work-site assessment.
+Same-site/instance ownership, local origin, exact-root confirmation,
 current restriction re-imposition and fresh gates remain binding. A historical
 measurement-version difference alone SHALL NOT cause a preserved shipping shape
 to be disabled. A shape whose applicable version still matches needs no repeated
@@ -398,10 +410,24 @@ read as history, not as a current claim.
 - **AND** later cold sandbox startup/enforcement evidence does not become a claim of resumed enforcement, exact-root confirmation or current-only accounting; each cited observation retains its actual scope
 
 #### Scenario: The preserved inline Codex coordinate is judged by its adapter
-- **GIVEN** `recipes/standby` and `recipes/wager-harness` seat implement as a raw `brokkr driver codex` command whose own `--sandbox` class is the author's, with no Brokkr boundary and no hands marker, and the compiled bundle carries that adapter's `work-site` assessment
-- **WHEN** a same-instance retry offers the thread the cold invocation confirmed
-- **THEN** the engine supplies the compiled assessment to the driver's private start context exactly as it does for an agent-resolved site, admits the coordinate (`boundary: not applicable`, `hands: none`) and the driver rejoins with the argv's sandbox class re-expressed
-- **AND** the cold invocation records the qualified root the retry offers; removing the compiled assessment or the declared `not applicable` boundary makes the retry cold rather than resumed
+- **GIVEN** inline work-class Codex sites compiled with the shipped assessment and author-pinned argv, including the raw commands in `recipes/standby` and `recipes/wager-harness`, and the following verify single/panel forms
+- **WHEN** the production engine composes each cold invocation and, for each supported form, its eligible same-instance retry, preserving the real dialect wrapper where present, and the adapter judges that executing site's own facts
+- **THEN** the decisions and exchanges match every row below; the assessment, declaration pins, hands, agent record and driver evidence retain the same structural owner throughout
+
+| Form | Executing site | Required decision and exchange |
+|---|---|---|
+| No-hands single, wrapped | `verify:checks` | Explicit `boundary: not applicable`, `hands: none`; rejoin the cold invocation's confirmed root with current sandbox/effort re-expressed and confirmed `launch: resumed`. |
+| Hands-bearing inline panel member, wrapped under namespace | `verify:checks:alpha` | Its own namespace boundary and boxed hands remain effective in composition; the production shape gate returns `restrictions-unavailable` and never enables a resumed work-site launch. |
+| No-hands inline panel member, wrapped | `verify:checks:x` | Explicit no-hands facts; the supported confirmed retry rejoins even beside a hands-bearing member named `checks:x`, whose facts belong to `verify:checks:checks:x`. |
+| No-hands single, unwrapped | `verify` | The same supported confirmed retry remains live with its own explicit facts and current restrictions. |
+| Hands-bearing inline panel member, unwrapped under namespace | `verify:alpha` | The same namespace/boxed shape remains refused by the production shape gate as `restrictions-unavailable` with its hands effective. |
+| No-hands inline panel member, unwrapped | `verify:x` | The supported confirmed retry remains live; a hands-bearing sibling `checks:x` supplies none of this site's facts. |
+
+- **AND** for the supported rows the cold invocation records the qualified root, the engine offers that exact root and the provider confirms it before current work; removing the assessment produces `unsupported-resume`, removing either confinement marker produces `restrictions-unavailable`, and removing the declared boundary's support refuses the retry
+- **AND** the engine-composed supported `harness` coordinate also retains affirmative boundary/hands facts and its live rejoin; preserving inline sites does not regress that coordinate
+- **AND** a member called `checks` retains its complete path, and an independent literal `verify:foo` phase retains its own facts instead of moving by label prefix
+- **AND** deterministic validators and gate-class sites receive no offer, and no harness replaces missing compiled facts to obtain a passing launch
+- **AND** refused forms are judged from their real engine-composed confinement facts even when no eligible root exists; a no-offer cold launch invents no refusal record, while an offered safe cold fallback records the gate's bounded refusal under LE2
 
 #### Scenario: The other shipped declarations describe unmeasured new rejoins
 - **GIVEN** main does not perform the Claude boxed-workspace, DSH headless-work or LaneTally wrapper-work-site rejoin, and each declaration is unmeasured
@@ -413,6 +439,8 @@ read as history, not as a current claim.
 - **GIVEN** Codex's shipping work-site shape is supported under the operator ruling
 - **WHEN** the observed executable identity is missing or unreadable, differs from declared applicability or the originating root's recorded identity, the invocation's boundary or hands do not match, or required current-accounting evidence is absent or inapplicable
 - **THEN** the invocation does not rejoin and any permitted safe cold launch reports the corresponding bounded refusal under LE2
+- **AND** independently testing missing boundary alone, missing hands alone, both missing, null markers and markers outside the admitted vocabulary against an otherwise supported assessment always declines as `restrictions-unavailable`, before any resume launch; the adapter never interprets missing evidence as `not applicable` / `none`
+- **AND** an absent or unsupported assessment still declines `unsupported-resume`; an assessment alone or a sibling's evidence never establishes the executing site's confinement
 - **AND** a different site, instance or unverifiable local origin supplies no offer under SR2; a provider that fails to confirm the exact offered root never yields `launch: resumed`
 
 #### Scenario: The measured installed version still applies
@@ -455,7 +483,10 @@ restore stale grants or add authority (decisions 0030, 0043 and 0046).
 
 If the adapter cannot establish and express all applicable restrictions on the
 resume path, it SHALL decline the offer and attempt only a cold path that
-satisfies the same current restrictions. If the cold path is itself inadmissible,
+satisfies the same current restrictions. Affirmative confinement facts SHALL
+come from this invocation's owned site; missing markers SHALL NOT establish
+that no boundary or hands applies, even if an assessment reaches the adapter
+through an incomplete relocation. If the cold path is itself inadmissible,
 it SHALL refuse under the existing boundary/adapter rules instead of dropping
 a restriction. Resume SHALL NOT promote trust, add a boundary backend, admit
 an unsupported hands shape or change which adapters can hold a gate.
