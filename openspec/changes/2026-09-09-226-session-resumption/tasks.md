@@ -1,5 +1,35 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
+Current commission: run `two-mediums-branch-integration-2-84288d2b`, tasks
+phase, adopts proposal X at `00f2cf1`, design `c56d091` and all predecessor
+implementation through `22c1539` (`b4dbfd5`, `81df715`, `22c1539`). Only F1's
+lost wrapped assessment, F2's global evidence alias and F3's current inventory
+belong to this slice. The predecessor's ruling and four-low work stand.
+
+Execute the [two-mediums breakdown](#current-tasks-visit--two-mediums-execution-order-2026-09-15)
+in dependency order: retain evidence and observe the bounded failures;
+protect authoring coordinates; relocate the wrapper's site families and protect
+final coordinates; prove the actual Codex decisions, witness identity and
+independent removal controls; then measure affected pins, validate and commit.
+D10 chooses compiler collision refusal with live unambiguous controls. No
+upstream artifact change or implementation choice is outstanding.
+
+The ledger remains **82 complete / 19 pending across 101 identifiers**.
+The clauses below refine acceptance under existing 3.5–3.6, 6.3, 8.10, 14.x
+and 15.x; historical ticks attest adopted work, not these unexecuted repairs.
+Record each clause's actual progress and proof without changing any checkbox
+state. In particular, 8.8, 8.10, 9.6 and all 11.x remain pending. Passes C/D,
+archive, re-folding living specs and provider enablement remain outside scope.
+Proposed 0056 and the predecessor's declarations and gate semantics stand.
+
+F3 was corrected by `00f2cf1`: the current inventory below and design D11
+agree at **20 requirements / 159 scenarios** (31 evidence, 64 safety,
+11 boundary, 20 progress, 33 site). Verify direct headings; preserve every
+dated count. No scenario or prose-count unit test is needed.
+
+Earlier operator-ruling tasks return, retained as dated execution history;
+the current two-mediums breakdown supersedes its instructions to repeat work:
+
 Current commission: run `operator-ruling-slice-branch-int-bf5f6a32`, tasks
 return, adopts design `78098d5`, the F1 task checkpoint `26f665e`, proposal
 W/specifications `3ead8d4` and committed implementation through `2da94b0`.
@@ -448,11 +478,20 @@ saved for the phase commit.
       ambiguous bundle fails before spawn with a message naming both
       sites. Ordinary repeated member names under different steps stay
       valid, and chain progression and historical tag meanings do not
-      move — site / SR2.
+      move. For proposal X, extend this same obligation to bundle-global
+      authoring coordinates before evidence insertion and final coordinates
+      after wrapping, including cases, defaults, inline/agent leaves and
+      synthetic dialect evidence owners; follow D10 and clauses 2–3 below.
+      Refuse distinct owners with the full label and both owners named; retain
+      legitimate same-owner merges — site / SR2.
 - [x] 3.6 Tests in `crates/brokkr-runtime/src/bundle/tests.rs`: the
       colliding pair is refused at compile time; two panels each holding
       an `alpha` still compile; every bundle under `recipes/` and
-      `bundles/` walks clean — site / SR2.
+      `bundles/` walks clean. X's clauses 1–4 add legal cross-phase and
+      cross-selector refusal cases, wrapper/default collision controls and
+      live unambiguous Codex retries through the actual provider gate; require
+      the named removal failures and restored passes — site / SR1, site / SR2,
+      safety / AS1, evidence / LE5.
 - [x] 3.7 Tests in `crates/brokkr-runtime/src/engine/resume_tests.rs`:
       the canonical key is stable across process runs and moves for each
       identity axis of 3.3 taken one at a time; two sites with the same
@@ -609,7 +648,13 @@ saved for the phase commit.
 - [x] 6.3 Carry the selected assessment through `Candidate`/`SiteSpawn`
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
-      handle. No new wire type is added — safety / AS1, site / SR4.
+      handle. For X/F1, preserve that assessment and declaration witness at
+      the actual wrapped single/member coordinate with D10's whole-family
+      relocation in the bundle compiler. Clauses 1, 3 and 4 require both
+      runtime-composed retries to report `launch: resumed` through the real
+      Codex gate, plus witness invalidation and removal controls. No new wire
+      type or engine fallback is added — safety / AS1, site / SR1, site / SR2,
+      site / SR4, evidence / LE5.
 - [x] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
@@ -1155,7 +1200,16 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 Complete each provider-local planner guard and its tests in
+- [ ] 8.10 For the current two-mediums slice, execute only X/D10's wrapped
+      single/member gate proofs, collision refusals with live unambiguous
+      controls, declaration-witness/removal proofs and retained safety
+      negatives, in clauses 1–4 below. Extend the existing runtime and CLI
+      conformance harnesses; a supplied assessment or map-only assertion is
+      insufficient. Keep this checkbox pending for its inherited C/D work —
+      safety / AS1, AS2, AS3, site / SR1, SR2, SR4, SR5, evidence / LE2, LE5.
+      The following provider-planner and operator-ruling breakdown is inherited
+      acceptance/history, not additional work commissioned by this slice.
+      Complete each provider-local planner guard and its tests in
       `crates/brokkr-protocol/src/adapters/tests.rs` from the captured grammar,
       and the engine's private-target and route-binding cases in the runtime
       suites below. Keep exact arity, duplicate and precedence checks for every
@@ -2041,11 +2095,13 @@ The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
 `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
 
-For the current operator-ruling slice, run the local commands again as slice
-validation in the ordered breakdown below without claiming whole-change
-readiness or ticking 15.x. Its fresh coverage invocation uses the unchanged script and test
-selection. Earlier pre-archive history grants no new filter, gate edit, archive
-or spec fold to this slice; record each command's actual status and scope.
+For the current two-mediums slice, run the local commands as slice validation
+in clauses 5–6 below, without claiming whole-change readiness or ticking 15.x.
+Use both unfiltered workspace test commands and the unchanged exact script
+and test selection. Earlier pre-archive history grants no new filter, gate
+edit, archive or spec fold to this slice; record each command's actual status
+and scope. The whole-change closure and archive instructions below remain
+outside the present commission.
 
 - [ ] 15.1 After groups 8–14 are complete, run `cargo fmt --all -- --check` —
       every requirement of this change.
@@ -5212,3 +5268,156 @@ and final-head remote evidence remain pending with the controller.
 Readouts and audits are retained in `.forge/tasks-operator-ruling-f2-bf5f6a32/`.
 This is an unsigned task-draft checkpoint, with implementation completion,
 provider qualification and archive unclaimed. No push, merge or new run occurs.
+
+## Current tasks visit — two-mediums execution order, 2026-09-15
+
+This tasks-only visit adopts X and D2/D10/D11 at `c56d091`. No `returned_from`
+is supplied. The existing AS1 inline-preservation, SR1 repeated-label/nested-
+panel, SR2 identity and LE5 shipping-retry scenarios already own F1/F2.
+D10 records the engineering scenarios under Decisions and defers no choice.
+F3 is closed by the current inventory correction at `00f2cf1`; direct heading
+recount is the verification, with dated history preserved. No upstream repair
+is required. The clauses below order existing checkbox acceptance, introduce
+no identifiers and authorize no whole-change tick. Keep an execution record
+here as each clause completes, with commands and evidence paths.
+
+1. **Preserve evidence and expose the failures.** Existing 3.6, 6.3, 8.10
+   and group 15 — site / SR1, SR2; safety / AS1; evidence / LE5; progress / PM4.
+   Preserve existing coverage reports and entry hashes before overwriting any
+   report. Extend `bundle/tests.rs`, `engine/resume_tests.rs` and CLI
+   `tests/driver_conformance.rs`, reusing their dialect compilation, confirmed-
+   root retry and Codex exchange helpers. With the shipped declaration and
+   author-pinned argv, compile both no-hands work-class verify bodies: a single
+   and a panel containing an inline Codex member. Keep the real `checks`
+   wrapper. Capture the runtime-composed start and offer and feed them unchanged
+   to the production Codex exchange, or drive that exchange under the engine.
+   Record both baselines failing the live retry assertion with
+   `unsupported-resume`; supplying a fresh assessment in the harness is invalid.
+
+   Build both valid F2 configurations with a conflicting Claude assessment
+   lacking Codex's work-site shape: (a) Codex at phase `work`, case `chore`,
+   versus literal phase `work:chore`; (b) Codex at phase `work`, case `chore`,
+   step `engine:stage`, versus phase `work:chore`, case `engine`, step `stage`.
+   The labels are respectively `work:chore` and `work:chore:engine:stage`.
+   Supply valid defaults for remaining strategies, result vocabularies and
+   model/effort pins. Observe the missing collision refusals before the fix.
+   Use legal `chore`/`engine` cases; an unknown strategy or unrelated compile
+   failure proves nothing. For each case prepare a control differing only by
+   renaming the conflicting outer phase, which must compile and rejoin Codex.
+
+2. **Protect evidence before collection.** Existing 3.5–3.6 — site / SR1,
+   SR2; safety / AS1. In `bundle.rs`, extend the raw invocation walk used by
+   `enforce_model_pins` to reject distinct structural owners of the same full
+   authoring label before any assessment, effort witness or resume witness
+   insertion. Cover phases, every selector case/default and agent/inline
+   leaves, including owners without resume evidence. Use the existing
+   `CompileError::Invalid` with label and both owners. Preserve same-owner
+   effort/resume digest merges. Verify both F2 refusals name the actual
+   collision and the renamed controls compile; retain within-body refusal
+   and ordinary repeated-name acceptance. Complete this before relocation
+   so the wrapper cannot consume evidence already overwritten.
+
+3. **Relocate exact families and protect final owners.** Existing 3.5–3.6,
+   6.3 — site / SR1, SR2, SR4; safety / AS1, AS2. Follow D10's compiler-only
+   correction: derive pre/post labels from `structural_sites`, pairing the
+   preserved single/member sites in order, and relocate `inline_resume`,
+   `pin_drivers`, `hands`, `context.records` and `context.drivers` together.
+   Stage owned entries and remove all source keys before checked destination
+   insertion. Missing evidence stays missing; never infer ancestry by a prefix
+   scan or splitting a label. Extend final `refuse_aliasing_sites` globally
+   across compiled phases/cases/defaults, retain its local diagnostics and
+   reserve synthetic dialect evidence labels. Reject earlier or later owners
+   of wrapper destinations; preserve legitimate same-owner facts.
+
+   Verify default/literal-phase, `verify:checks`, member-destination and
+   synthetic-dialect collisions; include a member named `checks`, overlapping
+   members `x`/`checks:x`, and an independent `verify:foo` phase whose evidence
+   must stay put. Exercise a hands-bearing or agent-resolved panel sibling
+   through composition without enabling boxed Codex. Rerun shipped recipe and
+   bundle address checks and same-owner effort/resume merge coverage. These
+   compiler controls supplement, never replace, the no-hands live positives.
+
+4. **Prove decisions, identity and each correction by removal.** Existing
+   3.6, 6.3, 8.10 — site / SR1, SR2, SR4, SR5; safety / AS1, AS2, AS3;
+   evidence / LE2, LE5. Require both wrapped F1 topologies and both renamed
+   F2 controls to rejoin their exact confirmed root with current sandbox/effort
+   re-expressed, `launch: resumed` and no `unsupported-resume`. Assert no offer
+   to the deterministic validator or gate-class sites. Preserve the compiled
+   wrapper when capturing its model invocation before the boxed validator;
+   no nested namespace, test skip or production boundary change is needed
+   for this proof. Label it deterministic shim evidence, not live qualification.
+
+   Assert the declaration witness belongs to the executing coordinate; edit
+   only the copied Codex declaration with the other provider still present
+   and prove the pin changes and the old root is refused by the existing
+   bundle/instance fence. Extend the existing inline declaration-identity test.
+   Independently remove (a) assessment relocation, (b) witness relocation,
+   (c) authoring collision protection, and (d) wrapper/final collision
+   protection. For each, record the exact temporary diff and named failing
+   assertion, restore exact bytes and rerun green. Both F1 decision assertions
+   must fail under (a); (b) must fail the executing-site pin assertion, not
+   merely a whole-manifest digest check. Exercise both legal F2 constructions
+   and wrapper-created collisions under the corresponding removed guards;
+   remove the minimal complete protection where guards overlap. A compiler
+   error or a redundant guard masking the defect is not removal proof.
+   Commit no mutation. Rerun retained missing/unmeasured, identity, boundary,
+   hands, accounting, ownership, argv and fresh-gate negatives; keep all
+   predecessor protections and the settled reader seam.
+
+5. **Measure pins and run local gates.** Existing 14.1–14.2, 15.1–15.4 —
+   safety / AS1; progress / PM4; every requirement for the integration gates.
+   After corrections and controls settle, run existing witness/compose tests
+   and update only affected pins from their measured output. Use
+   `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` on every Git invocation and
+   parent test command so child Git calls inherit #282's correction, with
+   `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. Run `cargo fmt --all -- --check`,
+   `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`,
+   `cargo test --workspace`, `cargo test --workspace --all-features --locked`,
+   `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`, the
+   same compile for `bundles/verify`, and
+   `cargo build --release --locked -p brokkr-cli`. Run strict active and all-item
+   OpenSpec validation plus `git diff --check`. Record each actual exit/result;
+   the inherited passing tree is not new validation. Add no archive filter.
+
+6. **Measure coverage and commit the bounded result.** Existing group 15 —
+   every requirement; progress / PM1, PM4. Run the unchanged
+   `scripts/coverage-exact.sh` with the compiler from `rust-nightly-version.txt`
+   and a verified writable disk-backed `TMPDIR` outside the repository.
+   Neither `/tmp` nor an in-repo directory is suitable. Record the exact command,
+   compiler/tool versions, report hashes and covered/total line, branch and
+   function integers. Cover every added production path; never lower equality
+   or reuse saved numbers as a fresh run. Report #286's in-box shortfall and
+   leave host equality and final-head remote results to the controller. If
+   compiler or scratch is unavailable, record that precise missing prerequisite
+   and pending measurement, not invented counts. Confirm F3's current totals,
+   all 101 IDs/states and frozen/living-spec bytes are unchanged; record actual
+   clause outcomes and remaining proof. Commit completed commissioned edits
+   unsigned in repository style, with no push, merge, archive or new run.
+   Implementation capacity exhaustion is `oversized`; this tasks office uses
+   only its `drafted`/`upstream` result contract.
+
+### Tasks-phase validation and handoff — two mediums
+
+Strict active validation passes; strict all-item validation reports **14 passed,
+0 failed**. Status reports all planning artifacts present; it does not attest
+runtime completion. The two inherited archive-target notices remain informational
+and outside this no-archive slice. Whitespace and requirement-citation audits
+pass. Direct headings verify **20 requirements / 159 scenarios** (31 + 64 + 11
++ 20 + 33), matching both current statements. All **101 IDs / 82 checked /
+19 pending** retain their states; only `tasks.md` changes and the other **728
+tracked files** retain their entry hashes. No scenario, production/test,
+declaration, proposed decision, frozen surface or living specification changed.
+
+All seven commissioned Rust gate commands and the pinned coverage-tool probe
+could not launch: Cargo is absent in this seat (recorded as exit 127 / ENOENT).
+No Rust gate is claimed green, no behavioral/removal test ran and the exact
+script was not launched without its compiler. **No fresh in-box coverage
+numbers exist for this tasks visit.** Saved reports were not overwritten or
+substituted for measurements. Implementation owes clauses 1–6 and their actual
+proof; #286 host equality and final-head remote results remain controller work.
+Evidence is retained under `.forge/tasks-two-mediums-84288d2b/`.
+
+This unsigned task-draft checkpoint reports `drafted`: the earlier artifacts
+support an honest breakdown, and no upstream repair is needed. It claims no
+runtime fix, task completion, provider qualification or delivery. No archive,
+re-fold, push, merge or additional Brokkr run occurred.
