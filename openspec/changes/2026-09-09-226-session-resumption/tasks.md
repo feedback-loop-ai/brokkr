@@ -1,36 +1,43 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current commission: run `remediation-slice-branch-integra-1d3bbafc`, tasks
-phase, adopts design `0f3f517`, proposal V/specifications `abfae0f`, and all
-committed repairs through `840de91`, including `38ed542`. This is the
-**remediation slice only**. It advances no #226 task and repeats no Pass B.
-The ledger stays **82 complete / 19 pending** across the same 101 identifiers.
+Current commission: run `operator-ruling-slice-branch-int-bf5f6a32`, tasks
+phase, adopts design `17bbd10`, proposal W/specifications `3ead8d4` and the
+committed implementation through `2da94b0`. The operator ruled: **“keep
+decision 0030's rejoin live, do not regress codex.”** This is the **operator
+ruling and four lows only**. The ledger remains **82 complete / 19 pending**
+across the same 101 identifiers; every checkbox state is inherited unchanged.
 
-Execute the [remediation breakdown](#current-tasks-visit--remediation-breakdown-2026-09-15)
-in this order: preserve the reports and take a fresh baseline; exercise the
-second owned-root selection through D10's narrow reader seam; prove the cold
-DSH planner-to-drain boundary; verify Codex refusal precedence and selector
-protection; strengthen the committed plugin-byte assertion; then run the local
-gates, take the after measurement, record the evidence and commit unsigned.
-These are bounded acceptance clauses under existing 8.8/8.10/9.6 and the
-validation obligations, not new task IDs or permission to tick those tasks.
-Record each actual result and any remaining evidence in this file before
-moving on; no remediation result completes a whole checkbox.
+Execute the [operator-ruling breakdown](#current-tasks-visit--operator-ruling-breakdown-2026-09-15)
+in its declared dependency order: preserve reports and measure before;
+reconcile proposed 0056; add the shipped-Codex driver regression and observe it
+fail; preserve Codex support in the declarations and prove the restoration and
+all retained refusals; then verify DSH sequence zero, Codex refusal cause,
+Codex cold selectors and DSH never-publish, in that order. Finish the prose,
+measured re-pins, local gates, after measurement and unsigned evidence commit.
+Every clause belongs to the existing requirement-linked checkboxes below;
+none creates a new task identifier or completes a whole checkbox. Record each
+actual control and remaining proof here before proceeding to the next clause.
 
-The preserved report identifies an unexecuted **second file-selection error
-closure**, not an unexecuted unreadable-sequence guard. D10's current sitting
-owns that diagnosis and the chosen seam. Keep both guards and the inherited
-test; fresh source/binary/profile/report evidence must still connect the gate
-to this candidate. Do not rewrite its counting, predict its denominator or
-present the preserved integers as a fresh measurement.
+Proposal W/AS1 and design D5/D10 resolve the draft conflict. The decision,
+declarations, guide and executable preservation proof remain implementation
+work at this tasks checkpoint. Historical measurement-version drift alone
+must no longer disable main's Codex rejoin; actual observed/origin identity,
+boundary, hands, accounting and ownership mismatches still refuse. Claude,
+DSH and LaneTally remain unmeasured and disabled. Full installed-version
+remeasurement and 11.1 remain pending; preservation does not discharge them.
 
-Passes C/D, every 11.x disposition, archive and re-folding the five withdrawn
-living specs are outside this slice. Leave every tick unchanged, including
-8.8, 8.10 and 9.6. The operator alone rules before merge on main's Codex
-work-seat retries becoming cold with `unsupported-resume` here; preserve
-11.1 and the unmeasured declaration. If the implementation exceeds the
-commissioned slice, report `oversized` with its remaining work, never `broken`
-for capacity. This tasks phase uses its own `drafted`/`upstream` contract.
+The earlier remediation breakdown and its cold-interval instructions below
+are dated history, superseded by W and this breakdown. `2da94b0` settles the
+second-selection reader-seam investigation; retain its guards and tests without
+repeating that work. The inherited gate reports **30,015/30,015 lines,
+5,036/5,036 branches, 2,861/2,861 functions** are prior evidence, never a fresh
+before run. Report the unchanged gate's actual before/after results.
+
+Passes C/D, new provider enablement, every 11.x completion, archive and
+re-folding the five withdrawn living specs are outside this slice. Leave every
+tick unchanged, including 8.8, 8.10, 9.6 and all 11.x. Implementation capacity
+exhaustion is `oversized`, never `broken`; name remaining work with the ruling
+first. This tasks phase uses its own `drafted`/`upstream` contract.
 
 R5 remains an office boundary: position prose states findings and evidence;
 it supplies no gate verdict, destination or authority of another office.
@@ -189,8 +196,11 @@ saved for the phase commit.
       fresh (1), same run/site/instance and local origin with no
       older-owner resurrection (2), provider-confirmed root and the two
       admitted identity origins (3), the negotiated one-use offer (4),
-      measured provider shapes with current-version qualification and the
-      latest DSH core (`@deepseek-ai/dsh` 0.1.5-rc.1 at
+      measurement for new rejoins and preservation of currently shipping
+      rejoins across historical version drift under proposal W and the
+      operator's 2026-09-15 ruling, with actual applicability/origin identity,
+      boundary, hands and accounting checks retained, and the latest DSH core
+      (`@deepseek-ai/dsh` 0.1.5-rc.1 at
       `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1
       resolves in its place) paired with the repository-owned six-file
       adaptation of `dsh-plugin-cli-session` 0.2.0 at
@@ -214,7 +224,13 @@ saved for the phase commit.
       task state (10).
       Preserve the existing ruling text that remains true; amend ruling 10 and
       its enforcement binding rather than replacing the decision or implying
-      operator acceptance. Replace the consequences paragraph's stale
+      operator acceptance. For the current slice, first amend ruling 5, its
+      directly conflicting rejected alternative and current consequence in
+      D10's specified order, citing the operator's ruling. Retain the caution
+      for never-supported shapes and dated evidence. The ordered breakdown
+      below owns this pending amendment; the inherited tick does not attest
+      its execution or a new live measurement. Replace the consequences
+      paragraph's stale
       "future DSH route" ambiguity with the exact selected extension route,
       its conditional admission and the bounded historical 0.1.2-rc.1
       one-shot result; do not repeat that result as a global DSH limitation.
@@ -576,10 +592,15 @@ saved for the phase commit.
       `adapters/claude.json`, `adapters/dsh.json` and
       `adapters/lanetally.json` with their honest status as of this
       change, each one loadable now under one of 6.1's two identity
-      forms and none of them waiting on group 10: Codex's historically
-      supported work shapes **unmeasured** against the *measured*
-      0.148.0 identity decision 0030 records, with the reason naming
-      installed 0.153.4 and 10.5's pending remeasurement; Claude's
+      forms and none of them waiting on group 10. Under proposal W, preserve
+      Codex `work-site` as **supported** because main already rejoins it under
+      accepted 0030: retain measured `version: 0.148.0`, applicable
+      `applies_to: 0.153.4`, all scope and limitations, add only the existing
+      September 10 partial accounting reference, and cite the September 15
+      operator ruling and pending 10.5 proof in its reason. Do not change
+      `resume_gate` or `qualify` predicates. The other three reasons explicitly
+      say main does not perform their rejoin; preserve all their non-reason
+      bytes, identities, evidence and scope. Claude's
       boxed-workspace shape **unmeasured** against the *measured* 2.1.266
       interface identity in
       `.forge/controller-host-provider-interface.json`, with the reason
@@ -608,8 +629,13 @@ saved for the phase commit.
       LaneTally remains **unmeasured** with the *unknown* identity and a
       bounded reason naming the wrapper identity 10.4 owes and 10.8's
       proof, never marked by analogy to Claude. 10.1–10.4 refine these
-      identities and group 11 flips the statuses; neither is a
-      prerequisite of writing them.
+      identities; group 11 still owns full qualification and new enablement.
+      W preserves shipping Codex support before 10.5/11.1 finish and completes
+      neither. Verify current preservation through the real driver test and
+      its disabled-status control in the ordered breakdown, plus the existing
+      `tests/roster.rs` shipped-shape test through `Adapters::load`: Codex's
+      distinct measured/applicable versions and four references, and the
+      other three disabled dispositions. Do not use a status assertion alone.
       `adapters/exec.json` gains no assessment. Verify the four shipped files
       load through the existing runtime assessment tests, DSH resolves disabled
       with its measured version identity (`version` and `applies_to` equal to
@@ -631,7 +657,7 @@ saved for the phase commit.
       the shape 6.4 writes for LaneTally — loads, enables
       nothing and invokes cold; an `unmeasured` assessment carrying a
       measured identity that does not qualify the installed version —
-      6.4's Codex, Claude and DSH shapes, DSH's without `wrapper_digest` —
+      6.4's Claude and DSH shapes, DSH's without `wrapper_digest` —
       likewise loads and enables nothing (text amended in place for analyze
       A1; the tick stands because this case already loads DSH's pre-11.3
       form, and answer O's optional-member cases belong to 8.8); a **present** bare `true`, an unknown status token, a
@@ -745,7 +771,10 @@ saved for the phase commit.
       engine-generated MCP fragments separately from arbitrary `-c`.
       Re-express the class and effort on every rejoin, including decision
       0030's safe class override, rather than inheriting the old
-      thread's — safety / AS2, safety / AS3.
+      thread's. Proposal W's current preservation and refusal controls run
+      under 8.10 below using the shipped assessment, without weakening these
+      guards or claiming new installed-provider enforcement — safety / AS1,
+      safety / AS2, safety / AS3, evidence / LE5.
 - [x] 8.6 Claude: build the print/stream-json resume path with exactly
       `--resume <owned-id>` and the current restriction plan — permission
       mode, model and effort, `--tools ""`, strict MCP config, the
@@ -782,11 +811,11 @@ saved for the phase commit.
       `agent.session.events` to `agent.session.snapshotEvents(firstSeq)`;
       every other byte is upstream-identical, nothing is rebuilt, and no
       source, lockfile, test, build configuration or CI file is vendored.
-      The current remediation adopts these bytes and the existing never-publish
-      note unchanged. Its ordered clauses below add only the second-selection
-      reader seam and proof under 8.10, including all six committed digests;
-      they neither re-qualify this pair nor complete 8.8 (safety / AS1,
-      site / SR3).
+      The current operator-ruling slice adopts these bytes, the never-publish
+      note and the settled second-selection reader seam unchanged. Its ordered
+      low-4 clause below adds the still-owed all-six-digest assertion and control
+      under 8.10; it neither re-qualifies this pair nor completes 8.8
+      (safety / AS1, site / SR3).
       Keep the admitted headless profile and Rust-owned persistence/model/
       effort overlay; use the plugin's explicit `--new --output-format
       stream-json` cold form and `--session <owned-id> --output-format
@@ -1099,13 +1128,15 @@ saved for the phase commit.
       provider grammar. Preserve the completed Claude cases that independently
       refuse a second or last-wins permission mode, tools list, strictness/MCP
       document, allowed/disallowed-tools list (including aliases), model or
-      effort control. The current remediation executes only the ordered clauses
-      below: second-selection refusal and its stable-store control, the actual
-      cold planner boundary, Codex refusal precedence and cold selector controls,
-      and the six-file digest assertion. Each names its tests and requirement;
+      effort control. The current operator-ruling breakdown executes only
+      shipped-Codex rejoin preservation and its fail-closed controls, then the
+      actual DSH cold planner boundary, Codex refusal cause, Codex cold selector
+      and six-file digest controls, in that order. It adopts the settled reader
+      seam. Each clause names its tests, requirement and observed failure/pass;
       retain all inherited fixes and leave 8.10 unchecked. These clauses add
-      acceptance detail under safety / AS1 and AS3, site / SR3, and evidence /
-      LE2, LE4 and LE5. The following Pass B breakdown is inherited acceptance,
+      acceptance detail under safety / AS1, AS2 and AS3, site / SR2, SR3 and
+      SR5, and evidence / LE1, LE2, LE4 and LE5. The following Pass B breakdown
+      is inherited acceptance,
       not work to repeat; C/D paragraphs remain pending and unscheduled.
       Verify each applicable case alongside its 8.8(d) implementation before
       advancing; the full 8.10 checkbox still awaits C/D.
@@ -1457,8 +1488,8 @@ saved for the phase commit.
       fall back to legacy fields to evade confirmation — site / SR3,
       evidence / LE4.
 - [ ] 9.6 After 8.8 and 8.10, extend the existing accounting and compatibility
-      tests with the selected DSH route. The current remediation's ordered
-      cold-boundary clause below verifies only the adopted sequence-zero fix
+      tests with the selected DSH route. The current operator-ruling slice's
+      low-1 clause below verifies only the adopted sequence-zero fix
       and its actual planner-to-drain input (evidence / LE4). It is authorized
       before those whole-task dependencies finish, leaves 9.6 unticked and
       does not begin the remaining Pass D accounting work described here.
@@ -1701,25 +1732,27 @@ itself (`safety / AS1`).
 
 ## 11. Enablement — evidence-gated provider dispositions
 
-- [ ] 11.1 Enable Codex's previously supported work shapes on the
-      remeasured installed version, flip `adapters/codex.json` to
-      `supported` with 10.1's interface and 10.5's proof references, and land its live
-      restriction, root and accounting assertions beside the shim tests.
-      A Codex shape left disabled is incomplete delivery, not a lawful
-      close — safety / AS1.
-      One fact the 2026-09-15 judging pass established for the ruling
-      this task waits on: while `adapters/codex.json` reads `unmeasured`,
-      a retry of a single work seat that the shipped engine (decision
-      0030) would rejoin with `codex exec resume` spawns COLD on this
-      head, with `resume_refusal: unsupported-resume` on its launch row —
-      the legacy offer is still made (`legacy_offer`) and the gate
-      declines it, because 0030's evidence is 0.148.0 and the installed
-      CLI is 0.153.4. That is the one behaviour of main this preparation
-      changes; it is fail-closed and it is what this change's design
-      states ("Prepared Codex disablement blocks delivery until support is
-      re-established"), and it stays until the operator either rules the
-      cold retry acceptable for the interval or this task remeasures and
-      flips the shape.
+- [ ] 11.1 Complete installed-version qualification of Codex's previously
+      supported work shapes with 10.1's interface and 10.5's live restriction,
+      root and accounting proof, and land the matching adapter assertions.
+      Preserve the shipping `supported` disposition required by proposal W
+      throughout that work; preservation does not complete this enablement
+      task or turn partial observations into full proof — safety / AS1.
+      The 2026-09-15 operator ruling, **“keep decision 0030's rejoin live,
+      do not regress codex,”** closes the cold interval recorded by the
+      judging pass at `2da94b0`. The change must retain the rejoin main already
+      performs across the historical 0.148.0/current-applicability 0.153.4 drift,
+      while refusing actual identity, boundary, hands and accounting mismatch.
+      At this tasks visit's adopted head `17bbd10`, the declaration is still
+      unmeasured:
+      the decision/declaration amendment and driver proof below are pending,
+      not a claim that the runtime regression is already repaired. After that
+      proof passes, replace this pending account with the command, restored
+      passing result and disabled-shape failing control showing that the same
+      work-seat retry now rejoins with confirmed `launch: resumed`. State that
+      the regression is removed and full 10.5/11.1 qualification is still owed;
+      leave this checkbox unchecked. The earlier cold/unsupported observation
+      remains dated evidence, never an authorized current disposition.
 - [ ] 11.2 Enable Claude's boxed-workspace work shape under its
       already-supported boxed boundary with 10.2's interface and 10.6's
       proof, and flip `adapters/claude.json` — safety / AS1, safety / AS2.
@@ -1865,6 +1898,14 @@ itself (`safety / AS1`).
       and enforcement/accounting limits; retain September 12 Codex startup
       enforcement as startup evidence only. Neither partial capture enables
       a shape or completes 10.5/10.6. This is the sole tick reversal on this visit.
+      The current operator-ruling slice additionally replaces the guide's
+      blanket measurement-expiry paragraph and Codex row with W's distinction:
+      preserve main's shipping rejoin, keep never-supported shapes disabled,
+      retain the partial accounting evidence and full 10.5/11.1 debt. Scope the
+      `ResumeIdentity::Measured.applies_to` comment in `agents.rs` likewise;
+      do not change its type or validation. The earlier tick-reversal account
+      above is history; this slice changes no tick. Verify the guide,
+      proposed 0056, task 11.1 and all four declarations agree on the ruling.
       Verify the guide and declarations agree line by line on status,
       identities, evidence class and limitations, and that no current prose
       repeats the disproven global DSH limitation or the superseded
@@ -1895,7 +1936,11 @@ itself (`safety / AS1`).
       own reported left/right pairs — the adapter declarations of group 6
       and the charter of group 12 move every identity that consults
       them, and a declaration enabled in group 11 can move them again — and
-      change no pin the tests did not report. The successful pre-return run is
+      change no pin the tests did not report. W's bounded re-pin clause runs
+      after all four declaration reasons settle, including prose-only edits:
+      run the existing witness and compose tests, update only their observed
+      digest pairs, and retain equality assertions. This does not complete
+      14.1 while the whole change remains open. The successful pre-return run is
       historical evidence, not proof for the eventual final bytes — safety /
       AS1, progress / PM3.
 - [ ] 14.2 After 14.1 and all other source changes, compile `bundles/self` and
@@ -1909,9 +1954,9 @@ The commands below are this commission's, recorded here and not promoted
 into capability truth (`progress / PM4`). Run them with
 `CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`.
 
-For the current remediation, run the local commands again as slice validation
-in the ordered clause below without claiming whole-change readiness or ticking
-15.x. Its fresh coverage invocation uses the unchanged script and test
+For the current operator-ruling slice, run the local commands again as slice
+validation in the ordered breakdown below without claiming whole-change
+readiness or ticking 15.x. Its fresh coverage invocation uses the unchanged script and test
 selection. Earlier pre-archive history grants no new filter, gate edit, archive
 or spec fold to this slice; record each command's actual status and scope.
 
@@ -4278,6 +4323,10 @@ and Passes A and C–K are untouched.
 
 ## Current tasks visit — remediation breakdown, 2026-09-15
 
+Historical record, superseded by proposal W and the operator-ruling breakdown
+below. Its cold-interval disposition and request to rebuild the settled reader
+seam are no longer instructions for the current slice.
+
 Run `remediation-slice-branch-integra-1d3bbafc`, tasks phase, adopts `0f3f517`
 and proposal V under the same dated change. No `returned_from` finding was
 supplied. D10's remediation sitting settles the remaining design choices;
@@ -4500,3 +4549,273 @@ This unsigned tasks checkpoint claims a drafted breakdown only. Implementation,
 Rust gates, host equality, the operator's Codex cold-interval ruling and remote
 results remain pending. No provider probe, archive, spec fold, push, merge,
 publication or new Brokkr run occurred.
+
+## Current tasks visit — operator-ruling breakdown, 2026-09-15
+
+Run `operator-ruling-slice-branch-int-bf5f6a32`, tasks phase, adopts design
+`17bbd10`, proposal W/specifications `3ead8d4` and implementation `2da94b0`.
+No `returned_from` finding was supplied. D10's operator-ruling sitting and
+Open Questions settle the choices; W/AS1 already express the answered
+ambiguity as scenarios. No upstream amendment is needed before drafting:
+proposed 0056's amendment is the first semantic implementation obligation,
+explicitly designed by D10, within this same open change.
+
+These numbered clauses order the pending acceptance within existing checkbox
+IDs; they are not additional tasks or permission to tick any whole-change
+checkbox. The 82 checked tasks record adopted work, not proof of the new
+amendments. Record execution, temporary mutation diffs, commands, observed
+runtime failures, exact restorations and passing reruns here as each clause
+finishes. Stop dependent work on an unexplained failure; retain inherited
+repairs and fix only a gap the commissioned control demonstrates.
+
+1. **Preserve reports and take the fresh before measurement.** Existing
+   8.10 and group 15; safety / **AS1 Resume support is measured per adapter
+   and execution shape**, evidence / **LE5 Launch conformance covers every
+   site and historical compatibility**, progress / **PM4 Task completion does
+   not stand in for delivery proof**. Read W, D5/D10 and
+   `extensions/dsh/PROVENANCE.md` before editing. Preserve and hash the saved
+   `target/coverage/{coverage-exact.json,lcov.info,coverage-summary.json}`
+   outside the output location before the gate can overwrite them. The
+   inherited **30,015/30,015 lines, 5,036/5,036 branches, 2,861/2,861 functions**
+   is a prior report, not this slice's fresh baseline. Do not repeat the
+   second-selection diagnosis or rebuild its settled reader seam.
+
+   Verify a writable disk-backed directory outside the repository and set
+   `ruling_tmp` to its absolute path; never use the filling `/tmp` tmpfs,
+   assume global `TMPDIR` is writable, or place coverage scratch in the repo.
+   Run `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0 TMPDIR="$ruling_tmp" bash scripts/coverage-exact.sh`
+   before semantic/source changes. Inherit #282's cleanup in every Git call
+   and parent test command so child `git init` calls are corrected too.
+   Record UTC time, exact command and exit status, revision/tree and changed
+   bytes, the compiler pin and actual compiler/cargo-llvm-cov versions, and
+   JSON/LCOV/summary hashes with the gate's covered/total line, branch and
+   function integers. Preserve raw profiles outside the repo before cleanup
+   if needed to connect reports to binaries; never change counting or test
+   selection. If the compiler or suitable scratch is absent, record the exact
+   unavailable prerequisite and pending measurement, not fabricated integers.
+
+2. **Amend the proposed rule, then prove the shipping regression before
+   correcting the declaration.** Existing 1.1, 8.5/8.10 and 9.7; safety /
+   **AS1**, **AS2 Every resume re-imposes the current effective restrictions**;
+   evidence / **LE1 Every model adapter reports actual launch outcomes** and
+   **LE5**, scenario **The shipping Codex declaration actually rejoins a retry**.
+   Amend proposed 0056 ruling 5's title/paragraph, the directly conflicting
+   rejected alternative and current consequence exactly as D10 specifies:
+   preserve the rejoin main ships across historical measurement drift while
+   retaining qualification for never-supported shapes and every real mismatch
+   refusal. Cite the operator's ruling verbatim; keep `Status: proposed`,
+   accepted 0030 and dated evidence unchanged. Verify the decision and registry
+   with `cargo test -p brokkr-cli --test decisions_index` and check its account
+   against W/AS1 and D5/D10 before the declaration edit.
+
+   In `crates/brokkr-cli/tests/driver_conformance.rs`, add D10's deterministic
+   cold-then-retry driver exchange. Use test-owned homes and the actual shipped
+   `adapters/codex.json` bytes: the entire `resume` map goes into
+   `/resume_context/assessment`, with no positive-fixture status override or
+   `enabled_assessment`. The CLI shim answers `--version` as
+   `codex-cli 0.153.4`, captures argv and confirms a root before current work.
+   Establish the cold root through the production driver, then start a fresh
+   driver process with `hello`, a correctly correlated `resume` for that root,
+   `start` and `shutdown`. Supply the site's namespace/boxed facts, current
+   sandbox/model/effort, prompt and result destination. Assert actual
+   `exec resume`, exactly the offered thread, re-expressed sandbox/effort,
+   and the production adapter's confirmed `launch: resumed` with that root
+   and no unsupported refusal. The shim must not fabricate launch evidence.
+   Run against the still-disabled adopted declaration and retain the runtime
+   assertion failure; a compile error or status-only assertion is no control.
+
+3. **Preserve shipping support and prove every retained admission fence.**
+   Existing 6.1/6.4–6.6, 8.1/8.5/8.10, 9.5/9.7; safety / **AS1**, **AS2**;
+   site / **SR2 An offer preserves all established instance identity checks**, **SR3 The
+   offered handle names the provider's own session**, **SR5 Session recovery uses durable
+   evidence without widening crash recovery**; evidence / **LE2 Launch evidence
+   stays within a versioned closed vocabulary**, **LE5**. Set only Codex
+   `work-site` to `supported`; retain measured 0.148.0, applicable 0.153.4,
+   classes, boundaries, hands, existing evidence and every limitations byte
+   and order. Add only `evidence.accounting` naming the bounded September 10
+   0.153.4 cold/warm current-usage observation, explicitly partial. Its reason
+   cites preservation under the September 15 operator ruling and full proof
+   still owed. Update only the other three reasons to state why main does not
+   perform their rejoin: Claude's incomplete installed 2.1.270 restriction/
+   boundary/precedence proof while retaining declared 2.1.266/2.1.266;
+   DSH's incomplete exact-root/restriction/multi-message/composite proof;
+   LaneTally's unknown wrapper identity/forwarding. Preserve their statuses,
+   identities, evidence, scopes and limitations; add no DSH `wrapper_digest`.
+
+   Run clause 2 to green. Temporarily set the actual shipped Codex status
+   back to `unmeasured`, rebuild and observe that same behavioral assertion
+   fail on the cold/unsupported launch; restore exact bytes and pass. In the
+   existing runtime `tests/roster.rs` shipped-shape case, load the four real
+   declarations through `Adapters::load`, asserting those dispositions,
+   Codex's distinct measured/applicable versions and four references, and
+   DSH's absent digest. This is secondary loader evidence, not the rejoin proof.
+   Exercise all three other shipped assessments with otherwise eligible offers
+   through the existing planner suites and require `unsupported-resume`.
+
+   Pair the positive with existing or narrowly extended tests for missing/
+   unreadable observed identity, observed 0.148.0 or a third version, recorded
+   originating-version mismatch, boundary/hands mismatch, absent accounting
+   and different confirmed root. A scope/applicability mismatch makes evidence
+   inapplicable; neither a prose-evidence parser nor a new gate predicate is
+   required. The missing-accounting case must remain closed even after status
+   preservation. Run the runtime `engine/resume_tests.rs` suite for site,
+   instance, local origin, manifest, latest-owner, legacy-offer and fresh-gate
+   fences alongside the actual driver test. Preserve its narrow legacy mapping
+   without inventing historical identity fields. For every new behavioral
+   test, break its exact production predicate with a compiling mutation,
+   observe the claimed assertion fail, restore and pass. Do not introduce a
+   bypass, fourth status, public engine seam or duplicate topology suite.
+
+4. **Low 1 — control the adopted DSH sequence-zero fix.** Existing 8.10 and
+   only the bounded cold-boundary acceptance in 9.6; evidence / **LE4 Resume
+   does not recount old work as new activity**, scenarios **A cold DSH
+   transcript begins at sequence zero** and **A rejoin has a stored historical
+   boundary of zero**. Run
+   `a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundary`
+   and `the_planned_dsh_fold_boundary_reaches_the_transcript_drain` in the
+   protocol adapter suite. Before any further fix, temporarily restore
+   `None`-as-zero filtering in `fold_dsh_event`; observe the cold-zero assertion
+   fail, restore and pass. Separately restore the cold planner seed `Some(0)`;
+   the actual plan-to-drain case must fail, then restore/pass. Keep cold `None`
+   through the drain for both qualified and shipped-disabled routes, warm
+   `Some(last_stored_seq)` including zero, no-sequence behavior and exclusion
+   at/below the warm boundary. Calibrate any new warm assertion by discarding
+   that boundary and observing failure before restoration. Preserve the
+   plugin's inclusive first-current sequence and Rust's exclusive last-stored
+   boundary as distinct conventions. This does not begin Pass D accounting.
+
+5. **Low 2 — control Codex's refusal cause.** Existing 8.10; evidence /
+   **LE2**, scenario **The closed shape gate is the cause of a Codex decline**.
+   Run `a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks`.
+   Temporarily move the gate-decline block below the sandbox split; observe
+   `sandbox-unavailable` fail the expected `unsupported-resume` assertion for
+   an unmeasured/no-sandbox offer, then restore/pass. Keep selector refusal
+   first, gate refusal before ID/sandbox/compatible-argv checks, no probe on a
+   disabled gate, safe unchanged cold argv, boundary/hands refusal and enabled
+   local-defect controls. No offer has no refusal; an enabled cold invocation
+   may still probe identity. Extend only if an observable gap remains.
+
+6. **Low 3 — control the cold selector refusal.** Existing 8.3/8.10;
+   safety / **AS3 Invocation settings cannot redirect or weaken a resume**,
+   scenario **A bundle supplies a Codex resume selector on a cold launch**.
+   Run `a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too`
+   across no-offer, offered and disabled-shape paths. Temporarily bypass
+   `codex_selector_conflict`'s guard, observe the assertion fail, restore and
+   pass. Verify refusal before provider work and no echoed handle, including
+   bundle `resume <id>` after the driver's `--`. Retain conservative refusal
+   of the `resume` word in value positions. Add only the planned comment at
+   `invoke`'s direct replacement `codex_cold` call: successful `codex_launch`
+   has already validated the same immutable arguments. No duplicated builder
+   guard, silent stripping or provider exception is justified by this design.
+
+7. **Low 4 — pin the unchanged extension bytes and retain never-publish.**
+   Existing 8.8/8.10; safety / **AS1**, scenarios **The adaptation is compared
+   as the published file set** and **The adapted package retains upstream
+   publication metadata**. Adopt the prohibition already in the sibling
+   `extensions/dsh/PROVENANCE.md`; change nothing in the six-file package.
+   Extend `adapters/composite/tests.rs`'s
+   `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+   to compare the full returned digest map with the six committed-adapted
+   digests from PROVENANCE, preserving the exact file-set and reverse-substituted
+   upstream JavaScript checks. Copy the set to isolated temporary storage,
+   change one manifest byte in that copy, temporarily point the test there and
+   observe the digest assertion fail. Restore the test and pass on the real
+   unchanged set; verify all six file hashes against PROVENANCE directly and
+   run the composite suite. This detects byte drift; the documentation owns
+   never-publish. No `private: true`, npm query, publisher or second plugin
+   delta is authorized.
+
+8. **Reconcile current prose and measured identities.** Existing 11.1's
+   account only, 13.1 and 14.1/14.2; safety / **AS1**, evidence / **LE5**,
+   progress / **PM2 Recovery reconciles the marker with surviving work**.
+   After clause 3 passes, update 11.1's current account to the actual rejoin
+   result and controls, retaining full 10.5/11.1 debt and its unchecked state.
+   Align the provider guide's blanket expiry paragraph and Codex row, the
+   `ResumeIdentity::Measured.applies_to` comment and only necessary packaged/
+   scaffolded consumers with the four dispositions. Preserve dated captures
+   and limitations; no live enforcement claim follows from shims or prose.
+   After all declaration bytes settle, run the existing witness and compose
+   tests and update only their measured left/right digest pairs. Declaration
+   reason edits can change any consuming identity, including Claude-only
+   bundles; retain the witness equality assertions. Compile both bundles on
+   these final bytes. This bounded re-pin completes none of group 14's
+   whole-change tasks and grants no cross-instance resumption.
+
+9. **Validate, measure after and commit the slice's evidence.** Existing
+   group 15 obligations serve **every requirement of this change**, with
+   evidence / **LE5** and progress / **PM4** governing claims. Restore every
+   mutation before final validation. Run affected protocol/runtime suites and
+   CLI driver conformance, `cargo test --workspace`,
+   `cargo test --workspace --all-features --locked`,
+   `cargo fmt --all -- --check`, and
+   `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`.
+   Run both `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+   and the corresponding `bundles/verify` command; retain the inherited
+   `cargo build --release --locked -p brokkr-cli` check as a separate result.
+   Run `openspec validate 2026-09-09-226-session-resumption --strict --no-interactive`
+   and `openspec validate --all --strict --no-interactive`. Use #282's cleanup
+   with `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. No archive-related skip or
+   weakened provenance assertion is authorized for this slice.
+
+   Repeat clause 1's unchanged exact gate and preserve the same provenance
+   fields. Report its own actual before/after covered/total pairs and exit
+   statuses; never substitute saved integers or predict a denominator. Keep
+   CI, release admission and coverage on `rust-nightly-version.txt`; change
+   no gate, thresholds, test selection, conditional-compilation exclusions or
+   `coverage(off)`. Report actual in-box counts and skipped namespace evidence:
+   #286 leaves host equality to the controller, pending its actual result.
+   Compiler/scratch absence supplies no new measurement. Record failed or
+   unavailable local checks honestly, never green. Remote CI, integration,
+   publication and closure remain pending external results, not local claims.
+
+   Verify the final diff contains only this slice, every original checkbox
+   state/ID is unchanged, no mutation remains, plugin/frozen/living-spec bytes
+   retain their adopted hashes, and proposed 0056 remains proposed. Record
+   completed controls and residual proof here, then commit the completed
+   authorized work unsigned in repository style with
+   `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0 git -c commit.gpgsign=false commit ...`.
+   Record the commit identity. Never push, merge, publish, archive, fold living
+   specs or start another Brokkr run. This slice's evidence cannot close a
+   whole task, new enablement or the open change.
+
+
+### Tasks-phase validation and handoff — operator ruling
+
+Read the rendered tasks instructions and dialect tasks/return instructions,
+proposal W and owning scenarios, D5/D10 and Open Questions, proposed 0056,
+accepted 0030, relevant source/tests and PROVENANCE through workspace hands.
+The breakdown implements the design's dependency choices without changing an
+upstream artifact: the proposed-decision amendment and declaration/runtime
+proof belong to implementation. No `returned_from` finding or unresolved
+upstream question accompanies this visit.
+
+Strict active OpenSpec validation passes; repository-wide strict validation
+reports **14 passed, 0 failed**. Status confirms planning artifacts exist,
+not that implementation is complete. The informational archive-target notices
+remain outside this slice. Whitespace and artifact audits pass: **101 task
+IDs, 82 checked / 19 pending**, every state unchanged and every task retaining
+its requirement citation; **20 requirements / 158 scenarios** retain their
+bytes. Only `tasks.md` has a tracked diff. Source, tests, proposed 0056,
+declarations, plugin, living specifications, frozen surfaces and all other
+tracked artifacts retain their entry hashes.
+
+Format, locked all-target/all-feature clippy, protocol/runtime suites, CLI
+driver conformance and decision-index tests, `cargo test --workspace`, locked
+all-feature workspace tests, both bundle compiles and the release build were
+attempted with #282's environment correction and the recorded resource bounds.
+All **11 commands exited 127**: Cargo is absent from this seat. No Rust test or
+mutation was executed and no Rust gate is reported green. The coverage script
+was not launched: Cargo is absent and the global `TMPDIR` is `/tmp`, which the
+commission excludes. There are **no fresh before/after or in-box coverage
+counts** from this tasks visit. The saved report remains byte-unchanged at
+**30,015/30,015 lines, 5,036/5,036 branches, 2,861/2,861 functions**; these are
+inherited integers only. CI, release admission and the unchanged exact gate
+all still consume `rust-nightly-version.txt`, pinned to `nightly-2026-09-05`.
+
+Entry hashes, artifact audit and individual Rust command outcomes are retained
+under `.forge/tasks-operator-ruling-bf5f6a32/`. This unsigned checkpoint drafts
+the task breakdown only. Implementation must execute the ordered amendments,
+controls and fresh gates; #286's host equality and final remote results remain
+pending the controller. The operator ruling itself is resolved. No provider
+qualification, checkbox completion, archive, living-spec fold, push, merge,
+publication or additional Brokkr run is claimed.
