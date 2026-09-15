@@ -168,21 +168,47 @@ installed provider package. Selecting an owned session through a documented
 provider extension does not replace or authorize more tools (decisions 0009 and
 0030).
 
-Previously supported Codex work-site shapes SHALL remain delivery requirements,
-subject to installed-version remeasurement. A CLI/wrapper version change SHALL
-invalidate the prior version's enablement evidence for the affected resume
-shapes until their interface, current restriction enforcement, exact-root
-confirmation and current-only accounting are re-established on the installed
-version. Unmeasured shapes SHALL remain disabled during preparation, including
-historically supported Codex shapes after version drift. Such a disablement
-SHALL remain incomplete delivery, not satisfy the Codex preservation obligation.
-A shape whose assessed version still matches needs no repeated live experiment
-solely because another attempt begins. Historical acceptance is not a perpetual
-grant for a changed binary: the enabled-until-contradicted interpretation is
-rejected because 0030 measured a silent loss of restrictions on resume.
+A previously supported, currently shipping work-site rejoin SHALL remain live
+across a difference between its historical measurement version and the
+applicable installed version. The operator's 2026-09-15 ruling, “keep decision
+0030's rejoin live, do not regress codex,” amends this change's earlier draft
+requirement to disable historically supported Codex during remeasurement.
+Codex `work-site` is preservation of a rejoin main already performs under
+accepted decision 0030. Its declaration SHALL describe that disposition and
+ruling, retain the dated 0.148.0 measurement and 0.153.4 applicability, and
+name the interface, restriction, exact-root and current-accounting evidence
+without relabelling old or partial observations as a new live measurement.
+Installed-version remeasurement remains a delivery obligation; preserving this
+shipping behavior SHALL NOT complete that obligation or an enablement task.
 
-Unavailable enforcement evidence SHALL keep the affected resume shape disabled
-and the requirement incomplete. Common plumbing or provider-specific code
+An unmeasured rejoin main does not perform SHALL remain disabled during
+preparation. A version change SHALL invalidate that new shape's prior-version
+qualification until its interface, current restriction enforcement, exact-root
+confirmation and current-only accounting are established for the applicable
+version. Under this preservation ruling, the Claude `boxed-workspace`,
+DSH `headless-work` and LaneTally
+`wrapper-work-site` declarations SHALL explicitly identify themselves as this
+case and retain their unmeasured status, identities, evidence and scope. Claude's
+partial probes do not establish complete restriction enforcement; DSH's isolated
+pair lacks complete admission and composite proof; LaneTally lacks independent
+wrapper qualification. This ruling enables none of these three rejoins.
+
+Preservation SHALL NOT bypass identity, boundary, hands or accounting checks.
+The observed executable identity SHALL still match declared applicability and,
+when recorded, the originating root's identity. Missing or unreadable required
+identity and evidence, a mismatch in those identities, inapplicable boundary or
+hands, and absent or inapplicable current-accounting evidence SHALL still refuse
+rejoin. Same-site/instance ownership, local origin, exact-root confirmation,
+current restriction re-imposition and fresh gates remain binding. A historical
+measurement-version difference alone SHALL NOT cause a preserved shipping shape
+to be disabled. A shape whose applicable version still matches needs no repeated
+live experiment solely because another attempt begins.
+
+Unavailable enforcement evidence for a new, never-supported rejoin SHALL keep
+that shape disabled and the requirement incomplete. Missing new measurements
+alone SHALL NOT withdraw the preserved shipping Codex shape; its required
+existing evidence and invocation checks still apply. Common plumbing or
+provider-specific code
 prepared behind a disabled declaration SHALL NOT count as supported resume or
 full feature delivery. Provider-specific construction SHALL use identified
 interface evidence and SHALL NOT invent argv or provider event semantics. Known
@@ -212,8 +238,9 @@ rather than relabelled as current probes. A superseded measured pin SHALL remain
 recorded as dated history; its reversal SHALL be added as a new dated entry and
 SHALL NOT rewrite the earlier measurement. In an adapter declaration, a resume
 shape's `status`, `identity`, `evidence` and `reason` SHALL describe the current
-pin, and its `limitations` list SHALL be the append-only dated ledger. Existing
-entries SHALL keep their bytes and order. A reversal SHALL be appended as a
+pin and distinguish preservation from new enablement, with assessed and
+applicable versions labelled separately. Its `limitations` list SHALL be the
+append-only dated ledger. Existing entries SHALL keep their bytes and order. A reversal SHALL be appended as a
 string that begins with its ISO date and names the ruling, the reversed pin and
 the superseded evidence file. The closed resume shape SHALL gain no history
 field for this purpose. A superseded entry followed by its dated reversal is
@@ -355,11 +382,23 @@ read as history, not as a current claim.
 - **AND** a numeric total is reported only when every contributing message and attempt is attributable; otherwise it is omitted, and the plugin's last-wins usage is never reported as the total of a multi-message interval
 
 #### Scenario: An installed version differs from historical Codex evidence
-- **GIVEN** the accepted resume measurement identifies codex-cli 0.148.0 and supplied installed-version evidence identifies 0.153.4
-- **WHEN** the new adapter's support is assessed for delivery
-- **THEN** the exercised binary's version is re-read and reconciled with those dated measurements, 0.148.0 remains historical evidence, and resume on the installed version stays disabled until current resume-subcommand interface and bounded restriction, root-confirmation and accounting evidence qualify that shape
-- **AND** supplied later evidence that the host starts the sandbox and enforces a cold read-only class supersedes a prior startup blocker, but does not establish restriction re-imposition, exact root or current accounting across resume
-- **AND** preserving Codex support requires completing that remeasurement and delivering its previously supported work shapes; a disabled regression is not full delivery
+- **GIVEN** main already rejoins this Codex work-site shape under accepted decision 0030, its historical measurement identifies codex-cli 0.148.0, and its declared applicability and observed installed identity are 0.153.4
+- **WHEN** an eligible same-instance work-seat retry offers its owned thread with matching identity, boundary, hands and current-accounting evidence
+- **THEN** the shipped adapter rejoins that exact thread with current restrictions re-expressed and, on provider confirmation before work, reports `launch: resumed` without `unsupported-resume` merely because the measurement names 0.148.0
+- **AND** its declaration identifies preservation under the 2026-09-15 operator ruling; the 0.148.0 measurement remains historical, 0.153.4 remains the applicable target, and full remeasurement and task 11.1 remain pending
+- **AND** later cold sandbox startup/enforcement evidence does not become a claim of resumed enforcement, exact-root confirmation or current-only accounting; each cited observation retains its actual scope
+
+#### Scenario: The other shipped declarations describe unmeasured new rejoins
+- **GIVEN** main does not perform the Claude boxed-workspace, DSH headless-work or LaneTally wrapper-work-site rejoin, and each declaration is unmeasured
+- **WHEN** the operator ruling preserves Codex's shipping rejoin and an otherwise eligible offer reaches one of these three shapes
+- **THEN** that shape still declines with `unsupported-resume`; its declaration explains that it is a new unmeasured rejoin, with the provider-specific missing proof, and retains its status, identity, evidence and execution scope
+- **AND** DSH gains no wrapper digest or session-selection invocation, and neither partial Claude/DSH observations nor plain Claude evidence qualify LaneTally
+
+#### Scenario: Preserved Codex support still refuses mismatched evidence
+- **GIVEN** Codex's shipping work-site shape is supported under the operator ruling
+- **WHEN** the observed executable identity is missing or unreadable, differs from declared applicability or the originating root's recorded identity, the invocation's boundary or hands do not match, or required current-accounting evidence is absent or inapplicable
+- **THEN** the invocation does not rejoin and any permitted safe cold launch reports the corresponding bounded refusal under LE2
+- **AND** a different site, instance or unverifiable local origin supplies no offer under SR2; a provider that fails to confirm the exact offered root never yields `launch: resumed`
 
 #### Scenario: The measured installed version still applies
 - **GIVEN** a shape has applicable installed-version interface, restriction, confirmation and accounting evidence
@@ -377,10 +416,10 @@ read as history, not as a current claim.
 - **AND** the affected declaration says evidence is unmeasured and resume is disabled; measurement and enablement remain unchecked, and that preparation cannot be reported as full delivery
 
 #### Scenario: Host evidence later establishes the missing safe path
-- **GIVEN** common plumbing is prepared but a required resume shape is disabled for missing or outdated evidence
+- **GIVEN** common plumbing is prepared but a required new rejoin that main does not perform is disabled for missing or outdated evidence
 - **WHEN** dated installed-provider evidence establishes the required interface, exact-session confirmation, all current restrictions and current-only accounting
 - **THEN** the corresponding measured path is implemented and enabled, its declarations and documentation agree, and its measurement and implementation tasks complete only with cited verification
-- **AND** remaining unmeasured shapes stay disabled; deterministic shim success alone cannot enable them
+- **AND** remaining unmeasured new rejoins stay disabled; deterministic shim success alone cannot enable them, while preservation of shipping Codex remains a separate obligation
 
 #### Scenario: Measurements rule out a required minimum
 - **WHEN** measured provider behavior, including investigation of supported DSH headless session-extension interfaces where applicable, rules out a safe path for a required Claude, DSH or preserved Codex work shape

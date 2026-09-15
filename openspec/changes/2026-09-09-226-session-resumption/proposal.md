@@ -1,5 +1,18 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+The current specify visit, run `operator-ruling-slice-branch-int-bf5f6a32`,
+adopts `2da94b06892a123409816bf7b539640c3c87baf8` on
+`integration/226-resume-prepared` under the existing change
+`2026-09-09-226-session-resumption`. The operator has ruled: **“keep decision
+0030's rejoin live, do not regress codex.”** Answer W applies that ruling to
+this change's draft position, then adopts the four low remedies already in
+this head, in the commissioned order, with their executable proof obligations.
+It supersedes G's and V's cold-interval disposition; no enablement task is
+completed. Passes C/D, archive and re-folding the withdrawn living specs remain
+outside this visit. Earlier visit accounts below are dated history.
+
+Earlier remediation specify adoption, retained as history:
+
 The current specify visit, run `remediation-slice-branch-integra-1d3bbafc`,
 adopts `840de912adf2a5fd7947ac623bf54ad5430649f5` on
 `integration/226-resume-prepared`, including the settled `38ed542` repair,
@@ -45,17 +58,22 @@ Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
 Issue #226 also exposes a recovery gap when safe resume is unavailable:
 completed work needs a truthful task marker before the phase's final commit.
+The prepared branch also disables the Codex rejoin main already performs;
+the operator's 2026-09-15 ruling requires preserving that shipping behavior
+while keeping new, unmeasured resume shapes disabled.
 
 ## What Changes
 
-- For the current remediation slice, reconcile the exact-coverage report with
-  executable evidence while preserving the unreadable-sequence refusal and
-  its test. Adopt the committed cold DSH sequence-zero handling, truthful
-  Codex gate refusal, cold selector refusal and never-publish provenance rule.
-  The AS1/AS3 and LE2/LE4 scenarios below make those edge cases explicit;
-  answer V bounds verification without enabling a provider or advancing a task.
-  The remaining bullets describe the inherited whole change, not new work
-  commissioned by this slice.
+- For the current operator-ruling slice, preserve decision 0030's shipping
+  Codex work-site rejoin across measurement-version drift. Amend AS1's draft
+  disablement rule and require the corresponding amendment to proposed 0056
+  ruling 5; preserve actual identity, boundary, hands and accounting checks.
+  Claude boxed-workspace, DSH headless-work and LaneTally wrapper-work-site
+  remain unmeasured and disabled. Then verify the adopted cold DSH sequence-zero
+  handling, Codex gate refusal, cold selector refusal and never-publish rule,
+  in that order. AS1/AS3 and LE2/LE4/LE5 express the outcomes; answer W records
+  the decisions, controls and phase boundaries. The remaining bullets describe
+  the inherited whole change, not additional work commissioned by this slice.
 - Generalise decision 0030's offer across model work sites: single seats,
   panel members, sequence model steps and members inside sequence panels.
   Retries, phase re-entry and operator retry after a park reuse only the latest
@@ -67,8 +85,9 @@ completed work needs a truthful task marker before the phase's final commit.
   cross-instance reuse; deterministic exec steps hold no provider session.
 - Assess Codex, Claude, DSH and LaneTally separately. Deliver working, measured
   resume for Claude's boxed workspace work shape and DSH's already-admitted
-  headless work shape, preserving Codex work-site coverage after installed-version
-  remeasurement. Qualify an isolated exact-version DSH route using the latest
+  headless work shape, preserving shipping Codex work-site coverage throughout
+  installed-version remeasurement under answer W. Qualify an isolated
+  exact-version DSH route using the latest
   official core release, `@deepseek-ai/dsh` 0.1.5-rc.1 at
   `183f08e9c6dde7e36cd2318eaee70b0da08fb35e` (or the release the `latest`
   dist-tag names at qualification time, recorded as such), with a
@@ -415,18 +434,17 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   installation patch or new hands admission is authorized. If the supported
   interfaces cannot meet the minimum within those rules, AS1 fails and returns
   with the measured reason; investigation is owed before such a conclusion.
-- **G — Version drift requires remeasurement before delivery.** Historical
-  evidence is retained as history and regression scope, not a perpetual grant
-  for later provider versions. A changed installed CLI/wrapper version keeps
-  its affected resume shape disabled until its interface, effective current
-  restrictions, exact-root confirmation and accounting are re-established.
-  For installed codex-cli 0.153.4, 0030's 0.148.0 evidence is insufficient to
-  enable resume. Preserving Codex support means completing that remeasurement
-  and retaining the previously supported work shapes in the delivered change;
-  disabling them pending proof is incomplete preparation. The contrary
-  enabled-until-contradicted rule is rejected because the original measurement
-  itself found silently dropped restrictions. Proposed 0056 must state this
-  qualification explicitly, without rewriting accepted 0030's historical facts.
+- **G — Version drift does not withdraw a shipping rejoin (amended by the
+  2026-09-15 operator ruling; answer W).** Historical evidence keeps its date
+  and version, and new, never-supported shapes stay disabled pending the
+  required interface, restriction, exact-root and accounting measurements.
+  The earlier draft applied that disablement to shipping Codex too; the
+  operator has rejected that regression. Codex's work-site rejoin remains live
+  across the 0.148.0 measurement / 0.153.4 applicability difference, with all
+  invocation identity and safety checks still effective. Current remeasurement
+  and task 11.1 remain incomplete. Proposed 0056 ruling 5 must express this
+  distinction without rewriting accepted 0030's measured historical facts or
+  calling preservation a new live measurement.
 - **H — A requested identity is not evidence that a session exists.** SR3
   permits either a provider-generated root handle or a fresh ID assigned by
   the owning engine/adapter through a measured provider creation interface.
@@ -1384,6 +1402,110 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   `drafted`/`upstream` result vocabulary; the implementation's capacity return
   remains `oversized`, never a fabricated `broken` result.
 
+- **W — Operator ruling slice, 2026-09-15: preserve the shipping Codex
+  rejoin, then verify the four adopted lows.** Adopt the existing change at
+  `2da94b0` and intake `.forge/tasks/226-operator-ruling.md`. No `returned_from`
+  finding accompanies this specify visit. The operator's instruction,
+  **“keep decision 0030's rejoin live, do not regress codex,”** resolves this
+  change's own unlanded conflict; it requires an amendment here, not an
+  upstream return or a new change. Accepted 0030 and main's `codex_launch`
+  both rejoin an eligible thread with the sandbox re-expressed. This head's
+  unmeasured declaration prevents that behavior before qualification runs.
+
+  **The distinction and its limits.** AS1 now preserves a previously supported,
+  currently shipping rejoin across a difference between the historical
+  measurement version and the applicable installed version. Codex `work-site`
+  is that case because main already performs it under accepted 0030. Its
+  declaration must say `supported` for preservation under this ruling, retain
+  0.148.0 as the historical measurement and 0.153.4 as the applicable target,
+  cite the ruling in its reason, and name the existing dated accounting
+  evidence without claiming a new enforcement probe. A bare status flip with
+  missing evidence cannot pass the unchanged gate. The same rule is not a
+  reason to bypass a mismatch between the executable observed now, its
+  declared applicability and the originating root's recorded identity.
+
+  Claude `boxed-workspace`, DSH `headless-work` and LaneTally
+  `wrapper-work-site` are unmeasured rejoins main does not perform. Their
+  declarations must explain that disposition: Claude's partial observations
+  do not prove its complete restriction set; DSH's isolated pair lacks the
+  complete admission/composite proof; LaneTally has no independent wrapper
+  qualification. Preserve all three statuses, identities, evidence and scope;
+  any edits to them are explanatory prose only, with no DSH wrapper digest.
+  Missing or mismatched identity, boundary, hands or current-accounting evidence
+  still refuses rejoin. Same-site/instance and origin checks, legacy Codex's
+  narrow mapping, exact-root confirmation, current settings and fresh gates
+  remain binding. Neither historical acceptance nor the new ruling authorizes
+  inherited permissions, unattributable usage or another session's identity.
+
+  **Non-vacuous preservation proof.** Drive a Codex work-seat retry through
+  production offer admission and provider launch using the shipped declaration
+  and a deterministic CLI shim. Observe the offered thread, sandbox/effort
+  re-expression and confirmed `launch: resumed`; inspecting status or injecting
+  a synthetic supported assessment is insufficient. Temporarily disable the
+  shipped shape, observe that this behavioral assertion fails at runtime,
+  restore the exact bytes, then pass it. Pair it with identity, boundary/hands,
+  accounting, ownership and exact-root refusal cases and checks that the three
+  other shipped shapes still decline. A shim proves the regression control;
+  it is not new live-provider enforcement evidence.
+
+  **The four lows, in order.** Source inspection finds all four remedies
+  already committed; retain them unless executable verification exposes a gap.
+
+  1. DSH uses an optional historical boundary; cold launch has none, rejoin
+     carries its last stored sequence. LE4's cold-zero and stored-zero warm
+     scenarios stand. Before any further fix, restore the old zero-boundary
+     behavior temporarily, observe the cold sequence-zero test fail, restore
+     the adopted fix and pass it. Include the launch-plan-to-transcript-drain
+     connection, not just a direct fold call. This is not Pass D accounting work.
+  2. Codex already checks the closed gate before local ID, sandbox and
+     resume-argv checks. Retain LE2's `unsupported-resume` cause for an offered
+     unmeasured shape with no sandbox, and `restrictions-unavailable` for a
+     boundary/hands mismatch. Safe cold argv and no-offer/no-refusal stand.
+  3. Codex already refuses bundle-authored selectors before calling its cold
+     builder. Retain AS3's outright refusal for `resume <id>` after the driver's
+     `--`, including disabled and no-offer paths. The adopted conservative
+     refusal also covers value positions; no Codex exception is justified.
+  4. `extensions/dsh/PROVENANCE.md`, read before considering the package,
+     already says never publish this directory to npm or any registry. Adopt
+     that documentation closure and verify the committed-byte/composite proof.
+     Adding `private: true` inside the hashed six-file set is refused because
+     it breaks the qualified one-expression adaptation's digest proof. Preserve
+     all six files' bytes and upstream attribution; no registry probe is needed.
+
+  **Dependent amendments and scope.** This specify checkpoint authors only
+  proposal and deltas. Council design must carry W into its current decisions,
+  amend proposed 0056 ruling 5 and the directly conflicting alternative and
+  consequence, keeping status `proposed`. The task office must amend 11.1's
+  account and dependent current prose: the operator has closed the interval;
+  after the behavioral proof, the shipping rejoin is preserved, while full
+  remeasurement remains pending. Do not prematurely report that code result
+  at this specification checkpoint. Keep 11.1 and every other task unchecked
+  where currently unchecked, including 8.8, 8.10, 9.6 and all 11.x. The
+  implementation must align the provider guide and any necessary packaged
+  declaration consumers. These are amendments of this same draft; earlier
+  dated captures and accepted 0030 remain historical facts. Passes C/D,
+  archive, withdrawn living specs, frozen contracts/policy/reference/fixtures,
+  version bumps and unrelated changes remain excluded.
+
+  **Verification and handoff.** The commission and inherited gate summary
+  supply **30,015/30,015 lines, 5,036/5,036 branches, 2,861/2,861 functions**;
+  these are adopted baseline evidence, not a fresh seat measurement. V's
+  earlier coverage investigation is settled by adopted `2da94b0`; do not
+  reopen it. Before and after implementation report the gate's own integers,
+  exit status, revision and report identities. Use a writable disk-backed
+  `TMPDIR` outside the repository, never the filling `/tmp` tmpfs or an
+  in-repository directory. Apply #282's Git-environment workaround to every
+  Git invocation and test child. Every new regression test needs a compiling
+  behavior-breaking mutation, observed runtime failure, exact restoration
+  and passing rerun. Run format, all-target/all-feature clippy, affected crate
+  suites, `cargo test --workspace`, all-feature locked workspace tests, both
+  bundle compiles and strict OpenSpec validation. Never lower coverage, add
+  conditional exclusions or touch `coverage(off)`. Report actual in-box counts;
+  #286's namespace skips leave host equality pending controller measurement.
+  Remote CI, integration, publication and closure remain pending their owners'
+  actual results. Staffing and result-write rules in V remain applicable;
+  this sole specify seat starts no additional seat or run.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -1511,8 +1633,9 @@ engine/protocol offer and launch plumbing and deterministic tests, update
 `adapters/{codex,claude,dsh,lanetally}.json` and packaged representations with
 explicit evidence status, and record proof and limitations in the provider
 guides and proposed `docs/decisions/0056-*.md`. Provider-specific construction
-uses identified help/source; unmeasured enforcement keeps resume disabled,
-without cancelling interface work that the evidence supports.
+uses identified help/source; unmeasured enforcement keeps new, never-supported
+rejoins disabled without cancelling interface work that the evidence supports.
+Answer W preserves the shipping Codex rejoin while its remeasurement is pending.
 
 The council design and smith's breakdown must include these separate evidence
 and implementation obligations:
@@ -2361,3 +2484,39 @@ Validation output and the artifact audit are retained in
 not a completed remediation, passed #226 plan task or merge-readiness claim.
 The operator's Codex cold-interval ruling and all remote results remain
 pending. No archive, provider activation, push, merge or additional run occurred.
+
+
+## Specify validation — operator ruling slice, 2026-09-15
+
+Run `operator-ruling-slice-branch-int-bf5f6a32` adopted `2da94b0` in
+proposal-then-deltas order through workspace hands. The dialect's own
+specify/return files and rendered proposal/specs instructions were read;
+no workflow runner was invoked. Answer W records the ruling, the four adopted
+low remedies in order, their proof obligations and the dependent amendments.
+AS1 replaces the draft Codex disablement with shipping preservation and adds
+explicit provider-disposition and refusal scenarios; LE5 requires a behavioral
+retry-to-launch control. The same five capabilities contain 20 requirements
+and 158 scenarios. Only this proposal and those two deltas are committed.
+
+Strict active validation and repository-wide strict validation pass (14 items,
+zero failures); status and whitespace checks pass. The informational archive
+refusals for the withdrawn living targets are inherited and remain outside this
+commission. The other 725 tracked files, all 101 task IDs and ticks (82 complete,
+19 pending), and the six plugin files retain their adopted bytes. The six
+plugin digests reproduce the committed-byte block in `PROVENANCE.md`.
+
+Format, all-target/all-feature clippy, protocol/runtime/driver-conformance
+suites, both workspace test commands and both bundle compiles could not launch:
+Cargo is absent (exit 127). No fresh Rust pass or mutation-control result is
+claimed in this specification phase. The exact-coverage gate likewise cannot
+launch; there are no fresh before/after or in-box counts. The unchanged inherited
+summary reads 30,015/30,015 lines, 5,036/5,036 branches and 2,861/2,861 functions,
+which is prior evidence only. Implementation controls and local Rust validation
+remain owed; host equality remains pending controller measurement under #286.
+Evidence is retained in `.forge/specify-ruling-bf5f6a32/`.
+
+This is a specification draft. Proposed 0056, design, task 11.1's account,
+declarations and the provider guide still require W's dependent amendments in
+their owning phases; runtime preservation is not yet claimed. No enablement task,
+archive, provider probe, push, merge or new run occurred. Remote results remain
+pending their controller/operator handoffs.

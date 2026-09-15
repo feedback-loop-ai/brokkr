@@ -254,6 +254,13 @@ backfilling from argv, current declarations or another site's evidence.
 Deterministic shims SHALL be labelled as protocol/accounting evidence and
 SHALL NOT be cited as live provider enforcement proof (decision 0034).
 
+#### Scenario: The shipping Codex declaration actually rejoins a retry
+- **GIVEN** the shipped Codex declaration, an eligible work-seat retry and a deterministic provider shim that confirms the offered root before current work
+- **WHEN** the test drives the retry through production offer admission and provider launch
+- **THEN** it observes the exact offered thread rejoined with current sandbox and effort re-expressed and confirmed `launch: resumed`
+- **AND** disabling that shipped shape makes the behavioral assertion fail; reading back its status or substituting a synthetic supported assessment cannot satisfy this conformance case
+- **AND** the test remains deterministic protocol evidence and is not reported as new live-provider enforcement proof
+
 #### Scenario: Each composite member keeps its launch
 - **WHEN** one work-class panel member resumes and another starts cold, including inside a sequence
 - **THEN** each member's tagged evidence retains its own launch, and the aggregate does not substitute one member's state for the other
