@@ -135,26 +135,74 @@ fn model_driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
 /// `locator` are the other two coordinates of the owned target. The
 /// invocation counter still mints `<tag>-<n>`, so the offered id is the
 /// one the first attempt opened.
+///
+/// The checkpoint is serialized here, once per declared invocation, into
+/// a JSONL data file beside the verdicts. The shim selects its indexed
+/// row and emits it as a `%s` argument in a fixed format, so a Windows
+/// backslash, a percent sign, a quote or an embedded newline in the home
+/// or locator is payload rather than shell source or a `printf` directive
+/// (R2). A missing row fails the shim explicitly; it never repeats the
+/// previous checkpoint.
 fn dsh_model_driver(
     dir: &Path,
     tag: &str,
     results: &[&str],
     locator: &str,
     home: &str,
+    invocations: usize,
 ) -> Vec<String> {
     let command = driver(dir, tag, results);
     let digest = "a".repeat(64);
-    let legacy = format!("\"data\":{{\"step\":\"session-started\",\"session_id\":\"{tag}-%s\"}}");
-    let stamped = format!(
-        "\"data\":{{\"step\":\"harness-started\",\"model\":\"deepseek-v4-flash\",\
-         \"launch\":\"cold\",\"root_session\":{{\"kind\":\"dsh-session\",\
-         \"id\":\"{tag}-%s\",\"harness_version\":\"0.1.5-rc.1\",\
-         \"wrapper_digest\":\"{digest}\",\"persistent\":true}},\
-         \"transcript\":{{\"kind\":\"dsh-session\",\"locator\":\"{locator}\",\
-         \"home\":\"{home}\"}}}}"
+    let mut rows = String::new();
+    for n in 1..=invocations {
+        let data = json!({
+            "step": "harness-started",
+            "model": "deepseek-v4-flash",
+            "launch": "cold",
+            "root_session": {
+                "kind": "dsh-session",
+                "id": format!("{tag}-{n}"),
+                "harness_version": "0.1.5-rc.1",
+                "wrapper_digest": digest,
+                "persistent": true,
+            },
+            "transcript": {
+                "kind": "dsh-session",
+                "locator": locator,
+                "home": home,
+            },
+        });
+        rows.push_str(&serde_json::to_string(&data).unwrap());
+        rows.push('\n');
+    }
+    std::fs::write(dir.join(format!("{tag}.checkpoints")), rows).unwrap();
+    // The shim reads this path out of its script text, so it is spelled the
+    // same forward-slashed way the other fixture paths are.
+    let checkpoints = dir
+        .join(format!("{tag}.checkpoints"))
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    let legacy_closed =
+        format!("\"data\":{{\"step\":\"session-started\",\"session_id\":\"{tag}-%s\"}}}}");
+    let script = command[2]
+        .replace(
+            "printf '%s,\"type\":\"checkpoint\"",
+            &format!(
+                "ckpt=$(sed -n \"${{n}}p\" '{checkpoints}')\n\
+                 [ -n \"$ckpt\" ] || {{ echo 'dsh shim: no checkpoint row for this invocation' >&2; exit 1; }}\n\
+                 printf '%s,\"type\":\"checkpoint\""
+            ),
+        )
+        .replace(&legacy_closed, "\"data\":%s}")
+        .replace(
+            "\"$base\" \"$eid\" \"$aid\" \"$n\"",
+            "\"$base\" \"$eid\" \"$aid\" \"$ckpt\"",
+        );
+    assert_ne!(
+        script, command[2],
+        "the {tag} shim must emit a data-row checkpoint"
     );
-    let script = command[2].replace(&legacy, &stamped);
-    assert_ne!(script, command[2], "the {tag} shim must emit a stamped row");
     vec![command[0].clone(), command[1].clone(), script]
 }
 
@@ -1167,6 +1215,92 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
         "the newest row records no home; an older row's home is not borrowed"
     );
     assert_eq!(newest.persistence_locator, None);
+
+    // Distinct old/new coordinates on the SAME site and instance: the
+    // newest eligible row supplies all five, never one field from the
+    // older row (the split `eligible_offer`/`originating_root` scans).
+    let coord = |id: &str, version: Value, digest: Value, locator: &str, home: &str| {
+        json!({
+            "step":"harness-started", "model":"claude-opus-5", "launch":"resumed",
+            "site_ref": SITE_A, "instance_ref": OWNER,
+            "root_session":{"kind":"dsh-session", "id": id,
+                            "harness_version": version, "persistent": true,
+                            "wrapper_digest": digest},
+            "transcript":{"kind":"dsh-session", "locator": locator, "home": home}
+        })
+    };
+    let mut distinct = journal(coord(
+        "older",
+        json!("1.0.0"),
+        json!("a".repeat(64)),
+        "sessions/brokkr/older",
+        "/old/home",
+    ));
+    distinct.push(envelope(
+        EventType::EffectCheckpointed,
+        json!({"effect_id":"fx", "attempt_id":"a1",
+        "checkpoint": coord(
+            "newer",
+            json!("2.0.0"),
+            json!("b".repeat(64)),
+            "sessions/brokkr/newer",
+            "/new/home",
+        )}),
+        Some("a1"),
+    ));
+    let newest = offer_for_site(&distinct, &key, &mine, "work", true, true, &started)
+        .expect("the newest eligible row is offered");
+    assert_eq!(newest.provider_id, "newer");
+    assert_eq!(
+        newest.persistence_locator.as_deref(),
+        Some("sessions/brokkr/newer")
+    );
+    assert_eq!(newest.persistence_home.as_deref(), Some("/new/home"));
+    let origin = resume::originating_root(&distinct, SITE_A).expect("a confirmed root");
+    assert_eq!(origin.harness_version.as_deref(), Some("2.0.0"));
+    assert_eq!(
+        origin.wrapper_digest.as_deref(),
+        Some("b".repeat(64).as_str())
+    );
+    assert_eq!(
+        origin.persistence_locator.as_deref(),
+        Some("sessions/brokkr/newer"),
+        "the version, digest and locator come off the same newest row"
+    );
+
+    // A mistyped newest version/digest is missing evidence, never borrowed
+    // from the older row.
+    let mut mistyped = journal(coord(
+        "older",
+        json!("1.0.0"),
+        json!("a".repeat(64)),
+        "sessions/brokkr/older",
+        "/old/home",
+    ));
+    mistyped.push(envelope(
+        EventType::EffectCheckpointed,
+        json!({"effect_id":"fx", "attempt_id":"a1",
+        "checkpoint": coord(
+            "newer",
+            json!(7),
+            json!(8),
+            "sessions/brokkr/newer",
+            "/new/home",
+        )}),
+        Some("a1"),
+    ));
+    let offered = offer_for_site(&mistyped, &key, &mine, "work", true, true, &started)
+        .expect("the newest root is still eligible");
+    assert_eq!(offered.provider_id, "newer");
+    let origin = resume::originating_root(&mistyped, SITE_A).expect("a confirmed root");
+    assert_eq!(
+        origin.harness_version, None,
+        "a mistyped version is missing evidence, never the older row's"
+    );
+    assert_eq!(
+        origin.wrapper_digest, None,
+        "a mistyped digest is missing evidence, never the older row's"
+    );
 }
 
 /// The four topologies get four different keys, and every identity axis
@@ -1743,6 +1877,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         &["fail", "complete"],
         locator,
         &home_text,
+        2,
     );
     let candidate = Candidate {
         agent: "implementer".into(),
@@ -1788,6 +1923,16 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
     assert_eq!(owned["provider_id"], "work-1");
     assert_eq!(owned["persistence_locator"], locator);
     assert_eq!(owned["persistence_home"], home_text);
+    // The other two coordinates come from the SAME confirmed checkpoint:
+    // the version and composite the offered root was opened under.
+    assert_eq!(
+        starts[1]["input"]["resume_context"]["originating_harness_version"],
+        "0.1.5-rc.1"
+    );
+    assert_eq!(
+        starts[1]["input"]["resume_context"]["originating_wrapper_digest"],
+        "a".repeat(64)
+    );
     // The private carrier is not rendered into the prompt context.
     assert!(
         starts[1]["context"].get("owned_target").is_none(),
@@ -1810,7 +1955,7 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         seat(
             panel(vec![member(
                 "alpha",
-                dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text),
+                dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text, 2),
             )]),
             &["pass", "fail"],
             1,
@@ -1847,4 +1992,93 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     assert_eq!(owned["provider_id"], "alpha-1");
     assert_eq!(owned["persistence_locator"], locator);
     assert_eq!(owned["persistence_home"], home_text);
+    assert_eq!(
+        starts[1]["input"]["resume_context"]["originating_harness_version"],
+        "0.1.5-rc.1"
+    );
+    assert_eq!(
+        starts[1]["input"]["resume_context"]["originating_wrapper_digest"],
+        "a".repeat(64)
+    );
+}
+
+/// Run one shim command the way the engine does: hand it the first line
+/// and the start message whose `*start*` arm breaks its read loop, then
+/// collect what it wrote to stdout and stderr.
+fn run_dsh_shim(argv: &[String]) -> (String, String) {
+    use std::io::Write as _;
+    let mut child = std::process::Command::new(&argv[0])
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        writeln!(stdin, "{{\"type\":\"hello\"}}").unwrap();
+        writeln!(
+            stdin,
+            "{{\"type\":\"start\",\"effect_id\":\"effect-1\",\"attempt_id\":\"attempt-1\"}}"
+        )
+        .unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// R2: the DSH checkpoint transport, exercised through the shim's actual
+/// emitted bytes rather than a hand-typed format. A Windows-shaped home
+/// with backslashes, a percent sign, a quoted span and an embedded newline
+/// must decode back unchanged, with one JSONL frame per checkpoint. This
+/// is portable transport evidence, not a native Windows run.
+#[test]
+fn a_windows_shaped_dsh_home_survives_the_checkpoint_transport() {
+    let dir = tempfile::tempdir().unwrap();
+    let locator = "sessions/brokkr/seat-1";
+    let home = "C:\\Users\\seat\\AppData\\%TEMP%\\\"quoted\"\nnext";
+    let argv = dsh_model_driver(dir.path(), "transport", &["pass"], locator, home, 1);
+    let (stdout, stderr) = run_dsh_shim(&argv);
+    let frames: Vec<Value> = stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|message| message["type"] == "checkpoint")
+        .collect();
+    assert_eq!(
+        frames.len(),
+        1,
+        "one checkpoint frame per invocation: {stdout} / {stderr}"
+    );
+    let data = &frames[0]["data"];
+    assert_eq!(data["step"], "harness-started");
+    assert_eq!(data["root_session"]["id"], "transport-1");
+    assert_eq!(data["transcript"]["locator"], locator);
+    assert_eq!(
+        data["transcript"]["home"], home,
+        "the Windows home is data, never reinterpreted: {stdout}"
+    );
+}
+
+/// R2: a declared invocation with no serialized row fails the shim
+/// explicitly instead of repeating the previous checkpoint.
+#[test]
+fn a_missing_dsh_checkpoint_row_fails_the_shim_without_repeating() {
+    let dir = tempfile::tempdir().unwrap();
+    let locator = "sessions/brokkr/seat-1";
+    let home = "C:\\Users\\seat";
+    let argv = dsh_model_driver(dir.path(), "short", &["pass"], locator, home, 1);
+    let (first, _) = run_dsh_shim(&argv);
+    assert!(
+        first.contains("\"type\":\"checkpoint\""),
+        "the first invocation has its row: {first}"
+    );
+    let (second, stderr) = run_dsh_shim(&argv);
+    assert!(
+        !second.contains("\"type\":\"checkpoint\""),
+        "the second invocation must not repeat the first checkpoint: {second}"
+    );
+    assert!(stderr.contains("no checkpoint row"), "{stderr}");
 }
