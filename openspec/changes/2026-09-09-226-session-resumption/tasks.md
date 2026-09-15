@@ -1,8 +1,10 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current commission: run `operator-ruling-slice-branch-int-bf5f6a32`, tasks
-phase, adopts design `17bbd10`, proposal W/specifications `3ead8d4` and the
-committed implementation through `2da94b0`. The operator ruled: **“keep
+Current commission: run `operator-ruling-slice-branch-int-bf5f6a32`, design
+return after analyze F1, adopts `c45ee20`, proposal W/specifications `3ead8d4`
+and committed implementation through `2da94b0`. D10 corrects the defective
+scope/proof in design `17bbd10`; this dependent task reconciliation follows it.
+The operator ruled: **“keep
 decision 0030's rejoin live, do not regress codex.”** This is the **operator
 ruling and four lows only**. The ledger remains **82 complete / 19 pending**
 across the same 101 identifiers; every checkbox state is inherited unchanged.
@@ -18,9 +20,15 @@ Every clause belongs to the existing requirement-linked checkboxes below;
 none creates a new task identifier or completes a whole checkbox. Record each
 actual control and remaining proof here before proceeding to the next clause.
 
-Proposal W/AS1 and design D5/D10 resolve the draft conflict. The decision,
-declarations, guide and executable preservation proof remain implementation
-work at this tasks checkpoint. Historical measurement-version drift alone
+Proposal W/AS1 and design D5/D10 resolve the draft conflict. Returned F1
+requires preservation of the engine-composed harness work seat: declaration
+`boundaries: ["harness"]`, `hands: "none"`, actual input `boundary: harness`
+with no `hands` marker, and the shipped `--sandbox workspace-write` argv.
+Main's boxed work seat carries MCP `-c` settings its resume allow-list already
+refuses; it stays cold. Use the composition bridge and independent status/hands
+controls below. The scalar gate/loader and argv allow-list stay unchanged.
+The decision, declarations, guide and executable preservation proof remain
+implementation work at this design-return checkpoint. Historical measurement-version drift alone
 must no longer disable main's Codex rejoin; actual observed/origin identity,
 boundary, hands, accounting and ownership mismatches still refuse. Claude,
 DSH and LaneTally remain unmeasured and disabled. Full installed-version
@@ -1743,14 +1751,17 @@ itself (`safety / AS1`).
       judging pass at `2da94b0`. The change must retain the rejoin main already
       performs across the historical 0.148.0/current-applicability 0.153.4 drift,
       while refusing actual identity, boundary, hands and accounting mismatch.
-      At this tasks visit's adopted head `17bbd10`, the declaration is still
-      unmeasured:
-      the decision/declaration amendment and driver proof below are pending,
-      not a claim that the runtime regression is already repaired. After that
+      At this design return's adopted head `c45ee20`, the declaration is still
+      unmeasured. Analyze F1 establishes that retaining `hands: boxed` would
+      also refuse the shipping harness retry after a status flip. D10 now
+      requires `boundaries: ["harness"]`, `hands: "none"`, the composed
+      workspace-write argv and engine input with no hands marker; boxed MCP
+      argv already stayed cold on main. The declaration amendment, composition
+      bridge and driver proof below are pending, not a claim that the runtime regression is already repaired. After that
       proof passes, replace this pending account with the command, restored
-      passing result and disabled-shape failing control showing that the same
-      work-seat retry now rejoins with confirmed `launch: resumed`. State that
-      the regression is removed and full 10.5/11.1 qualification is still owed;
+      passing result and independent disabled-status/boxed-hands failing
+      controls showing that the same harness work-seat retry now rejoins with
+      confirmed `launch: resumed`. State that the regression is removed and full 10.5/11.1 qualification is still owed;
       leave this checkbox unchecked. The earlier cold/unsupported observation
       remains dated evidence, never an authorized current disposition.
 - [ ] 11.2 Enable Claude's boxed-workspace work shape under its
@@ -4552,13 +4563,13 @@ publication or new Brokkr run occurred.
 
 ## Current tasks visit — operator-ruling breakdown, 2026-09-15
 
-Run `operator-ruling-slice-branch-int-bf5f6a32`, tasks phase, adopts design
-`17bbd10`, proposal W/specifications `3ead8d4` and implementation `2da94b0`.
-No `returned_from` finding was supplied. D10's operator-ruling sitting and
-Open Questions settle the choices; W/AS1 already express the answered
-ambiguity as scenarios. No upstream amendment is needed before drafting:
-proposed 0056's amendment is the first semantic implementation obligation,
-explicitly designed by D10, within this same open change.
+Run `operator-ruling-slice-branch-int-bf5f6a32` adopts the task checkpoint
+`c45ee20` and implementation `2da94b0`. This breakdown was first drafted over
+`17bbd10`; the present design return corrects it for analyze F1 after revising
+its owning D10. Proposal W/AS1/LE5 stand: no earlier requirement is defective.
+D10 records the resolved composition scenario and both positions' dispositions.
+Its Open Questions defer no choice. Proposed 0056's amendment remains the first
+semantic implementation obligation within this same open change.
 
 These numbered clauses order the pending acceptance within existing checkbox
 IDs; they are not additional tasks or permission to tick any whole-change
@@ -4608,21 +4619,34 @@ repairs and fix only a gap the commissioned control demonstrates.
    with `cargo test -p brokkr-cli --test decisions_index` and check its account
    against W/AS1 and D5/D10 before the declaration edit.
 
+   First add D10's composition bridge in the existing runtime boundary/agent
+   suites: load shipped Codex through `Adapters::load`, resolve a work agent
+   with hands under harness, compose its `SiteSpawn`, and obtain the work input
+   through `seat_input`/`mark_hands`. Assert `boundary: harness`, no `hands`
+   key, the shipped `--sandbox workspace-write`, current model/effort and no
+   workspace MCP fragment. Assert the declaration's scope matches those facts.
+   Pair boxed resolution with its full MCP-bearing workspace argv and boxed
+   input facts, without spawning a nested namespace. Existing synthetic
+   boundary fixtures alone cannot prove this shipped composition.
+
    In `crates/brokkr-cli/tests/driver_conformance.rs`, add D10's deterministic
-   cold-then-retry driver exchange. Use test-owned homes and the actual shipped
-   `adapters/codex.json` bytes: the entire `resume` map goes into
-   `/resume_context/assessment`, with no positive-fixture status override or
-   `enabled_assessment`. The CLI shim answers `--version` as
+   cold-then-retry exchange with test-owned homes. Feed the actual shipped
+   `adapters/codex.json` resume map to `/resume_context/assessment`; no
+   positive status override or `enabled_assessment`. Use the production
+   resolver and `compose_site` APIs to obtain the harness argv, with the exact
+   input facts pinned above. The CLI shim answers `--version` as
    `codex-cli 0.153.4`, captures argv and confirms a root before current work.
-   Establish the cold root through the production driver, then start a fresh
-   driver process with `hello`, a correctly correlated `resume` for that root,
-   `start` and `shutdown`. Supply the site's namespace/boxed facts, current
-   sandbox/model/effort, prompt and result destination. Assert actual
-   `exec resume`, exactly the offered thread, re-expressed sandbox/effort,
-   and the production adapter's confirmed `launch: resumed` with that root
-   and no unsupported refusal. The shim must not fabricate launch evidence.
-   Run against the still-disabled adopted declaration and retain the runtime
-   assertion failure; a compile error or status-only assertion is no control.
+   Establish the cold root through the production driver; a fresh driver
+   receives `hello`, correctly correlated `resume`, `start`, `shutdown`.
+   Assert `exec resume`, exactly the offered thread, re-expressed
+   `sandbox_mode="workspace-write"` and effort, current prompt/result
+   destination, and the production adapter's confirmed `launch: resumed`
+   without an unsupported refusal. The shim emits provider events, not launch
+   evidence. Run the behavioral test against the still-disabled declaration
+   and retain its runtime assertion failure. A compile error, bridge-only
+   mismatch or status-only assertion is not this launch control. This binds
+   LE5 to D10's scenario **The engine-composed harness work seat keeps main's
+   rejoin**, closing F1's composition gap.
 
 3. **Preserve shipping support and prove every retained admission fence.**
    Existing 6.1/6.4–6.6, 8.1/8.5/8.10, 9.5/9.7; safety / **AS1**, **AS2**;
@@ -4630,13 +4654,17 @@ repairs and fix only a gap the commissioned control demonstrates.
    offered handle names the provider's own session**, **SR5 Session recovery uses durable
    evidence without widening crash recovery**; evidence / **LE2 Launch evidence
    stays within a versioned closed vocabulary**, **LE5**. Set only Codex
-   `work-site` to `supported`; retain measured 0.148.0, applicable 0.153.4,
-   classes, boundaries, hands, existing evidence and every limitations byte
-   and order. Add only `evidence.accounting` naming the bounded September 10
-   0.153.4 cold/warm current-usage observation, explicitly partial. Its reason
-   cites preservation under the September 15 operator ruling and full proof
-   still owed. Update only the other three reasons to state why main does not
-   perform their rejoin: Claude's incomplete installed 2.1.270 restriction/
+   `work-site` to `supported`, `boundaries: ["harness"]` and `hands: "none"`;
+   retain measured 0.148.0, applicable 0.153.4, classes, existing evidence and
+   every existing limitations byte/order. Add D10's exact partial September 10
+   accounting reference and append its dated limitation naming the preserved
+   harness coordinate, main's boxed MCP-argv refusal and remaining proof debt.
+   The boxed cold cause is now `restrictions-unavailable` instead of main's
+   `incompatible-argv`; explain it without claiming a new rejoin. The reason
+   cites the September 15 ruling, harness preservation and full proof owed.
+   Keep the scalar hands type, loader, gate, qualification, allow-list and
+   engine markers unchanged. Update only the other three reasons to state why
+   main does not perform their rejoin: Claude's incomplete installed 2.1.270 restriction/
    boundary/precedence proof while retaining declared 2.1.266/2.1.266;
    DSH's incomplete exact-root/restriction/multi-message/composite proof;
    LaneTally's unknown wrapper identity/forwarding. Preserve their statuses,
@@ -4644,13 +4672,24 @@ repairs and fix only a gap the commissioned control demonstrates.
 
    Run clause 2 to green. Temporarily set the actual shipped Codex status
    back to `unmeasured`, rebuild and observe that same behavioral assertion
-   fail on the cold/unsupported launch; restore exact bytes and pass. In the
-   existing runtime `tests/roster.rs` shipped-shape case, load the four real
-   declarations through `Adapters::load`, asserting those dispositions,
-   Codex's distinct measured/applicable versions and four references, and
-   DSH's absent digest. This is secondary loader evidence, not the rejoin proof.
+   fail on the cold/unsupported launch; restore exact bytes and pass. Then
+   independently revert only declared hands to `boxed`; the same driver test
+   must fail cold/`restrictions-unavailable`, reproducing F1. Restore/pass.
+   Calibrate the bridge by suppressing the harness fragment append in
+   `compose_site`, then separately the boundary write in `mark_hands`, each
+   with an observed corresponding assertion failure and exact restoration/pass.
+   Record all controls separately; deleting accounting replaces none of them.
+   In the existing runtime `tests/roster.rs` shipped-shape case, load the four
+   real declarations through `Adapters::load`, asserting those dispositions,
+   Codex's harness/none scope, distinct measured/applicable versions and four
+   references, and DSH's absent digest. This is secondary loader evidence,
+   not the rejoin proof. Run the boxed negative with its complete resolved
+   workspace MCP argv; require cold `restrictions-unavailable` and no version
+   probe under the narrowed declaration. Preserve the independent existing
+   `-c` allow-list refusal; no boxed or no-hands rejoin is newly enabled.
    Exercise all three other shipped assessments with otherwise eligible offers
-   through the existing planner suites and require `unsupported-resume`.
+   through the existing planner suites and require `unsupported-resume`
+   without a version probe.
 
    Pair the positive with existing or narrowly extended tests for missing/
    unreadable observed identity, observed 0.148.0 or a third version, recorded
@@ -4730,10 +4769,12 @@ repairs and fix only a gap the commissioned control demonstrates.
    progress / **PM2 Recovery reconciles the marker with surviving work**.
    After clause 3 passes, update 11.1's current account to the actual rejoin
    result and controls, retaining full 10.5/11.1 debt and its unchecked state.
-   Align the provider guide's blanket expiry paragraph and Codex row, the
-   `ResumeIdentity::Measured.applies_to` comment and only necessary packaged/
-   scaffolded consumers with the four dispositions. Preserve dated captures
-   and limitations; no live enforcement claim follows from shims or prose.
+   Align the provider guide's blanket expiry paragraph, Codex row and all-cold
+   statement, the `ResumeIdentity::Measured.applies_to` comment and only
+   necessary packaged/scaffolded consumers with the four dispositions. Name
+   harness/none preservation and the boxed coordinate's continued cold launch
+   and changed refusal token; do not imply all Codex boundaries are enabled.
+   Preserve dated captures and limitations; no live enforcement claim follows from shims or prose.
    After all declaration bytes settle, run the existing witness and compose
    tests and update only their measured left/right digest pairs. Declaration
    reason edits can change any consuming identity, including Claude-only
@@ -4819,3 +4860,20 @@ controls and fresh gates; #286's host equality and final remote results remain
 pending the controller. The operator ruling itself is resolved. No provider
 qualification, checkbox completion, archive, living-spec fold, push, merge,
 publication or additional Brokkr run is claimed.
+
+### Design-return reconciliation — analyze F1, 2026-09-15
+
+This return revised owning D10 first, then the current task instructions and
+11.1's pending account. The breakdown now requires harness/none declaration
+scope, full production composition, independent status/hands and composition
+controls, and a boxed cold negative with its complete MCP argv. The four lows
+retain their order. No requirement or task ID/tick changed; all 101 IDs remain
+82 checked / 19 pending. Implementation has not run these new proofs.
+
+Strict active and all-item OpenSpec validation pass (14 items, zero failures);
+whitespace and artifact audits pass. The design's F1 validation section records
+the nine Rust commands unavailable at exit 127 because Cargo is absent, and
+no fresh before/after or in-box coverage. The inherited gate counts are not
+new results. This return claims a coherent design and dependent breakdown only;
+implementation, mutation controls, local Rust gates and controller host/remote
+results remain pending. Audit: `.forge/design/operator-ruling-f1-bf5f6a32/`.
