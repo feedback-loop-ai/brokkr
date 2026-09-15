@@ -67,7 +67,7 @@
       "evidence": {
         "interface": ".forge/tasks/dsh-pair-qualification-015rc1.json (2026-09-12): isolated live cold+warm qualification of @deepseek-ai/dsh 0.1.5-rc.1 at 183f08e9 plus the repository-owned six-file adaptation of dsh-plugin-cli-session 0.2.0 at 0f487e74 under extensions/dsh/plugin-cli-session/; see controller-dsh-upstream-discovery.json and dsh-pair-incompatibility.json"
       },
-      "reason": "the forward-pinned route (@deepseek-ai/dsh 0.1.5-rc.1 plus the repository-owned six-file adaptation of dsh-plugin-cli-session 0.2.0 under extensions/dsh/plugin-cli-session/) is selected but disabled: the adapted pair continues one root cold-to-warm with a result envelope and per-message usage, but exact-root, restriction, multi-message accounting and composite-digest proof are unmeasured",
+      "reason": "main does not perform this rejoin: the forward-pinned route (@deepseek-ai/dsh 0.1.5-rc.1 plus the repository-owned six-file adaptation of dsh-plugin-cli-session 0.2.0 under extensions/dsh/plugin-cli-session/) is selected but disabled, because exact-root, restriction, multi-message accounting and composite-digest proof remain unmeasured",
       "limitations": [
         "core 0.1.5-rc.1 broke the plugin's post-turn fold (agent.session.events removed); the repository-owned adaptation restores the interval with snapshotEvents(firstSeq) and is the selected route, a measured one-expression fix, not a global DSH or extension limitation",
         "the plugin's emitted session_id is request-derived and is not independent root confirmation; the retained depth-zero header, post-resume init event, same-root nonce continuity and absence of a fresh sibling root must be observed",

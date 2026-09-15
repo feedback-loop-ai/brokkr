@@ -1916,6 +1916,68 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
         );
     }
 
+    // The shipped resume dispositions (operator ruling 2026-09-15). Codex
+    // `work-site` preserves main's harness/none rejoin as `supported`,
+    // keeping the historical 0.148.0 measurement and the applicable
+    // 0.153.4 with the dated current-accounting reference; the other
+    // three are new rejoins main does not perform and stay `unmeasured`.
+    let codex_resume = adapters.adapter("codex").unwrap().resume.shape("work-site");
+    let codex_resume = codex_resume.expect("codex declares work-site");
+    assert_eq!(codex_resume.status, ResumeStatus::Supported);
+    assert_eq!(
+        codex_resume.identity,
+        ResumeIdentity::Measured {
+            version: "0.148.0".into(),
+            applies_to: "0.153.4".into(),
+            wrapper_digest: None,
+        }
+    );
+    assert_eq!(codex_resume.boundaries, vec!["harness".to_string()]);
+    assert_eq!(codex_resume.hands, "none");
+    for reference in [
+        &codex_resume.evidence.interface,
+        &codex_resume.evidence.restrictions,
+        &codex_resume.evidence.root,
+        &codex_resume.evidence.accounting,
+    ] {
+        assert!(reference.is_some(), "a supported shape names all four");
+    }
+    for (provider, shape) in [
+        ("claude", "boxed-workspace"),
+        ("dsh", "headless-work"),
+        ("lanetally", "wrapper-work-site"),
+    ] {
+        let entry = adapters
+            .adapter(provider)
+            .unwrap()
+            .resume
+            .shape(shape)
+            .unwrap_or_else(|| panic!("{provider} declares {shape}"));
+        assert_eq!(
+            entry.status,
+            ResumeStatus::Unmeasured,
+            "{provider} is not enabled by the Codex ruling"
+        );
+        assert!(
+            entry
+                .reason
+                .as_deref()
+                .is_some_and(|why| why.contains("main does not perform")),
+            "{provider} names its non-shipping disposition"
+        );
+    }
+    match &adapters
+        .adapter("dsh")
+        .unwrap()
+        .resume
+        .shape("headless-work")
+        .unwrap()
+        .identity
+    {
+        ResumeIdentity::Measured { wrapper_digest, .. } => assert!(wrapper_digest.is_none()),
+        other => panic!("dsh stays a measured identity: {other:?}"),
+    }
+
     let library = Library::load(&root.join("agents")).expect("the shipped library loads");
     let resolution = resolve(
         &library,

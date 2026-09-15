@@ -1059,19 +1059,19 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "ea3622812a5e868500b1ed74e3eb20b899c410b24231b515803476a6a7cab424",
+        "a653dbfc5deea79fe78eda4ed962b828a49cbdbd7ffdd997302d17bf1e01285c",
     ),
     (
         "recipes/panel-review",
-        "2e8b0eb8ecec62c8cd82b4dadad90d21269bbe273318a9133e434813479fbcef",
+        "2702b5d6c07be0fba4f82136637f218568728c3e616c3bb7e90d49bc0617827a",
     ),
     (
         "bundles/self",
-        "79954bbaa0bd677c5a2e0328129a95ffd28631d443ac638be7749373fd1cf8a3",
+        "be74edfd50959cf1763477237aacdee34fda31c3e81122d9208f9cb562965d3c",
     ),
     (
         "bundles/verify",
-        "b7fe9e96eb7cb04a4790310f87a916662563e407e600290af215d69c924e8ca9",
+        "0ce8628510a1c4d2b2e99c63883d536b58937fa0e43b311faecf4a43342fb4ac",
     ),
 ];
 
@@ -1194,7 +1194,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // which every phase of this route resolves. The value agrees with
         // the `recipes/triage` pin in `tests/witness_digests.rs`; the two
         // had drifted apart and this restores the measured value.
-        "a3d142822e63717c3d3789b2005f22dc9839482a821091474d271033f122b5fe",
+        "4082e56940cfbd448dbcc93ebca5bc8a501eaddd260dd705b3e415bc0a5c5635",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

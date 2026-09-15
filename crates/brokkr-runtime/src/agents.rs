@@ -345,8 +345,13 @@ pub enum ResumeIdentity {
         /// The CLI or wrapper version the assessment was measured on.
         version: String,
         /// The installed version it is claimed to apply to. Where the
-        /// two differ the status must not be `supported`: a measurement
-        /// expires with its version (proposed decision 0056 ruling 5).
+        /// two differ, a NEW, never-supported shape must not be
+        /// `supported`: its measurement does not transfer. A shape main
+        /// already ships is preserved across that drift — the operator's
+        /// 2026-09-15 ruling, “keep decision 0030's rejoin live, do not
+        /// regress codex” — with every observed/origin identity,
+        /// boundary, hands and accounting check still binding (proposed
+        /// decision 0056 ruling 5).
         applies_to: String,
         /// The optional declared composite identity for a provider whose
         /// runner is a composed set of packages rather than a single

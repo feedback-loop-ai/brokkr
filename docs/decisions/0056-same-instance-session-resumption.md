@@ -80,10 +80,14 @@ Alternatives weighed, each rejected on evidence rather than taste:
 - **Enable a shape from its CLI help.** Rejected: 0030's own measurement
   found a thread opened `-s read-only` writing files on a bare resume.
   Equal flag lists do not prove enforcement.
-- **Keep a shape enabled until something contradicts it.** Rejected for
-  the same reason, one version later: the original measurement was
-  0.148.0 and the installed CLI is 0.153.4. Version drift disables a
-  shape until it is remeasured.
+- **Keep a NEW, never-supported shape enabled until something contradicts
+  it.** Rejected for the same reason, one version later: a shape main does
+  not perform has no shipping behavior to preserve, the original Codex
+  measurement was 0.148.0 and the installed CLI is 0.153.4, and version
+  drift disables such a shape until it is remeasured. It does not disable
+  a rejoin main already performs: the operator's 2026-09-15 ruling,
+  “keep decision 0030's rejoin live, do not regress codex,” preserves
+  Codex's harness work seat across that historical drift.
 - **Add the new facts to `seat-record.v4`.** Rejected by house rule: a
   contract change lands as a new numbered file beside the old one. v5 is
   additive, and its two new conditions are scoped so no valid v4 or
@@ -192,8 +196,9 @@ Alternatives weighed, each rejected on evidence rather than taste:
    `crates/brokkr-protocol/src/process/tests.rs`, `adapters/tests.rs` and
    `crates/brokkr-cli/tests/driver_conformance.rs`.
 
-5. **A shape is enabled by measurement of the installed harness, and the
-   measurement expires with its version.** Each adapter declares, per
+5. **A new shape is enabled by measurement of the installed harness; a
+   shape main already ships is preserved across historical version drift.**
+   Each adapter declares, per
    named execution shape, a status of `unmeasured`, `unsupported` or
    `supported`, an assessed identity that is either a measured version or
    an explicitly unknown one with a bounded reason, the applicable
@@ -211,8 +216,16 @@ Alternatives weighed, each rejected on evidence rather than taste:
    assessment and with the originating root's recorded version; a
    missing, changed or unreadable identity disables resume with
    `unverified-harness`. Historical acceptance of an earlier version is
-   history and regression scope, not a grant for a later one: 0030's
-   0.148.0 codex measurement does not enable installed 0.153.4.
+   **preservation**, not a fresh grant: under the operator's 2026-09-15
+   ruling, “keep decision 0030's rejoin live, do not regress codex,” the
+   Codex harness work seat main already rejoins stays live across the
+   difference between its historical 0.148.0 measurement and the
+   applicable installed 0.153.4, with every observed/origin identity,
+   boundary, hands, ownership and accounting check still binding. The
+   same history does not enable a new, never-supported shape: a rejoin
+   main does not perform today stays disabled until its own
+   installed-version measurement qualifies it. Preserving the shipping
+   Codex rejoin does not complete the remeasurement it still owes.
 
    DSH's session integration is selected as one exact route: the latest
    official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at
@@ -474,6 +487,18 @@ Alternatives weighed, each rejected on evidence rather than taste:
 - Every model adapter reports `launch`, so the operator can see whether a
   retry was warm. A run whose journal shows only `cold` is now evidence
   about the adapters rather than silence.
+- **Codex's shipping harness work rejoin is preserved, not newly
+  enabled.** The operator's 2026-09-15 ruling — “keep decision 0030's
+  rejoin live, do not regress codex” — holds main's `work-site` rejoin
+  live across the drift between 0030's 0.148.0 measurement and the
+  installed 0.153.4. Its declaration says `supported`, scopes the
+  measurement to the harness boundary with no boxed-hands marker, and
+  cites the dated 0.153.4 current-accounting observation; observed
+  identity, boundary, hands and accounting mismatches still refuse. Full
+  installed-version remeasurement and task 11.1 remain owed. The Claude
+  `boxed-workspace`, DSH `headless-work` and LaneTally `wrapper-work-site`
+  rejoins stay `unmeasured` because main does not perform them; the
+  ruling enables none of the three.
 - Seat records written by the 0.10 line and later are judged under v5.
   Nothing already written is rewritten, back-filled or newly refused, and
   older binaries cannot verify v5's fields — the ordinary price of a new

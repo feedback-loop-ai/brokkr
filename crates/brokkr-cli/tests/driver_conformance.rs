@@ -9,6 +9,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use brokkr_runtime::agents::{Adapters, Availability, Library};
+use brokkr_runtime::engine::{compose_site, BuiltBoundary};
+use brokkr_runtime::{resolve_agent, SeatClass};
 use brokkr_store::{validate_seat_record, SeatRecordVersion};
 use serde_json::{json, Value};
 
@@ -1421,4 +1424,218 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
             "{case}: no guessed launch: {parsed:?}"
         );
     }
+}
+
+/// The operator's 2026-09-15 ruling, proved through the real driver: a
+/// Codex harness work-seat retry that main rejoins under decision 0030
+/// still rejoins here, fed the SHIPPED `adapters/codex.json` assessment
+/// and the production-composed harness argv — no synthetic supported
+/// status. A cold invocation establishes the root; a fresh driver
+/// process receives a correlated `resume` for it and must launch
+/// `codex exec resume` with the exact thread and current sandbox/effort
+/// re-expressed. Reverting the shipped status to `unmeasured` makes the
+/// first gate decline with `unsupported-resume` and this test fails, so
+/// it proves behavior rather than reading a declaration back.
+#[test]
+fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let hands = library
+        .agent("reviewer")
+        .expect("the shipped reviewer")
+        .hands
+        .clone();
+    // The production resolver composes the boxed-style argv; the same
+    // candidate's own `hands_fragment` is stripped so `compose_site`
+    // composes it under `harness`, exactly as the compiler does for a
+    // harness realm. No hand-written shortened workspace command.
+    let resolution = resolve_agent(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "reviewer",
+    )
+    .expect("the shipped reviewer resolves");
+    let candidate = resolution
+        .candidates
+        .iter()
+        .find(|candidate| candidate.provider == "codex")
+        .expect("reviewer chains the codex lane");
+    assert!(candidate.argv.ends_with(&candidate.hands_fragment));
+    let mut command = candidate.argv.clone();
+    command.truncate(command.len() - candidate.hands_fragment.len());
+
+    let workdir = tempfile::tempdir().unwrap();
+    let result_path = workdir.path().join("results/fx.json");
+    std::fs::create_dir_all(workdir.path().join("results")).unwrap();
+    let result = result_path.to_str().unwrap();
+    let spawn = compose_site(
+        BuiltBoundary::Harness,
+        SeatClass::Work,
+        command,
+        hands.as_ref(),
+        Some(candidate),
+        workdir.path(),
+        &[],
+        result,
+        None,
+    );
+    assert_eq!(
+        &spawn.argv[spawn.argv.len() - 2..],
+        ["--sandbox", "workspace-write"],
+        "{:?}",
+        spawn.argv
+    );
+    let driver: Vec<String> = spawn.argv[1..].to_vec();
+    assert_eq!(driver[0], "driver");
+
+    let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let argv_log = workdir.path().join("argv.log");
+    let shim = make_shim(
+        workdir.path(),
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+             printf '%s\\n' \"$*\" >> {log}\n\
+             cat > /dev/null\n\
+             printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+            log = argv_log.display(),
+            result = result,
+            offered = offered,
+        ),
+    );
+    let assessment = adapters
+        .adapter("codex")
+        .expect("the shipped codex adapter")
+        .resume
+        .value();
+    let input = json!({
+        "feature": "conformance", "phase": "work", "seat": "work",
+        "role_path": workdir.path().join("missing-role.md"),
+        "workdir": workdir.path(),
+        "result_path": result_path,
+        "allowed_results": ["resolved"], "context": {},
+        // The engine's own facts for the harness work seat (composition
+        // bridge): the word, no boxed-hands marker.
+        "boundary": "harness",
+        "resume_context": {"assessment": assessment},
+    });
+
+    // Cold: the production driver establishes the root.
+    let cold = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"shutdown"}),
+        ],
+    );
+    let cold_launch = launch_row(&cold, "cold");
+
+    // Retry in a fresh driver process, offered the root the cold one
+    // established. This is the assertion that names the regression:
+    // under a disabled shipped shape the gate declines with
+    // `unsupported-resume` and this row is `cold`, not `resumed`.
+    let resumed = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ],
+    );
+    let resumed_launch = launch_row(&resumed, "resumed");
+    assert_eq!(resumed_launch["root_session"]["id"], offered, "{resumed:?}");
+    assert_eq!(resumed_launch["sandbox"], "workspace-write", "{resumed:?}");
+    assert!(
+        resumed_launch.get("resume_refusal").is_none(),
+        "a preserved rejoin carries no refusal: {resumed:?}"
+    );
+    assert_eq!(
+        resumed.last().unwrap()["status"],
+        "succeeded",
+        "{resumed:?}"
+    );
+    // The cold invocation recorded the versioned root the retry offered.
+    assert_eq!(
+        cold_launch["root_session"]["id"], offered,
+        "the cold invocation established the root: {cold:?}"
+    );
+
+    // The provider actually saw the resume argv: `exec resume`, exactly
+    // the offered thread, current sandbox and effort re-expressed.
+    let log = std::fs::read_to_string(&argv_log).unwrap();
+    let resume_line = log
+        .lines()
+        .find(|line| line.contains("exec resume"))
+        .unwrap_or_else(|| panic!("the shim saw a resume argv: {log:?}"));
+    assert!(resume_line.contains(offered), "{resume_line}");
+    assert!(
+        resume_line.contains("sandbox_mode=\"workspace-write\""),
+        "{resume_line}"
+    );
+    assert!(
+        resume_line.contains("model_reasoning_effort=\"xhigh\""),
+        "{resume_line}"
+    );
+    assert!(resume_line.contains("gpt-6-astra"), "{resume_line}");
+}
+
+/// The one `harness-started` launch row with the expected word, or a
+/// panic naming what the driver actually emitted.
+fn launch_row<'a>(parsed: &'a [Value], word: &str) -> &'a Value {
+    let row = parsed
+        .iter()
+        .find(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started")
+        .unwrap_or_else(|| panic!("one launch row: {parsed:?}"));
+    assert_eq!(row["data"]["launch"], word, "{parsed:?}");
+    &row["data"]
+}
+
+/// Drive `brokkr driver …` with test-owned homes and the given protocol
+/// messages, returning the parsed stdout.
+fn drive_codex(driver: &[String], shim: &Path, messages: &[Value]) -> Vec<Value> {
+    let operator_home = tempfile::tempdir().unwrap();
+    let codex_home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(brokkr_bin())
+        .args(driver)
+        .env("BROKKR_CODEX_BIN", shim)
+        .env("HOME", operator_home.path())
+        .env("CODEX_HOME", codex_home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for message in messages {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
 }

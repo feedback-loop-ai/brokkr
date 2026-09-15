@@ -4102,7 +4102,6 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
         || Ok(synthetic_dsh_composite(&digest)),
     )
     .unwrap();
-    assert_eq!(cold.first_seq, None, "a cold plan owns no fold boundary");
     let cold_session = cold.root.join("--w--").join("seat");
     std::fs::create_dir_all(&cold_session).unwrap();
     std::fs::write(
@@ -4110,10 +4109,47 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
         transcript("cold-seat", &[0, 1]),
     )
     .unwrap();
+    // The folded count comes BEFORE the plan field: a cold seed of
+    // `Some(0)` must fail on the dropped event, not merely on the field.
     assert_eq!(
         drain(&cold.root, cold.first_seq),
         2,
         "the cold plan folds its seq-0 event"
+    );
+    assert_eq!(cold.first_seq, None, "a cold plan owns no fold boundary");
+
+    // The shipped-disabled cold route (the shape `unmeasured`): its plan
+    // also owns no boundary, so its file is folded from seq 0 exactly as
+    // the qualified cold route's is. This is the route the shipped DSH
+    // declaration takes today.
+    let disabled_input = json!({
+        "workdir": dir.path().to_str().unwrap(),
+        "boundary": "not applicable",
+    });
+    let disabled = dsh_launch_with(
+        &shim_text,
+        &[],
+        dir.path().to_str().unwrap(),
+        None,
+        &disabled_input,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    let disabled_session = disabled.root.join("--w--").join("seat");
+    std::fs::create_dir_all(&disabled_session).unwrap();
+    std::fs::write(
+        disabled_session.join(DSH_TRANSCRIPT),
+        transcript("disabled-seat", &[0, 1]),
+    )
+    .unwrap();
+    assert_eq!(
+        drain(&disabled.root, disabled.first_seq),
+        2,
+        "the shipped-disabled cold plan folds its seq-0 event"
+    );
+    assert_eq!(
+        disabled.first_seq, None,
+        "a shipped-disabled cold plan owns no fold boundary"
     );
 
     // A warm offer with a stored boundary of 0 excludes the one stored
@@ -4146,12 +4182,14 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
         || Ok(synthetic_dsh_composite(&digest)),
     )
     .unwrap();
-    assert_eq!(warm.first_seq, Some(0), "the offered store's boundary");
+    // The folded count first, so a discarded warm boundary fails on the
+    // recounted event rather than only on the field read-back.
     assert_eq!(
         drain(&warm.root, warm.first_seq),
         0,
         "the warm plan folds past its stored boundary"
     );
+    assert_eq!(warm.first_seq, Some(0), "the offered store's boundary");
 
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),

@@ -272,6 +272,40 @@ fn the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta() {
     let found = plugin_file_digests(&dir).unwrap();
     let names: Vec<&str> = found.keys().map(String::as_str).collect();
     assert_eq!(names, PLUGIN_FILES.to_vec());
+    // The full committed-adapted digest map from PROVENANCE.md, not just
+    // the filenames: a coordinated byte edit that kept the names would
+    // still fail here. The five upstream-attributed files and the one
+    // adapted JavaScript file are pinned together.
+    let expected: BTreeMap<String, String> = [
+        (
+            "LICENSE",
+            "7a9d5a3b08b3802d77eb237283c26ce6ae346af58b86b1b0d655dada45416915",
+        ),
+        (
+            "README.md",
+            "c92c60d057e456beea6c0cd27bad26bf60f9a8909a852c96b36eceaf802cfc1d",
+        ),
+        (
+            "cordis.patch.yml",
+            "84745a1bb00d773acf2e5ab5e32dc42825ffe164100ba469375dcabbbd5f9dab",
+        ),
+        (
+            "lib/index.js",
+            "325eccc0d67de1dcea79a3c2d89eebb139b10970d0b7efd6dd1b7e3e6949fe85",
+        ),
+        (
+            "lib/startup.js",
+            "3526be1cd885f99592f1cfb5133f065879411f13bffba2672a74a55a11e66491",
+        ),
+        (
+            "package.json",
+            "7e96b1467153b4aed91e65e52ab03ebecf901f52a1f437484da14382e8a4a0fb",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, digest)| (name.to_string(), digest.to_string()))
+    .collect();
+    assert_eq!(found, expected);
 
     let index = fs::read_to_string(dir.join("lib/index.js")).unwrap();
     let adapted = "\tconst events = agent.session.snapshotEvents(firstSeq);";

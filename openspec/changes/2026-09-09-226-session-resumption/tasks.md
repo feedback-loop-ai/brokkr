@@ -1785,21 +1785,32 @@ itself (`safety / AS1`).
       judging pass at `2da94b0`. The change must retain the rejoin main already
       performs across the historical 0.148.0/current-applicability 0.153.4 drift,
       while refusing actual identity, boundary, hands and accounting mismatch.
-      At this tasks return's adopted head `78098d5`, the declaration is still
+      At this tasks return's adopted head `78098d5`, the declaration was still
       unmeasured. Analyze F1 establishes that retaining `hands: boxed` would
-      also refuse the shipping harness retry after a status flip. D10 now
-      requires `boundaries: ["harness"]`, `hands: "none"`, the composed
-      workspace-write argv and engine input with no hands marker; boxed MCP
-      argv already stayed cold on main. The declaration amendment, composition
-      bridge and driver proof below are pending; the runtime regression is not
-      yet repaired. After that
-      proof passes, replace this pending account with the command, restored
-      passing result and independent disabled-status/boxed-hands failing
-      controls showing that the same harness work-seat retry now rejoins with
-      confirmed `launch: resumed`. State that the regression is removed and
-      full 10.5/11.1 qualification is still owed;
-      leave this checkbox unchecked. The earlier cold/unsupported observation
-      remains dated evidence, never an authorized current disposition.
+      also refuse the shipping harness retry after a status flip. This
+      implementation visit landed D10's amendment: `adapters/codex.json`
+      `work-site` is now `supported`, scoped to `boundaries: ["harness"]` with
+      `hands: "none"`, keeping the historical 0.148.0 measurement and 0.153.4
+      applicability and adding the dated 0.153.4 current-accounting reference;
+      proposed 0056 ruling 5 and the provider guide state the
+      preservation/new-shape distinction. The runtime boundary suite gained the
+      composition bridge (shipped `Adapters::load`, the production resolver and
+      `compose_site` under harness, `seat_input`/`mark_hands`), and
+      `crates/brokkr-cli/tests/driver_conformance.rs` drives a cold
+      `brokkr driver codex` with the shipped assessment and the
+      production-composed `--sandbox workspace-write` argv, then offers that
+      root to a fresh driver and observes the production adapter's confirmed
+      `launch: resumed` with the exact thread, `sandbox_mode="workspace-write"`
+      and `model_reasoning_effort="xhigh"` re-expressed. Observed controls:
+      reverting only the shipped status to `unmeasured` failed the retry with
+      `resume_refusal: unsupported-resume`; reverting only declared hands to
+      `boxed` failed it cold with `restrictions-unavailable`; suppressing the
+      harness fragment append in `compose_site` and the boundary write in
+      `mark_hands` each failed the bridge; every mutation was restored and the
+      tests rerun green. The regression is removed and full 10.5/11.1
+      qualification is still owed; this checkbox stays unchecked. The earlier
+      cold/unsupported observation remains dated evidence, never an authorized
+      current disposition.
 - [ ] 11.2 Enable Claude's boxed-workspace work shape under its
       already-supported boxed boundary with 10.2's interface and 10.6's
       proof, and flip `adapters/claude.json` — safety / AS1, safety / AS2.
@@ -4897,6 +4908,66 @@ repairs and fix only a gap the commissioned control demonstrates.
    Record the commit identity. Never push, merge, publish, archive, fold living
    specs or start another Brokkr run. This slice's evidence cannot close a
    whole task, new enablement or the open change.
+
+
+### Implementation record — operator ruling and four lows, 2026-09-15
+
+Executed against the adopted head `21f4ac2` with the pinned toolchain and
+#282's Git cleanup. No checkbox was ticked; the ledger stays 82 checked / 19
+pending across the same 101 identifiers.
+
+**The ruling.** `adapters/codex.json` `work-site` is `supported`, scoped to
+`boundaries: ["harness"]` with `hands: "none"`, retaining the historical
+0.148.0 measurement and 0.153.4 applicability and adding the dated 0.153.4
+current-accounting reference. Proposed 0056 ruling 5, its rejected
+alternative, its consequence list, the `ResumeIdentity::Measured` comment and
+`docs/guides/provider-adapters.md` carry the preservation/new-shape
+distinction. The Claude, DSH and LaneTally declarations changed reason prose
+only and stay `unmeasured`; none was enabled.
+
+Proof: `engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`
+loads the shipped adapter and library, resolves the harness work seat and
+composes the real argv (`--sandbox workspace-write`, no MCP fragment) and the
+`boundary: harness`/no-hands input;
+`driver_conformance::the_shipped_codex_harness_work_seat_rejoins_its_retry`
+feeds the shipped assessment and composed argv through a cold driver and then
+a fresh retry, and observes `launch: resumed` with the exact thread and
+re-expressed `sandbox_mode="workspace-write"`/`model_reasoning_effort="xhigh"`.
+Controls: status back to `unmeasured` failed the retry with
+`resume_refusal: unsupported-resume`; declared hands back to `boxed` failed it
+cold with `restrictions-unavailable`; suppressing `compose_site`'s harness
+fragment or `mark_hands`'s boundary write each failed the bridge. Every
+mutation was restored and rerun green.
+
+**Low 1.** `the_planned_dsh_fold_boundary_reaches_the_transcript_drain` now
+asserts the folded count before the plan field and adds the shipped-disabled
+cold route. Controls: `None`-as-zero filtering dropped the cold seq-0 event
+(`[Some(1), Some(2)]` vs `[Some(0), Some(1), Some(2)]`); the cold seed
+`Some(0)` failed the plan-to-drain count (1 vs 2). Restored.
+
+**Low 2.** The closed-gate test failed `sandbox-unavailable` against
+`unsupported-resume` when the gate decline was moved below the sandbox split.
+Restored.
+
+**Low 3.** The cold-selector test failed (guard returned `None`) with the
+selector guard bypassed. Restored.
+
+**Low 4.** `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+now compares the full returned digest map with PROVENANCE's six adapted
+digests; a one-byte `package.json` change in an isolated copy failed the
+assertion. `extensions/dsh/PROVENANCE.md` already carries the never-publish
+rule and no plugin byte changed.
+
+**Gates (in-box).** `cargo fmt --all -- --check`, all-target/all-feature
+locked clippy, `cargo test --workspace`, `cargo test --workspace
+--all-features --locked`, both bundle compiles, `cargo build --release
+--locked -p brokkr-cli` and strict active/all OpenSpec validation pass. The
+adapter edits moved the measured compose/witness pins, which were updated from
+the tests' own reported left/right pairs only. The unchanged exact gate reports
+before and after **29,844/30,015 lines, 5,023/5,036 branches, 2,851/2,861
+functions**; the shortfall is the known #286 in-box boundary-skip, and host
+equality remains the controller's. Remote CI, integration, publication and
+closure remain pending external results.
 
 
 ### Prior tasks-phase validation and handoff — operator ruling (`c45ee20`)

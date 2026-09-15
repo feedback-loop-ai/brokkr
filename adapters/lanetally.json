@@ -64,7 +64,7 @@
         "not applicable"
       ],
       "hands": "none",
-      "reason": "a wrapper is qualified on its own wrapper, never on what it wraps; claude's captured interface says nothing about what this wrapper forwards, and support by analogy is exactly what this field refuses",
+      "reason": "main does not perform this rejoin: a wrapper is qualified on its own wrapper, never on what it wraps; claude's captured interface says nothing about what this wrapper forwards, and support by analogy is exactly what this field refuses, so the unknown wrapper identity and forwarding stay unmeasured",
       "limitations": [
         "unmeasured: the wrapper's identity, what it forwards to claude, how the underlying claude version is read through a measured interface, and where the ledger capture marker is attributed on a rejoin",
         "the hands deferral above is a separate matter and is not what blocks this shape"
