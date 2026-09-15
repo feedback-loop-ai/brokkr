@@ -1,27 +1,36 @@
 ## Context
 
-Current commission: `the-whole-family-branch-integrat-0a5cdb4f`, adopting
-`2026-09-09-226-session-resumption` at `c2ed4f8`: specification answer Y over
-the operator's revert `5ee48aa`. No `returned_from` is supplied. The predecessor
-repair `5ca534b` is reverted and was not read, restored or adapted as a starting
-point. Its review-chief record and positions explain REVIEW-SECURITY-HOLD:
-partial panel relocation delivered an assessment without confinement, and
-permissive absent-marker defaults enabled the unsupported rejoin. Stale sibling
-hands caused the mirror refusal; wrapper-created aliases and an unconditional
-shebang test also remained. Current source independently confirms these seams.
+Current commission: `the-whole-family-branch-integrat-0a5cdb4f`, design return
+at `e8b99c5`, adopting `2026-09-09-226-session-resumption`. Proposal Y/Z,
+design `e77c205`, tasks `b1916a7` and implementation `bcefcf6` stand; the
+commissioned baseline remains the operator's revert `5ee48aa`. Baseline
+coverage and earlier passes are not evidence for the later checkout.
 
-This design adopts `c56d091` and `4d7d452` as reconciled context and corrects
-only the mechanisms answer Y supersedes: one indivisible facts value, positively
-established confinement, total global ownership, and portable decision proofs.
-F1, F2 and F3 here mean relocation/absence, ownership and Windows test launch;
-the earlier inventory finding called F3 remains dated history. D10 reconciles
-both complete current positions under `## Decisions`. Only `design.md` is the
-rendered dialect's artifact for this visit; proposal/deltas and the task ledger
-remain adopted, with Y's explicit supersession binding their old compiler-only,
-five-map and map-assertion wording. No task rewrite, ID or state change occurs.
+`returned_from` is clarification's **clear** result at `e8b99c5`: no
+specification ambiguity remains. Its finding separates specification clarity
+from implementation compliance, removal proofs, coverage and platform evidence.
+This return preserves that distinction. Both current council positions identify
+unfulfilled D10 obligations in the landed implementation; the return below
+reconciles their evidence and answers their questions without replacing the plan.
+No earlier specification fault is established, so no upstream repair is needed.
 
-The earlier returns and their measurements below are historical context;
-D10's whole-family reconciliation governs the current slice.
+The predecessor repair `5ca534b` was not read, restored or adapted. Its
+review-chief result and all four review-position records explain the security
+hold: partial panel relocation exposed permissive missing-marker defaults,
+while stale sibling hands wrongly refused the no-hands mirror. Wrapper-created
+aliases and the unconditional direct-shebang test also remained. The current
+implementation's indivisible `SiteFacts`, tri-state hands and independent
+adapter refusal are adopted; their presence does not close the remaining defects.
+
+Only `design.md` is the rendered design artifact. D10's return reconciliation
+records choices and reasoned refusals under `## Decisions`, with scenarios for
+the raw alias and selected-single questions. The existing whole-family task
+clauses 2–4 already require those repairs and proofs, so dependent tasks and
+proposal/deltas remain coherent without edits or tick changes. F1/F2/F3 retain
+their commissioned meanings; no new breakdown, capability or decision is added.
+
+The earlier returns and measurements below are dated history. D10's
+whole-family mechanism and its current return reconciliation govern this slice.
 
 This is the **analyze F1 return** of the operator-ruling slice, run
 `operator-ruling-slice-branch-int-bf5f6a32` (design, 2026-09-15). Adopt
@@ -2815,8 +2824,8 @@ its patch is neither a template nor evidence that the fixes work.
    guard is necessary even when wrapping would later separate the raw aliases.
 
 2. **Make the family one value throughout compilation and execution.** Use one
-   canonical `BTreeMap<String, SiteFacts>` with each registered entry carrying
-   its structural owner and the five fields: `inline_resume`, `pin_drivers`
+   canonical `BTreeMap<String, SiteFacts>` with each entry bound to the census's
+   structural owner and carrying the five fields: `inline_resume`, `pin_drivers`
    (effort/resume witnesses), `hands`, `record` (former `context.records`) and
    `driver` (former `context.drivers`). Collection and resolution populate the
    owning value, not independent authoritative maps that are zipped later.
@@ -2840,7 +2849,9 @@ its patch is neither a template nor evidence that the fixes work.
    source owner and new ancestry together; do not zip separately filtered walks,
    scan prefixes, split labels or infer ancestry from iteration order. Drain all
    these source entries into a staged collection before inserting destinations.
-   Move each complete `SiteFacts` once and update its owner as one transformation.
+   Move each complete `SiteFacts` once and update its ownership reservation
+   in the same transformation; the census is compilation state, not a new
+   persisted field or runtime authority.
    For `x` and `checks:x`, the first destination is the second source; draining
    first prevents an overwrite or false collision. A missing source stays unknown
    and cannot manufacture an empty, affirmatively no-hands replacement.
@@ -2977,6 +2988,81 @@ If capacity ends, implementation reports `oversized` with what remains, never
 `upstream` contract. Implementation, removal results, measured coverage and
 remote platform signals remain evidence obligations; none is completed by this
 reconciliation or by the inherited passing baseline.
+
+#### Whole-family return reconciliation — 2026-09-16, adopted `e8b99c5`
+
+Read every current position in full: robustness SHA-256
+`d54c44e1d7c5ebb6ad314c5b05e64a690d5ab54758905e83d3e12b6863f4696d`
+and simplicity SHA-256
+`618d13eb6cd8420d75efcafa02acc6383dc447b30e06df5dfc7e632627a731c6`.
+Copies are retained in `.forge/design-whole-family-return-5d7a15aa/` so this
+return cannot be confused with the earlier same-run positions above.
+
+**Evidence and returned finding.** Clarification found no unanswered choice;
+its clear result certifies no runtime repair. Source at `e8b99c5` confirms
+`SiteFacts` and `HandsState`, the independent absent-marker refusal, and the
+final structural walk including deterministic leaves. It also confirms the
+missing pre-collection census (`assemble` seeds facts first), global-prefix
+relocation with unchecked insertion (`relocate_verify_facts`), projection reads
+in the engine, and missing selected-single marking beside `mark_delivery`.
+Robustness additionally reports a temporary, restored probe: a DSH verify panel
+member `alpha` beside a literal Codex phase `verify:alpha` compiled, transferring
+the literal's Codex assessment/pin to `verify:checks:alpha`. The final labels
+differ, so the final walk misses the raw alias. This chief corroborates its
+source path, not a fresh execution of the probe. The probe observed mixed
+facts; source tracing predicts a wrong refusal from the differing shape names,
+not demonstrated enablement. A shape-name mismatch cannot substitute for
+refusal before collection.
+
+**Disposition of every claim and question.** These finish the existing D10
+mechanism and task clauses 2–4; they introduce no replacement architecture.
+
+| Council claim / question | Decision, evidence and alternative rejected |
+|---|---|
+| Both endorse the landed one-value family, positive no-hands registration and adapter absence guard (robustness R1/R2, simplicity F1). | Adopt. Keep `SiteFacts`, `HandsState::{Unknown, NoHands, Hands}` and `resume_gate`'s independent refusal. A sixth family member must follow the value. Reject five-map moves, empty-map permission and rollback to the reverted patch. These foundations alone are not F1 proof. |
+| Both reject the prefix sweep (R1, simplicity A). | Adopt exact source/destination pairs from the parsed single or panel being wrapped. Enumerate its owners, drain their facts AND source reservations before any destination claim, then move whole values. Keep the `x`/`checks:x` overlap legal; an independent `verify:foo` remains untouched. A missing source stays unknown. Reject a global prefix scan or an engine `:checks` fallback. |
+| Both require the raw census (R4, simplicity C); robustness Q1 asks whether it was deliberately dropped. | It was required and remains required; its omission is an implementation gap. Traverse all resolved authoring seats before `enforce_model_pins`, with agent/inline and factless leaves, case/default and step/member ancestry. `collect_unpinned` alone is insufficient because it skips agents. Use the existing structural `SiteKey` representation in a compilation-only label-to-owner census. Bind every fact write to its reservation; keep same-owner merges. Reject final-only checking: the reproduced raw alias disappears after wrapping. |
+| Both require destination claims (R1/R4, simplicity D) and retain the final walk. | Adopt. After staging exact sources, claim every destination and injected-validator label against the remaining census before any destination/synthetic fact write. Refuse a distinct owner with the label and both structural descriptions. Keep `refuse_global_aliasing`, deterministic `owner_sites` and useful within-body diagnostics as a final independent check. Reject transient overwrite even if a later check returns an error. That compilation census supplies ownership; no new coordinate type, persisted owner field or second runtime facts table is needed. |
+| Robustness R3/Q2 requires canonical security readers; simplicity favors keeping the landed projections. | Combine only where safe: keep existing manifest serialization and its vocabulary, but route runtime hands, boundary/delivery, spawn composition and inline assessment fallback through `Bundle.sites`. Preserve the selected candidate's assessment precedence for agent sites. At present projections are rebuilt correctly, so their mere existence proves no extra exploit; runtime dependence nevertheless violates D10's one-authority rule. Do not confuse `hands_spec() == None` with positive no-hands: identity/eligibility and markers must retain the tri-state distinction. Reject a runtime projection fallback, manifest re-key or digest-vocabulary change. |
+| Both require selected-single marking (robustness §2.D/Q3, simplicity B). | A work-class selector single is already supported by SR1/0056, so retain its offer capability. Compose both markers from executing `site_name` beside `mark_delivery`, after the requested-input digest check, replacing parent markers. Unknown remains null/refused. Reject removing offers or accepting a silently cold supported case; the panel/sequence paths already demonstrate the executing-label pattern. |
+| Both require six F1 decisions, F2/live controls, identity and removal proofs (robustness §4, simplicity tests). | Adopt all existing obligations; maps/offers alone are insufficient. The raw-alias refusal uses different provider kinds, with own-pin/assessment checks on its renamed control because a refused bundle has no compiled table to inspect. That control must still reach Codex's confirmed-root rejoin. Unknown-marker tests use otherwise supported/accounted evidence; missing/unsupported assessment retains `unsupported-resume`, then invalid confinement yields `restrictions-unavailable`. No unconfirmed, unknown or namespace/boxed work-site rejoin is enabled. |
+| Both propose targeted removal; robustness §4.2 says deleting the final walk must expose wrapper aliases. | Adopt behavioral removal, reject that single-guard recipe once claim-time protection also exists. Remove the minimal complete overlapping protection for the admission test; separately exercise claim-time refusal before a write. A still-active guard masking a mutation, map panic or compile error is not proof. Each new test needs the named behavioral failure, exact restoration and green rerun. Keep independent adapter refusal effective when relocation is absent. |
+| Both constrain F3; robustness R5 calls `sh -c` an existing pattern. | Adopt Unix guards or real target-platform executables. Existing `driver_conformance.rs` is Unix-only and `process.rs` calls `Command` directly; neither establishes that Windows supplies `sh`. Reject an unconditional shell/shim assumption or production shell fallback. F3 stays test-only; first native Windows/macOS evidence belongs to controller CI. |
+| Robustness Q4 asks what to defer for coverage; both reject larger scope. | Defer no safety obligation in this design. All required production lines remain in the unchanged exact gate; capacity exhaustion reports `oversized` with the remainder, never partial relocation or unsafe enablement. Retain proposed 0056's landed clarification. Reject a new decision, public address format, broader map redesign, heading-count tests, task rewrite/ticks, frozen edits, C/D, archive and living-spec folds. |
+
+##### Scenario: Wrapping cannot hide a raw authoring collision
+
+- **GIVEN** a wrapped verify panel with pinned DSH member `alpha` and a distinct
+  literal pinned Codex phase `verify:alpha`, with otherwise legal configuration
+- **WHEN** the pre-collection census registers the two structural owners
+- **THEN** compilation refuses `verify:alpha` and names both owners before pins,
+  assessments or hands are written, even though final labels would differ
+- **AND** renaming only the literal phase permits compilation; the member keeps
+  its own driver evidence and the supported Codex phase's confirmed retry reaches
+  `launch: resumed` with its own restrictions and declaration identity
+- **AND** reversing declaration order does not change either outcome; removing
+  the raw protection must fail the refusal assertion, not an unrelated check.
+
+##### Scenario: A selected single publishes its own confinement at dispatch
+
+- **GIVEN** a supported no-hands work-class single selected at `work:chore`,
+  compiled with the shipped Codex assessment and a durably confirmed cold root
+- **WHEN** the engine composes the actual retry and production adapter exchange
+- **THEN** that case supplies explicit `not applicable`/`none`, rejoins exactly
+  the offered root with current restrictions and records `launch: resumed`
+- **AND** an unregistered or unresolved executing owner clears inherited markers
+  and cannot qualify as known no-hands or enable the otherwise supported shape;
+  adapter admission declines `restrictions-unavailable`
+- **AND** removing the executing-label marker composition makes the supported
+  decision fail; neither the harness nor a parent marker repairs the input.
+
+These are design scenarios refining existing SR1/AS1/LE5, not new delta headings.
+D11's six-form, identity and refusal bindings and the existing tasks clauses 2
+(census), 3 (exact movement/claims/canonical readers/selected singles) and 4
+(decisions/removal) already cover the complete reconciliation. Tasks remain
+unchanged for that reason, not because implementation or proof is complete.
+The landed proposed-0056 clarification is adopted. No new test, runtime fix,
+removal result or coverage pass is established by this return.
 
 ### D11 — Verify transitions and trace every requirement
 
@@ -3139,6 +3225,9 @@ Current whole-family risks and their disposition:
 - Independent maps or an uninitialized hands field can lose confinement while
   retaining support. One retained facts value and explicitly resolved no-hands
   avoid that false affirmative; the adapter also refuses unknown markers.
+- Runtime reads from serialization projections can diverge from the canonical
+  family. Use `Bundle.sites` for runtime confinement and inline assessment;
+  retain projections only for serialization, preserving the unknown state.
 - Parent/selector marks can survive into a different executing label. Replace
   or clear them at actual dispatch; cover selected singles as well as members.
 - Raw collisions can disappear after wrapping; final-only checks miss their
@@ -3374,10 +3463,13 @@ Earlier whole-change and Pass B risks remain recorded below:
 ## Migration Plan
 
 For the current whole-family slice, retain the existing task order without a
-new breakdown: adopt answer Y on the revert; minimally clarify proposed 0056
-before semantic edits; register owners, collect and move the whole facts value,
-reserve/check final ownership and pair accurate engine markers with the independent
-adapter refusal. Apply F3's portable test shape while adding the decision proofs.
+new breakdown: adopt Y/Z, `bcefcf6` and its proposed-0056 clarification at
+`e8b99c5`. Finish the raw census before collection and the destination claims
+before insertion, selecting only the wrapped body's exact sources for the
+whole-value move. Retain the final global check and route runtime reads through
+the canonical family. Preserve the landed tri-state and independent adapter
+guard while supplying accurate executing-single markers. Apply F3's portable
+test shape while adding the decision proofs.
 Run each removal/restoration control and measure affected witness/compose pins.
 No frozen data or public contract migrates; corrected identities still fence old
 roots and ambiguous configurations require an author rename.
@@ -3527,15 +3619,17 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No current design choice is deferred for the whole-family slice. D10 answers
-all four robustness questions: retain the canonical facts table and resolved
-confinement state on Bundle; move one whole value; register structural owners
-before collection; accept the covered-line cost without relaxing equality. It
-explicitly rejects the simplicity position's missing-map affirmation and
-post-overwrite-only protection. Native platform results, behavioral removal
-proofs and fresh before/after coverage are pending evidence, not open choices.
-If a genuine earlier-artifact fault is found, report `upstream` to its owner;
-do not compensate by weakening confinement downstream.
+No current design choice is deferred. The current D10 return answers all four
+robustness questions: the raw census was not intentionally waived; runtime
+consumers use the canonical family, with serialization projections retained only
+as needed; selector singles retain their supported capability and receive their
+own markers; coverage cost defers no safety invariant. Both positions now require
+claim-time refusal, exact movement and the independent adapter guard. Earlier
+council disagreements remain dated history, not descriptions of these positions.
+Behavioral/removal proofs, fresh coverage and native platform results are pending
+evidence, not unanswered choices. Clarification's `clear` is adopted on that
+basis. If an earlier artifact is actually at fault, report `upstream` rather
+than weakening confinement downstream.
 
 The prior operator-ruling answers remain history:
 
@@ -4561,3 +4655,42 @@ completion or fresh coverage equality is claimed. Implementation and local
 measurement remain owed; #286 host equality and final-head platform CI remain
 pending controller evidence. No task tick, archive, frozen-byte edit, provider
 experiment, push, merge or additional Brokkr run occurred.
+
+
+## Council design return validation — `e8b99c5`, 2026-09-16
+
+Read the dialect's own design/return files and rendered
+`openspec instructions design --change 2026-09-09-226-session-resumption --json`
+through workspace hands; no workflow runner was invoked. Reconciled both complete
+current positions against the source and clarification's `clear` finding. D10
+records dispositions, alternatives and two design scenarios; current context,
+risks, migration and open questions agree. The existing dependent task clauses
+already require every retained obligation and need no rewrite.
+
+Strict active OpenSpec validation passes; strict all-item validation reports
+**14 passed / 0 failed**. Status and whitespace checks pass. The inherited
+informational archive-target notices remain outside this no-archive commission.
+The artifact audit finds only `design.md` changed and **728 other tracked files**
+byte-identical to entry, including proposed 0056, all five deltas, tasks,
+production/tests, frozen surfaces and living specs. Delta inventory remains
+**20 requirements / 159 scenarios**; all **101 task IDs / 82 checked /
+19 pending** and saved coverage report hashes remain unchanged.
+
+Fresh format, all-target/all-feature locked clippy, protocol/runtime and CLI
+conformance suites, both workspace test commands, both bundle compiles, release
+build and the pinned llvm-cov prerequisite each exited **127: Cargo unavailable**.
+No Rust pass or behavioral/removal proof is claimed. The exact gate was not
+launched without its compiler; no usable writable disk-backed external scratch
+was established and inherited `TMPDIR=/tmp` was not used as a substitute.
+**Fresh before: unmeasured. Fresh after: unmeasured. No in-box counts exist for
+this visit.** The supplied baseline remains **30,036/30,036 lines,
+5,038/5,038 branches, 2,863/2,863 functions**, not this return's measurement.
+CI, release admission and coverage still consume `nightly-2026-09-05` from
+`rust-nightly-version.txt`; the gate and its reports remain untouched.
+
+Command logs, entry hashes, position copies and the artifact audit are retained
+under `.forge/design-whole-family-return-5d7a15aa/`. This unsigned design draft
+commits only the declared artifact. Runtime repairs, executable removal proofs,
+local Rust validation, #286 host equality and final-head native-platform CI
+remain pending their actual evidence. No task completion, frozen edit, archive,
+living-spec fold, push, merge, publication or new Brokkr run occurred.
