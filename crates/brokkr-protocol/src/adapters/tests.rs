@@ -8722,3 +8722,128 @@ fn an_eighty_character_multibyte_dsh_locator_round_trips_through_warm_planning()
         None => std::env::remove_var("DSH_HOME"),
     }
 }
+
+#[test]
+fn recordable_digests_admit_digits_and_letters_and_refuse_everything_else() {
+    // The digit arm and the letter arm both count as recordable; uppercase,
+    // non-hex and short values do not.
+    assert!(recordable_digest(&"0".repeat(64)));
+    assert!(recordable_digest(&"a".repeat(64)));
+    assert!(!recordable_digest(&"A".repeat(64)));
+    assert!(!recordable_digest(&"g".repeat(64)));
+    assert!(!recordable_digest(&"a".repeat(63)));
+}
+
+#[test]
+fn the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes() {
+    // `--model` needs a non-empty, non-flag id, once, in its separate form.
+    assert!(split_dsh_model(&["--model".into(), String::new()]).is_err());
+    assert!(split_dsh_model(&["--model".into(), "--x".into()]).is_err());
+    assert!(
+        split_dsh_model(&["--model".into(), "a".into(), "--model".into(), "b".into()]).is_err()
+    );
+    assert!(split_dsh_model(&["--model=a".into()]).is_err());
+    // `--patch` needs a non-empty, non-flag value, once, in its separate form.
+    assert!(split_dsh_patch(&["--patch".into(), String::new()]).is_err());
+    assert!(split_dsh_patch(&["--patch".into(), "--x".into()]).is_err());
+    assert!(split_dsh_patch(&[
+        "--patch".into(),
+        "a.yml".into(),
+        "--patch".into(),
+        "b.yml".into()
+    ])
+    .is_err());
+    assert!(split_dsh_patch(&["--patch=a.yml".into()]).is_err());
+    // The admitted shapes pass the other arguments through verbatim.
+    let (model, rest) = split_dsh_model(&["--model".into(), "p/m".into(), "--x".into()]).unwrap();
+    assert_eq!(model.as_deref(), Some("p/m"));
+    assert_eq!(rest, vec!["--x".to_string()]);
+    let (route, rest) = split_dsh_patch(&["--patch".into(), "a.yml".into(), "b".into()]).unwrap();
+    assert_eq!(route.as_deref(), Some("a.yml"));
+    assert_eq!(rest, vec!["b".to_string()]);
+}
+
+#[test]
+fn the_model_overlay_stages_a_readable_patch() {
+    let overlay = dsh_model_overlay_in("deepseek-v4-flash", tempfile::NamedTempFile::new).unwrap();
+    let body = std::fs::read_to_string(overlay.path()).unwrap();
+    assert!(body.contains("agent-default-model"), "{body}");
+}
+
+#[test]
+fn the_seat_overlay_terminates_a_route_that_carries_no_trailing_newline() {
+    let root = std::path::Path::new("/nonexistent/dsh-root");
+    let overlay = dsh_seat_overlay_in(
+        Some("deepseek-v4-flash"),
+        None,
+        root,
+        Some(b"# route without terminator"),
+        None,
+        tempfile::NamedTempFile::new,
+    )
+    .unwrap();
+    let body = std::fs::read_to_string(overlay.patch.path()).unwrap();
+    assert!(body.starts_with("# route without terminator\n"), "{body}");
+}
+
+#[test]
+fn owned_dsh_root_refuses_a_session_id_outside_the_grammar() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(owned_dsh_root(dir.path(), &json!({}), "bad id").is_err());
+    assert!(owned_dsh_root(dir.path(), &json!({}), "-flag").is_err());
+}
+
+#[test]
+fn a_session_file_whose_first_row_is_not_the_header_is_unreadable() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(DSH_TRANSCRIPT);
+    std::fs::write(
+        &file,
+        b"{\"type\":\"permission/preset\",\"seq\":1}\n{\"type\":\"x\",\"seq\":2}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        dsh_session_last_seq_with(&file, DSH_SESSION_FILE_LIMIT),
+        None
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_real_dsh_launch_resolves_its_own_seams_and_composite() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    let prior_bin = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+    std::env::remove_var("FORGE_DSH_BIN");
+    let digest = "b".repeat(64);
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let shim = dsh_version_shim(dir.path(), "dsh-real-seams", "0.1.5-rc.1");
+    // The closure's seam resolver reads this override, not the `bin`
+    // argument; the home is a bare directory, so the composite read is
+    // refused and the cold route ships.
+    std::env::set_var("BROKKR_DSH_BIN", &shim);
+    let launch = dsh_launch(
+        &shim.to_string_lossy(),
+        &[],
+        dir.path().to_str().unwrap(),
+        None,
+        &input,
+    )
+    .unwrap();
+    assert!(!launch.stream_json);
+
+    match prior_bin {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}

@@ -1969,3 +1969,52 @@ fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
         "{rendered}"
     );
 }
+
+/// The injected composite probe reporting a difference is a warning, not
+/// just a suffix: `probe_providers` routes it through `report.warn`.
+#[test]
+fn doctor_warns_when_the_dsh_composite_differs_from_a_declared_digest() {
+    let dir = tempfile::tempdir().unwrap();
+    fn warning_composite(_: &Adapter) -> (bool, String) {
+        (
+            true,
+            "composite deadbeef plugin feedface (differs from the declared wrapper_digest feedface)"
+                .to_string(),
+        )
+    }
+    let rendered = doctor_in(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_present,
+        never_ambient,
+        Boundary::Namespace,
+        None,
+        warning_composite,
+    )
+    .render();
+    assert!(
+        rendered.contains("warn") && rendered.contains("dsh:"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("composite deadbeef plugin feedface"),
+        "{rendered}"
+    );
+}
+
+/// `dsh_composite_line` reads the shipped adapter's real seams; whether the
+/// host has a DSH install or not, it reports a composite detail and never
+/// panics.
+#[test]
+fn dsh_composite_line_reads_the_real_adapter_and_its_seams() {
+    let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
+    let adapter = adapters
+        .providers()
+        .find(|adapter| adapter.provider == "dsh")
+        .expect("the shipped dsh adapter");
+    let (_warning, line) = dsh_composite_line(adapter);
+    assert!(line.contains("composite"), "{line}");
+}

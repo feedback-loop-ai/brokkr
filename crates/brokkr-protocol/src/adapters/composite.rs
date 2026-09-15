@@ -458,8 +458,14 @@ pub struct DshSeams {
 impl DshSeams {
     pub fn resolve() -> Result<DshSeams, CompositeError> {
         let executable = super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-        let home = crate::transcript::dsh_home()
-            .ok_or_else(|| CompositeError::Config("no dsh home: set DSH_HOME or HOME".into()))?;
+        DshSeams::resolve_with(executable, crate::transcript::dsh_home())
+    }
+
+    /// `resolve` over an injected executable and home, so the missing-home
+    /// refusal is a plain test.
+    fn resolve_with(executable: String, home: Option<PathBuf>) -> Result<DshSeams, CompositeError> {
+        let home =
+            home.ok_or_else(|| CompositeError::Config("no dsh home: set DSH_HOME or HOME".into()))?;
         Ok(DshSeams { executable, home })
     }
 }
@@ -540,10 +546,19 @@ fn first_line(path: &Path) -> Result<String, CompositeError> {
 /// Resolve `command` to a canonical path: a command carrying a separator
 /// is used directly, otherwise the first executable on `PATH` wins.
 fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
+    resolve_executable_in(command, std::env::var_os("PATH"))
+}
+
+/// `resolve_executable` over an injected `PATH`, so an empty entry, a
+/// present-but-absent candidate and a miss are plain tests.
+fn resolve_executable_in(
+    command: &str,
+    path: Option<std::ffi::OsString>,
+) -> Result<PathBuf, CompositeError> {
     if command.contains('/') || command.contains('\\') {
         return canonicalize(Path::new(command));
     }
-    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path = path.unwrap_or_default();
     for dir in std::env::split_paths(&path) {
         if dir.as_os_str().is_empty() {
             continue;
@@ -758,11 +773,25 @@ fn node_prefix(node: &Path) -> Option<PathBuf> {
 /// `NODE_PATH` entries, `$HOME/.node_modules`, `$HOME/.node_libraries`
 /// and `lib/node` under the runtime's prefix.
 fn global_folders(node: &NodeRuntime) -> Vec<PathBuf> {
+    global_folders_in(
+        node,
+        std::env::var_os("NODE_PATH"),
+        std::env::var_os("HOME"),
+    )
+}
+
+/// `global_folders` over injected `NODE_PATH` and `HOME`, so an absent or
+/// empty variable is a plain test.
+fn global_folders_in(
+    node: &NodeRuntime,
+    node_path: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Vec<PathBuf> {
     let mut folders = Vec::new();
-    if let Some(path) = std::env::var_os("NODE_PATH") {
+    if let Some(path) = node_path {
         folders.extend(std::env::split_paths(&path).filter(|entry| !entry.as_os_str().is_empty()));
     }
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = home {
         let home = PathBuf::from(home);
         folders.push(home.join(".node_modules"));
         folders.push(home.join(".node_libraries"));
@@ -815,6 +844,12 @@ fn resolve_bundle(
 /// Spawn the first `node` on `PATH` once for its version line.
 pub fn spawn_node_runtime() -> Result<NodeRuntime, CompositeError> {
     let path = resolve_executable("node")?;
+    spawn_node_runtime_at(path)
+}
+
+/// `spawn_node_runtime` over an already-resolved executable, so a scripted
+/// `node` exercises the success, nonzero and unreadable-version paths.
+fn spawn_node_runtime_at(path: PathBuf) -> Result<NodeRuntime, CompositeError> {
     let output = std::process::Command::new(&path)
         .arg("--version")
         .output()
@@ -949,7 +984,16 @@ pub fn dsh_composite_with(
 /// `dsh_composite_with` over the real seams and a real `node --version`
 /// probe.
 pub fn dsh_composite(seams: &DshSeams) -> Result<DshComposite, CompositeError> {
-    let node = spawn_node_runtime()?;
+    dsh_composite_resolving(seams, spawn_node_runtime)
+}
+
+/// `dsh_composite` over an injected runtime probe, so the composition is a
+/// plain test without a host `node`.
+fn dsh_composite_resolving(
+    seams: &DshSeams,
+    spawn: impl FnOnce() -> Result<NodeRuntime, CompositeError>,
+) -> Result<DshComposite, CompositeError> {
+    let node = spawn()?;
     let globals = global_folders(&node);
     dsh_composite_with(seams, &node, &globals)
 }

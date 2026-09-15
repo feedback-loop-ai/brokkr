@@ -853,4 +853,192 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("not UTF-8"), "{error}");
     }
+
+    #[test]
+    fn a_bound_route_needs_a_pin_a_nonempty_value_and_a_readable_workdir() {
+        let (dir, input) = binding(SHIPPED.as_bytes(), "route.yml");
+        let workdir = dir.path().to_string_lossy().into_owned();
+        // A binding with no pinned model has no provider or id to check.
+        let error = claim(&input, &workdir, None, Some("route.yml")).unwrap_err();
+        assert!(error.contains("pinned `--model`"), "{error}");
+        // An empty value that agrees with the argv refuses before any read.
+        let empty = json!({
+            "resume_context": { "route_overlay": { "value": "", "digest": "a".repeat(64) } }
+        });
+        let error = claim(&empty, &workdir, Some(PIN), Some("")).unwrap_err();
+        assert!(error.contains("empty"), "{error}");
+        // An empty workdir is read as the current directory, not skipped.
+        let error = claim(&input, "", Some(PIN), Some("route.yml")).unwrap_err();
+        assert!(error.contains("unreadable"), "{error}");
+    }
+
+    #[test]
+    fn the_reader_refuses_each_malformed_block_shape() {
+        // A top-level sequence must hold exactly one entry.
+        refused("- id: a\n- id: b\n", "exactly one top-level entry");
+        // A top-level mapping is not a sequence of one entry.
+        refused("id: llm-pi-ai\n", "sequence of one entry");
+        // A bare sequence item carries no member.
+        refused("-\n", "bare sequence item");
+        // A line that is neither a member nor a closed block key.
+        refused("justtext\n", "not a recognized block line");
+        // A block whose head does not consume every line.
+        refused("- id: llm-pi-ai\nfoo: bar\n", "unexpected indentation");
+        // A `key:` with no child block.
+        refused("key:\n", "empty `key:` block");
+        // A child indented more than one depth under a `key:`.
+        refused(
+            "- id: llm-pi-ai\n  config:\n      providers: x\n",
+            "jumps more than one depth",
+        );
+        // A provider field repeated.
+        refused(
+            "- id: llm-pi-ai\n  config:\n    providers:\n      dashscope:\n        apiKeyEnv: X\n        api: a\n        api: a\n        models:\n          - id: qwen3.8-max\n",
+            "repeats a field",
+        );
+        // `models` must be a sequence of exactly one item.
+        refused(
+            "- id: llm-pi-ai\n  config:\n    providers:\n      dashscope:\n        apiKeyEnv: X\n        models: x\n",
+            "models is not a sequence",
+        );
+        refused(
+            "- id: llm-pi-ai\n  config:\n    providers:\n      dashscope:\n        apiKeyEnv: X\n        models:\n          - id: a\n          - id: b\n",
+            "exactly one item",
+        );
+    }
+
+    #[test]
+    fn the_semantic_helpers_refuse_non_mappings_and_repeated_or_nested_fields() {
+        // `config` must be a mapping.
+        refused("- id: llm-pi-ai\n  config: x\n", "config is not a mapping");
+        // A repeated route-entry field is refused by `field`, not collapsed.
+        refused("- id: llm-pi-ai\n  id: llm-pi-ai\n", "repeats `id`");
+        // `id` must stay a scalar.
+        refused("- id:\n  x: y\n", "nests a non-scalar `id`");
+        // `baseURL` must stay a scalar.
+        refused(
+            "- id: llm-pi-ai\n  config:\n    providers:\n      dashscope:\n        apiKeyEnv: X\n        baseURL:\n          x: y\n        models:\n          - id: qwen3.8-max\n",
+            "nests a non-scalar `baseURL`",
+        );
+        // `compat` must stay a mapping.
+        refused(
+            "- id: llm-pi-ai\n  config:\n    providers:\n      dashscope:\n        apiKeyEnv: X\n        compat: x\n        models:\n          - id: qwen3.8-max\n",
+            "nests a non-mapping `compat`",
+        );
+    }
+
+    #[test]
+    fn keys_and_scalars_are_closed_identifiers_and_unquoted_values() {
+        // A key whose body carries a character outside the identifier set.
+        refused("id$x: y\n", "not a plain identifier");
+        // A key may carry `_` and `-` after its first character.
+        refused("a_b-c: value\n", "sequence of one entry");
+        // An empty value is refused.
+        refused("key: \n", "empty value");
+        // A value holding a comment or a second mapping is refused.
+        refused("key: a: b\n", "comment or an extra mapping");
+        refused("key: a # b\n", "comment or an extra mapping");
+    }
+
+    #[test]
+    fn the_reader_refuses_every_lexical_shape_it_did_not_recognize() {
+        // Document markers.
+        refused("---\n", "document marker");
+        refused("...\n", "document marker");
+        // A tab and a control character.
+        refused("- id:\tx\n", "tab or control");
+        refused("- id: x\u{1}\n", "tab or control");
+        // Odd indentation.
+        refused("- id: x\n   y: z\n", "odd indentation");
+        // A whitespace-only line is skipped; a document of them is empty.
+        refused("  \n", "route overlay is empty");
+        // Comments and blanks alone carry no block line.
+        refused("# only a comment\n\n", "route overlay is empty");
+        // The byte bound is refused before any parse.
+        let huge = vec![b'a'; MAX_BYTES + 1];
+        assert!(validate(&huge, PIN).is_err());
+        // The line bound is refused while lexing.
+        let many = "- x: y\n".repeat(MAX_LINES + 1);
+        assert!(validate(many.as_bytes(), PIN).is_err());
+    }
+
+    #[test]
+    fn the_endpoint_grammar_admits_a_bare_authority_and_refuses_its_edges() {
+        let base = SHIPPED.replace(
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            "https://host",
+        );
+        assert!(validate(base.as_bytes(), PIN).is_ok());
+        // A credential-name beginning with `_` is admitted; Brokkr never
+        // reads it.
+        let underscore = SHIPPED.replace("DASHSCOPE_API_KEY", "_X");
+        assert!(validate(underscore.as_bytes(), PIN).is_ok());
+        for (value, needle) in [
+            ("https://", "endpoint"),
+            ("https://host:/x", "endpoint"),
+            ("https:///x", "endpoint"),
+            ("https://host/", "endpoint"),
+            ("https://host..x", "endpoint"),
+            ("https://host-/x", "endpoint"),
+        ] {
+            let body = SHIPPED.replace(
+                "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+                value,
+            );
+            let error = validate(body.as_bytes(), PIN).unwrap_err();
+            assert!(error.contains(needle), "{value:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn the_reader_guards_hold_at_their_internal_call_boundaries() {
+        let lines = lex("a: b\n").unwrap();
+        // A block start beyond the line list or at the wrong depth is
+        // refused rather than indexed.
+        assert!(parse_block(&lines, 1, 0).is_err());
+        assert!(parse_block(&lines, 0, 1).is_err());
+        // A mapping or a sequence forced with no admitted line is refused.
+        assert!(parse_mapping(&lines, 0, 1).is_err());
+        assert!(parse_sequence(&lines, 0, 0).is_err());
+    }
+
+    #[test]
+    fn validate_refuses_a_pinned_model_outside_its_grammar() {
+        let error = validate(SHIPPED.as_bytes(), "bad model").unwrap_err();
+        assert!(error.contains("not `<id>`"), "{error}");
+        // A model item whose `reasoningEfforts` nests a non-mapping is
+        // refused at the mapping call rather than hashed.
+        refused(
+            "- id: llm-pi-ai\n  config:\n    providers:\n      dashscope:\n        apiKeyEnv: X\n        models:\n          - id: qwen3.8-max\n            reasoningEfforts: x\n",
+            "reasoningEfforts is not a mapping",
+        );
+    }
+
+    #[test]
+    fn claim_refuses_each_malformed_binding_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let workdir = dir.path().to_string_lossy().into_owned();
+        // A binding that is not an object.
+        let non_object = json!({"resume_context": {"route_overlay": 5}});
+        let error = claim(&non_object, &workdir, Some(PIN), None).unwrap_err();
+        assert!(error.contains("not an object"), "{error}");
+        // A binding with no value.
+        let no_value = json!({"resume_context": {"route_overlay": {}}});
+        let error = claim(&no_value, &workdir, Some(PIN), None).unwrap_err();
+        assert!(error.contains("no value"), "{error}");
+        // A binding with no digest.
+        let no_digest = json!({"resume_context": {"route_overlay": {"value": "route.yml"}}});
+        let error = claim(&no_digest, &workdir, Some(PIN), None).unwrap_err();
+        assert!(error.contains("no digest"), "{error}");
+        // An unreadable working directory.
+        let (_, input) = binding(SHIPPED.as_bytes(), "route.yml");
+        let error = claim(
+            &input,
+            "/definitely/not/a/dir",
+            Some(PIN),
+            Some("route.yml"),
+        )
+        .unwrap_err();
+        assert!(error.contains("working directory is unreadable"), "{error}");
+    }
 }

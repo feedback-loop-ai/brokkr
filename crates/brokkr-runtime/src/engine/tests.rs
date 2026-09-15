@@ -6422,3 +6422,23 @@ fn a_supersede_racing_a_growing_journal_refuses_rather_than_writing() {
         "the peer's event is there and the supersede is not",
     );
 }
+
+#[test]
+fn a_single_patch_value_admits_exactly_one_well_formed_pair() {
+    let one = |parts: &[&str]| {
+        let owned: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
+        single_patch_value(&owned).map(str::to_string)
+    };
+    assert_eq!(one(&["--patch", "route.yml"]).as_deref(), Some("route.yml"));
+    assert_eq!(
+        one(&["-x", "value", "--patch", "route.yml", "tail"]).as_deref(),
+        Some("route.yml")
+    );
+    // A second --patch, an empty value, a flag value, a joined spelling and
+    // a bare --patch all yield no value.
+    assert_eq!(one(&["--patch", "a", "--patch", "b"]), None);
+    assert_eq!(one(&["--patch", ""]), None);
+    assert_eq!(one(&["--patch", "--other"]), None);
+    assert_eq!(one(&["--patch=a"]), None);
+    assert_eq!(one(&["--patch"]), None);
+}

@@ -1,6 +1,8 @@
 use super::*;
+use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 
 fn write(dir: &Path, relative: &str, bytes: &[u8]) {
     let path = dir.join(relative);
@@ -644,4 +646,491 @@ fn the_dsh_composite_composes_the_conditional_extension_only_when_listed() {
         .profile_bundles
         .iter()
         .any(|b| b == "brokkr-dsh-resume-policy"));
+}
+
+const CORE_LOCK: &[u8] =
+    br#"{"packages":{"node_modules/@deepseek-ai/dsh":{"version":"1.0.0","integrity":"sha512-X"}}}"#;
+
+fn core_package(root: &Path, manifest: &[u8], lock: &[u8]) -> PathBuf {
+    let pkg = root.join("node_modules").join("@deepseek-ai").join("dsh");
+    write(&pkg, "package.json", manifest);
+    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write(root, "node_modules/.package-lock.json", lock);
+    pkg.join("lib/bin.js")
+}
+
+#[test]
+fn executable_resolution_walks_path_entries_and_refuses_a_miss() {
+    let dir = tempfile::tempdir().unwrap();
+    let tool = dir.path().join("mytool");
+    fs::write(&tool, b"x").unwrap();
+    let path = Some(dir.path().as_os_str().to_os_string());
+    let found = resolve_executable_in("mytool", path.clone()).unwrap();
+    assert_eq!(found, dir.path().canonicalize().unwrap().join("mytool"));
+    // An empty entry is skipped and a miss walks off the end.
+    assert!(resolve_executable_in("mytool", Some(OsString::from(""))).is_err());
+    assert!(resolve_executable_in("not-here", path).is_err());
+    // A command carrying a separator is canonicalized, not searched.
+    assert!(resolve_executable_in("/definitely/not/here", None).is_err());
+}
+
+#[test]
+fn global_folders_reads_node_path_home_and_the_runtime_prefix() {
+    let node = NodeRuntime {
+        path: PathBuf::from("/opt/node/bin/node"),
+        version: "v1".to_string(),
+    };
+    let folders = global_folders_in(
+        &node,
+        Some(OsString::from("/a::/b")),
+        Some(OsString::from("/home/u")),
+    );
+    assert_eq!(
+        folders,
+        vec![
+            PathBuf::from("/a"),
+            PathBuf::from("/b"),
+            PathBuf::from("/home/u/.node_modules"),
+            PathBuf::from("/home/u/.node_libraries"),
+            PathBuf::from("/opt/node/lib/node"),
+        ]
+    );
+    // No NODE_PATH, no HOME and a runtime outside a `bin/` prefix.
+    let bare = NodeRuntime {
+        path: PathBuf::from("/opt/node"),
+        version: "v1".to_string(),
+    };
+    assert!(global_folders_in(&bare, None, None).is_empty());
+    let root = NodeRuntime {
+        path: PathBuf::from("/"),
+        version: "v1".to_string(),
+    };
+    assert!(global_folders_in(&root, None, None).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let stage = |name: &str, body: &str| {
+        let path = dir.path().join(name);
+        fs::write(&path, body).unwrap();
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms).unwrap();
+        path
+    };
+    let good = stage("node-good", "#!/bin/sh\nprintf 'v1.2.3\\n'\n");
+    assert_eq!(spawn_node_runtime_at(good).unwrap().version, "v1.2.3");
+    let failed = stage("node-fail", "#!/bin/sh\nexit 3\n");
+    assert!(spawn_node_runtime_at(failed).is_err());
+    let empty = stage("node-empty", "#!/bin/sh\ntrue\n");
+    assert!(spawn_node_runtime_at(empty).is_err());
+    // A path that cannot be spawned at all.
+    assert!(spawn_node_runtime_at(dir.path().join("absent")).is_err());
+}
+
+#[test]
+fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
+    assert_eq!(
+        DshSeams::resolve().is_ok(),
+        crate::transcript::dsh_home().is_some()
+    );
+    assert!(DshSeams::resolve_with("dsh".to_string(), None).is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let seams = DshSeams::resolve_with("dsh".to_string(), Some(dir.path().to_path_buf())).unwrap();
+    assert_eq!(seams.executable, "dsh");
+    assert_eq!(seams.home, dir.path());
+}
+
+#[test]
+fn dsh_composite_composes_over_the_real_and_injected_runtime_probes() {
+    let install = Synthetic::new();
+    let injected = dsh_composite_resolving(&install.seams, || Ok(install.node())).unwrap();
+    assert_eq!(injected.node, "v22.23.2");
+    assert_eq!(injected.canonical.len(), 64);
+    // The real probe runs `node --version` from `PATH`; the delegation is
+    // exercised even when a host lacks node.
+    let _ = dsh_composite(&install.seams);
+    let _ = spawn_node_runtime();
+}
+
+#[cfg(unix)]
+#[test]
+fn the_plugin_walk_refuses_symlinks_special_files_and_unreadable_roots() {
+    use std::os::unix::net::UnixListener;
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "LICENSE", b"x");
+    std::os::unix::fs::symlink(dir.path().join("LICENSE"), dir.path().join("link")).unwrap();
+    let error = plugin_file_digests(dir.path()).unwrap_err();
+    assert!(error.to_string().contains("symlink"), "{error}");
+
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "LICENSE", b"x");
+    let _socket = UnixListener::bind(dir.path().join("sock")).unwrap();
+    let error = plugin_file_digests(dir.path()).unwrap_err();
+    assert!(
+        error.to_string().contains("neither a file nor a directory"),
+        "{error}"
+    );
+
+    let error = plugin_file_digests(Path::new("/definitely/not/a/realdir")).unwrap_err();
+    assert!(error.to_string().contains("unreadable"), "{error}");
+    let error = sha256_file(Path::new("/definitely/not/a/file")).unwrap_err();
+    assert!(error.to_string().contains("unreadable"), "{error}");
+}
+
+#[test]
+fn npm_keys_with_an_empty_or_dotted_component_are_refused() {
+    for key in [
+        "node_modules/@./name",
+        "node_modules/@scope/.",
+        "node_modules/@scope/..",
+    ] {
+        assert!(npm_name(key).is_err(), "{key}");
+    }
+}
+
+#[test]
+fn npm_locks_reject_unparseable_and_incomplete_entries() {
+    assert!(npm_dependencies("not json", &[]).is_err());
+    assert!(npm_dependencies(r#"{"packages":{"node_modules/a":5}}"#, &[]).is_err());
+    assert!(npm_dependencies(r#"{"packages":{"node_modules/a":{}}}"#, &[]).is_err());
+    assert!(npm_dependencies(
+        r#"{"packages":{"node_modules/a":{"version":"1.0.0","integrity":""}}}"#,
+        &[]
+    )
+    .is_err());
+    assert!(npm_dependencies(
+        "{\"packages\":{\"node_modules/a\":{\"version\":\"1.0.0\",\"integrity\":\"a\\nb\"}}}",
+        &[]
+    )
+    .is_err());
+}
+
+#[test]
+fn pnpm_locks_reject_every_unrecognized_construct() {
+    let blank = "\nlockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n";
+    assert_eq!(
+        pnpm_dependencies(blank, &[]).unwrap(),
+        vec!["debug 2.6.9 sha512-X".to_string()]
+    );
+    // An all-blank document has no version header.
+    assert!(pnpm_dependencies("\n\n", &[]).is_err());
+    // A first non-blank line that is not the version header.
+    assert!(pnpm_dependencies("foo\n", &[]).is_err());
+    // A child line before `packages:` is ignored.
+    assert!(pnpm_dependencies("lockfileVersion: '9.0'\n  stray: x\npackages:\n", &[]).is_ok());
+    // A package key without a trailing colon.
+    assert!(pnpm_dependencies("lockfileVersion: '9.0'\npackages:\n  debug@2.6.9\n", &[]).is_err());
+    // An empty version after the `@`.
+    assert!(pnpm_dependencies(
+        "lockfileVersion: '9.0'\npackages:\n  a@:\n    resolution: {integrity: sha512-X}\n",
+        &[]
+    )
+    .is_err());
+    // An empty resolution integrity.
+    assert!(pnpm_dependencies(
+        "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: }\n",
+        &[]
+    )
+    .is_err());
+    // A resolution outside any entry.
+    assert!(pnpm_dependencies(
+        "lockfileVersion: '9.0'\npackages:\n    resolution: {integrity: sha512-X}\n",
+        &[]
+    )
+    .is_err());
+}
+
+#[test]
+fn read_json_read_text_and_first_line_report_io_and_encoding_failures() {
+    let absent = Path::new("/definitely/not/a/file");
+    assert!(read_json(absent).is_err());
+    assert!(read_text(absent).is_err());
+    assert!(first_line(absent).is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir.path().join("bad.json");
+    fs::write(&bad, b"not json").unwrap();
+    assert!(read_json(&bad).is_err());
+    let crlf = dir.path().join("crlf");
+    fs::write(&crlf, b"#!/usr/bin/env node\r\nrest\n").unwrap();
+    assert_eq!(first_line(&crlf).unwrap(), "#!/usr/bin/env node");
+    let raw = dir.path().join("raw");
+    fs::write(&raw, b"\xff\n").unwrap();
+    assert!(first_line(&raw).is_err());
+}
+
+#[test]
+fn resolve_core_refuses_an_executable_with_no_dsh_ancestor() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("tool.js");
+    fs::write(&bin, b"#!/usr/bin/env node\n").unwrap();
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+}
+
+#[test]
+fn resolve_core_reads_past_a_non_dsh_or_unparseable_ancestor_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let shared = root.join("node_modules").join("@deepseek-ai").join("dsh");
+    write(
+        &shared.join("lib"),
+        "package.json",
+        br#"{"name":"something-else"}"#,
+    );
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        CORE_LOCK,
+    );
+    assert_eq!(
+        resolve_core(&bin.to_string_lossy()).unwrap().version,
+        "1.0.0"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let shared = root.join("node_modules").join("@deepseek-ai").join("dsh");
+    write(&shared.join("lib"), "package.json", b"not json");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        CORE_LOCK,
+    );
+    assert_eq!(
+        resolve_core(&bin.to_string_lossy()).unwrap().version,
+        "1.0.0"
+    );
+}
+
+#[test]
+fn resolve_core_refuses_a_manifest_that_does_not_match_its_binary_or_scope() {
+    // A binary that is not `bin.dsh`.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        CORE_LOCK,
+    );
+    let other = bin.parent().unwrap().join("other.js");
+    fs::write(&other, b"#!/usr/bin/env node\n").unwrap();
+    assert!(resolve_core(&other.to_string_lossy()).is_err());
+
+    // A manifest with no `bin.dsh`.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0"}"#,
+        CORE_LOCK,
+    );
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+
+    // A manifest with no `version`.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","bin":{"dsh":"lib/bin.js"}}"#,
+        CORE_LOCK,
+    );
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+
+    // A dsh manifest outside `@deepseek-ai`.
+    let dir = tempfile::tempdir().unwrap();
+    let pkg = dir.path().join("node_modules").join("dsh");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    assert!(resolve_core(&pkg.join("lib/bin.js").to_string_lossy()).is_err());
+
+    // A scope whose parent is not `node_modules`.
+    let dir = tempfile::tempdir().unwrap();
+    let pkg = dir.path().join("x").join("@deepseek-ai").join("dsh");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    assert!(resolve_core(&pkg.join("lib/bin.js").to_string_lossy()).is_err());
+
+    // A renamed package directory under `@deepseek-ai`.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let pkg = root.join("node_modules").join("@deepseek-ai").join("other");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    assert!(resolve_core(&pkg.join("lib/bin.js").to_string_lossy()).is_err());
+}
+
+#[test]
+fn resolve_core_refuses_a_lock_that_disagrees_with_the_package() {
+    // The hidden lock has no dsh entry.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        br#"{"packages":{}}"#,
+    );
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+
+    // The lock version differs from the package version.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        br#"{"packages":{"node_modules/@deepseek-ai/dsh":{"version":"2.0.0","integrity":"sha512-X"}}}"#,
+    );
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+
+    // The lock integrity carries a newline.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("core");
+    let bin = core_package(
+        &root,
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+        br#"{"packages":{"node_modules/@deepseek-ai/dsh":{"version":"1.0.0","integrity":"a\nb"}}}"#,
+    );
+    assert!(resolve_core(&bin.to_string_lossy()).is_err());
+}
+
+#[test]
+fn read_profile_refuses_a_missing_manifest_bundles_and_reload() {
+    // No profile directory.
+    let dir = tempfile::tempdir().unwrap();
+    assert!(read_profile(dir.path()).is_err());
+
+    // No `dsh.profile`.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    write(
+        &home.join("profiles/headless"),
+        "package.json",
+        br#"{"dsh":{}}"#,
+    );
+    assert!(read_profile(&home).is_err());
+
+    // An empty bundle array.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    write(
+        &home.join("profiles/headless"),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":[],"patchReload":"startup"}}}"#,
+    );
+    assert!(read_profile(&home).is_err());
+
+    // A non-string bundle entry.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    write(
+        &home.join("profiles/headless"),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":[""],"patchReload":"startup"}}}"#,
+    );
+    assert!(read_profile(&home).is_err());
+
+    // A patchReload outside the closed pair.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    write(
+        &home.join("profiles/headless"),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["x"],"patchReload":"other"}}}"#,
+    );
+    assert!(read_profile(&home).is_err());
+
+    // `package.json` is a directory: read_json reports the read error.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(home.join("profiles/headless/package.json")).unwrap();
+    assert!(read_profile(&home).is_err());
+}
+
+#[test]
+fn the_plugin_and_extension_must_resolve_inside_the_profile() {
+    // A plugin found under the core root is refused, not relocated.
+    let install = Synthetic::new();
+    let core_plugin = install
+        .dir
+        .path()
+        .join("core/node_modules/dsh-plugin-cli-session");
+    for file in PLUGIN_FILES {
+        write(&core_plugin, file, file.as_bytes());
+    }
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+
+    // An extension found under the core root is refused.
+    let install = Synthetic::new();
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
+    );
+    let core_extension = install
+        .dir
+        .path()
+        .join("core/node_modules/brokkr-dsh-resume-policy");
+    for file in EXTENSION_FILES {
+        write(&core_extension, file, file.as_bytes());
+    }
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+}
+
+#[test]
+fn dsh_composite_with_propagates_a_lock_and_a_value_refusal() {
+    // A non-excluded lock entry with no integrity.
+    let install = Synthetic::new();
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        br#"{"lockfileVersion":3,"packages":{"node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.1","integrity":"sha512-CORE"},"node_modules/debug":{"version":"2.6.9"}}}"#,
+    );
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+
+    // A core version carrying a newline reaches canonical_composite.
+    let install = Synthetic::new();
+    let pkg = install
+        .dir
+        .path()
+        .join("core/node_modules/@deepseek-ai/dsh");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0\nx","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    write(
+        &install.dir.path().join("core"),
+        "node_modules/.package-lock.json",
+        br#"{"lockfileVersion":3,"packages":{"node_modules/@deepseek-ai/dsh":{"version":"1.0\nx","integrity":"sha512-CORE"},"node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}}}"#,
+    );
+    assert!(dsh_composite_with(&install.seams, &install.node(), &[]).is_err());
+}
+
+#[test]
+fn the_plugin_component_names_a_missing_expected_file() {
+    let dir = tempfile::tempdir().unwrap();
+    // Five of the six expected files and no extras, so the missing-file
+    // arm is the one that refuses.
+    for file in PLUGIN_FILES.iter().skip(1) {
+        write(dir.path(), file, file.as_bytes());
+    }
+    let error = plugin_component(dir.path(), &PLUGIN_FILES).unwrap_err();
+    assert!(
+        error.to_string().contains("missing expected file"),
+        "{error}"
+    );
 }
