@@ -2234,3 +2234,164 @@ fn an_inline_codex_work_seat_carries_the_shipped_assessment_into_its_start() {
         "the inline coordinate's boundary is the declared one: {start}"
     );
 }
+
+/// Recursively copy one directory beside another — the shipped adapters
+/// beside a scratch root, so a declaration can be edited without
+/// touching the repository's bytes.
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+/// F1: the declaration an inline work seat reads its resume assessment
+/// from is part of the bundle's identity. A valid edit to it — status,
+/// applicability and scope preserved — moves the manifest the next
+/// process compares against the run's pin, so the edited declaration
+/// refuses to resume rather than rejoin under a rule the root was never
+/// opened with. The unchanged bundle beside it still resumes, which is
+/// what makes this a control rather than a declaration read-back.
+#[test]
+fn an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root() {
+    let root = workspace_root();
+    let scratch = tempfile::tempdir().unwrap();
+    let adapters = scratch.path().join("adapters");
+    copy_tree(&root.join("adapters"), &adapters);
+
+    let compile = |adapters: &Path| {
+        Bundle::compile_with(
+            &root.join("recipes/standby"),
+            &root.join("agents"),
+            adapters,
+        )
+        .expect("the shipped standby recipe compiles")
+    };
+    let pinned = |bundle: &Bundle| bundle.manifest["drivers"]["implement"]["codex"].clone();
+
+    let before = compile(&adapters);
+    let before_pin = pinned(&before);
+    assert!(
+        before_pin.is_string(),
+        "the inline Codex work seat pins the declaration it reads: {}",
+        before.manifest["drivers"]
+    );
+
+    // A valid edit to the measured restrictions evidence, keeping the
+    // shape's status, applicability and scope: only the declaration
+    // bytes move, and the assessment the next process reads with them.
+    let path = adapters.join("codex.json");
+    let mut codex: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    codex["resume"]["work-site"]["evidence"]["restrictions"] =
+        json!("decision 0030 ruling 2, re-read: the class is re-imposed as -c sandbox_mode");
+    std::fs::write(&path, serde_json::to_vec_pretty(&codex).unwrap()).unwrap();
+    let after = compile(&adapters);
+
+    assert_ne!(
+        before_pin,
+        pinned(&after),
+        "the consulted declaration is pinned, so editing it moves the pin"
+    );
+    assert_ne!(
+        before.manifest_digest(),
+        after.manifest_digest(),
+        "and the bundle identity moves with it"
+    );
+    assert_ne!(
+        before.inline_resume, after.inline_resume,
+        "the assessment the next process reads really did change"
+    );
+
+    // The synthetic seats stand in for the shipped inline Codex work
+    // seat: the manifest under test is the compiled one, so the identity
+    // compared at resume is production's. Each run's bundle is built
+    // ONCE and handed to both `start` and `resume` — the driver command
+    // is part of the instance key, and rebuilding it would move the key
+    // for a reason that has nothing to do with the declaration under
+    // test.
+    let seats = |dir: &Path| {
+        let mut seats = BTreeMap::new();
+        seats.insert(
+            "implement".into(),
+            seat(
+                single(
+                    model_driver(dir, "implement", &["fail", "complete"]),
+                    Vec::new(),
+                ),
+                &["complete"],
+                1,
+            ),
+        );
+        seats.insert(
+            "review".into(),
+            seat(
+                single(model_driver(dir, "review", &["clean"]), Vec::new()),
+                &["clean"],
+                1,
+            ),
+        );
+        seats
+    };
+    let run_bundle = |dir: &Path, source: &Bundle| {
+        std::fs::create_dir_all(dir).unwrap();
+        let mut built = bundle(dir, seats(dir));
+        built.machine = implement_machine();
+        built.manifest = source.manifest.clone();
+        built.inline_resume = source.inline_resume.clone();
+        built
+    };
+    let park = |dir: &Path, built: Bundle| {
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        let store = Store::open(&dir.join("forge.db")).unwrap();
+        let mut engine = Engine::start(store, built, "resume", Some(dir.to_path_buf())).unwrap();
+        let run_id = engine.run_id.clone();
+        engine.drive().unwrap();
+        assert_eq!(
+            fold(&engine.store.load(&run_id).unwrap()).unwrap().status,
+            Status::AwaitingOperator,
+            "the failing attempt parked the run with the root it opened"
+        );
+        (engine.store, run_id)
+    };
+
+    // Positive control: the unchanged bundle resumes, and the retry
+    // rejoins the thread the first attempt opened.
+    let same_dir = scratch.path().join("same");
+    let same = run_bundle(&same_dir, &before);
+    let (mut store, run_id) = park(&same_dir, same.clone());
+    operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+    Engine::resume(store, same, &run_id, Some(same_dir.clone()))
+        .unwrap()
+        .drive()
+        .unwrap();
+    assert_eq!(
+        offers(&received(&same_dir, "implement")),
+        [None, Some("implement-1".into())],
+        "the unchanged pinned bundle still rejoins its own root"
+    );
+
+    // Negative: the same journal under the edited declaration is a
+    // different identity, and the engine refuses it instead of reusing
+    // the root the old declaration opened.
+    let edited_dir = scratch.path().join("edited");
+    let (store, run_id) = park(&edited_dir, run_bundle(&edited_dir, &before));
+    let error = match Engine::resume(
+        store,
+        run_bundle(&edited_dir, &after),
+        &run_id,
+        Some(edited_dir.clone()),
+    ) {
+        Ok(_) => panic!("the edited declaration must not reuse the root the old one opened"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, EngineError::ManifestMismatch { .. }),
+        "expected the manifest-mismatch refusal, got {error:?}"
+    );
+}

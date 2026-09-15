@@ -119,8 +119,20 @@ fn exactly_one_seat_differs_and_it_differs_only_in_its_driver() {
 fn the_challenger_holds_no_gate_and_the_gates_stay_on_the_incumbent() {
     let incumbent = compile("recipes/fast");
     let challenger = compile("recipes/wager-harness");
+    // Since proposed decision 0056 ruling 5's F1 correction, the `drivers`
+    // pin covers every inline adapter consultation, not only gates: each
+    // arm's overridden `implement` seat pins the declaration it reads its
+    // resume assessment from, and those declarations differ by design
+    // (claude beside codex). The parity item is about the JUDGING seats,
+    // so the overridden work seat is lifted out before the comparison.
+    let judging = |bundle: &Bundle| {
+        let mut drivers = bundle.manifest["drivers"].clone();
+        drivers.as_object_mut().unwrap().remove("implement");
+        drivers
+    };
     assert_eq!(
-        challenger.manifest["drivers"], incumbent.manifest["drivers"],
+        judging(&challenger),
+        judging(&incumbent),
         "the judging seats — and the adapter declarations authorising \
          them — are identical in both arms (parity checklist item 6)"
     );

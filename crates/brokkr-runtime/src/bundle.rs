@@ -704,6 +704,13 @@ struct Unpinned {
     /// the resume assessment the adapter it names declares, carried to
     /// [`Bundle::inline_resume`] for the driver's private start context.
     resume: Map<String, Value>,
+    /// The declaration each of those assessments was read from. Kept
+    /// apart from `witnessed` because an exemption is a different fact
+    /// from a consumed assessment, but merged into the manifest's
+    /// `drivers` pin with it: an edit to the resume block must move the
+    /// bundle identity `pinned_bundle_holds` compares, or a changed
+    /// assessment would reuse a root the old one opened.
+    resume_witness: Map<String, Value>,
 }
 
 /// Adapter data for the effortless-route exemption (decision 0035
@@ -791,6 +798,20 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
         // adapters root contributes nothing at all.
         if let Some(adapter) = adapters.and_then(|adapters| adapters.adapter(kind)) {
             out.resume.insert(what.to_string(), adapter.resume.value());
+            // The DECLARATION the assessment was read from is pinned
+            // beside every other adapter a site consulted: the engine
+            // consumes this resume block to decide whether that site
+            // rejoins, so an edit to it must move the bundle identity
+            // that `pinned_bundle_holds` compares and the instance key
+            // the offer is stamped with. Otherwise a changed
+            // restrictions assessment would enable a different rejoin
+            // under the old, still-eligible root. Recorded beside the
+            // exemption map rather than inside it because the two are
+            // different facts; both ride the manifest's `drivers` pin.
+            let mut authorised = Map::new();
+            authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
+            out.resume_witness
+                .insert(what.to_string(), Value::Object(authorised));
         }
         return;
     }
@@ -830,11 +851,13 @@ fn labels(sites: &[String]) -> String {
 }
 
 /// What `enforce_model_pins` returns: the adapter digests whose effortless
-/// listings exempted inline seats, for the manifest, and the resume
-/// assessment each inline built-in model driver's adapter declares, for the
-/// engine. Two maps rather than one because they answer different
-/// questions from the same walk.
-type PinWitness = (Map<String, Value>, Map<String, Value>);
+/// listings exempted inline seats, the resume assessment each inline
+/// built-in model driver's adapter declares for the engine, and the
+/// declaration each of those assessments was read from. Three maps rather
+/// than one because they answer different questions from the same walk —
+/// the third rides the manifest's `drivers` pin beside the first, while
+/// the second travels to the driver's private start context.
+type PinWitness = (Map<String, Value>, Map<String, Value>, Map<String, Value>);
 
 /// One refusal names the complete repair set, on BOTH axes. A model pin
 /// without an effort pin is half a hire (decision 0035 ruling 5), so the
@@ -842,7 +865,8 @@ type PinWitness = (Map<String, Value>, Map<String, Value>);
 /// second behind a second compile. Returns the adapter digests whose
 /// effortless listings exempted inline seats, for the manifest, beside
 /// the resume assessment each inline built-in model driver's adapter
-/// declares, for the engine's private start context.
+/// declares, for the engine's private start context, beside the digest of
+/// the declaration each assessment was read from, for the manifest.
 fn enforce_model_pins(
     seats: &Map<String, Value>,
     adapters: Option<&Adapters>,
@@ -868,7 +892,7 @@ fn enforce_model_pins(
         ));
     }
     if refusals.is_empty() {
-        return Ok((unpinned.witnessed, unpinned.resume));
+        return Ok((unpinned.witnessed, unpinned.resume, unpinned.resume_witness));
     }
     Err(CompileError::Invalid(refusals.join("; ")))
 }
@@ -997,12 +1021,18 @@ impl Bundle {
         // flattened seats also means inherited omissions cannot hide in
         // a composition layer. The returned maps carry the adapter
         // digests whose effortless listings exempted inline seats, for
-        // the manifest below, and the resume assessment each inline
-        // built-in model driver's adapter declares, for the engine.
-        let (pin_drivers, inline_resume) = enforce_model_pins(
+        // the manifest below, the resume assessment each inline
+        // built-in model driver's adapter declares, for the engine, and
+        // the digest of the declaration each assessment was read from,
+        // also for the manifest. The resume witnesses ride the same
+        // `drivers` pin the exemptions do: a site that already has an
+        // exemption names the same provider and digest, so extending
+        // the map leaves that fact unchanged rather than duplicating it.
+        let (mut pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
             &resolved.seats,
             load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
         )?;
+        pin_drivers.extend(resume_witness);
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases

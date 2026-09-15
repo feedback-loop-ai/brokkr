@@ -4747,11 +4747,15 @@ repairs and fix only a gap the commissioned control demonstrates.
    offered handle names the provider's own session**, **SR5 Session recovery uses durable
    evidence without widening crash recovery**; evidence / **LE2 Launch evidence
    stays within a versioned closed vocabulary**, **LE5**. Set only Codex
-   `work-site` to `supported`, `boundaries: ["harness"]` and `hands: "none"`;
+   `work-site` to `supported`, `boundaries: ["harness", "not applicable"]` and
+   `hands: "none"` — `harness` for the engine-composed work agent, `not
+   applicable` for the author-written INLINE work seat whose own argv carries
+   its `--sandbox` class and no Brokkr boundary (D10's second coordinate);
    retain measured 0.148.0, applicable 0.153.4, classes, existing evidence and
    every existing limitations byte/order. Add D10's exact partial September 10
    accounting reference and append its dated limitation naming the preserved
-   harness coordinate, main's boxed MCP-argv refusal and remaining proof debt.
+   harness and inline coordinates, main's boxed MCP-argv refusal and remaining
+   proof debt.
    The boxed cold cause is now `restrictions-unavailable` instead of main's
    `incompatible-argv`; explain it without claiming a new rejoin. The reason
    cites the September 15 ruling, harness preservation and full proof owed.
@@ -4774,20 +4778,23 @@ repairs and fix only a gap the commissioned control demonstrates.
    Record all controls separately; deleting accounting replaces none of them.
    In the existing runtime `tests/roster.rs` shipped-shape case, load the four
    real declarations through `Adapters::load`, asserting those dispositions,
-   Codex's harness/none scope, distinct measured/applicable versions and four
-   references, and DSH's absent digest. This is secondary loader evidence,
-   not the rejoin proof. Run the boxed negative with its complete resolved
-   workspace MCP argv; require cold `restrictions-unavailable` and no version
-   probe under the narrowed declaration. Preserve the independent existing
-   `-c` allow-list refusal; no boxed or no-hands rejoin is newly enabled.
+   Codex's harness/inline/none scope, distinct measured/applicable versions
+   and four references, and DSH's absent digest. This is secondary loader
+   evidence, not the rejoin proof. Run the boxed negative with its complete
+   resolved workspace MCP argv; require cold `restrictions-unavailable` and
+   no version probe under the narrowed declaration. Preserve the independent
+   existing `-c` allow-list refusal; no boxed or no-hands rejoin is newly
+   enabled.
    Run the existing runtime boundary case
    `the_seat_input_names_the_boundary_and_the_marker_only_under_a_box` and
    `engine/resume_tests.rs::no_gate_topology_is_ever_offered_a_session` beside
    the bridge. A site without configured hands has neither field and therefore
-   defaults to the refused `not applicable` boundary; a harness gate with
-   hands still receives no offer under SR1. Absent `hands` alone establishes
-   neither work eligibility nor a supported boundary. Reuse these assertions;
-   do not add a duplicate topology suite or fabricate a marker.
+   reads the `not applicable` boundary; that coordinate is refused for every
+   shape the declaration leaves unmeasured, while Codex's inline work seat
+   preserves it, and a harness gate with hands still receives no offer under
+   SR1. Absent `hands` alone establishes neither work eligibility nor a
+   supported boundary. Reuse these assertions; do not add a duplicate topology
+   suite or fabricate a marker.
    Exercise all three other shipped assessments with otherwise eligible offers
    through the existing planner suites and require `unsupported-resume`
    without a version probe.
@@ -4887,8 +4894,9 @@ repairs and fix only a gap the commissioned control demonstrates.
    Align the provider guide's blanket expiry paragraph, Codex row and all-cold
    statement, the `ResumeIdentity::Measured.applies_to` comment and only
    necessary packaged/scaffolded consumers with the four dispositions. Name
-   harness/none preservation and the boxed coordinate's continued cold launch
-   and changed refusal token; do not imply all Codex boundaries are enabled.
+   the preserved harness and inline coordinates (both with hands `none`) and
+   the boxed coordinate's continued cold launch and changed refusal token; do
+   not imply all Codex boundaries are enabled.
    Preserve dated captures and limitations; no live enforcement claim follows from shims or prose.
    After all declaration bytes settle, run the existing witness and compose
    tests and update only their measured left/right digest pairs. Declaration
@@ -4993,6 +5001,53 @@ before and after **29,844/30,015 lines, 5,023/5,036 branches, 2,851/2,861
 functions**; the shortfall is the known #286 in-box boundary-skip, and host
 equality remains the controller's. Remote CI, integration, publication and
 closure remain pending external results.
+
+
+### Implementation return — F1 inline declaration identity, 2026-09-15
+
+Answered the judging pass at `81df715` without ticking a checkbox; the
+ledger stays 82 checked / 19 pending across the same 101 identifiers.
+
+**F1.** `Bundle::compile_with` now pins the adapter declaration each inline
+built-in model driver's resume assessment was read from, beside the gate's
+authorising digest and the effort exemption, in the manifest's `drivers`
+map. `enforce_model_pins` returns the assessment map for the engine and a
+separate witness map merged into `drivers`, so an exemption and a consumed
+assessment stay distinct facts while both move identity. A valid edit to
+Codex's restrictions evidence moves
+`recipes/{fast,node,night-shift,wager-harness,research-dsh}`; the recorded
+compose/witness digests were re-pinned from the tests' own reported
+`left`/`right` pairs only. The `drivers`-as-gates invariant tests were
+reconciled: `witness_digests` now names every inline consult, and
+`wager_parity` compares the judging seats after lifting the overridden
+`implement` seat.
+
+Proof:
+`engine::resume_tests::an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root`
+compiles the shipped `recipes/standby` twice with one declaration edit, drives
+a cold Codex-shaped run to a parked confirmed root, and resumes it under the
+unchanged bundle (rejoins `[None, Some("implement-1")]`) and under the edited
+one (`EngineError::ManifestMismatch`, so the old root is not reused). Control:
+removing `pin_drivers.extend(resume_witness)` failed the pin assertion;
+restored and rerun green.
+
+**F2.** The active operator-ruling breakdown's clause 3 now names
+`boundaries: ["harness", "not applicable"]`, says which coordinate each word
+is, and states that `not applicable` is refused for every shape the
+declaration leaves unmeasured while Codex's inline work seat preserves it.
+Clause 8's prose reconciliation names both preserved coordinates beside the
+boxed coordinate's continued cold launch. The dated implementation records
+above stay as history.
+
+**Gates (in-box).** fmt, all-target/all-feature locked clippy,
+`cargo test --workspace`, `cargo test --workspace --all-features --locked`,
+both bundle compiles, `cargo build --release --locked -p brokkr-cli` and
+strict `openspec validate 2026-09-09-226-session-resumption --strict` pass.
+The exact gate before this return measured **30,021/29,850 lines,
+5,038/5,025 branches, 2,863/2,853 functions**; after, **30,036/29,865 lines,
+5,038/5,025 branches, 2,863/2,853 functions** — every added production line
+covered and the deficit unchanged at the known #286 in-box boundary skip.
+Host equality and remote CI remain the controller's.
 
 
 ### Prior tasks-phase validation and handoff — operator ruling (`c45ee20`)

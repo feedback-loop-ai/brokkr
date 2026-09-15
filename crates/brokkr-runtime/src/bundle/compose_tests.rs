@@ -1056,10 +1056,15 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// digest every one of these bundles pins. That is not incidental — a
 /// declaration edit moving bundle identity is what makes an in-flight
 /// run refuse the offer rather than resume under a changed rule.
+/// The returned F1 correction moves `recipes/fast` once more alone: its
+/// inline Claude implementer now pins the declaration it reads its resume
+/// assessment from, exactly as its gate seats already pinned the
+/// declaration that authorises them. The other three witness only
+/// deterministic exec gates, so composition still moves none of them.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "a653dbfc5deea79fe78eda4ed962b828a49cbdbd7ffdd997302d17bf1e01285c",
+        "a3e7ded619b34de0c0da1c77e75fbae7802e9849e65219ae80716ddf3dd80585",
     ),
     (
         "recipes/panel-review",

@@ -4101,7 +4101,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
     let seats = json!({"implement": spark()});
 
     // Exempt, with the answering digest witnessed beside the exemption.
-    let (witnessed, _resume) =
+    let (witnessed, _resume, _resume_witness) =
         enforce_model_pins(seats.as_object().unwrap(), Some(&adapters)).unwrap();
     assert_eq!(
         witnessed["implement"]["dsh"],
@@ -4142,7 +4142,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
         "--model", "spark/qwen3.8-flash",
         "--effort", "low",
     ]))});
-    let (witnessed, _resume) =
+    let (witnessed, _resume, _resume_witness) =
         enforce_model_pins(pinned.as_object().unwrap(), Some(&adapters)).unwrap();
     assert!(witnessed.is_empty());
 }

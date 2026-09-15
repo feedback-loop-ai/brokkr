@@ -179,17 +179,28 @@ fn workspace() -> PathBuf {
 /// Proposed decision 0056 moves every bundle whose sites resolve through
 /// `adapters/claude.json`, `adapters/codex.json`, `adapters/dsh.json` or
 /// `adapters/lanetally.json`: each now declares what has been MEASURED
-/// about resuming it, and an adapter declaration is bundle data. Only
-/// `recipes/research-dsh` is unmoved, because its lane resolves through
-/// no declaration this change edited.
+/// about resuming it, and an adapter declaration is bundle data. That
+/// first edit left `recipes/research-dsh` unmoved, because its lane
+/// resolved through no declaration this change then pinned.
+/// The returned F1 correction pins the declaration a work-class inline
+/// driver reads its resume assessment from, beside the gate's authorising
+/// digest: that assessment decides whether the seat rejoins, so an edit
+/// to it must move the bundle identity the offer is compared against.
+/// That moves `recipes/fast` and `recipes/node` (their inline Claude
+/// implementers), `recipes/night-shift` and `recipes/research-dsh`
+/// (inline work seats the first `drivers` witness did not yet pin) and
+/// `recipes/wager-harness` (its inline Codex implementer). The gate-only
+/// bundles, the agent-backed ones and `recipes/preflight` keep their
+/// digests: a seat that consulted no inline model declaration is not
+/// touched.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "a653dbfc5deea79fe78eda4ed962b828a49cbdbd7ffdd997302d17bf1e01285c",
+        "a3e7ded619b34de0c0da1c77e75fbae7802e9849e65219ae80716ddf3dd80585",
     ),
     (
         "recipes/node",
-        "b888bf119055fc5107bcda7202362589b59f7deea8e04db8d28f539070b094d3",
+        "90657517bcd4637c92b53ce393e17cb7effae88cb75d6b2fa9a8e5e8a45fae64",
     ),
     (
         "recipes/preflight",
@@ -197,11 +208,11 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "cc650ac3a407a372f3ab193e2ad0186f96a118f0974b7eedfe19efc615056755",
+        "097a57e37997ec9eba9c2ebe64f3786a2670af8782ddb764143439ce28d56bf7",
     ),
     (
         "recipes/wager-harness",
-        "23dfe39e279eed5f5031104db735b2b4bc6188846fd459654de6e9b1a561ba81",
+        "45a17bce7c3a6c819042a6d2b1eda32b63ad965dfb35998b3b7b2011e04bb0fd",
     ),
     (
         "recipes/triage",
@@ -213,7 +224,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/research-dsh",
-        "3633c913555b12835f385d3f6dad3fc101f1b0756ed52dc9babde78c07d2d657",
+        "40b00b75be7a56be2c9e0f3860ef46fb7c87034c7d945292e62a8237c1d06635",
     ),
     (
         "recipes/gpt-flash",
@@ -225,20 +236,50 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
 ];
 
-/// The INLINE gate seats of each, by name: exactly what a `drivers`
-/// witness must account for, one entry per judging seat and none for a
-/// working one. `bundles/verify` and `recipes/preflight` have no ship
-/// phase to gate — and no working seat at all, so in those two every
-/// seat appears here.
+/// The INLINE model-driver seats of each, by name and the adapter each
+/// names: exactly what a `drivers` witness must account for. Since
+/// proposed decision 0056 ruling 5 an inline WORK seat consults its
+/// adapter's resume assessment just as an inline gate consults its tier,
+/// and that declaration is pinned beside the gate's so an edit to it
+/// moves the identity that decides whether the seat rejoins.
+/// `bundles/verify` and `recipes/preflight` have no ship phase to gate —
+/// and no working seat at all, so in those two every seat appears here.
 ///
 /// Library-backed gates carry their adapter witnesses through the agent
 /// resolution record instead, so they do not belong in this inline-only
 /// list. In particular, all of Crucible's review offices are gates now.
-const INLINE_GATES: [(&str, &[&str]); 4] = [
-    ("recipes/fast", &["review", "ship", "verify"]),
-    ("recipes/node", &["review", "ship", "verify"]),
-    ("recipes/preflight", &["review", "verify"]),
-    ("recipes/wager-harness", &["review", "ship", "verify"]),
+const INLINE_ADAPTERS: [(&str, &[(&str, &str)]); 4] = [
+    (
+        "recipes/fast",
+        &[
+            ("implement", "claude"),
+            ("review", "claude"),
+            ("ship", "exec"),
+            ("verify", "exec"),
+        ],
+    ),
+    (
+        "recipes/node",
+        &[
+            ("implement", "claude"),
+            ("review", "claude"),
+            ("ship", "exec"),
+            ("verify", "exec"),
+        ],
+    ),
+    (
+        "recipes/preflight",
+        &[("review", "claude"), ("verify", "exec")],
+    ),
+    (
+        "recipes/wager-harness",
+        &[
+            ("implement", "codex"),
+            ("review", "claude"),
+            ("ship", "exec"),
+            ("verify", "exec"),
+        ],
+    ),
 ];
 
 #[test]
@@ -295,22 +336,24 @@ fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     }
 }
 
-/// What authorises an inline gate is pinned where the bundle's identity
-/// can see it (decision 0021): one entry per gate-class seat, naming the
-/// driver and the digest of the adapter file whose declared tier let it
-/// judge — and no entry for a work-class seat, which consulted nothing.
+/// What answered an inline seat is pinned where the bundle's identity
+/// can see it: one entry per inline model-driver seat, naming the driver
+/// and the digest of the adapter file whose declared tier let a gate
+/// judge, or whose resume assessment a work seat would rejoin under
+/// (decision 0021; proposed decision 0056 ruling 5). An edit to either
+/// declaration moves the identity, which is what stops a changed rule
+/// from reusing a root the old one opened.
 #[test]
 fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
     let root = workspace();
     let adapters = brokkr_runtime::agents::Adapters::load(&root.join("adapters"))
         .expect("the shipped adapters load");
-    let claude = adapters
-        .digest("claude")
-        .expect("the incumbent adapter is declared");
-    let exec = adapters
-        .digest("exec")
-        .expect("the deterministic adapter is declared");
-    for (relative, gates) in INLINE_GATES {
+    let digest = |provider: &str| {
+        adapters
+            .digest(provider)
+            .unwrap_or_else(|| panic!("the {provider} adapter is declared"))
+    };
+    for (relative, seats) in INLINE_ADAPTERS {
         let bundle = Bundle::compile_with(
             &root.join(relative),
             &root.join("agents"),
@@ -319,18 +362,14 @@ fn an_inline_gate_pins_the_adapter_declaration_that_authorised_it() {
         .unwrap_or_else(|e| panic!("{relative} must compile: {e}"));
         let witnessed = bundle.manifest["drivers"]
             .as_object()
-            .unwrap_or_else(|| panic!("{relative} witnesses no driver for its gates"));
-        let seats: Vec<&str> = witnessed.keys().map(String::as_str).collect();
-        assert_eq!(seats, gates, "{relative} witnessed the wrong seats");
-        for seat in gates {
-            let (driver, digest) = if matches!(*seat, "verify" | "ship") {
-                ("exec", exec)
-            } else {
-                ("claude", claude)
-            };
+            .unwrap_or_else(|| panic!("{relative} witnesses no driver for its inline seats"));
+        let names: Vec<&str> = witnessed.keys().map(String::as_str).collect();
+        let expected: Vec<&str> = seats.iter().map(|(seat, _)| *seat).collect();
+        assert_eq!(names, expected, "{relative} witnessed the wrong seats");
+        for (seat, provider) in seats {
             assert_eq!(
                 witnessed[*seat],
-                serde_json::json!({ (driver): digest }),
+                serde_json::json!({ (*provider): digest(provider) }),
                 "{relative} seat '{seat}' pins the wrong adapter"
             );
         }
