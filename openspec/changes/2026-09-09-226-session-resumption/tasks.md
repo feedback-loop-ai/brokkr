@@ -1,8 +1,10 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
 Current commission: run `the-whole-family-branch-integrat-0a5cdb4f`, tasks
-phase, adopts proposal Y/specifications `c2ed4f8` and design `e77c205` over the
-operator's revert `5ee48aa`. Only F1 whole-family relocation with independent
+return at `d194645`, adopts proposal Y/Z/specifications `e8b99c5`, the current
+D10 design return and implementation `bcefcf6`. The commissioned baseline
+remains the operator's revert `5ee48aa`; its coverage is not a measurement of
+this later checkout. Only F1 whole-family relocation with independent
 fail-closed admission, F2 global ownership including wrapper-created addresses,
 and F3 Windows-safe regression fixtures belong to this slice. The reverted
 `5ca534b` is neither restored, adapted nor used as implementation input. Its
@@ -20,11 +22,12 @@ and a compiler-only repair are superseded. No upstream choice remains.
 
 The ledger remains **82 complete / 19 pending across 101 identifiers**.
 The clauses refine existing acceptance; historical ticks attest adopted work,
-not these unexecuted repairs. Record each clause's actual progress and proof
-without changing checkbox states. In particular, 8.8, 8.10, 9.6 and all 11.x
+not completion of these residual repairs or their proofs. Record each clause's
+actual progress and proof without changing checkbox states. In particular, 8.8, 8.10, 9.6 and all 11.x
 remain pending. Passes C/D, archive, re-folding living specs, provider enablement
-and the settled reader seam remain outside scope. Minimally clarify existing
-proposed 0056 as D10 requires before semantic implementation; keep it proposed.
+and the settled reader seam remain outside scope. Adopt `bcefcf6`'s existing
+0056 clarification and retain its `proposed` status; no further decision edit
+is required by this return.
 
 The current inventory remains **20 requirements / 159 scenarios** (31 evidence,
 64 safety, 11 boundary, 20 progress, 33 site). The two-mediums F3 inventory
@@ -278,11 +281,11 @@ saved for the phase commit.
       the full unfiltered workspace suite required on archived bytes before
       the delivery commit, and exact-head controller evidence external to the
       task state (10).
-      For the whole-family slice, minimally clarify rulings 1 and 6 for one
-      structural owner of the entire site-facts family and affirmative current
-      confinement, as Y/D10 requires; retain `Status: proposed` and accepted
-      0030's safe supported rejoin. Clause 1 below owns this amendment and the
-      existing decision-index check; the inherited tick does not attest it.
+      For the whole-family return, adopt `bcefcf6`'s rulings 1/6 clarification
+      for the entire site-facts family and affirmative current confinement,
+      as Y/Z/D10 requires; retain `Status: proposed` and accepted 0030's safe
+      supported rejoin. Clause 1 below owns the existing decision-index check;
+      adoption of the text does not attest runtime compliance or fresh validation.
       Preserve the existing ruling text that remains true; amend ruling 10 and
       its enforcement binding rather than replacing the decision or implying
       operator acceptance. For the earlier operator-ruling slice, first amend
@@ -1220,8 +1223,9 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 For the current whole-family slice, execute only Y/D10's six F1
-      shape decisions, independent unknown-confinement refusals, F2 raw/final
+- [ ] 8.10 For the current whole-family slice, execute only Y/Z/D10's six F1
+      shape decisions, selected-single dispatch/unknown-owner controls,
+      independent unknown-confinement refusals, F2 raw/final
       collision refusals with live renamed controls, declaration-identity
       refusal and every new test's removal proof, in clauses 1–4 below. F3
       requires a real target-platform executable or `#[cfg(unix)]` for direct
@@ -5294,14 +5298,26 @@ provider qualification and archive unclaimed. No push, merge or new run occurs.
 
 ## Current tasks visit — whole-family execution order, 2026-09-16
 
-This tasks-only visit adopts Y and D2/D10/D11 at `e77c205`. No `returned_from`
-is supplied. AS1's six inline forms and mismatched-evidence scenario, AS2's
-current restrictions, SR1's repeated-label ownership cases, SR2's identity
+This tasks-only return adopts Y/Z and D2/D10/D11 at `d194645`.
+`returned_from` is design's `drafted` result: strict validation passes, with
+inherited informational archive-target notices for adapter-resume-safety and
+sdd-progress-markers. Archive remains excluded; these notices require no
+fold or upstream repair for this slice. D10 identifies implementation gaps,
+not unanswered design choices. AS1's six inline forms and mismatched-evidence
+scenario, AS2's current restrictions, SR1's repeated-label ownership cases, SR2's identity
 fence and LE2/LE5's decisions, launch and removal proofs own F1–F3. D10 records
 the choices under Decisions; no upstream repair is needed. These six clauses
 replace the two-mediums clauses from `4d7d452` in their existing order, without
 new checkbox IDs or states. Record each clause's actual completion and proof
 here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
+
+Adopt the landed `SiteFacts`, tri-state `HandsState`, independent adapter
+absence refusal, deterministic `owner_sites` and final global ownership check.
+Clauses 2–3 still owe the pre-collection census, exact source/owner movement,
+claim-time refusal, canonical runtime readers and selected-single marking.
+Clause 4 still owes decision and removal evidence; none is supplied by this
+tasks return or by the presence of the implementation. Preserve the six-clause
+order and all existing requirement bindings; do not rebuild settled foundations.
 
 1. **Preserve evidence and expose the failures.** Existing 1.1, 3.6, 6.3,
    8.10 and group 15 — site / SR1, SR2; safety / AS1, AS2; evidence / LE2,
@@ -5309,9 +5325,9 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
    the unchanged exact gate's fresh before measurement under clause 6's
    constraints, or record its missing prerequisite. The supplied
    30,036/30,036 lines, 5,038/5,038 branches and 2,863/2,863 functions remain
-   inherited evidence. Before semantic edits, minimally clarify proposed 0056
-   rulings 1/6 for whole-family ownership and affirmative confinement, retain
-   its status, and run `cargo test -p brokkr-cli --test decisions_index`.
+   inherited evidence. Adopt the landed proposed-0056 rulings 1/6 clarification
+   for whole-family ownership and affirmative confinement; preserve its status
+   and verify it with `cargo test -p brokkr-cli --test decisions_index`.
 
    Extend existing `bundle/tests.rs`, `engine/resume_tests.rs`, engine boundary/
    agent suites, protocol `adapters/tests.rs` and CLI `tests/driver_conformance.rs`.
@@ -5341,7 +5357,10 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
    factless and later-parsed owners before any assessment, effort/resume witness,
    hands or agent/driver evidence insertion. A distinct owner claiming the same
    full label yields `CompileError::Invalid` with label and both owners, even
-   if wrapping would later separate the raw aliases.
+   if wrapping would later separate the raw aliases. Use existing `SiteKey`
+   structural owners in the compilation-only census before `enforce_model_pins`;
+   `collect_unpinned` alone omits agent leaves. Bind every fact write to its
+   reservation and verify the raw collision and renamed control in clause 4.
 
    Populate one canonical `BTreeMap<String, SiteFacts>` by registered owner;
    the value owns `inline_resume`, `pin_drivers`, `hands`, `record` and `driver`.
@@ -5356,9 +5375,10 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
 3. **Move the whole family, reserve final owners and fail closed.** Existing
    3.4–3.6, 6.3, 8.10 — site / SR1, SR2, SR4; safety / AS1, AS2;
    evidence / LE2, LE5. Pair each source owner with its executing owner and new
-   ancestry directly at the wrapper transformation: `verify` becomes
-   `verify:checks`; `verify:<m>` becomes `verify:checks:<m>`. Drain all sources
-   before destination insertion so `x` beside `checks:x` cannot overwrite a
+   ancestry directly from the parsed single or panel at the wrapper
+   transformation: `verify` becomes `verify:checks`; `verify:<m>` becomes
+   `verify:checks:<m>`. Drain those exact facts AND their source reservations
+   before destination claims so `x` beside `checks:x` cannot overwrite a
    still-needed source or falsely collide. Move each complete `SiteFacts` once
    with its owner transformation; a sixth field follows automatically. Missing
    source/field remains unknown. No separate-map checklist, prefix scan, colon
@@ -5370,18 +5390,24 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
    defaults, including authored/injected deterministic steps. Preserve useful
    within-body diagnostics. The model-only `structural_sites` walk omits dialect
    leaves and is insufficient; empty maps and transient overwrites do not excuse
-   aliasing. Boundary/HandsSpec, assessment and instance readers use the same
-   owned state throughout execution.
+   aliasing. Keep the landed `owner_sites`/`refuse_global_aliasing` final check.
+   Runtime hands, boundary/delivery, spawn composition, inline assessment fallback
+   and instance readers use `Bundle.sites`, with no runtime projection fallback.
+   Preserve selected-candidate assessment precedence for agent sites and the
+   existing manifest projections/vocabulary. `hands_spec() == None` cannot
+   distinguish unknown from positively resolved no-hands; retain the tri-state
+   distinction through identity/eligibility as well as marker composition.
 
    At each single/selected-single, panel member, sequence single and sequence
    panel-member dispatch, replace or clear inherited markers. Resolved no-hands
    emits `boundary: not applicable`, `hands: none`; resolved hands emits the
    current boundary and `boxed` only for boxed boundaries, otherwise `none`.
    Unknown emits no affirmative permission and cannot qualify as a known
-   no-hands instance. Selected singles use executing `site_name` at spawn,
-   not the outer phase. Preserve the requested-input/spawn-time digest boundary.
+   no-hands instance. Selected singles use executing `site_name` beside
+   `mark_delivery`, after the requested-input digest check. Preserve that
+   requested-input/spawn-time boundary and the supported selector-single offer.
 
-   Independently remove both permissive defaults in `adapters.rs::resume_gate`:
+   Retain the landed independent absence refusal in `adapters.rs::resume_gate`:
    otherwise supported/accounted evidence requires both recognized string
    markers; missing, null, non-string or unknown markers decline
    `restrictions-unavailable`. Absent/unsupported assessment and absent accounting
@@ -5402,7 +5428,13 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
    independent `verify:foo` phase and the shipped harness coordinate. Exercise
    unregistered and registered/unresolved confinement through engine composition,
    including stale parent/sibling markers, and clause 1's independent adapter
-   marker cases. Validators and all gate-class model sites receive no offer.
+   marker cases. D10's selected-single scenario also needs a `work:chore`
+   confirmed cold root and unchanged production exchange reaching exact-root
+   `launch: resumed`; removing its dispatch-time marking must fail that live
+   assertion. For its missing/unresolved owner controls, clear stale parent
+   markers and require `restrictions-unavailable` at the adapter, without
+   manufacturing an eligible engine offer. Validators and all gate-class model
+   sites receive no offer.
 
    F2 refuses each valid collision with the full label and both owners:
    (a) phase `work`, case `chore` versus literal phase `work:chore`;
@@ -5411,9 +5443,13 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
    (d) wrapped no-hands Codex versus literal `verify:checks` exec with hands
    and no assessment; (e) wrapped member versus literal `verify:checks:alpha`,
    including a factless owner; (f) injected validator versus literal no-hands
-   Codex `verify:dialect-verify`. Include raw aliases later separated by wrapping
-   and reversed declaration order. For (a)/(b), keep Codex at the first owner
-   and a conflicting Claude assessment without Codex work-site support at the
+   Codex `verify:dialect-verify`. For the raw alias that wrapping later separates,
+   use D10's pinned DSH verify-panel member `alpha` beside literal pinned Codex
+   phase `verify:alpha`: refuse before collection, in both declaration orders.
+   Rename only the literal phase; require the member's own pin/assessment and
+   the renamed Codex phase's confirmed exact-root live rejoin. A shape mismatch
+   or mixed-map assertion cannot replace that admission refusal. For (a)/(b),
+   keep Codex at the first owner and a conflicting Claude assessment without Codex work-site support at the
    other. Supply legal `chore`/`engine` cases, defaults, results and model/effort
    pins. Rename only the conflicting outer phase in
    EACH construction and require compilation plus a supported exact-root Codex
@@ -5434,8 +5470,10 @@ here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
    unknown-marker case so its refusal assertion catches it. Break witness
    propagation until the changed declaration wrongly permits an old root. Remove
    raw and wrapper/final protections for their respective collision assertions,
-   removing the minimal complete protection when guards overlap. Unwrapped,
-   harness and portable controls need their claimed decision/launch mutation.
+   removing the minimal complete protection when guards overlap; separately
+   prove destination claims refuse before any relocated/synthetic fact write.
+   Removing only the final walk while claim-time protection still masks the
+   mutation is not evidence. Unwrapped, harness and portable controls need their claimed decision/launch mutation.
    Build errors, map panics, fixture failures and masking guards prove nothing.
    Restore every mutation; rerun retained identity, boundary, hands, accounting,
    argv, ownership, fresh-gate and cold-replacement negatives.
@@ -5547,3 +5585,40 @@ breakdown. Implementation owes clauses 1–6; host equality under #286 and
 final-head remote/platform CI remain pending controller evidence. No runtime
 repair, provider qualification, whole-change task completion, archive/fold,
 frozen-byte edit, push, merge or additional Brokkr run occurred.
+
+
+### Tasks-return validation — adopted design `d194645`, 2026-09-16
+
+Answered the design return in the existing requirement-linked clauses 1–4 and
+owning 1.1/8.10 descriptions. Adopted the landed foundations and proposed-0056
+clarification; made the residual raw census, exact movement/reservations,
+canonical readers, selected-single decision and overlapping-guard removal proof
+explicit. D10 already decides these points and supplies the raw-alias and
+selected-single scenarios. No earlier artifact needs repair; no new plan,
+requirement, scenario, task ID or checkbox-state change is introduced.
+
+Strict active validation passes; strict all-item OpenSpec validation reports
+**14 passed / 0 failed**. Status and whitespace checks pass. The inherited
+archive-target notices remain informational and outside this no-archive slice.
+All **101 IDs / 82 checked / 19 pending** retain their entry states. Requirement
+bindings remain present; the five deltas retain **20 requirements / 159 scenarios**.
+Only `tasks.md` changes; the other **728 tracked files** and inventoried saved
+coverage reports retain their entry hashes. Production/tests, proposed 0056,
+frozen surfaces, gate scripts and living specifications are unchanged.
+
+Fresh Rust commands could not start: **Cargo is unavailable** (ENOENT, recorded
+as 127). This includes format, all-target/all-feature clippy, both workspace
+modes, affected runtime/protocol and CLI conformance/index suites, both bundle
+compiles, release build and the pinned llvm-cov prerequisite. No Rust pass or
+behavioral/removal proof is claimed. **Fresh exact-gate before: unmeasured;
+after: unmeasured; no fresh in-box counts.** The script was not launched without
+its compiler or verified external disk-backed scratch; inherited `TMPDIR=/tmp`
+was not used. The supplied baseline remains **30,036/30,036 lines,
+5,038/5,038 branches, 2,863/2,863 functions**. CI, release admission and coverage
+still consume `nightly-2026-09-05` from their unchanged shared pin.
+
+Evidence is retained under `.forge/tasks-whole-family-return-c0f961f6/`.
+This unsigned task draft reports `drafted`. Implementation, decision/removal
+proofs and local Rust validation remain owed; #286 host equality and final-head
+native-platform CI remain controller handoffs. No runtime or whole-change
+completion, archive/fold, push, merge, publication or new run is claimed.
