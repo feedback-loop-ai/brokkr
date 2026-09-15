@@ -1836,7 +1836,7 @@ fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
 /// unparsed JSON string, so no target is derived from it at all.
 fn fold_dsh_event(
     event: &Value,
-    first_seq: u64,
+    first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
@@ -1844,12 +1844,18 @@ fn fold_dsh_event(
     // Current-only accounting (design D8; task 9.6): a resumed session's
     // file holds its restored history beside the new work, and only
     // events past the owned pre-followup sequence are this invocation's.
-    if event
-        .get("seq")
-        .and_then(Value::as_u64)
-        .is_some_and(|seq| seq <= first_seq)
-    {
-        return;
+    // The boundary exists only when a root was rejoined. A cold launch
+    // carries none, so its file is folded from its first event: dsh's
+    // log index IS the sequence and starts at 0, and a cold boundary of
+    // 0 would silently drop that first event on the shipped route.
+    if let Some(first_seq) = first_seq {
+        if event
+            .get("seq")
+            .and_then(Value::as_u64)
+            .is_some_and(|seq| seq <= first_seq)
+        {
+            return;
+        }
     }
     match event.get("type").and_then(Value::as_str) {
         Some("session") => {
@@ -2079,7 +2085,7 @@ struct DshTail {
 fn drain_dsh_transcript(
     tail: &mut DshTail,
     root: &std::path::Path,
-    first_seq: u64,
+    first_seq: Option<u64>,
     turns: &mut u64,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
@@ -2433,6 +2439,33 @@ fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
     None
 }
 
+/// The one part of a codex seat's argv that selects a session on the
+/// COLD path, refused there as `claude_selector_conflict` and
+/// `dsh_control_conflict` refuse theirs (proposed decision 0056 ruling
+/// 4). A bare `resume` is the subcommand word: `codex exec --json -C
+/// <dir> resume <id>` parses as `codex exec resume`, so a
+/// bundle-authored `resume <id>` after the engine's own flags would turn
+/// a cold spawn into a rejoin the engine never offered. `--last` and
+/// `--all` select nothing on a cold `exec` — they belong to the resume
+/// subcommand alone — so they stay `codex_resume_blocker`'s concern on
+/// the warm path and travel unchanged on the cold one, as they always
+/// have.
+///
+/// The word is refused wherever it appears, value positions included: a
+/// model, image or output file literally named `resume` is not worth a
+/// grammar that has to track which codex flags take a value, and such a
+/// grammar goes stale the next time codex grows one. Bundles are
+/// operator-trusted, so this is a refusal that names its part, never a
+/// silent drop.
+const CODEX_SELECTOR: &str = "resume";
+
+fn codex_selector_conflict(extra: &[String]) -> Option<&'static str> {
+    extra
+        .iter()
+        .any(|part| part == CODEX_SELECTOR)
+        .then_some(CODEX_SELECTOR)
+}
+
 /// A thread id as codex writes it and the journal displays it: one
 /// plain identifier of ASCII alphanumerics and dashes, not leading with
 /// one. The id reaches argv positionally, so a spelling that could be
@@ -2453,16 +2486,32 @@ fn plain_thread_id(id: &str) -> bool {
 /// cannot be re-expressed is a cold spawn with the reason journaled,
 /// never a quiet escalation (decision 0030 ruling 2).
 ///
-/// The checks run cheapest-first and the version probe runs LAST, so an
-/// offer that was already going to be declined never spends a child
-/// process to find out which version declined it.
+/// The gate is read FIRST on an offer, then the cheaper local checks,
+/// and the version probe runs LAST: a shape that is not enabled at this
+/// site declines with the token that says so (`unsupported-resume`,
+/// `restrictions-unavailable`) rather than with whatever the seat's own
+/// argv happened to lack, and an offer that was already going to be
+/// declined never spends a child process to find out which version
+/// declined it.
+///
+/// Refuses outright — before any provider work — when the seat's argv
+/// carries a session selector (`codex_selector_conflict`), on the cold
+/// path as on the warm one.
 fn codex_launch(
     bin: &str,
     extra: &[String],
     workdir: &str,
     session: Option<&str>,
     input: &Value,
-) -> LaunchPlan {
+) -> Result<LaunchPlan, String> {
+    if let Some(conflict) = codex_selector_conflict(extra) {
+        return Err(format!(
+            "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
+             selects a codex session to rejoin. The engine decides which session an attempt \
+             rejoins (proposed decision 0056 ruling 4); an argument that decides it instead is \
+             refused before any provider work rather than dropped in silence"
+        ));
+    }
     let gate = resume_gate(input, CODEX_SHAPE);
     let probe = vec![bin.to_string(), "--version".to_string()];
     let cold = |refusal: Option<&'static str>, version: Option<String>| LaunchPlan {
@@ -2484,10 +2533,16 @@ fn codex_launch(
     // therefore be worth recording for the next retry.
     let Some(session) = session else {
         let qualification = qualify(&gate, &probe, None);
-        return cold(None, qualification.observed);
+        return Ok(cold(None, qualification.observed));
     };
+    // A closed gate names ITS reason: under an unmeasured shape the
+    // offer is declined because the shape is unmeasured, whatever the
+    // seat's argv did or did not declare.
+    if let ResumeGate::Disabled(reason) = &gate {
+        return Ok(cold(Some(reason), None));
+    }
     if !plain_thread_id(session) {
-        return cold(Some("invalid-session-id"), None);
+        return Ok(cold(Some("invalid-session-id"), None));
     }
     // The effort pin leaves the argv FIRST, for the same reason the
     // sandbox class does: `codex exec resume` takes neither as a flag,
@@ -2498,21 +2553,21 @@ fn codex_launch(
     let (effort, remainder) = split_effort(extra);
     let (class, passthrough) = split_codex_sandbox(&remainder);
     let Some(class) = class else {
-        return cold(Some("sandbox-unavailable"), None);
+        return Ok(cold(Some("sandbox-unavailable"), None));
     };
     if !CODEX_SANDBOX_CLASSES.contains(&class.as_str()) {
-        return cold(Some("unsupported-sandbox"), None);
+        return Ok(cold(Some("unsupported-sandbox"), None));
     }
     // The rest of the seat's argv has to be safe to carry across, part
     // by part: a second sandbox expression could outrank the one
     // re-imposed here, and last-write-wins is not a thing to gamble a
     // restriction on.
     if codex_resume_blocker(&passthrough).is_some() {
-        return cold(Some("incompatible-argv"), None);
+        return Ok(cold(Some("incompatible-argv"), None));
     }
     let qualification = qualify(&gate, &probe, originating_harness_version(input));
     if let Some(refusal) = qualification.refusal {
-        return cold(Some(refusal), qualification.observed);
+        return Ok(cold(Some(refusal), qualification.observed));
     }
     let mut command = vec![
         bin.to_string(),
@@ -2534,7 +2589,7 @@ fn codex_launch(
     // The prompt still arrives on stdin, which `codex exec resume` reads
     // only when the prompt positional is `-` (verified against 0.148.0).
     command.push("-".into());
-    LaunchPlan {
+    Ok(LaunchPlan {
         command,
         rejoining: Some(session.to_string()),
         refusal: None,
@@ -2545,7 +2600,7 @@ fn codex_launch(
         persistent: true,
         confirms_from_locator: true,
         effort: None,
-    }
+    })
 }
 
 /// Every claude flag that selects, copies or relocates a conversation.
@@ -2771,6 +2826,12 @@ fn claude_launch(
         let qualification = qualify(&gate, &probe, None);
         return Ok(plan(None, None, qualification.observed));
     };
+    // The gate first, as on the codex and dsh paths: a closed gate names
+    // its own reason, whatever the offered id or the seat's argv looks
+    // like.
+    if let ResumeGate::Disabled(reason) = &gate {
+        return Ok(plan(None, Some(reason), None));
+    }
     if !plain_claude_session(session) {
         return Ok(plan(None, Some("invalid-session-id"), None));
     }
@@ -3323,8 +3384,10 @@ struct DshLaunch {
     /// stream-json` exchange. False on the shipped cold route, where the
     /// driver folds the retained transcript instead.
     stream_json: bool,
-    /// Fold only transcript events past this sequence (0 on a fresh root).
-    first_seq: u64,
+    /// Fold only transcript events past this sequence: the owned root's
+    /// stored boundary when rejoining, and `None` on a fresh root, whose
+    /// file is this invocation's from its first event.
+    first_seq: Option<u64>,
     locator: String,
     /// The absolute retained root the transcript fold follows.
     root: std::path::PathBuf,
@@ -3504,7 +3567,7 @@ fn dsh_launch_with(
 
     let mut stream_json = qualified;
     let mut rejoining: Option<String> = None;
-    let mut first_seq = 0;
+    let mut first_seq = None;
     let fresh = |home: &std::path::Path| -> Result<std::path::PathBuf, String> {
         dsh_transcript_root_in(|| dsh_transcript_root_under(Some(home.to_path_buf())))
     };
@@ -3513,7 +3576,7 @@ fn dsh_launch_with(
             Some(id) => match owned_dsh_root(&home, input, id) {
                 Ok((root, boundary)) => {
                     rejoining = Some(id.to_string());
-                    first_seq = boundary;
+                    first_seq = Some(boundary);
                     root
                 }
                 // The token is the check's own: an id outside the grammar
@@ -4066,7 +4129,7 @@ fn invoke_with_stager(
         }
         AdapterKind::Codex => {
             let bin = adapter_binary("BROKKR_CODEX_BIN", Some("FORGE_CODEX_BIN"), "codex");
-            let plan = codex_launch(&bin, extra, &workdir, session, input);
+            let plan = codex_launch(&bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation = invoke_codex(&command, prompt, &workdir, &mut hold, emit)?;

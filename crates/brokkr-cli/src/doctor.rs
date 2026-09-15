@@ -728,13 +728,16 @@ fn report_realm_dialects(
     }
 }
 
-/// The machine's report in no realm: what every unit test asks, and
-/// what `doctor` asks under the boundary the discovered realm declares.
+/// A composite producer that has nothing to say: the unit tests' stand-in
+/// for the DSH composite reader, so a report is assembled without a
+/// provider home on disk.
 #[cfg(test)]
 fn no_composite(_: &Adapter) -> (bool, String) {
     (false, String::new())
 }
 
+/// The machine's report in no realm: what every unit test asks, and
+/// what `doctor` asks under the boundary the discovered realm declares.
 #[cfg(test)]
 fn doctor_with_probe(
     bundle: Option<&Path>,

@@ -1162,7 +1162,7 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
     let mut emitted: Vec<serde_json::Value> = Vec::new();
     let step = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
         "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
-    fold_dsh_event(&step, 0, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(
@@ -1173,24 +1173,24 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
 
     let header = serde_json::json!({"type":"request/header","data":{"header":{"config":
         {"provider":"meta-contributor","model":"meta/muse-spark-1.3-contributor","reasoningEffort":"xhigh"}}}});
-    fold_dsh_event(&header, 0, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&header, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(emitted.len(), 1, "a header is meta, not a checkpoint");
     assert_eq!(meta["effort"], "xhigh");
-    fold_dsh_event(&step, 0, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&step, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(emitted[1]["effort"], "xhigh");
     let call = serde_json::json!({"type":"tool/call","data":{"name":"bash"}});
-    fold_dsh_event(&call, 0, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&call, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(emitted[2]["effort"], "xhigh");
     assert_eq!(emitted[2]["tool"], "bash");
 
     let hostile = serde_json::json!({"type":"request/header","data":{"header":{"config":{"reasoningEffort":"think hard"}}}});
-    fold_dsh_event(&hostile, 0, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&hostile, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(
@@ -1198,13 +1198,100 @@ fn a_dsh_request_header_is_where_the_seat_reads_its_effort() {
         "a value that fails the clamp changes nothing"
     );
     let none = serde_json::json!({"type":"request/header","data":{"header":{"config":{"provider":"spark","model":"qwen3.8-flash"}}}});
-    fold_dsh_event(&none, 0, &mut turns, &mut meta, &mut |value| {
+    fold_dsh_event(&none, None, &mut turns, &mut meta, &mut |value| {
         emitted.push(value.clone())
     });
     assert_eq!(
         meta["effort"], "xhigh",
         "a header naming no level keeps the last one seen"
     );
+}
+
+/// The current-work boundary exists only on a rejoin (design D8). dsh's
+/// log index is the sequence and starts at 0, so a cold launch — which
+/// owns no pre-followup sequence — folds its file from `seq: 0`, exactly
+/// as main's fold did; a warm launch folds strictly past the boundary
+/// the owned root stored, a stored boundary of 0 included.
+#[test]
+fn a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundary() {
+    let step = |seq: Option<u64>| {
+        let mut event = serde_json::json!({"type":"assistant/message","data":{"turn":1,"step":1,
+            "message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":5,"outputTokens":2}}});
+        if let Some(seq) = seq {
+            event["seq"] = serde_json::json!(seq);
+        }
+        event
+    };
+    let fold = |boundary: Option<u64>, seqs: &[Option<u64>]| -> Vec<Option<u64>> {
+        let mut turns = 0u64;
+        let mut meta = serde_json::Map::new();
+        let mut folded = Vec::new();
+        for seq in seqs {
+            fold_dsh_event(&step(*seq), boundary, &mut turns, &mut meta, &mut |_| {
+                folded.push(*seq)
+            });
+        }
+        assert_eq!(turns as usize, folded.len());
+        folded
+    };
+    // Cold: no boundary, so every event is this invocation's — the first
+    // one at seq 0 included. This is the shipped route's telemetry.
+    assert_eq!(
+        fold(None, &[Some(0), Some(1), Some(2)]),
+        vec![Some(0), Some(1), Some(2)]
+    );
+    // Warm past a stored boundary of 0: the one stored event is history.
+    assert_eq!(
+        fold(Some(0), &[Some(0), Some(1), Some(2)]),
+        vec![Some(1), Some(2)]
+    );
+    // Warm past 27: the boundary and everything before it is restored
+    // history; everything after it is new work.
+    assert_eq!(
+        fold(Some(27), &[Some(26), Some(27), Some(28), Some(29)]),
+        vec![Some(28), Some(29)]
+    );
+    // A row with no sequence cannot be placed against a boundary and is
+    // folded on both routes rather than guessed to be history.
+    assert_eq!(fold(Some(27), &[None]), vec![None]);
+    assert_eq!(fold(None, &[None]), vec![None]);
+
+    // The same fact through the transcript drain the driver actually
+    // runs: a retained file whose first event is seq 0 counts that event
+    // on a cold launch and skips it past a stored boundary of 0.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let session = root.join("project").join("session");
+    std::fs::create_dir_all(&session).unwrap();
+    std::fs::write(
+        session.join(DSH_TRANSCRIPT),
+        format!(
+            "{{\"type\":\"session\",\"id\":\"s\",\"delegationDepth\":0}}\n{}\n{}\n",
+            step(Some(0)),
+            step(Some(1))
+        ),
+    )
+    .unwrap();
+    for (boundary, expected_turns) in [(None, 2u64), (Some(0), 1), (Some(1), 0)] {
+        let mut tail = DshTail::default();
+        let mut turns = 0u64;
+        let mut meta = serde_json::Map::new();
+        let mut emitted: Vec<serde_json::Value> = Vec::new();
+        drain_dsh_transcript(
+            &mut tail,
+            &root,
+            boundary,
+            &mut turns,
+            &mut meta,
+            &mut |value| emitted.push(value.clone()),
+        );
+        assert_eq!(turns, expected_turns, "boundary {boundary:?}: {emitted:?}");
+        assert_eq!(
+            emitted.len() as u64,
+            expected_turns,
+            "boundary {boundary:?}"
+        );
+    }
 }
 
 /// The finishing record's effort (decision 0035 addendum 2026-09-11):
@@ -1636,7 +1723,8 @@ fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
         "/w",
         Some("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
         &enabled_assessment(CODEX_SHAPE, "0.153.4", "namespace", "boxed"),
-    );
+    )
+    .unwrap();
     assert!(
         launch
             .command
@@ -1656,6 +1744,154 @@ fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
         "{:?}",
         launch.command
     );
+}
+
+/// Ruling 4 on codex's COLD path, as `claude_selector_conflict` and
+/// `dsh_control_conflict` already hold it for theirs: a bundle-authored
+/// `resume <id>` after the engine's own flags would parse as
+/// `codex exec resume`, turning a cold spawn into a rejoin the engine
+/// never offered. It is refused before any provider work, with or
+/// without an offer in hand; the refusal names the word and never an
+/// argv value (AS3). `--last` and `--all` select nothing on a cold
+/// `exec` and stay the warm path's resume blocker's concern
+/// (`a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled`).
+/// A seat without the word spawns the argv it always spawned.
+#[test]
+fn a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let unmeasured = json!({"workdir": "/w", "boundary": "namespace", "hands": "boxed"});
+    let thread = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    assert_eq!(
+        codex_selector_conflict(&s(&["--sandbox", "read-only"])),
+        None
+    );
+    assert_eq!(codex_selector_conflict(&s(&["--last", "--all"])), None);
+    assert_eq!(codex_selector_conflict(&[]), None);
+    for (extra, part) in [
+        (vec!["resume", thread], "resume"),
+        (vec!["-s", "read-only", "resume", "--last"], "resume"),
+        // The word is refused in a value position too, deliberately: no
+        // grammar of which codex flags take a value is kept here.
+        (vec!["-m", "resume"], "resume"),
+    ] {
+        let extra = s(&extra);
+        assert_eq!(codex_selector_conflict(&extra), Some(part));
+        for session in [None, Some(thread)] {
+            let error = codex_launch("codex", &extra, "/w", session, &unmeasured)
+                .err()
+                .expect("a selector is refused");
+            assert!(error.contains(&format!("'{part}'")), "{error}");
+            assert!(error.contains("ruling 4"), "{error}");
+            assert!(
+                !error.contains(thread),
+                "an argv value never reaches the error: {error}"
+            );
+        }
+    }
+    // Through the adapter loop itself: the refusal is the invocation's
+    // own error, raised before any codex is spawned — no shim is needed
+    // because no binary is reached.
+    {
+        let _guard = ADAPTER_ENV.lock().unwrap();
+        let error = invoke(
+            AdapterKind::Codex,
+            &s(&["resume", thread]),
+            "prompt",
+            &unmeasured,
+            None,
+            &[],
+            &mut |_| {},
+        )
+        .err()
+        .expect("refused before any provider work");
+        assert!(error.contains("'resume'"), "{error}");
+    }
+    // Without a selector the cold argv is what it always was, and an
+    // unmeasured shape spends no probe to say so.
+    let plan = codex_launch("codex", &s(&["-s", "read-only"]), "/w", None, &unmeasured).unwrap();
+    assert_eq!(
+        plan.command,
+        s(&["codex", "exec", "--json", "-C", "/w", "-s", "read-only"])
+    );
+    assert!(plan.refusal.is_none() && plan.rejoining.is_none());
+    assert!(plan.harness_version.is_none());
+}
+
+/// A closed gate names ITS reason, on every adapter alike. Under an
+/// unmeasured shape an offer is declined because the shape is unmeasured
+/// — not because the seat's argv lacked a sandbox class, the offered id
+/// was forged, the shape was nonpersistent or the argv could not travel
+/// — so `resume_refusal` in the journal says what actually stopped the
+/// rejoin. A shape measured under another boundary says THAT, for the
+/// same reason. No probe is spent on any of it.
+#[test]
+fn a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks() {
+    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let unmeasured = json!({"workdir": "/w", "boundary": "namespace", "hands": "boxed"});
+    let mut elsewhere = enabled_assessment(CODEX_SHAPE, "0.153.4", "harness", "none");
+    elsewhere["boundary"] = json!("namespace");
+    elsewhere["hands"] = json!("boxed");
+    let thread = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    for (case, extra, session) in [
+        ("no sandbox class", vec!["--model", "sol"], thread),
+        ("a dangling class flag", vec!["--sandbox"], thread),
+        ("an invented class", vec!["--sandbox", "invented"], thread),
+        ("a forged id", vec!["-s", "read-only"], "not a thread"),
+        (
+            "an argv a resume cannot carry",
+            vec!["-s", "read-only", "--profile", "loose"],
+            thread,
+        ),
+    ] {
+        let extra = s(&extra);
+        for (gate, reason) in [
+            (&unmeasured, "unsupported-resume"),
+            (&elsewhere, "restrictions-unavailable"),
+        ] {
+            let plan = codex_launch("codex", &extra, "/w", Some(session), gate).unwrap();
+            assert_eq!(plan.refusal, Some(reason), "codex, {case}");
+            assert!(plan.rejoining.is_none(), "codex, {case}");
+            assert!(plan.harness_version.is_none(), "codex, {case}: no probe");
+            assert_eq!(
+                plan.command,
+                codex_cold("codex", &extra, "/w"),
+                "codex, {case}: the cold argv"
+            );
+        }
+    }
+
+    let mut elsewhere = enabled_assessment(CLAUDE_SHAPE, "2.1.266", "harness", "none");
+    elsewhere["boundary"] = json!("namespace");
+    elsewhere["hands"] = json!("boxed");
+    let session = "019c4b7e-0000-7000-8000-000000000001";
+    for (case, extra, session) in [
+        (
+            "a forged id",
+            vec!["--model", "claude-opus-5"],
+            "--dangerously-skip-permissions",
+        ),
+        (
+            "a nonpersistent shape",
+            vec!["--model", "claude-opus-5", "--no-session-persistence"],
+            session,
+        ),
+    ] {
+        let extra = s(&extra);
+        for (gate, reason) in [
+            (&unmeasured, "unsupported-resume"),
+            (&elsewhere, "restrictions-unavailable"),
+        ] {
+            let plan =
+                claude_launch("claude", &extra, Some(session), gate, CLAUDE_SHAPE, None).unwrap();
+            assert_eq!(plan.refusal, Some(reason), "claude, {case}");
+            assert!(plan.rejoining.is_none(), "claude, {case}");
+            assert!(plan.harness_version.is_none(), "claude, {case}: no probe");
+            assert!(
+                !plan.command.iter().any(|part| part == "--resume"),
+                "claude, {case}: the cold argv carries no selector"
+            );
+        }
+    }
 }
 
 /// A private start context whose named shape is measured, enabled and
@@ -3759,7 +3995,7 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
     .unwrap();
     assert!(warm.stream_json);
     assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
-    assert_eq!(warm.first_seq, 27);
+    assert_eq!(warm.first_seq, Some(27));
     assert!(warm
         .command
         .windows(2)
@@ -3913,7 +4149,7 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
         effortless: false,
         facts: crate::hands::GitFacts::default(),
         staged: None,
-        first_seq: 27,
+        first_seq: Some(27),
         locator: "seat".to_string(),
         root: root.clone(),
         overlay,
@@ -3973,7 +4209,7 @@ fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
         effortless: true,
         facts: crate::hands::GitFacts::default(),
         staged: None,
-        first_seq: 0,
+        first_seq: None,
         locator: "seat".to_string(),
         root: root.clone(),
         overlay,
@@ -4025,7 +4261,7 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
         effortless: true,
         facts: crate::hands::GitFacts::default(),
         staged: None,
-        first_seq: 0,
+        first_seq: None,
         locator: "seat".to_string(),
         root: root.clone(),
         overlay,
@@ -4081,7 +4317,7 @@ fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
         effortless: true,
         facts: crate::hands::GitFacts::default(),
         staged: None,
-        first_seq: 0,
+        first_seq: None,
         locator: "seat".to_string(),
         root: root.clone(),
         overlay,
@@ -4542,7 +4778,7 @@ fn dsh_fold_uses_the_root_locator_and_ignores_internal_session_ids() {
         json!({"type": "turn/end", "data": {"turn": 1}}),
         json!({}),
     ] {
-        fold_dsh_event(&event, 0, &mut turns, &mut meta, &mut |value| {
+        fold_dsh_event(&event, None, &mut turns, &mut meta, &mut |value| {
             emitted.push(value.clone())
         });
     }
@@ -4600,9 +4836,14 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
-    drain_dsh_transcript(&mut tail, &root, 0, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
-    });
+    drain_dsh_transcript(
+        &mut tail,
+        &root,
+        None,
+        &mut turns,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    );
     assert!(tail.file.is_none());
     assert!(emitted.is_empty());
 
@@ -4615,9 +4856,14 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     // A header with no depth at all is the seat's own session: dsh
     // writes `delegationDepth` from the root session onward, and an
     // absent one has never meant "delegated".
-    drain_dsh_transcript(&mut tail, &root, 0, &mut turns, &mut meta, &mut |value| {
-        emitted.push(value.clone())
-    });
+    drain_dsh_transcript(
+        &mut tail,
+        &root,
+        None,
+        &mut turns,
+        &mut meta,
+        &mut |value| emitted.push(value.clone()),
+    );
     assert!(tail.file.is_some());
     assert!(emitted.is_empty(), "{emitted:?}");
     assert_eq!(tail.pending, b"half a line");
@@ -5700,7 +5946,7 @@ fn a_dsh_tool_call_before_any_assembled_message_invents_no_turn() {
     let mut emitted: Vec<Value> = Vec::new();
     fold_dsh_event(
         &json!({"type": "tool/call", "data": {"name": "fs_read"}}),
-        0,
+        None,
         &mut turns,
         &mut meta,
         &mut |value| emitted.push(value.clone()),
@@ -7441,7 +7687,7 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
     .unwrap();
     assert!(warm.stream_json);
     assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
-    assert_eq!(warm.first_seq, 3);
+    assert_eq!(warm.first_seq, Some(3));
     assert_eq!(warm.locator, "sessions/brokkr/seat-1");
 
     // A symlinked spelling of the same canonical home is equivalent.
@@ -8074,7 +8320,7 @@ fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
     .unwrap();
     assert!(warm.stream_json, "{:?}", warm.refusal);
     assert_eq!(warm.rejoining.as_deref(), Some("session-1"));
-    assert_eq!(warm.first_seq, 4);
+    assert_eq!(warm.first_seq, Some(4));
     assert_eq!(warm.locator, "sessions/brokkr/seat-1");
     assert!(warm
         .command
@@ -9231,6 +9477,39 @@ fn a_route_overlay_that_is_not_utf8_is_refused_before_staging() {
 /// An offered root whose admitted home does not resolve, and one whose
 /// recorded home does not resolve, are both bounded refusals rather than
 /// a lost offer.
+#[test]
+fn owned_dsh_root_refuses_a_store_whose_sequence_cannot_be_read() {
+    // The offer resolves to a real store whose header names this very
+    // session, and the refusal still stands: a complete row carrying no
+    // sequence is malformed storage, and reporting a lower boundary from
+    // it would let a warm fold re-count history it has already seen. The
+    // offer is declined as unverified rather than trusted (design D6).
+    let dir = tempfile::tempdir().unwrap();
+    let id = "session-1";
+    let locator = "sessions/brokkr/seat-1";
+    let session_dir = dir.path().join(locator).join("--w--").join("session-1");
+    std::fs::create_dir_all(&session_dir).unwrap();
+    std::fs::write(
+        session_dir.join("session.v3.jsonl"),
+        "{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"delegationDepth\":0}\n\
+         {\"type\":\"user/message\",\"text\":\"no sequence here\"}\n",
+    )
+    .unwrap();
+    let input = json!({
+        "resume_context": {"owned_target": {
+            "provider_id": id,
+            "persistence_locator": locator,
+            "persistence_home": dir.path().to_str().unwrap(),
+        }}
+    });
+    let (token, error) = owned_dsh_root(dir.path(), &input, id).unwrap_err();
+    assert_eq!(token, "unverified-harness");
+    assert!(
+        error.contains("stored session sequence is unreadable"),
+        "{error}"
+    );
+}
+
 #[test]
 fn owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve() {
     let dir = tempfile::tempdir().unwrap();

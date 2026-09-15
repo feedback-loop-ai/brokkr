@@ -11,9 +11,21 @@ bytes live here rather than under `crates/` or `adapters/`.
 
 Upstream repository: <https://github.com/ghbhiee/dsh-plugin-cli-session>
 Upstream commit: `0f487e74c81ed102c6899440d9f5d65e8e9eabda`
-Published package: `dsh-plugin-cli-session` 0.2.0
+Upstream package name and version, as its `package.json` declares them:
+`dsh-plugin-cli-session` 0.2.0 (the upstream README says "Not on npm yet";
+nothing here is a registry claim)
 Source counterpart: `src/index.ts:252`
 Licence: MIT (the set's own `LICENSE` is the upstream licence, byte-identical)
+
+**Never published.** This directory is a byte-exact provenance record, not a
+package to release. Its `package.json` keeps the upstream name, version, author
+and repository fields unchanged — that is what the per-file digests below
+prove — so it carries no `private: true` and must never be handed to `npm
+publish` or any registry from this path: doing so would squat an unclaimed
+third-party name with modified bytes. Deployment of the adapted plugin is an
+operator action into a dsh profile, never a publication. A future byte change
+to `package.json` would break the digest proof; this note is where the rule
+lives instead.
 
 The committed set is the plugin's six published files and nothing else. Five
 are byte-identical to upstream; `lib/index.js` changes exactly one expression

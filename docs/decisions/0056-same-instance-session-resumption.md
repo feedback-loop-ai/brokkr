@@ -494,8 +494,9 @@ Alternatives weighed, each rejected on evidence rather than taste:
   resolves in its place) with the repository-owned six-file adaptation of
   `dsh-plugin-cli-session` 0.2.0 at
   `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under
-  `extensions/dsh/plugin-cli-session/`, as the supported extension route
-  from the headless caller to an owned root, and keeps its declaration
+  `extensions/dsh/plugin-cli-session/`, as the one extension route from
+  the headless caller to an owned root that a later measurement may
+  declare supported, and keeps its declaration
   disabled until that exact route's exact-root rejoin, restriction
   precedence, current-sequence accounting and declared composite digest are
   measured. An isolated live cold+warm qualification (2026-09-12) proved
