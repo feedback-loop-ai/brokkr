@@ -3573,7 +3573,7 @@ fn dsh_launch_with(
     };
     let root = if qualified {
         match session {
-            Some(id) => match owned_dsh_root(&home, input, id) {
+            Some(id) => match owned_dsh_root(&home, input, id, &dsh_session_file) {
                 Ok((root, boundary)) => {
                     rejoining = Some(id.to_string());
                     first_seq = Some(boundary);
@@ -3682,10 +3682,20 @@ fn dsh_launch_with(
 /// `instance-changed` for a recorded home that is not the admitted one —
 /// the one detectable client drift this check can see — and
 /// `unverified-harness` for everything the retained store cannot verify.
+///
+/// The matching depth-zero file is selected twice: once inside
+/// `resolve_dsh_root`, which validates containment, and once here, which
+/// re-selects before reading the boundary. A store that changes between
+/// the two reads must refuse rather than fold a file the first selection
+/// never admitted, so the second selection is a real guard, not a
+/// formality. `select_file` is that second selection; the production
+/// caller supplies `dsh_session_file`, and a test supplies a selector
+/// that reproduces drift deterministically (design D10).
 fn owned_dsh_root(
     home: &std::path::Path,
     input: &Value,
     id: &str,
+    select_file: &dyn Fn(&std::path::Path, &str) -> Result<std::path::PathBuf, String>,
 ) -> Result<(std::path::PathBuf, u64), (&'static str, String)> {
     let unverified = |why: &str| ("unverified-harness", format!("dsh driver: {why}"));
     if !plain_dsh_session_id(id) {
@@ -3723,7 +3733,7 @@ fn owned_dsh_root(
     }
     let root =
         resolve_dsh_root(home, locator, id).map_err(|error| ("unverified-harness", error))?;
-    let file = dsh_session_file(&root, id).map_err(|error| ("unverified-harness", error))?;
+    let file = select_file(&root, id).map_err(|error| ("unverified-harness", error))?;
     let boundary = dsh_session_last_seq(&file)
         .ok_or_else(|| unverified("the stored session sequence is unreadable"))?;
     Ok((root, boundary))

@@ -4043,6 +4043,122 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
     }
 }
 
+/// The boundary the planner settles is the boundary the real transcript
+/// drain folds past (design D10). The fold regression passes boundaries
+/// directly, so on its own it cannot catch a planner cold seed of
+/// `Some(0)`, which would drop the shipped route's first event. This
+/// drives the plan's own `first_seq` through `drain_dsh_transcript`.
+#[cfg(unix)]
+#[test]
+fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let digest = "b".repeat(64);
+    let shim = dsh_version_shim(dir.path(), "dsh-fold-boundary", "0.1.5-rc.1");
+    let shim_text = shim.to_string_lossy().into_owned();
+    let event = |seq: u64| {
+        format!(
+            "{{\"type\":\"assistant/message\",\"seq\":{seq},\"data\":{{\"turn\":1,\"step\":1,\
+             \"message\":{{\"source\":{{\"model\":\"served\"}}}},\
+             \"usage\":{{\"inputTokens\":1,\"outputTokens\":1}}}}}}"
+        )
+    };
+    let transcript = |id: &str, rows: &[u64]| {
+        let mut text = format!(
+            "{{\"type\":\"session\",\"version\":3,\"id\":\"{id}\",\"delegationDepth\":0}}\n"
+        );
+        for seq in rows {
+            text.push_str(&event(*seq));
+            text.push('\n');
+        }
+        text
+    };
+    let drain = |root: &std::path::Path, boundary: Option<u64>| -> u64 {
+        let mut tail = DshTail::default();
+        let mut turns = 0u64;
+        let mut meta = serde_json::Map::new();
+        drain_dsh_transcript(
+            &mut tail,
+            root,
+            boundary,
+            &mut turns,
+            &mut meta,
+            &mut |_| {},
+        );
+        turns
+    };
+
+    // A qualified cold plan owns no pre-followup sequence: its own first
+    // event at seq 0 is this invocation's. Feeding the plan's own
+    // `first_seq` into the real drain fails if the cold seed is `Some(0)`.
+    let cold = dsh_launch_with(
+        &shim_text,
+        &[],
+        dir.path().to_str().unwrap(),
+        None,
+        &dsh_enabled_input("0.1.5-rc.1", &digest, dir.path()),
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(cold.first_seq, None, "a cold plan owns no fold boundary");
+    let cold_session = cold.root.join("--w--").join("seat");
+    std::fs::create_dir_all(&cold_session).unwrap();
+    std::fs::write(
+        cold_session.join(DSH_TRANSCRIPT),
+        transcript("cold-seat", &[0, 1]),
+    )
+    .unwrap();
+    assert_eq!(
+        drain(&cold.root, cold.first_seq),
+        2,
+        "the cold plan folds its seq-0 event"
+    );
+
+    // A warm offer with a stored boundary of 0 excludes the one stored
+    // event: the plan supplies `Some(0)`, never the cold `None`.
+    let warm_session = dir
+        .path()
+        .join("sessions/brokkr/seat-1")
+        .join("--w--")
+        .join("session-1");
+    std::fs::create_dir_all(&warm_session).unwrap();
+    std::fs::write(
+        warm_session.join(DSH_TRANSCRIPT),
+        transcript("session-1", &[0]),
+    )
+    .unwrap();
+    let mut warm_input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    warm_input["resume_context"]["originating_harness_version"] = json!("0.1.5-rc.1");
+    warm_input["resume_context"]["originating_wrapper_digest"] = json!(digest);
+    warm_input["resume_context"]["owned_target"] = json!({
+        "provider_id": "session-1",
+        "persistence_locator": "sessions/brokkr/seat-1",
+        "persistence_home": dir.path().to_str().unwrap(),
+    });
+    let warm = dsh_launch_with(
+        &shim_text,
+        &[],
+        dir.path().to_str().unwrap(),
+        Some("session-1"),
+        &warm_input,
+        || Ok(synthetic_dsh_composite(&digest)),
+    )
+    .unwrap();
+    assert_eq!(warm.first_seq, Some(0), "the offered store's boundary");
+    assert_eq!(
+        drain(&warm.root, warm.first_seq),
+        0,
+        "the warm plan folds past its stored boundary"
+    );
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_dsh_init_event_is_the_only_root_confirmation() {
@@ -7262,6 +7378,10 @@ fn a_closed_dsh_gate_reaches_neither_probe_nor_producer_and_keeps_the_cold_route
             );
             assert!(!launch.stream_json, "{case}");
             assert!(launch.rejoining.is_none(), "{case}");
+            assert!(
+                launch.first_seq.is_none(),
+                "{case}: a cold route owns no fold boundary"
+            );
             assert_eq!(
                 launch.refusal,
                 session.is_some().then_some(reason),
@@ -9429,7 +9549,8 @@ fn the_seat_overlay_terminates_a_route_that_carries_no_trailing_newline() {
 fn owned_dsh_root_refuses_a_session_id_outside_the_grammar() {
     let dir = tempfile::tempdir().unwrap();
     for id in ["bad id", "-flag"] {
-        let (token, error) = owned_dsh_root(dir.path(), &json!({}), id).unwrap_err();
+        let (token, error) =
+            owned_dsh_root(dir.path(), &json!({}), id, &dsh_session_file).unwrap_err();
         assert_eq!(token, "invalid-session-id", "{id}");
         assert!(
             error.contains("outside the admitted grammar"),
@@ -9502,12 +9623,59 @@ fn owned_dsh_root_refuses_a_store_whose_sequence_cannot_be_read() {
             "persistence_home": dir.path().to_str().unwrap(),
         }}
     });
-    let (token, error) = owned_dsh_root(dir.path(), &input, id).unwrap_err();
+    let (token, error) = owned_dsh_root(dir.path(), &input, id, &dsh_session_file).unwrap_err();
     assert_eq!(token, "unverified-harness");
     assert!(
         error.contains("stored session sequence is unreadable"),
         "{error}"
     );
+}
+
+/// The offered root is selected twice: `resolve_dsh_root` validates one
+/// matching depth-zero header, and `owned_dsh_root` re-selects before
+/// reading the boundary. A store that changes between the two reads — the
+/// one detectable drift the second selection exists for — must refuse as
+/// `unverified-harness` rather than fold a file the first selection never
+/// admitted. The selector is injected so the drift is deterministic; the
+/// production caller supplies `dsh_session_file` (design D10).
+#[test]
+fn owned_dsh_root_refuses_a_store_that_drifts_after_initial_resolution() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "session-1";
+    let locator = "sessions/brokkr/seat-1";
+    let project = "--w--";
+    plant_dsh_session(dir.path(), locator, project, id, 27);
+    let input = json!({
+        "resume_context": {"owned_target": {
+            "provider_id": id,
+            "persistence_locator": locator,
+            "persistence_home": dir.path().to_str().unwrap(),
+        }}
+    });
+    // The real initial resolution succeeds: the store already names this
+    // root, exactly as the first selection saw it.
+    assert!(resolve_dsh_root(dir.path(), locator, id).is_ok());
+    let calls = std::cell::Cell::new(0usize);
+    let drifting = |root: &std::path::Path, expected: &str| {
+        calls.set(calls.get() + 1);
+        // Drift: rewrite the retained header so it no longer names the
+        // admitted root, keeping the file readable. The later sequence
+        // reader must not be able to mask the missing selection.
+        std::fs::write(
+            root.join(project).join(id).join(DSH_TRANSCRIPT),
+            "{\"type\":\"session\",\"version\":3,\"id\":\"some-other\",\"delegationDepth\":0}\n\
+             {\"type\":\"permission/preset\",\"seq\":0}\n",
+        )
+        .unwrap();
+        dsh_session_file(root, expected)
+    };
+    let (token, error) = owned_dsh_root(dir.path(), &input, id, &drifting).unwrap_err();
+    assert_eq!(token, "unverified-harness");
+    assert!(
+        error.contains("no stored depth-zero session names the offered id"),
+        "{error}"
+    );
+    assert_eq!(calls.get(), 1, "the second selection ran exactly once");
 }
 
 #[test]
@@ -9524,7 +9692,7 @@ fn owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve() {
         }}
     });
     let absent = dir.path().join("absent-home");
-    let (token, error) = owned_dsh_root(&absent, &input, id).unwrap_err();
+    let (token, error) = owned_dsh_root(&absent, &input, id, &dsh_session_file).unwrap_err();
     assert_eq!(token, "unverified-harness");
     assert!(error.contains("admitted dsh home is unreadable"), "{error}");
 
@@ -9535,7 +9703,8 @@ fn owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve() {
             "persistence_home": absent.to_str().unwrap(),
         }}
     });
-    let (token, error) = owned_dsh_root(dir.path(), &recorded_absent, id).unwrap_err();
+    let (token, error) =
+        owned_dsh_root(dir.path(), &recorded_absent, id, &dsh_session_file).unwrap_err();
     assert_eq!(token, "unverified-harness");
     assert!(
         error.contains("recorded persistence home is unreadable"),
