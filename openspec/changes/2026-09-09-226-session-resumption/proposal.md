@@ -1,5 +1,17 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+The current specify visit, run `two-mediums-branch-integration-2-84288d2b`,
+adopts this change at `22c153953769a9e4c8ed2dc369170859e486ed81` on
+`integration/226-resume-prepared`, including predecessor commits `b4dbfd5`,
+`81df715` and `22c1539`. Only F1/F2's lost or overwritten inline assessment
+and F3's current inventory are commissioned. Answer X records why the existing
+requirements already govern both repairs; the five deltas and the reconciled
+plan stand. F3 corrects the two current inventory statements without a new
+scenario, design cycle or task tick. Runtime fixes and their removal proofs
+remain implementation work; this specification adoption does not close them.
+
+Earlier operator-ruling specify adoption, retained as history:
+
 The current specify visit, run `operator-ruling-slice-branch-int-bf5f6a32`,
 adopts `2da94b06892a123409816bf7b539640c3c87baf8` on
 `integration/226-resume-prepared` under the existing change
@@ -64,7 +76,14 @@ while keeping new, unmeasured resume shapes disabled.
 
 ## What Changes
 
-- For the current operator-ruling slice, preserve decision 0030's shipping
+- For the current two-mediums slice, deliver the existing inline Codex
+  preservation contract through dialect wrapping and across global site
+  coordinates, retaining the assessment's declaration identity. F1 requires
+  live rejoin for wrapped single and panel-member work sites; F2 requires
+  distinct evidence or explicit collision refusal with a live unambiguous
+  control. F3 corrects current counts to 20 requirements / 159 scenarios.
+  Answer X adopts the existing specifications and defines this visit's scope.
+- For the inherited operator-ruling slice, preserve decision 0030's shipping
   Codex work-site rejoin across measurement-version drift. Amend AS1's draft
   disablement rule and require the corresponding amendment to proposed 0056
   ruling 5; preserve actual identity, boundary, hands and accounting checks.
@@ -1506,6 +1525,50 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   actual results. Staffing and result-write rules in V remain applicable;
   this sole specify seat starts no additional seat or run.
 
+- **X — Two mediums, 2026-09-15: adopt the existing contract and repair its
+  transport.** Adopt `.forge/tasks/two-mediums-codex-rejoin.md` and all
+  predecessor work through `22c1539`. No `returned_from` accompanies this
+  specify visit. These are implementation defects under the existing AS1,
+  SR1/SR2 and LE5 requirements, not an upstream specification fault. Adding
+  requirements or scenarios, reopening the reconciled design or reworking the
+  predecessor is refused: the existing clauses already require the outcomes.
+
+  | Finding | Existing contract and required closure |
+  |---|---|
+  | F1 — dialect wrapping loses the inline assessment | AS1's **The preserved inline Codex coordinate is judged by its adapter**, SR1's **Model steps and a nested panel**, and LE5's **The shipping Codex declaration actually rejoins a retry** apply to both a work-class, no-hands inline Codex verify single seat and a verify panel member. Compilation collects `verify` / `verify:member`, wrapping executes `verify:checks` / `verify:checks:member`, and runtime reads the latter. Carry the original assessment and its declaration binding through that transformation. Drive both compiled wrapped topologies to the provider's actual decision: the eligible retry rejoins its confirmed root, reports `launch: resumed`, and does not decline as `unsupported-resume`. The deterministic dialect validator and gate-class sites still receive no offer. |
+  | F2 — global coordinates alias distinct sites | SR1's **Repeated labels do not alias**, SR2's **A changed identity denies the offer**, AS1's inline preservation scenario and LE5's behavioral retry scenario require each site to retain its own evidence. `collect_unpinned` flattens the work selector's `chore` case and a literal `work:chore` phase to one key; its assessment and declaration witness can both be overwritten, while `refuse_aliasing_sites` compares only each selected body. Preserve distinct sites in both global maps or reject the collision before dispatch, as commissioned. Cover cross-phase and cross-selector collisions with a conflicting provider whose assessment lacks Codex's work-site shape. Distinctly represented sites must reach a live Codex rejoin; if ambiguity is refused, prove that refusal and a live rejoin for the equivalent unambiguous configuration. A silently cold supported retry closes neither branch. Changing the selected Codex declaration must still invalidate the prior root's pinned identity, even with the other provider present. |
+  | F3 — current inventory drift | Direct headings give evidence 31 + safety 64 + boundary 11 + progress 20 + site 33 = 159 scenarios across 20 requirements. The inherited inline Codex scenario accounts for the extra safety scenario after the dated 158-count checkpoint. Correct only the current inventory and its explanation in design D11 and tasks; retain all dated historical counts, all five deltas and every task identifier and tick. This is documentation drift, not a new behavior contract. |
+
+  **Proof boundary.** F1's two topologies and F2's collision cases must use
+  real bundle compilation and the resulting runtime context through the actual
+  provider gate, with deterministic provider shims labelled as such. Map-shape
+  or private-start assertions alone are insufficient. For each regression,
+  remove the specific corrective line or minimal change, observe the expected
+  runtime assertion fail (or a missing compile refusal for the rejection
+  branch), restore the exact fix and pass the same case. A compiler error is
+  not the removal proof. Keep the positive live control for a refusal-based
+  F2 repair. Record each mutation and its observed failure; commit none of it.
+
+  **Safety and scope.** Retain the predecessor's declaration-digest proof
+  and negative controls for missing/unmeasured support, identity, boundary,
+  hands, accounting, ownership and fresh gates. No fail-closed path becomes
+  fail-open. Proposed 0056 already records this continuity and stays proposed;
+  no new semantic ruling is introduced here. No passes C/D, 8.8/8.10/9.6 or
+  11.x completion, archive, withdrawn living-spec fold, frozen-byte edit or
+  provider enablement is commissioned. The only dependent artifact edits in
+  this specify visit are F3's explicitly requested inventory corrections;
+  design choices and task states remain adopted.
+
+  **Validation and handoff.** Run the existing Rust suites, format, clippy
+  across all targets/features, both bundle compiles and strict OpenSpec
+  validation. Retain the unchanged exact-coverage gate and use a writable,
+  disk-backed temporary directory outside the repository; inherit #282's Git
+  environment workaround in tests. Report actual in-box counts only when
+  measured; #286's missing namespace coverage leaves host equality to the
+  controller. The supplied passing baseline is not a fresh result. Remote CI,
+  publication, integration and closure remain pending their owners' evidence.
+  This sole specify seat starts no other seat, workflow runner or Brokkr run.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -2520,3 +2583,34 @@ declarations and the provider guide still require W's dependent amendments in
 their owning phases; runtime preservation is not yet claimed. No enablement task,
 archive, provider probe, push, merge or new run occurred. Remote results remain
 pending their controller/operator handoffs.
+
+
+## Specify validation — two mediums, 2026-09-15
+
+Run `two-mediums-branch-integration-2-84288d2b` adopts `22c1539` and the
+existing change in proposal-then-deltas order. Read the dialect's own
+specify/return files and rendered proposal/specs instructions through workspace
+hands; no workflow runner was invoked. Answer X records F1/F2's existing
+contract, required behavioral/removal proofs and the reason for retaining the
+five deltas unchanged. The only other edits are F3's explicitly commissioned
+current inventory corrections in design D11 and tasks, in that order.
+
+The heading audit confirms **20 requirements / 159 scenarios** (31 evidence,
+64 safety, 11 boundary, 20 progress, 33 site). All **101 task identifiers and
+checkbox states (82 checked / 19 pending)** remain adopted. Dated historical
+counts, proposed 0056, production, frozen trees and living specs retain their
+bytes. No runtime fix, removal proof, task completion or provider qualification
+is claimed by this specification checkpoint.
+
+Strict active, repository-wide and archived OpenSpec validation pass;
+repository-wide validation reports **14 passed / 0 failed**. Status and
+whitespace checks pass. The inherited informational archive refusals for
+withdrawn living targets remain outside this commission; the change stays open.
+Format, all-target/all-feature clippy, both workspace test commands, both
+bundle compiles and the release build could not launch (exit 127: Cargo is
+absent). The pinned coverage-tool probe fails for the same reason, so the exact
+gate was not run and there are no fresh in-box coverage counts. No saved
+coverage report is substituted. Host equality and final-head remote results
+remain pending controller evidence. Checks and the artifact audit are retained
+under `.forge/specify-two-mediums-84288d2b/`; F1/F2 implementation and their
+behavioral removal proofs remain outstanding.

@@ -164,9 +164,10 @@ Capability short names below are `site` (`site-session-resumption`),
 requirement **The seat record carries the boundary as seat-record/v4**).
 Across the five capability deltas, AS1–AS3, PM4 and the F7 boundary
 requirement are MODIFIED; the other fifteen requirements remain ADDED.
-The current inventory agrees with returned D11: 20 requirements / 158 scenarios
-(evidence 31 + safety 63 + boundary 11 + progress 20 + site 33). Dated lower
-counts below remain historical validation records.
+The current inventory agrees with D11 and F3's direct heading recount:
+20 requirements / 159 scenarios (evidence 31 + safety 64 + boundary 11 +
+progress 20 + site 33). Dated lower counts below remain historical validation
+records.
 
 Conventions binding on every task, restated once rather than per task:
 

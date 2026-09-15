@@ -2756,11 +2756,13 @@ not discharge whole-change enablement, C/D or archived provenance acceptance.
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 158 scenarios:
-`adapter-launch-evidence` 31 + `adapter-resume-safety` 63 + `boundary-record` 11 +
-`sdd-progress-markers` 20 + `site-session-resumption` 33 = 158. This includes
+The current five deltas contain 20 requirements and 159 scenarios:
+`adapter-launch-evidence` 31 + `adapter-resume-safety` 64 + `boundary-record` 11 +
+`sdd-progress-markers` 20 + `site-session-resumption` 33 = 159. This includes
 the five remediation scenarios and three operator-ruling scenarios omitted
-from the former 150-scenario inventory (returned analyze F2, 2026-09-15).
+from the former 150-scenario inventory, plus the inherited inline Codex
+scenario added after that 158-scenario checkpoint. F3's direct heading recount
+corrects this current inventory; dated validation counts remain history.
 The 101 surviving task IDs keep their coverage and evidence dependencies. A parameterized
 test may cover several scenarios only when it exercises their independent
 outcomes. The topology, ownership, wire, record, provider and recovery axes in
