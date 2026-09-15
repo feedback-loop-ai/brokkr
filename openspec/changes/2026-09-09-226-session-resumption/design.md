@@ -1,5 +1,13 @@
 ## Context
 
+Current commission: `two-mediums-branch-integration-2-84288d2b`, adopting
+`2026-09-09-226-session-resumption` at `00f2cf1` over the commissioned
+`22c1539`. Proposal answer X preserves `b4dbfd5`, `81df715` and `22c1539`.
+This visit resolves only F1's wrapped inline assessment, F2's global coordinate
+collision, and verification of F3's already-corrected inventory. No
+`returned_from` is supplied. D10's two-mediums sitting reconciles both complete
+positions; earlier sittings and measurements remain history, not work to repeat.
+
 This is the **analyze F1 return** of the operator-ruling slice, run
 `operator-ruling-slice-branch-int-bf5f6a32` (design, 2026-09-15). Adopt
 `c45ee20`, including design `17bbd10`, specification `3ead8d4` and implementation
@@ -281,17 +289,20 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
-**Current goals:** Preserve Codex's shipping harness work-site retry by scoping
-its assessment to `harness`/`none`, prove both engine composition and the actual
-driver rejoin, and verify the four adopted lows in order with behavior-breaking
-controls. Keep historical
-measurement, applicable identity and outstanding provider proof distinct.
+**Current goals:** Preserve the adopted Codex rejoin through dialect wrapping
+for both inline verify topologies; reject ambiguous global evidence coordinates
+before dispatch; prove the provider's live-rejoin decision and each regression
+by removal. Verify F3's current 20-requirement/159-scenario inventory. The
+predecessor's declaration scope, four lows and measured pins stand.
 
-**Current non-goals:** No executable gate/loader/ownership change, new status
+**Current non-goals:** No provider-gate, adapter-loader or runtime-ownership
+change, new status
 or declaration field, live-provider qualification, enabling Claude/DSH/LaneTally,
 new task or task tick, coverage redesign, Pass C/D, archive or living-spec fold.
-The previous reader-seam repair is settled at `2da94b0` and is not reopened.
-The broader original goals and earlier pass boundary follow for context.
+The predecessor through `22c1539` is adopted, including the reader-seam repair.
+No new requirement, task catalogue or provider experiment is needed. Compiler
+address refusal enforces D2/0056; it does not alter the runtime gate. The
+broader original goals and earlier pass boundary follow for context.
 
 **Goals:** Derive one owned offer per executing work site from existing durable
 attempt evidence; reconstruct current restrictions; record one actual launch;
@@ -378,6 +389,13 @@ flattened addresses within their actual lookup scopes: ambiguous bundles fail
 before spawn. This prevents aliasing at the existing lookup boundary without
 changing chain progression or historical tag meanings. Ordinary repeated member
 names under different steps remain valid. Key the new resume map by `SiteKey`.
+
+For the two-mediums correction, assessment and declaration-witness maps have
+bundle-global lookup scope, including all selector cases and defaults. D10
+below enforces that existing uniqueness obligation before the wrapper can
+consume a collided entry and after it changes the executing label. Structural
+session keys and flat assessment transport remain distinct; neither key
+representation nor engine lookup changes.
 
 `InstanceKey` contains this site's agent/provider/model/effort and chain index,
 normalized driver identity and pinned unexpanded command-template digest,
@@ -2740,9 +2758,157 @@ retain D10's existing implementation obligations; none completes a task.
 | Robustness Q2: all six digests plus five-upstream equality; simplicity: full-map extension is optional. | Retain the already-required full adapted-map assertion and reversed-index proof; reject dropping it because the present test checks only filenames and the reversed index. The five other expected adapted digests equal their upstream digests in PROVENANCE, verified directly on this visit. A second assertion of those same five constants adds no independent byte protection, so reject that duplication. Retain the isolated-copy manifest mutation control and the never-publish prose; neither digest assertion prevents publication or a coordinated co-edit of bytes and expected values. No plugin file changes. |
 | Both: retain all scope and validation limits. | Adopt. No task tick, provider probe, C/D, archive, living-spec fold, frozen-byte edit, production coverage exclusion or gate change. Simplicity's reported passing suites belong to its seat; this chief's Cargo availability and checks are recorded separately below. The ordered runtime controls and fresh gate measurements remain implementation work. |
 
+#### Two-mediums council reconciliation — 2026-09-15, adopted `00f2cf1`
+
+Read both complete positions for `two-mediums-branch-integration-2-84288d2b`:
+robustness SHA-256
+`75a349d0b391f86ec0acedfbae5b6d8794ea87aa5ce9c8d896a0561a85b1d558`,
+simplicity SHA-256
+`d4fe9320a0cfc3e8d9bd101e47ab125e45721c394c8aa216716f5701f44fd569`.
+Copies are retained under `.forge/design-two-mediums-84288d2b/` because shared
+position paths are reused. These positions supply evidence, not another
+office's ruling. Proposal X and existing AS1/SR1/SR2/LE5 own these defects;
+there is no upstream specification fault or new requirement.
+
+**Source and choice.** `collect_unpinned` stores assessment/witness pairs
+before wrapping (`bundle.rs:777–843`, `1031–1035`). The wrapper moves only the
+single site's hands/agent records (`1264–1348`); `site_plans` consumes the final
+label (`engine.rs:1269–1312`). The ambiguity check compares only within one
+selected body (`bundle.rs:1538–1567`). Preserve each site's evidence through
+that transformation and choose compile-time refusal, expressly allowed by X.
+Keep the production correction in the bundle compiler, using its existing
+walks and `CompileError::Invalid`, in this dependency order:
+
+1. **Protect authoring coordinates before collecting evidence.** Extend the
+   raw invocation walk used by `enforce_model_pins` to refuse distinct owners
+   of one full label across phases, selector cases and defaults. Include agent
+   and inline driver leaves even when no assessment is populated: support is
+   not an address property. Name the shared label and both structural owners.
+   This precedes evidence insertion, including effort and resume witnesses.
+   A final-only check misses authoring collisions that a wrapper later
+   separates, after their evidence has already been lost.
+2. **Relocate the wrapper's exact site family.** Derive pre/post labels from
+   the parsed bodies with `structural_sites`: the preserved single becomes
+   `verify:checks`, each member becomes `verify:checks:<member>`. Pair preserved
+   sites in their unchanged order; the synthetic dialect step has no model
+   site. Move `inline_resume`, `pin_drivers` (including resume witnesses),
+   `hands`, `context.records` and `context.drivers` for those exact owners.
+   Stage all owned entries and remove all source keys before checked destination
+   insertion: members `x` and `checks:x` must not collide merely because one
+   destination is another source. Never scan prefixes or split labels to
+   recover ancestry. Missing evidence remains missing, never implicit support.
+3. **Protect final coordinates too.** Extend `refuse_aliasing_sites` to compare
+   the full engine label globally across compiled phases, cases and defaults
+   after wrapping; retain its within-body check and diagnostics. Checked
+   relocation refuses a destination owned by another site, including literal
+   phases `verify:checks` and `verify:checks:<member>`. The final walk also
+   catches later-parsed owners. Reserve synthetic dialect labels where their
+   hands/driver evidence is stored, without adding resume eligibility.
+   Compilation publishes no ambiguous bundle.
+4. **Preserve legitimate same-owner merges.** An effort exemption and resume
+   witness deliberately repeat the same provider/digest (`bundle.rs:1027–1035`).
+   Keep that combination and existing same-site driver merges. Ownership checks
+   prevent a different site from contributing; relocation carries assessment
+   and pin together. Identical same-owner facts are not a collision.
+
+No `Bundle` field, manifest grammar, public address type, engine fallback,
+provider branch, contract version or decision document is introduced.
+Proposed 0056 ruling 1 already binds uniqueness to compiled ancestry; its status
+remains `proposed`. The predecessor's declarations and gate semantics stand.
+
+**Explicit council reconciliation.**
+
+| Claim / question | Disposition and evidence |
+|---|---|
+| Both: move assessment and witness together, cover single and panel, refuse collisions. | Adopt the four compiler steps above. Runtime lookup and manifest identity both name the executing coordinate. |
+| Robustness I1/Q3: rebuild evidence after wrapping or relocate through the structural walk. Simplicity: use the existing wrapper. | Combine via walk-driven relocation at that wrapper. Reject rereading adapters and repeating pin enforcement: the predecessor gathers the correct facts. Exact parsed ownership answers the prefix concern without a new parser or engine change. |
+| Robustness I2/I6/Q1/Q2: global post-wrapper uniqueness, defaults included. Simplicity: guard only populated resume/witness inserts. | Adopt global actual lookup scope plus the pre-wrapper guard. Reject population-only checking: agent sites and declarations without resume blocks can own sibling evidence, and final labels cannot expose already-consumed authoring collisions. This enforces D2, not a new phase-name restriction. |
+| Robustness I3/I5/Q4: move every sibling map and forbid overwrite. Simplicity: move only two additional maps. | Combine by extending the existing relocation to each member's whole family: `mark_hands` and `InstanceKey` read the same new label. Reject robustness's blanket duplicate-key refusal at same-site merges, which intentionally repeat one digest. Distinct owners always refuse. |
+| Structural re-keying alternative; robustness Q5's compiler/engine key-equality demand if chosen. | Reject re-keying for this slice: refusal closes F2 without migrating manifest or runtime keys. Q5's conditional is inapplicable; compiled labels and the runtime decision are still exercised together. |
+| Both propose `a`/`b:c` versus `a:b`/`c` as a cross-selector example. | Reject that literal test: `parse_select` at `bundle.rs:2821–2828` admits only `SELECT_STRATEGIES`. It fails even without the fix. Use legal `chore`/`engine` cases below, with colons in step/phase names. A default against a literal phase is additional coverage, not two selectors. |
+| Both: unchanged gate, decision-level tests, removal controls, scope and coverage limits. | Adopt. Missing/unmeasured support, accounting, identity, boundary, hands, ownership and argv mismatches remain closed. Gate-class sites receive no offer. Neither a null assessment nor an office name confers support. |
+| Both: F3 already fixed; simplicity rejects a prose-count unit test. | Adopt. Direct headings reproduce 20 requirements / 159 scenarios (31 + 64 + 11 + 20 + 33), agreeing with D11 and tasks at `00f2cf1`. Recount only; preserve current statements and all dated counts. |
+
+##### Scenario: Wrapped inline work sites reach the Codex decision
+
+- **GIVEN** a synthetic dialect bundle compiled with the shipped Codex
+  declaration and author-pinned argv, whose verify body is either a work-class
+  single or a work-class panel containing a no-hands inline Codex member
+- **WHEN** the real wrapper creates `checks`, a cold invocation confirms a
+  root, and the runtime composes an eligible retry at that executing coordinate
+- **THEN** the production Codex gate and launch path rejoin exactly that root,
+  re-express current restrictions and report `launch: resumed` without
+  `unsupported-resume`; the synthetic dialect validator receives no offer
+- **AND** removing assessment relocation makes each topology's decision
+  assertion fail; restoring it passes. The witness pins that same declaration
+  at the new coordinate, and editing it invalidates reuse of the old pinned root.
+
+##### Scenario: Ambiguous global evidence refuses before dispatch
+
+- **GIVEN** Codex at phase `work`, case `chore`, and another inline provider
+  without a Codex work-site assessment at literal phase `work:chore`; separately,
+  two selectors with Codex at phase `work`, case `chore`, step `engine:stage`,
+  and the other provider at phase `work:chore`, case `engine`, step `stage`
+- **WHEN** compilation encounters respectively `work:chore` or
+  `work:chore:engine:stage` claimed by distinct owners
+- **THEN** compilation refuses before dispatch, naming the label and both
+  owners; valid defaults supply the selectors' remaining strategy cases
+- **AND** renaming the conflicting outer phase in each otherwise identical
+  configuration permits compilation and a live Codex retry through the real
+  provider decision, with its own declaration pin intact
+- **AND** removing collision protection lets each ambiguous configuration
+  compile and breaks its refusal assertion; restoring it passes. Unknown
+  strategies, missing result vocabularies and missing model pins cannot be
+  credited as collision protection.
+
+These are engineering cases of X's existing scenarios, not new delta headings.
+Extend the existing bundle, runtime resume and CLI driver-conformance harnesses.
+Capture the runtime-composed start and offer, then feed them unchanged through
+the production Codex exchange with a deterministic provider shim, or exercise
+that exchange directly under the engine. Keep the compiled wrapped body and
+labels: a supplied assessment, renamed map or context-only assertion is not
+proof. The harness can capture the model invocation before the deterministic
+validator executes, then exercise the real provider gate separately with that
+start and offer. This preserves the compiled wrapper and its boxed validator
+without requiring a nested namespace for the F1 decision proof. Do not skip
+F1/F2 for #286 or change production boundary policy; #286's separate boundary
+coverage remains a controller measurement.
+
+Use the same focused harness for default/literal-phase and wrapper-destination
+collisions, a member called `checks`, overlapping `x`/`checks:x` source and
+destination names, and an independent `verify:foo` phase that must not move
+by prefix. Include a hands-bearing or agent-resolved panel control for sibling
+relocation; it cannot replace either no-hands positive or enable boxed Codex.
+Run the existing shipped recipe/bundle address suite with the same refusal
+diagnostic and retain ordinary repeated-name acceptance.
+
+**Removal proof.** First observe the bounded failing baselines, apply the
+correction and pass both F1 topologies and both F2 constructions. Independently
+remove assessment relocation, witness relocation, authoring collision protection
+and wrapper/final collision protection; record each targeted assertion failure,
+restore exact bytes and pass again. The witness control must fail its
+executing-site pin assertion, not merely move the whole manifest digest.
+Re-prove edited Codex declaration invalidation with the other provider present.
+Where guards overlap, remove the minimal complete protection for that case;
+a redundant guard masking the overwrite is not proof. No mutation is committed.
+Run retained identity, boundary, hands, accounting, unmeasured, declaration,
+ownership and gate-class negatives. Shim evidence is not live qualification.
+
+Implementation and measured controls remain owed by delivery. This sitting adds
+no task identifier or tick, repeats none of the predecessor's four-low work,
+and discharges no C/D, 8.8, 8.10, 9.6, 11.x, archive, living-spec fold or
+controller handoff.
+
 ### D11 — Verify transitions and trace every requirement
 
-For the current ruling slice, D10's engine-composition bridge, shipped driver
+For the two-mediums slice, D10's wrapped single/member and legal global-collision
+cases extend the existing SR1/SR2/AS1/LE5 bindings. Their provider decisions,
+witness invalidation and removal controls are still implementation obligations.
+The current inventory below is verified, with no scenario or task-state change.
+
+The predecessor's proof bindings remain adopted:
+
+For the operator-ruling slice, D10's engine-composition bridge, shipped driver
 exchange and independent status/hands controls bind AS1's historical-Codex/
 mismatched-evidence scenarios and LE5's **The shipping Codex declaration
 actually rejoins a retry**. The boxed negative retains the complete MCP argv;
@@ -2887,7 +3053,15 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
-Current operator-ruling risks (D10's sitting owns their disposition):
+Current two-mediums risks are loss before wrapping, a new collision after
+wrapping, and confusing a source key with another site's destination. D10's
+pre/post ownership checks and staged family relocation address each. Refusal
+makes ambiguous authored bundles invalid even if a later wrapper would separate
+their names; authors rename one owner. Moved witness coordinates may change
+bundle identity: measure affected pins and retain old-root refusal. Gate and
+removal proofs remain pending until executed.
+
+Earlier operator-ruling risks (D10's dated sitting owns their disposition):
 
 - [A status flip still fails admission] → Add the existing September 10
   accounting reference and pass both the typed loader and actual driver test.
@@ -3107,7 +3281,29 @@ Earlier whole-change and Pass B risks remain recorded below:
 
 ## Migration Plan
 
-For the current operator-ruling slice:
+For the current two-mediums slice:
+
+1. Adopt answer X and the predecessor through `22c1539`; verify F3 at
+   `00f2cf1`. D10 settles the correction without reopening the existing plan.
+2. Capture the bounded failing cases, then implement F1 and F2's compiler
+   correction together so wrapping cannot introduce another silent alias.
+3. Execute D10's live-rejoin, refusal, witness, negative and removal controls.
+   Measure only affected witness/compose pins after the changes settle.
+4. Run format, all-target/all-feature locked clippy, both workspace test modes,
+   both bundle compiles, release build and strict OpenSpec validation. Run the
+   unchanged exact gate with the pinned compiler and a writable disk-backed
+   temporary directory outside the repository; inherit #282's Git environment
+   correction and `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=2`. Report actual
+   in-box numbers; #286 host equality and final-head remote CI remain pending
+   controller evidence. Never relax a gate or reuse an old report.
+5. Record actual results and commit completed commissioned artifacts unsigned.
+   Keep every task tick unchanged and hand off remaining proof honestly.
+
+No persisted data or frozen contract migrates. Corrected witness coordinates
+retain the existing bundle/instance fence on old roots. Ambiguous configurations
+require an author rename before compiling.
+
+The predecessor operator-ruling migration remains as dated history:
 
 1. Adopt W/AS1/LE5 and the returned F1 correction without recreating the change.
    Revise D10 then dependent task clauses in this return, preserving every
@@ -3235,6 +3431,15 @@ leave a new-run decision to the operator/controller. Historical version/channel
 facts are not current references to replace.
 
 ## Open Questions
+
+No current choice is deferred for the two-mediums slice. D10 chooses
+walk-driven family relocation, authoring and final global collision refusal,
+and legal cross-selector behavioral/removal cases. It answers both positions,
+preserves same-site witness merges and verifies F3 as closed. Runtime/control
+results remain implementation evidence obligations, not unresolved design
+questions. A genuine upstream contradiction must be reported at its owner.
+
+The prior operator-ruling answers remain history:
 
 No current design choice is deferred. D10's F1 return settles harness/none
 scope, the production composition bridge, bounded accounting wording and the
@@ -4187,3 +4392,40 @@ Evidence is under `.forge/design/operator-ruling-f2-bf5f6a32/`. This unsigned
 checkpoint commits only the design artifact. No task completion, runtime repair,
 provider qualification, archive, living-spec fold, push, merge, publication or
 additional Brokkr run is claimed.
+
+
+## Council design validation — two mediums, 2026-09-15
+
+This design-only visit adopts `00f2cf1` and the predecessor through `22c1539`.
+Read the dialect's design/return instructions and descriptor through workspace
+hands; no workflow runner was invoked. D10 reconciles both complete positions,
+chooses bounded compiler relocation and collision refusal, corrects the council's
+invalid cross-selector test example, and records the gate/removal proof required
+for delivery. D2, current goals, D11, risks, migration and questions agree.
+No upstream specification defect is established. Proposal, deltas and the
+existing task ledger remain adopted; no task identifier or state changes.
+
+Strict active OpenSpec validation passes. Strict repository-wide validation
+reports **14 passed / 0 failed**; status and whitespace checks pass. The two
+informational archive-target notices remain inherited and outside this slice.
+Direct headings confirm **20 requirements / 159 scenarios**, with **31 evidence,
+64 safety, 11 boundary, 20 progress, 33 site**, matching both current inventory
+statements. All **101 task IDs / 82 checked / 19 pending** retain their states.
+Only `design.md` changes; the other **728 tracked files** retain entry hashes,
+including production/tests, proposed 0056, declarations, frozen surfaces,
+living specs and the six plugin files. F3 needs no further edit.
+
+Format, all-target/all-feature locked clippy, both workspace test commands,
+both bundle compiles and the release build could not launch: all seven exited
+127 because Cargo is absent. The pinned coverage-tool probe also exited 127.
+The exact gate was not run, and **no fresh in-box coverage counts or mutation
+results exist for this design visit**. Saved reports are not substituted.
+CI, release admission and local coverage still consume `nightly-2026-09-05`
+from the unchanged `rust-nightly-version.txt`. Logs, inventory and entry-byte
+audits are retained under `.forge/design-two-mediums-84288d2b/`.
+
+This is a design draft, not a completed runtime fix or provider qualification.
+F1/F2 implementation, behavioral removal proofs and Rust validation remain owed;
+#286 host equality and final-head remote results remain pending with the
+controller. No archive, task completion, frozen-byte edit, provider experiment,
+push, merge, publication or new run occurred.
