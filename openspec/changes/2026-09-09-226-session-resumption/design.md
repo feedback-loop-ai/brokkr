@@ -1,5 +1,34 @@
 ## Context
 
+This visit is the **operator-ruling slice**, run
+`operator-ruling-slice-branch-int-bf5f6a32` (design, 2026-09-15). Adopt
+`2da94b0` and specification checkpoint `3ead8d4` under the existing change
+`2026-09-09-226-session-resumption`. See [proposal.md](proposal.md), answer W,
+for the commission and AS1/LE5 for its preservation and behavioral-proof
+scenarios. The operator ruled: **“keep decision 0030's rejoin live, do not
+regress codex.”** This supersedes this change's draft requirement to disable
+shipping Codex while awaiting remeasurement; it does not qualify new rejoins.
+
+At the adopted head Codex's declaration still disables `work-site` and lacks
+an accounting reference. The gate already compares observed identity with
+`applies_to`, not with the historical measurement's `version`; the ruling
+therefore needs a declaration/prose correction and executable proof, without
+changing admission code. Both complete council positions are reconciled under
+D10 below. The four low remedies and the previous coverage repair are adopted;
+only their remaining proof obligations are in scope. No `returned_from` was
+supplied and no upstream requirement fault was found in answer W/AS1.
+
+This office authors only the dialect's `design.md`. D10 specifies the exact
+0056 and declaration amendments and the dependent task/guide corrections for
+their subsequent authors; this design checkpoint does not claim those changes
+have executed. The operator's interval ruling is settled; fresh regression
+proof, local validation and controller host/remote results remain pending.
+Every 8.8/8.10/9.6/11.x checkbox keeps its state. Passes C/D, archive and the
+five withdrawn living-spec folds remain outside this slice.
+
+Earlier council visits follow as dated history. Their then-current scope and
+measurements are retained, while the current decisions below incorporate W:
+
 This visit is the **remediation slice**, run
 `remediation-slice-branch-integra-1d3bbafc` (design, 2026-09-15). Adopt
 `840de91` and specification commit `abfae0f` under
@@ -245,12 +274,15 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
-**Remediation goal:** Make the remaining refusal executable under a controlled
-store change, with truthful gate evidence and controls for the adopted fixes.
-Retain the present ownership, selector, qualification and accounting semantics.
+**Current goals:** Preserve Codex's shipping work-site retry by changing its
+assessment, prove the actual driver rejoins its owned thread, and verify the
+four adopted lows in order with behavior-breaking controls. Keep historical
+measurement, applicable identity and outstanding provider proof distinct.
 
-**Remediation non-goals:** No gate rewrite, race-hardening redesign, provider
-measurement/enablement, plan advancement, Pass C/D, archive or living-spec fold.
+**Current non-goals:** No executable gate/loader/ownership change, new status
+or declaration field, live-provider qualification, enabling Claude/DSH/LaneTally,
+new task or task tick, coverage redesign, Pass C/D, archive or living-spec fold.
+The previous reader-seam repair is settled at `2da94b0` and is not reopened.
 The broader original goals and earlier pass boundary follow for context.
 
 **Goals:** Derive one owned offer per executing work site from existing durable
@@ -285,8 +317,10 @@ step judges their output. Exec and dialect validators never negotiate model
 resume or emit model launch.
 
 AS1's minimum remains measured Claude boxed-workspace resume, DSH's admitted
-headless work resume, and preserved Codex work shapes after current-version
-remeasurement. Cold reporting is preparation, not completion. LaneTally is
+headless work resume, and preserved Codex work shapes throughout current-version
+remeasurement (operator ruling, 2026-09-15; proposal W). Preserving shipping
+Codex does not complete its remaining measurement obligation. Cold reporting
+for new, never-supported shapes is preparation, not completion. LaneTally is
 assessed independently; implement its measured safe admitted shapes without
 inferring wrapper support from Claude.
 
@@ -418,9 +452,12 @@ kill-window and fresh-process recovery tests.
 The gap is not Claude's permission-mode name. v4's `session_id` can carry an ID,
 but it does not encode a confirmed root's role, persistence or CLI version;
 there is no structural site/instance stamp. Its closed refusal enum also cannot
-honestly describe cold because installed 0.153.4 has only 0.148.0 resume proof,
+honestly describe cold because a new shape lacks applicable resume evidence,
 or because headless support is unmeasured. Neither is an invalid ID or a harness
-rejection. These gaps follow from v4/source inspection and answers F/G/H.
+rejection. These gaps follow from v4/source inspection and answers F/G/H;
+answer W excludes historical measurement drift alone as a reason to disable
+Codex's already-shipping rejoin. The inherited v5 contract is unchanged by this
+slice.
 
 Add `contracts/seat-record.v5.schema.json` and the matching embedded store copy.
 Published and embedded v1–v4 bytes stay unchanged. v5 is a superset of v4; add
@@ -487,7 +524,7 @@ apply only to `site_ref`-stamped rows, while the unconditional form is required
 of this change’s producers. Existing valid unstamped 0.10.0 rows, including
 third-party refusal-bearing shapes, stay valid at all four fences.
 
-### D5 — Receive once; admit only a measured current invocation
+### D5 — Receive once; qualify the current invocation and preserve shipping support
 
 All four built-in model adapters advertise `resume` as *offer receipt*; exec
 advertises none. Keep driver protocol v1 and `run_attempt_resuming` ordering.
@@ -560,9 +597,23 @@ Compare observed version with pinned support and the originating root.
 LaneTally additionally checks wrapper identity and underlying Claude version
 through a measured interface; do not invent a LaneTally version command.
 Missing, changed or unreadable identity disables resume with a bounded reason.
-No per-attempt model experiment runs. Version change requires new dated proof;
-historical Codex acceptance does not authorize later versions. Record the
-observed version, not the desired pin.
+No per-attempt model experiment runs. For a new, never-supported rejoin,
+version change invalidates prior-version qualification until new dated proof
+establishes the applicable shape. For a currently shipping rejoin, historical
+measurement drift alone does not withdraw support: the operator's 2026-09-15
+ruling preserves Codex `work-site` under accepted 0030 while full remeasurement
+remains owed. Keep `identity.version = 0.148.0` and `applies_to = 0.153.4`,
+name the existing dated accounting evidence, and explain preservation in
+`reason`. Do not relabel partial evidence as a new enforcement measurement.
+
+The current executable must still match `applies_to` and any originating-root
+version actually recorded. Thus this declaration admits observed `0.153.4`;
+observed `0.148.0` or a third version still declines `unverified-harness`.
+A later applicability change requires its own reviewed declaration/evidence
+account, not a version wildcard or a gate bypass. Missing required evidence,
+inapplicable boundary/hands, changed ownership and unconfirmed roots still
+refuse. Record the observed version, not the desired pin. Keep `resume_gate`,
+`qualify` and the loader's measured-identity/four-reference checks unchanged.
 
 Parse restrictions from an engine-composed plan: declaration argv, model/effort,
 generated current hands fragment, result door and scoped resources. Preserve
@@ -591,8 +642,12 @@ that lookalike passthrough lacks. Reject raw cold-argv-plus-resume and a
 selector-only deny-list: captured Claude help documents copy-producing
 background behavior and ignored invalid print settings. Equal flag lists do
 not prove enforcement. Both positions now accept answer G's current-version
-qualification; the original council's enabled-until-contradicted alternative
-remains rejected, not an outstanding dispute.
+qualification as amended by W. Reject enabling a new, never-supported shape
+from historical help or another version's measurement. Reject applying that
+caution to withdraw Codex's shipping rejoin: the operator has settled that
+former council dispute in favor of preservation with the same invocation
+checks. A fourth status, new marker field or Codex-specific gate bypass adds
+mechanism without satisfying any further requirement.
 
 **Bindings:** SR4/SR5/AS1–AS3; loading/packaging, private-context rendering,
 protocol abuse, argv/precedence and current-version mismatch tests.
@@ -602,9 +657,9 @@ protocol abuse, argv/precedence and current-version mismatch tests.
 Share orchestration/folds where identical; each adapter owns its launch planner
 and measured confirmation/accounting rules.
 
-| Adapter | Construction decision | Proof still required before enabling |
+| Adapter | Construction decision | Remaining provider proof (Codex preservation does not await it) |
 |---|---|---|
-| Codex | Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort and safe passthrough. Admit exact engine-generated MCP fragments separately from arbitrary `-c`. | Re-read the exercised installed version and reconcile 0030's 0.148.0 with supplied 0.153.4; prove resumed class/boxed-fragment enforcement, exact root, current events and pre-work rejection semantics. September 12 host startup/enforcement evidence establishes only 10.5's precondition. |
+| Codex | Preserve the shipping `work-site` under the operator's 2026-09-15 ruling with `supported`, dated accounting evidence and unchanged 0.148.0/0.153.4 identity. Retain explicit `codex exec resume --json`, workdir through `current_dir`, `-c sandbox_mode=...`, effort, safe passthrough and the distinction between generated MCP fragments and arbitrary `-c`. | Re-read the exercised installed version and complete 10.5's resumed class/boxed-fragment enforcement, exact-root, current-event and pre-work rejection proof. September 10 remains partial evidence and September 12 establishes only the cold startup/enforcement precondition. Preservation is immediate implementation scope, not completion of 10.5 or 11.1. |
 | Claude | Known print/stream-json path with exactly `--resume <owned-id>` and the current restriction plan: permission mode, model/effort, `--tools ""`, strict MCP config, current MCP document and allowed workspace tool where boxed. Current prompt stays on stdin. | Root-opening semantics, complete effective restrictions/precedence, persistent identity and current-only stream/accounting on 2.1.266. |
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
 | DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay, folding the bound route overlay ahead of those rows where the bundle carries one (below); use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
@@ -1733,7 +1788,7 @@ rulings and enforcement bindings are:
 | 2 | Same run/site/instance and local origin; newest owner, no older-owner resurrection. | D2/D3 pure query, stamps, manifest/origin tests. |
 | 3 | Provider-confirmed root; generated or fresh assigned ID; intent proves nothing. | D3/D4 root latch, fence, assignment/kill-window tests. |
 | 4 | Negotiated, correlated, one-use offer in existing wire vocabulary. | D5 protocol/conformance tests. |
-| 5 | Required measured provider shapes; current-version qualification; the latest DSH core (0.1.5-rc.1, or the `latest` release resolved at qualification) with the repository-owned six-file adaptation of plugin 0.2.0, pinned by the declared `wrapper_digest` written at enablement; no older core; unmeasured and separate from hands until its complete admission proof passes. Consequences record the reversed 0.1.0-rc.6 pin as history. | D5/D6 loader grammar, composite recompute, committed-bytes test, declaration gate and dated provider evidence. |
+| 5 | Required measured new provider shapes; shipping Codex preservation under the 2026-09-15 operator ruling with historical measurement kept distinct from current applicability, and unchanged invocation qualification; the latest DSH core (0.1.5-rc.1, or the `latest` release resolved at qualification) with the repository-owned six-file adaptation of plugin 0.2.0, pinned by the declared `wrapper_digest` written at enablement; no older core; unmeasured and separate from hands until its complete admission proof passes. Consequences record the reversed 0.1.0-rc.6 pin as history. | D5/D6 loader grammar, composite recompute, committed-bytes test, declaration gate and dated provider evidence. |
 | 6 | Re-impose current restrictions, model/effort, grant and result door; no alternate selectors. DSH admits exactly one `--patch`, the bound route overlay: bound by the engine to a `files` member of the compiled bundle, verified by digest in the adapter, read by a closed data-only grammar with a closed field set and value grammars, folded ahead of the Rust-owned rows on cold, resume and closed-gate paths alike (answers Q–S, appended as a dated note on 2026-09-14). | D5/D6 composition and enforcement proof; the route-overlay binding in the private start context and the bounded reader beside the DSH planner, with 8.10's deterministic cases. |
 | 7 | One confirmed launch, additive v5 vocabulary and manifest dispatch from 0.10.0 under the amended boundary-record requirement, preserved boundary stamping, first-work hold and privacy fence. | D4/D7 shared append/export/import/offline dispatch, frozen-byte, historical-compatibility and conformance/acceptance tests. |
 | 8 | One proven pre-work replacement within deadline/cancellation/chain bounds. | D7 outcome/watchdog tests. |
@@ -2379,7 +2434,197 @@ specification/decision instead of being concealed in a test or gate. The
 operator alone rules on main's now-cold Codex retry interval before merge;
 `adapters/codex.json` and tasks 11.1's declaration stay as adopted.
 
+#### Operator-ruling council sitting — 2026-09-15, run `operator-ruling-slice-branch-int-bf5f6a32`
+
+This sitting governs answer W and supersedes the earlier remediation sitting's
+instruction to leave Codex disabled pending an operator ruling. The ruling is
+now given. Both positions were read in full; their reused paths are pinned:
+
+- Robustness, `.forge/design/positions/robustness.md`: SHA-256
+  `e857031c93e268676661cf43ece35566ee55d6f17310fa0ec06b0bd4de0e9916`.
+- Simplicity, `.forge/design/positions/simplicity.md`: SHA-256
+  `2e3c2e73531ad72dfeaa0257e929a2e290ae8cc26b8fa2e6d6ad87957f72cde7`.
+
+**1. Declaration mechanism and limits.** Adopt both positions' central claim.
+Source confirms `resume_gate` reads status, accounting-reference presence,
+boundary/hands and `identity.applies_to`; `qualify` compares the observed
+version with applicability and any recorded origin version. Neither reads
+`identity.version`. The loader requires measured identity and all four
+references, but no version-equality rule. The ruling is therefore implemented
+entirely in declared support and explanatory prose, with no changed predicate.
+The retained `supported` token is machine admission; `reason` explains the
+operator's basis to readers. Prose is not a second machine policy.
+
+| Shipped shape | Required disposition and why |
+|---|---|
+| Codex `work-site` | Set `supported`; main already rejoins it under accepted 0030. Keep measured `version: 0.148.0`, `applies_to: 0.153.4`, classes, boundaries, hands, existing evidence and every limitations byte/order. Add only `evidence.accounting`, citing the existing bounded 2026-09-10 cold/warm probe on 0.153.4 and its per-invocation usage, explicitly partial. Amend `reason` to cite the 2026-09-15 operator ruling and pending full remeasurement. |
+| Claude `boxed-workspace` | Remain `unmeasured`; main does not perform this rejoin. Add only explanatory reason prose: partial observations do not establish complete restrictions, filesystem boundary and precedence on installed 2.1.270. Preserve the declared 2.1.266/2.1.266 identity, evidence and scope rather than silently retargeting it. |
+| DSH `headless-work` | Remain `unmeasured`; main does not perform this rejoin. Add only explanatory reason prose: isolated 0.1.5-rc.1/adapted-plugin evidence lacks full exact-root, restriction, multi-message-accounting and composite qualification. No identity/evidence/scope change, wrapper digest or session-selector enablement. |
+| LaneTally `wrapper-work-site` | Remain `unmeasured`; main does not perform this rejoin. Add only explanatory reason prose: unknown wrapper identity and forwarding cannot inherit Claude's evidence. Preserve unknown identity, absent evidence, scope and hands deferral. |
+
+The Codex accounting reference names the same observation already recorded in
+its first limitation; it does not turn September 12 cold startup evidence into
+resumed enforcement. `0.153.4` remains the exact applicable observed identity.
+Both a host on historical `0.148.0` and any third version refuse; the originating
+root's recorded version must match too. A legacy root without that field keeps
+its existing narrow mapping and all site/instance/manifest/origin checks. The
+ruling adds no requirement to fabricate missing historical root fields.
+
+**2. Proposed 0056 and dependent prose.** The semantic amendment is reserved
+here for the same proposed decision, not a new accepted decision. Apply these
+three changes together before reporting implemented preservation:
+
+- Ruling 5's title and first paragraph distinguish **measurement for new
+  rejoins and preservation for currently shipping rejoins**. Retain the closed
+  three-status vocabulary, measured/unknown identity forms, four evidence
+  references, scope and malformed-data refusal. A previously supported rejoin
+  stays live across historical measurement drift under the 2026-09-15 ruling;
+  an unmeasured shape main does not perform stays disabled until qualified.
+- Replace the assertion that 0030's 0.148.0 measurement disables installed
+  0.153.4 with the bounded preservation: Codex keeps the dated measurement,
+  current applicability and partial accounting reference, re-imposes current
+  restrictions, and still fails qualification when observed/origin identity or
+  boundary/hands/accounting evidence does not match. Preserve every dated
+  limitation and leave full installed-version proof owed.
+- Scope the rejected “keep a shape enabled until something contradicts it”
+  alternative to a new, never-supported rejoin. Reject using that argument to
+  disable main's shipping Codex rejoin, citing the operator verbatim. Align the
+  current consequence/support account with that distinction; leave accepted
+  0030 and 0056's `Status: proposed` intact.
+
+This design is the sole artifact named by the rendered design step; the above
+is its concrete dependency handoff, not a claim that the decision file has
+already changed. The task office reconciles 11.1's opening and the current
+interval account: preservation is commissioned now; after the test passes,
+record that it rejoins and full remeasurement remains pending. Do not tick
+11.1, 8.8, 8.10, 9.6 or any other task. Implementation also scopes the stale
+`ResumeIdentity::Measured.applies_to` comment in `agents.rs`, the guide's
+blanket expiry paragraph and Codex support row, and any necessary packaged
+copies. Preserve dated historical records instead of globally replacing
+version strings. W/AS1 already encode the answered ambiguity as scenarios;
+no new scenario, capability, task identifier or contract is needed.
+
+**3. Explicit position reconciliation.**
+
+| Claim or open question | Disposition and evidence |
+|---|---|
+| Both: no new Rust behavior for the ruling, status or field; robustness asks whether a machine marker is needed. | Adopt the existing status plus bounded reason. The predicates above already enforce the applicable version and evidence; a fourth token, marker, loader version-equality rule or Codex-specific bypass would expand scope or undo the ruling. |
+| Simplicity: one `invoke` test over shipped data; robustness: the actual driver protocol exchange. | Choose the driver-conformance exchange in `crates/brokkr-cli/tests/driver_conformance.rs`, with a real cold attempt then a correlated retry offer. It covers receipt, production admission, provider argv and confirmed launch; a direct planner or status assertion alone is insufficient. Keep the existing engine ownership/offer tests as the separate evidence for durable eligibility; no public engine seam or duplicate topology suite. |
+| Both: feed the shipped assessment, not `enabled_assessment`. | Adopt, correcting simplicity's suggested nesting: `/resume_context/assessment` receives the entire shipped `resume` map, not only the inner `work-site` entry. `resume_gate` indexes that shape itself. Use the actual shipped bytes and a version-answering shim; never overwrite status in the positive fixture. |
+| Robustness asks whether to add a shipped-disposition pin; simplicity agrees to a loader check. | Combine in the existing runtime shipped-shape test in `tests/roster.rs`: load the real adapters through `Adapters::load`, check all four dispositions, Codex's distinct measured/applicable versions and complete evidence, and DSH's absent digest. This is secondary structural evidence, never the behavioral preservation proof. |
+| Both: the declaration change moves witness/compose identities. | Adopt. Re-run `tests/witness_digests.rs` and the existing compose tests after every declaration edit settles, recording and updating only actual reported digest pairs. Prose-only changes in the other three adapters can move pins too; reject any assumption that a Claude-only bundle cannot move. Keep all witnesses and equality assertions. |
+| Robustness: gate evidence is non-empty; simplicity: new test source necessarily adds coverage lines/functions. | Narrow both claims to the actual code. The loader validates bounded references; the use-site gate checks string presence, not truth or scope of arbitrary prose. The unchanged coverage script excludes conventional test sources and refuses leakage, so new test source is not automatically added to the production denominator. Actual gate counts, including compiled production instances exercised, are authoritative. Neither observation authorizes weakening a check. |
+| Robustness asks about the unpinned committed-file digests; simplicity would add only the main behavioral proof. | Retain the earlier council's still-undelivered all-six-digest assertion in the existing composite test. Source still checks only file names and the reverse-substituted JavaScript digest. This is an evidenced gap in low 4's proof, not optional new hardening; no new production function or plugin edit is needed. |
+| Both: all four remedies are present and should not be rebuilt. | Adopt on source evidence; require the controls below. Presence and another seat's passing tests are not this seat's executed proof. If a control exposes a remaining defect, fix only that defect under the existing scenario. |
+| Both: preserve fail-closed ownership, identity, scope, accounting, exact root and fresh gates; keep dated gaps and all task ticks. | Adopt unchanged. Keep full provider qualification pending, no C/D acceptance or new provider enablement, no frozen edits, archive, living-spec fold, global installation change, release/version work or remote action. |
+
+**4. Behavioral proof and controls.** In the existing CLI conformance suite,
+use test-owned homes and the shipped Codex assessment. A deterministic shim
+answers `--version` with `codex-cli 0.153.4`, records argv and announces the
+root before current work. A first cold driver invocation establishes that root;
+a fresh driver process receives `hello`, the correctly correlated `resume`
+for the same thread, `start` and `shutdown`. Supply the actual namespace/boxed
+site facts and current sandbox, model/effort, result destination and prompt.
+Assert the retry's captured command is `exec resume`, includes exactly the
+owned thread and re-expressed sandbox/effort, and its confirmed launch evidence
+says `resumed` with that root and no unsupported refusal. The shell shim must
+not fabricate launch rows; inspect the production adapter's emitted evidence.
+
+Run the new test first against the adopted disabled declaration and observe
+its behavioral assertion fail. After the declaration correction passes, set
+that shipped status back to `unmeasured`, rebuild and observe the same assertion
+fail at runtime on a cold/unsupported launch; restore the exact bytes and pass.
+An accounting-reference removal is the paired disabled-evidence case, not a
+replacement for proving that the real status controls the real launch.
+
+Pair the positive with existing or narrowly extended refusal cases for missing
+or unreadable observed identity, observed 0.148.0/third-version mismatch,
+originating-version mismatch, boundary and hands mismatch, absent accounting,
+and a provider confirming a different root. Exercise the three other shipped
+assessments with otherwise eligible offers and require `unsupported-resume`.
+The existing `engine/resume_tests.rs` owns site/instance/origin/manifest/newest-
+owner and legacy-offer refusal; run that suite alongside the driver proof so
+an offer-only test never stands in for rejoin. A mismatched applicability or
+scope invalidates the evidence for this invocation; no evidence-string parser
+or live enforcement experiment is added. For each new behavioral assertion,
+record a compiling mutation of the exact protected predicate and an observed
+failure, restore, then rerun; a compile error or a failing unrelated assertion
+is not the required control. These are deterministic regression observations,
+not installed-provider qualification.
+
+**5. Four lows, in commissioned order.**
+
+1. **DSH cold sequence zero:** retain `Option<u64>` from the cold/warm plan
+   through `drain_dsh_transcript` to `fold_dsh_event`. Cold is `None`; warm is
+   `Some(last_stored_seq)`, including zero. Keep both
+   `a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundary`
+   and `the_planned_dsh_fold_boundary_reaches_the_transcript_drain`. Before any
+   further fix, temporarily restore `None`-as-zero filtering and observe the
+   cold-zero test fail; restore/pass. Separately restore the cold plan's
+   `Some(0)` seed and observe the actual plan-to-drain test fail; restore/pass.
+   Retain warm exclusion at/below zero, no-sequence rows and both qualified and
+   shipped-disabled cold routes. The plugin's inclusive first-current sequence
+   and Rust's exclusive last-stored boundary are distinct and unchanged.
+2. **Codex refusal cause:** retain selector refusal first, then on an offer
+   gate decline before ID, sandbox and compatible-resume-argv checks, with no
+   probe for a disabled gate. Move the gate block below the sandbox split as a
+   temporary control; `a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks`
+   must observe `sandbox-unavailable` where it expects `unsupported-resume`.
+   Restore/pass. Preserve unchanged safe cold argv, enabled local-defect checks,
+   and no-offer/no-refusal behavior. An enabled no-offer cold plan may still
+   probe identity to record a useful root; no blanket no-probe rule is added.
+3. **Codex cold selector:** retain the existing conservative `resume` word
+   refusal even in value positions. Temporarily bypass its guard and observe
+   `a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too`
+   fail; restore/pass. Cover no offer, offered and disabled-shape paths before
+   any provider work, with no handle echoed. Add only the already-planned
+   replacement-call comment: `invoke` reaches direct `codex_cold` only after
+   successful `codex_launch` with the same immutable arguments. No duplicate
+   builder guard, silent argument stripping or provider exception.
+4. **DSH never-publish:** adopt `extensions/dsh/PROVENANCE.md`'s explicit
+   prohibition and retain all six upstream-attributed files unchanged. Extend
+   `the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta`
+   to compare the full returned digest map with the six committed-adapted
+   digests recorded in PROVENANCE; retain the one-expression reversal check.
+   Calibrate the comparison with an isolated copy containing a one-byte
+   manifest change, temporarily point the test there, observe failure, then
+   restore the test and pass on committed bytes. Verify all six bytes directly
+   against PROVENANCE too. This detects drift, not publication; no manifest
+   `private: true`, registry probe, publisher or new plugin delta is authorized.
+
+**6. Measurement and handoff.** Before and after implementation run the
+unchanged exact gate with a writable disk-backed `TMPDIR` outside the repository;
+never use the filling `/tmp` tmpfs or an in-repository directory for coverage.
+Prefix commands with `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`, including
+parent test commands so child Git calls inherit #282's correction. Record
+command, exit status, revision/changed-byte identity, pinned compiler/tool
+versions and JSON/LCOV/summary hashes beside the gate's three covered/total
+pairs. The inherited **30,015/30,015 lines, 5,036/5,036 branches,
+2,861/2,861 functions** is prior evidence, not a fresh before run. Preserve
+`rust-nightly-version.txt` agreement across CI, release admission and coverage.
+Do not repeat the settled reader-seam investigation or change the gate,
+`coverage(off)`, conditional exclusions, thresholds or witness assertions.
+
+Run affected suites, `cargo test --workspace`, locked all-feature workspace
+tests, all-target/all-feature locked clippy with warnings denied, format, both
+`bundles/self` and `bundles/verify` compiles, and strict active OpenSpec
+validation. Report actual in-box coverage; #286 leaves host equality to the
+controller. If this seat lacks the compiler or a suitable scratch mount, record
+that limitation instead of inventing numbers or substituting the saved report.
+The design commit changes no compiled source or declaration and makes no
+runtime success claim. The task and implementation offices own the remaining
+edits and measured controls; exact-head remote CI, integration and closure stay
+pending their actual external results.
+
 ### D11 — Verify transitions and trace every requirement
+
+For the current ruling slice, D10's driver test and disabling control bind
+AS1's historical-Codex/mismatched-evidence scenarios and LE5's **The shipping
+Codex declaration actually rejoins a retry**. Its ordered low controls bind
+LE4's cold-zero/stored-zero scenarios, LE2's closed-gate cause and AS3's cold
+selector scenario; the full digest comparison binds AS1's published file-set
+and never-publish requirements. This adds no requirement or scenario and does
+not discharge whole-change enablement, C/D or archived provenance acceptance.
 
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
@@ -2511,7 +2756,27 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
-Current remediation risks (D10's sitting owns their disposition):
+Current operator-ruling risks (D10's sitting owns their disposition):
+
+- [A status flip still fails admission] → Add the existing September 10
+  accounting reference and pass both the typed loader and actual driver test.
+- [A synthetic supported fixture hides the shipping regression] → Consume the
+  shipped bytes and disable that same shape for the runtime failure control.
+- [Partial evidence is mistaken for full qualification] → Preserve dates and
+  limitations; keep 10.5/11.1 pending and explain preservation in each current
+  support surface. Runtime checks verify declared facts, not the truth of prose.
+- [Adapter prose changes a pinned identity] → Measure witness and compose
+  digests after all four declaration explanations settle; update only observed
+  pins and retain equality checks. Existing pinned runs still obey manifest and
+  origin fences; this is no permission to resume across a changed instance.
+- [All-six-file provenance checking is overstated] → Extend the existing digest
+  comparison; neither that test nor unchanged metadata prevents publication.
+  PROVENANCE's never-publish instruction remains the controlling rule.
+- [No fresh coverage result exists in this seat] → Identify inherited counts
+  as inherited; report actual before/after gate results from a toolchain-equipped
+  seat, and keep external host equality pending under #286.
+
+Earlier remediation risks remain as dated rationale:
 
 - [A cached path hides store drift] → Retain both selections; use a deterministic
   reader seam to prove the second refusal. A later open still has a race window;
@@ -2629,8 +2894,13 @@ Earlier whole-change and Pass B risks remain recorded below:
   sequence/usage semantics with tool and retry cases; omit unattributable
   numbers and keep the shape disabled if the interval is uncertain.
 - [Version drift silently changes restrictions] → Compare observed identity to
-  pinned evidence, reconstruct the current plan and remeasure changed shapes.
-  Prepared Codex disablement blocks delivery until support is re-established.
+  declared applicability and the recorded originating root; reconstruct current
+  restrictions. A new, never-supported shape stays disabled until its applicable
+  proof exists. Under the operator's 2026-09-15 ruling, Codex's shipping rejoin
+  stays supported while its full remeasurement remains pending; historical
+  0.148.0 and partial 0.153.4 evidence retain their stated limits. A failed
+  current-invocation check still refuses. Blanket prepared Codex disablement
+  is the regression this slice corrects, not an accepted safety interval.
 - [Legacy identity cannot prove composite ancestry] → Cold once and establish
   explicit root evidence; keep old history read-only without relaxing ownership.
 - [Names exceed display/address conventions] → Hash exact components for resume,
@@ -2699,6 +2969,41 @@ Earlier whole-change and Pass B risks remain recorded below:
   or the suite proves a narrower claim than AS3 and D5 make.
 
 ## Migration Plan
+
+For the current operator-ruling slice:
+
+1. Adopt W/AS1/LE5 and this design without recreating the change. The task
+   office reconciles current planning prose, preserving every identifier and
+   checkbox. Record the operator ruling as settled and implementation proof
+   as pending until it actually passes.
+2. Capture a fresh pre-edit gate result in an appropriately equipped seat.
+   Add the shipped-declaration behavioral regression and observe the adopted
+   disabled shape fail. Apply D10's bounded declaration and proposed-0056
+   amendments, the `ResumeIdentity` comment and current guide corrections;
+   the same test must then pass. No executable gate or loader edit is needed.
+3. Verify the four lows in their numbered order and run each required
+   compiling mutation/control, restoring exact production and declaration bytes
+   before passing reruns. Strengthen only the identified committed-digest gap.
+4. Measure affected witness/compose digests from their failures after the
+   declarations settle, then run all requested local checks and fresh after
+   coverage. Update 11.1's factual record to the demonstrated preserved rejoin,
+   with full remeasurement pending and its checkbox unchanged. Record all
+   commands, mutations, outcomes, moved digests and report identities.
+5. Commit only completed commissioned work unsigned in repository style. The
+   controller owns host equality, final-head remote CI and integration/closure;
+   no push, merge, publication, channel update or additional Brokkr run occurs.
+
+No journal, contract, plugin, provider installation or global setting migrates.
+Declaration bytes change adapter and bundle identities: previously pinned runs
+must retain their existing manifest/instance fences, never inherit an edited
+assessment in place. The preserved retry proof concerns matching attempts under
+the same new pin and the unchanged eligible legacy path, not carrying a session
+across a changed adapter digest. Roll back a faulty implementation as a coherent
+set of declaration, prose and measured pins; an emergency rollback restoring
+Codex disablement must be reported to the controller as a regression against
+this ruling, not a successful preservation. It does not authorize a gate bypass.
+
+Earlier remediation and whole-change migration accounts are history:
 
 For this remediation only: preserve the inherited report, take a fresh baseline
 in a toolchain-equipped seat, introduce the narrow reader seam and its test,
@@ -2792,6 +3097,16 @@ leave a new-run decision to the operator/controller. Historical version/channel
 facts are not current references to replace.
 
 ## Open Questions
+
+No current design choice is deferred. D10 answers all four robustness questions
+and the differing simplicity recommendations. The operator has closed the
+Codex cold interval; pending new measurements are evidence obligations, not a
+request to decide the same ruling again. The installed-version enforcement gap
+remains explicit, and no assertion of support for another provider follows.
+If implementation finds a genuine contradiction in an upstream requirement,
+return it to that owning artifact; do not hide it in a gate, status or test.
+
+Earlier questions and their then-current resolutions are historical:
 
 No design choice is deferred for this remediation: keep both guards, inject the
 outer selector, strengthen the existing evidence, and leave gate semantics
@@ -3604,3 +3919,49 @@ the council artifact only. Implementation controls, Rust gates, fresh coverage,
 the operator's Codex cold-interval ruling and remote results remain pending.
 No plan task advanced, provider was enabled, plugin byte changed, archive,
 push, merge, publication or additional Brokkr run occurred.
+
+## Council design validation — operator ruling, 2026-09-15
+
+Adopted `2da94b0` and specify checkpoint `3ead8d4` under the existing change.
+Read `dialects/openspec.json`, its design/return instructions and the rendered
+`openspec instructions design --change 2026-09-09-226-session-resumption --json`
+through workspace hands; no workflow runner was invoked. Read both complete
+positions, proposal W and the owning scenarios, 0030/0056, PROVENANCE before
+considering package bytes, and the relevant code/tests/history. D10 reconciles
+the positions explicitly, records the bounded decision/declaration amendments
+and chooses the required behavioral and mutation controls.
+
+Strict active validation passes; repository-wide strict validation reports
+**14 passed, 0 failed**. Status reports planning artifacts present, not runtime
+completion. Existing notices about archive targets remain informational;
+this visit neither archives nor re-folds the withdrawn living specs. The five
+deltas remain **20 requirements / 158 scenarios** and the task ledger remains
+**101 identifiers: 82 checked / 19 pending**, byte-unchanged. A tracked-file
+hash audit confirms that only `design.md` changed: proposed 0056, declarations,
+code, tests, plugin, task states and frozen surfaces retain their adopted bytes.
+
+A read-only comparison reproduces all six committed-adapted digests in
+PROVENANCE and the reverse-substituted upstream `lib/index.js` digest. This
+verifies the current bytes; the chosen Rust assertion/control is still owed.
+CI, release admission and the exact gate all read `rust-nightly-version.txt`,
+whose current pin remains `nightly-2026-09-05`.
+
+Format, locked all-target/all-feature clippy, protocol/runtime suites,
+`cargo test --workspace`, locked all-feature workspace tests and both bundle
+compiles were attempted with #282's environment correction. Every command
+exited **127**, because `cargo` is absent from this seat. No new Rust test or
+mutation was executed. The exact gate was not launched: Cargo is absent and
+the seat's `TMPDIR` is `/tmp`, which the commission excludes for coverage.
+Saved reports were read and hashed, never overwritten or presented as fresh
+measurements. Their inherited gate summary is **30,015/30,015 lines,
+5,036/5,036 branches, 2,861/2,861 functions**. Fresh before/after and in-box
+counts are unavailable from this design seat; implementation must report its
+own results and leave host equality to the controller under #286.
+
+Evidence is retained under `.forge/design/operator-ruling-bf5f6a32/`:
+`before.json`, `artifact-audit.json` and `rust-checks.json`. This unsigned
+checkpoint completes the named design artifact only. The operator ruling is
+settled; decision/declaration/guide/task amendments, executable proof and local
+Rust gates remain implementation handoff work, with host measurement and final
+remote results pending their owners. No task tick, provider qualification,
+archive, push, merge, publication or additional run is claimed.
