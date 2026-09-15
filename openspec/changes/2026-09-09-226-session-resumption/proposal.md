@@ -1,5 +1,16 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+The current specify visit, run `remediation-slice-branch-integra-1d3bbafc`,
+adopts `840de912adf2a5fd7947ac623bf54ad5430649f5` on
+`integration/226-resume-prepared`, including the settled `38ed542` repair,
+under `2026-09-09-226-session-resumption`. This is a **remediation slice,
+not a pass of the #226 plan**, and advances no task. Answer V records the
+coverage investigation and the four already-committed low findings, with their
+remaining proof obligations. Passes C/D and the operator's Codex cold-interval
+ruling remain outside this visit. Earlier visit accounts below are history.
+
+Earlier Pass B residual specify adoption, retained as history:
+
 The current specify visit, run `current-successor-issue-226-pass-84698352`,
 adopts all committed work at `f63c113dd0531270eee0b7d36a3606f4f85bc5d4`
 under this same dated change. Its scope is **Pass B alone**. Answer U records
@@ -37,6 +48,14 @@ completed work needs a truthful task marker before the phase's final commit.
 
 ## What Changes
 
+- For the current remediation slice, reconcile the exact-coverage report with
+  executable evidence while preserving the unreadable-sequence refusal and
+  its test. Adopt the committed cold DSH sequence-zero handling, truthful
+  Codex gate refusal, cold selector refusal and never-publish provenance rule.
+  The AS1/AS3 and LE2/LE4 scenarios below make those edge cases explicit;
+  answer V bounds verification without enabling a provider or advancing a task.
+  The remaining bullets describe the inherited whole change, not new work
+  commissioned by this slice.
 - Generalise decision 0030's offer across model work sites: single seats,
   panel members, sequence model steps and members inside sequence panels.
   Retries, phase re-entry and operator retry after a park reuse only the latest
@@ -1243,6 +1262,128 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   8.8, 8.10 and 9.6 remain unchecked while their complete acceptance depends
   on C/D. Pass B completion requires executable evidence, not this adoption.
 
+
+- **V — Remediation adoption, 2026-09-15: settle the gate's disagreement
+  without advancing the preparation plan.** The commission names the existing
+  change and head `840de91`; adopt them rather than create another change or
+  repeat Pass B. No `returned_from` finding accompanies this specify visit.
+  The predecessor run `judge-branch-integration-226-res-1c9c143f` exhausted its
+  provider allowance; that is not evidence against its committed repairs.
+  The source and commit history establish these dispositions:
+
+  1. **Coverage remains unresolved.** The inherited gate summary in
+     `target/coverage/coverage-summary.json` reads **30,014/30,014 lines,
+     5,036/5,036 branches and 2,860/2,861 logical functions** (covered/total).
+     The commission and `840de91` report zero `FNDA` counts for
+     `owned_dsh_root` and its three closures under both crate hashes, despite
+     the unreadable-sequence test's runtime mutation failure and its execution
+     under the gate's test selection. This is inherited evidence, not this
+     seat's before measurement or proof of either proposed cause. Neither
+     attribution outside the gate's collapse nor a stale/different report is
+     selected by assumption. The implementing seat must connect the exact
+     source revision, pinned compiler, executed test binaries, profiles and
+     JSON/LCOV outputs from one gate invocation, inspect the corresponding
+     function instances and counts, and show which explanation the evidence
+     supports before changing the responsible reporting or instrumentation
+     path. Preserve the guard and test, nonzero integer equality and the
+     production denominator; deleting either, adding configuration exclusions,
+     touching `coverage(off)`, or manufacturing hits from the test assertion
+     is rejected. A gate/tooling repair is not a new product capability.
+  2. **Cold DSH telemetry is adopted, with its control still required as
+     evidence.** `840de91` represents the retained historical boundary as
+     optional: fresh launches have none, while a rejoin uses its stored last
+     sequence. The inherited test
+     `a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundary`
+     observes both the fold and retained-file drain. LE4 now explicitly covers
+     sequence zero on the cold route and the distinct stored-zero warm case.
+     Recover the predecessor's compiling, runtime-failing control or reproduce
+     the old zero-boundary drop against that test, then restore and pass it;
+     mere test presence does not discharge the commission's control. This
+     closes a shipped cold-route regression without undertaking Pass D's
+     remaining stream accounting or deduplication work. The plugin's inclusive
+     first-current-sequence convention is unchanged: the Rust retained-file
+     boundary is the last historical sequence, a different coordinate.
+  3. **The refusal must name the closed gate.** Adopt `840de91`'s Codex
+     gate-before-ID/sandbox/compatible-argv ordering and its existing test
+     `a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks`.
+     LE2 explicitly requires `unsupported-resume` for an offered, unmeasured
+     shape even when no sandbox class was declared; a boundary/hands mismatch
+     names `restrictions-unavailable`. No offer still means no refusal.
+     AS3's outright selector refusal precedes any safe cold launch, including
+     under a closed gate. Accepting a selector to obtain a more specific
+     journal token is rejected because no provider invocation is authorized
+     by such arguments.
+  4. **Codex cold selector protection is adopted.** `codex_cold` remains an
+     argv builder, but every invocation reaches `codex_launch`'s selector
+     refusal first. Its inherited cold-path test exercises the planner and
+     adapter invocation. AS3 explicitly refuses a bundle-authored
+     `resume <id>` in driver passthrough even without an engine offer and
+     while the shape is unmeasured, with no provider work or leaked handle.
+     Operator-trusted bundles do not justify a Codex exception to engine-owned
+     session selection. Rewriting the settled builder or broadening the
+     provider grammar without a demonstrated defect is unnecessary.
+  5. **Never publish the adapted package.** Read and adopt
+     `extensions/dsh/PROVENANCE.md`, already amended by `840de91`: its
+     never-publish rule is outside every hashed runtime set. The six adapted
+     files keep their proved bytes, including the upstream manifest without
+     `private: true`. Changing that manifest to add the field is rejected
+     because AS1's qualified adaptation permits exactly one accessor-expression
+     delta and the manifest change would invalidate its digest proof. AS1's
+     scenario records the documentation rule; upstream metadata is provenance,
+     not this repository's registry identity. No npm availability probe or
+     publication is needed to enforce never-publish.
+
+  The settled `38ed542` confirmed-root selection and ownership repair, its
+  production-shaped launch/telemetry tests and all other committed fixes are
+  adopted without reopening the first review. The second review's no-security-
+  weakening conclusion is inherited review evidence, not a verdict from this
+  office. SR2/SR3 already describe that ownership behavior and need no new
+  mechanism. Proposed decision 0056 stays proposed; only the operator accepts
+  it. Existing design D5/D6/D8 and task obligations remain applicable to the
+  clarified edge cases; no earlier specification fault requires an upstream
+  return and no implementation completion is inferred from these scenarios.
+
+  **Proof and measurement boundary.** Before and after the remaining repair,
+  report the gate's own covered/total integers for all three axes, its exit
+  status and the revision and report identities; estimates and saved reports
+  presented as fresh runs are rejected. Use a writable disk-backed `TMPDIR`
+  outside the repository, never the host's filling `/tmp` tmpfs or an in-repo
+  directory that changes ledger-test inputs. Prefix Git, including test child
+  Git, with `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` for #282. Every new
+  regression test needs a compiling mutation of the behavior it claims, an
+  observed runtime failure, exact restoration and a passing rerun; a compiler
+  error is not the control. Retain the unreadable-sequence test's inherited
+  control and identify its provenance. Run format, clippy across all targets
+  and features, the affected crate suites, workspace tests, both bundle
+  compiles and strict OpenSpec validation. Report in-box coverage honestly:
+  #286's skipped namespace boundary tests prevent equality here, so final
+  host measurement remains the controller's to take, pending its actual
+  result. This does not lower the gate or count a skip as coverage.
+
+  **Scope refusals.** The same Codex work-seat retries that accepted decision
+  0030 rejoins on main run cold on this head with
+  `resume_refusal=unsupported-resume`: `adapters/codex.json` is unmeasured,
+  its recorded measurement is 0.148.0 and its recorded installed target is
+  0.153.4. Proposed 0056 ruling 5 grants no new-version enablement from old
+  evidence. Task 11.1 already records this changed behavior. The operator must
+  rule on that interval before merge; this slice neither changes the code or
+  declaration for it nor claims the ruling. No task advances, including 8.8,
+  8.10, 9.6 or any 11.x; Passes C/D, archive and re-folding the withdrawn
+  living specs are excluded. Keep frozen contracts, policy, schemas, reference
+  and fixtures intact. Only proposal and capability deltas belong to this
+  specify commit; design and task offices retain their artifacts. Remote CI,
+  publication, integration and closure remain controller/operator handoffs.
+
+  The commission's staffing replaces earlier historical statements: Codex
+  `gpt-6-astra` at `xhigh` holds triage, clarify, chief architect, analyze and
+  review chief; stable `deepseek-v4-flash` holds implement, task planning and
+  every design/review position. No Claude seat or experimental alias is
+  commissioned. Positions state findings and evidence, never a gate's verdict
+  or destination. This specify seat starts no other seat or Brokkr run, and
+  makes no provider configuration change. It uses its declared
+  `drafted`/`upstream` result vocabulary; the implementation's capacity return
+  remains `oversized`, never a fabricated `broken` result.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -2176,3 +2317,47 @@ and coverage still consume `rust-nightly-version.txt`. Native Windows/macOS
 CI and other remote results remain pending. No workflow runner, provider probe,
 archive, task tick, push, merge or new Brokkr run was performed. This is a
 specification draft, with R2–R4 implementation and Pass B completion unclaimed.
+
+
+## Specify validation — remediation slice, 2026-09-15
+
+Run `remediation-slice-branch-integra-1d3bbafc` adopts `840de91`, then amends
+this proposal before the capability deltas. The dialect's own specify/return
+files and rendered `openspec instructions proposal` and `instructions specs`
+were read through workspace hands; no workflow runner was invoked. Answer V
+records all five commissioned items and the reasoned scope refusals. Five
+scenarios clarify AS1/AS3 and LE2/LE4; the existing requirement identifiers
+remain **20 requirements / 155 scenarios** across the same five capabilities.
+The other three deltas, design, proposed 0056 and all 101 task identifiers and
+ticks retain the adopted bytes: **82 complete / 19 pending**. Only this
+proposal and the two amended deltas belong to the specification commit.
+
+Strict validation of the active change passes. Repository-wide
+`openspec validate --all --strict --no-interactive` reports **14 passed,
+0 failed**; status reports the planning artifacts complete, which says nothing
+about implementation or task completion. The validator still reports its
+inherited informational archive refusals for the absent living
+`adapter-resume-safety` and `sdd-progress-markers` targets. Re-folding those
+withdrawn specs or changing their delta operations to force an archive is
+outside this remediation commission; the change stays open. Whitespace and
+exact tracked-scope checks pass, with production, declarations, provenance
+bytes, frozen trees and the living specs unchanged.
+
+The requested format, all-target/all-feature clippy, protocol/runtime suites,
+`cargo test --workspace`, all-feature locked workspace tests and both bundle
+compile commands were attempted with `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`
+and #282's Git-environment workaround. Each is unavailable (exit 127: Cargo
+is absent from this seat's PATH). No Rust gate is claimed passing on this
+visit. The exact-coverage gate could not launch for the same reason; its
+inherited report was left intact and supplies no fresh before/after or in-box
+measurement. The saved summary's 30,014/30,014 lines, 5,036/5,036 branches and
+2,860/2,861 functions remain inherited evidence only. No new Rust test or
+mutation run was authored or claimed in this specification phase. The
+remaining implementation must supply V's executable controls and gate evidence;
+#286's final host measurement is the controller's to take.
+
+Validation output and the artifact audit are retained in
+`.forge/specify-remediation-1d3bbafc/`. This is a committed specification draft,
+not a completed remediation, passed #226 plan task or merge-readiness claim.
+The operator's Codex cold-interval ruling and all remote results remain
+pending. No archive, provider activation, push, merge or additional run occurred.

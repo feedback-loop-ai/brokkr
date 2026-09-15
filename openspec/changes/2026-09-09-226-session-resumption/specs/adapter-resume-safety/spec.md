@@ -71,6 +71,13 @@ installed into a DSH profile SHALL match them. It is extension-boundary source
 this repository owns and pins, which Brokkr SHALL NOT build, install, load or
 execute outside DSH's plugin loader.
 
+The adapted package SHALL never be published to a registry from its provenance
+directory. The sibling provenance note SHALL state that prohibition and
+identify the retained upstream manifest fields as provenance, not a grant to
+publish under that identity. Adding `private: true` to the pinned manifest is
+rejected for this adaptation because it would introduce a second byte delta
+and invalidate the qualified file-set proof; the rule belongs outside that set.
+
 No older core SHALL be selected to avoid adapting to the latest one. Evidence
 measured on another core, including the superseded 0.1.0-rc.6 pin, SHALL NOT
 transfer, and a different resolved core, plugin revision or adaptation digest
@@ -272,6 +279,12 @@ read as history, not as a current claim.
 - **AND** no Node or TypeScript toolchain runs for it or joins the composite identity, and upstream's typecheck and test scripts are not gates
 - **AND** any second difference in the file set, including in the manifest, means the bytes are not the qualified adaptation
 
+#### Scenario: The adapted package retains upstream publication metadata
+- **GIVEN** the pinned six-file adaptation retains the upstream package name, version, author and repository and its manifest has no `private: true`
+- **WHEN** the adaptation's provenance and deployment instructions are reviewed
+- **THEN** the sibling provenance note explicitly prohibits publishing this directory to npm or any registry and distinguishes operator deployment into a DSH profile from publication
+- **AND** the six pinned files retain their qualified bytes; changing the manifest to encode that prohibition is refused because it invalidates the digest proof
+
 #### Scenario: An enabled DSH shape at ordinary run time
 - **GIVEN** the DSH `headless-work` shape is enabled on the qualified composite
 - **WHEN** an eligible DSH site launches through `BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on PATH, with its DSH home resolved from `$DSH_HOME` or `$HOME/.dsh`
@@ -434,8 +447,11 @@ arbitrary passthrough by their authorized shape. A measured safe generated
 hands fragment SHALL be supported as such; a broad ban that makes every boxed
 site cold is not an implementation of that supported shape. Cold fallback
 SHALL NOT pass through an ambient resume selector and silently rejoin a
-different session. No argument or rejected private value SHALL be copied into
-launch evidence (decision 0034).
+different session. Codex SHALL refuse bundle-authored `resume` selectors in
+driver passthrough before any provider work, including on an initial cold
+launch and when the shape is unmeasured. The selector SHALL neither be
+forwarded nor silently removed to make the invocation acceptable. No argument
+or rejected private value SHALL be copied into launch evidence (decision 0034).
 
 Claude's optional-value `-r/--resume` SHALL always receive the complete validated
 owned root ID when selected by the adapter. Bare/empty resume, interactive
@@ -585,6 +601,12 @@ invocation exactly as an enabled shape does.
 #### Scenario: Codex unsafe passthrough remains blocked
 - **WHEN** passthrough contains an alternate selector, extra positional handle, sandbox bypass or conflicting configuration
 - **THEN** the resume is not invoked and the refusal remains bounded; 0030's allow-list protections are preserved
+
+#### Scenario: A bundle supplies a Codex resume selector on a cold launch
+- **GIVEN** driver passthrough after the adapter's `--` contains `resume <id>`, with or without an engine offer, including when the shape is unmeasured
+- **WHEN** the Codex adapter prepares the invocation
+- **THEN** it refuses before any provider work instead of forwarding or silently dropping the selector, and its bounded diagnostic names the selector without echoing the handle
+- **AND** a cold invocation without that selector retains its existing cold arguments and, absent an offer, has no resume-refusal reason
 
 #### Scenario: Generated Codex hands are measured explicitly
 - **WHEN** the current boxed Codex invocation contains engine-composed MCP configuration alongside its sandbox class

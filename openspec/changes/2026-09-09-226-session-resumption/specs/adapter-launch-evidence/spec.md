@@ -83,6 +83,14 @@ old one, with matching embedding, version dispatch, compatibility and
 append/export/verify tests. A semantic mismatch SHALL NOT be hidden by mapping
 everything to a convenient existing refusal token (decision 0034).
 
+For v5 evidence of a declined offer, a closed execution-shape gate SHALL name
+its own refusal cause ahead of offer-ID, sandbox-class and resume-compatible
+argument checks. An unmeasured shape SHALL report `unsupported-resume`; an
+inapplicable boundary or hands mode SHALL report `restrictions-unavailable`.
+This precedence applies when a safe cold invocation is allowed: AS3's outright
+selector refusal still prevents provider work. With no offer, LE1's cold path
+SHALL continue to report no resume refusal.
+
 If creation intent is persisted before provider confirmation, its representation
 SHALL be distinguished from confirmed session facts in an admitted record
 version. It SHALL NOT add a private field to frozen payloads or place an
@@ -93,6 +101,12 @@ distinction. Assignment does not relax identifier bounds or privacy rules.
 #### Scenario: A bounded reason explains a safe decline
 - **WHEN** an invalid handle, unavailable restriction, unsupported class, incompatible argument shape or measured harness rejection causes a cold launch
 - **THEN** the record uses the corresponding truthful admitted token and the human explanation is in the reviewed adapter evidence
+
+#### Scenario: The closed shape gate is the cause of a Codex decline
+- **GIVEN** an owned offer, no bundle-authored session selector, and a Codex invocation whose shape is unmeasured and whose arguments declare no sandbox class
+- **WHEN** the adapter declines the offer and takes its safe cold path
+- **THEN** the accepted launch reports cold with `resume_refusal: unsupported-resume`, without a version probe; it does not substitute `sandbox-unavailable` for the gate's cause
+- **AND** a gate closed by an inapplicable boundary or hands mode instead reports `restrictions-unavailable`, ahead of the same local checks
 
 #### Scenario: Claude permission names are not Codex classes
 - **WHEN** the adapter re-imposes a Claude permission mode
@@ -183,6 +197,26 @@ double-count. Inclusive input, cache-read subsets, cache writes, completion
 deduplication and LaneTally's capture identity SHALL retain their established
 meaning. This obligation concerns invocation evidence, not #222's transcript
 reading or CLI/TUI derivation (decisions 0031, 0034 and 0035).
+
+A cold DSH invocation has no retained historical boundary and SHALL include
+its first attributable event even when its sequence is zero. When a rejoin's
+boundary is the last stored historical sequence, numbered events at or below
+that boundary SHALL remain history and only later numbered events SHALL
+contribute as current work. Absence of a boundary SHALL NOT be represented by
+a stored sequence of zero. This leaves the plugin's inclusive first-current-
+sequence interval unchanged; it does not equate that interval's start with the
+retained file's last historical sequence.
+
+#### Scenario: A cold DSH transcript begins at sequence zero
+- **GIVEN** a fresh DSH invocation whose retained transcript contains an assistant event at sequence 0 followed by one at sequence 1, with attributable usage
+- **WHEN** the cold route folds that transcript for seat telemetry
+- **THEN** both events contribute once to the invocation's turns and attributable usage; a synthetic historical boundary of zero cannot discard the first event
+
+#### Scenario: A rejoin has a stored historical boundary of zero
+- **GIVEN** a rejoined DSH root whose last stored historical sequence is 0 and whose next attributable assistant event has sequence 1
+- **WHEN** the resumed route folds the retained transcript
+- **THEN** sequence 0 contributes no new activity or billed usage and sequence 1 contributes once
+- **AND** this stored-zero boundary remains distinct from the absence of history on a cold launch
 
 #### Scenario: A resumed stream replays old turns
 - **GIVEN** a session has ten historical turns
