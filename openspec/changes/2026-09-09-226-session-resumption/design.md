@@ -2696,6 +2696,39 @@ runtime success claim. The task and implementation offices own the remaining
 edits and measured controls; exact-head remote CI, integration and closure stay
 pending their actual external results.
 
+#### Analyze-F2 council reconciliation — 2026-09-15, adopted `26f665e`
+
+Read both complete positions for run `operator-ruling-slice-branch-int-bf5f6a32`:
+robustness SHA-256 `fd34a2a8dc56771c65c81844b9512236450119bd2320fbf89b46aae93b21ce69`
+and simplicity SHA-256
+`f9c70571633a66ca3249e356ba059e34eecb44da021939fc306ba9be41cb3a59`.
+Copies are retained under `.forge/design/operator-ruling-f2-bf5f6a32/` because
+the positions' shared paths are reused on returns.
+
+**F2 is owned by D11.** Correct its current inventory using the five delta
+heading counts, replacing the stale derivation as well as the total. Combine
+simplicity's bounded correction with robustness Q3's per-capability sum.
+The prior 150 omitted five remediation and three ruling scenarios; no scenario
+is missing from the deltas. Reject a new requirement, scenario, test suite or
+traceability redesign for a stale inventory. Keep dated 139/150/155 validation
+accounts as history. Proposal, deltas and tasks already agree on 158 and need
+no amendment. F1's composition decision remains settled; no upstream defect
+is established by this return.
+
+The council's remaining claims and questions are resolved as follows. These
+retain D10's existing implementation obligations; none completes a task.
+
+| Claim / question | Disposition and evidence |
+|---|---|
+| Both: preserve only the shipping Codex harness work rejoin, through declaration data. | Adopt. The operator's “keep decision 0030's rejoin live, do not regress codex” retains D10's `supported`, `harness`/`none`, historical 0.148.0 and applicability 0.153.4. `qualify` still requires observed identity to equal applicability and any recorded origin. Keep the four evidence references, ownership, restrictions and exact-root checks. Reject new hands grammar, statuses, maps, loader equality or a gate/provider bypass. Boxed MCP argv already fails main's allow-list. |
+| Both: classify all four providers explicitly and preserve qualification debt. | Adopt D10's declaration/decision/guide edits and measured digest re-pins. Claude, DSH and LaneTally remain unmeasured with reason-only explanations. Accounting-reference presence is what the gate checks; completeness remains AS1/D8's evidence obligation. The bounded Codex reference is authorized preservation, never permission to enable another shape from partial evidence. Proposed 0056 and unchecked 11.1 keep that distinction. |
+| Robustness Q4: absent hands cannot by itself distinguish work from gates or a site without hands. | Adopt the work/gate distinction, with a correction from `engine.rs::mark_hands`: a site without configured hands receives **neither** field, so its boundary defaults to `not applicable` and is refused by the narrowed declaration. A harness gate with hands does carry `boundary: harness`; SR1's engine eligibility must withhold its offer. The existing boundary test covers absent fields and existing gate tests cover no offer. Keep those beside the full shipped composition scenario; do not fabricate a boxed marker or infer eligibility from `hands: none`. |
+| Robustness Q1: exclude unsequenced warm rows unless all shipped rows are proven sequenced; simplicity: retain the existing fold. | Retain the existing fold for this bounded low-1 correction. `fold_dsh_event` and its test explicitly fold no-sequence rows on both routes; the defect being repaired is a numbered cold event at zero. No enabled shipped DSH warm route exists, and this visit establishes no universal sequence-presence measurement. Therefore reject both claiming that invariant is measured and changing warm accounting semantics here. AS1/D8 still require attributable current-only accounting before DSH enablement; 9.6/10.7/11.3 remain owed. The task return already requires folded counts before plan-field assertions for qualified and shipped-disabled cold routes and warm stored-zero. |
+| Both: low 2 keeps gate decline ahead of local ID/sandbox/argv checks and probing. | Adopt with the existing selector guard first. Retain the ordered mutation control, enabled no-offer identity probe and no-offer/no-refusal behavior; neither a cold argv assertion alone nor the position's passing unmutated test proves the journal cause. |
+| Robustness: low 3 needs replacement-path behavior as well as its call-site invariant; simplicity: keep one guard. | Combine without a duplicate test or guard. `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled` already drives `invoke` through two children and asserts that the second argv has no `resume`, retains the class and reports one cold replacement. Pair that existing behavior with the selector-refusal test/control and the planned immutable-`extra` call-site comment. A forbidden selector is rejected before that replacement can be reached; a test that expects it to reach replacement would contradict the rule. |
+| Robustness Q2: all six digests plus five-upstream equality; simplicity: full-map extension is optional. | Retain the already-required full adapted-map assertion and reversed-index proof; reject dropping it because the present test checks only filenames and the reversed index. The five other expected adapted digests equal their upstream digests in PROVENANCE, verified directly on this visit. A second assertion of those same five constants adds no independent byte protection, so reject that duplication. Retain the isolated-copy manifest mutation control and the never-publish prose; neither digest assertion prevents publication or a coordinated co-edit of bytes and expected values. No plugin file changes. |
+| Both: retain all scope and validation limits. | Adopt. No task tick, provider probe, C/D, archive, living-spec fold, frozen-byte edit, production coverage exclusion or gate change. Simplicity's reported passing suites belong to its seat; this chief's Cargo availability and checks are recorded separately below. The ordered runtime controls and fresh gate measurements remain implementation work. |
+
 ### D11 — Verify transitions and trace every requirement
 
 For the current ruling slice, D10's engine-composition bridge, shipped driver
@@ -2712,10 +2745,12 @@ not discharge whole-change enablement, C/D or archived provenance acceptance.
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 150 scenarios (AS1 gained
-14 DSH scenarios from answers M–O and two for the September 12 design answers;
-AS3 gained nine route-overlay scenarios from answers Q–S); the 101
-surviving task IDs keep their coverage and evidence dependencies. A parameterized
+The current five deltas contain 20 requirements and 158 scenarios:
+`adapter-launch-evidence` 31 + `adapter-resume-safety` 63 + `boundary-record` 11 +
+`sdd-progress-markers` 20 + `site-session-resumption` 33 = 158. This includes
+the five remediation scenarios and three operator-ruling scenarios omitted
+from the former 150-scenario inventory (returned analyze F2, 2026-09-15).
+The 101 surviving task IDs keep their coverage and evidence dependencies. A parameterized
 test may cover several scenarios only when it exercises their independent
 outcomes. The topology, ownership, wire, record, provider and recovery axes in
 both positions are acceptance dimensions, not a demand for a new test function
@@ -3188,10 +3223,11 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No current design choice is deferred. D10's F1 return answers the fresh
-positions and all four robustness questions: harness/none scope, a production
-composition bridge for argv and input, bounded dated accounting wording, and
-closing the six-digest comparison in the existing suite. The operator has closed the
+No current design choice is deferred. D10's F1 return settles harness/none
+scope, the production composition bridge, bounded accounting wording and the
+six-digest comparison. Its F2 council reconciliation answers the latest four
+robustness questions and both positions without changing that implementation
+plan; D11 now carries the current derived scenario inventory. The operator has closed the
 Codex cold interval; pending new measurements are evidence obligations, not a
 request to decide the same ruling again. The installed-version enforcement gap
 remains explicit, and no assertion of support for another provider follows.
@@ -4094,3 +4130,47 @@ exact attempted commands/results are under
 `.forge/design/operator-ruling-f1-bf5f6a32/`. Commit only these two revised
 artifacts unsigned; keep all enablement tasks unchecked and the change open.
 No provider probe, workflow runner, new Brokkr run or remote action occurred.
+
+
+## Council design return validation — analyze F2, 2026-09-15
+
+Adopted `26f665e` under `2026-09-09-226-session-resumption`. Read the dialect's
+own design/return instructions and rendered design instructions through
+workspace hands; invoked no workflow runner. Read both complete current
+positions, relevant artifacts, decisions and source/history. D10 reconciles
+the council explicitly; D11 replaces the defective current count and its stale
+derivation. The inventory audit detected 150 versus 158 before the edit and
+agrees at 158 afterward. This documentation correction adds no runtime test or
+semantic change; implementation and its prescribed mutation controls remain owed.
+
+Strict active OpenSpec validation passes; repository-wide strict validation
+reports **14 passed, 0 failed**. Status records planning artifacts present,
+not implementation completion. Existing archive-target notices remain outside
+this open, no-refold slice. The five unchanged deltas contain **20 requirements /
+158 scenarios**; all **101 task IDs (82 checked / 19 pending)** retain their
+states. Whitespace and tracked-file audits pass: only `design.md` changes and
+the other **727 tracked files** retain their entry hashes. The six adapted
+plugin digests, the five equal upstream digests and the reversed upstream index
+digest reproduce PROVENANCE in a read-only check. No plugin byte changed.
+
+All **10 attempted Rust commands exited 127** because Cargo is absent from
+this chief seat: format, locked all-target/all-feature clippy, protocol/runtime
+suites, driver conformance, both workspace test modes, both bundle compiles
+and release build. Commands inherit #282's Git-environment correction and
+`CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. Simplicity's successful tests are its
+position's observations, not fresh results from this chief. No Rust mutation
+ran and no Rust gate passed here.
+
+The exact gate was not launched without its compiler. There are **no fresh
+before/after or in-box coverage numbers** from this return. Saved reports retain
+their hashes and the inherited gate summary remains **30,015/30,015 lines,
+5,036/5,036 branches, 2,861/2,861 functions**. Those figures are prior evidence,
+not this draft's measurement. CI, release admission and local coverage still
+consume the unchanged `nightly-2026-09-05` pin. Implementation owes fresh
+measurements with disk-backed temporary storage outside the repository; #286's
+host equality and final-head remote results remain pending with the controller.
+
+Evidence is under `.forge/design/operator-ruling-f2-bf5f6a32/`. This unsigned
+checkpoint commits only the design artifact. No task completion, runtime repair,
+provider qualification, archive, living-spec fold, push, merge, publication or
+additional Brokkr run is claimed.
