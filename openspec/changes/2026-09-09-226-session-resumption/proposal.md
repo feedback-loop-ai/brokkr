@@ -1,5 +1,18 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify return adopts `2026-09-09-226-session-resumption` at observed
+checkout HEAD `bcefcf68d657fe036aef209905ecd0af641b144a` on
+`integration/226-resume-prepared`, for run
+`the-whole-family-branch-integrat-0a5cdb4f`. The commissioned baseline remains
+`5ee48aaabc4642c3f7aebfb8c1de89ad799b0765`. The triage return in
+`.forge/tasks/whole-family-triage.md` distinguishes those revisions and
+classifies F1/F2/F3 without certifying the intervening implementation.
+Answer Z records that return and the reasons for these narrow clarifications.
+The existing five deltas, D10 reconciliation and task order are adopted;
+this checkpoint establishes neither runtime closure nor new coverage results.
+
+Earlier whole-family specify adoption at `c2ed4f8`, retained as history:
+
 The current specify visit, run `the-whole-family-branch-integrat-0a5cdb4f`,
 adopts this change at `5ee48aaabc4642c3f7aebfb8c1de89ad799b0765` on
 `integration/226-resume-prepared`. The operator reverted `5ca534b` after
@@ -1691,6 +1704,60 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   CI, publication, integration and closure stay pending. This sole specify
   seat launches no other seat, runner, provider probe or Brokkr run.
 
+- **Z — Triage return at observed `bcefcf6`, 2026-09-16: adopt the existing
+  contract and distinguish the evidence revisions.** The supplied
+  `returned_from` is triage's `engine` result. Adopt its framing in
+  `.forge/tasks/whole-family-triage.md`: F1 is indivisible execution-site facts
+  plus independent refusal of unknown confinement; F2 is global ownership
+  including wrapper-created and factless sites; F3 is portable test launch.
+  These are already governed by Y, AS1/AS2, SR1/SR2 and LE2/LE5. There is no
+  new operation, capability, council design or task plan to author.
+
+  **Answer the revision finding.** The commissioned baseline is `5ee48aa`,
+  but the clean checkout inspected by this seat is `bcefcf6`, after `c2ed4f8`
+  (specification), `e77c205` (design), `b1916a7` (tasks) and `bcefcf6`
+  (implementation). Adopt those existing artifacts without resetting the
+  branch or treating their presence as proof of completion. Earlier entries
+  saying “current tree” or “no returned_from” describe their own checkpoints;
+  this return and its validation record describe the observed checkout.
+  The supplied equality counts belong to the commissioned baseline, not to
+  the later HEAD by inheritance.
+
+  **Failure understood without reusing the reverted patch.** At `5ee48aa`,
+  the wrapper moves phase-level hands and agent/driver records separately,
+  the engine leaves an absent hands lookup unmarked, and the adapter defaults
+  missing markers to `not applicable` / `none`. The commission explains how
+  moving only assessments/pins exploited that combination for panel members,
+  and how stale sibling hands caused the opposite refusal. At `bcefcf6`,
+  source contains a `SiteFacts` value, explicit unknown/no-hands states and
+  an adapter missing-marker refusal, plus a final global ownership walk.
+  Those observations neither prove all six decisions nor establish that
+  relocation and collision timing satisfy D10. The reverted `5ca534b` was
+  not read, restored or adapted; implementation/proof findings stay with
+  their owning delivery work rather than weakening the existing contract.
+
+  **Clarifications, not a replacement plan.** AS1's existing mismatched-
+  evidence scenario now explicitly covers an unregistered or unresolved
+  executing owner even when an enclosing or sibling input supplied earlier
+  markers. Only positively resolved no-hands state can supply permission.
+  SR1's existing alias scenario explicitly retains refusal independent of
+  declaration order, including raw collisions a wrapper would later separate.
+  Both answers already follow D10 and its task order; no requirement/scenario
+  heading or task state changes. LE5 already requires actual engine/adapter
+  decisions, exact-root exchange, per-test removal proofs, revision-labelled
+  coverage and target-platform launch evidence, so it is adopted unchanged.
+
+  **Reasoned refusals and scope.** Reject resetting to the named baseline,
+  declaring the later implementation verified from source alone, accepting a
+  late refusal as proof that earlier ownership checks exist, or marking a
+  supported shape cold merely to satisfy safety. None answers the commission.
+  Preserve proposed 0056 and the reconciled design/tasks; no fault in the
+  triage framing requires an upstream return. Passes C/D, excluded task ticks,
+  frozen bytes, living-spec folding, archive, remote operations and provider
+  qualification remain outside this specification checkpoint. Rust checks,
+  removal experiments and exact coverage require actual execution evidence;
+  unavailable tools do not turn the supplied baseline into a new pass.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -2778,3 +2845,34 @@ specify seat. Implementation must meet the clarified behavioral/removal
 proofs and Rust gates, including the minimal proposed-0056 clarification.
 No task tick, archive, living-spec fold, provider qualification, push, merge,
 publication or new run occurred.
+
+## Specify return validation — observed `bcefcf6`, 2026-09-16
+
+This return read the dialect's own specify/return instructions and rendered
+proposal/specs instructions through workspace hands, adopted the proposal
+first, then clarified the two owning deltas. Strict active-change, all-item
+and archived validation pass: **14 active items / 0 failures**, **6 archived
+changes / 0 failures**. OpenSpec status and whitespace checks pass. The
+informational archive refusals for withdrawn living targets remain unchanged;
+archive and re-folding are outside this commission.
+
+The five deltas retain **20 requirements / 159 scenarios**, with all headings
+and all **101 task markers** unchanged. Only this proposal, adapter-resume-safety
+and site-session-resumption are amended. The other three deltas, design/tasks,
+proposed 0056, production/tests and frozen surfaces retain their adopted bytes.
+No Rust regression test or removal experiment was authored by this specify seat.
+
+Fresh format, all-target/all-feature locked clippy, both workspace test modes,
+both bundle compiles and release build could not launch: **Cargo is absent
+(ENOENT)**. The pinned coverage-tool probe also could not launch. The exact
+coverage gate was not run; fresh before, after and in-box counts are
+**unmeasured**. The operator-supplied **30,036/30,036 lines, 5,038/5,038 branches,
+2,863/2,863 functions** describe the commissioned baseline only. No invalid
+temporary directory was substituted. Host equality under #286 and final-head
+Windows/macOS/other remote results remain controller handoffs.
+
+Fresh command logs, the coverage status and the artifact audit are under
+`.forge/specify-af8ce2de/`. Commands inherit #282's Git-environment correction.
+This is an unsigned specification checkpoint, not F1/F2/F3 delivery closure or
+a passing Rust/coverage gate. The result reports the adopted change identifier;
+no next phase is selected. No task tick, archive, push, merge or new run occurs.

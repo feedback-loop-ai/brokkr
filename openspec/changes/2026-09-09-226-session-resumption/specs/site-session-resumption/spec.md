@@ -81,6 +81,7 @@ admission, immutability and existing park/fallback rules SHALL remain in force.
 | Wrapped member and literal phase | A verify panel member executing at `verify:checks:alpha` and a distinct literal phase with that address, including an owner without resume evidence. |
 | Injected validator and literal Codex phase | The deterministic validator at `verify:dialect-verify` and a no-hands Codex phase literally named `verify:dialect-verify`; the validator's hands and driver evidence cannot belong to that Codex site. |
 
+- **AND** reversing declaration order does not change collision refusal; a raw ownership collision is refused before evidence collection even if wrapping would later separate its addresses, and wrapper-created ownership is checked when those executing addresses are claimed
 - **AND** renaming only the conflicting outer phase in each construction permits compilation and the supported Codex site's confirmed retry reaches `launch: resumed` through the production gate with its own restrictions and declaration identity
 - **AND** the validator and every gate-class site still receive no offer; ownership reservation grants no resume capability
 - **AND** members `x` and `checks:x` are not themselves a collision: their complete families move to distinct executing addresses together, with the no-hands site's live retry and the hands-bearing site's refusal proved under AS1

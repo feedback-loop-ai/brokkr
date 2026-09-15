@@ -212,10 +212,14 @@ when recorded, the originating root's identity. Missing or unreadable required
 identity and evidence, a mismatch in those identities, inapplicable boundary or
 hands, and absent or inapplicable current-accounting evidence SHALL still refuse
 rejoin. The engine SHALL supply affirmative boundary and hands facts for the
-actual executing site, including explicit `not applicable` / `none` when that
-site has no Brokkr hands. Independently of compilation or relocation, the
-adapter SHALL treat a missing, null or unreadable boundary or hands marker as
-unknown confinement, never as those affirmative values. With otherwise
+actual executing site, including explicit `not applicable` / `none` only
+when that owner's declaration has been resolved and establishes no Brokkr
+hands. An unregistered owner or unresolved hands state SHALL remain unknown;
+registration alone SHALL NOT establish no-hands state. Composition SHALL
+replace or clear earlier confinement markers so an enclosing or sibling input
+cannot supply this invocation's evidence. Independently of compilation or
+relocation, the adapter SHALL treat a missing, null or unreadable boundary or
+hands marker as unknown confinement, never as those affirmative values. With otherwise
 supported evidence, unknown or mismatched confinement SHALL decline as
 `restrictions-unavailable`; absent or unsupported assessment SHALL decline as
 `unsupported-resume`. Neither case SHALL enable a work-site assessment.
@@ -440,6 +444,7 @@ read as history, not as a current claim.
 - **WHEN** the observed executable identity is missing or unreadable, differs from declared applicability or the originating root's recorded identity, the invocation's boundary or hands do not match, or required current-accounting evidence is absent or inapplicable
 - **THEN** the invocation does not rejoin and any permitted safe cold launch reports the corresponding bounded refusal under LE2
 - **AND** independently testing missing boundary alone, missing hands alone, both missing, null markers and markers outside the admitted vocabulary against an otherwise supported assessment always declines as `restrictions-unavailable`, before any resume launch; the adapter never interprets missing evidence as `not applicable` / `none`
+- **AND** an unregistered executing owner or unresolved hands state remains unknown even when an enclosing or sibling input previously carried affirmative markers; production composition clears or replaces those facts and the otherwise supported assessment declines `restrictions-unavailable`, while a positively resolved no-hands control retains its live rejoin
 - **AND** an absent or unsupported assessment still declines `unsupported-resume`; an assessment alone or a sibling's evidence never establishes the executing site's confinement
 - **AND** a different site, instance or unverifiable local origin supplies no offer under SR2; a provider that fails to confirm the exact offered root never yields `launch: resumed`
 
