@@ -2221,7 +2221,7 @@ fn an_inline_codex_work_seat_carries_the_shipped_assessment_into_its_start() {
     );
     let mut bundle = bundle(dir.path(), seats);
     bundle.machine = implement_machine();
-    bundle.inline_resume = compiled.inline_resume;
+    super::tests::set_inline_resume(&mut bundle, &compiled.inline_resume);
     run(dir.path(), bundle);
 
     let start = route_start(dir.path(), "implement");
@@ -2344,7 +2344,7 @@ fn an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root()
         let mut built = bundle(dir, seats(dir));
         built.machine = implement_machine();
         built.manifest = source.manifest.clone();
-        built.inline_resume = source.inline_resume.clone();
+        super::tests::set_inline_resume(&mut built, &source.inline_resume);
         built
     };
     let park = |dir: &Path, built: Bundle| {

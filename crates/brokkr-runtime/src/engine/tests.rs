@@ -100,6 +100,18 @@ pub(super) fn set_site_hands(
     );
 }
 
+/// Test-only: mirror a compiled `inline_resume` projection into the
+/// canonical family table the engine actually reads.
+pub(super) fn set_inline_resume(
+    bundle: &mut Bundle,
+    resume: &std::collections::BTreeMap<String, Value>,
+) {
+    bundle.inline_resume = resume.clone();
+    for (label, value) in resume {
+        bundle.sites.entry(label.clone()).or_default().inline_resume = Some(value.clone());
+    }
+}
+
 pub(super) fn engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("work")).unwrap();
@@ -170,6 +182,92 @@ fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
         json!({"phase":"work", "case":"default"})
     );
     drop(dir);
+}
+
+#[test]
+fn a_selected_single_publishes_its_own_confinement_at_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("work");
+    std::fs::create_dir(&repo).unwrap();
+    let log = dir.path().join("start.log");
+    let script = format!(
+        "read -r hello\n\
+         printf '%s\\n' '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"cap\",\"type\":\"capabilities\",\"driver\":\"test\",\"version\":\"1\",\"supports\":[]}}'\n\
+         read -r start\n\
+         printf '%s' \"$start\" > '{log}'\n\
+         effect_id=$(printf '%s' \"$start\" | sed -n 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
+         attempt_id=$(printf '%s' \"$start\" | sed -n 's/.*\"attempt_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
+         printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"accepted\",\"type\":\"accepted\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"session_ref\":null}}\\n' \"$effect_id\" \"$attempt_id\"\n\
+         printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"result\",\"type\":\"result\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"status\":\"succeeded\",\"result\":{{\"result\":\"complete\"}},\"error\":null}}\\n' \"$effect_id\" \"$attempt_id\"\n\
+         read -r done\n",
+        log = log.display().to_string().replace('\\', "/")
+    );
+    let triage_script = r#"
+read -r hello
+printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}\n' "$effect_id" "$attempt_id"
+printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"engine"},"error":null}\n' "$effect_id" "$attempt_id"
+read -r done
+"#;
+    let mut cases = BTreeMap::new();
+    cases.insert(
+        "engine".to_string(),
+        single_body(vec!["sh".into(), "-c".into(), script]),
+    );
+    let body = SeatBody::Select {
+        cases,
+        default: Some(Box::new(single_body(vec!["missing-driver".into()]))),
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    };
+    let mut compiled = bundle(dir.path(), body);
+    compiled.machine = Machine::from_table(&json!({
+        "phases":["triage", "work", "review", "ship", "done", "stop"],
+        "initial":"triage", "terminal":["done", "stop"],
+        "rules":[
+            {"id":"TRIAGE", "from":"triage", "result":"engine", "next":"work", "reason":"route"},
+            {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
+            {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
+            {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
+        ]
+    }))
+    .unwrap();
+    compiled.seats.insert(
+        "triage".into(),
+        Seat {
+            has_gate: false,
+            results: vec!["engine".into()],
+            limits: Limits::default(),
+            inputs: Vec::new(),
+            secrets: Vec::new(),
+            body: single_body(vec!["sh".into(), "-c".into(), triage_script.into()]),
+        },
+    );
+    // The selected case's canonical facts resolve hands; the seat's PHASE
+    // label owns none, so only dispatch-time marking can publish this.
+    set_site_hands(
+        &mut compiled,
+        "work:engine",
+        brokkr_protocol::hands::HandsSpec::default(),
+    );
+
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut runtime = Engine::start(store, compiled, "selection", Some(repo)).unwrap();
+    for _ in 0..20 {
+        if log.exists() {
+            break;
+        }
+        let _ = runtime.drive_once();
+    }
+    let start: Value = serde_json::from_str(&std::fs::read_to_string(&log).unwrap()).unwrap();
+    assert_eq!(
+        start["input"]["boundary"], "namespace",
+        "the selected single publishes its own boundary: {start}"
+    );
+    assert_eq!(start["input"]["hands"], "boxed", "{start}");
 }
 
 #[test]
@@ -3254,10 +3352,7 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     use brokkr_protocol::hands::{BindMode, HandsSpec};
 
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("ship".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "ship", HandsSpec::default());
     let input = engine
         .seat_input(&state(Some("ship"), Cursor::Idle), "ship", "effect")
         .unwrap();
@@ -3292,10 +3387,7 @@ fn selected_ship_site_receives_the_runtime_journal_bind() {
     use brokkr_protocol::hands::{BindMode, HandsSpec};
 
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("ship:feature".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "ship:feature", HandsSpec::default());
 
     let hands = engine.runtime_hands("ship:feature").unwrap();
     assert_eq!(hands.binds.len(), 1);

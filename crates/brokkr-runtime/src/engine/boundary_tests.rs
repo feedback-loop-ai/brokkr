@@ -1148,10 +1148,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
 
     // A gate-class boxed single seat under `harness`: one entry.
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     assert_eq!(
         engine.boundary_entries(executable, "work", true),
         Some(json!([{"member": null, "boundary": "harness", "gate": true}]))
@@ -1168,14 +1165,13 @@ fn effect_started_carries_the_boundary_beside_provenance() {
     // read their step's class.
     engine.boundary = Boundary::Namespace;
     engine.bundle.hands.clear();
-    engine
-        .bundle
-        .hands
-        .insert("design:validate".into(), HandsSpec::default());
-    engine
-        .bundle
-        .hands
-        .insert("design:review:left".into(), HandsSpec::default());
+    engine.bundle.sites.clear();
+    super::tests::set_site_hands(&mut engine.bundle, "design:validate", HandsSpec::default());
+    super::tests::set_site_hands(
+        &mut engine.bundle,
+        "design:review:left",
+        HandsSpec::default(),
+    );
     let steps = vec![
         SequenceStep {
             name: "author".into(),
@@ -1228,10 +1224,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
         members: vec![member("a", vec!["driver".into()])],
         aggregate: Aggregate::UnanimousPass,
     };
-    engine
-        .bundle
-        .hands
-        .insert("review:a".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "review:a", HandsSpec::default());
     let (executable, _) = panel.selected(None).unwrap();
     assert_eq!(
         engine.boundary_entries(executable, "review", true),
@@ -1248,10 +1241,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
         },
     )));
     driven.boundary = Boundary::Open;
-    driven
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut driven.bundle, "work", HandsSpec::default());
     let requested = super::tests::requested(&driven, "effect");
     driven
         .execute(
@@ -1341,10 +1331,7 @@ fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
     // none is appended without the driver's, and the successful result
     // carries the word beside its model.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let command = checkpointing_command(
         "effect",
         "attempt",
@@ -1438,7 +1425,7 @@ fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
 fn site_boundary_of(spec: &HandsSpec) -> Option<()> {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     assert_eq!(engine.site_boundary("work"), None);
-    engine.bundle.hands.insert("work".into(), spec.clone());
+    super::tests::set_site_hands(&mut engine.bundle, "work", spec.clone());
     engine.boundary = Boundary::Open;
     assert_eq!(engine.site_boundary("work"), Some(Boundary::Open));
     Some(())
@@ -1452,10 +1439,7 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // aggregate carries none.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work:boxed".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work:boxed", HandsSpec::default());
     let pass = |member: &str| {
         checkpointing_command(
             "effect",
@@ -1514,10 +1498,7 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // ending result and the `sequence-step-finished` marker of the
     // first step carry each step's word.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("work:second".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work:second", HandsSpec::default());
     let step = |name: &str, results: Vec<&str>, result: &str| SequenceStep {
         name: name.into(),
         class: SeatClass::Gate,
@@ -1618,10 +1599,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
             ..Default::default()
         },
     );
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     for boundary in [Boundary::Namespace, Boundary::Seatbelt, Boundary::Container] {
         engine.boundary = boundary;
         let mut input = json!({});
@@ -1900,10 +1878,7 @@ fn a_resume_under_another_word_is_refused_naming_boundary() {
 fn a_harness_gate_on_a_last_message_door_names_its_result_path() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let codex = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
     let spawn = engine.compose(
         "attempt",
@@ -2019,10 +1994,7 @@ fn emitted_boundary_entries_validate_and_plain_started_payloads_keep_their_shape
     assert!(validator.is_valid(&json!({})));
     for word in brokkr_core::realms::BOUNDARIES {
         engine.boundary = word;
-        engine
-            .bundle
-            .hands
-            .insert("work".into(), HandsSpec::default());
+        super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
         let entries = engine.boundary_entries(executable, "work", true).unwrap();
         assert!(validator.is_valid(&json!({"boundary":entries})));
     }

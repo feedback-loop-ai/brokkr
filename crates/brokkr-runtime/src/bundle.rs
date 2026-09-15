@@ -1172,6 +1172,23 @@ impl Bundle {
             }),
         };
 
+        // The dialect's `verify` wrapper, applied only AFTER the authoring
+        // census below (design D10 F2). Wrapping renames the wrapped seat's
+        // whole subtree, so a collision it creates or disguises must be
+        // decided against every authoring owner before any fact moves.
+        let wrapped_verify = if uses_dialect {
+            dialect.and_then(|dialect| match &dialect.verify {
+                crate::dialect::CommandOrUnsupported::Command(command) => Some(command),
+                crate::dialect::CommandOrUnsupported::Unsupported(_) => None,
+            })
+        } else {
+            None
+        };
+        // The resolved agent hands the wrapped verify seat carried, kept for
+        // the synthetic validator's hands law in the wrapper pass. Only
+        // `verify` is ever wrapped, so one slot answers.
+        let mut verify_agent_hands: Option<HandsSpec> = None;
+
         let mut seats = BTreeMap::new();
         for (phase, raw) in &resolved.seats {
             // An inherited seat's `role` and `./`-prefixed argv resolve
@@ -1264,7 +1281,7 @@ impl Bundle {
                 agent_hands: agent_seat.as_ref().and_then(|seat| seat.hands.as_ref()),
                 ..law
             };
-            let mut body = if let Some(agent_seat) = &agent_seat {
+            let body = if let Some(agent_seat) = &agent_seat {
                 SeatBody::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
@@ -1321,96 +1338,12 @@ impl Bundle {
                     candidates: Vec::new(),
                 }
             };
-            if phase == "verify" && uses_dialect {
-                if let Some(command) = dialect.and_then(|dialect| match &dialect.verify {
-                    crate::dialect::CommandOrUnsupported::Command(command) => Some(command),
-                    crate::dialect::CommandOrUnsupported::Unsupported(_) => None,
-                }) {
-                    if let SeatBody::Single { candidates, .. } = &body {
-                        enforce_model_policy(
-                            phase,
-                            raw,
-                            candidates,
-                            &secrets,
-                            &mut agents,
-                            law,
-                            &mut sites,
-                        )?;
-                        record_hands(
-                            phase,
-                            raw,
-                            agent_seat.as_ref().and_then(resolved_hands),
-                            &secrets,
-                            &mut sites,
-                        )?;
-                    }
-                    let prior_body =
-                        match body {
-                            SeatBody::Single {
-                                role_path,
-                                command,
-                                candidates,
-                            } => StepBody::Single {
-                                role_path,
-                                command,
-                                candidates,
-                            },
-                            SeatBody::Panel { members, aggregate } => {
-                                StepBody::Panel { members, aggregate }
-                            }
-                            _ => return Err(CompileError::Invalid(
-                                "dialect verify currently requires a single or panel verify seat"
-                                    .into(),
-                            )),
-                        };
-                    let prior = SequenceStep {
-                        name: "checks".into(),
-                        class: if is_gate_class(raw) {
-                            SeatClass::Gate
-                        } else {
-                            SeatClass::Work
-                        },
-                        results: results.clone(),
-                        body: prior_body,
-                    };
-                    // One indivisible move (design D10 F1): every fact of
-                    // this authored site relocates to the executing
-                    // coordinate, whole `SiteFacts` values drained before
-                    // any destination is inserted so a member `x` beside
-                    // `checks:x` cannot overwrite a still-needed source.
-                    relocate_verify_facts(&mut sites, phase);
-                    let dialect_site = format!("{phase}:dialect-verify");
-                    let synthetic = dialect_gate_site(&dialect_site, boundary)?;
-                    enforce_model_policy(
-                        &dialect_site,
-                        &synthetic,
-                        &[],
-                        &secrets,
-                        &mut agents,
-                        law,
-                        &mut sites,
-                    )?;
-                    record_hands(&dialect_site, &synthetic, None, &secrets, &mut sites)?;
-                    body = SeatBody::Sequence {
-                        steps: vec![
-                            prior,
-                            SequenceStep {
-                                name: "dialect-verify".into(),
-                                class: SeatClass::Gate,
-                                results: dialect_results(phase)
-                                    .into_iter()
-                                    .map(str::to_string)
-                                    .collect(),
-                                body: StepBody::Dialect {
-                                    execution: DialectExecution {
-                                        argv: command.argv.clone(),
-                                        state: command.state.clone(),
-                                    },
-                                },
-                            },
-                        ],
-                    };
-                }
+            // The dialect wrapper is applied after this loop, once every
+            // authoring owner is registered (design D10 F2). Record the
+            // agent hands the wrapped seat resolved so the synthetic
+            // validator's hands law sees the same site it always did.
+            if phase == "verify" && wrapped_verify.is_some() {
+                verify_agent_hands = agent_seat.as_ref().and_then(resolved_hands);
             }
             // Decision 0021, at the seat's own driver-bearing site. A
             // panel or a sequence has none: its members and steps were
@@ -1435,7 +1368,11 @@ impl Bundle {
                     )?;
                 }
                 SeatBody::Select { .. } => refuse_class_without_a_driver(phase, raw)?,
-                SeatBody::Sequence { .. } if phase == "verify" && uses_dialect => {}
+                // A to-be-wrapped seat's class belongs to its members or
+                // its synthetic validator, exactly as it did when the
+                // wrapper ran inline; the wrapper pass applies the same
+                // refusal for a shape it cannot wrap.
+                _ if phase == "verify" && wrapped_verify.is_some() => {}
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
             // Decision 0006 bounds belong to the strategy seat, not the
@@ -1527,6 +1464,144 @@ impl Bundle {
                     "non-terminal phase '{phase}' has no seat (no executor can run it)"
                 )));
             }
+        }
+
+        // The authoring census (design D10 F2): every structural owner is
+        // registered, and a raw collision refused, BEFORE the wrapper
+        // changes an address or any destination fact is written. The
+        // within-body pass keeps its narrower diagnostic first, and the
+        // census then catches what wrapping would disguise or create.
+        refuse_aliasing_sites(&seats)?;
+        let census = owner_index(&seats)?;
+
+        if let Some(command) = wrapped_verify.filter(|_| seats.contains_key("verify")) {
+            // The wrapped seat's exact authoring owners — its own single
+            // label or its own panel members, never a prefix sweep that
+            // would also drag an unrelated literal phase onto a wrapper
+            // coordinate.
+            let (prior_body, moved) =
+                {
+                    let body = &seats
+                        .get("verify")
+                        .expect("the wrapper is applied only to a parsed verify seat")
+                        .body;
+                    let executable =
+                        match body.selected(None) {
+                            Some((executable, _))
+                                if !matches!(executable, ExecutableBody::Sequence { .. }) =>
+                            {
+                                executable
+                            }
+                            _ => return Err(CompileError::Invalid(
+                                "dialect verify currently requires a single or panel verify seat"
+                                    .into(),
+                            )),
+                        };
+                    let moved: Vec<(String, String, crate::engine::resume::SiteKey)> =
+                        crate::engine::resume::owner_sites(executable, "verify", None)
+                            .into_iter()
+                            .map(|(tag, owner)| {
+                                let (source, destination) = match &tag {
+                                    None => ("verify".to_string(), "verify:checks".to_string()),
+                                    Some(tag) => {
+                                        (format!("verify:{tag}"), format!("verify:checks:{tag}"))
+                                    }
+                                };
+                                (source, destination, owner)
+                            })
+                            .collect();
+                    let prior_body =
+                        match body {
+                            SeatBody::Single {
+                                role_path,
+                                command,
+                                candidates,
+                            } => StepBody::Single {
+                                role_path: role_path.clone(),
+                                command: command.clone(),
+                                candidates: candidates.clone(),
+                            },
+                            SeatBody::Panel { members, aggregate } => StepBody::Panel {
+                                members: members.clone(),
+                                aggregate: *aggregate,
+                            },
+                            _ => return Err(CompileError::Invalid(
+                                "dialect verify currently requires a single or panel verify seat"
+                                    .into(),
+                            )),
+                        };
+                    (prior_body, moved)
+                };
+            // Drain every source reservation before claiming any
+            // destination: a member `x` beside `checks:x` has the second
+            // member's source as its destination, which stays legal.
+            let mut remaining = census;
+            for (source, _, _) in &moved {
+                remaining.remove(source);
+            }
+            for (_, destination, owner) in &moved {
+                claim_address(
+                    &remaining,
+                    "verify",
+                    destination,
+                    &crate::engine::resume::describe(owner),
+                )?;
+            }
+            claim_address(
+                &remaining,
+                "verify",
+                "verify:dialect-verify",
+                "the injected dialect validator",
+            )?;
+            let dialect_site = "verify:dialect-verify";
+            let synthetic = dialect_gate_site(dialect_site, boundary)?;
+            let verify_raw = &resolved.seats["verify"];
+            let secrets = parse_secrets("verify", verify_raw)?;
+            let law = SiteLaw {
+                boundary,
+                dir: &resolved.roots[resolved.seat_origin["verify"]],
+                agent_hands: verify_agent_hands.as_ref(),
+            };
+            enforce_model_policy(
+                dialect_site,
+                &synthetic,
+                &[],
+                &secrets,
+                &mut agents,
+                law,
+                &mut sites,
+            )?;
+            record_hands(dialect_site, &synthetic, None, &secrets, &mut sites)?;
+            relocate_verify_facts(&mut sites, &moved);
+            let prior = SequenceStep {
+                name: "checks".into(),
+                class: if is_gate_class(verify_raw) {
+                    SeatClass::Gate
+                } else {
+                    SeatClass::Work
+                },
+                results: seats["verify"].results.clone(),
+                body: prior_body,
+            };
+            seats.get_mut("verify").expect("parsed above").body = SeatBody::Sequence {
+                steps: vec![
+                    prior,
+                    SequenceStep {
+                        name: "dialect-verify".into(),
+                        class: SeatClass::Gate,
+                        results: dialect_results("verify")
+                            .into_iter()
+                            .map(str::to_string)
+                            .collect(),
+                        body: StepBody::Dialect {
+                            execution: DialectExecution {
+                                argv: command.argv.clone(),
+                                state: command.state.clone(),
+                            },
+                        },
+                    },
+                ],
+            };
         }
 
         refuse_global_aliasing(&seats)?;
@@ -1649,19 +1724,23 @@ fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileEr
     Ok(())
 }
 
-/// One flattened address must name exactly one structural owner across
-/// the WHOLE compiled bundle (design D10 F2; proposal SR1). The
-/// within-body pass above cannot see a distinct phase, a literal
-/// `verify:checks` beside the wrapped `verify`, the injected validator,
-/// or a literal member-destination phase; engine `site_plans`,
+/// Every flattened address of `seats` mapped to its unique structural
+/// owner, refusing a label two different owners claim (design D10 F2;
+/// proposal SR1). The within-body pass above cannot see a distinct phase,
+/// a literal `verify:checks` beside the wrapped `verify`, the injected
+/// validator, or a literal member-destination phase; engine `site_plans`,
 /// `argv_for`, `mark_hands` and the boundary map all key on that one
 /// string, so two owners sharing it would serve each other's assessment,
 /// hands and boundary. The walk is structural: it registers factless and
-/// deterministic owners too, so an empty map can never excuse an alias.
-/// Earlier wrapper handling can transiently overwrite evidence, but the
-/// ambiguous bundle is refused here before it is published.
-fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileError> {
-    refuse_aliasing_sites(seats)?;
+/// deterministic owners, selected cases, defaults, panels and sequences,
+/// so an empty map can never excuse an alias.
+///
+/// Called twice: on the authoring bodies before the wrapper changes an
+/// address, and on the final bodies afterwards. The first call is the one
+/// that catches a collision wrapping would disguise or create.
+fn owner_index(
+    seats: &BTreeMap<String, Seat>,
+) -> Result<BTreeMap<String, crate::engine::resume::SiteKey>, CompileError> {
     let mut seen: BTreeMap<String, crate::engine::resume::SiteKey> = BTreeMap::new();
     for (phase, seat) in seats {
         // Each selectable body, with the case that selects it; selection
@@ -1688,7 +1767,7 @@ fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileE
                     Some(tag) => format!("{site_name}:{tag}"),
                 };
                 match seen.get(&label) {
-                    Some(first) => {
+                    Some(first) if *first != owner => {
                         return Err(CompileError::Invalid(format!(
                             "seat '{phase}' addresses two different sites as '{label}': {} and \
                              {}. The selection, the argv lookup, the hands map and the boundary \
@@ -1698,6 +1777,7 @@ fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileE
                             crate::engine::resume::describe(&owner)
                         )));
                     }
+                    Some(_) => {}
                     None => {
                         seen.insert(label, owner);
                     }
@@ -1705,6 +1785,17 @@ fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileE
             }
         }
     }
+    Ok(seen)
+}
+
+/// The final ownership check: every flattened address of the compiled
+/// bundle names exactly one structural owner. The wrapper pass claims the
+/// addresses it introduces against the authoring census before writing,
+/// so this second walk is an independent backstop rather than the only
+/// guard (design D10 F2).
+fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileError> {
+    refuse_aliasing_sites(seats)?;
+    owner_index(seats)?;
     Ok(())
 }
 
@@ -2817,28 +2908,50 @@ fn site_facts<'a>(sites: &'a mut BTreeMap<String, SiteFacts>, label: &str) -> &'
 }
 
 /// Relocate the whole execution-site family of a dialect-wrapped `verify`
-/// seat (design D10 F1): `verify` becomes `verify:checks` and
-/// `verify:<member>` becomes `verify:checks:<member>`. The family moves
-/// as one value; every source is drained before any destination is
-/// inserted, so a member named `x` beside one named `checks:x` — whose
-/// destination is the other's source label — cannot overwrite a
-/// still-needed source or manufacture a false collision.
-fn relocate_verify_facts(sites: &mut BTreeMap<String, SiteFacts>, phase: &str) {
-    let prefix = format!("{phase}:");
-    let moved: Vec<(String, SiteFacts)> = sites
+/// seat (design D10 F1/F2): each exact authoring label of the wrapped body
+/// moves to its wrapper destination — `verify` to `verify:checks`,
+/// `verify:<member>` to `verify:checks:<member>`. Only the wrapped body's
+/// OWN owners move; a distinct literal phase `verify:bar` keeps its facts
+/// instead of being dragged onto a wrapper coordinate by a prefix sweep.
+/// Every source is drained before any destination is inserted, so a member
+/// named `x` beside one named `checks:x` — whose destination is the other's
+/// source label — cannot overwrite a still-needed source.
+fn relocate_verify_facts(
+    sites: &mut BTreeMap<String, SiteFacts>,
+    moved: &[(String, String, crate::engine::resume::SiteKey)],
+) {
+    let staged: Vec<(String, SiteFacts)> = moved
         .iter()
-        .filter(|(label, _)| label.as_str() == phase || label.starts_with(&prefix))
-        .map(|(label, facts)| (label.clone(), facts.clone()))
+        .filter_map(|(source, destination, _)| {
+            sites
+                .remove(source)
+                .map(|facts| (destination.clone(), facts))
+        })
         .collect();
-    for (source, _) in &moved {
-        sites.remove(source);
-    }
-    for (source, facts) in moved {
-        let destination = match source.strip_prefix(&prefix) {
-            Some(rest) => format!("{phase}:checks:{rest}"),
-            None => format!("{phase}:checks"),
-        };
+    for (destination, facts) in staged {
         sites.insert(destination, facts);
+    }
+}
+
+/// Claim one wrapper-introduced address against the authoring census
+/// before any fact is written there (design D10 F2). `owner_index` already
+/// guarantees the census holds no duplicate labels, so any occupant is a
+/// distinct owner and the bundle is ambiguous. The refusal is worded
+/// exactly like the final walk's, naming the seat and both owners.
+fn claim_address(
+    census: &BTreeMap<String, crate::engine::resume::SiteKey>,
+    phase: &str,
+    label: &str,
+    second: &str,
+) -> Result<(), CompileError> {
+    match census.get(label) {
+        Some(occupant) => Err(CompileError::Invalid(format!(
+            "seat '{phase}' addresses two different sites as '{label}': {} and {second}. The \
+             selection, the argv lookup, the hands map and the boundary map all key on that one \
+             string, so one site would answer for the other; rename one of them",
+            crate::engine::resume::describe(occupant)
+        ))),
+        None => Ok(()),
     }
 }
 

@@ -1099,6 +1099,16 @@ impl Engine {
         // requested digest — a chain fallback moves the door, and a
         // digest that moved with it would refuse the retry as a
         // different effect.
+        //
+        // The executing single's confinement markers are composed HERE,
+        // from the selected label rather than the seat's phase label
+        // (design D10 F1): `seat_input` marked the phase, and a selector's
+        // phase label owns no facts, so re-marking `site_name` is what
+        // publishes the selected body's own boundary and hands. It sits
+        // beside `mark_delivery`, after the requested digest was checked,
+        // so a chain fallback or a selector move cannot refuse the retry
+        // as a different effect.
+        self.mark_hands(&site_name, &mut input);
         self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
         let mut started = json!({
             "effect_id": effect_id,
@@ -1249,11 +1259,33 @@ impl Engine {
         let door = link.map(|link| link.harness.result);
         if self.boundary == Boundary::Harness
             && gate
-            && self.bundle.hands.contains_key(label)
+            && self.has_hands(label)
             && door == Some(ResultDoor::LastMessage)
         {
             input["result_delivery"] = json!("last-message");
         }
+    }
+
+    /// Whether the one canonical execution-site family resolved any hands
+    /// at this label (design D10 F1). `NoHands` and `Unknown` both answer
+    /// false; `mark_hands` tells those two apart with affirmative markers
+    /// rather than letting this answer invent one.
+    fn has_hands(&self, label: &str) -> bool {
+        matches!(
+            self.bundle.sites.get(label).map(|facts| &facts.hands),
+            Some(HandsState::Hands(_))
+        )
+    }
+
+    /// The hands spec this site's canonical family resolved, if any. An
+    /// unresolved or resolved no-hands site answers `None`; only the site
+    /// facts distinguish the two.
+    fn hands_for(&self, label: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
+        self.bundle
+            .sites
+            .get(label)
+            .and_then(|facts| facts.hands_spec())
+            .cloned()
     }
 
     /// Every executing model site of this attempt, with its structural
@@ -1325,7 +1357,12 @@ impl Engine {
             let assessment = selection
                 .get(&entry.site)
                 .map(|candidate| candidate.resume.value())
-                .or_else(|| self.bundle.inline_resume.get(&label).cloned())
+                .or_else(|| {
+                    self.bundle
+                        .sites
+                        .get(&label)
+                        .and_then(|facts| facts.inline_resume.clone())
+                })
                 .unwrap_or(Value::Null);
             // The route-overlay binding (design D6 mechanism 1; AS3): the
             // seat's single `--patch` value bound to the compiled leaf
@@ -1355,10 +1392,7 @@ impl Engine {
     /// with hands, none for a site without — the `None` every record of
     /// such a site spells as `not applicable` (decision 0046 ruling 3).
     fn site_boundary(&self, label: &str) -> Option<Boundary> {
-        self.bundle
-            .hands
-            .contains_key(label)
-            .then_some(self.boundary)
+        self.has_hands(label).then_some(self.boundary)
     }
 
     /// Which boundary stood at every invocation site of this attempt
@@ -1494,7 +1528,7 @@ impl Engine {
     }
 
     fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
-        let mut spec = self.bundle.hands.get(seat_name)?.clone();
+        let mut spec = self.hands_for(seat_name)?;
         let phase = seat_name
             .split_once(':')
             .map_or(seat_name, |(phase, _)| phase);
@@ -1862,7 +1896,7 @@ impl Engine {
                 copy_secret_binding_facts(&mut input, seat_input);
                 self.mark_hands(&label, &mut input);
                 self.mark_delivery(&label, gate, selection.get(&site), &mut input);
-                let hands = self.bundle.hands.get(&label).cloned();
+                let hands = self.hands_for(&label);
                 let spawn = self.compose(
                     attempt_id,
                     gate,
@@ -2170,7 +2204,7 @@ impl Engine {
                     self.mark_hands(&step_label, &mut input);
                     let step_gate = step.class == SeatClass::Gate;
                     self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
-                    let hands = self.bundle.hands.get(&step_label).cloned();
+                    let hands = self.hands_for(&step_label);
                     let spawn = self.compose(
                         attempt_id,
                         step_gate,
@@ -2318,7 +2352,7 @@ impl Engine {
                     // A dialect step composes under a boxed boundary only:
                     // the compiler refuses it under `harness` and `open`
                     // (design DD8), so no unboxed arm is reached here.
-                    let hands = self.bundle.hands.get(&step_label).cloned();
+                    let hands = self.hands_for(&step_label);
                     let spawn = self.compose(
                         attempt_id,
                         true,

@@ -1275,6 +1275,179 @@ fn a_literal_phase_that_aliases_the_wrapped_verify_step_is_refused() {
     );
 }
 
+/// Design D10 F2: a RAW authoring collision that wrapping would DISGUISE.
+/// A wrapped verify panel member `alpha` and a literal phase `verify:alpha`
+/// both own the authoring address `verify:alpha`; wrapping renames the
+/// member to `verify:checks:alpha`, so a final-only walk would miss it and
+/// the literal's facts would be served at the member's coordinate. The
+/// authoring census refuses it before any fact moves.
+#[test]
+fn a_raw_phase_that_aliases_a_wrapped_panel_member_is_refused() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let panel = json!({
+        "results":["pass","fail"], "aggregate":"unanimous-pass",
+        "panel":{
+            "alpha":{"role":"roles/role.md","driver":{"command":["driver"]}},
+            "beta":{"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    let (mut config, mut policy) = dialect_config(panel);
+    policy["phases"] = json!(["design", "verify", "verify:alpha", "review", "done"]);
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id":"VA", "from":"verify:alpha", "result":"pass", "next":"review", "reason":"pass"
+    }));
+    config["seats"]["verify:alpha"] = json!({
+        "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]},
+        "hands":"workspace"
+    });
+    let message = error(compile_dialect_fixture(
+        &fixture,
+        &config,
+        &policy,
+        Some(&dialect),
+    ));
+    assert!(
+        message.contains("addresses two different sites as 'verify:alpha'"),
+        "{message}"
+    );
+}
+
+/// Design D10 F2: the injected deterministic validator's address is a
+/// wrapper-created coordinate too, so a literal phase that flattens to it
+/// is refused before the validator's facts are written there.
+#[test]
+fn a_literal_phase_that_aliases_the_injected_validator_is_refused() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let verify = json!({"results":["pass"],"role":"roles/role.md","driver":{"command":["driver"]}});
+    let (mut config, mut policy) = dialect_config(verify);
+    policy["phases"] = json!([
+        "design",
+        "verify",
+        "verify:dialect-verify",
+        "review",
+        "done"
+    ]);
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id":"VDV", "from":"verify:dialect-verify", "result":"pass", "next":"review", "reason":"pass"
+    }));
+    config["seats"]["verify:dialect-verify"] = json!({
+        "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]}
+    });
+    let message = error(compile_dialect_fixture(
+        &fixture,
+        &config,
+        &policy,
+        Some(&dialect),
+    ));
+    assert!(
+        message.contains("addresses two different sites as 'verify:dialect-verify'"),
+        "{message}"
+    );
+}
+
+/// Design D10 F1/F2: relocation moves only the wrapped seat's OWN owners.
+/// A distinct literal `verify:bar` phase keeps its own facts instead of
+/// being dragged onto `verify:checks:bar` by a prefix sweep — the defect a
+/// separate-map relocation would have introduced.
+#[test]
+fn a_wrapped_verify_panel_leaves_an_unrelated_literal_phase_untouched() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let panel = json!({
+        "results":["pass","fail"], "aggregate":"unanimous-pass",
+        "panel":{
+            "alpha":{"role":"roles/role.md","driver":{"command":["driver"]}},
+            "beta":{"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    let (mut config, mut policy) = dialect_config(panel);
+    policy["phases"] = json!(["design", "verify", "verify:bar", "review", "done"]);
+    policy["rules"].as_array_mut().unwrap().push(json!({
+        "id":"VB", "from":"verify:bar", "result":"pass", "next":"review", "reason":"pass"
+    }));
+    config["seats"]["verify:bar"] = json!({
+        "results":["pass"], "role":"roles/role.md", "driver":{"command":["driver"]},
+        "hands":"workspace"
+    });
+    let bundle = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    assert!(
+        matches!(
+            bundle.sites.get("verify:bar").map(|facts| &facts.hands),
+            Some(HandsState::Hands(_))
+        ),
+        "the unrelated literal phase keeps its own hands"
+    );
+    assert!(
+        !bundle.sites.contains_key("verify:checks:bar"),
+        "no prefix sweep manufactured a wrapper coordinate for the literal phase"
+    );
+    assert!(bundle.sites.contains_key("verify:checks:alpha"));
+    assert!(!bundle.sites.contains_key("verify:alpha"));
+}
+
+/// Design D10 F1: a member named `a` beside one named `checks:a` (the
+/// `x`/`checks:x` shape) has the second member's source as the first's
+/// destination. Draining every source before inserting any destination
+/// keeps both facts with their own owner instead of overwriting one with
+/// the other.
+#[test]
+fn a_wrapped_panel_drains_overlapping_member_addresses_without_overwrite() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let panel = json!({
+        "results":["pass","fail"], "aggregate":"unanimous-pass",
+        "panel":{
+            "a":{"role":"roles/role.md","driver":{"command":["driver"]},
+                 "hands":{"kind":"workspace","network":true}},
+            "checks:a":{"role":"roles/role.md","driver":{"command":["driver"]},
+                        "hands":"workspace"},
+            "x":{"role":"roles/role.md","driver":{"command":["driver"]},
+                 "hands":{"kind":"workspace","network":true}},
+            "checks:x":{"role":"roles/role.md","driver":{"command":["driver"]},
+                        "hands":"workspace"}
+        }
+    });
+    let (config, policy) = dialect_config(panel);
+    let bundle = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+    for member in ["a", "x"] {
+        assert!(
+            matches!(
+                bundle
+                    .sites
+                    .get(&format!("verify:checks:{member}"))
+                    .map(|facts| &facts.hands),
+                Some(HandsState::Hands(spec)) if spec.network
+            ),
+            "member `{member}` keeps its own network-enabled hands"
+        );
+        assert!(
+            matches!(
+                bundle
+                    .sites
+                    .get(&format!("verify:checks:checks:{member}"))
+                    .map(|facts| &facts.hands),
+                Some(HandsState::Hands(spec)) if !spec.network
+            ),
+            "member `checks:{member}` keeps its own default hands"
+        );
+        assert!(!bundle.sites.contains_key(&format!("verify:{member}")));
+    }
+}
+
 /// And every bundle this tree ships walks clean, which is the other half
 /// of the same check: a rule that refused a shipped recipe would be a
 /// rule nobody could adopt.
