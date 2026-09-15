@@ -23,8 +23,9 @@ and a compiler-only repair are superseded. No upstream choice remains.
 The ledger remains **82 complete / 19 pending across 101 identifiers**.
 The clauses refine existing acceptance; historical ticks attest adopted work,
 not completion of these residual repairs or their proofs. Record each clause's
-actual progress and proof without changing checkbox states. In particular, 8.8, 8.10, 9.6 and all 11.x
-remain pending. Passes C/D, archive, re-folding living specs, provider enablement
+actual progress and proof without changing checkbox states. In particular,
+8.8, 8.10, 9.6 and 11.1–11.4 remain pending; 11.5 retains its recorded
+completion. Passes C/D, archive, re-folding living specs, provider enablement
 and the settled reader seam remain outside scope. Adopt `bcefcf6`'s existing
 0056 clarification and retain its `proposed` status; no further decision edit
 is required by this return.
