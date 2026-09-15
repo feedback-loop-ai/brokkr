@@ -969,10 +969,22 @@ impl Engine {
         Ok(input)
     }
 
+    /// The repository this run drives, always spelled absolutely. Seat
+    /// input is composed from it — `result_path` above all — and every
+    /// seat script reads its result path by matching an absolute
+    /// `/*.json` line, so `--repo .` would compose
+    /// `./.forge/results/<effect>.json` and the seat would refuse its own
+    /// result path in a fraction of a second, before running a gate,
+    /// with no transcript to say why. `box_argv` resolves the same
+    /// relative prefix for the same reason. Symlinks stay as the host
+    /// spells them; a path that cannot be resolved at all is threaded as
+    /// written, which is what the driver would have received anyway.
     fn workdir(&self) -> PathBuf {
-        self.repo
+        let repo = self
+            .repo
             .clone()
-            .unwrap_or_else(|| std::env::current_dir().expect("cwd"))
+            .unwrap_or_else(|| std::env::current_dir().expect("cwd"));
+        std::path::absolute(&repo).unwrap_or(repo)
     }
 
     /// The operator-side store path threaded to drivers: the CLI

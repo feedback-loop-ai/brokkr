@@ -64,9 +64,35 @@ tempfile = { workspace = true }
 time = { workspace = true }
 ratatui = { workspace = true }
 
+# Decision 0055's narrow, explicit exception to the no-new-dependencies
+# default: the local transcript reader opens descendants below the
+# canonical recorded home through held directory handles, one component
+# at a time, without following symlinks. These extend direct edges to
+# versions already in Cargo.lock; no registry version moves.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
+] }
+
 [dev-dependencies]
 rusqlite = { workspace = true }
 # The packaging test verifies an APT `Release` file's own digests
 # against the files it indexes — the same hash the engine already
 # depends on, no new crate in the graph.
 sha2 = { workspace = true }
+# Decision 0055 / design D11: one pinned, default-feature-free ECMAScript
+# engine so the CLI can execute the exact marker-delimited controller
+# bytes served from `ui.html` under ordinary `cargo test`. Dev-only: it is
+# not linked into the release binary and adds no Node or browser service.
+# Admitted consequence (review L2): Boa's `~2.0.0` icu_normalizer
+# requirement forces the production `url -> idna` edge to
+# idna_adapter 1.2.1 / icu_normalizer 2.0.1. Recorded in CONTRIBUTING.md.
+boa_engine = { version = "=0.21.1", default-features = false }

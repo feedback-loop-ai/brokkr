@@ -202,13 +202,6 @@ pub enum DispatchError {
     ManifestKeyUnsupportedByDispatchLineage(String),
 }
 
-fn is_hex_64(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
 fn nonempty(value: &str) -> bool {
     !value.trim().is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
 }
@@ -285,15 +278,18 @@ impl DispatchEnvelopeV2 {
                 return Err(DispatchError::BadField(name));
             }
         }
-        if !is_hex_64(&self.canonical_digest)
-            || !is_hex_64(&self.looper.immutable_inputs_sha256)
-            || !is_hex_64(&self.repository.base_sha)
+        // One spelling of a digest's shape for every reader that judges
+        // one, so a dispatch pin and a realm's crossing pin (decision
+        // 0057 ruling 2) cannot drift apart on what "malformed" means.
+        if !canonical::is_sha256_hex(&self.canonical_digest)
+            || !canonical::is_sha256_hex(&self.looper.immutable_inputs_sha256)
+            || !canonical::is_sha256_hex(&self.repository.base_sha)
             || self
                 .repository
                 .candidate_sha
                 .as_deref()
-                .is_some_and(|sha| !is_hex_64(sha))
-            || !is_hex_64(&self.recipe.compiled_sha256)
+                .is_some_and(|sha| !canonical::is_sha256_hex(sha))
+            || !canonical::is_sha256_hex(&self.recipe.compiled_sha256)
         {
             return Err(DispatchError::BadField("sha256"));
         }
@@ -479,15 +475,19 @@ pub fn build_run_manifest_v2(
 
 pub fn bundle_manifest_from_run(manifest: &Value) -> Result<Value, DispatchError> {
     if manifest.get("schema").and_then(Value::as_str) != Some(RUN_MANIFEST_SCHEMA_V2) {
-        // The local lineage IS the bundle manifest, minus the one thing
-        // that was never part of it: the world the run was invoked into
-        // (run-manifest/v4, carried forward by v5). The map is workspace data — a run started
-        // with one must still resume against the same bundle, so the pin
-        // is dropped here rather than compared against a bundle that
-        // never carried it.
-        if manifest.get("realms").is_some() {
+        // The local lineage IS the bundle manifest, minus the things that
+        // were never part of it: the world the run was invoked into
+        // (run-manifest/v4, carried forward by v5) and the crossings that
+        // world stood on (run-manifest/v10). Both are workspace data — a
+        // run started with a map, or with a contract pinned across two of
+        // its realms, must still resume against the same bundle, so the
+        // pins are dropped here rather than compared against a bundle
+        // that never carried them. One removal for both, so there is no
+        // half-stripped shape a manifest carrying only one could take.
+        if manifest.get("realms").is_some() || manifest.get("crossings").is_some() {
             let mut fields = manifest.as_object().cloned().unwrap_or_default();
             fields.remove("realms");
+            fields.remove("crossings");
             return Ok(Value::Object(fields));
         }
         return Ok(manifest.clone());

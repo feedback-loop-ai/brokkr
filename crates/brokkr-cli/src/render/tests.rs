@@ -344,8 +344,8 @@ fn bidi_and_zero_width_formatting_characters_never_reach_the_terminal() {
     assert_eq!(safe.width(), 18, "width is computed on the sanitized text");
     // Every enumerated range, at both of its ends and inside.
     for stripped in [
-        '\u{200B}', '\u{200D}', '\u{200F}', '\u{202A}', '\u{202C}', '\u{202E}', '\u{2060}',
-        '\u{2062}', '\u{2064}', '\u{2066}', '\u{2068}', '\u{2069}', '\u{FEFF}',
+        '\u{061C}', '\u{200B}', '\u{200D}', '\u{200F}', '\u{202A}', '\u{202C}', '\u{202E}',
+        '\u{2060}', '\u{2062}', '\u{2064}', '\u{2066}', '\u{2068}', '\u{2069}', '\u{FEFF}',
     ] {
         assert!(reorders(stripped), "{stripped:?} reorders a line");
         assert_eq!(Safe::new(&format!("a{stripped}b")).as_str(), "ab");
@@ -1107,4 +1107,119 @@ fn the_pair_helper_has_a_text_face_and_a_json_face() {
         served_json(&view(None).participants[0].served),
         json!({"model": brokkr_view::ABSENT, "boundary": brokkr_view::ABSENT})
     );
+}
+
+/// The transcript text face: identity, source, notices, one-based turn
+/// numbers and every retained block, with terminal controls stripped.
+#[test]
+fn the_transcript_text_names_turns_and_sanitizes_content() {
+    let reference = brokkr_view::Transcript {
+        kind: "claude-session".to_string(),
+        locator: "abcd-1234".to_string(),
+        home: "/home/operator/.claude/projects".to_string(),
+    };
+    let turns = vec![
+        brokkr_view::transcript::Turn {
+            role: "assistant".to_string(),
+            ts: T0.to_string(),
+            blocks: vec![brokkr_view::transcript::Block::text("hello\u{1b}[2J")],
+        },
+        brokkr_view::transcript::Turn {
+            role: "user".to_string(),
+            ts: String::new(),
+            blocks: vec![brokkr_view::transcript::Block::tool("Read · src/lib.rs")],
+        },
+    ];
+    let read = brokkr_view::transcript::TranscriptRead::readable(
+        Some(reference),
+        false,
+        brokkr_view::transcript::TranscriptKind::ClaudeSession,
+        Some("/home/operator/.claude/projects/p/abcd-1234.jsonl".to_string()),
+        turns,
+        true,
+        1,
+        0,
+    );
+    let text = transcript("run-7", "review:chief", &read, None, &Style::plain(80));
+    assert!(text.contains("run   run-7"));
+    assert!(text.contains("seat  review:chief"));
+    assert!(text.contains("kind  claude-session"));
+    assert!(text.contains("turn 1 · assistant · 2026-01-01T00:00:00Z"));
+    assert!(text.contains("turn 2 · user"));
+    assert!(text.contains("  tool: Read · src/lib.rs"));
+    assert!(!text.contains('\u{1b}'), "no escape survives the text face");
+    assert!(text.contains("notice transcript truncated (size cap)"));
+    assert!(text.contains("notice malformed transcript lines skipped: 1"));
+    assert!(text.contains("hint  full session: claude --resume abcd-1234"));
+
+    // A requested turn keeps its original number, and an empty truncated
+    // projection says so rather than pretending the session was empty.
+    let selected = transcript("run-7", "review:chief", &read, Some(2), &Style::plain(80));
+    assert!(selected.contains("turn 2 · user"));
+    assert!(!selected.contains("turn 1 · assistant"));
+    let empty = brokkr_view::transcript::TranscriptRead::readable(
+        None,
+        false,
+        brokkr_view::transcript::TranscriptKind::CodexThread,
+        None,
+        Vec::new(),
+        true,
+        0,
+        0,
+    );
+    let text = transcript("run-7", "review:chief", &empty, None, &Style::plain(80));
+    assert!(text.contains("no readable turns — transcript truncated (size cap)"));
+}
+
+/// A readable zero-turn Codex projection keeps its own kind hint and the
+/// shared unknown-record notice in the text face (8.8).
+#[test]
+fn a_readable_zero_turn_codex_keeps_its_hint_and_notice() {
+    let reference = brokkr_view::Transcript {
+        kind: "codex-thread".to_string(),
+        locator: "0199mine".to_string(),
+        home: "/retained/codex".to_string(),
+    };
+    let read = brokkr_view::transcript::TranscriptRead::readable(
+        Some(reference),
+        false,
+        brokkr_view::transcript::TranscriptKind::CodexThread,
+        Some("/retained/codex/sessions/rollout-0199mine.jsonl".to_string()),
+        Vec::new(),
+        false,
+        0,
+        1,
+    );
+    let text = transcript("run-7", "review:chief", &read, None, &Style::plain(80));
+    assert!(text.contains("kind  codex-thread"), "{text}");
+    assert!(text.contains("no readable turns"), "{text}");
+    assert!(
+        text.contains("notice unrecognized transcript records: 1"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "full session: path \"/retained/codex/sessions/rollout-0199mine.jsonl\", codex exec resume 0199mine, home \"/retained/codex\""
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_refused_transcript_omits_the_kind_and_hint_lines() {
+    let read = brokkr_view::transcript::TranscriptRead::refused(
+        None,
+        false,
+        brokkr_view::transcript::Unavailable::NotFound,
+        "no retained transcript file was found",
+        None,
+        false,
+        0,
+        0,
+        None,
+    );
+    let text = transcript("run-7", "review:chief", &read, None, &Style::plain(80));
+    assert!(!text.contains("kind  "), "{text}");
+    assert!(!text.contains("hint  "), "{text}");
+    assert!(text.contains("source -"), "{text}");
 }

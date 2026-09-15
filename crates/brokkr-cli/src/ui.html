@@ -233,10 +233,19 @@ const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
 const NODE_CLASS = { 'on-phosphor': 'on-phosphor', 'in-active': 'in-active',
                      'on-halt': 'on-halt', 'on-park': 'on-park' };
 
+// The browser twin of the terminal Safe(): a text node is inert, but the
+// bidi/directional formatting characters reorder visible text without
+// being control characters, so they are removed at the display boundary.
+// Machine JSON keeps the original strings.
+const DISPLAY_REORDERS = /[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+function displayText(value) {
+  return String(value).replace(DISPLAY_REORDERS, '');
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined && text !== null) node.textContent = String(text);
+  if (text !== undefined && text !== null) node.textContent = displayText(text);
   return node;
 }
 
@@ -245,7 +254,7 @@ function el(tag, className, text) {
 function svgEl(tag, className, text) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
   if (className) node.setAttribute('class', className);
-  if (text !== undefined && text !== null) node.textContent = String(text);
+  if (text !== undefined && text !== null) node.textContent = displayText(text);
   return node;
 }
 
@@ -288,7 +297,7 @@ function cell(model, className) {
   if (model.absent) {
     td.appendChild(absentMark(model.text, model.note));
   } else {
-    td.textContent = model.text;
+    td.textContent = displayText(model.text);
   }
   return td;
 }
@@ -597,6 +606,7 @@ function renderLoops(detail, view, id) {
             g.onclick = () => {
               activeParticipant = n.key;
               selectedPhase = null;
+              explicitSelectKey = n.key;
               renderDetail(id, view);
             };
           }
@@ -751,68 +761,415 @@ function checkpointTable(part) {
   return tableWrap(stream);
 }
 
-// Session prose, fetched from the local transcript endpoint. Cached per
-// session so SSE re-renders don't refetch. textContent discipline holds:
-// transcript text is seat-authored and untrusted.
-const transcriptCache = new Map();
+// ============================================================================
+// The participant transcript controller (design D9/D11). Everything between
+// the markers is the whole private transition machine: it is DOM-, network-,
+// timer- and storage-free, takes every side effect through `effects`, and
+// exposes exactly one factory. `crates/brokkr-cli/src/ui/tests.rs` extracts
+// these exact served bytes, evaluates them with the pinned dev-only Boa
+// engine, injects deterministic effects and asserts the ordered trace.
+/* transcript-controller:start */
+function createTranscriptController(effects) {
+  let generation = 0;
+  let active = null;
+  let presentation = null;
+  let presentationPending = 0;
+  let bodyPending = 0;
+  let bodyState = 'missing';
+  let body = null;
+  let watch = null;
+  let openingsUsed = 0;
+  let timer = null;
+  let presentations = 0;
+  let bodies = 0;
+  let opens = 0;
+  // The newest issued body request. A response older than this cannot
+  // repaint, even when it shares the current generation, so overlapping
+  // growth reads can never restore earlier prose.
+  let bodyRequest = 0;
 
-// A WORKING seat writes prose between journal checkpoints, so the run's
-// head does not move when its words land. That session's own stream
-// says when its transcript file grew; on each event exactly one cache
-// entry is dropped and repainted. Never opened for a concluded seat —
-// its transcript is already whole.
-let sessionSource = null, sessionWatch = null;
-function closeSessionWatch() {
-  if (sessionSource) sessionSource.close();
-  sessionSource = null;
-  sessionWatch = null;
-}
-function watchSession(sessionId, box, part) {
-  if (sessionWatch !== sessionId) {
-    closeSessionWatch();
-    sessionWatch = sessionId;
-    sessionSource = new EventSource('/sse/session/' + encodeURIComponent(sessionId));
+  function referenceKey(reference) {
+    if (!reference) return 'none';
+    return reference.kind + '\u0000' + reference.locator + '\u0000' + reference.home;
   }
-  // Rebound every render so the growth repaints into the box the
-  // current frame is showing, not one a previous render has dropped.
-  sessionSource.onmessage = () => {
-    transcriptCache.delete(sessionId);
-    renderTranscript(box, sessionId, part);
-  };
-}
-async function renderTranscript(box, sessionId, part) {
-  let data = transcriptCache.get(sessionId);
-  if (!data) {
-    try {
-      const res = await fetch('/api/session/' + encodeURIComponent(sessionId));
-      if (!res.ok) throw new Error(String(res.status));
-      data = await res.json();
-      transcriptCache.set(sessionId, data);
-    } catch {
-      box.replaceChildren(el('p', 'cause',
-        'no local transcript for this session — showing the journal checkpoint stream'));
-      box.appendChild(checkpointTable(part));
+  function keyOf(subject) {
+    const reference = subject.reference
+      ? referenceKey(subject.reference)
+      : 'legacy\u0000' + (subject.provider ?? '') + '\u0000' + (subject.sessionId ?? '');
+    return subject.runId + '\u0000' + subject.participantKey + '\u0000' + reference;
+  }
+  // The client guard moves with the Rust leading-hexadecimal rule: a session
+  // id is a raw journal string rendered beside a pasteable command.
+  function isClaudeId(id) {
+    return typeof id === 'string' && /^[0-9a-fA-F][0-9a-fA-F-]{0,63}$/.test(id);
+  }
+  // A drill is offered only for an admitted, drill-eligible Claude reference
+  // whose locator still passes the client guard.
+  function drillId() {
+    if (!presentation || !presentation.admitted || !presentation.drill_eligible) return null;
+    const reference = presentation.reference;
+    if (!reference || reference.kind !== 'claude-session') return null;
+    return isClaudeId(reference.locator) ? reference.locator : null;
+  }
+  function unavailablePresentation() {
+    return {
+      reference: null, legacy: false, admitted: false, reason: 'unreadable',
+      explanation: 'the browser could not establish the shared presentation',
+      path: null, hint: null, drill_eligible: false,
+    };
+  }
+  function equivalent(left, right) {
+    return left !== null
+      && referenceKey(left.reference) === referenceKey(right.reference)
+      && !!left.legacy === !!right.legacy
+      && !!left.admitted === !!right.admitted
+      && (left.reason ?? null) === (right.reason ?? null)
+      && (left.hint ?? null) === (right.hint ?? null)
+      && !!left.drill_eligible === !!right.drill_eligible;
+  }
+  function viewFor(phase) {
+    return {
+      phase: phase,
+      sessionId: drillId(),
+      hint: presentation ? (presentation.hint ?? null) : null,
+      admitted: presentation ? !!presentation.admitted : false,
+      reason: presentation ? (presentation.reason ?? null) : null,
+      explanation: presentation ? (presentation.explanation ?? null) : null,
+      drillEligible: presentation ? !!presentation.drill_eligible : false,
+      legacy: presentation ? !!presentation.legacy : false,
+      reference: presentation ? (presentation.reference ?? null) : null,
+      // A valid Claude reference whose canonical home is not the local
+      // projects home: show the recorded-home explanation and drill
+      // nothing, whether or not shared lookup simultaneously refuses the
+      // source. The non-null shared hint is the shared proof that the
+      // reference itself validated; an invalid reference has none.
+      homeUnavailable: !!(presentation && presentation.reference
+        && presentation.reference.kind === 'claude-session'
+        && !presentation.drill_eligible
+        && (presentation.hint ?? null) !== null),
+      bodyState: bodyState,
+      body: body,
+    };
+  }
+  function paint(phase) {
+    effects.render(viewFor(phase));
+  }
+  function closeOwnedWatch() {
+    const handle = watch;
+    watch = null;
+    if (handle !== null) effects.closeWatch(handle);
+  }
+  function ensureTimer() {
+    if (timer === null) timer = effects.schedule(() => tick());
+  }
+  function requestPresentation(gen) {
+    if (presentationPending === gen) return;
+    presentations += 1;
+    presentationPending = gen;
+    effects.requestPresentation(active.subject).then(
+      (result) => {
+        if (presentationPending === gen) presentationPending = 0;
+        if (gen !== generation) return;
+        applyPresentation(result);
+      },
+      () => {
+        if (presentationPending === gen) presentationPending = 0;
+        if (gen !== generation) return;
+        applyPresentation(unavailablePresentation());
+      },
+    );
+  }
+  function applyPresentation(result) {
+    if (!active) return;
+    const changed = !equivalent(presentation, result);
+    if (changed) {
+      // Eligibility is not automatic recovery: a changed drill gate
+      // restores the watch budget so an operator-visible change can open
+      // its watch without waiting for another timer interval.
+      const eligibilityChanged = !!presentation
+        && !!presentation.drill_eligible !== !!result.drill_eligible;
+      generation += 1;
+      closeOwnedWatch();
+      presentation = result;
+      bodyPending = 0;
+      bodyState = 'missing';
+      body = null;
+      if (eligibilityChanged) openingsUsed = 0;
+      effects.clear();
+      paint('presentation');
+    } else {
+      presentation = result;
+    }
+    maybeRepair();
+  }
+  function requestBody(gen) {
+    bodies += 1;
+    const request = ++bodyRequest;
+    bodyPending = gen;
+    bodyState = 'pending';
+    effects.requestBody(drillId(), active.subject).then(
+      (result) => {
+        if (bodyPending === gen) bodyPending = 0;
+        if (gen !== generation || request !== bodyRequest) return;
+        bodyState = 'succeeded';
+        body = result;
+        paint('body');
+        maybeOpenWatch();
+      },
+      () => {
+        if (bodyPending === gen) bodyPending = 0;
+        if (gen !== generation || request !== bodyRequest) return;
+        refuseBody();
+      },
+    );
+  }
+  function refuseBody() {
+    closeOwnedWatch();
+    generation += 1;
+    bodyPending = 0;
+    bodyState = 'refused';
+    body = null;
+    effects.clear();
+    paint('failure');
+    requestPresentation(generation);
+  }
+  function maybeOpenWatch() {
+    if (!active || watch !== null) return;
+    if (!active.subject.working) return;
+    if (!presentation || !presentation.admitted || !presentation.drill_eligible) return;
+    if (!drillId()) return;
+    if (openingsUsed >= 1) return;
+    openingsUsed += 1;
+    opens += 1;
+    let handle = null;
+    handle = effects.openWatch(drillId(), active.subject, {
+      growth: () => { if (watch === handle) onGrowth(); },
+      close: () => { if (watch === handle) onWatchClose(); },
+    });
+    watch = handle;
+  }
+  function onGrowth() {
+    bodyState = 'missing';
+    body = null;
+    bodyPending = 0;
+    effects.clear();
+    maybeRepair();
+  }
+  function onWatchClose() {
+    generation += 1;
+    watch = null;
+    bodyPending = 0;
+    bodyState = 'missing';
+    body = null;
+    effects.clear();
+    requestPresentation(generation);
+  }
+  function maybeRepair() {
+    if (!active) return;
+    if (!presentation || !presentation.admitted || !presentation.drill_eligible) return;
+    if (!drillId()) return;
+    if (bodyState === 'refused' || bodyState === 'pending') return;
+    if (bodyState === 'missing') {
+      if (bodyPending !== generation) requestBody(generation);
       return;
     }
+    maybeOpenWatch();
   }
-  box.replaceChildren();
-  for (const turn of data.turns ?? []) {
-    for (const b of turn.blocks ?? []) {
-      if (b.kind === 'tool') {
-        box.appendChild(el('div', 'tr-tool', '⚙ ' + b.text));
-      } else {
-        box.appendChild(el('div',
-          'tr-msg ' + (turn.role === 'assistant' ? 'tr-a' : 'tr-u'), b.text));
-      }
+  function beginInterval(subject) {
+    generation += 1;
+    closeOwnedWatch();
+    presentation = null;
+    presentationPending = 0;
+    bodyPending = 0;
+    bodyState = 'missing';
+    body = null;
+    openingsUsed = 0;
+    active = { key: keyOf(subject), subject: subject };
+    effects.clear();
+    ensureTimer();
+    requestPresentation(generation);
+  }
+  function tick() {
+    if (!active) return;
+    openingsUsed = 0;
+    if (bodyState === 'refused') bodyState = 'missing';
+    requestPresentation(generation);
+  }
+  function operator_select(subject) {
+    beginInterval(subject);
+  }
+  function sync(subject) {
+    if (!active || active.key !== keyOf(subject)) {
+      beginInterval(subject);
+      return;
+    }
+    const wasWorking = !!(active.subject && active.subject.working);
+    active.subject = subject;
+    // A seat that stopped working has no further prose to await: close the
+    // owned watch rather than leaving it open on a concluded participant.
+    if (wasWorking && !subject.working) {
+      closeOwnedWatch();
     }
   }
-  if ((data.turns ?? []).length === 0) {
-    box.appendChild(el('p', 'cause', 'transcript holds no prose'));
+  function clear() {
+    generation += 1;
+    closeOwnedWatch();
+    if (timer !== null) {
+      effects.cancel(timer);
+      timer = null;
+    }
+    active = null;
+    presentation = null;
+    presentationPending = 0;
+    bodyPending = 0;
+    bodyState = 'missing';
+    body = null;
+    openingsUsed = 0;
+    effects.clear();
   }
-  if (data.truncated) {
-    box.appendChild(el('p', 'cause',
-      'transcript truncated (size cap) — resume the session for the rest'));
+  function repaint() {
+    if (!active || !presentation) return;
+    if (bodyState === 'refused') paint('failure');
+    else if (bodyState === 'succeeded') paint('body');
+    else paint('presentation');
   }
+  function snapshot() {
+    return {
+      generation: generation,
+      active: active ? active.key : null,
+      admitted: presentation ? !!presentation.admitted : false,
+      reason: presentation ? (presentation.reason ?? null) : null,
+      explanation: presentation ? (presentation.explanation ?? null) : null,
+      path: presentation ? (presentation.path ?? null) : null,
+      hint: presentation ? (presentation.hint ?? null) : null,
+      drillEligible: presentation ? !!presentation.drill_eligible : false,
+      body: bodyState,
+      watch: watch !== null,
+      openingsUsed: openingsUsed,
+      presentations: presentations,
+      bodies: bodies,
+      opens: opens,
+      sessionId: drillId(),
+    };
+  }
+  return { operator_select, sync, repaint, clear, snapshot };
+}
+/* transcript-controller:end */
+
+// The thin production adapter (OUTSIDE the controller block): real fetch,
+// EventSource, timer and DOM text-node seams. The controller never reaches a
+// page global; every untrusted string reaches the DOM through el().
+let transcriptBox = null;
+let transcriptPart = null;
+let explicitSelectKey = null;
+
+const transcriptController = createTranscriptController({
+  requestPresentation(subject) {
+    const url = '/api/presentation/' + encodeURIComponent(subject.runId) + '/'
+      + encodeURIComponent(subject.participantKey);
+    return fetch(url, { cache: 'no-store' }).then(
+      (res) => res.ok ? res.json() : Promise.reject(new Error(String(res.status))));
+  },
+  requestBody(id) {
+    return fetch('/api/session/' + encodeURIComponent(id), { cache: 'no-store' }).then(
+      (res) => res.ok ? res.json() : Promise.reject(new Error(String(res.status))));
+  },
+  openWatch(id, subject, handlers) {
+    const source = new EventSource('/sse/session/' + encodeURIComponent(id));
+    source.onmessage = () => handlers.growth();
+    source.onerror = () => { source.close(); handlers.close(); };
+    return source;
+  },
+  closeWatch(handle) {
+    handle.close();
+  },
+  schedule(callback) {
+    return setInterval(callback, 5000);
+  },
+  cancel(handle) {
+    clearInterval(handle);
+  },
+  clear() {
+    if (transcriptBox) transcriptBox.replaceChildren();
+  },
+  render(view) {
+    renderTranscriptView(view);
+  },
+});
+
+function participantSubject(runId, part) {
+  return {
+    runId: runId,
+    participantKey: part.key,
+    reference: part.transcript ?? null,
+    sessionId: typeof part.session_id === 'string' ? part.session_id : null,
+    provider: part.provenance ? part.provenance.provider : null,
+    working: part.status === 'working',
+  };
+}
+
+// Paint the controller's view model. Every value is untrusted and reaches
+// the DOM only through el()'s textContent; the checkpoint stream is the
+// fallback whenever no successful body is displayed.
+function renderTranscriptView(view) {
+  if (!transcriptBox) return;
+  transcriptBox.replaceChildren();
+  // The authoritative selected reference is its own local fact, painted
+  // separately from the derived hint and the body state.
+  if (view.reference) {
+    const ref = view.reference;
+    transcriptBox.appendChild(el('p', 'cause',
+      'local reference · ' + ref.kind + ' · ' + ref.locator + ' · ' + ref.home));
+  }
+  if (view.sessionId !== null) {
+    transcriptBox.appendChild(el('p', 'cause', '· session ' + view.sessionId));
+  }
+  if (view.hint !== null) {
+    transcriptBox.appendChild(el('p', 'cause', view.hint));
+  }
+  if (view.phase === 'body') {
+    const turns = view.body && view.body.turns ? view.body.turns : [];
+    for (const turn of turns) {
+      for (const block of turn.blocks ?? []) {
+        if (block.kind === 'tool') {
+          transcriptBox.appendChild(el('div', 'tr-tool', '⚙ ' + block.text));
+        } else if (block.kind === 'omitted') {
+          transcriptBox.appendChild(el('p', 'cause', block.text));
+        } else {
+          transcriptBox.appendChild(el('div',
+            'tr-msg ' + (turn.role === 'assistant' ? 'tr-a' : 'tr-u'), block.text));
+        }
+      }
+    }
+    if (turns.length === 0) {
+      transcriptBox.appendChild(el('p', 'cause', 'transcript holds no prose'));
+    }
+    if (view.body && view.body.truncated) {
+      transcriptBox.appendChild(el('p', 'cause', 'transcript truncated (size cap)'));
+    }
+    return;
+  }
+  if (view.phase === 'failure') {
+    transcriptBox.appendChild(el('p', 'cause',
+      'no local transcript for this session — showing the journal checkpoint stream'));
+    if (transcriptPart) transcriptBox.appendChild(checkpointTable(transcriptPart));
+    return;
+  }
+  if (view.reason !== null) {
+    transcriptBox.appendChild(el('p', 'cause', 'transcript unavailable: ' + view.reason));
+    if (view.explanation !== null) {
+      transcriptBox.appendChild(el('p', 'cause', view.explanation));
+    }
+  }
+  if (view.homeUnavailable) {
+    // A valid Claude reference under a foreign recorded home keeps this
+    // explanation beside any simultaneous shared lookup refusal.
+    transcriptBox.appendChild(el('p', 'cause',
+      'browser transcript unavailable for this recorded home'));
+  } else if (view.reason === null && view.drillEligible && view.admitted) {
+    transcriptBox.appendChild(el('p', 'cause', 'loading transcript…'));
+  }
+  if (transcriptPart) transcriptBox.appendChild(checkpointTable(transcriptPart));
 }
 
 async function loadDetail(id) {
@@ -856,9 +1213,14 @@ function renderDetail(id, view) {
   const phaseFilter = selectedPhase;
   const scopedPart = activeParticipant
     ? view.participants.find((p) => p.key === activeParticipant) : null;
-  // Leaving the drill ends the prose watch: the box it paints into is
-  // gone with this render.
-  if (!scopedPart) closeSessionWatch();
+  // Leaving the drill ends the controller's interval: the box it paints
+  // into is gone with this render.
+  if (!scopedPart) {
+    transcriptController.clear();
+    transcriptBox = null;
+    transcriptPart = null;
+    explicitSelectKey = null;
+  }
   if (phaseFilter || scopedPart) {
     const chip = el('p', 'ruling');
     chip.appendChild(badge(scopedPart
@@ -871,6 +1233,7 @@ function renderDetail(id, view) {
       ev.preventDefault();
       selectedPhase = null;
       activeParticipant = null;
+      explicitSelectKey = null;
       renderDetail(id, view);
     };
     chip.appendChild(clear);
@@ -884,7 +1247,7 @@ function renderDetail(id, view) {
   for (const notice of view.notices ?? []) {
     const note = el('p', 'ruling');
     note.appendChild(badge(notice.kind, ''));
-    note.appendChild(document.createTextNode(' ' + notice.text));
+    note.appendChild(document.createTextNode(' ' + displayText(notice.text)));
     detail.appendChild(note);
   }
 
@@ -919,7 +1282,7 @@ function renderDetail(id, view) {
       const act = part.activity;
       const activity = el('td', 'target');
       if (act.tool !== null) {
-        activity.appendChild(document.createTextNode(act.tool));
+        activity.appendChild(document.createTextNode(displayText(act.tool)));
         if (act.target_short !== null) {
           activity.appendChild(document.createTextNode(' · '));
           activity.appendChild(targetSpan(act.target_short, act.target_full));
@@ -927,12 +1290,12 @@ function renderDetail(id, view) {
       } else if (act.absent) {
         activity.appendChild(absentMark(act.text, act.note));
       } else {
-        activity.textContent = act.text;
+        activity.textContent = displayText(act.text);
       }
       // The agent resolution that selected this invocation, rendered
       // separately from the provider-reported model cell.
       const label = el('td');
-      label.appendChild(document.createTextNode(part.label));
+      label.appendChild(document.createTextNode(displayText(part.label)));
       if (part.provenance) {
         label.appendChild(el('div', 'target', part.provenance.line));
       }
@@ -951,6 +1314,7 @@ function renderDetail(id, view) {
       tr.onclick = () => {
         activeParticipant = part.key;
         selectedPhase = null;
+        explicitSelectKey = part.key;
         renderDetail(id, view);
       };
       seats.appendChild(tr);
@@ -966,24 +1330,14 @@ function renderDetail(id, view) {
     link.onclick = (ev) => {
       ev.preventDefault();
       activeParticipant = null;
+      explicitSelectKey = null;
       renderDetail(id, view);
     };
     back.appendChild(link);
     detail.appendChild(back);
-    // A session id is a raw journal string rendered into a command the
-    // operator is invited to paste: ';', '&&', '$(…)' and backticks all
-    // survive textContent, so an id that cannot name a transcript is
-    // treated as absent rather than shown. Same guard, same shape, as
-    // the server's session lookup and the TUI's resume line.
-    const sessionId = typeof part.session_id === 'string' &&
-      part.session_id.length > 0 && part.session_id.length <= 64 &&
-      /^[0-9a-fA-F-]+$/.test(part.session_id) ? part.session_id : null;
     const header = el('p');
-    header.appendChild(document.createTextNode(part.label + ' '));
+    header.appendChild(document.createTextNode(displayText(part.label) + ' '));
     header.appendChild(badge(part.status, part.status_class));
-    if (sessionId !== null) {
-      header.appendChild(document.createTextNode(' · session ' + sessionId));
-    }
     detail.appendChild(header);
     const [model, boundary] = served(part);
     detail.appendChild(el('p', 'cause', 'model ' + model.text + ' · boundary ' + boundary.text));
@@ -991,40 +1345,21 @@ function renderDetail(id, view) {
     if (part.provenance) {
       detail.appendChild(el('p', 'cause', 'selected by ' + part.provenance.line));
     }
-    // The lowest level IS the session prose. When the seat's transcript
-    // exists on this machine it renders here; the journal's checkpoint
-    // stream is only the fallback (exec steps, vanished transcripts).
-    if (sessionId !== null) {
-      // Only a claude harness answers to `claude --resume`; a session
-      // held by another harness is named with its holder and no
-      // command, so a codex thread id is never a pasteable claude lie.
-      // Provenance absent means a pre-0016 journal, all claude seats.
-      const holder = part.provenance && typeof part.provenance.provider === 'string'
-        ? part.provenance.provider : null;
-      detail.appendChild(el('p', 'cause',
-        holder === null || holder === 'claude' || holder === 'lanetally'
-          ? 'full session: claude --resume ' + sessionId
-          : 'full session: ' + sessionId + ' · held by ' + holder + ', no resume verb yet'));
-      const box = el('div', 'transcript');
-      box.appendChild(el('p', 'cause', 'loading transcript…'));
-      detail.appendChild(box);
-      if (part.status === 'working') {
-        watchSession(sessionId, box, part);
-      } else {
-        // Nothing more will land here. If THIS session was the one being
-        // watched, drop its cache once more so this render is the final
-        // look — the last words written before the seat concluded are
-        // not lost to an entry that predates them. A watch on some other
-        // seat ends too: its box is gone with this render.
-        if (sessionWatch === sessionId) transcriptCache.delete(sessionId);
-        closeSessionWatch();
-      }
-      renderTranscript(box, sessionId, part);
+    // The transcript area belongs to the controller: it owns the session
+    // label, the shared hint, the prose and the checkpoint fallback. The
+    // adapter hands it the current box and asks it to repaint.
+    const box = el('div', 'transcript');
+    detail.appendChild(box);
+    transcriptBox = box;
+    transcriptPart = part;
+    const subject = participantSubject(id, part);
+    if (explicitSelectKey === part.key) {
+      explicitSelectKey = null;
+      transcriptController.operator_select(subject);
     } else {
-      // No id to watch: nothing streams, and any earlier watch ends.
-      closeSessionWatch();
-      detail.appendChild(checkpointTable(part));
+      transcriptController.sync(subject);
     }
+    transcriptController.repaint();
     // Terminal line: members conclude on their panel-member-finished
     // outcome; the seat itself on the effect's terminal event.
     detail.appendChild(el('p', part.terminal_line.absent ? 'cause' : null,
@@ -1076,7 +1411,7 @@ function renderDetail(id, view) {
         what.appendChild(el('span', 'arrow', e.what.arrow));
       }
       if (e.what.badge === null && e.what.arrow === null) {
-        what.appendChild(document.createTextNode(e.what.text));
+        what.appendChild(document.createTextNode(displayText(e.what.text)));
       }
       if (e.what.problem !== null) {
         what.appendChild(el('div', 'problem', e.what.problem));
@@ -1110,12 +1445,15 @@ function select(id) {
   loadRuns();
   loadDetail(id);
   if (source) source.close();
-  // The prose watch is a child of the run's stream: replacing one ends
-  // the other, and so does the run stream failing.
-  closeSessionWatch();
+  // The participant interval is a child of the run's stream: replacing one
+  // ends the other, and so does the run stream failing.
+  transcriptController.clear();
+  transcriptBox = null;
+  transcriptPart = null;
+  explicitSelectKey = null;
   source = new EventSource('/sse/' + encodeURIComponent(id));
   source.onmessage = () => { loadDetail(id); loadRuns(); };
-  source.onerror = () => closeSessionWatch();
+  source.onerror = () => transcriptController.clear();
 }
 
 document.getElementById('divider').onclick = () => {

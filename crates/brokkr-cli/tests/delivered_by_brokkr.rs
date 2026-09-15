@@ -894,7 +894,10 @@ fn a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so() {
 #[test]
 fn a_namespace_judged_run_carries_no_adjective() {
     if !can_create_namespace() {
-        eprintln!("skipped: no namespace can be built here");
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here",
+        );
         return;
     }
     let side = tempfile::tempdir().unwrap();

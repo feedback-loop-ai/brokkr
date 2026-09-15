@@ -160,13 +160,29 @@ fn workspace() -> PathBuf {
 /// This correction moves the two triage descendants together: artifact
 /// validation retries now bind to journal-counted failures instead of every
 /// return into the phase.
+/// `recipes/gpt-flash` joins as the tenth witness: it is a descendant of
+/// `recipes/triage` whose scoped `gpt-flash-*` roster, four-strategy
+/// Sol/Flash/Astra seats and inherited deterministic gates are its identity.
+/// Decision 0058's citation in the recipe README moves its manifest digest
+/// once more, because the README bytes are part of the recipe's identity.
+/// Decision 0035's 2026-09-11 addendum moves it again: the dsh adapter
+/// lists an effortless route, and every bundle resolving an agent
+/// through that adapter pins its digest — the roster's Flash seats do.
+/// The dsh pin to the installed 0.1.5-rc.1 moves it once more for one
+/// named reason: `hands.unsupported` re-measured on that release, which
+/// moves the dsh adapter digest every Flash resolution witnesses.
+/// The review-first remediation corrects that reason once more for one
+/// named reason: `DSH_TOOLS_MODE` is documented (`native|ptc|both` into
+/// `tools.mode`), those are presentation modes rather than a capability
+/// restriction, and the installed tools/headless components identify as
+/// 0.1.5-rc.2 behind launcher 0.1.5-rc.1 — which moves the same digest.
 /// Proposed decision 0056 moves every bundle whose sites resolve through
 /// `adapters/claude.json`, `adapters/codex.json`, `adapters/dsh.json` or
 /// `adapters/lanetally.json`: each now declares what has been MEASURED
 /// about resuming it, and an adapter declaration is bundle data. Only
 /// `recipes/research-dsh` is unmoved, because its lane resolves through
 /// no declaration this change edited.
-const WITNESSES: [(&str, &str); 9] = [
+const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
         "ea3622812a5e868500b1ed74e3eb20b899c410b24231b515803476a6a7cab424",
@@ -181,7 +197,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/night-shift",
-        "f5d2d157995633b26bf41cf7f8dc2f9941ef2e3cc21167e4937fba9dc32b3adb",
+        "7c00a8a7cbb88e286688e66c60e54c4a3f446959d69dc93e39364bd062326a79",
     ),
     (
         "recipes/wager-harness",
@@ -189,7 +205,7 @@ const WITNESSES: [(&str, &str); 9] = [
     ),
     (
         "recipes/triage",
-        "602cae2b53bfc1ef6b0806c6f286b088e1f92fb43d200b6ef51723a6cb943f1c",
+        "a3d142822e63717c3d3789b2005f22dc9839482a821091474d271033f122b5fe",
     ),
     (
         "recipes/research",
@@ -198,6 +214,10 @@ const WITNESSES: [(&str, &str); 9] = [
     (
         "recipes/research-dsh",
         "3633c913555b12835f385d3f6dad3fc101f1b0756ed52dc9babde78c07d2d657",
+    ),
+    (
+        "recipes/gpt-flash",
+        "6289fad92c046b3cf73e8e578e96c8af74a0dc26419a22101ff74f2a56b13266",
     ),
     (
         "bundles/verify",

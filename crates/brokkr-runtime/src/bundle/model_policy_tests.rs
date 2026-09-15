@@ -338,7 +338,7 @@ fn the_model_pin_refusal_names_every_inline_invocation_site_and_the_fix() {
             ]
         }
     });
-    let refusal = enforce_model_pins(seats.as_object().unwrap())
+    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
         .unwrap_err()
         .to_string();
     for site in [
@@ -386,7 +386,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
                 ["{brokkr}", "driver", "claude", "--", "--model", "claude-opus-5"]},
         },
     });
-    let refusal = enforce_model_pins(seats.as_object().unwrap())
+    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
         .unwrap_err()
         .to_string();
     assert!(!refusal.contains("do not pin a model"), "{refusal}");
@@ -436,7 +436,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
     ] {
         let seats = json!({"work": {"driver": {"command": command}}});
         assert!(
-            enforce_model_pins(seats.as_object().unwrap())
+            enforce_model_pins(seats.as_object().unwrap(), None)
                 .unwrap_err()
                 .to_string()
                 .contains("do not pin an effort"),
@@ -447,7 +447,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
     // And an exec seat needs neither pin: ruling 5's own exemption.
     let exec = json!({"work": {"driver": {"command":
         ["{brokkr}", "driver", "exec", "--", "true"]}}});
-    enforce_model_pins(exec.as_object().unwrap()).expect("exec needs no effort");
+    enforce_model_pins(exec.as_object().unwrap(), None).expect("exec needs no effort");
 }
 
 #[test]
@@ -464,7 +464,7 @@ fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() 
         "agent": {"agent": "implementer"},
         "custom": {"driver": {"command": ["custom-driver"]}}
     });
-    enforce_model_pins(seats.as_object().unwrap()).expect("every model invocation is pinned");
+    enforce_model_pins(seats.as_object().unwrap(), None).expect("every model invocation is pinned");
 
     for command in [
         json!(null),
@@ -529,7 +529,7 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
             "--effort=medium", "--effort-cap=medium"
         ]}},
     });
-    enforce_model_pins(seats.as_object().unwrap())
+    enforce_model_pins(seats.as_object().unwrap(), None)
         .expect("a seat that states both pins has stated them, whatever stands beside them");
     for site in seats.as_object().unwrap().values() {
         assert!(command_pins_model(site));
@@ -543,7 +543,7 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
         "--effort", "high"
     ]}}});
     assert!(
-        enforce_model_pins(twice.as_object().unwrap())
+        enforce_model_pins(twice.as_object().unwrap(), None)
             .unwrap_err()
             .to_string()
             .contains("do not pin a model"),
@@ -2155,6 +2155,65 @@ fn the_shipped_codex_adapter_says_why_it_cannot_restrict_tools() {
 }
 
 #[test]
+fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
+    // The dsh pin task re-probed the installed launcher `dsh 0.1.5-rc.1`
+    // (2026-09-12) for every stale version note and moved only what it
+    // re-measured: the launcher flags
+    // (`-V/--profile/--patch/--dump-config/--dump-default-config`,
+    // `web`/`plugin`) and the headless flags (`-h` alone, reasoning
+    // streamed to stderr) are unchanged since 0.1.2-rc.1, still no CLI
+    // flag swaps the shell and file tools or adds an MCP server. The
+    // tools row reads `DSH_TOOLS_MODE` into `tools.mode`
+    // (`dsh-headless/cordis.patch.yml:16`, the same seam as
+    // `dsh-web-app/cordis.patch.yml:34`) with documented vocabulary
+    // `native|ptc|both` (`@deepseek-ai/dsh-tools/README.md:64-74`); those
+    // are presentation modes for the visible schemas, not a restriction
+    // of the underlying shell and file tools, so the capability stays
+    // absent and `hands` stays unsupported. The installed components
+    // behind the launcher identify as 0.1.5-rc.2
+    // (`@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-headless`), so the
+    // reason names both identities. What moves is the REASON, which now
+    // names the release the tree is pinned to. An edit that drops the
+    // measurement back to an older release trips here, as does one that
+    // invents a flag or reverts the vocabulary to undocumented.
+    let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
+    let dsh = adapters.adapter("dsh").expect("a shipped adapter");
+    assert!(dsh.hands.is_none(), "dsh still expresses no tool surface");
+    let gap = dsh
+        .hands_gap
+        .as_deref()
+        .expect("and still records why, rather than leaving it to be guessed");
+    assert!(gap.contains("0.1.5-rc.1"), "{gap}");
+    assert!(gap.contains("0.1.5-rc.2"), "{gap}");
+    assert!(gap.contains("no CLI flag"), "{gap}");
+    assert!(gap.contains("presentAs"), "{gap}");
+    assert!(gap.contains("DSH_TOOLS_MODE"), "{gap}");
+    assert!(gap.contains("tools.mode"), "{gap}");
+    assert!(gap.contains("native"), "{gap}");
+    assert!(gap.contains("ptc"), "{gap}");
+    assert!(gap.contains("both"), "{gap}");
+    assert!(gap.contains("presentation"), "{gap}");
+    // The spark effort refusal was already measured on this release
+    // (decision 0035 addendum 2026-09-11, same binary), so it stands —
+    // pinned here so a re-pin that drops the route or its version trips
+    // beside the hands half of the same task.
+    let spark = dsh
+        .effortless_routes
+        .get("spark")
+        .expect("spark stays the measured effortless route");
+    assert!(spark.contains("0.1.5-rc.1"), "{spark}");
+    // The neighbours are untouched by this slice: bare `unsupported`
+    // stays bare, so the re-measured reason cannot be mistaken for a
+    // capability somebody forgot to wire.
+    assert!(dsh.tool_permissions.is_none(), "dsh tool_permissions");
+    assert!(
+        dsh.tool_permissions_gap.is_none(),
+        "dsh tool_permissions_gap"
+    );
+    assert!(dsh.mcp.is_none(), "dsh mcp");
+}
+
+#[test]
 fn the_shipped_codex_adapter_maps_the_models_its_own_cli_names() {
     // The other adapter-data half: `codex debug models` on the
     // installed codex-cli 0.148.0 listed the three gpt-5.6 slugs, and the
@@ -3758,15 +3817,16 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 /// claude's two `hands.harness` members planted as fragments — the
 /// shipped files once the operator's measurement lands — every shipped
 /// bundle without a dialect step compiles under `harness` in a realm
-/// declaring the openspec dialect, fourteen of the sixteen, each hands
-/// site's manifest `boundary` entry reading `harness`; `recipes/triage`
-/// and `recipes/night-shift` refuse naming their dialect step and ruling 4.
+/// declaring the openspec dialect, fourteen of the seventeen, each hands
+/// site's manifest `boundary` entry reading `harness`; `recipes/gpt-flash`,
+/// `recipes/night-shift` and `recipes/triage` refuse naming their dialect
+/// step and ruling 4.
 ///
 /// Second half: against the shipped adapters as they stand, claude
-/// declaring no member, exactly five refuse, each naming the ground the
+/// declaring no member, exactly six refuse, each naming the ground the
 /// compiler reaches first — `bundles/self` at `review` and
 /// `recipes/panel-review` at `review:correctness` naming `claude`,
-/// `hands.harness.gate` and the site; the two dialect bundles at
+/// `hands.harness.gate` and the site; the three dialect bundles at
 /// `analyze:check` — and every other compiles. This half is a pin that
 /// moves for a known reason: the measurement landing, or a decision
 /// admitting the dialect step.
@@ -3789,8 +3849,12 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // compiles under harness like `fast`.
     // Sixteen with release preparation: its boxed work office reaches the
     // missing claude harness.work fragment before its reviewer.
-    assert_eq!(dirs.len(), 16, "{dirs:?}");
-    let dialect_bundles = ["recipes/night-shift", "recipes/triage"];
+    // Seventeen with GPT/Flash, which inherits triage's dialect steps.
+    // Eighteen with review-first (decision 0060): fast's constitution
+    // entered at verify, boxed exec gates only, so it compiles under
+    // harness like `fast`.
+    assert_eq!(dirs.len(), 18, "{dirs:?}");
+    let dialect_bundles = ["recipes/gpt-flash", "recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
     for dir in &dirs {
@@ -3852,7 +3916,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 14, "{compiled:?}");
+    assert_eq!(compiled.len(), 15, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();
@@ -3892,7 +3956,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
                             "{name}: {refusal}"
                         );
                     }
-                    "recipes/night-shift" | "recipes/triage" => {
+                    "recipes/gpt-flash" | "recipes/night-shift" | "recipes/triage" => {
                         assert_refused_at_the_dialect_step(&name, &refusal);
                     }
                     other => panic!("{other} refuses under harness: {refusal}"),
@@ -3905,6 +3969,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     assert_eq!(
         refused,
         [
+            "recipes/gpt-flash",
             "recipes/night-shift",
             "recipes/panel-review",
             "recipes/release",
@@ -3978,6 +4043,169 @@ fn a_measured_claude_gap_is_reported_not_papered_over() {
     }
     assert_eq!(
         refused,
-        ["recipes/night-shift", "recipes/release", "recipes/triage"]
+        [
+            "recipes/gpt-flash",
+            "recipes/night-shift",
+            "recipes/release",
+            "recipes/triage"
+        ]
+    );
+}
+
+/// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
+/// resolves to an effortless route needs no effort pin — and the
+/// answering digest is witnessed. A bare id keeps the adapter
+/// default's standing, an unlisted route keeps the refusal, and no
+/// adapters at all keeps the strict rule, exactly as a bundle with no
+/// adapters/ directory in sight compiles today.
+#[test]
+fn effortless_routes_excuse_only_their_own_lanes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("adapters")).unwrap();
+    std::fs::write(
+        dir.path().join("adapters/dsh.json"),
+        serde_json::to_string_pretty(&json!({
+            "provider": "dsh",
+            "binary": "dsh",
+            "driver": ["{brokkr}", "driver", "dsh", "--"],
+            "models": {
+                "spark-flash": "spark/qwen3.8-flash",
+                "flash": "deepseek-v4-flash",
+                "qwen-flash": "dashscope/qwen3.8-flash",
+            },
+            "model_flag": "--model",
+            "efforts": ["low", "medium", "high", "xhigh"],
+            "effort_flag": "--effort",
+            "effortless_routes": {
+                "spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level",
+            },
+            "tool_permissions": "unsupported",
+            "mcp": "unsupported",
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let adapters = Adapters::load(&dir.path().join("adapters")).unwrap();
+
+    let seat = |command: Value| json!({"results": ["pass"], "driver": {"command": command}});
+    let spark = || {
+        seat(json!([
+            "{brokkr}",
+            "driver",
+            "dsh",
+            "--",
+            "--model",
+            "spark/qwen3.8-flash",
+        ]))
+    };
+    let seats = json!({"implement": spark()});
+
+    // Exempt, with the answering digest witnessed beside the exemption.
+    let witnessed = enforce_model_pins(seats.as_object().unwrap(), Some(&adapters)).unwrap();
+    assert_eq!(
+        witnessed["implement"]["dsh"],
+        Value::String(adapters.adapter("dsh").unwrap().digest.clone()),
+    );
+
+    // No adapters: the strict rule stands.
+    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+
+    // A bare id keeps the adapter default's standing: it takes effort.
+    let bare = json!({"implement": seat(json!([
+        "{brokkr}", "driver", "dsh", "--",
+        "--model", "deepseek-v4-flash",
+    ]))});
+    let refusal = enforce_model_pins(bare.as_object().unwrap(), Some(&adapters))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+
+    // An unlisted route keeps the refusal.
+    let studio = json!({"implement": seat(json!([
+        "{brokkr}", "driver", "dsh", "--",
+        "--model", "dashscope/qwen3.8-flash",
+    ]))});
+    let refusal = enforce_model_pins(studio.as_object().unwrap(), Some(&adapters))
+        .unwrap_err()
+        .to_string();
+    assert!(refusal.contains("do not pin an effort"), "{refusal}");
+
+    // An effort pinned on an effortless route still compiles — the
+    // provider refuses it at spawn, fail-closed, never silently — and
+    // witnesses nothing, because no exemption was claimed.
+    let pinned = json!({"implement": seat(json!([
+        "{brokkr}", "driver", "dsh", "--",
+        "--model", "spark/qwen3.8-flash",
+        "--effort", "low",
+    ]))});
+    let witnessed = enforce_model_pins(pinned.as_object().unwrap(), Some(&adapters)).unwrap();
+    assert!(witnessed.is_empty());
+}
+
+#[test]
+fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
+    // Coverage for the two miss arms in `effort_exempt`: a seat driving
+    // a built-in provider the adapter map does not declare, and a seat
+    // with no model-bearing driver at all — neither claims an exemption
+    // and nothing is witnessed.
+    let fixture = Fixture::new();
+    let adapters = Adapters::load(&fixture.dir.path().join("adapters")).unwrap();
+    assert!(adapters.adapter("codex").is_none());
+    let raw = json!({"driver": {"command": [
+        "{brokkr}", "driver", "codex", "--", "--model", "gpt-5.6-sol",
+    ]}});
+    let mut witnessed = Map::new();
+    assert!(!effort_exempt(
+        "work",
+        &raw,
+        Some(&adapters),
+        &mut witnessed
+    ));
+    assert!(witnessed.is_empty());
+    let exec = json!({"driver": {"command": [
+        "{brokkr}", "driver", "exec", "--", "true",
+    ]}});
+    assert!(!effort_exempt(
+        "check",
+        &exec,
+        Some(&adapters),
+        &mut witnessed
+    ));
+    assert!(witnessed.is_empty());
+}
+
+#[test]
+fn an_exempted_inline_gate_merges_its_authorisation_with_its_exemption() {
+    // Coverage for the manifest merge arm: an inline gate on an
+    // effortless route with no effort pin is BOTH authorised (its
+    // adapter's digest in the resolution record) AND exempted (the same
+    // digest witnessed beside the exemption), so the manifest merges the
+    // two records instead of inserting.
+    let fixture = Fixture::new();
+    let mut dsh = adapter("dsh", Some("trusted"), Some(true));
+    dsh["models"] = json!({"spark": "spark/qwen3.8-flash"});
+    dsh["judges"] = json!(["spark"]);
+    dsh["model_flag"] = json!("--model");
+    dsh["efforts"] = json!(["low", "medium", "high", "xhigh"]);
+    dsh["effort_flag"] = json!("--effort");
+    dsh["effortless_routes"] = json!({"spark": "test route refuses every level"});
+    fixture.write_adapter(dsh);
+    let bundle = fixture
+        .compile(json!({
+            "results": ["pass", "fail"],
+            "class": "gate",
+            "role": "roles/role.md",
+            "driver": {"command": [
+                "{brokkr}", "driver", "dsh", "--",
+                "--model", "spark/qwen3.8-flash",
+            ]},
+        }))
+        .expect("a trusted effortless gate compiles");
+    assert_eq!(
+        bundle.manifest["drivers"],
+        json!({"work": {"dsh": adapter_digest(&fixture, "dsh")}}),
     );
 }

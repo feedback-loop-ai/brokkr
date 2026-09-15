@@ -925,7 +925,27 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
     // workspace suite inside that same boundary, and decision 0043 forbids
     // nesting it. Portable engine tests prove argv expansion and dispatch;
     // this end-to-end proof is only for a process allowed to open the box.
+    // The marker catches a Brokkr box; a harness-owned sandbox (a dsh seat,
+    // for one) refuses the namespace without setting it, so the probe
+    // decides the same way the hands tests do.
+    let required = brokkr_protocol::hands::boundary_evidence_required();
     if std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some() {
+        brokkr_protocol::hands::skip_boundary_proof(required, "this environment is already a box");
+        return;
+    }
+    let Ok(bwrap) = brokkr_protocol::hands::require_bwrap() else {
+        brokkr_protocol::hands::skip_boundary_proof(required, "no bubblewrap on PATH");
+        return;
+    };
+    let can_open_a_box = std::process::Command::new(bwrap)
+        .args(["--ro-bind", "/", "/", "--", "true"])
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !can_open_a_box {
+        brokkr_protocol::hands::skip_boundary_proof(
+            required,
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let script = json!({"seats": {

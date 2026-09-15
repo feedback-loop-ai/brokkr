@@ -10,6 +10,10 @@ fn one(text: &str) -> Vec<String> {
 }
 
 #[cfg(target_os = "linux")]
+/// Whether a boundary proof can build a real namespace here. A proof
+/// that cannot is logged as a skip, or failed outright on a host that
+/// declared [`BOUNDARY_EVIDENCE_ENV`]: a skipped proof prints `... ok`
+/// and is otherwise indistinguishable from a pass (decision 0054).
 fn can_create_namespace() -> bool {
     if std::env::var_os(HANDS_BOX_ENV).is_some() {
         return false;
@@ -185,6 +189,10 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         "--ro-bind-try {r} {r}",
         r = home.join(".rustup").display()
     )));
+    assert!(
+        text.contains("--ro-bind-try /usr/include /usr/include"),
+        "the libc headers are toolchain, or a boxed gate cannot compile C"
+    );
     assert!(text.contains("--bind-try /opt/scratchpad /opt/scratchpad"));
     assert!(text.contains(&format!("--setenv NPM_CONFIG_CACHE {}", npm.display())));
     assert!(
@@ -199,6 +207,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // not bound again, but its hooks are hidden and its config read-only.
     let inside = GitFacts {
         git_dir: Some(workdir.join(".git")),
+        common_dir: Some(workdir.join(".git")),
         identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
     };
     let argv = box_argv(
@@ -227,7 +236,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // A `git worktree`: the common dir is elsewhere and must be bound.
     let common = dir.path().join("main/.git");
     let outside = GitFacts {
-        git_dir: Some(common.clone()),
+        git_dir: Some(common.join("worktrees/wt")),
+        common_dir: Some(common.clone()),
         identity: Vec::new(),
     };
     let argv = box_argv(
@@ -609,7 +619,10 @@ fn the_harness_config_names_this_binary_and_the_spec() {
 #[test]
 fn the_box_hides_the_host_and_holds_the_worktree() {
     if !can_create_namespace() {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -748,7 +761,10 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
 #[test]
 fn git_works_in_the_box_and_cannot_plant_a_hook() {
     if !can_create_namespace() {
-        eprintln!("skipped: this environment cannot create a bubblewrap namespace");
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -792,7 +808,15 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
 
     let facts = git_facts(&worktree);
-    assert_eq!(facts.git_dir.as_deref(), Some(main.join(".git").as_path()));
+    assert_eq!(
+        facts.common_dir.as_deref(),
+        Some(main.join(".git").as_path())
+    );
+    assert_eq!(
+        facts.git_dir.as_deref(),
+        Some(main.join(".git/worktrees/wt").as_path()),
+        "the per-worktree directory is distinct from the shared one"
+    );
     assert!(facts
         .identity
         .iter()
@@ -806,6 +830,7 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     // Not a repository: no git dir to mask (the identity is the host's
     // global one either way).
     assert_eq!(git_facts(dir.path()).git_dir, None);
+    assert_eq!(git_facts(dir.path()).common_dir, None);
 
     let spec = HandsSpec::default();
     let session = session_dir("git").unwrap();
@@ -879,6 +904,86 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
         .unwrap()
         .contains("evil"));
     let _ = std::fs::remove_dir_all(&session);
+}
+
+/// Decision 0054: a boundary proof that cannot open a namespace logs a
+/// skip on a developer's laptop and FAILS on the host whose job is to
+/// produce the evidence. Both answers are reachable from one process
+/// because the requirement is passed in rather than read at the call
+/// site, so neither arm rests on a process-wide environment change.
+#[test]
+fn a_skipped_boundary_proof_passes_only_where_the_evidence_is_optional() {
+    skip_boundary_proof(false, "no bubblewrap here");
+    // An empty value is not a declaration: a workflow expanding an unset
+    // variable must not arm the gate for a leg with no namespace to open.
+    assert!(!boundary_evidence_declared(None));
+    assert!(!boundary_evidence_declared(Some(std::ffi::OsString::new())));
+    assert!(boundary_evidence_declared(Some("1".into())));
+    // And the host's own answer reads that same variable.
+    let _ = boundary_evidence_required();
+    assert_eq!(BOUNDARY_EVIDENCE_ENV, "BROKKR_REQUIRE_BOUNDARY_EVIDENCE");
+}
+
+#[test]
+#[should_panic(expected = "must produce real boundary evidence")]
+fn a_required_boundary_proof_may_not_skip() {
+    skip_boundary_proof(true, "no bubblewrap here");
+}
+
+/// Decision 0054: the two git paths arrive one per line, so a path that
+/// itself spans a line makes the answer ambiguous — and an ambiguous git
+/// directory is no git directory. The box then has no git to bind, which
+/// is the fail-closed reading.
+#[cfg(unix)]
+#[test]
+fn a_git_directory_whose_path_spans_a_line_is_not_a_git_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let weird = dir.path().join("line\nbreak");
+    std::fs::create_dir_all(&weird).unwrap();
+    let out = Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&weird)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let facts = git_facts(&weird);
+    assert_eq!(facts.git_dir, None);
+    assert_eq!(facts.common_dir, None);
+}
+
+/// The same ambiguity read directly, so every arm of the parse is a plain
+/// test: two non-empty lines and nothing else is the only shape that names
+/// a git directory.
+#[test]
+fn two_non_empty_lines_and_nothing_else_are_a_git_directory() {
+    let two = |reported: &str| {
+        let (git_dir, common_dir) = parse_git_dirs(reported);
+        (git_dir.map(|p| p.display().to_string()), common_dir)
+    };
+    assert_eq!(
+        two("/repo/.git\n/repo/.git"),
+        (
+            Some("/repo/.git".to_string()),
+            Some(PathBuf::from("/repo/.git"))
+        )
+    );
+    // No trim: a path may end in a space.
+    assert_eq!(
+        two("/repo/.git \n/repo/.git \n"),
+        (
+            Some("/repo/.git ".to_string()),
+            Some(PathBuf::from("/repo/.git "))
+        )
+    );
+    // An empty line on either side, a missing line, or a third line makes
+    // the answer ambiguous and both stay absent.
+    for reported in ["", "\n", "/repo/.git\n\n", "\n/repo/.git\n", "/a\n/b\n/c\n"] {
+        assert_eq!(two(reported), (None, None), "{reported:?}");
+    }
 }
 
 // ─────────────── decision 0046 ruling 4: the unboxed exec dispatch

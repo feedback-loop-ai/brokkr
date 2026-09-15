@@ -1,0 +1,15 @@
+{
+  "description": "GPT task planner for the GPT/Flash recipe.",
+  "charter": "charters/implementer-sdd.md",
+  "models": [
+    "sol"
+  ],
+  "efforts": {
+    "sol": "high"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": []
+  }
+}

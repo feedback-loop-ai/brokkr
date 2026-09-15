@@ -7,6 +7,7 @@
 //! indeterminate — never converted to success, never silently retried.
 
 pub mod adapters;
+pub mod dsh_sandbox;
 pub mod fake;
 pub mod hands;
 pub mod legacy;

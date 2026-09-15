@@ -3,6 +3,14 @@
 Status: accepted — operator ruled 2026-08-31 ("forge Muninn, approved")
 Date: 2026-08-31
 
+**Erratum, 2026-09-10 (proposed decision 0059):** ruling 1's evidence
+source and ruling 3's citation rule are amended for the crossings a
+world's map draws. The world loader's one crossing report is admitted
+beside the journal-derived models, a proposal may cite a `(realm,
+crossing)` pair beside a `(run_id, seq)`, and a mapped world that draws a
+crossing yields a dossier before any journal exists. Rulings 2, 4, 5 and
+6 stand. See [0059](0059-muninn-reads-the-crossings-the-map-draws.md).
+
 ## Context
 
 Decision 0019 reserved the name: Muninn, Odin's raven — Memory — who flies

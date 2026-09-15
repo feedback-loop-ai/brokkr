@@ -151,14 +151,17 @@ gate; the artifacts ship attested, with their checksums beside them.
 *Plain form: `.github/workflows/release.yml` — admission, exact release
 coverage, attestation, SHA256SUMS.*
 
-## Bifröst — forge-bridge
+## Bifröst — brokkr-bridge
 
 The burning rainbow bridge between the worlds of gods and men.
 
-**The lesson:** none needed — the crate was named `forge-bridge` before the
-Edda existed. Sometimes the myth was already there, waiting.
+**The lesson:** none needed — the crate was named for the bridge before the
+Edda existed. Sometimes the myth was already there, waiting. The name is
+spent here, on the producer bridge, and is not lent to anything else: the
+inter-realm contract decision 0023 once called a Bifröst crossing is named
+plainly, a crossing, under 0019 ruling 10 (decision 0057).
 
-*Plain form: the `forge-bridge` crate.*
+*Plain form: the `brokkr-bridge` crate.*
 
 ## Sindri and the sons of Ivaldi — the implement seat and the driver fleet
 

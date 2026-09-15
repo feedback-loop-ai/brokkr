@@ -54,7 +54,10 @@ fn report_realm(
 ) {
     report_realm_world(
         report,
-        brokkr_runtime::realms::World::discover(workspace, named),
+        // `inspect`, exactly as `doctor()` reads it: a doctor line
+        // reports and never refuses, so the loader it stands on is the
+        // one that carries a moved crossing as data.
+        brokkr_runtime::realms::World::inspect(workspace, named),
         workspace,
         probe,
         unexpected_box,
@@ -156,6 +159,33 @@ fn dialect_realm(dir: &Path, name: &str) {
     .unwrap();
 }
 
+/// The same dialect the library serves, installed INSIDE one realm's own
+/// tree under a chosen file name — instructions beside it, because
+/// `Dialect::load` pins every instruction from the dialect file's own
+/// directory. A declaration ending in `.json` resolves against the
+/// REALM's root (`library_path`), so this is how two realms can name the
+/// same relative path and still get their own file: the decoy a
+/// two-repository proof needs, so that a realm secretly resolved to its
+/// neighbour's tree would find something usable there and go healthy.
+fn realm_local_dialect(dir: &Path, realm: &str, file: &str) {
+    std::fs::create_dir_all(dir.join(realm).join("openspec")).unwrap();
+    std::fs::copy(
+        workspace().join("dialects/openspec.json"),
+        dir.join(realm).join(file),
+    )
+    .unwrap();
+    for entry in std::fs::read_dir(workspace().join("dialects/openspec")).unwrap() {
+        let source = entry.unwrap().path();
+        std::fs::copy(
+            &source,
+            dir.join(realm)
+                .join("openspec")
+                .join(source.file_name().unwrap()),
+        )
+        .unwrap();
+    }
+}
+
 #[test]
 fn doctor_reports_a_realms_dialect_tool_pin_and_required_files() {
     let dir = tempfile::tempdir().unwrap();
@@ -183,6 +213,172 @@ fn doctor_reports_a_realm_without_a_dialect() {
     let report = dialects(&world, always_missing, box_missing);
     assert_eq!(report.render(), "ok       dialect app: none declared");
     assert!(report.healthy);
+}
+
+/// A world with a crossing drawn across it, and the published file's
+/// bytes optionally moved out from under the pin. Two realms, each its
+/// own directory and its own house, so a crossing's failure can be told
+/// apart from every other line this readout carries.
+fn crossing_world(dir: &Path, moved: bool) {
+    let pin = brokkr_core::canonical::sha256_bytes(b"{\"title\": \"orders\"}\n");
+    for realm in ["alpha", "beta"] {
+        std::fs::create_dir_all(dir.join(realm)).unwrap();
+        std::fs::write(dir.join(realm).join("HOUSE.md"), "House.\n").unwrap();
+    }
+    std::fs::create_dir_all(dir.join("alpha/contracts")).unwrap();
+    let published = dir.join("alpha/contracts/orders.v1.schema.json");
+    let bytes = match moved {
+        true => "{\"title\": \"Orders\"}\n",
+        false => "{\"title\": \"orders\"}\n",
+    };
+    std::fs::write(&published, bytes).unwrap();
+    std::fs::write(
+        dir.join("realms.json"),
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": "alpha", "default_branch": "main",
+                 "house": "HOUSE.md",
+                 "publishes": [{"name": "orders.api",
+                                "path": "contracts/orders.v1.schema.json"}]},
+                {"name": "beta", "path": "beta", "default_branch": "main",
+                 "house": "HOUSE.md",
+                 "consumes": [{"name": "orders.api", "realm": "alpha", "sha256": pin}]},
+            ],
+            "journal": ".forge/forge.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+fn realm_report(dir: &Path) -> Report {
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm(&mut report, dir, None, always_missing);
+    report
+}
+
+/// Decision 0057 through doctor, on decision 0046's Addendum's terms: a
+/// crossing that has moved is one realm's LINE, not the end of the
+/// readout. The world still exists — its houses, its dialects, its
+/// boundaries all still answer — and what a run would have refused is
+/// reported here, keyed to the failing realm and the failing crossing,
+/// in the run's own words.
+#[test]
+fn doctor_reports_a_moved_crossing_as_a_line_and_not_a_broken_world() {
+    let dir = tempfile::tempdir().unwrap();
+    crossing_world(dir.path(), true);
+    let report = realm_report(dir.path());
+    let rendered = report.render();
+
+    // The publisher is sound and says so; the consumer's pin is not, and
+    // its line names the realm, the crossing, the pin and what is there.
+    assert!(
+        rendered
+            .contains("ok       crossings alpha: 1 published file(s) present, 0 pin(s) matching"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "MISSING  crossings beta 'orders.api': realm 'beta' consumes crossing \
+             'orders.api' from realm 'alpha' pinned at "
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("orders.v1.schema.json hashes to "),
+        "{rendered}"
+    );
+    assert!(!report.healthy, "a moved crossing is not healthy");
+
+    // And nothing else collapsed: the world came into existence, so the
+    // house count and BOTH realms' dialect lines are still there, and
+    // the map itself was never reported as broken.
+    assert!(
+        rendered.contains("ok       house rules: 2 realm declaration(s) readable"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect alpha: none declared"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect beta: none declared"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("realms map"), "{rendered}");
+
+    // The same world with its bytes intact: both realms report ok, and
+    // the readout is healthy.
+    let sound = tempfile::tempdir().unwrap();
+    crossing_world(sound.path(), false);
+    let report = realm_report(sound.path());
+    assert!(
+        report
+            .render()
+            .contains("ok       crossings beta: 0 published file(s) present, 1 pin(s) matching"),
+        "{}",
+        report.render()
+    );
+    assert!(report.healthy);
+}
+
+/// The other half of the same honesty: when the PUBLISHER's file cannot
+/// be read, its consumer's pin was compared to nothing, and doctor says
+/// so. It must not print the sound realm's line for beta — "1 pin(s)
+/// matching" beside "alpha's file is missing" would claim one contract
+/// both verified and unread — and it must not charge beta with a failure
+/// either, because the missing file is alpha's to answer for.
+#[test]
+fn doctor_never_calls_a_pin_matching_when_its_publisher_could_not_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    crossing_world(dir.path(), false);
+    std::fs::remove_file(dir.path().join("alpha/contracts/orders.v1.schema.json")).unwrap();
+    let report = realm_report(dir.path());
+    let rendered = report.render();
+
+    assert!(
+        rendered.contains("MISSING  crossings alpha 'orders.api': realm 'alpha' publishes"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "warn     crossings beta 'orders.api': pin not checked: realm 'alpha' \
+             publishes it and its file could not be read"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("crossings beta: "),
+        "beta's unchecked pin was counted as verified: {rendered}"
+    );
+    assert!(!report.healthy, "the publisher's missing file is unhealthy");
+
+    // And the whole world is still reported, as ever: this is a line, not
+    // a collapse.
+    assert!(
+        rendered.contains("ok       house rules: 2 realm declaration(s) readable"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("realms map"), "{rendered}");
+}
+
+/// A world that never drew a crossing gets no crossing line at all —
+/// byte for byte the readout it gave before this existed.
+#[test]
+fn doctor_adds_no_crossing_line_to_a_world_that_draws_none() {
+    let dir = tempfile::tempdir().unwrap();
+    world_of(dir.path(), vec![realm_json("app", false, None)]);
+    let rendered = realm_report(dir.path()).render();
+    assert!(!rendered.contains("crossings"), "{rendered}");
+    assert_eq!(
+        rendered,
+        "ok       house rules: 0 realm declaration(s) readable\n\
+         ok       dialect app: none declared"
+    );
 }
 
 #[test]
@@ -390,6 +586,235 @@ fn each_realm_is_probed_under_its_own_boundary() {
     assert!(report.healthy, "{rendered}");
 }
 
+/// Phase 2 slice (i), proof 3, dialect half: one realm's BROKEN
+/// declaration is named as that realm's failure and leaves its
+/// neighbour's line untouched.
+///
+/// `each_realm_is_probed_under_its_own_boundary` above proves two healthy
+/// realms are each answered on their own surface, and
+/// `a_declared_broken_dialect_is_refused_only_for_its_realm`
+/// (`crates/brokkr-runtime/src/realms/tests.rs`) proves the refusal WORDS
+/// name the realm — but on a ONE-realm map, where there is no neighbour
+/// to spoil. Neither proves the isolation this asserts: that a second,
+/// healthy realm in the SAME world still gets its own `ok` lines, and
+/// that the broken realm's name and error appear on no line but its own.
+///
+/// The broken declaration is the realm's OWN file (`docs/broken.json`),
+/// not the shared library — a corrupted `dialects/openspec.json` would
+/// break both realms and prove nothing about isolation.
+///
+/// And it is load-bearing for two TREES, not merely two names: a usable
+/// dialect stands at the same relative path in the neighbour's tree
+/// (`app/broken.json`), so a `docs` realm that resolved to `app`'s
+/// directory would load that one and report `ok`. The control at the
+/// foot of this test proves exactly that, so the assertions above cannot
+/// pass in a one-tree world.
+#[test]
+fn a_broken_dialect_in_one_realm_is_named_without_failing_its_neighbour() {
+    let dir = tempfile::tempdir().unwrap();
+    dialect_realm(dir.path(), "app");
+    realm_local_dialect(dir.path(), "app", "broken.json");
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::write(dir.path().join("docs/broken.json"), "{").unwrap();
+    let mut docs = realm_json("docs", false, None);
+    docs["dialect"] = json!("broken.json");
+    let world = world_of(dir.path(), vec![realm_json("app", true, None), docs]);
+
+    let report = dialects(&world, openspec_present, box_openspec);
+    let rendered = report.render();
+    assert!(
+        !report.healthy,
+        "a broken declaration still makes doctor unhealthy: {rendered}"
+    );
+    // The failing REALM is named, not the world.
+    assert!(
+        rendered.contains("MISSING  dialect docs: realm 'docs' dialect is unusable:"),
+        "{rendered}"
+    );
+    // And the healthy realm answers exactly as it does alone.
+    assert!(
+        rendered.contains(
+            "ok       dialect app: openspec · tool 'openspec' OpenSpec 1.12.0 · \
+             pinned 1.12.0 · probed inside the box"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("ok       dialect app requires openspec/config.yaml: present at"),
+        "{rendered}"
+    );
+    // One line per realm's verdict, in map order, and the broken realm's
+    // name and words are confined to its own line: a report that blamed
+    // `app` for `docs`'s file, or dropped `app` because `docs` failed,
+    // would fail here.
+    let app_lines: Vec<&str> = rendered
+        .lines()
+        .filter(|line| line.contains("dialect app"))
+        .collect();
+    assert_eq!(app_lines.len(), 2, "{rendered}");
+    for line in &app_lines {
+        assert!(
+            !line.contains("docs"),
+            "the neighbour's failure leaked: {line}"
+        );
+        assert!(!line.contains("unusable"), "{line}");
+    }
+    assert_eq!(
+        rendered
+            .lines()
+            .filter(|line| line.starts_with("MISSING"))
+            .count(),
+        1,
+        "one realm broke, one line: {rendered}"
+    );
+    // The failure names the file in DOCS's tree. `dialect docs` alone
+    // would say as much in a one-tree world; the resolved path is what
+    // says which repository was read.
+    let path_of = |realm: &str| {
+        dir.path()
+            .join(realm)
+            .join("broken.json")
+            .display()
+            .to_string()
+    };
+    assert!(rendered.contains(&path_of("docs")), "{rendered}");
+    assert!(
+        !rendered.contains(&path_of("app")),
+        "docs was answered from its own tree, never its neighbour's: {rendered}"
+    );
+
+    // The control: the SAME two declarations against ONE tree. Point
+    // `docs` at `app`'s directory and its `broken.json` is app's usable
+    // one, so the world goes healthy and every assertion above fails.
+    // Two repositories are what this proof rests on, and this is where
+    // that is demonstrated rather than assumed.
+    let mut one_tree = realm_json("docs", false, None);
+    one_tree["path"] = json!("app");
+    one_tree["dialect"] = json!("broken.json");
+    let world = world_of(dir.path(), vec![realm_json("app", true, None), one_tree]);
+    let report = dialects(&world, openspec_present, box_openspec);
+    let rendered = report.render();
+    assert!(report.healthy, "{rendered}");
+    assert!(
+        rendered.contains("ok       dialect docs: openspec · tool 'openspec' OpenSpec 1.12.0"),
+        "the decoy is a usable dialect, so only path resolution told the \
+         two realms apart above: {rendered}"
+    );
+}
+
+/// Phase 2 slice (i), proof 3, house half — and a LIMITATION recorded
+/// rather than papered over.
+///
+/// The house readout does name a broken realm by name, and it does not
+/// blame the healthy one. But it is NOT per-realm the way the dialect
+/// readout is: `report_realm_house_for_world` counts every realm's house
+/// into ONE aggregate `ok` line, and emits that line only when no realm
+/// failed. So in a two-realm world where one house is unreadable, the
+/// healthy realm's house gets no line at all — its `ok` is not corrupted,
+/// it is simply gone. A reader of `brokkr doctor` cannot tell from the
+/// house lines whether the other realm's house was read and fine, or
+/// never declared.
+///
+/// This test asserts what the machine actually does, so the day the
+/// readout becomes one line per realm this test fails and is rewritten
+/// deliberately. It is the residual this proof reports.
+#[test]
+fn a_broken_house_names_its_realm_but_the_readout_is_one_world_wide_count() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("app")).unwrap();
+    std::fs::write(dir.path().join("app/HOUSE.md"), "One realm rule.\n").unwrap();
+    let mut app = realm_json("app", false, None);
+    app["house"] = json!("HOUSE.md");
+
+    // Both houses readable: a single count, for two realms, naming
+    // neither. Already not per-realm — this is the shape the failure
+    // below degrades from.
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::write(dir.path().join("docs/HOUSE.md"), "Another rule.\n").unwrap();
+    let mut docs = realm_json("docs", false, None);
+    docs["house"] = json!("HOUSE.md");
+    let world = world_of(dir.path(), vec![app.clone(), docs]);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house_for_world(&mut report, &world);
+    assert_eq!(
+        report.render(),
+        "ok       house rules: 2 realm declaration(s) readable"
+    );
+    assert!(report.healthy);
+
+    // One house unreadable — unreadable in DOCS's tree. A readable file
+    // of that very name stands in the neighbour's tree, so a `docs`
+    // realm resolved to `app`'s directory would read it and count two;
+    // the control at the foot of this test proves it.
+    std::fs::write(dir.path().join("app/missing.md"), "The decoy rule.\n").unwrap();
+    let mut docs = realm_json("docs", false, None);
+    docs["house"] = json!("missing.md");
+    let world = world_of(dir.path(), vec![app.clone(), docs]);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house_for_world(&mut report, &world);
+    let rendered = report.render();
+    assert!(!report.healthy);
+    assert!(
+        rendered.contains("MISSING  house rules: realm 'docs' names house at"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("missing.md"), "{rendered}");
+    assert!(
+        !rendered.contains("'app'"),
+        "the healthy realm is not blamed for its neighbour: {rendered}"
+    );
+
+    // ...and the path it names is the one under DOCS's own tree, not the
+    // readable file of the same name next door.
+    let path_of = |realm: &str| {
+        dir.path()
+            .join(realm)
+            .join("missing.md")
+            .display()
+            .to_string()
+    };
+    assert!(rendered.contains(&path_of("docs")), "{rendered}");
+    assert!(
+        !rendered.contains(&path_of("app")),
+        "docs was answered from its own tree: {rendered}"
+    );
+
+    // ...but the healthy realm's own answer is GONE, not merely
+    // unnamed: one line, and it is the failure's. This is the residual.
+    assert_eq!(rendered.lines().count(), 1, "{rendered}");
+    assert!(
+        !rendered.contains("declaration(s) readable"),
+        "the aggregate count is suppressed by any failure, so a healthy \
+         realm beside a broken one states nothing: {rendered}"
+    );
+
+    // The control: the same two declarations against ONE tree. `docs` at
+    // `app`'s path finds `app/missing.md` readable, so the world counts
+    // two and stays healthy — which is to say the failure above is the
+    // second REPOSITORY's, and this proof cannot pass in a one-tree
+    // world.
+    let mut one_tree = realm_json("docs", false, None);
+    one_tree["path"] = json!("app");
+    one_tree["house"] = json!("missing.md");
+    let world = world_of(dir.path(), vec![app, one_tree]);
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_realm_house_for_world(&mut report, &world);
+    assert!(report.healthy, "{}", report.render());
+    assert_eq!(
+        report.render(),
+        "ok       house rules: 2 realm declaration(s) readable"
+    );
+}
+
 fn executed(
     exit_code: i32,
     stdout: &str,
@@ -477,6 +902,12 @@ fn can_create_namespace() -> bool {
 fn a_host_only_dialect_tool_is_unreachable_in_the_gate_box() {
     use std::os::unix::fs::PermissionsExt;
     if !can_create_namespace() {
+        // A host that declared it must produce boundary evidence fails
+        // here instead of printing `ok` (decision 0054 ruling 9).
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here",
+        );
         return;
     }
     let dir = tempfile::tempdir().unwrap();

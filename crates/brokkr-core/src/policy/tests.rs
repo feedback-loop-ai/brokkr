@@ -656,12 +656,12 @@ fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
             &machine,
             "clarify",
             "ambiguous",
-            json!({"visits_clarify": 2})
+            json!({"visits_clarify": 4})
         ),
         ("CLARIFY-AMBIGUOUS".into(), "specify".into())
     );
     assert_eq!(
-        park("clarify", "ambiguous", json!({"visits_clarify": 3})),
+        park("clarify", "ambiguous", json!({"visits_clarify": 5})),
         "CLARIFY-AMBIGUOUS-EXHAUSTED"
     );
     assert_eq!(
@@ -675,7 +675,7 @@ fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
                 &machine,
                 "analyze",
                 "drift",
-                json!({"visits_analyze": 2, "drift_in": drift_in})
+                json!({"visits_analyze": 4, "drift_in": drift_in})
             ),
             (
                 format!("ANALYZE-DRIFT-{}", drift_in.to_ascii_uppercase()),
@@ -686,7 +686,7 @@ fn the_shipped_sdd_table_rules_every_artifact_and_loop_arm() {
             park(
                 "analyze",
                 "drift",
-                json!({"visits_analyze": 3, "drift_in": drift_in})
+                json!({"visits_analyze": 5, "drift_in": drift_in})
             ),
             "ANALYZE-DRIFT-EXHAUSTED"
         );

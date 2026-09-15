@@ -66,6 +66,32 @@ journal  ./.forge/forge.db
 realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
 ```
 
+A world whose realms draw crossings (`forge.realms/v5`, decision 0057)
+says so under each realm: what that realm publishes, then what it
+consumes — naming the publishing realm and whether the pin still
+matches. The readout opens no crossing file and hashes nothing: every
+state comes off the one report the loader already built, so it and the
+run-time refusal can never disagree. A pin that moved is a line, not the
+end of the reading; `realms` reports, it does not refuse.
+
+```
+$ brokkr realms
+map      ./realms.json
+journal  ./.forge/forge.db
+realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
+  publishes  orders.api  contracts/orders.v1.schema.json
+realm    client  ../client  main  0f0f0f0a1b2c3d4e5f60718293a4b5c6d7e8f901
+  consumes   orders.api  brokkr  matching
+```
+
+A consumed pin reads `matching`, `moved` — with the refusal the run
+would give, in the loader's own words, naming the publisher's own
+declared path rather than any host location — or `unchecked`, when the
+publishing realm's file could not be read at all: not this realm's
+fault, but never a pin that matched. `--json` carries the same three
+words beside each consuming realm, so a script branches on a value
+rather than on prose.
+
 ### `brokkr runs` — the fleet
 
 One clamped line per run, newest first.
@@ -202,6 +228,82 @@ In `brokkr tui` the same journal draws the return as a solid arc under
 the span with a mirrored arrowhead (`╰ᐸ╯`) at the landing phase —
 drawn only when a return was actually taken, never as decoration.
 
+### `brokkr transcript` — one participant's retained prose
+
+Every driver records one retained, harness-owned transcript reference
+(decision 0032): Claude a session id, Codex a thread and rollout, DSH its
+session file. `brokkr transcript` reads that local file through the same
+bounded derivation the TUI pane uses, for every kind, and writes nothing:
+no provider process is started and the journal is opened read-only. The
+browser participant page consumes the same shared presentation for every
+kind and keeps its checkpoint fallback, but its id-only body drill stays
+Claude-only: the existing `/api/session/<id>` and `/sse/session/<id>`
+routes are explicit local Claude-session lookups, so a Codex thread or DSH
+session gets the shared hint and no browser body.
+
+```
+$ brokkr transcript --run latest --seat review:chief
+$ brokkr transcript --run latest --seat review:chief --turn 4
+$ brokkr transcript --run latest --seat review:chief --json
+```
+
+`--run` takes the same full-id, unique-prefix and `latest` selector as
+`inspect`, `--seat` an exact participant key or a label that is unique in
+the run, and `--turn` a one-based position in the same displayed
+sequence the TUI numbers — not a durable message id and not a raw JSONL
+line. Selecting a turn after the projection completes keeps that turn's
+original number and the whole read's notices. `--json` emits the
+`brokkr.transcript/v1` document: `run_id`, the exact `seat` key, the
+recorded `transcript` three strings, `legacy`, the confirmed `path`,
+`turn`, the ordered `turns`, `truncated`, `skipped_lines`,
+`unrecognized_records`, the shared `notices`, `unavailable` or null, and
+the per-kind `full_session` line. Text output sanitizes terminal control
+characters; JSON keeps the escaped originals.
+
+The closed unavailable vocabulary is `no-reference`, `none`,
+`unsupported-kind`, `unannounced`, `missing-home`, `invalid-reference`,
+`unsafe-path`, `not-found`, `ambiguous-source`, `discovery-limit`,
+`unreadable`, `unsupported-format` and `turn-not-retained`. A readable
+result — including an empty, skipped-line or truncated one — exits zero;
+any unavailable reason exits one with a sanitized stderr explanation, and
+the JSON document is still emitted under `--json`. The shared notices
+are, in order, `transcript truncated (size cap)`,
+`malformed transcript lines skipped: <n>` and
+`unrecognized transcript records: <n>`.
+
+The per-kind full-session line is inert information: Claude keeps
+`claude --resume <id>`, Codex names the confirmed rollout (or
+`rollout unavailable`), `codex exec resume <id>` and the recorded home,
+and DSH names only a confirmed session file. The reader executes none of
+it. Path and home placeholders are reversible portable display literals,
+not shell quoting and not pasteable commands: each is a valid
+double-quoted JSON string literal that emits only ASCII letters, digits,
+`/`, `.`, `_`, `-` and `:` directly, and encodes every other Unicode
+scalar as a lowercase four-digit `\u` escape — a surrogate pair for a
+scalar outside the basic multilingual plane — never a JSON short escape,
+so JSON decoding recovers the exact path or home. The fixed fields are
+separated by commas and introduce no semicolon, pipe, ampersand or
+redirection operator. A `--json` document escapes the complete shared
+line a second time as an ordinary JSON member; decoding that member
+recovers the exact hint the TUI, the command and the browser show. A hint
+is not resumption, credential or sandbox-reimposition evidence.
+
+**Claude compatibility.** The shared reader deliberately tightens the old
+Claude lookup: an id that begins with a hyphen is now invalid
+everywhere; two qualifying files are `ambiguous-source` rather than
+first-match; the lookup examines at most 10,000 entries and refuses
+below-home symlinks; and the source snapshot is capped at 32 MiB
+(`unsafe-path`, `discovery-limit` and the cap notice say which). These
+costs are proposed in decision 0055, which only the operator accepts. The
+remediation is the operator's: inspect the original file independently,
+place a duplicate deliberately, fit the recorded scope within the bound,
+or use real owned entries instead of below-home symlinks. The guide's
+`brokkr tui` pane and the `brokkr ui` Claude drill read the same result,
+so a seat the command refuses is refused in all three. The TUI, the
+command and the browser present the exact same completed
+portable-display hint without independently quoting a path or home
+fragment.
+
 ### `brokkr watch` — the same, live
 
 The same readout, redrawn whenever the journal head moves, exiting when
@@ -300,6 +402,13 @@ derivation, same answers, a mouse instead of a keyboard.
 $ brokkr ui --port 8383 --open
 ```
 
+The Claude drill reads the same bounded result as `brokkr transcript` and
+the TUI pane, so decision 0055's Claude compatibility costs apply here
+too: leading-hyphen ids are refused, duplicate candidates are ambiguous,
+below-home symlinks and the discovery bound are enforced, and the 32 MiB
+source cap holds. The operator-owned remediation is in the
+`brokkr transcript` section above.
+
 ### `brokkr muninn` — the fleet, read and advised on
 
 The read surfaces above show you the fleet. `brokkr muninn` reads it for
@@ -309,19 +418,33 @@ One invocation opens the workspace database **read-only**, derives a
 dossier from the same `brokkr-view` models every other readout uses (runs
 with status, phase, age and cost; park reasons and the operator commands
 each parked run admits; consecutive failures; the residual findings the
-verify and review rulings recorded), and hands it to one bounded seat
-under the driver fleet — a deadline, one attempt, no retry ladder. What
-comes back is a fleet summary, a suggested operator command per parked
-run with its reasoning, and the residual findings as a work queue.
+verify and review rulings recorded; and the crossings the world's map
+draws — per realm, what it publishes with its declared path and what it
+consumes with its publishing realm and pin state, a moved pin raised as a
+finding under the realm that consumes it, because that is the realm whose
+run would refuse), and hands it to one bounded seat under the driver
+fleet — a deadline, one attempt, no retry ladder. What comes back is a
+fleet summary, a suggested operator command per parked run with its
+reasoning, and the residual findings as a work queue.
+
+The crossing report comes off the map, so a world whose realms have not
+run yet still yields a dossier: each absent journal is said out loud, and
+the crossings are carried anyway. A world with no journal to read and no
+crossing to carry is the one world with nothing to report on.
 
 Nothing it proposes is executed, and nothing here can execute it. Muninn
 issues no operator command, starts no run, is given no repository tree
 and no secrets, and writes to no run journal — proposals go to its own
 append-only file, `.forge/muninn.ndjson`, beside the journal and inside
 none of it. Every proposal names the run ids and sequence numbers it was
-derived from; a report that cites a fact the dossier does not carry is
-refused and recorded nowhere. Acting on any of it stays the operator's
-own `brokkr operator` command (decision 0020).
+derived from, and a proposal about a contract names the consuming realm
+and the crossing instead; a report that cites a fact the dossier does not
+carry is refused and recorded nowhere. The record snapshots the crossing
+evidence the proposal stood on — the published paths, publishing realms
+and pin states, never the host locations behind them — so a later reader
+can still see what the proposal saw after the map changes. Acting on any
+of it stays the operator's own `brokkr operator` command (decision 0020,
+as amended by decision 0059).
 
 A finding the operator has superseded (below) is still derived, still
 listed and still cited — it carries the mark, and the fleet summary says

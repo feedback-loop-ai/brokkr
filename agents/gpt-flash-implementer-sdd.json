@@ -1,0 +1,10 @@
+{
+  "description": "Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.",
+  "charter": "charters/implementer-sdd.md",
+  "models": [
+    "flash-experiment"
+  ],
+  "efforts": {
+    "flash-experiment": "high"
+  }
+}

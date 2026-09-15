@@ -3,6 +3,13 @@
 //! database. The compatibility shim that kept the old name working for
 //! a release is gone; one bin target enters here (ruling 9).
 
+// A leaked fault-seam guard would leave its plan's entries unfired with
+// nothing to fail the test (change `prove-transcript-reader-faults` D4.5).
+// `mem::forget` of the `Drop`-implementing `Guard` fails the clippy gate
+// anywhere in this crate; the D7 inspection's no-leak clause covers
+// `ManuallyDrop`, `Box::leak` and a helper that swallows ownership.
+#![deny(clippy::mem_forget)]
+
 mod agents;
 mod boundary;
 mod cli_args;
@@ -18,15 +25,25 @@ mod selector;
 mod tui;
 mod ui;
 
+// Test seams for the 11.2 cross-surface proof: the same local reader,
+// HTTP handler and TUI renderers the binary serves, reachable from the
+// integration test. Hidden from documentation and not part of the CLI's
+// supported surface.
+#[doc(hidden)]
+pub use tui::transcript_surfaces_for_test;
+#[doc(hidden)]
+pub use ui::{handle, read_local, Response};
+
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use brokkr_core::fold::{fold, RunState, Status};
-use brokkr_runtime::realms::{Hearth, World};
+use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{conclude, operator_command, Bundle, Engine, FencedCommandOutcome};
 use brokkr_store::Store;
+use brokkr_view::transcript::{LegacyProvenance, TranscriptRead, Unavailable};
 use clap::{ArgGroup, Parser, Subcommand};
 use cli_args::*;
 use serde_json::{json, Value};
@@ -167,6 +184,11 @@ enum Cmd {
     /// verbs the console's clicks became; `--json` emits the view model.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
+    /// Read one participant's retained local transcript — Claude, Codex or
+    /// DSH — through the same bounded local derivation the TUI uses. The
+    /// verb never launches, retries or resumes a provider and writes
+    /// nothing to the journal.
+    Transcript(TranscriptArgs),
     /// The seats of a run: the seats block `inspect` renders — every
     /// seat's model with the boundary its hands stood behind beside it
     /// (decision 0046 ruling 3) — from the same view. `--json` prints
@@ -350,11 +372,69 @@ enum RecipesCmd {
     },
 }
 
+/// Every crossing the WORLD draws, per realm: what each realm publishes,
+/// with the path it was read from and the digest of the bytes that were
+/// there, and what each realm consumes, with the realm that publishes it
+/// and the pin the map carries.
+///
+/// Printed beside the compiled bundle and never written INTO it. A
+/// crossing is the realm's, exactly as the boundary is (decision 0046
+/// ruling 1 prints one under each hands site and keeps it out of no
+/// manifest it does not own; decision 0057 ruling 1), and what a run
+/// STOOD ON is recorded at run start on the run manifest
+/// (run-manifest/v10). Adding a `crossings` key to `bundle.manifest`
+/// would move every affected bundle's `manifest_digest` for a fact no
+/// bundle owns.
+///
+/// Omitted entirely when no realm draws one, so a world without
+/// crossings prints exactly what it printed before this existed.
+fn crossings_view(world: &World) -> Option<Value> {
+    let mut realms = serde_json::Map::new();
+    for realm in &world.map.realms {
+        if realm.published().is_empty() && realm.consumed().is_empty() {
+            continue;
+        }
+        let published = realm
+            .published()
+            .iter()
+            .map(|crossing| {
+                let mut row = json!({"name": crossing.name, "path": crossing.path});
+                // Always resolved here: `compile` reads its world through
+                // `World::discover`, which refuses a published file it
+                // could not read before this view is built.
+                if let Some(resolved) = world.crossing(&realm.name, &crossing.name) {
+                    row["source"] = json!(resolved.source);
+                    row["sha256"] = json!(resolved.sha256);
+                }
+                row
+            })
+            .collect::<Vec<_>>();
+        let consumed = realm
+            .consumed()
+            .iter()
+            .map(|crossing| {
+                json!({
+                    "name": crossing.name,
+                    "realm": crossing.realm,
+                    "sha256": crossing.sha256,
+                })
+            })
+            .collect::<Vec<_>>();
+        realms.insert(
+            realm.name.clone(),
+            json!({"publishes": published, "consumes": consumed}),
+        );
+    }
+    (!realms.is_empty()).then_some(Value::Object(realms))
+}
+
 /// What a compiled bundle looks like to an operator. `brokkr compile` and
 /// `brokkr recipes show` print this and nothing else, from here, so the
 /// two surfaces can never drift. `composed_from` is omitted entirely
-/// when nothing was composed, so a plain bundle's output is unchanged.
-fn compiled_view(bundle: &Bundle) -> Value {
+/// when nothing was composed, so a plain bundle's output is unchanged —
+/// and so is `crossings`, which belongs to the world a verb discovered
+/// and not to the bundle, which is why `recipes show` passes none.
+fn compiled_view(bundle: &Bundle, world: Option<&World>) -> Value {
     let mut view = json!({
         "bundle": bundle.name,
         "digest": bundle.manifest_digest(),
@@ -376,6 +456,9 @@ fn compiled_view(bundle: &Bundle) -> Value {
                 })
                 .collect(),
         );
+    }
+    if let Some(crossings) = world.and_then(crossings_view) {
+        view["crossings"] = crossings;
     }
     view
 }
@@ -716,42 +799,190 @@ fn report(error: &anyhow::Error) -> ExitCode {
             ExitCode::from(CONTENDED_EXIT)
         }
         None => {
-            eprintln!("error: {error:#}");
+            eprintln!("error: {}", safe_lines(&format!("{error:#}")));
             ExitCode::from(1)
         }
     }
 }
 
+/// Sanitize an error display line by line, keeping the chain's own line
+/// breaks: every rendered line loses control and directional characters
+/// while the recorded error strings stay untouched.
+fn safe_lines(text: &str) -> String {
+    text.split('\n')
+        .map(|line| render::Safe::new(line).as_str().to_string())
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
 /// The binary's entry: one parse, one command set, one set of exit
 /// codes. There is one bin now — decision 0019 ruling 9's shim is gone.
+///
+/// The dsh sandbox runner is dispatched before clap: dsh invokes it with
+/// bubblewrap's own argv, including the bare `--` that separates the
+/// profile from the command, and clap cannot both parse a verb and
+/// preserve that separator. It is not a user-facing command and never
+/// appears in `--help`.
 pub fn main() -> ExitCode {
+    if let Some(args) = dsh_sandbox_runner_args() {
+        return dsh_sandbox_runner(args);
+    }
     match run(Cli::parse()) {
         Ok(code) => code,
         Err(e) => report(&e),
     }
 }
 
-/// The transcript's own liveness, asked beside the journal head's: a
-/// seat's prose lands BETWEEN checkpoints, so a working seat's file
-/// growing is a refresh reason in its own right. Size only, read at the
-/// shell's existing tick — no watch, no dependency — and only while the
-/// seat can still write: the state resets with the session, so one
-/// seat's length never speaks for another's, and a concluded seat is
-/// not stat'd at all.
-fn transcript_moved(ask: &tui::Ask, seen: &mut Option<(String, u64)>) -> bool {
-    let Some(session) = ask.session.filter(|_| ask.working) else {
-        *seen = None;
-        return false;
-    };
-    let size = ui::transcript_path(session).map_or(0, |file| ui::transcript_len(&file));
-    let grew = match seen {
-        Some((watched, previous)) => {
-            watched == session && ui::transcript_grew(Some(*previous), size)
+fn dsh_sandbox_runner_args() -> Option<Vec<String>> {
+    let mut argv = std::env::args();
+    let _program = argv.next();
+    argv.next()
+        .filter(|verb| verb == brokkr_protocol::dsh_sandbox::RUNNER_VERB)
+        .map(|_| argv.collect())
+}
+
+/// Run the dsh sandbox runner whole: it builds bubblewrap's argv from the
+/// profile dsh handed it and `exec`s it, so the runner process is
+/// replaced and the seat sees one process. Every refusal prints the
+/// prefix dsh classifies as a runner failure, never a denied command.
+fn dsh_sandbox_runner(args: Vec<String>) -> ExitCode {
+    let signature = brokkr_protocol::dsh_sandbox::RUNNER_FAILURE_SIGNATURE;
+    match brokkr_protocol::dsh_sandbox::runner_argv(&args) {
+        Ok(argv) => exec_bwrap(&argv, signature),
+        Err(problem) => {
+            eprintln!("{signature}{problem}");
+            ExitCode::from(127)
         }
-        None => false,
+    }
+}
+
+#[cfg(unix)]
+fn exec_bwrap(argv: &[String], signature: &str) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+    let (program, rest) = (&argv[0], &argv[1..]);
+    let error = std::process::Command::new(program).args(rest).exec();
+    eprintln!("{signature}{error}");
+    ExitCode::from(127)
+}
+
+#[cfg(not(unix))]
+fn exec_bwrap(_argv: &[String], signature: &str) -> ExitCode {
+    eprintln!("{signature}the dsh sandbox runner is Linux-only");
+    ExitCode::from(127)
+}
+
+/// The in-memory stamp of the selected transcript source: the subject
+/// identity and the bounded result it last produced. It holds no mtime
+/// and no length — the same bytes are re-derived and compared, which is
+/// what lets a same-length rewrite or an append be told apart. No
+/// persistent cache and no fleet-wide body cache exist.
+struct SourceStamp {
+    tab: usize,
+    realm: Option<String>,
+    run: String,
+    key: String,
+    reference: Option<brokkr_view::Transcript>,
+    provenance: LegacyProvenance,
+    legacy_id: Option<String>,
+    read: TranscriptRead,
+}
+
+impl SourceStamp {
+    fn of(subject: &tui::Subject, read: TranscriptRead) -> SourceStamp {
+        SourceStamp {
+            tab: subject.tab,
+            realm: subject.realm.clone(),
+            run: subject.run.clone(),
+            key: subject.key.clone(),
+            reference: subject.reference.clone(),
+            provenance: subject.provenance,
+            legacy_id: subject.legacy_id.clone(),
+            read,
+        }
+    }
+
+    /// The identity half the design fixes: realm/journal, run, participant
+    /// key and the complete effective reference — including the legacy
+    /// synthesis inputs, so a concluded participant whose legacy id or
+    /// provenance changes is re-read rather than keeping the old prose.
+    fn same_subject(&self, subject: &tui::Subject) -> bool {
+        self.tab == subject.tab
+            && self.realm == subject.realm
+            && self.run == subject.run
+            && self.key == subject.key
+            && self.reference == subject.reference
+            && self.provenance == subject.provenance
+            && self.legacy_id == subject.legacy_id
+    }
+}
+
+/// Re-resolve the selected participant's transcript under the shared
+/// bounded reader. The journal is read-only. A subject is re-read at every
+/// refresh opportunity while it works and on an explicit refresh, and
+/// again whenever the selected reference itself changed — which is also
+/// the final read a concluding participant receives. A concluded,
+/// unchanged subject is not re-read: automatic growth polling has stopped,
+/// and only an explicit refresh re-resolves it.
+fn resolve_subject(
+    subject: &tui::Subject,
+    force: bool,
+    seen: &mut Option<SourceStamp>,
+) -> (Option<TranscriptRead>, bool) {
+    let identity_changed = seen
+        .as_ref()
+        .is_none_or(|stamp| !stamp.same_subject(subject));
+    let fresh = if force || subject.working || identity_changed {
+        Some(ui::read_local(
+            subject.reference.as_ref(),
+            subject.provenance,
+            subject.legacy_id.as_deref(),
+        ))
+    } else {
+        None
     };
-    *seen = Some((session.to_string(), size));
-    grew
+    let changed = match (&fresh, &*seen) {
+        (Some(read), Some(stamp)) => !stamp.same_subject(subject) || stamp.read != *read,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if let Some(read) = &fresh {
+        *seen = Some(SourceStamp::of(subject, read.clone()));
+    }
+    // A concluded, unchanged subject keeps the frame it already has; the
+    // stamp's own bounded result is that frame's transcript.
+    let resolved = fresh.or_else(|| seen.as_ref().map(|stamp| stamp.read.clone()));
+    (resolved, changed)
+}
+
+fn resolve_transcript(
+    ask: &tui::Ask,
+    seen: &mut Option<SourceStamp>,
+) -> (Option<TranscriptRead>, bool) {
+    let Some(subject) = ask.subject.as_ref() else {
+        *seen = None;
+        return (None, false);
+    };
+    resolve_subject(subject, ask.force, seen)
+}
+
+/// Rebuild the selected subject from the freshly folded run, so authority
+/// that changed inside this frame is read before it is displayed. `None`
+/// means the participant is no longer in the fresh view.
+fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Option<tui::Subject> {
+    let part = view
+        .participants
+        .iter()
+        .find(|part| part.key == prior.key)?;
+    Some(tui::Subject {
+        tab: prior.tab,
+        realm: prior.realm.clone(),
+        run: prior.run.clone(),
+        key: part.key.clone(),
+        reference: part.transcript.clone(),
+        provenance: participant_legacy_provenance(part),
+        legacy_id: part.session_id.clone(),
+        working: part.status == "working",
+    })
 }
 
 /// Fold one run of a FLEET read. A journal that does not fold
@@ -801,7 +1032,7 @@ fn tui_views(
     sole: bool,
     ask: tui::Ask,
     head: &mut Option<(u64, String)>,
-    seen: &mut Option<(String, u64)>,
+    seen: &mut Option<SourceStamp>,
     clock: fn() -> String,
 ) -> Result<tui::Refreshed> {
     // A realm the map names before its first run has no journal yet, and
@@ -820,6 +1051,7 @@ fn tui_views(
         // Nothing was read, so nothing is remembered as read: the tick
         // that finds the journal finally there rebuilds from scratch.
         *head = None;
+        *seen = None;
         return Ok(Some(tui::Views {
             now: clock(),
             note: Some(format!(
@@ -829,19 +1061,22 @@ fn tui_views(
             ..tui::Views::empty()
         }));
     }
-    let store = match sole {
-        true => Store::open(db)?,
-        false => Store::open_read_only(db)?,
-    };
+    // Reading is inert: even the one-hearth console, the journal the
+    // operator named, opens read-only for this refresh. Transcript
+    // reading must not enable WAL, migrate columns or repair guards on
+    // the journal it came to read (transcript-reading's inertness rule).
+    let store = Store::open_read_only(db)?;
     let current = match ask.run {
         Some(run) => Some(store.head_hash(run)?),
         None => None,
     };
-    // Unconditional, and before the gate: the size that was observed is
-    // the size the next tick compares against, whatever the gate rules.
-    let grew = transcript_moved(&ask, seen);
+    // Unconditional, and before the gate: the resolved read (and the
+    // stamp it updates) is what the next tick compares against, whatever
+    // the gate rules. A working seat's prose lands between checkpoints,
+    // so the read is its own refresh reason.
+    let (transcript, transcript_changed) = resolve_transcript(&ask, seen);
     let moved = current != *head;
-    if !(ask.force || ask.fleet || moved || grew) {
+    if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
         return Ok(None);
@@ -877,13 +1112,37 @@ fn tui_views(
         let state = fold(&events).ok();
         brokkr_view::run_view(&events, state.as_ref())
     });
+    // The selected participant's authority can change inside this same
+    // frame: folding may reveal a new common reference, a new legacy id or
+    // a concluded state. Re-resolve the subject against the fresh view
+    // before publishing, so the frame never pairs new authority with the
+    // previous reference's prose.
+    let transcript = match (ask.subject.as_ref(), run.as_ref()) {
+        (Some(prior), Some(view)) => match refreshed_subject(prior, view) {
+            Some(fresh) if &fresh != prior => resolve_subject(&fresh, true, seen).0,
+            // An unchanged participant: the resolved read still speaks for
+            // it.
+            Some(_) => transcript,
+            // The participant is gone from a view that still lists
+            // participants: its content and any open overlay are cleared
+            // in this same frame rather than lingering until a later
+            // refresh. A view with no participants at all is the shell's
+            // own absent-subject frame, cleared there.
+            None if !view.participants.is_empty() => {
+                *seen = None;
+                None
+            }
+            None => transcript,
+        },
+        _ => transcript,
+    };
     Ok(Some(tui::Views {
         now: clock(),
         runs: brokkr_view::run_rows(&entries),
         run,
-        // The seat's own session, located by the SAME lookup the
-        // console's /api/session endpoint uses.
-        transcript: ask.session.and_then(ui::session_turns),
+        // The selected participant's own bounded local read, produced by
+        // the shared reader the command and the browser also consume.
+        transcript,
         // A journal that was read has nothing to say about itself.
         note: None,
     }))
@@ -901,7 +1160,7 @@ fn tui_views(
 fn tui_source<'a>(
     hearths: &'a [Hearth],
     heads: &'a mut [Option<(u64, String)>],
-    seen: &'a mut Option<(String, u64)>,
+    seen: &'a mut Option<SourceStamp>,
 ) -> impl FnMut(tui::Ask) -> Result<tui::Refreshed> + 'a {
     let sole = hearths.len() < 2;
     move |ask| {
@@ -965,8 +1224,27 @@ fn newest_answer(answered: Vec<(usize, String, String)>) -> Option<(usize, Strin
 /// the single-run path is untouched, down to the sidecars it leaves
 /// behind.
 fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
+    resolve_in_hearths_with(hearths, run, false)
+}
+
+/// Resolve one run across the hearths without ever opening a journal
+/// read-write: the read-only resolution `brokkr transcript` uses so a
+/// look must not create a WAL sidecar, migrate or repair a journal.
+fn resolve_in_hearths_read_only(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
+    resolve_in_hearths_with(hearths, run, true)
+}
+
+fn resolve_in_hearths_with(
+    hearths: &[Hearth],
+    run: String,
+    read_only: bool,
+) -> Result<(usize, String)> {
     let sole = hearths.len() < 2;
     let mut refusal: Option<anyhow::Error> = None;
+    // An ambiguous prefix in any hearth is preserved even when another
+    // hearth answers the same selector uniquely: a guess there would
+    // still be a guess about which run the operator meant.
+    let mut ambiguous: Option<anyhow::Error> = None;
     // The hearths that answered: index, the id it resolved to, and when
     // that run was created — which is what `latest` compares.
     let mut answered: Vec<(usize, String, String)> = Vec::new();
@@ -974,7 +1252,7 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
         if !hearth.journal.is_file() {
             continue;
         }
-        let opened = match sole {
+        let opened = match sole && !read_only {
             true => Store::open(&hearth.journal),
             false => Store::open_read_only(&hearth.journal),
         };
@@ -1000,9 +1278,14 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
                     .map_or(String::new(), |candidate| candidate.created_at.to_string());
                 answered.push((index, id, created));
             }
-            Err(error) => {
-                refusal.get_or_insert(error);
-            }
+            Err(error) => match selector::refusal_kind(&error) {
+                Some(selector::Refusal::Ambiguous) => {
+                    ambiguous.get_or_insert(error);
+                }
+                _ => {
+                    refusal.get_or_insert(error);
+                }
+            },
         }
     }
     if run == selector::LATEST {
@@ -1013,6 +1296,9 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
                 None => Ok((0, run)),
             },
         };
+    }
+    if let Some(error) = ambiguous {
+        return Err(error);
     }
     match answered.len() {
         1 => {
@@ -1048,7 +1334,7 @@ fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)
 /// called — which is after that gate.
 fn run_tui(hearths: Vec<Hearth>, run: Option<String>, tab: usize) -> Result<ExitCode> {
     let mut heads: Vec<Option<(u64, String)>> = vec![None; hearths.len()];
-    let mut seen: Option<(String, u64)> = None;
+    let mut seen: Option<SourceStamp> = None;
     let db_is_file = hearths.iter().any(|hearth| hearth.journal.is_file());
     // A world with one hearth names no tabs, and the console draws none.
     let tabs: Vec<String> = match hearths.len() {
@@ -1085,6 +1371,193 @@ fn run(cli: Cli) -> Result<ExitCode> {
     )
 }
 
+/// Map a participant's provenance to the legacy-synthesis rule: only
+/// Claude, LaneTally and an inline seat with no provenance may fall back
+/// to a local Claude id. Codex and DSH provenance refuses synthesis.
+fn participant_legacy_provenance(participant: &brokkr_view::Participant) -> LegacyProvenance {
+    match participant
+        .provenance
+        .as_ref()
+        .map(|provenance| provenance.provider.as_str())
+    {
+        None => LegacyProvenance::Absent,
+        Some("claude") => LegacyProvenance::Claude,
+        Some("lanetally") => LegacyProvenance::LaneTally,
+        Some(_) => LegacyProvenance::Other,
+    }
+}
+
+/// An exact participant key wins; otherwise an exact label selects only
+/// when unique. Prefixes and fuzzy labels never match, and an ambiguous
+/// label names every matching key so the operator can choose.
+fn select_transcript_participant<'a>(
+    view: &'a brokkr_view::RunView,
+    seat: &str,
+) -> Result<&'a brokkr_view::Participant> {
+    if let Some(exact) = view.participants.iter().find(|part| part.key == seat) {
+        return Ok(exact);
+    }
+    let matched: Vec<&brokkr_view::Participant> = view
+        .participants
+        .iter()
+        .filter(|part| part.label == seat)
+        .collect();
+    match matched.as_slice() {
+        [only] => Ok(only),
+        [] => Err(anyhow::anyhow!(
+            "no participant key or label {} in this run",
+            render::Safe::new(seat).as_str()
+        )),
+        many => {
+            // Every candidate key is sanitized, not only the requested
+            // label: a provider-recorded key can carry terminal controls.
+            let keys: Vec<String> = many
+                .iter()
+                .map(|part| render::Safe::new(&part.key).as_str().to_string())
+                .collect();
+            Err(anyhow::anyhow!(
+                "participant label {} is ambiguous; choose one of: {}",
+                render::Safe::new(seat).as_str(),
+                keys.join(", ")
+            ))
+        }
+    }
+}
+
+/// Apply `--turn` only after every cap, diagnostic and refusal: a
+/// retained index keeps its original turn and the whole read's metadata;
+/// an index beyond the prefix becomes `turn-not-retained` unless the read
+/// already refused for a stronger reason.
+fn select_transcript_turn(read: TranscriptRead, turn: Option<u64>) -> TranscriptRead {
+    let Some(index) = turn else {
+        return read;
+    };
+    if !read.is_readable() {
+        return read;
+    }
+    // Compare and index in the recorded width: a u64-to-usize narrowing
+    // could wrap on a 32-bit target and select an unrelated retained turn.
+    if index >= 1 && index <= read.turns.len() as u64 {
+        let position = (index - 1) as usize;
+        let mut selected = read;
+        selected.turns = vec![selected.turns[position].clone()];
+        return selected;
+    }
+    let explanation = if read.truncated {
+        "the requested turn is outside the retained prefix; the bounded read does not establish whether it exists later"
+    } else {
+        "the requested turn is beyond the retained projection"
+    };
+    TranscriptRead::refused(
+        read.reference.clone(),
+        read.legacy,
+        Unavailable::TurnNotRetained,
+        explanation,
+        read.path.clone(),
+        read.truncated,
+        read.skipped_lines,
+        read.unrecognized_records,
+        read.full_session.clone(),
+    )
+}
+
+/// The complete `brokkr.transcript/v1` document, every member present
+/// even when null or empty, serialized from the shared result alone.
+fn transcript_document(run: &str, seat: &str, read: &TranscriptRead, turn: Option<u64>) -> Value {
+    json!({
+        "schema": brokkr_view::transcript::TRANSCRIPT_SCHEMA,
+        "run_id": run,
+        "seat": seat,
+        "transcript": &read.reference,
+        "legacy": read.legacy,
+        "path": &read.path,
+        "turn": turn,
+        "turns": &read.turns,
+        "truncated": read.truncated,
+        "skipped_lines": read.skipped_lines,
+        "unrecognized_records": read.unrecognized_records,
+        "notices": &read.notices,
+        "unavailable": read.unavailable.map(Unavailable::as_str),
+        "full_session": &read.full_session,
+    })
+}
+
+/// `brokkr transcript`: resolve the run read-only, select exactly one
+/// participant, run the shared local derivation and render it. Nothing
+/// is launched, written or resumed.
+#[allow(clippy::too_many_arguments)]
+fn transcript_command(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+    run: String,
+    seat: String,
+    turn: Option<u64>,
+    json: bool,
+) -> Result<ExitCode> {
+    let hearths = hearths_of(workspace, realms, db)?;
+    // Consult every distinct existing hearth read-only and apply the one
+    // established exact/prefix/`latest` rule; a read never opens a journal
+    // read-write, even when `--db` names a sole hearth.
+    let (hearth, run) = resolve_in_hearths_read_only(&hearths, run)?;
+    let store = Store::open_read_only(&hearths[hearth].journal)?;
+    let events = store.load(&run)?;
+    let state = fold(&events)?;
+    let view = brokkr_view::run_view(&events, Some(&state));
+    let participant = select_transcript_participant(&view, &seat)?;
+    let read = ui::read_local(
+        participant.transcript.as_ref(),
+        participant_legacy_provenance(participant),
+        participant.session_id.as_deref(),
+    );
+    let read = select_transcript_turn(read, turn);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&transcript_document(
+                &run,
+                &participant.key,
+                &read,
+                turn
+            ))?
+        );
+    }
+    match read.unavailable {
+        None => {
+            if !json {
+                print!(
+                    "{}",
+                    render::transcript(
+                        &run,
+                        &participant.key,
+                        &read,
+                        turn,
+                        &render::Style::detect()
+                    )
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(reason) => {
+            // The refusal explanation and notices reach stderr in both
+            // modes: JSON still carries the document on stdout, and the
+            // operator still needs the sanitized reason.
+            let explanation = read.explanation.clone().unwrap_or_default();
+            let mut line = format!(
+                "transcript unavailable: {}: {}",
+                reason.as_str(),
+                render::Safe::new(&explanation).as_str()
+            );
+            for notice in &read.notices {
+                line.push_str("; ");
+                line.push_str(render::Safe::new(notice).as_str());
+            }
+            eprintln!("{line}");
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
 /// What an invocation resolved before it opens anything: the world it
 /// reads in, whether the operator NAMED that map, and the journal.
 ///
@@ -1119,15 +1592,47 @@ fn same_journal(left: &std::path::Path, right: &std::path::Path) -> bool {
     located(left) == located(right)
 }
 
+/// How an invocation opens the map it found: refusing a moved crossing
+/// ([`World::discover`]) or reporting one ([`World::inspect`]).
+type OpenWorld =
+    fn(&std::path::Path, Option<&std::path::Path>) -> Result<Option<World>, WorldError>;
+
 impl Invocation {
+    /// The world as every verb that STARTS or CONTINUES a run reads it: a
+    /// crossing that has moved refuses here, before a store is opened
+    /// (decision 0057, `b9b2ee6`).
     fn resolve(
         workspace: &std::path::Path,
         realms: Option<PathBuf>,
         db: Option<PathBuf>,
     ) -> Result<Invocation> {
+        Invocation::open(workspace, realms, db, World::discover)
+    }
+
+    /// The world as a READ surface reads it: a crossing that has moved is
+    /// a line in the readout rather than the end of it. `brokkr realms`
+    /// and `brokkr muninn run` read this way for the same reason `brokkr
+    /// doctor` does — a surface that only looks refuses nothing, and
+    /// refusing here would blank the readout in exactly the world an
+    /// operator opened it to see (decision 0046's Addendum; decision 0023
+    /// ruling 6, which makes `realms` a read surface with no writes).
+    fn inspect(
+        workspace: &std::path::Path,
+        realms: Option<PathBuf>,
+        db: Option<PathBuf>,
+    ) -> Result<Invocation> {
+        Invocation::open(workspace, realms, db, World::inspect)
+    }
+
+    fn open(
+        workspace: &std::path::Path,
+        realms: Option<PathBuf>,
+        db: Option<PathBuf>,
+        open: OpenWorld,
+    ) -> Result<Invocation> {
         let named = realms.is_some();
         let overridden = db.is_some();
-        let world = World::discover(workspace, realms.as_deref())?;
+        let world = open(workspace, realms.as_deref())?;
         let mapped = world.as_ref().map(World::journal);
         let journal = db
             .or_else(|| mapped.clone())
@@ -1280,19 +1785,46 @@ fn hearths_of(
     realms: Option<PathBuf>,
     db: Option<PathBuf>,
 ) -> Result<Vec<Hearth>> {
+    Ok(fleet_of(workspace, realms, db, Invocation::resolve)?.1)
+}
+
+/// The same fleet, with the WORLD it was read from kept — what a surface
+/// needs when it states facts about the map itself and not only about the
+/// journals the map names, which is `brokkr muninn run` and its crossings
+/// (decision 0057; decision 0026 ruling 3).
+///
+/// Opened with [`Invocation::inspect`]: the raven reports a moved
+/// crossing as a finding, so a moved crossing must not be the end of the
+/// reading. `hearths_of` keeps [`Invocation::resolve`] — its callers
+/// include verbs that go on to open a store the world named.
+fn world_and_hearths(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+) -> Result<(Option<World>, Vec<Hearth>)> {
+    fleet_of(workspace, realms, db, Invocation::inspect)
+}
+
+fn fleet_of(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+    open: fn(&std::path::Path, Option<PathBuf>, Option<PathBuf>) -> Result<Invocation>,
+) -> Result<(Option<World>, Vec<Hearth>)> {
     let overridden = db.is_some();
-    let invocation = Invocation::resolve(workspace, realms, db)?.announce();
+    let invocation = open(workspace, realms, db)?.announce();
     let hearths = match (&invocation.world, overridden) {
         (Some(world), false) => world.hearths(),
         _ => Vec::new(),
     };
-    Ok(match hearths.is_empty() {
+    let hearths = match hearths.is_empty() {
         true => vec![Hearth {
             realms: Vec::new(),
             journal: invocation.journal,
         }],
         false => hearths,
-    })
+    };
+    Ok((invocation.world, hearths))
 }
 
 /// One hearth's runs, folded. A journal that will not open at all is the
@@ -1574,7 +2106,10 @@ fn run_with(
         Cmd::Compile(CompileArgs { bundle }) => {
             let world = World::discover(workspace, None)?;
             let bundle = compile_in_realm(workspace, &bundle, world.as_ref(), workspace)?;
-            println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
+            );
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Run(RunArgs {
@@ -1666,6 +2201,24 @@ fn run_with(
             )?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
+            // Decision 0057, on decision 0046's Addendum's terms: a
+            // resumed run is fenced where `run` and `rerun` are fenced,
+            // before `drive()` and so before any seat spawns. Here, and
+            // not inside `Engine::resume`, for two reasons that are one
+            // reason: the check needs a workspace to resolve a crossing's
+            // path against and the engine is given none, and this arm is
+            // already where a whole-invocation refusal stands — one line
+            // above, `refuse_unboxable` reads the host's PATH the same
+            // way, right after the compile and right before the drive.
+            //
+            // The world a resumed run holds comes from its own manifest
+            // and has met no disk (`World::from_manifest` resolves no
+            // crossing, deliberately), so without this a run would carry
+            // on over bytes its journal never saw. A Looper-bound run
+            // carries no world at all and has nothing to fence.
+            if let Some(world) = &engine.world {
+                world.verify_crossings(workspace)?;
+            }
             engine.secrets_file = secrets_file;
             let end = engine.drive()?;
             Ok(finish(&end.state))
@@ -1832,6 +2385,14 @@ fn run_with(
             );
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Transcript(TranscriptArgs {
+            run,
+            seat,
+            turn,
+            json,
+            realms,
+            db,
+        }) => transcript_command(workspace, realms, db, run, seat, turn, json),
         Cmd::Seats(SeatsArgs {
             run,
             realms,
@@ -2073,8 +2634,13 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Realms(RealmsArgs { realms, db, json }) => {
+            // `inspect`, not `resolve`: `realms` is a read surface with no
+            // writes (decision 0023 ruling 6), and a readout that refuses
+            // to describe the world because one contract moved is at its
+            // least useful in exactly the world an operator typed it in.
+            // The crossing lines below say which pin moved instead.
             let Invocation { world, journal, .. } =
-                Invocation::resolve(workspace, realms, db)?.announce();
+                Invocation::inspect(workspace, realms, db)?.announce();
             let world = world.ok_or_else(|| {
                 anyhow::anyhow!(
                     "no map: this workspace has no {} and none was named with --realms",
@@ -2214,7 +2780,10 @@ fn run_with(
                 }
                 RecipesCmd::Show { name, dir } => {
                     let bundle = compile_in(workspace, &recipes::resolve(None, Some(name), &dir)?)?;
-                    println!("{}", serde_json::to_string_pretty(&compiled_view(&bundle))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&compiled_view(&bundle, None))?
+                    );
                 }
             }
             Ok(ExitCode::SUCCESS)
@@ -2238,9 +2807,14 @@ fn run_with(
                 adapters_dir,
                 record,
             } => {
-                let hearths = hearths_of(workspace, realms, db)?;
+                // `world_and_hearths`, not `hearths_of`: the raven reports
+                // a moved crossing as a finding, so it reads the world
+                // with `inspect` and keeps the resolved map beside the
+                // journals it names (decision 0057).
+                let (world, hearths) = world_and_hearths(workspace, realms, db)?;
                 muninn::run(
                     &hearths,
+                    world.as_ref(),
                     &agents_dir,
                     &adapters_dir,
                     &record,

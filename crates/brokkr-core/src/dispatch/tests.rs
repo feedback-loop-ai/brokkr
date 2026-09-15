@@ -467,3 +467,79 @@ fn manifest_conversion_refuses_every_malformed_boundary() {
         Err(DispatchError::BadManifest)
     );
 }
+
+/// Decision 0057's recording half (run-manifest/v10): the crossings a run
+/// stood on are WORKSPACE data, like the map beside them, so they are
+/// dropped before the resume comparison. The bundle digest a resuming or
+/// adopting run compares against is the digest of the bundle manifest —
+/// unmoved by pinning a contract across two realms.
+#[test]
+fn a_pinned_crossing_is_dropped_with_the_map_and_moves_no_bundle_digest() {
+    let bundle = bundle();
+    let mut mapped = bundle.clone();
+    mapped["realms"] = json!({"source": "realms.json", "sha256": "b".repeat(64), "map": {}});
+    mapped["crossings"] = json!({"alpha": {"orders.api": {
+        "source": "/w/alpha/contracts/orders.v1.schema.json", "sha256": "e".repeat(64),
+    }}});
+    assert_eq!(bundle_manifest_from_run(&mapped).unwrap(), bundle);
+    assert_eq!(
+        canonical::sha256_hex(&bundle_manifest_from_run(&mapped).unwrap()),
+        canonical::sha256_hex(&bundle),
+        "pinning a crossing moves no bundle digest",
+    );
+    // One removal for both, and neither key survives on its own: a world
+    // pinned without a map is not a shape this engine writes, and if it
+    // ever reached here the crossing would still not be bundle data.
+    let mut crossed_only = bundle.clone();
+    crossed_only["crossings"] = mapped["crossings"].clone();
+    assert_eq!(bundle_manifest_from_run(&crossed_only).unwrap(), bundle);
+    let mut mapped_only = bundle.clone();
+    mapped_only["realms"] = mapped["realms"].clone();
+    assert_eq!(bundle_manifest_from_run(&mapped_only).unwrap(), bundle);
+    // And a manifest carrying neither is still returned untouched.
+    assert_eq!(bundle_manifest_from_run(&bundle).unwrap(), bundle);
+}
+
+/// The Looper-bound lineage is unharmed, and stays unharmed on purpose.
+/// A v2 manifest never carries `crossings` — `brokkr run` refuses
+/// `--dispatch` together with a map — and its round-trip is byte-identical
+/// to what it was before this key existed. Should one ever arrive, the
+/// fail-closed guard refuses it by name rather than dropping it into the
+/// silence that would make the run unresumable with a diff that blames no
+/// file (decision 0016's named limit, widened by decision 0021's witness).
+#[test]
+fn the_v2_lineage_round_trip_is_byte_identical_and_still_refuses_what_it_cannot_carry() {
+    let bundle = bundle();
+    let bundle_sha = canonical::sha256_hex(&bundle);
+    let dispatch = fixture(&bundle_sha);
+    let manifest = build_run_manifest_v2(&bundle, dispatch.clone()).unwrap();
+
+    assert!(manifest.get("crossings").is_none());
+    assert!(manifest.get("realms").is_none());
+    let round_tripped = bundle_manifest_from_run(&manifest).unwrap();
+    assert_eq!(round_tripped, bundle);
+    assert_eq!(
+        canonical::sha256_hex(&round_tripped),
+        bundle_sha,
+        "the v2 round-trip reconstructs the bytes `bundle_sha256` was taken over",
+    );
+    assert_eq!(dispatch_from_run(&manifest).unwrap(), Some(dispatch));
+
+    // Refused, not dropped — the seventh key is no more carriable than
+    // the sixth, and the refusal names it.
+    let mut crossed = bundle;
+    crossed["crossings"] = json!({"alpha": {"orders.api": {
+        "source": "alpha/contracts/orders.v1.schema.json", "sha256": "e".repeat(64),
+    }}});
+    let crossed_sha = canonical::sha256_hex(&crossed);
+    let refusal = build_run_manifest_v2(&crossed, fixture(&crossed_sha));
+    assert_eq!(
+        refusal,
+        Err(DispatchError::ManifestKeyUnsupportedByDispatchLineage(
+            "crossings".into()
+        ))
+    );
+    let message = refusal.unwrap_err().to_string();
+    assert!(message.contains("'crossings'"), "{message}");
+    assert!(message.contains("unresumable"), "{message}");
+}

@@ -1,0 +1,28 @@
+{
+  "description": "Review panel member: does the change do what it claims, and does the evidence support it?",
+  "charter": "charters/review-correctness.md",
+  "models": [
+    "sol"
+  ],
+  "efforts": {
+    "sol": "high"
+  },
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "overlay",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      }
+    ]
+  }
+}

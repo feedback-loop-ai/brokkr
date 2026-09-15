@@ -1194,7 +1194,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // which every phase of this route resolves. The value agrees with
         // the `recipes/triage` pin in `tests/witness_digests.rs`; the two
         // had drifted apart and this restores the measured value.
-        "602cae2b53bfc1ef6b0806c6f286b088e1f92fb43d200b6ef51723a6cb943f1c",
+        "a3d142822e63717c3d3789b2005f22dc9839482a821091474d271033f122b5fe",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

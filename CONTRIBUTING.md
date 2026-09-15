@@ -41,6 +41,7 @@ exists; `preflight` is an optional branch check, not a delivery.
 | Recipe | When to use it | What it seats | Rough cost |
 |---|---|---|---|
 | `fast` | Default Rust delivery from implementation through verification, review, and ship. | implement, review, ship, verify | medium |
+| `gpt-flash` | GPT Sol plans, DeepSeek Flash 4.1 implements, and Astra rules final review. | analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=gpt-flash-implementer;design=gpt-flash-implementer-sdd;engine=gpt-flash-implementer-engine;feature=gpt-flash-implementer}, review{chore=positions>chief;design=positions>chief;engine=positions>chief;feature=positions>chief}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify] | variable |
 | `landing` | A branch authored by hand is classified, verified when it is code, judged, remediated on findings and shipped by a run that vouches for it: fast entered at a classify gate, the road for shop work instead of the by-hand label. | classify, implement, review, ship, verify | low |
 | `night-shift` | Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane. | analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify] | medium-high |
 | `node` | Node and TypeScript repositories using JavaScript-specific seats and tools. | implement, review, ship, verify | medium |
@@ -49,6 +50,7 @@ exists; `preflight` is an optional branch check, not a delivery.
 | `release` | Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review. | implement, review, ship, verify | medium |
 | `research` | Read articles and propose registry entries with cited classifications; the operator rules them. | research, verify | low |
 | `research-dsh` | The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on. | research, verify | low |
+| `review-first` | An existing branch judged first: Astra reviews, the suite verifies, Muse remediates findings on return, and the run ships. | implement, review, ship, verify | medium |
 | `standby` | Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit. | implement, review, ship, verify | medium |
 | `triage` | Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled. | analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify] | variable |
 | `wager-harness` | Driver evaluation that swaps only implementation to Codex for a fair wager. | implement, review, ship, verify | medium |
@@ -87,6 +89,22 @@ delta needs a new run. Only the operator may apply the visible `by-hand`
 escape-hatch label, and only where no landing can stand (decision 0051).
 
 Seat commits are unsigned; `main` requires signatures; the operator squash-merges, and that merge is the signed commit.
+
+## 6. Dependency admission
+
+One production consequence of a dev-only edge is admitted here.
+`boa_engine = "=0.21.1"`, the CLI's browser-controller test dependency,
+requires `icu_normalizer = "~2.0.0"`; the production `url -> idna` edge
+resolves `idna_adapter 1.2.2`, which requires `icu_normalizer = "2.2"`.
+Cargo unifies semver-compatible versions, so the whole workspace —
+including the release-linked graph — carries `icu_normalizer 2.0.1` and
+`idna_adapter 1.2.1` instead of the `icu_normalizer 2.3.0` and
+`idna_adapter 1.2.2` that `main` carried. No known vulnerability is
+asserted for either version: both remain on the `deny.toml` licence
+allowlist, and cargo-deny and the RustSec audit read this same lockfile.
+Removal is blocked while Boa stays pinned at `=0.21.1` for the MSRV and
+the exact-served-code proof; this admission is revisited when Boa's icu
+range admits the newer normalizer.
 
 Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the nine exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; the verify seat runs them, so contributors do not need to.
 

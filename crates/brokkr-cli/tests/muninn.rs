@@ -1,4 +1,5 @@
-//! The standing overseer, proven end to end (decision 0020).
+//! The standing overseer, proven end to end (decision 0020; the crossing
+//! evidence it admits is amended by decision 0059).
 //!
 //! Every guarantee here is a claim about what Muninn CANNOT do, so each
 //! test is written as an observation of the real binary rather than as a
@@ -237,6 +238,12 @@ impl Workspace {
 
     /// The same, into a named hearth — how a many-hearth world is staged.
     fn run_once_in(&self, feature: &str, db: &str) -> String {
+        self.run_once_in_repo(feature, db, "repo")
+    }
+
+    /// The same again, in a named REPOSITORY: what a world of two real
+    /// trees needs, where every staging above shares one.
+    fn run_once_in_repo(&self, feature: &str, db: &str, repo: &str) -> String {
         let output = self.brokkr(&[
             "run",
             "--bundle",
@@ -246,7 +253,7 @@ impl Workspace {
             "--db",
             db,
             "--repo",
-            "repo",
+            repo,
         ]);
         let stderr = String::from_utf8_lossy(&output.stderr);
         stderr
@@ -507,6 +514,370 @@ fn the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm() {
     assert_eq!(bytes_before, std::fs::read(ws.db()).unwrap());
 }
 
+// ---------------------- crossings (decision 0057, slice vi)
+
+/// The bytes the crossing world publishes while its pin is true.
+const CROSSING_BYTES: &str = "{\"title\": \"orders\"}\n";
+
+/// A map that draws a crossing across two realms of the staged world:
+/// `alpha` publishes `orders.api` in the shared tree, `beta` pins its
+/// bytes. Written against the already-staged journal, so the run half of
+/// the dossier is unchanged.
+fn crossing_world(ws: &Workspace) -> (PathBuf, String) {
+    let contract = ws.path().join("repo/orders.v1.schema.json");
+    std::fs::write(&contract, CROSSING_BYTES).unwrap();
+    let pin = brokkr_core::canonical::sha256_bytes(CROSSING_BYTES.as_bytes());
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main",
+                 "publishes": [{"name": "orders.api",
+                                "path": "orders.v1.schema.json"}]},
+                {"name": "beta", "path": "repo", "default_branch": "main",
+                 "consumes": [{"name": "orders.api", "realm": "alpha", "sha256": pin}]},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    (contract, pin)
+}
+
+/// Phase 2 slice (vi): the raven carries the world's crossings into the
+/// dossier. A matching pin is stated per realm and is not a finding; a
+/// pin that moved becomes a finding under the CONSUMING realm — the one
+/// whose run would refuse — and a proposal may cite it. Reading a world
+/// writes to none of its journals.
+#[test]
+fn the_overseer_reads_crossings_and_a_moved_pin_is_the_consumers_finding() {
+    let (ws, _, _) = staged();
+    let (contract, pin) = crossing_world(&ws);
+
+    // Sound: the crossing is stated per realm, and no finding is raised.
+    ws.proposes(json!({
+        "fleet_summary": "one run and one matching contract",
+        "parked_runs": [],
+        "work_queue": [],
+    }));
+    let before = std::fs::read(ws.db()).unwrap();
+    let sound = ws.muninn_over_world();
+    assert!(
+        sound.status.success(),
+        "{}",
+        String::from_utf8_lossy(&sound.stderr)
+    );
+    let context = ws.start_input()["context"].clone();
+    let stated = context["crossings"].as_array().unwrap();
+    assert_eq!(stated[0]["realm"], "alpha");
+    assert_eq!(
+        stated[0]["publishes"],
+        json!([{"name": "orders.api", "path": "orders.v1.schema.json"}]),
+        "a publication keeps its declared repository-relative path"
+    );
+    assert_eq!(stated[0]["consumes"], json!([]));
+    assert_eq!(stated[1]["realm"], "beta");
+    assert_eq!(stated[1]["publishes"], json!([]));
+    assert_eq!(
+        stated[1]["consumes"],
+        json!([{"name": "orders.api", "realm": "alpha", "pin": "matching",
+                "detail": null}]),
+        "a matching pin is stated, not a bare count"
+    );
+    assert!(
+        context["residual_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|finding| finding.get("crossing").is_none()),
+        "no crossing finding while the pin matches"
+    );
+
+    // Moved: the same readout, now with the finding charged to beta.
+    std::fs::write(&contract, "{\"title\": \"Orders\"}\n").unwrap();
+    let observed = brokkr_core::canonical::sha256_bytes(&std::fs::read(&contract).unwrap());
+    assert_ne!(observed, pin);
+    ws.proposes(json!({
+        "fleet_summary": "one contract moved under beta",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "beta",
+            "crossing": "orders.api",
+            "finding": "the contract beta consumed moved",
+            "reasoning": "beta's next run would refuse at load",
+        }],
+    }));
+    let moved = ws.muninn_over_world();
+    assert!(
+        moved.status.success(),
+        "{}",
+        String::from_utf8_lossy(&moved.stderr)
+    );
+    let context = ws.start_input()["context"].clone();
+    let beta = &context["crossings"][1];
+    assert_eq!(beta["consumes"][0]["pin"], "moved");
+    assert_eq!(beta["consumes"][0]["realm"], "alpha");
+    let detail = beta["consumes"][0]["detail"].as_str().unwrap();
+    assert!(detail.contains(&observed), "{detail}");
+    assert!(
+        detail.contains("orders.v1.schema.json"),
+        "the refusal names the publisher's own path: {detail}"
+    );
+    assert!(
+        !detail.contains(&format!("{}", ws.path().display())),
+        "the seat never learns the operator's host path: {detail}"
+    );
+    let finding = context["residual_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|finding| finding["crossing"] == json!("orders.api"))
+        .expect("the moved crossing is a finding");
+    assert_eq!(finding["realm"], "beta", "charged to the consumer");
+    assert_eq!(finding["publisher"], "alpha");
+    assert_eq!(finding["input"], "crossing_pins");
+    assert_eq!(finding["value"], "moved");
+
+    // The record follows the citation back, and the operator reads it.
+    let entry = ws.records().last().unwrap().clone();
+    assert_eq!(
+        entry["crossing_citations"],
+        json!([{"realm": "beta", "crossing": "orders.api"}])
+    );
+    assert_eq!(entry["citations"], json!([]));
+    let printed = String::from_utf8_lossy(&moved.stdout);
+    assert!(printed.contains("queue beta/orders.api"), "{printed}");
+    assert!(printed.contains("cites: beta/orders.api"), "{printed}");
+
+    // Ruling 5: the flight wrote to no journal it read.
+    assert_eq!(before, std::fs::read(ws.db()).unwrap());
+}
+
+/// A proposal may not invent a contract problem: a crossing the dossier
+/// does not state as a finding is refused and nothing is recorded.
+#[test]
+fn an_invented_crossing_citation_is_refused_and_not_recorded() {
+    let (ws, _, _) = staged();
+    crossing_world(&ws);
+    ws.proposes(json!({
+        "fleet_summary": "an invented contract",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "beta",
+            "crossing": "ghost.api",
+            "finding": "invented",
+            "reasoning": "invented",
+        }],
+    }));
+    let output = ws.muninn_over_world();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does not state as a finding"),
+        "the refusal names what is wrong: {stderr}"
+    );
+    assert!(ws.records().is_empty());
+}
+
+// ---------------------- two DISTINCT repositories (phase 2 slice (i))
+
+/// A repository with one commit of its own: the file it adds, that
+/// file's content and the commit message are all `name`, so two
+/// repositories built in the same second are still two trees and two
+/// shas rather than one commit made twice.
+fn git_repo(root: &Path, name: &str) -> String {
+    let repo = root.join(name);
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "Brokkr Test"]);
+    git(&["config", "user.email", "brokkr@test"]);
+    git(&["config", "commit.gpgSign", "false"]);
+    std::fs::write(repo.join(format!("{name}.txt")), name).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", name]);
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// [`staged`], parametrized by repository and hearth: one run, stopped
+/// on its high residual, with the sequence of the ruling that finding
+/// was read from.
+fn staged_in(ws: &Workspace, feature: &str, db: &str, repo: &str) -> (String, u64) {
+    let run_id = ws.run_once_in_repo(feature, db, repo);
+    let store = brokkr_store::Store::open_read_only(&ws.path().join(db)).unwrap();
+    let events = store.load(&run_id).unwrap();
+    let state = brokkr_core::fold(&events).unwrap();
+    assert_eq!(
+        brokkr_view::status_str(&state.status),
+        "stopped",
+        "the staged run reaches a hard stop on its residual"
+    );
+    let findings = brokkr_view::residual_findings(&run_id, &events);
+    assert_eq!(findings.len(), 1, "one high residual, from one ruling");
+    (run_id, findings[0].seq)
+}
+
+/// The heads a run recorded, read back out of the journal it wrote them
+/// to — the fleet readouts carry no head of their own, so this is where
+/// "which tree was this?" is answerable.
+fn recorded_heads(ws: &Workspace, db: &str, run_id: &str) -> Value {
+    let store = brokkr_store::Store::open_read_only(&ws.path().join(db)).unwrap();
+    store
+        .load(run_id)
+        .unwrap()
+        .iter()
+        .find_map(|event| {
+            event
+                .payload
+                .get("inputs")
+                .and_then(|inputs| inputs.get("reviewed_heads"))
+                .cloned()
+        })
+        .unwrap_or_else(|| panic!("run {run_id} recorded no heads in {db}"))
+}
+
+/// Phase 2 slice (i), proof 5, the muninn half: the overseer reads two
+/// REAL repositories, each under its own realm, and splits every fact
+/// between them — never merged (decision 0026 rulings 3 and 5).
+///
+/// `the_overseer_reads_every_hearth_the_map_names_and_cites_each_realm`
+/// above already proves the per-realm citation — but both its realms are
+/// `path: "repo"`, one tree, so nothing in it could tell a world of two
+/// repositories from one repository read twice under two names. What is
+/// new here is that `alpha` and `beta` are two distinct git trees at two
+/// distinct heads, and the proof of it is that each realm's run recorded
+/// its OWN tree's head under its OWN realm's name. Reading one tree for
+/// both, or folding the hearths together, would put one sha in both
+/// journals.
+#[test]
+fn the_overseer_reads_two_real_repositories_each_under_its_own_realm() {
+    let ws = Workspace::new();
+    let alpha_head = git_repo(ws.path(), "alpha");
+    let beta_head = git_repo(ws.path(), "beta");
+    assert_ne!(
+        alpha_head, beta_head,
+        "two repositories, two commits, two shas"
+    );
+    // The map is written BEFORE the runs here, unlike the one-tree test
+    // above: a run only keys its heads by realm when a map named the
+    // tree it stands in, and that keying is the evidence this proof
+    // turns on.
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": "alpha", "default_branch": "main"},
+                {"name": "beta", "path": "beta", "default_branch": "trunk",
+                 "journal": ".forge/beta.db"},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    let (alpha_run, seq) = staged_in(&ws, "alpha's own work", ".forge/forge.db", "alpha");
+    let (beta_run, beta_seq) = staged_in(&ws, "beta's own work", ".forge/beta.db", "beta");
+
+    ws.proposes(json!({
+        "fleet_summary": "two repositories, a stopped run in each",
+        "parked_runs": [],
+        "work_queue": [{
+            "realm": "alpha",
+            "run_id": alpha_run,
+            "seq": seq,
+            "finding": "max_residual_severity: high",
+            "reasoning": "alpha's own residual, in alpha's own tree",
+        }],
+    }));
+
+    let alpha_bytes = std::fs::read(ws.db()).unwrap();
+    let beta_bytes = std::fs::read(ws.path().join(".forge/beta.db")).unwrap();
+    let output = ws.muninn_over_world();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+
+    // The dossier names both realms and keys every run to the one it was
+    // read from — side by side, in map order, never a merged list.
+    let context = ws.start_input()["context"].clone();
+    assert_eq!(context["fleet"]["realms"], json!(["alpha", "beta"]));
+    assert_eq!(context["fleet"]["runs"], 2);
+    let runs: Vec<(&str, &str)> = context["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["realm"].as_str().unwrap(),
+                row["run_id"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        runs,
+        vec![("alpha", alpha_run.as_str()), ("beta", beta_run.as_str())]
+    );
+    // Each repository's finding is cited under its own realm, and under
+    // its own run — the pairing a merge would scramble.
+    let findings: Vec<(&str, &str, u64)> = context["residual_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| {
+            (
+                finding["realm"].as_str().unwrap(),
+                finding["run_id"].as_str().unwrap(),
+                finding["seq"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        findings,
+        vec![
+            ("alpha", alpha_run.as_str(), seq),
+            ("beta", beta_run.as_str(), beta_seq),
+        ]
+    );
+
+    // The record and the printed line name the realm the fact came from.
+    let entry = &ws.records()[0];
+    assert_eq!(entry["work_queue"][0]["realm"], json!("alpha"));
+    assert_eq!(
+        entry["citations"],
+        json!([{"realm": "alpha", "run_id": alpha_run, "seq": seq}])
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(&format!("queue alpha/{alpha_run}")),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    // And the two realms are two trees: each run recorded its OWN
+    // repository's head, keyed by its own realm name.
+    let alpha_heads = recorded_heads(&ws, ".forge/forge.db", &alpha_run);
+    let beta_heads = recorded_heads(&ws, ".forge/beta.db", &beta_run);
+    assert_eq!(alpha_heads, json!({ "alpha": alpha_head }));
+    assert_eq!(beta_heads, json!({ "beta": beta_head }));
+    assert_ne!(alpha_heads, beta_heads);
+
+    // Ruling 5: reading two hearths wrote to neither.
+    assert_eq!(alpha_bytes, std::fs::read(ws.db()).unwrap());
+    assert_eq!(
+        beta_bytes,
+        std::fs::read(ws.path().join(".forge/beta.db")).unwrap()
+    );
+}
+
 /// A realm the map names before its first run has no journal yet, and
 /// the world's dossier is not withheld for it: the flight reads the
 /// hearths that are there, says out loud which one stated nothing, and
@@ -576,6 +947,132 @@ fn a_realm_with_no_journal_yet_does_not_withhold_the_worlds_dossier() {
         "the refusal names the journal it was pointed at"
     );
     assert!(!ws.path().join(".forge/nowhere.db").exists());
+}
+
+/// A fresh world that has never run still has a dossier when its map
+/// draws a crossing: the crossing report comes off the map, so the raven
+/// carries it before the first journal exists. The absent journals are
+/// still said out loud, and a map with neither a readable journal nor a
+/// crossing still has nothing to report.
+#[test]
+fn a_world_with_crossings_reports_them_before_any_journal_exists() {
+    let ws = Workspace::new();
+    let contract = ws.path().join("repo/orders.v1.schema.json");
+    std::fs::write(&contract, CROSSING_BYTES).unwrap();
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main",
+                 "journal": ".forge/alpha.db",
+                 "publishes": [{"name": "orders.api",
+                                "path": "orders.v1.schema.json"}]},
+                {"name": "beta", "path": "repo", "default_branch": "main",
+                 "journal": ".forge/beta.db",
+                 "consumes": [{"name": "orders.api", "realm": "alpha",
+                               "sha256": "a".repeat(64)}]},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    ws.proposes(json!({
+        "fleet_summary": "no run yet, one contract moved",
+        "parked_runs": [],
+        "work_queue": [{"realm": "beta", "crossing": "orders.api",
+                        "finding": "the contract moved", "reasoning": "beta would refuse"}],
+    }));
+
+    let output = ws.muninn_over_world();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("realm alpha states nothing")
+            && stderr.contains("realm beta states nothing"),
+        "each absent journal is said out loud: {stderr}"
+    );
+    let context = ws.start_input()["context"].clone();
+    assert_eq!(context["fleet"]["runs"], 0, "no run exists yet");
+    assert!(context["runs"].as_array().unwrap().is_empty());
+    let beta = &context["crossings"][1];
+    assert_eq!(beta["realm"], "beta");
+    assert_eq!(beta["consumes"][0]["pin"], "moved");
+    let finding = context["residual_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|finding| finding["crossing"] == json!("orders.api"))
+        .expect("the moved crossing is a finding with no run at all");
+    assert_eq!(finding["realm"], "beta");
+    assert_eq!(ws.records().len(), 1, "the proposal was recorded");
+    assert!(!ws.db().exists(), "a read created a journal");
+    assert!(!ws.path().join(".forge/alpha.db").exists());
+    assert!(!ws.path().join(".forge/beta.db").exists());
+
+    // No crossing to carry and no readable journal: still nothing to
+    // report on, and the refusal says so.
+    let bare = Workspace::new();
+    bare.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main",
+                 "journal": ".forge/alpha.db"},
+                {"name": "beta", "path": "repo", "default_branch": "main",
+                 "journal": ".forge/beta.db"},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    let refused = bare.muninn_over_world();
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("nothing to report on"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+}
+
+/// A ONE-hearth world whose map draws a crossing still yields a dossier
+/// when its single journal is not there yet: the crossing report is a
+/// dossier in its own right, and the absent journal is said out loud. A
+/// one-hearth world with NO crossing keeps its unchanged refusal, which
+/// the test above proves.
+#[test]
+fn a_sole_realm_with_a_crossing_reports_it_before_its_journal_exists() {
+    let ws = Workspace::new();
+    let contract = ws.path().join("repo/orders.v1.schema.json");
+    std::fs::write(&contract, CROSSING_BYTES).unwrap();
+    ws.write(
+        "realms.json",
+        json!({
+            "schema": "forge.realms/v5",
+            "realms": [
+                {"name": "alpha", "path": "repo", "default_branch": "main",
+                 "publishes": [{"name": "orders.api",
+                                "path": "orders.v1.schema.json"}]},
+            ],
+            "journal": ".forge/forge.db",
+        }),
+    );
+    ws.proposes(json!({
+        "fleet_summary": "one publication, no run yet",
+        "parked_runs": [],
+        "work_queue": [],
+    }));
+    let output = ws.muninn_over_world();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("realm alpha states nothing"), "{stderr}");
+    let context = ws.start_input()["context"].clone();
+    assert_eq!(context["crossings"][0]["realm"], "alpha");
+    assert_eq!(
+        context["crossings"][0]["publishes"][0]["name"],
+        "orders.api"
+    );
+    assert!(!ws.db().exists(), "a read created a journal");
+    assert_eq!(ws.records().len(), 1);
 }
 
 #[test]
@@ -885,6 +1382,40 @@ fn nothing_a_human_reads_from_this_command_carries_the_lore() {
     for word in lore {
         assert!(!printed.contains(word), "the output carries '{word}'");
     }
+}
+
+/// The production charter is the instruction set a real seat reads, so
+/// the citation shapes the validator accepts must be the ones it teaches.
+/// The staged fixtures script their driver through a trivial charter, so
+/// this asserts the shipped file directly: a charter-compliant seat can
+/// emit the `realm`/`crossing` entry, and the citation rule covers both
+/// shapes rather than demanding `run_id`/`seq` of every entry.
+#[test]
+fn the_shipped_charter_teaches_the_citation_shapes_the_validator_accepts() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let charter = std::fs::read_to_string(root.join("agents/charters/muninn.md")).unwrap();
+    assert!(charter.contains("`realm`"), "{charter}");
+    assert!(charter.contains("`crossing`"), "{charter}");
+    assert!(
+        charter.contains("`run_id`") && charter.contains("`seq`"),
+        "{charter}"
+    );
+    let rules = charter
+        .split("## The rules the report is judged by")
+        .nth(1)
+        .expect("the charter carries its rules section");
+    assert!(
+        rules.contains("crossing") && rules.contains("realm"),
+        "the citation rule names the crossing shape: {rules}"
+    );
+    assert!(
+        rules.contains("run_id") && rules.contains("seq"),
+        "the citation rule still names the run shape: {rules}"
+    );
 }
 
 /// The shipped definition is the one the operator gets, so its bounds

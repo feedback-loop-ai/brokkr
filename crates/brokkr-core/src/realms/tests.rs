@@ -37,6 +37,8 @@ fn the_minimal_map_parses_into_the_shape_the_ruling_names() {
                 house: None,
                 dialect: None,
                 boundary: None,
+                publishes: CrossingList::Absent,
+                consumes: CrossingList::Absent,
             }],
             journal: ".forge/forge.db".to_string(),
         }
@@ -93,15 +95,14 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v5"));
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v6"));
     assert!(
-        refusal.contains("it calls itself 'forge.realms/v5'"),
+        refusal.contains("it calls itself 'forge.realms/v6'"),
         "{refusal}"
     );
-    assert!(refusal.contains(SCHEMA_V1), "{refusal}");
-    assert!(refusal.contains(SCHEMA_V2), "{refusal}");
-    assert!(refusal.contains(SCHEMA_V3), "{refusal}");
-    assert!(refusal.contains(SCHEMA_V4), "{refusal}");
+    for label in SCHEMAS {
+        assert!(refusal.contains(label), "{label}: {refusal}");
+    }
 }
 
 /// Decision 0046 ruling 1: the five words parse and display themselves;
@@ -425,6 +426,405 @@ fn v2_holds_every_v1_rule() {
     assert!(mutate(|map| map["realms"][0]["path"] = json!(" ")).contains("has no path"));
     assert!(mutate(|map| map["journal"] = json!("")).contains("journal is empty"));
     assert!(mutate(|map| map["realms"] = json!([])).contains("names no realms"));
+}
+
+// ------------------------------------------- crossings (decision 0057)
+
+/// A crossing's pin is over the published file's RAW bytes, never over a
+/// canonical form — so the fixture's pin is taken the way a publisher's
+/// reader will take it, from bytes that are not JSON at all.
+fn pin() -> String {
+    crate::canonical::sha256_bytes(b"# orders\n\nThe crossing's own bytes.\n")
+}
+
+/// The smallest world that crosses: alpha publishes one file, beta pins
+/// it. Two realms, because a crossing is between realms.
+fn crossed() -> Value {
+    json!({
+        "schema": SCHEMA_V5,
+        "realms": [
+            {"name": "alpha", "path": "alpha", "default_branch": "main",
+             "publishes": [{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}]},
+            {"name": "beta", "path": "beta", "default_branch": "trunk",
+             "consumes": [{"name": "orders.api", "realm": "alpha", "sha256": pin()}]}
+        ],
+        "journal": "state/world.db"
+    })
+}
+
+fn crossing_refusal(mutate: impl Fn(&mut Value)) -> String {
+    let mut map = crossed();
+    mutate(&mut map);
+    refusal(&map.to_string())
+}
+
+/// Ruling 1 and ruling 2: what a realm publishes is a named file it owns;
+/// what a realm consumes is another realm's crossing, pinned by digest.
+/// Both lists read back exactly as written, and a realm that draws
+/// neither answers with neither.
+#[test]
+fn a_v5_map_carries_what_each_realm_publishes_and_what_it_pins() {
+    let (map, _) = RealmMap::parse("realms.json", &crossed().to_string()).unwrap();
+    let published = PublishedCrossing {
+        name: "orders.api".to_string(),
+        path: "contracts/orders.v1.schema.json".to_string(),
+    };
+    let consumed = ConsumedCrossing {
+        name: "orders.api".to_string(),
+        realm: "alpha".to_string(),
+        sha256: pin(),
+    };
+    assert_eq!(map.realms[0].published(), std::slice::from_ref(&published));
+    assert_eq!(map.realms[1].consumed(), std::slice::from_ref(&consumed));
+    // The publisher consumes nothing and the consumer publishes nothing:
+    // absence on either side is an empty list, spelled in one place.
+    assert!(map.realms[0].consumed().is_empty());
+    assert!(map.realms[1].published().is_empty());
+    // Each part of a crossing is part of its identity, and each prints
+    // for evidence.
+    assert_ne!(
+        published,
+        PublishedCrossing {
+            name: "other".to_string(),
+            path: published.path.clone(),
+        }
+    );
+    assert_ne!(
+        published,
+        PublishedCrossing {
+            name: published.name.clone(),
+            path: "other".to_string(),
+        }
+    );
+    for other in [
+        ConsumedCrossing {
+            name: "other".to_string(),
+            realm: consumed.realm.clone(),
+            sha256: consumed.sha256.clone(),
+        },
+        ConsumedCrossing {
+            name: consumed.name.clone(),
+            realm: "other".to_string(),
+            sha256: consumed.sha256.clone(),
+        },
+        ConsumedCrossing {
+            name: consumed.name.clone(),
+            realm: consumed.realm.clone(),
+            sha256: crate::canonical::ZERO_HASH.to_string(),
+        },
+    ] {
+        assert_ne!(consumed, other);
+    }
+    assert!(format!("{published:?}").contains("orders.api"));
+    assert!(format!("{consumed:?}").contains("alpha"));
+}
+
+/// A v5 map that draws no crossing is a v4 map: the same realms resolve
+/// the same journals, houses, dialects and boundaries, and the two new
+/// lists are absent rather than empty. A world that never drew a
+/// crossing notices nothing.
+#[test]
+fn a_v5_map_without_crossings_reads_exactly_as_a_v4_map() {
+    let realms = json!([{
+        "name": "app", "path": ".", "default_branch": "main",
+        "journal": "app.db", "house": "HOUSE.md", "dialect": "openspec",
+        "boundary": "harness"
+    }]);
+    let v4 = json!({"schema": SCHEMA_V4, "realms": realms, "journal": "world.db"});
+    let v5 = json!({"schema": SCHEMA_V5, "realms": realms, "journal": "world.db"});
+    let (v4, _) = RealmMap::of("realms.json", v4).unwrap();
+    let (v5, _) = RealmMap::of("realms.json", v5).unwrap();
+    assert_eq!(v4.realms, v5.realms);
+    assert_eq!(v5.journal_of(&v5.realms[0]), "app.db");
+    assert_eq!(v5.realms[0].boundary(), Boundary::Harness);
+    assert_eq!(v5.realms[0].house.as_deref(), Some("HOUSE.md"));
+    assert_eq!(v5.realms[0].dialect.as_deref(), Some("openspec"));
+    assert_eq!(v5.realms[0].publishes, CrossingList::Absent);
+    assert_eq!(v5.realms[0].consumes, CrossingList::Absent);
+    assert!(!v5.realms[0].publishes.is_written());
+    assert!(!v5.realms[0].consumes.is_written());
+    assert!(v5.realms[0].published().is_empty());
+    assert!(v5.realms[0].consumed().is_empty());
+}
+
+/// Ruling 3, the version gate: the two words are refused under every
+/// label that predates them, the way a v2 `journal` is refused in a v1
+/// map — and the refusal names the version that would admit them.
+///
+/// Judged for every way the word can be WRITTEN, an empty array and a
+/// `null` included: the gate answers for presence, not for content, so
+/// a map cannot slip v5 vocabulary under a v4 label by naming nothing
+/// with it.
+#[test]
+fn the_crossing_lists_are_v5_vocabulary_and_older_labels_refuse_them() {
+    for label in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
+        for field in ["publishes", "consumes"] {
+            let written = |value: Value| {
+                with(|map| {
+                    map["schema"] = json!(label);
+                    map["realms"][0][field] = value.clone();
+                })
+            };
+            let entry = match field {
+                "publishes" => json!([{"name": "orders.api", "path": "orders.json"}]),
+                _ => json!([{"name": "orders.api", "realm": "alpha", "sha256": pin()}]),
+            };
+            for value in [entry, json!([]), json!(null)] {
+                let refusal = written(value.clone());
+                assert!(
+                    refusal.contains(&format!("realm 'brokkr' names what it {field}")),
+                    "{label}/{field}={value}: {refusal}"
+                );
+                assert!(
+                    refusal.contains(SCHEMA_V5),
+                    "{label}/{field}={value}: {refusal}"
+                );
+                assert!(
+                    refusal.contains(&format!("calling itself {label}")),
+                    "{label}/{field}={value}: {refusal}"
+                );
+            }
+        }
+    }
+}
+
+/// Ruling 3, refusal 7: `null` is not an absence. `realms.v5` types both
+/// lists `array`, so a map writing `"publishes": null` is a map its own
+/// contract file refuses — and core refuses it too, rather than reading
+/// the word as though it had never been written and accepting a map no
+/// validator would.
+#[test]
+fn a_crossing_list_written_as_null_is_refused_rather_than_read_as_absent() {
+    for field in ["publishes", "consumes"] {
+        let refusal = crossing_refusal(|map| map["realms"][1][field] = json!(null));
+        assert!(
+            refusal.contains(&format!("realm 'beta' writes {field} as null")),
+            "{field}: {refusal}"
+        );
+        assert!(
+            refusal.contains("a crossing list is an array"),
+            "{field}: {refusal}"
+        );
+        assert!(
+            refusal.contains("leaves the word out"),
+            "{field}: {refusal}"
+        );
+    }
+    // Told apart from absence where it is read, and not by the accessor:
+    // a written null names no crossing, exactly as an absent word names
+    // none, and only presence separates them.
+    let null: CrossingList<PublishedCrossing> = serde_json::from_value(json!(null)).unwrap();
+    assert_eq!(null, CrossingList::Null);
+    assert!(null.is_written() && null.is_null() && null.entries().is_empty());
+    let absent = CrossingList::<ConsumedCrossing>::default();
+    assert_eq!(absent, CrossingList::Absent);
+    assert!(!absent.is_written() && !absent.is_null() && absent.entries().is_empty());
+    let empty: CrossingList<PublishedCrossing> = serde_json::from_value(json!([])).unwrap();
+    assert!(empty.is_written() && !empty.is_null() && empty.entries().is_empty());
+    assert!(format!("{null:?}").contains("Null"));
+}
+
+/// Ruling 1: a published crossing is a name in the realm-name grammar
+/// and a file inside the realm that owns it — never an absolute path, a
+/// drive letter or a way out of the tree, on exactly the terms `house`
+/// and `dialect` are held to.
+#[test]
+fn a_published_crossing_is_a_named_file_inside_its_own_realm() {
+    let bad_name =
+        crossing_refusal(|map| map["realms"][0]["publishes"][0]["name"] = json!("Orders"));
+    assert!(
+        bad_name.contains("realm 'alpha' publishes a crossing named 'Orders'"),
+        "{bad_name}"
+    );
+    assert!(bad_name.contains("lowercase letters"), "{bad_name}");
+
+    let empty = crossing_refusal(|map| map["realms"][0]["publishes"][0]["path"] = json!("  "));
+    assert!(
+        empty.contains("realm 'alpha' publishes crossing 'orders.api' with no path"),
+        "{empty}"
+    );
+
+    for outside in ["/orders.json", "C:orders.json", "../orders.json"] {
+        let escape =
+            crossing_refusal(|map| map["realms"][0]["publishes"][0]["path"] = json!(outside));
+        assert!(
+            escape.contains(
+                "realm 'alpha' publishes crossing 'orders.api' from a non-repository-relative path"
+            ),
+            "{outside}: {escape}"
+        );
+    }
+}
+
+/// Ruling 3, refusal 1: a crossing is consumed from a realm this world
+/// holds. A pin on a realm the map does not name is a dependency on
+/// nothing, and it is refused where it is written rather than discovered
+/// when somebody goes looking for the file.
+#[test]
+fn a_crossing_consumed_from_a_realm_the_world_does_not_hold_is_refused() {
+    let refusal = crossing_refusal(|map| map["realms"][1]["consumes"][0]["realm"] = json!("gamma"));
+    assert!(
+        refusal.contains(
+            "realm 'beta' consumes crossing 'orders.api' from realm 'gamma', \
+             which this world does not hold"
+        ),
+        "{refusal}"
+    );
+}
+
+/// Ruling 3, refusal 2: the realm is held, and it publishes no such
+/// crossing — including the realm that publishes nothing at all.
+#[test]
+fn a_crossing_its_realm_does_not_publish_is_refused() {
+    let unnamed =
+        crossing_refusal(|map| map["realms"][1]["consumes"][0]["name"] = json!("invoices.api"));
+    assert!(
+        unnamed.contains(
+            "realm 'beta' consumes crossing 'invoices.api', which realm 'alpha' does not publish"
+        ),
+        "{unnamed}"
+    );
+    let publishes_nothing = crossing_refusal(|map| {
+        map["realms"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("publishes");
+    });
+    assert!(
+        publishes_nothing.contains("which realm 'alpha' does not publish"),
+        "{publishes_nothing}"
+    );
+}
+
+/// Ruling 3, refusal 3: within one realm, a crossing name means one
+/// thing. Two published files under one name, or two pins under one
+/// name, would make every later reference ambiguous the moment it was
+/// written.
+#[test]
+fn a_crossing_name_is_used_once_in_each_list() {
+    let published = crossing_refusal(|map| {
+        map["realms"][0]["publishes"] = json!([
+            {"name": "orders.api", "path": "contracts/orders.v1.schema.json"},
+            {"name": "orders.api", "path": "contracts/orders.v2.schema.json"},
+        ]);
+    });
+    assert!(
+        published.contains("realm 'alpha' publishes a crossing named 'orders.api' twice"),
+        "{published}"
+    );
+    let consumed = crossing_refusal(|map| {
+        map["realms"][1]["consumes"] = json!([
+            {"name": "orders.api", "realm": "alpha", "sha256": pin()},
+            {"name": "orders.api", "realm": "alpha", "sha256": crate::canonical::ZERO_HASH},
+        ]);
+    });
+    assert!(
+        consumed.contains("realm 'beta' consumes a crossing named 'orders.api' twice"),
+        "{consumed}"
+    );
+}
+
+/// Ruling 2, refusal 4: a pin is a sha256 — 64 lowercase hex characters
+/// — judged here as a shape and nowhere as bytes, because this crate
+/// reads no file. One spelling of "malformed", shared with every other
+/// digest this build judges.
+#[test]
+fn a_pin_that_is_not_a_sha256_is_refused() {
+    for bad in [
+        "",
+        "not-a-digest",
+        &pin()[..63],
+        &pin().to_uppercase(),
+        &format!("{}0", pin()),
+    ] {
+        let refusal =
+            crossing_refusal(|map| map["realms"][1]["consumes"][0]["sha256"] = json!(bad));
+        assert!(
+            refusal.contains("realm 'beta' pins crossing 'orders.api' at"),
+            "{bad}: {refusal}"
+        );
+        assert!(
+            refusal.contains("64 lowercase hex characters over the published file's raw bytes"),
+            "{bad}: {refusal}"
+        );
+    }
+    assert!(crate::canonical::is_sha256_hex(&pin()));
+}
+
+/// Ruling 3, refusal 6: a crossing is between realms. A realm that
+/// pinned its own published file would be pinning a file it can simply
+/// read, and a digest that moves whenever its own tree does — a
+/// dependency on itself, recorded as though it were a contract.
+#[test]
+fn a_realm_does_not_consume_its_own_crossing() {
+    let refusal = crossing_refusal(|map| {
+        map["realms"][0]["consumes"] =
+            json!([{"name": "orders.api", "realm": "alpha", "sha256": pin()}]);
+    });
+    assert!(
+        refusal.contains("realm 'alpha' consumes crossing 'orders.api' from itself"),
+        "{refusal}"
+    );
+    assert!(
+        refusal.contains("a crossing is between realms"),
+        "{refusal}"
+    );
+}
+
+/// The vocabulary stays closed inside the new entries too: a field this
+/// build does not know is refused there exactly as it is at the map and
+/// realm levels, so a crossing's content type, its description or its
+/// fetch configuration must arrive as a version rather than as drift in
+/// a file still calling itself v5.
+#[test]
+fn a_crossing_entry_refuses_unknown_and_missing_fields() {
+    for (mutate, expected) in [
+        (
+            json!({"name": "orders.api", "path": "orders.json", "media_type": "json"}),
+            "media_type",
+        ),
+        (json!({"name": "orders.api"}), "path"),
+    ] {
+        let refusal = crossing_refusal(|map| map["realms"][0]["publishes"][0] = mutate.clone());
+        assert!(refusal.contains("not a readable realms map"), "{refusal}");
+        assert!(refusal.contains(expected), "{refusal}");
+    }
+    for (mutate, expected) in [
+        (
+            json!({"name": "orders.api", "realm": "alpha", "sha256": pin(), "since": "v1"}),
+            "since",
+        ),
+        (json!({"name": "orders.api", "realm": "alpha"}), "sha256"),
+    ] {
+        let refusal = crossing_refusal(|map| map["realms"][1]["consumes"][0] = mutate.clone());
+        assert!(refusal.contains("not a readable realms map"), "{refusal}");
+        assert!(refusal.contains(expected), "{refusal}");
+    }
+}
+
+/// The regression bar for the whole version line: every older map keeps
+/// loading exactly as it did, and every rule v5 holds its realms to is a
+/// rule its predecessors were already held to.
+#[test]
+fn every_earlier_map_still_loads_and_v5_holds_every_earlier_rule() {
+    for text in [MAP, MANY] {
+        RealmMap::parse("realms.json", text).unwrap();
+    }
+    assert!(older_than(SCHEMA_V1, SCHEMA_V5));
+    assert!(!older_than(SCHEMA_V5, SCHEMA_V5));
+    assert!(!older_than(SCHEMA_V5, SCHEMA_V1));
+    let mutate = |mutate: fn(&mut Value)| {
+        let mut map = crossed();
+        mutate(&mut map);
+        RealmMap::of("realms.json", map).unwrap_err().to_string()
+    };
+    assert!(mutate(|map| map["realms"][1]["name"] = json!("alpha")).contains("is named twice"));
+    assert!(mutate(|map| map["realms"][0]["name"] = json!("Alpha")).contains("realm 0 is named"));
+    assert!(mutate(|map| map["realms"][0]["path"] = json!(" ")).contains("has no path"));
+    assert!(mutate(|map| map["realms"][1]["default_branch"] = json!("")).contains("no default"));
+    assert!(mutate(|map| map["journal"] = json!("")).contains("journal is empty"));
+    assert!(mutate(|map| map["realms"] = json!([])).contains("names no realms"));
+    assert!(mutate(|map| map["realms"][0]["saga"] = json!("x")).contains("saga"));
 }
 
 /// The fold-side law: a journal written before any map recorded one

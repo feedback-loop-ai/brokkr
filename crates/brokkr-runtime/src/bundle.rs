@@ -20,7 +20,8 @@ pub mod compose;
 use compose::{Ancestor, COMPOSE_PREFIX};
 
 use crate::agents::{
-    resolve_route, Adapter, Adapters, Availability, Candidate, EgressClass, Library, TrustTier,
+    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass,
+    Library, TrustTier,
 };
 use crate::dialect::{Dialect, DIALECT_PHASES};
 
@@ -683,6 +684,68 @@ fn command_pins_effort(raw: &Value) -> bool {
 struct Unpinned {
     model: Vec<String>,
     effort: Vec<String>,
+    /// Decision 0035 addendum 2026-09-11: per site, the adapter digest
+    /// whose effortless listing exempted it from the effort pin. The
+    /// declaration that authorised the exemption rides the bundle's
+    /// identity beside decision 0021's — un-listing a route moves the
+    /// digest of every bundle it excused.
+    witnessed: Map<String, Value>,
+}
+
+/// Adapter data for the effortless-route exemption (decision 0035
+/// addendum 2026-09-11). Loaded only where an inline model seat could
+/// claim it; a missing or malformed adapters root reads as no
+/// exemptions rather than an error — the strict rule stands, exactly
+/// as a bundle with no adapters/ directory in sight compiles today.
+fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Adapters> {
+    fn has_inline_model_driver(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                built_in_model_driver(value).is_some() || map.values().any(has_inline_model_driver)
+            }
+            Value::Array(items) => items.iter().any(has_inline_model_driver),
+            _ => false,
+        }
+    }
+    if !seats.values().any(has_inline_model_driver) {
+        return None;
+    }
+    Adapters::load(root).ok()
+}
+
+/// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
+/// resolves through its adapter to an effortless route needs no effort
+/// pin — and the adapter digest that says so is witnessed beside the
+/// exemption. Only a readable concrete id with a route prefix can
+/// claim it: a bare id keeps the adapter default's standing, and an
+/// unreadable pin is refused on the model axis first.
+fn effort_exempt(
+    what: &str,
+    raw: &Value,
+    adapters: Option<&Adapters>,
+    witnessed: &mut Map<String, Value>,
+) -> bool {
+    let adapters = match adapters {
+        Some(adapters) => adapters,
+        None => return false,
+    };
+    let kind = match built_in_model_driver(raw) {
+        Some(kind) => kind,
+        None => return false,
+    };
+    let adapter = match adapters.adapter(kind) {
+        Some(adapter) => adapter,
+        None => return false,
+    };
+    match inline_route_pin(raw, Some(adapter)) {
+        ModelPin::Concrete(id) if route_is_effortless(adapter, &id) => {
+            let mut authorised = Map::new();
+            authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
+            witnessed.insert(what.to_string(), Value::Object(authorised));
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Inspect every driver-bearing invocation site in the already composed
@@ -690,7 +753,7 @@ struct Unpinned {
 /// chains — a chain that names no effort for an effort-bearing provider
 /// is refused where the vocabulary is known, in the resolver — while
 /// inline built-ins must state both concrete pins in their argv.
-fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
+fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &mut Unpinned) {
     if raw.get("agent").is_some() {
         return;
     }
@@ -702,14 +765,14 @@ fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
         if !command_pins_model(raw) {
             out.model.push(what.to_string());
         }
-        if !command_pins_effort(raw) {
+        if !command_pins_effort(raw) && !effort_exempt(what, raw, adapters, &mut out.witnessed) {
             out.effort.push(what.to_string());
         }
         return;
     }
     if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
         for (member, member_raw) in panel {
-            collect_unpinned(&format!("{what}:{member}"), member_raw, out);
+            collect_unpinned(&format!("{what}:{member}"), member_raw, adapters, out);
         }
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
@@ -719,17 +782,17 @@ fn collect_unpinned(what: &str, raw: &Value, out: &mut Unpinned) {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("step-{}", index + 1));
-            collect_unpinned(&format!("{what}:{name}"), step, out);
+            collect_unpinned(&format!("{what}:{name}"), step, adapters, out);
         }
     }
     if let Some(select) = raw.get("select").and_then(Value::as_object) {
         if let Some(cases) = select.get("cases").and_then(Value::as_object) {
             for (case, body) in cases {
-                collect_unpinned(&format!("{what}:{case}"), body, out);
+                collect_unpinned(&format!("{what}:{case}"), body, adapters, out);
             }
         }
         if let Some(body) = select.get("default") {
-            collect_unpinned(&format!("{what}:default"), body, out);
+            collect_unpinned(&format!("{what}:default"), body, adapters, out);
         }
     }
 }
@@ -745,11 +808,15 @@ fn labels(sites: &[String]) -> String {
 /// One refusal names the complete repair set, on BOTH axes. A model pin
 /// without an effort pin is half a hire (decision 0035 ruling 5), so the
 /// two clauses stand beside each other rather than the first hiding the
-/// second behind a second compile.
-fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
+/// second behind a second compile. Returns the adapter digests whose
+/// effortless listings exempted inline seats, for the manifest.
+fn enforce_model_pins(
+    seats: &Map<String, Value>,
+    adapters: Option<&Adapters>,
+) -> Result<Map<String, Value>, CompileError> {
     let mut unpinned = Unpinned::default();
     for (phase, raw) in seats {
-        collect_unpinned(phase, raw, &mut unpinned);
+        collect_unpinned(phase, raw, adapters, &mut unpinned);
     }
     let mut refusals = Vec::new();
     if !unpinned.model.is_empty() {
@@ -768,7 +835,7 @@ fn enforce_model_pins(seats: &Map<String, Value>) -> Result<(), CompileError> {
         ));
     }
     if refusals.is_empty() {
-        return Ok(());
+        return Ok(unpinned.witnessed);
     }
     Err(CompileError::Invalid(refusals.join("; ")))
 }
@@ -895,8 +962,13 @@ impl Bundle {
         let table = resolved.table.clone();
         // One refusal names the complete repair set. Running this on the
         // flattened seats also means inherited omissions cannot hide in
-        // a composition layer.
-        enforce_model_pins(&resolved.seats)?;
+        // a composition layer. The returned map witnesses the adapter
+        // digests whose effortless listings exempted inline seats, for
+        // the manifest below.
+        let pin_drivers = enforce_model_pins(
+            &resolved.seats,
+            load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
+        )?;
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases
@@ -989,6 +1061,7 @@ impl Bundle {
                 )));
             }
             refuse_boundary_key(phase, raw)?;
+            refuse_crossing_keys(phase, raw)?;
             refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
             refuse_confine(phase, raw)?;
             let law = SiteLaw {
@@ -1329,12 +1402,32 @@ impl Bundle {
                 _ => None,
             })
             .collect();
+        // Decision 0035 addendum 2026-09-11: the adapter digests whose
+        // effortless listings exempted inline seats ride beside decision
+        // 0021's — un-listing a route moves the digest of every bundle
+        // it excused, and a bundle no listing excused keeps its shape.
+        let mut drivers = pin_drivers;
+        if let Some(context) = agents.as_ref() {
+            for (site, record) in &context.drivers {
+                match (drivers.get_mut(site), record) {
+                    (Some(Value::Object(into)), Value::Object(extra)) => {
+                        for (provider, digest) in extra {
+                            into.insert(provider.clone(), digest.clone());
+                        }
+                    }
+                    _ => {
+                        drivers.insert(site.clone(), record.clone());
+                    }
+                }
+            }
+        }
+        let drivers = (!drivers.is_empty()).then_some(&drivers);
         let manifest = manifest_for(
             dir,
             &name,
             &resolved.chain,
             agents.as_ref().map(|a| &a.records),
-            agents.as_ref().map(|a| &a.drivers),
+            drivers,
             &hands,
             &select_records,
             boundary,
@@ -1584,6 +1677,35 @@ fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
         ))),
     }
 }
+
+/// Decision 0057 ruling 1: a crossing is the REALM's — a file one realm
+/// publishes and another realm pins by its bytes — declared in
+/// `realms.json` under `forge.realms/v5`, and a bundle never names one.
+///
+/// The same refusal `boundary` gets one function above, on the same terms
+/// and for the same reason: a site that writes the word is told where the
+/// word lives rather than that its key is unknown. Per seat, like
+/// `boundary`, because a seat is the site that would claim the fact;
+/// there is no root-level unknown-key check for either.
+fn refuse_crossing_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+    let Some(key) = CROSSING_KEYS.iter().find(|key| raw.get(*key).is_some()) else {
+        return Ok(());
+    };
+    Err(CompileError::Invalid(format!(
+        "seat '{what}' declares {key}; {CROSSING_IS_THE_REALMS}"
+    )))
+}
+
+/// The two words `forge.realms/v5` adds, refused wherever a bundle writes
+/// one.
+const CROSSING_KEYS: [&str; 2] = ["publishes", "consumes"];
+
+/// Where a crossing lives (decision 0057 ruling 1), said once for the
+/// site that tries to write it into a bundle.
+const CROSSING_IS_THE_REALMS: &str = "a crossing is declared by the realm \
+    (realms.json, forge.realms/v5) and never by a bundle, because the file one realm \
+    publishes and the digest another pins it at is the realm's fact and not a \
+    recipe's (decision 0057 ruling 1)";
 
 /// The box the compiler builds for every dialect `validate`/`check` step
 /// (decision 0042 ruling 4). Public so `brokkr doctor` probes the
@@ -2528,6 +2650,7 @@ fn parse_selected_body(
         ..
     } = compile;
     refuse_boundary_key(what, raw)?;
+    refuse_crossing_keys(what, raw)?;
     refuse_unknown_keys(what, raw, BODY_KEYS)?;
     refuse_confine(what, raw)?;
     let has_agent = raw.get("agent").is_some();
@@ -2758,6 +2881,7 @@ fn parse_panel(
     for (name, member_raw) in members_raw {
         let site = format!("{what}:{name}");
         refuse_boundary_key(&site, member_raw)?;
+        refuse_crossing_keys(&site, member_raw)?;
         refuse_confine(&site, member_raw)?;
         if member_raw.get("agent").is_some() {
             refuse_amendments(&site, member_raw)?;
@@ -2854,6 +2978,7 @@ fn parse_sequence(
         }
         let what = format!("{phase}:{name}");
         refuse_boundary_key(&what, step_raw)?;
+        refuse_crossing_keys(&what, step_raw)?;
         refuse_confine(&what, step_raw)?;
         let has_agent = step_raw.get("agent").is_some();
         if has_agent {

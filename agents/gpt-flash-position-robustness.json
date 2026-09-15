@@ -1,0 +1,10 @@
+{
+  "description": "Design panel member: argues the failure modes the simple design would leave open, with evidence.",
+  "charter": "charters/position-robustness.md",
+  "models": [
+    "sol"
+  ],
+  "efforts": {
+    "sol": "high"
+  }
+}
