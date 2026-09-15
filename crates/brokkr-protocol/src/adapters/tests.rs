@@ -2704,8 +2704,18 @@ fn qualify_refuses_an_originating_version_drift() {
     assert_eq!(drifted.observed.as_deref(), Some("0.153.4"));
     assert_eq!(drifted.refusal, Some("unverified-harness"));
 
-    // The version the root was actually opened under is not drift.
-    let same = qualify(&gate, &probe, Some("0.153.4"));
+    // The version the root was actually opened under is not drift. The
+    // probe can fail transiently under load, so this last probe retries
+    // exactly as the two above do before its assertion is read.
+    let mut same = qualify(&gate, &probe, Some("0.153.4"));
+    for _ in 0..7 {
+        if same.observed.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        same = qualify(&gate, &probe, Some("0.153.4"));
+    }
+    assert_eq!(same.observed.as_deref(), Some("0.153.4"));
     assert_eq!(same.refusal, None);
 }
 
@@ -9326,15 +9336,39 @@ fn the_dsh_launch_reports_unreadable_seams_over_the_injected_resolver() {
     let digest = "b".repeat(64);
     let input = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
     let shim = dsh_version_shim(dir.path(), "dsh-launch-seams", "0.1.5-rc.1");
-    let launch = dsh_launch_resolving(
-        &shim.to_string_lossy(),
-        &[],
-        dir.path().to_str().unwrap(),
-        None,
-        &input,
-        || Err(CompositeError::Config("the seam resolver failed".into())),
-    )
-    .unwrap();
+    // The injected resolver is reached only after a matching version probe,
+    // so this flag proves the probe succeeded and the launch actually drove
+    // the seam refusal, rather than passing because the probe answered
+    // nothing. The probe can fail transiently under load, so retry it the
+    // way the qualification tests beside this one do; what is asserted is
+    // unchanged.
+    let resolver_ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut launch = None;
+    for _ in 0..8 {
+        let ran = std::sync::Arc::clone(&resolver_ran);
+        let attempt = dsh_launch_resolving(
+            &shim.to_string_lossy(),
+            &[],
+            dir.path().to_str().unwrap(),
+            None,
+            &input,
+            move || {
+                ran.store(true, std::sync::atomic::Ordering::SeqCst);
+                Err(CompositeError::Config("the seam resolver failed".into()))
+            },
+        )
+        .unwrap();
+        launch = Some(attempt);
+        if resolver_ran.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        resolver_ran.load(std::sync::atomic::Ordering::SeqCst),
+        "a matching version probe must reach the injected seam resolver"
+    );
+    let launch = launch.unwrap();
     assert!(!launch.stream_json);
     assert!(launch.rejoining.is_none());
     match prior_home {
