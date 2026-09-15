@@ -1,10 +1,12 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
 Current commission: run `operator-ruling-slice-branch-int-bf5f6a32`, tasks
-return, adopts design `15d6a38`, proposal W/specifications `3ead8d4` and
-committed implementation through `2da94b0`. D10 answers analyze F1's
-composition gap; this visit reconciles the numbered checkbox descriptions
-with that returned design before implementation resumes.
+return, adopts design `78098d5`, the F1 task checkpoint `26f665e`, proposal
+W/specifications `3ead8d4` and committed implementation through `2da94b0`.
+D10 retains F1's composition repair; D11 now answers analyze F2's stale scenario
+inventory. This visit confirms the breakdown against that return and names
+its existing gate/no-hands and cold-replacement checks before implementation
+resumes.
 The operator ruled: **“keep
 decision 0030's rejoin live, do not regress codex.”** This is the **operator
 ruling and four lows only**. The ledger remains **82 complete / 19 pending**
@@ -156,6 +158,9 @@ Capability short names below are `site` (`site-session-resumption`),
 requirement **The seat record carries the boundary as seat-record/v4**).
 Across the five capability deltas, AS1–AS3, PM4 and the F7 boundary
 requirement are MODIFIED; the other fifteen requirements remain ADDED.
+The current inventory agrees with returned D11: 20 requirements / 158 scenarios
+(evidence 31 + safety 63 + boundary 11 + progress 20 + site 33). Dated lower
+counts below remain historical validation records.
 
 Conventions binding on every task, restated once rather than per task:
 
@@ -1157,14 +1162,23 @@ saved for the phase commit.
       existing agent suites, then the shipped assessment/production-composed
       argv exchange in CLI `tests/driver_conformance.rs`, with separately
       observed disabled-status, boxed-hands, harness-fragment and boundary-mark
-      mutation failures. The full resolved boxed MCP argv stays cold. Then the
-      actual DSH cold planner boundary, Codex refusal cause, Codex cold selector
-      and six-file digest controls, in that order. It adopts the settled reader
-      seam. Each clause names its tests, requirement and observed failure/pass;
+      mutation failures. The full resolved boxed MCP argv stays cold. Run the
+      existing runtime `the_seat_input_names_the_boundary_and_the_marker_only_under_a_box`
+      and `no_gate_topology_is_ever_offered_a_session` checks beside that bridge:
+      absent configured hands supplies neither marker nor boundary, while a
+      harness gate with hands still receives no offer (site / SR1, evidence / LE2).
+      Then the actual DSH cold planner boundary, Codex refusal cause, Codex
+      cold selector and six-file digest controls, in that order. For low 3,
+      pair its selector mutation with the existing protocol adapter test
+      `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`, verifying
+      two children, no selector and the retained sandbox in the replacement
+      argv, and one cold launch row (safety / AS3, AS4, evidence / LE3).
+      It adopts the settled reader seam. Each clause names its tests,
+      requirement and observed failure/pass;
       retain all inherited fixes and leave 8.10 unchecked. These clauses add
-      acceptance detail under safety / AS1, AS2 and AS3, site / SR2, SR3 and
-      SR5, and evidence / LE1, LE2, LE4 and LE5. The following Pass B breakdown
-      is inherited acceptance,
+      acceptance detail under safety / AS1, AS2, AS3 and AS4, site / SR1, SR2,
+      SR3 and SR5, and evidence / LE1, LE2, LE3, LE4 and LE5. The following
+      Pass B breakdown is inherited acceptance,
       not work to repeat; C/D paragraphs remain pending and unscheduled.
       Verify each applicable case alongside its 8.8(d) implementation before
       advancing; the full 8.10 checkbox still awaits C/D.
@@ -1771,7 +1785,7 @@ itself (`safety / AS1`).
       judging pass at `2da94b0`. The change must retain the rejoin main already
       performs across the historical 0.148.0/current-applicability 0.153.4 drift,
       while refusing actual identity, boundary, hands and accounting mismatch.
-      At this tasks return's adopted head `15d6a38`, the declaration is still
+      At this tasks return's adopted head `78098d5`, the declaration is still
       unmeasured. Analyze F1 establishes that retaining `hands: boxed` would
       also refuse the shipping harness retry after a status flip. D10 now
       requires `boundaries: ["harness"]`, `hands: "none"`, the composed
@@ -4588,12 +4602,15 @@ publication or new Brokkr run occurred.
 
 ## Current tasks visit — operator-ruling breakdown, 2026-09-15
 
-Run `operator-ruling-slice-branch-int-bf5f6a32` adopts the returned design
-`15d6a38` and implementation `2da94b0`. The earlier task checkpoint `c45ee20`
-followed design `17bbd10`; D10 now answers analyze F1, and this tasks visit
-reconciles 6.4, 8.5, 8.10, 11.1 and 13.1 with that answer. Proposal W/AS1/LE5
-stand: no earlier requirement is defective. D10 records the resolved
-composition scenario under `## Decisions`; its Open Questions defer no choice.
+Run `operator-ruling-slice-branch-int-bf5f6a32` adopts returned design
+`78098d5`, task checkpoint `26f665e` and implementation `2da94b0`. The earlier
+F1 tasks return reconciled 6.4, 8.5, 8.10, 11.1 and 13.1 with design `15d6a38`.
+D11's F2 inventory correction now agrees with the unchanged five deltas and
+this breakdown. D10's council reconciliation retains that plan; this visit
+names its existing gate/no-hands and cold-replacement checks explicitly under
+8.10 and clauses 3/6. Proposal W/AS1/LE5 stand: no earlier requirement is
+defective. D10 records the resolved composition scenario under `## Decisions`;
+its Open Questions defer no choice.
 Proposed 0056's amendment remains the first semantic implementation obligation
 within this same open change.
 
@@ -4689,7 +4706,8 @@ repairs and fix only a gap the commissioned control demonstrates.
 
 3. **Preserve shipping support and prove every retained admission fence.**
    Existing 6.1/6.4–6.6, 8.1/8.5/8.10, 9.5/9.7; safety / **AS1**, **AS2**;
-   site / **SR2 An offer preserves all established instance identity checks**, **SR3 The
+   site / **SR1 Every model work site receives its own eligible offer**,
+   **SR2 An offer preserves all established instance identity checks**, **SR3 The
    offered handle names the provider's own session**, **SR5 Session recovery uses durable
    evidence without widening crash recovery**; evidence / **LE2 Launch evidence
    stays within a versioned closed vocabulary**, **LE5**. Set only Codex
@@ -4726,6 +4744,14 @@ repairs and fix only a gap the commissioned control demonstrates.
    workspace MCP argv; require cold `restrictions-unavailable` and no version
    probe under the narrowed declaration. Preserve the independent existing
    `-c` allow-list refusal; no boxed or no-hands rejoin is newly enabled.
+   Run the existing runtime boundary case
+   `the_seat_input_names_the_boundary_and_the_marker_only_under_a_box` and
+   `engine/resume_tests.rs::no_gate_topology_is_ever_offered_a_session` beside
+   the bridge. A site without configured hands has neither field and therefore
+   defaults to the refused `not applicable` boundary; a harness gate with
+   hands still receives no offer under SR1. Absent `hands` alone establishes
+   neither work eligibility nor a supported boundary. Reuse these assertions;
+   do not add a duplicate topology suite or fabricate a marker.
    Exercise all three other shipped assessments with otherwise eligible offers
    through the existing planner suites and require `unsupported-resume`
    without a version probe.
@@ -4782,6 +4808,8 @@ repairs and fix only a gap the commissioned control demonstrates.
 
 6. **Low 3 — control the cold selector refusal.** Existing 8.3/8.10;
    safety / **AS3 Invocation settings cannot redirect or weaken a resume**,
+   **AS4 A refused resume permits only one proven pre-work cold replacement**;
+   evidence / **LE3 Launch reporting preserves first-work acceptance and refusal semantics**;
    scenario **A bundle supplies a Codex resume selector on a cold launch**.
    Run `a_codex_seat_argv_that_selects_a_session_is_refused_on_the_cold_path_too`
    across no-offer, offered and disabled-shape paths. Temporarily bypass
@@ -4790,8 +4818,13 @@ repairs and fix only a gap the commissioned control demonstrates.
    bundle `resume <id>` after the driver's `--`. Retain conservative refusal
    of the `resume` word in value positions. Add only the planned comment at
    `invoke`'s direct replacement `codex_cold` call: successful `codex_launch`
-   has already validated the same immutable arguments. No duplicated builder
-   guard, silent stripping or provider exception is justified by this design.
+   has already validated the same immutable arguments. Pair this control with
+   `adapters/tests.rs::a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled`:
+   its two-child exchange already asserts no `resume` in the replacement argv,
+   the retained sandbox class and one cold launch row. Run it with the selector
+   case; do not add a test that expects a forbidden selector to reach replacement,
+   since the first guard must reject it. No duplicated builder guard, silent
+   stripping or provider exception is justified by this design.
 
 7. **Low 4 — pin the unchanged extension bytes and retain never-publish.**
    Existing 8.8/8.10; safety / **AS1**, scenarios **The adaptation is compared
@@ -4987,3 +5020,43 @@ amendments, behavioral controls, measured re-pins and local gates; host equality
 under #286 and final remote results remain pending with the controller.
 The change remains open. No task completion, provider qualification or runtime
 repair is claimed by this tasks return.
+
+
+### Tasks-return validation — adopted design `78098d5`, analyze F2
+
+The returned design resolves F2 in D11: the unchanged five deltas contain
+**20 requirements / 158 scenarios**, derived as 31 + 63 + 11 + 20 + 33.
+No scenario is missing and Open Questions defer no implementation choice.
+This tasks-only return adopts that correction, preserves F1's composition
+proof and makes D10's existing no-hands/gate and cold-replacement test pairings
+explicit in 8.10 and clauses 3/6, with their requirement citations. It adds
+no test, task identifier or production design. The operator ruling remains
+first, followed by the four lows in their commissioned order.
+
+No `upstream` amendment is needed: the earlier artifacts already settle the
+ruling and the current inventory. The two supplied archive-target notices
+remain informational while this change is open; neither a living-spec fold
+nor changing delta operations is authorized in this slice. Proposed 0056,
+the declaration repair and all prescribed runtime controls remain pending.
+
+Strict active validation passes; strict all-item validation reports **14
+passed, 0 failed**. Whitespace, task-citation and tracked-byte audits pass:
+all **101 task IDs / 82 checked / 19 pending** retain their states, only
+`tasks.md` changes, and the other **727 tracked files** retain their entry
+hashes. The six plugin digests still match PROVENANCE. No task is ticked.
+
+All **11 attempted Rust commands exited 127** because Cargo is absent: format,
+locked all-target/all-feature clippy, protocol/runtime suites, CLI conformance,
+decisions index, both workspace test modes, both bundle compiles and release
+build. They inherit #282's Git-environment correction and the resource bounds.
+No Rust test or mutation ran, and no Rust gate is claimed green. The exact gate
+was not launched without its compiler: **no fresh before/after or in-box
+coverage counts** exist for this return. The saved reports retain their hashes
+and prior **30,015/30,015 lines, 5,036/5,036 branches, 2,861/2,861 functions**;
+those are inherited evidence only. The shared compiler pin remains unchanged.
+Implementation owes the measured controls and local gates; #286 host equality
+and final-head remote evidence remain pending with the controller.
+
+Readouts and audits are retained in `.forge/tasks-operator-ruling-f2-bf5f6a32/`.
+This is an unsigned task-draft checkpoint, with implementation completion,
+provider qualification and archive unclaimed. No push, merge or new run occurs.
