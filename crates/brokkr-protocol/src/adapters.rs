@@ -1917,6 +1917,22 @@ fn fold_dsh_event(
 /// D6; task 8.8(d)).
 const DSH_TRANSCRIPT: &str = "session.v3.jsonl";
 
+/// The generation name the previously shipped, plugin-free core wrote.
+///
+/// Admitting version three does NOT retire it. A shipped cold launch —
+/// one the qualification gate disabled, or one whose composite did not
+/// match the declared identity — still runs whatever core the host has
+/// installed, and that core may be the one that writes this name. AS1
+/// requires the shipped cold route to keep the telemetry it already had,
+/// so discovery reads both generations while the strict warm admission
+/// below keeps naming `DSH_TRANSCRIPT` alone.
+const DSH_TRANSCRIPT_SHIPPED: &str = "session.jsonl";
+
+/// Both generations, newest first: a session directory holds one of them,
+/// and the selected core's name is the likelier answer, so it is asked
+/// first. This is a fixed two-name list and never a directory scan.
+const DSH_TRANSCRIPT_NAMES: [&str; 2] = [DSH_TRANSCRIPT, DSH_TRANSCRIPT_SHIPPED];
+
 /// The existing transcript locator bound (Rust `chars`, not UTF-8 bytes),
 /// repeated here so the DSH planner can validate an OFFERED locator and the
 /// locator it plans before the shared `Transcript::record` clamp can turn
@@ -1950,9 +1966,11 @@ fn find_dsh_transcript(root: &std::path::Path) -> Option<std::path::PathBuf> {
             .flatten()
             .flatten()
         {
-            let candidate = session.path().join(DSH_TRANSCRIPT);
-            if names_the_seats_own_session(&candidate) {
-                return Some(candidate);
+            for name in DSH_TRANSCRIPT_NAMES {
+                let candidate = session.path().join(name);
+                if names_the_seats_own_session(&candidate) {
+                    return Some(candidate);
+                }
             }
         }
     }

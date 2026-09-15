@@ -4223,6 +4223,50 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
 }
 
 #[test]
+fn both_shipped_generations_of_the_transcript_name_are_discovered() {
+    // AS1: admitting version three must not cost the shipped cold route
+    // the telemetry it already had. A disabled or identity-mismatched
+    // launch runs whatever core the host has installed, and that core
+    // may still write the plugin-free name. Both names are written here
+    // as LITERALS, not as the constants, so a future edit to either
+    // constant cannot quietly move what this test claims.
+    for name in ["session.v3.jsonl", "session.jsonl"] {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("root").join("--project--").join("s-1");
+        std::fs::create_dir_all(&session).unwrap();
+        let transcript = session.join(name);
+        std::fs::write(
+            &transcript,
+            b"{\"type\":\"session\",\"id\":\"s\",\"delegationDepth\":0}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            find_dsh_transcript(&dir.path().join("root")).as_deref(),
+            Some(&*transcript),
+            "the {name} generation is not discovered"
+        );
+    }
+}
+
+#[test]
+fn the_selected_generation_is_preferred_when_a_session_holds_both() {
+    // A host that has just been upgraded can leave both names in one
+    // session directory. The selected core's own name is the answer, and
+    // it is chosen by asking for it first rather than by any scan order.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("root");
+    let session = root.join("--project--").join("s-1");
+    std::fs::create_dir_all(&session).unwrap();
+    let header = b"{\"type\":\"session\",\"id\":\"s\",\"delegationDepth\":0}\n";
+    std::fs::write(session.join("session.jsonl"), header).unwrap();
+    std::fs::write(session.join("session.v3.jsonl"), header).unwrap();
+    assert_eq!(
+        find_dsh_transcript(&root).as_deref(),
+        Some(&*session.join("session.v3.jsonl"))
+    );
+}
+
+#[test]
 fn a_delegated_sub_session_never_becomes_the_one_the_seat_reports() {
     // One root is not the same claim as one session: dsh's header
     // carries a `delegationDepth`, so a session the seat delegates

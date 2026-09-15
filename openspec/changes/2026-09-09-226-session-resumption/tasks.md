@@ -3991,3 +3991,41 @@ release binary builds. `openspec validate
 policy, reference, fixture, declaration, recipe, provider proof, activation
 or archive change; DSH stays `unmeasured`, 0056 stays `proposed`, and
 Passes C–D and E–K are untouched.
+
+### Controller repair, 2026-09-15 — R1, the shipped cold route's telemetry
+
+The Pass B review chief raised R1 as a medium on `5a38fb9` and it is repaired
+here by the controller, outside a seat, because it is a regression this change
+introduced rather than work the pass had left to do. No checkbox moves; 8.8,
+8.10 and 9.6 stay unticked.
+
+B1 above reads, of the selected generation name, that "`DSH_TRANSCRIPT` now
+names that generation, for the planner's owned-file lookup **and the shipped
+route's cold fold alike**". That second half is withdrawn. Unifying the two
+was the defect: a shipped cold launch — one the qualification gate disabled,
+or one whose composite did not match the declared identity — runs whatever
+core the host has installed, and that core may still write `session.jsonl`.
+Moving the one shared name therefore cost every such launch its seat turns,
+silently: the run succeeded, reported `model` and `effort` as `not reported`,
+and carried no turn or token totals at all. `specs/adapter-resume-safety`
+forbids exactly that, since a previously supported shape may not quietly lose
+what it had.
+
+The repair separates the two readers, which were never the same question:
+
+- `find_dsh_transcript` — the seat's own telemetry discovery — now reads both
+  generations through `DSH_TRANSCRIPT_NAMES`, the selected name first. It is
+  still a fixed name list joined onto a known session directory, never a
+  directory scan, so the race the original comment refuses is still refused.
+- Strict warm admission is unchanged and still names `DSH_TRANSCRIPT` alone.
+  A store holding only `session.jsonl` still declines the warm offer, and B1's
+  `a_dsh_warm_offer_reads_the_selected_storage_generation` still proves it.
+
+Both new tests write the two filenames as **literals**, so a later edit to
+either constant cannot move what they claim, and both were proved by removal:
+with the shipped name dropped from the list, `driver_conformance::the_shipped_
+cold_transcript_name_keeps_its_seat_telemetry` fails with the regression's own
+signature — succeeded, `model: not reported`, no seat turn — and
+`both_shipped_generations_of_the_transcript_name_are_discovered` fails on the
+`session.jsonl` leg. `the_selected_generation_is_preferred_when_a_session_
+holds_both` pins the order for a freshly upgraded host.

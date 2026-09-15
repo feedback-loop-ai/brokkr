@@ -122,6 +122,38 @@ fi
 printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
 "#;
 
+/// The same shim, writing the name the previously shipped, plugin-free
+/// core wrote. A disabled or identity-mismatched launch runs whatever
+/// core the host has installed, so this is not a legacy curiosity: it is
+/// the cold route AS1 requires to keep the telemetry it already had. The
+/// filename is a LITERAL here, so moving a constant cannot quietly move
+/// what this shim proves.
+const DSH_SHIPPED_USAGE_SHIM: &str = r#"#!/bin/sh
+prompt=$*
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
+root=
+sp=
+prev=
+for a in "$@"; do
+  [ "$a" = --effort ] && exit 3
+  if [ "$prev" = --patch ]; then
+    root=$(awk -F"'" '/^    root: /{print $2}' "$a")
+    sp=$(awk -F"'" '/^    path: /{print $2}' "$a")
+  fi
+  prev=$a
+done
+d="$root/--conformance--/session-served"
+mkdir -p "$d"
+f="$d/session.jsonl"
+printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
+if [ -n "$sp" ]; then
+  lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")
+  printf '{"type":"request/header","data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash","reasoningEffort":"%s"}}}}\n' "$lvl" >> "$f"
+fi
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
+"#;
+
 const SILENT_SHIM: &str = "#!/bin/sh\ncat > /dev/null 2>&1 || true\necho did nothing\n";
 
 // Decision 0053: a provider that refuses before the first turn. The
@@ -437,6 +469,51 @@ fn assert_seat_records_conform(messages: &[Value], label: &str, case: &str) {
                 .and_then(Value::as_object)
                 .is_some());
         }
+    }
+}
+
+#[test]
+fn the_shipped_cold_transcript_name_keeps_its_seat_telemetry() {
+    // The regression this guards: admitting version three moved the one
+    // shared transcript name, and the shipped cold route read it too, so
+    // a disabled or mismatched launch silently lost every seat turn —
+    // succeeding with no model, no effort and no token totals. Discovery
+    // now reads both generations, and this drives the built binary to
+    // prove it end to end rather than at the unit seam.
+    for (name, shim_body) in [
+        ("session.v3.jsonl", DSH_USAGE_SHIM),
+        ("session.jsonl", DSH_SHIPPED_USAGE_SHIM),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = make_shim(dir.path(), shim_body);
+        let args: Vec<&str> = vec![
+            "dsh",
+            "--",
+            "--model",
+            "deepseek/deepseek-v4-flash",
+            "--effort",
+            "medium",
+        ];
+        let out = drive(&args, &shim, dir.path());
+        let served: Vec<&Value> = out
+            .iter()
+            .filter(|m| m["type"] == "checkpoint")
+            .filter(|m| m["data"]["model"] == "deepseek-v4-flash")
+            .collect();
+        assert!(
+            !served.is_empty(),
+            "{name}: no seat turn named what served: {out:?}"
+        );
+        assert!(
+            served
+                .iter()
+                .any(|m| m["data"]["input_tokens"] == 13 && m["data"]["output_tokens"] == 3),
+            "{name}: the seat turn carries no token totals: {served:?}"
+        );
+        assert!(
+            served.iter().any(|m| m["data"]["effort"] == "medium"),
+            "{name}: the seat turn carries no effort: {served:?}"
+        );
     }
 }
 
