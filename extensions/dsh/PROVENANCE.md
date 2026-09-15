@@ -1,9 +1,10 @@
 # Provenance — DSH extension boundary
 
 This note records the repository-owned bytes that live under `extensions/dsh/`.
-It is outside every hashed runtime set: no Brokkr crate reads, builds, loads or
-executes it, and the runtime composite (design D6) reads installed provider
-files only, never this note. Decision 0009's extension boundary is why the
+It is outside every hashed runtime set: no Brokkr runtime code reads, builds,
+loads or executes it — only the composite reader's own tests open the directory,
+to prove the recorded digests reproduce — and the runtime composite (design D6)
+reads installed provider files only, never this note. Decision 0009's extension boundary is why the
 bytes live here rather than under `crates/` or `adapters/`.
 
 ## `plugin-cli-session/` — adapted `dsh-plugin-cli-session` 0.2.0

@@ -109,6 +109,28 @@ fn pnpm_refuses_a_short_key_and_a_document_marker() {
             .contains("no '@' after its first character"),
         "{short}"
     );
+    // A key whose first character is multibyte is read by character, not
+    // sliced at byte one: with an `@` behind it the entry is a triple, and
+    // without one it is the same refusal as above rather than a panic.
+    assert_eq!(
+        pnpm_dependencies(
+            "lockfileVersion: '9.0'\npackages:\n  'é@1.0.0':\n    resolution: {integrity: x}\n",
+            &[],
+        )
+        .unwrap(),
+        vec!["é 1.0.0 x".to_string()]
+    );
+    let multibyte = pnpm_dependencies(
+        "lockfileVersion: '9.0'\npackages:\n  'éa':\n    resolution: {integrity: x}\n",
+        &[],
+    )
+    .unwrap_err();
+    assert!(
+        multibyte
+            .to_string()
+            .contains("no '@' after its first character"),
+        "{multibyte}"
+    );
     for marker in ["---", "..."] {
         let lock = format!("lockfileVersion: '9.0'\npackages:\n  {marker}\n");
         let error = pnpm_dependencies(&lock, &[]).unwrap_err();

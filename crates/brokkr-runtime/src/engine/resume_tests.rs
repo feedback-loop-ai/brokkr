@@ -106,10 +106,14 @@ fn received(dir: &Path, tag: &str) -> Vec<Value> {
         .collect()
 }
 
-/// The same driver, emitting the row an engine enacting proposed
+/// The same driver, emitting the rows an engine enacting proposed
 /// decision 0056 actually stamps: a launch checkpoint naming a model —
 /// which is what makes the engine write `site_ref` and `instance_ref`
-/// onto it — and the provider-confirmed root the next offer stands on.
+/// onto it — and the provider-confirmed root the next offer stands on,
+/// FOLLOWED by a seat-turn that names the model and no root. That is the
+/// shape every shipped driver produces: the launch row is never the
+/// newest stamped row of its site, because the telemetry behind it is
+/// stamped too, and the offer has to stand on the root row regardless.
 ///
 /// The legacy shim above carries neither, which is exactly the
 /// difference the two halves of the query are for: an unstamped row is
@@ -126,7 +130,20 @@ fn model_driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
     );
     let script = command[2].replace(&legacy, &stamped);
     assert_ne!(script, command[2], "the {tag} shim must emit a stamped row");
-    vec![command[0].clone(), command[1].clone(), script]
+    // The launch row's argument list ends the one checkpoint printf the
+    // legacy shim has; the seat-turn is appended right behind it.
+    let launch_args = "\"$base\" \"$eid\" \"$aid\" \"$n\"\n";
+    let followed = format!(
+        "{launch_args}printf '%s,\"type\":\"checkpoint\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\
+         \"data\":{{\"step\":\"seat-turn\",\"turn\":1,\"model\":\"claude-opus-5\"}}}}\\n' \
+         \"$base\" \"$eid\" \"$aid\"\n"
+    );
+    let with_turn = script.replace(launch_args, &followed);
+    assert_ne!(
+        with_turn, script,
+        "the {tag} shim must emit a seat-turn behind its launch row"
+    );
+    vec![command[0].clone(), command[1].clone(), with_turn]
 }
 
 /// The same stamped driver, but emitting the row a DSH attempt writes: a
@@ -1131,6 +1148,64 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     unconfirmed["session_id"] = json!("session-one");
     assert_eq!(ask(unconfirmed, &mine), None);
 
+    // The production shape. Every shipped driver names a model on every
+    // row it forwards, so the seat-turns and the finishing record behind
+    // a launch carry the same two stamps and no root: the launch row is
+    // never the newest stamped row of its site. The offer stands on the
+    // newest ROOT-BEARING row; the telemetry in front of it changes no
+    // owner and hides no session.
+    let telemetry = |step: &str| {
+        json!({
+            "step": step, "model":"claude-opus-5",
+            "site_ref": SITE_A, "instance_ref": OWNER
+        })
+    };
+    let checkpointed = |checkpoint: Value| {
+        envelope(
+            EventType::EffectCheckpointed,
+            json!({"effect_id":"fx", "attempt_id":"a1", "checkpoint": checkpoint}),
+            Some("a1"),
+        )
+    };
+    let mut production = journal(row(SITE_A, OWNER, "session-one", true));
+    production.push(checkpointed(telemetry("seat-turn")));
+    production.push(checkpointed(telemetry("claude-session-finished")));
+    assert_eq!(
+        offer_for_site(&production, &key, &mine, "work", true, true, &started)
+            .map(|target| target.provider_id),
+        Some("session-one".into()),
+        "the launch row behind this attempt's telemetry is the offer"
+    );
+
+    // A site whose stamped rows carry no root at all is judged on that
+    // evidence and nothing older. The same seat's unstamped codex row —
+    // offered on its own, because the legacy predicate holds for it — is
+    // not resurrected behind a stamped attempt that confirmed nothing.
+    let legacy_row = json!({
+        "step":"transcript",
+        "transcript":{"kind":"codex-thread", "locator":"thread-1", "home":"/test/.codex"}
+    });
+    assert_eq!(
+        ask(legacy_row.clone(), &mine),
+        Some("thread-1".into()),
+        "the unstamped row alone is decision 0030's offer"
+    );
+    let mut cold_after_legacy = journal(legacy_row);
+    cold_after_legacy.push(checkpointed(telemetry("seat-turn")));
+    assert_eq!(
+        offer_for_site(
+            &cold_after_legacy,
+            &key,
+            &mine,
+            "work",
+            true,
+            true,
+            &started
+        ),
+        None,
+        "a stamped site never falls back to the unstamped rows behind it"
+    );
+
     // The newest owner is the only owner asked: an older row of this
     // site under THIS instance is not resurrected once a newer row under
     // another instance stands in front of it.
@@ -1175,10 +1250,6 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     assert_eq!(
         originating.wrapper_digest.as_deref(),
         Some("a".repeat(64).as_str())
-    );
-    assert_eq!(
-        originating.persistence_locator.as_deref(),
-        Some("sessions/brokkr/seat-1")
     );
     // A confirmed row with no transcript reference still offers its
     // provider ID, and hands a two-coordinate planner no locator to
@@ -1260,12 +1331,8 @@ fn a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root() {
     assert_eq!(origin.harness_version.as_deref(), Some("2.0.0"));
     assert_eq!(
         origin.wrapper_digest.as_deref(),
-        Some("b".repeat(64).as_str())
-    );
-    assert_eq!(
-        origin.persistence_locator.as_deref(),
-        Some("sessions/brokkr/newer"),
-        "the version, digest and locator come off the same newest row"
+        Some("b".repeat(64).as_str()),
+        "the version and digest come off the same newest row as the locator"
     );
 
     // A mistyped newest version/digest is missing evidence, never borrowed

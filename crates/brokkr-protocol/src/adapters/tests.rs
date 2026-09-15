@@ -2911,9 +2911,15 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
         "-w",
         "--worktree",
         // The joined spelling is the same declaration and gets the same
-        // answer: only the flag's NAME decides.
-        "--session-id=019c4b7e-0000-7000-8000-000000000001",
+        // answer: only the flag's NAME decides, and only the name is
+        // echoed — the joined value is a session id, and the refusal
+        // reaches the journal (AS3).
+        "--session-id=019c4b7e-0000-7000-8000-00000000zzzz",
+        "--from-pr=https://example.invalid/pull/zzzz",
     ] {
+        let name = conflicting
+            .split_once('=')
+            .map_or(conflicting, |(name, _)| name);
         for session in [None, Some("019c4b7e-0000-7000-8000-000000000001")] {
             let Err(error) = claude_launch(
                 "claude",
@@ -2925,7 +2931,11 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
             ) else {
                 panic!("{conflicting} must refuse before any provider work");
             };
-            assert!(error.contains(conflicting), "{conflicting}: {error}");
+            assert!(
+                error.contains(&format!("'{name}'")),
+                "{conflicting}: {error}"
+            );
+            assert!(!error.contains("zzzz"), "{conflicting}: {error}");
             assert!(
                 error.contains("refused before any provider work"),
                 "{conflicting}: {error}"
@@ -7486,54 +7496,83 @@ fn a_dsh_offer_requires_the_complete_recorded_address_and_a_bounded_locator() {
         9,
     );
 
-    for (case, target) in [
+    // Each refusal names its own v5 token on the launch row (LE2): the
+    // one detectable client drift — a recorded home that is not the
+    // admitted one — is `instance-changed`, an id outside the grammar is
+    // `invalid-session-id`, and a store the driver cannot verify is
+    // `unverified-harness`.
+    for (case, session, target, token) in [
         (
             "missing provider",
+            "session-1",
             json!({"persistence_locator": "sessions/brokkr/seat-1", "persistence_home": home}),
+            "unverified-harness",
         ),
         (
             "different provider",
+            "session-1",
             json!({"provider_id": "session-2", "persistence_locator": "sessions/brokkr/seat-1", "persistence_home": home}),
+            "unverified-harness",
         ),
         (
             "missing locator",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_home": home}),
+            "unverified-harness",
         ),
         (
             "missing home",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_locator": "sessions/brokkr/seat-1"}),
+            "unverified-harness",
         ),
         (
             "different home with an identical store",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_locator": "sessions/brokkr/seat-1", "persistence_home": other.path().to_str().unwrap()}),
+            "instance-changed",
+        ),
+        (
+            "offered id outside the grammar",
+            "session 1",
+            json!({"provider_id": "session 1", "persistence_locator": "sessions/brokkr/seat-1", "persistence_home": home}),
+            "invalid-session-id",
         ),
         (
             "overlong locator",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_locator": "x".repeat(81), "persistence_home": home}),
+            "unverified-harness",
         ),
         (
             "multibyte overlong locator",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_locator": "é".repeat(81), "persistence_home": home}),
+            "unverified-harness",
         ),
         (
             "absolute locator",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_locator": "/etc", "persistence_home": home}),
+            "unverified-harness",
         ),
         (
             "traversal locator",
+            "session-1",
             json!({"provider_id": "session-1", "persistence_locator": "sessions/../brokkr/seat-1", "persistence_home": home}),
+            "unverified-harness",
         ),
     ] {
         let declined = dsh_launch_with(
             &shim_text,
             &[],
             workdir,
-            Some("session-1"),
+            Some(session),
             &with_target(target),
             || Ok(synthetic_dsh_composite(&digest)),
         )
         .unwrap();
-        assert_eq!(declined.refusal, Some("unverified-harness"), "{case}");
+        assert_eq!(declined.refusal, Some(token), "{case}");
         assert!(!declined.stream_json, "{case}");
         assert!(declined.rejoining.is_none(), "{case}");
         assert_shipped_cold_command(&declined.command, &shim_text);
@@ -9143,8 +9182,14 @@ fn the_seat_overlay_terminates_a_route_that_carries_no_trailing_newline() {
 #[test]
 fn owned_dsh_root_refuses_a_session_id_outside_the_grammar() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(owned_dsh_root(dir.path(), &json!({}), "bad id").is_err());
-    assert!(owned_dsh_root(dir.path(), &json!({}), "-flag").is_err());
+    for id in ["bad id", "-flag"] {
+        let (token, error) = owned_dsh_root(dir.path(), &json!({}), id).unwrap_err();
+        assert_eq!(token, "invalid-session-id", "{id}");
+        assert!(
+            error.contains("outside the admitted grammar"),
+            "{id}: {error}"
+        );
+    }
 }
 
 #[test]
@@ -9200,7 +9245,8 @@ fn owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve() {
         }}
     });
     let absent = dir.path().join("absent-home");
-    let error = owned_dsh_root(&absent, &input, id).unwrap_err();
+    let (token, error) = owned_dsh_root(&absent, &input, id).unwrap_err();
+    assert_eq!(token, "unverified-harness");
     assert!(error.contains("admitted dsh home is unreadable"), "{error}");
 
     let recorded_absent = json!({
@@ -9210,7 +9256,8 @@ fn owned_dsh_root_refuses_a_persistence_home_that_does_not_resolve() {
             "persistence_home": absent.to_str().unwrap(),
         }}
     });
-    let error = owned_dsh_root(dir.path(), &recorded_absent, id).unwrap_err();
+    let (token, error) = owned_dsh_root(dir.path(), &recorded_absent, id).unwrap_err();
+    assert_eq!(token, "unverified-harness");
     assert!(
         error.contains("recorded persistence home is unreadable"),
         "{error}"

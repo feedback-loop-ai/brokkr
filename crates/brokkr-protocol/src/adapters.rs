@@ -932,7 +932,13 @@ fn resume_gate(input: &Value, shape: &str) -> ResumeGate {
     };
     // The site's own facts, as the engine wrote them into this input:
     // the boundary that stands here (decision 0046 ruling 3) and whether
-    // Brokkr built the box (decision 0043).
+    // Brokkr built the box (decision 0043). The engine's `mark_hands`
+    // writes both only for a site WITH hands and leaves a site without
+    // untouched, so absence is the engine's own statement of `not
+    // applicable` and `none` — and it buys nothing the assessment did
+    // not spell out: `not applicable` must be listed under `boundaries`
+    // and `none` must be the declared `hands` for the two to match, so a
+    // shape measured only in a box declines an unboxed site here.
     let boundary = input
         .get("boundary")
         .and_then(Value::as_str)
@@ -2566,8 +2572,11 @@ const CLAUDE_SELECTORS_BARE: [&str; 8] = [
     "--worktree",
 ];
 
-/// The first part of the seat's argv that selects a conversation, if
-/// there is one.
+/// The NAME of the first part of the seat's argv that selects a
+/// conversation, if there is one. The name alone: a joined spelling's
+/// value is a session id, a PR number or a URL, and the refusal that
+/// names it reaches `Result.error` and the journal, where no argv value
+/// may be copied (AS3).
 ///
 /// Checked on the COLD and gate paths as much as on the resume path
 /// (proposed decision 0056 ruling 6): an ambient `--continue` left in a
@@ -2575,14 +2584,15 @@ const CLAUDE_SELECTORS_BARE: [&str; 8] = [
 /// working directory last held, which is worse on a cold path than on a
 /// warm one — nothing chose it. A cold-inadmissible setting refuses
 /// before any provider work rather than being dropped in silence.
-fn claude_selector_conflict(extra: &[String]) -> Option<String> {
-    extra
-        .iter()
-        .find(|part| {
-            let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
-            CLAUDE_SELECTORS_WITH_VALUE.contains(&name) || CLAUDE_SELECTORS_BARE.contains(&name)
-        })
-        .cloned()
+fn claude_selector_conflict(extra: &[String]) -> Option<&'static str> {
+    extra.iter().find_map(|part| {
+        let name = part.split_once('=').map_or(part.as_str(), |(name, _)| name);
+        CLAUDE_SELECTORS_WITH_VALUE
+            .iter()
+            .chain(CLAUDE_SELECTORS_BARE.iter())
+            .find(|selector| **selector == name)
+            .copied()
+    })
 }
 
 /// One authoritative claude restriction control, canonicalized across
@@ -3506,8 +3516,13 @@ fn dsh_launch_with(
                     first_seq = boundary;
                     root
                 }
-                Err(_) => {
-                    refusal = Some("unverified-harness");
+                // The token is the check's own: an id outside the grammar
+                // is `invalid-session-id`, a recorded home that is not the
+                // admitted one is `instance-changed`, and a store the
+                // driver cannot verify is `unverified-harness` (LE2). The
+                // bounded reason stays out of the row.
+                Err((token, _)) => {
+                    refusal = Some(token);
                     stream_json = false;
                     fresh(&home)?
                 }
@@ -3570,7 +3585,9 @@ fn dsh_launch_with(
             None => command.push("--new".into()),
         }
     }
-    command.extend(passthrough);
+    // Nothing of the seat's own argv follows: `dsh_control_conflict`
+    // above refused every residual part, so the argv is exactly what the
+    // engine composed.
     Ok(DshLaunch {
         command,
         rejoining,
@@ -3596,42 +3613,56 @@ fn dsh_launch_with(
 /// canonicalized and required to equal the current admitted home before
 /// any retained store is read, so two homes holding the identical
 /// ID/locator never redirect the offer (task 8.8(d); design D6).
+///
+/// A refusal carries the v5 token the launch row will name beside its
+/// bounded reason: `invalid-session-id` for an id outside the grammar,
+/// `instance-changed` for a recorded home that is not the admitted one —
+/// the one detectable client drift this check can see — and
+/// `unverified-harness` for everything the retained store cannot verify.
 fn owned_dsh_root(
     home: &std::path::Path,
     input: &Value,
     id: &str,
-) -> Result<(std::path::PathBuf, u64), String> {
+) -> Result<(std::path::PathBuf, u64), (&'static str, String)> {
+    let unverified = |why: &str| ("unverified-harness", format!("dsh driver: {why}"));
     if !plain_dsh_session_id(id) {
-        return Err("dsh driver: the offered session id is outside the admitted grammar".into());
+        return Err((
+            "invalid-session-id",
+            "dsh driver: the offered session id is outside the admitted grammar".into(),
+        ));
     }
     let provider = input
         .pointer("/resume_context/owned_target/provider_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| "dsh driver: the owned target carries no provider id".to_string())?;
+        .ok_or_else(|| unverified("the owned target carries no provider id"))?;
     if provider != id {
-        return Err("dsh driver: the owned target names a different root".into());
+        return Err(unverified("the owned target names a different root"));
     }
     let locator = input
         .pointer("/resume_context/owned_target/persistence_locator")
         .and_then(Value::as_str)
         .filter(|locator| !locator.is_empty())
-        .ok_or_else(|| "dsh driver: the owned target carries no persistence locator".to_string())?;
+        .ok_or_else(|| unverified("the owned target carries no persistence locator"))?;
     let recorded_home = input
         .pointer("/resume_context/owned_target/persistence_home")
         .and_then(Value::as_str)
         .filter(|home| !home.is_empty())
-        .ok_or_else(|| "dsh driver: the owned target carries no persistence home".to_string())?;
+        .ok_or_else(|| unverified("the owned target carries no persistence home"))?;
     let canonical_home = std::fs::canonicalize(home)
-        .map_err(|_| "dsh driver: the admitted dsh home is unreadable".to_string())?;
+        .map_err(|_| unverified("the admitted dsh home is unreadable"))?;
     let canonical_recorded = std::fs::canonicalize(recorded_home)
-        .map_err(|_| "dsh driver: the recorded persistence home is unreadable".to_string())?;
+        .map_err(|_| unverified("the recorded persistence home is unreadable"))?;
     if canonical_home != canonical_recorded {
-        return Err("dsh driver: the owned target names a different persistence home".into());
+        return Err((
+            "instance-changed",
+            "dsh driver: the owned target names a different persistence home".into(),
+        ));
     }
-    let root = resolve_dsh_root(home, locator, id)?;
-    let file = dsh_session_file(&root, id)?;
+    let root =
+        resolve_dsh_root(home, locator, id).map_err(|error| ("unverified-harness", error))?;
+    let file = dsh_session_file(&root, id).map_err(|error| ("unverified-harness", error))?;
     let boundary = dsh_session_last_seq(&file)
-        .ok_or_else(|| "dsh driver: the stored session sequence is unreadable".to_string())?;
+        .ok_or_else(|| unverified("the stored session sequence is unreadable"))?;
     Ok((root, boundary))
 }
 

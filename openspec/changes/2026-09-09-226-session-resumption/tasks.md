@@ -1688,6 +1688,19 @@ itself (`safety / AS1`).
       restriction, root and accounting assertions beside the shim tests.
       A Codex shape left disabled is incomplete delivery, not a lawful
       close — safety / AS1.
+      One fact the 2026-09-15 judging pass established for the ruling
+      this task waits on: while `adapters/codex.json` reads `unmeasured`,
+      a retry of a single work seat that the shipped engine (decision
+      0030) would rejoin with `codex exec resume` spawns COLD on this
+      head, with `resume_refusal: unsupported-resume` on its launch row —
+      the legacy offer is still made (`legacy_offer`) and the gate
+      declines it, because 0030's evidence is 0.148.0 and the installed
+      CLI is 0.153.4. That is the one behaviour of main this preparation
+      changes; it is fail-closed and it is what this change's design
+      states ("Prepared Codex disablement blocks delivery until support is
+      re-established"), and it stays until the operator either rules the
+      cold retry acceptable for the interval or this task remeasures and
+      flips the shape.
 - [ ] 11.2 Enable Claude's boxed-workspace work shape under its
       already-supported boxed boundary with 10.2's interface and 10.6's
       proof, and flip `adapters/claude.json` — safety / AS1, safety / AS2.
@@ -1729,6 +1742,15 @@ itself (`safety / AS1`).
       leave this task unchecked and report that exact AS1 gap upstream
       rather than flipping the declaration — safety / AS1, safety / AS2,
       safety / AS3, site / SR3, evidence / LE4.
+      Three adaptation facts the 2026-09-15 judging pass read in the inert
+      plugin, to be measured or closed before the flip rather than
+      discovered by it: `lib/startup.js` lets `--workdir` set the sandbox
+      root (a new session only, refused beside `--session`/`--resume`);
+      `lib/index.js` resolves bare `--resume` to the NEWEST session of the
+      cwd, which the driver must never send — it passes `--session <id>`
+      only; and `package.json` pins `commander` at `^15.0.0` with no
+      lockfile, so the composite digest 10.7 records must name the
+      resolved dependency set, not the range.
 - [ ] 11.4 Enable LaneTally only on 10.4's interface and 10.8's proof,
       or leave it declared-unsupported on 10.4's measured evidence with that
       reason. This is the operator's one lawful unsupported disposition;

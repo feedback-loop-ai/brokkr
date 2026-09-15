@@ -275,17 +275,22 @@ fn lex(text: &str) -> Result<Vec<Line>, String> {
     let mut lines = Vec::new();
     for (index, raw) in text.lines().enumerate() {
         let number = index + 1;
+        // The character check comes BEFORE the comment skip. `lines`
+        // splits on LF alone, so a lone CR inside a `# comment` line
+        // would otherwise hide a second row — `apiKey:`, `__jsExpr:` —
+        // that a CR-tolerant YAML reader downstream would parse as its
+        // own line, past this closed grammar (AS3).
+        if raw.contains('\t') || raw.chars().any(char::is_control) {
+            return Err(refusal(&format!(
+                "route overlay line {number} carries a tab or control character"
+            )));
+        }
         if raw.is_empty() || raw.trim_start_matches(' ').starts_with('#') {
             continue;
         }
         if raw == "---" || raw == "..." {
             return Err(refusal(&format!(
                 "route overlay line {number} is a document marker"
-            )));
-        }
-        if raw.contains('\t') || raw.chars().any(char::is_control) {
-            return Err(refusal(&format!(
-                "route overlay line {number} carries a tab or control character"
             )));
         }
         let indent = raw.len() - raw.trim_start_matches(' ').len();
@@ -1008,6 +1013,11 @@ mod tests {
         // A tab and a control character.
         refused("- id:\tx\n", "tab or control");
         refused("- id: x\u{1}\n", "tab or control");
+        // A comment line is checked for them too, and before it is
+        // skipped: a lone CR inside one hides a second row from this
+        // reader that a CR-tolerant YAML reader would see.
+        refused("# route\rapiKey: leaked\n- id: x\n", "tab or control");
+        refused("  # route\t\n- id: x\n", "tab or control");
         // Odd indentation.
         refused("- id: x\n   y: z\n", "odd indentation");
         // A whitespace-only line is skipped; a document of them is empty.

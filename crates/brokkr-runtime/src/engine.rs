@@ -1567,10 +1567,13 @@ impl Engine {
     /// names a sequence step. `plan` is this site's resume plan: the
     /// session it may rejoin, offered to a driver that declares it can
     /// receive one (decision 0030, proposed 0056 ruling 4), and the two
-    /// engine stamps every checkpoint of a model site carries. `None`
-    /// for a site with no model turn — an exec dispatch or a dialect
-    /// step — which is stamped with neither. Appends NO terminal effect
-    /// event: the caller owns the attempt's conclusion.
+    /// engine stamps every checkpoint of a planned site carries. Every
+    /// structural site of a body is planned — an exec single or member
+    /// included, whose rows name `not applicable` as their model and are
+    /// stamped like any other and never offered anything, since no root
+    /// is ever confirmed on them. `None` only for a dialect step, which
+    /// spawns no driver and is stamped with neither. Appends NO terminal
+    /// effect event: the caller owns the attempt's conclusion.
     #[allow(clippy::too_many_arguments)]
     fn run_driver(
         &mut self,
@@ -1636,8 +1639,10 @@ impl Engine {
                     let checkpoint = stamp_boundary(checkpoint, boundary);
                     // The engine's two structural stamps, on the same
                     // terms as the boundary: a record that names a model
-                    // carries them, a record that names none carries
-                    // neither, and a driver's value never survives.
+                    // carries them — every row a shipped driver forwards
+                    // does, the launch row with its root included — a
+                    // record that names none carries neither, and a
+                    // driver's value never survives.
                     let checkpoint = match &stamp {
                         Some(context) => context.stamp(checkpoint),
                         None => resume::unstamped(checkpoint),
@@ -3592,15 +3597,19 @@ type Site = Option<String>;
 /// sites are absent from this map, which is what keeps their execute
 /// path exactly as it was.
 /// Everything this attempt decided per site before anything spawned: the
-/// candidate each agent-resolved site runs, and — for each executing
-/// MODEL site — the resume plan proposed decision 0056 gives it.
+/// candidate each agent-resolved site runs, and — for each structural
+/// site the body walk yields — the resume plan proposed decision 0056
+/// gives it.
 ///
 /// One value rather than two because they are one decision, taken at one
 /// moment from one journal, and every composite dispatch that needs the
 /// candidate needs the plan beside it. Inline sites are absent from
 /// `candidates`, which is what keeps their execute path exactly as it
-/// was; dialect steps and exec sites are absent from `plans`, because a
-/// site with no model turn carries no stamp and receives no offer.
+/// was. Only dialect steps are absent from `plans`: they spawn no driver
+/// and so carry no stamp and receive no offer. An exec single or member
+/// IS planned — its rows name `not applicable` as their model and are
+/// stamped like a model site's — and is never offered anything, because
+/// no exec row ever carries a confirmed root.
 #[derive(Debug, Default)]
 struct Selection {
     candidates: BTreeMap<Site, Candidate>,

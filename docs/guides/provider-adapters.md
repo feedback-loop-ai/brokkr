@@ -15,8 +15,6 @@ $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
 ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro · composite b2777e9a69a8b11c274c85811d55aaaf725ed4244b86956fdb2df50488b4477c plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
-
-ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```

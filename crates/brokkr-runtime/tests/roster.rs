@@ -718,3 +718,34 @@ fn the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter
         "recipes/research-dsh/roles/researcher.md is a copy of agents/charters/researcher.md"
     );
 }
+
+/// Each shipped adapter declares its resume assessment under exactly the
+/// shape name its driver's gate and `brokkr doctor` read as a Rust
+/// literal (`CODEX_SHAPE`, `CLAUDE_SHAPE`, `DSH_SHAPE`,
+/// `LANETALLY_SHAPE`, and doctor's own `DSH_SHAPE`). The literals live in
+/// two crates and the names in four JSON files; a spelling that drifted
+/// would not fail to load, it would silently read as an absent shape —
+/// `unsupported-resume` at the gate and "nothing declared" at the doctor
+/// line — so the agreement is pinned here, against the files.
+#[test]
+fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
+    let root = workspace();
+    for (adapter, shape) in [
+        ("claude", "boxed-workspace"),
+        ("codex", "work-site"),
+        ("dsh", "headless-work"),
+        ("lanetally", "wrapper-work-site"),
+    ] {
+        let declared = json(&root.join(format!("adapters/{adapter}.json")));
+        let shapes: Vec<&String> = declared["resume"]
+            .as_object()
+            .unwrap_or_else(|| panic!("adapters/{adapter}.json declares a resume map"))
+            .keys()
+            .collect();
+        assert_eq!(
+            shapes,
+            [shape],
+            "adapters/{adapter}.json declares exactly the shape its gate reads"
+        );
+    }
+}

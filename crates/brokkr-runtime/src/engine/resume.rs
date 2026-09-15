@@ -300,19 +300,20 @@ pub(super) struct ResumeTarget {
 /// confirmed checkpoint the offer came from. The version is what a
 /// planner compares with its measured identity; the wrapper digest is the
 /// optional composite identity a wrapper-shaped provider (DSH) records,
-/// which an offered root without one can never match (design D6).
+/// which an offered root without one can never match (design D6). The
+/// locator is not here: it travels on the `ResumeTarget` the same row
+/// produced, and nothing reads it twice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OriginatingRoot {
     pub(super) harness_version: Option<String>,
     pub(super) wrapper_digest: Option<String>,
-    pub(super) persistence_locator: Option<String>,
 }
 
 /// Read the offered root's own facts from the NEWEST checkpoint that
 /// carries confirmed root evidence for this exact site. This is the same
-/// row `eligible_offer` judges, scanned once more so the version, the
-/// optional wrapper digest and the locator all describe one session
-/// rather than whichever checkpoint happened to be newest per field.
+/// row `eligible_offer` judges, scanned once more so the version and the
+/// optional wrapper digest describe one session rather than whichever
+/// checkpoint happened to be newest per field.
 pub(super) fn originating_root(
     events: &[EventEnvelope],
     site_ref: &str,
@@ -336,10 +337,6 @@ pub(super) fn originating_root(
             .map(str::to_string),
         wrapper_digest: checkpoint
             .pointer("/root_session/wrapper_digest")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        persistence_locator: checkpoint
-            .pointer("/transcript/locator")
             .and_then(Value::as_str)
             .map(str::to_string),
     })
@@ -382,9 +379,14 @@ pub(super) struct SiteContext {
 impl SiteContext {
     /// The stamp (proposed decision 0056 ruling 1), the same shape
     /// `stamp_boundary` has: the engine's two structural facts replace
-    /// whatever a driver wrote, on a record that names a model. A record
-    /// that names none — every exec row — carries neither, and a
-    /// driver's value on such a record is dropped.
+    /// whatever a driver wrote, on a record that names a model. Every
+    /// driver Brokkr ships names one on every row it forwards — the
+    /// served model, `not reported` before a harness echoes one, `not
+    /// applicable` on an exec row — so every driver row of a planned site
+    /// carries both stamps, the launch row with its confirmed root among
+    /// them. A record that names none is a third-party driver's or the
+    /// engine's own; it carries neither, and a driver's value on such a
+    /// record is dropped.
     pub(super) fn stamp(&self, record: Value) -> Value {
         match record {
             Value::Object(mut object) => {
@@ -451,17 +453,34 @@ pub(super) fn eligible_offer(
         return None;
     }
     let seat_effects = effects_of_seat(events, seat);
-    let stamped = events
+    let mut stamped = events
         .iter()
         .rev()
         .filter(|event| event.event_type == EventType::EffectCheckpointed)
         .filter(|event| in_effects(event, &seat_effects))
-        .find_map(|event| {
+        .filter_map(|event| {
             let checkpoint = event.payload.get("checkpoint")?;
             let site = checkpoint.get("site_ref").and_then(Value::as_str)?;
             (site == context.site_ref).then_some((event, checkpoint))
-        });
-    if let Some((event, checkpoint)) = stamped {
+        })
+        .peekable();
+    if stamped.peek().is_some() {
+        // A site with stamped evidence is judged on that evidence alone:
+        // it never falls back to decision 0030's unstamped rows, however
+        // the judgment below turns out.
+        //
+        // The candidate is the NEWEST stamped row that carries a root.
+        // Every driver reports a model on every row it emits, so the
+        // seat-turns and the finishing record that follow a launch are
+        // stamped too; they are the attempt's telemetry, not a change of
+        // owner, and the launch row behind them is what the offer stands
+        // on (design D3). A site whose stamped rows carry no root at all
+        // has no offer.
+        let (event, checkpoint, root) = stamped.find_map(|(event, checkpoint)| {
+            checkpoint
+                .get("root_session")
+                .map(|root| (event, checkpoint, root))
+        })?;
         // The newest owner is the only owner asked. A session opened by
         // a candidate this site has since moved past is not resurrected
         // by looking further back, and an unstamped owner is ambiguous
@@ -469,7 +488,7 @@ pub(super) fn eligible_offer(
         if checkpoint.get("instance_ref").and_then(Value::as_str) != Some(&context.instance_ref) {
             return None;
         }
-        let root = ConfirmedSession::read(checkpoint.get("root_session")?)?;
+        let root = ConfirmedSession::read(root)?;
         if !root.persistent {
             return None;
         }
@@ -553,11 +572,17 @@ fn started_attempt<'a>(events: &'a [EventEnvelope], attempt: &str) -> Option<&'a
 
 /// The narrow compatibility path: the last checkpoint of this seat that
 /// carries an old-shaped session locator AND no site stamp, offered only
-/// when the caller's predicate — which holds the adapter-version
-/// qualification and the kind mapping — accepts the attempt that wrote
-/// it. A row that carries a site stamp is NEW evidence and was already
-/// judged above; it may not fall back to legacy fields to evade the
-/// confirmation it failed.
+/// when the caller's predicate accepts the attempt that wrote it. The
+/// predicate is decision 0030's instance comparison — the `driver` label
+/// and the `provenance` of the opening attempt against this one's
+/// (`legacy_instance_holds`); it holds no kind or version test, because
+/// the evidence this path reads predates both. The two shapes it reads
+/// are decision 0032's `codex-thread` locator and the flat `session_id`
+/// a run opened before that ruling wrote — the flat id names no kind,
+/// exactly as it did not when the shipped engine offered it. A row that
+/// carries a site stamp is NEW evidence and was already judged above; it
+/// may not fall back to legacy fields to evade the confirmation it
+/// failed.
 fn legacy_offer(
     events: &[EventEnvelope],
     seat_effects: &[String],
@@ -885,7 +910,6 @@ mod tests {
         let originating = OriginatingRoot {
             harness_version: Some("0.1.5-rc.1".into()),
             wrapper_digest: Some("a".repeat(64)),
-            persistence_locator: Some("sessions/brokkr/seat-1".into()),
         };
         let target = ResumeTarget {
             provider_id: "session-1".into(),
@@ -932,7 +956,6 @@ mod tests {
         let versionless = OriginatingRoot {
             harness_version: None,
             wrapper_digest: Some("b".repeat(64)),
-            persistence_locator: None,
         };
         let context = start_context(
             json!({"headless-work": {"status": "supported"}}),

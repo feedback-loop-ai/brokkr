@@ -1978,21 +1978,20 @@ fn each_resume_status_loads_and_only_a_measured_supported_shape_enables_anything
     let tree = with_resume(supported_resume());
     let adapters = tree.adapters();
     let adapter = adapters.adapter("claude").unwrap();
-    assert_eq!(adapter.resume.status("work-site"), ResumeStatus::Supported);
-    // A shape this assessment does not name is unmeasured, and so is a
+    assert_eq!(
+        adapter.resume.shape("work-site").map(|shape| shape.status),
+        Some(ResumeStatus::Supported)
+    );
+    // A shape this assessment does not name is absent, and so is a
     // shape on an adapter that declares nothing at all: absent loads,
     // compiles and invokes cold.
-    assert_eq!(
-        adapter.resume.status("some-other-shape"),
-        ResumeStatus::Unmeasured
-    );
+    assert!(adapter.resume.shape("some-other-shape").is_none());
     let bare = ready();
     let bare_adapters = bare.adapters();
     let bare_adapter = bare_adapters.adapter("claude").unwrap();
     assert!(bare_adapter.resume.is_empty());
-    assert_eq!(
-        bare_adapter.resume.status("work-site"),
-        ResumeStatus::Unmeasured,
+    assert!(
+        bare_adapter.resume.shape("work-site").is_none(),
         "an absent `resume` key loads and enables nothing"
     );
     assert_eq!(
@@ -2022,8 +2021,9 @@ fn each_resume_status_loads_and_only_a_measured_supported_shape_enables_anything
                 .adapter("claude")
                 .unwrap()
                 .resume
-                .status("work-site"),
-            ResumeStatus::Unmeasured
+                .shape("work-site")
+                .map(|shape| shape.status),
+            Some(ResumeStatus::Unmeasured)
         );
     }
 
@@ -2376,13 +2376,16 @@ fn an_edited_resume_assessment_moves_the_adapter_digest() {
     assert_eq!(
         resolved(&after, &Availability::unspecified()).candidates[0]
             .resume
-            .status("work-site"),
-        ResumeStatus::Supported
+            .shape("work-site")
+            .map(|shape| shape.status),
+        Some(ResumeStatus::Supported)
     );
-    assert_eq!(
+    // The bare adapter declares no map at all, so the candidate carries
+    // no shape — which the gate reads exactly as it reads `unmeasured`.
+    assert!(
         resolved(&before, &Availability::unspecified()).candidates[0]
             .resume
-            .status("work-site"),
-        ResumeStatus::Unmeasured
+            .shape("work-site")
+            .is_none()
     );
 }

@@ -465,14 +465,9 @@ impl ResumeAssessment {
     }
 
     /// What this adapter says about one named shape. A shape the
-    /// assessment does not name is `Unmeasured` — the site compiles and
-    /// invokes cold, and nothing is enabled.
-    pub fn status(&self, shape: &str) -> ResumeStatus {
-        self.0
-            .get(shape)
-            .map_or(ResumeStatus::Unmeasured, |entry| entry.status)
-    }
-
+    /// assessment does not name is absent — the site compiles and invokes
+    /// cold, and nothing is enabled; the driver's gate reads the same
+    /// absence as `unsupported-resume`.
     pub fn shape(&self, shape: &str) -> Option<&ResumeShape> {
         self.0.get(shape)
     }

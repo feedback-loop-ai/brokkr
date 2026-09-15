@@ -277,6 +277,18 @@ fn pnpm_indent(line: &str) -> usize {
 /// by the bounded, fail-closed line reader design D6 states (no YAML crate).
 /// `excluded` names the local-tarball entries, which are not registry
 /// identity.
+/// The byte offset of the `@` that separates a pnpm package key's name
+/// from its version: the first `@` after the key's first CHARACTER, so a
+/// scoped `@scope/name@1.0.0` skips its leading one. Walked by character
+/// rather than sliced at byte one, because a key whose first character is
+/// multibyte would make `key[1..]` a panic inside a driver rather than a
+/// refusal. `None` for a key with no room for one.
+fn scoped_at(key: &str) -> Option<usize> {
+    key.char_indices()
+        .skip(1)
+        .find_map(|(index, c)| (c == '@').then_some(index))
+}
+
 pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, CompositeError> {
     let bad = |why: &str| CompositeError::PnpmLock(why.to_string());
     if lock.contains('\t') {
@@ -319,10 +331,7 @@ pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, C
             .ok_or_else(|| CompositeError::PnpmLock(format!("'{key}': no resolution integrity")))?;
         // Every entry admitted into `flush` was already checked to carry an
         // `@` after its first character, so the lookup always finds one.
-        let at = key[1..]
-            .find('@')
-            .map(|index| index + 1)
-            .expect("a package key carries an '@' after its first character");
+        let at = scoped_at(&key).expect("a package key carries an '@' after its first character");
         let name = &key[..at];
         let version = &key[at + 1..];
         // `at` is at least one byte, so the name is never empty; only an
@@ -362,7 +371,7 @@ pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, C
                 .strip_suffix(':')
                 .ok_or_else(|| bad("a package key is not colon-terminated"))?;
             let key = key.trim_matches('\'').trim_matches('"').to_string();
-            if key.len() < 2 || !key[1..].contains('@') {
+            if scoped_at(&key).is_none() {
                 return Err(bad("a package key has no '@' after its first character"));
             }
             entry = Some((key, None));
