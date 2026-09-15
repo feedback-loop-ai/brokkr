@@ -3206,6 +3206,29 @@ fn dsh_session_last_seq_with(path: &std::path::Path, event_budget: u64) -> Optio
 /// from the same address without a lossy conversion: a symlinked spelling
 /// of the same canonical home is equivalent, and the canonical containment
 /// check is what rejects an escape.
+/// The address this launch will RECORD, bounded before anything is
+/// staged (task 8.8(d); design D6).
+///
+/// Held apart from the planner on purpose. In the planner the two paths
+/// that reach it cannot breach the bound — an offered root was already
+/// bounded by `resolve_dsh_root`, and a fresh root is short and
+/// separator-free by construction — so the refusal is a restatement
+/// there and no commission could exercise it. The rule is still a rule:
+/// what `Transcript::record` will clamp is the RESOLVED root's address,
+/// not the offered string, and those are the same only while every
+/// producer of a root keeps them so. Stating it once, here, keeps the
+/// requirement enforced at the one place the planner reads a locator and
+/// leaves it answerable to a test.
+fn planned_dsh_locator(transcript: &Transcript, root: &std::path::Path) -> Result<String, String> {
+    let locator = transcript.locator_under_home(root)?;
+    if locator.is_empty() || locator.chars().count() > DSH_LOCATOR_LIMIT {
+        return Err(
+            "dsh driver: the planned dsh locator is outside the admitted bound".to_string(),
+        );
+    }
+    Ok(locator)
+}
+
 fn resolve_dsh_root(
     home: &std::path::Path,
     locator: &str,
@@ -3467,12 +3490,7 @@ fn dsh_launch_with(
     // to round-trip losslessly by `resolve_dsh_root`; the fresh root is
     // short and separator-free by construction, so this checks its output
     // too.
-    let locator = transcript.locator_under_home(&root)?;
-    if locator.is_empty() || locator.chars().count() > DSH_LOCATOR_LIMIT {
-        return Err(
-            "dsh driver: the planned dsh locator is outside the admitted bound".to_string(),
-        );
-    }
+    let locator = planned_dsh_locator(&transcript, &root)?;
     // The dsh harness sandbox confines writes to the session workspace
     // (decision 0054). A linked worktree's git metadata lives outside it,
     // so the driver resolves the two git directories through Git NOW —

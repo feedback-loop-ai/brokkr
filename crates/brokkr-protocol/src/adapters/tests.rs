@@ -7959,6 +7959,55 @@ fn a_dsh_warm_offer_reads_the_selected_storage_generation() {
     }
 }
 
+#[test]
+fn the_planned_locator_is_bounded_before_anything_is_staged() {
+    // The planner's two roots cannot breach the bound, so the rule is
+    // read here directly: what gets recorded is the RESOLVED root's
+    // address under the home, and a root whose address is longer than
+    // the admitted bound is refused rather than silently clamped into a
+    // different address.
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let transcript = Transcript::resolve(TranscriptKind::DshSession).unwrap();
+
+    let ordinary = dir.path().join("sessions").join("brokkr").join("seat-1");
+    std::fs::create_dir_all(&ordinary).unwrap();
+    assert_eq!(
+        planned_dsh_locator(&transcript, &ordinary).unwrap(),
+        "sessions/brokkr/seat-1"
+    );
+
+    let deep = dir
+        .path()
+        .join("aaaaaaaaaaaaaaaaaaaa")
+        .join("bbbbbbbbbbbbbbbbbbbb")
+        .join("cccccccccccccccccccc")
+        .join("dddddddddddddddddddd")
+        .join("root-1");
+    std::fs::create_dir_all(&deep).unwrap();
+    assert!(
+        deep.strip_prefix(dir.path())
+            .unwrap()
+            .to_string_lossy()
+            .chars()
+            .count()
+            > DSH_LOCATOR_LIMIT,
+        "the deep root must exceed the bound for this test to mean anything"
+    );
+    let refused = planned_dsh_locator(&transcript, &deep).unwrap_err();
+    assert!(
+        refused.contains("planned dsh locator is outside the admitted bound"),
+        "{refused}"
+    );
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn dsh_unsafe_stored_candidates_decline_instead_of_being_skipped() {
@@ -8590,6 +8639,16 @@ fn dsh_route_grammar_matrix_refuses_before_staging_on_every_planner_path() {
             "backslash endpoint",
             with_line("        baseURL: https://host\\x"),
             "endpoint",
+        ),
+        (
+            // The reader's own invariant, stated where it can hold: a
+            // mapping that reaches the effort check is never empty,
+            // because a bare `key:` with nothing beneath it is refused
+            // while parsing. The route is rejected here, before staging,
+            // like every other vector.
+            "empty reasoningEfforts block",
+            format!("{valid}            reasoningEfforts:\n"),
+            "empty `reasoningEfforts:` block",
         ),
         (
             "tagged scalar",

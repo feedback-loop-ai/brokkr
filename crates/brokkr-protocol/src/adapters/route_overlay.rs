@@ -247,13 +247,15 @@ pub(super) fn validate(bytes: &[u8], model: &str) -> Result<(), String> {
     if model_id != pinned.model {
         return Err(refusal("the route names a model the seat did not pin"));
     }
-    let efforts = mapping(
+    // Read for its shape alone. A mapping cannot be empty here: a block
+    // with no lines and a bare `key:` are both refused while parsing, so
+    // "names at least one level" is already true of anything that
+    // reaches this point. The guard that used to restate it could not
+    // fire, and a test proves the parser's refusal instead.
+    let _ = mapping(
         field(item, "reasoningEfforts", "the model item")?,
         "reasoningEfforts",
     )?;
-    if efforts.is_empty() {
-        return Err(refusal("reasoningEfforts must name at least one level"));
-    }
     Ok(())
 }
 

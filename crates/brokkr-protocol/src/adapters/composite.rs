@@ -914,26 +914,25 @@ pub fn dsh_composite_with(
             CompositeError::Config("the profile does not list dsh-plugin-cli-session".into())
         })?;
     let plugin = plugin_component(&plugin_dir, &PLUGIN_FILES)?;
-    let extension = if profile
-        .bundles
+    // Asked of `resolved` rather than of `profile.bundles`, because the
+    // loop above resolves every listed bundle or returns: a name is in
+    // `resolved` exactly when it is listed. Asking the list first and
+    // then the resolution second spelled a "was not resolved" refusal
+    // that no input could reach, and an unreachable guard is a claim the
+    // code cannot keep.
+    let extension = match resolved
         .iter()
-        .any(|bundle| bundle == "brokkr-dsh-resume-policy")
+        .find(|(name, _)| name == "brokkr-dsh-resume-policy")
     {
-        let dir = resolved
-            .iter()
-            .find(|(name, _)| name == "brokkr-dsh-resume-policy")
-            .map(|(_, dir)| dir.clone())
-            .ok_or_else(|| {
-                CompositeError::Config("the extension bundle was not resolved".into())
-            })?;
-        if !dir.starts_with(&profile.canonical) {
-            return Err(CompositeError::Config(
-                "the extension resolves outside the profile".into(),
-            ));
+        Some((_, dir)) => {
+            if !dir.starts_with(&profile.canonical) {
+                return Err(CompositeError::Config(
+                    "the extension resolves outside the profile".into(),
+                ));
+            }
+            Some(plugin_component(dir, &EXTENSION_FILES)?)
         }
-        Some(plugin_component(&dir, &EXTENSION_FILES)?)
-    } else {
-        None
+        None => None,
     };
     let mut excluded = vec!["@deepseek-ai/dsh", "dsh-plugin-cli-session"];
     if extension.is_some() {
