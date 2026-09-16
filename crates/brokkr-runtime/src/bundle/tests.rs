@@ -209,6 +209,70 @@ fn dialect_sites_and_verify_composition_cover_every_body_boundary() {
     .contains("requires a single or panel verify seat"));
 }
 
+/// Design D10's second verify refusal, isolated from the sequence guard.
+/// A wrapped verify seat may legally be a strategy `Select` whose EMPTY
+/// case map defers to a single default. Resolving that default yields a
+/// `Single`, so the first `selected(None)` guard admits it; the refusal
+/// under test is the outer-body match, which sees a `SeatBody::Select`
+/// and refuses to clone it into the wrapper's `StepBody`. The existing
+/// sequence control above proves the first guard independently.
+#[test]
+fn a_dialect_wrapped_verify_select_reaches_the_single_or_panel_refusal() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let verify = json!({
+        "results":["pass","fail"],
+        "select": {
+            "on":"strategy",
+            "cases": {},
+            "default": {"role":"roles/role.md","driver":{"command":["driver"]}}
+        }
+    });
+    let (config, policy) = dialect_config(verify);
+    let message = error(compile_dialect_fixture(
+        &fixture,
+        &config,
+        &policy,
+        Some(&dialect),
+    ));
+    assert!(
+        message.contains("dialect verify currently requires a single or panel verify seat"),
+        "{message}"
+    );
+}
+
+/// Design D10's selected-agent cause. An empty `agent` reference inside a
+/// legal named selector case must reach `resolve_reference` and retain
+/// its own diagnostic, selector-qualified, rather than being swallowed by
+/// a later load step or replaced by an arbitrary compile error. The
+/// default is valid and the outer seat owns the results, so no earlier
+/// shape or key refusal can mask the continuation under test.
+#[test]
+fn a_selected_agent_case_keeps_its_empty_reference_cause() {
+    let fixture = Fixture::new();
+    let policy = Fixture::policy();
+    let mut config = Fixture::config();
+    let work = config["seats"]["work"].as_object_mut().unwrap();
+    work.remove("role");
+    work.remove("driver");
+    work.insert(
+        "select".into(),
+        json!({
+            "on":"strategy",
+            "cases": {"engine": {"agent": ""}},
+            "default": {"role":"roles/role.md","driver":{"command":["driver"]}}
+        }),
+    );
+    let message = error(compile_dialect_fixture(&fixture, &config, &policy, None));
+    assert!(
+        message.contains("seat 'work:engine' agent must be a non-empty string"),
+        "{message}"
+    );
+}
+
 #[test]
 fn dialect_site_vocabulary_and_support_fail_closed() {
     let fixture = Fixture::new();

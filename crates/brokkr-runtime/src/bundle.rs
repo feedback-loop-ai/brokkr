@@ -1766,22 +1766,30 @@ fn owner_index(
                     None => site_name.clone(),
                     Some(tag) => format!("{site_name}:{tag}"),
                 };
-                match seen.get(&label) {
-                    Some(first) if *first != owner => {
-                        return Err(CompileError::Invalid(format!(
-                            "seat '{phase}' addresses two different sites as '{label}': {} and \
-                             {}. The selection, the argv lookup, the hands map and the boundary \
-                             map all key on that one string, so one site would answer for the \
-                             other; rename one of them",
-                            crate::engine::resume::describe(first),
-                            crate::engine::resume::describe(&owner)
-                        )));
-                    }
-                    Some(_) => {}
-                    None => {
-                        seen.insert(label, owner);
-                    }
+                // A flattened label this census has already registered is
+                // a collision, whether or not the two structural keys
+                // happen to name equal owners. The enumeration cannot
+                // legitimately revisit an equal owner, so there is no
+                // same-owner tolerance to keep: phase keys are unique map
+                // keys, case keys come from a closed strategy vocabulary
+                // that excludes `default`, selection does not nest, and
+                // each body emits its single once or its members/steps
+                // with distinct enumerated indices in `SiteKey`. Equal
+                // keys therefore cannot be emitted twice; a repeated
+                // label names different keys and must be refused. (Fact
+                // merges for one owner are a separate operation in
+                // `site_facts`, not an address registration.)
+                if let Some(first) = seen.get(&label) {
+                    return Err(CompileError::Invalid(format!(
+                        "seat '{phase}' addresses two different sites as '{label}': {} and \
+                         {}. The selection, the argv lookup, the hands map and the boundary \
+                         map all key on that one string, so one site would answer for the \
+                         other; rename one of them",
+                        crate::engine::resume::describe(first),
+                        crate::engine::resume::describe(&owner)
+                    )));
                 }
+                seen.insert(label, owner);
             }
         }
     }
