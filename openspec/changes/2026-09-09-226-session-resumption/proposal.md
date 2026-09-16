@@ -1,5 +1,21 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit, run `codex-end-to-end-issue-226-tasks-1bd3f94f`, adopts
+`2026-09-09-226-session-resumption` at `5ef4a842` on `slice-codex-proof`.
+**CODEX, END TO END commissions only tasks 10.5 and 11.1:** spend the completed
+controller proof on the shipping Codex rejoin, reconcile its declaration with
+exercised 0.154.0, and land matching adapter assertions with removal proofs.
+Answer AB under Decisions records the five evidence axes and the remaining
+10.1 interface gap. It supersedes earlier instructions to remeasure Codex or
+freeze applicability at 0.153.4. No provider probe is authorized. The supplied
+record establishes 10.5's live observations; its tasks return must cite each
+axis and the agreeing adapter assertions before ticking it. Task 11.1 remains
+pending unless its entire acceptance, including current-version 10.1 evidence,
+is met. This specify checkpoint authors the proposal and owning deltas only;
+it claims neither implementation nor a task tick.
+
+Earlier THE PROOFS specify adoption, retained as history:
+
 This specify visit, run `the-proofs-branch-integration-22-5533cd6b`, adopts
 `2026-09-09-226-session-resumption` and the production repairs at HEAD
 `4daaa7d2265b521ba40565f54a12eeba715e373b` on
@@ -116,18 +132,27 @@ Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
 Issue #226 also exposes a recovery gap when safe resume is unavailable:
 completed work needs a truthful task marker before the phase's final commit.
-The prepared branch also disables the Codex rejoin main already performs;
-the operator's 2026-09-15 ruling requires preserving that shipping behavior
-while keeping new, unmeasured resume shapes disabled. The failed relocation
-repair showed that carrying an assessment without its confinement facts can
-turn a safe refusal into an unsafe rejoin; site ownership and explicit
-confinement evidence must hold together. At the adopted `4daaa7d` head,
-those production repairs stand, but their gate-decision proofs are missing and
-the supplied host exact-coverage gate still refuses six lines and one branch.
+The operator's 2026-09-15 ruling preserves the Codex rejoin main already
+performs while keeping new, unmeasured resume shapes disabled. At adopted
+`5ef4a842` that preservation and the preceding production repairs have landed.
+The completed September 16 controller proof exercises Codex 0.154.0, while the
+declaration still names 0.153.4 applicability and decision 0030 records its
+historical 0.148.0 measurement. Reconcile those facts and prove the adapter's
+argv, exact-root confirmation and refusal checks without spending the proof
+on unmeasured interface options or new execution shapes.
 
 ## What Changes
 
-- For THE PROOFS, complete only the decision/exchange proofs in AS1 and LE5
+- For CODEX, END TO END, adopt the supplied live 0.154.0 proof for 10.5's five
+  axes, update the preserved Codex declaration's identity/evidence, and land
+  production-composed argv, confirmation and exact-token assertions with
+  removal proofs. AS1/AS2/AS3 and LE5 express the bounded acceptance below.
+  Keep 11.1 pending the complete current-version interface evidence 10.1
+  requires; its existing tick describes historical investigation, not blanket
+  qualification of 0.154.0. The other providers, Passes C/D and archive remain
+  outside this slice. The following bullets retain earlier commissions and
+  the whole change as history and context.
+- For the inherited THE PROOFS slice, complete only the decision/exchange proofs in AS1 and LE5
   and the bounded new-code coverage residue recorded in answer AA. Preserve
   the six decisions, their refusal tokens and the existing safety rules;
   prove each new test by a compiling mutation, observed failure and restoration.
@@ -240,6 +265,14 @@ The boundary-record delta changes version selection without changing which
 boundary the engine stamps or rewriting frozen contract bytes.
 
 ## Evidence and scope
+
+The current Codex slice consumes `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
+`.forge/tasks/controller-codex-proof-2026-09-16-raw-report.json` and
+`.forge/tools/codex-enforcement-probe.py`, read in full without executing the
+instrument. The live record and its axis pointers in answer AB are the
+controlling evidence for this visit. Earlier measurements below retain their
+dates and scope; they are not substitutes for this record or instructions to
+repeat the experiment.
 
 Source: [issue #226](https://github.com/feedback-loop-ai/brokkr/issues/226),
 the operator's 2026-09-09 commission and triage's
@@ -451,6 +484,8 @@ and 2026-09-10. Answers A–K remain settled; L corrects the delta operation for
 their new semantics without reopening them, and M applies the operator's
 2026-09-10 ruling to K's pinned core without reopening K's route. N settles
 four rules M left open, and O settles where N2's qualified composite lives.
+Answer AB records the current September 16 Codex proof reconciliation; earlier
+answers retain their dated scope where it supersedes them.
 Their observable answers are scenarios in the owning deltas. The council must carry
 these choices into `design.md` Decisions and the numbered rulings of proposed
 0056; this is not a claim of operator acceptance.
@@ -1875,6 +1910,109 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   `inputs.change`, without selecting a next phase. Earlier design/tasks and
   dated evidence remain intact; no new source semantics require a decision edit.
 
+- **AB — CODEX, END TO END, 2026-09-16: spend the completed proof.**
+  Adopt `5ef4a842`, the existing change, and triage's framing in
+  `.forge/tasks/codex-proof-reconciliation.md`. The run context has no named
+  `returned_from` finding. Accepted 0030 and proposed 0056 already own the
+  safety contract; this visit reconciles evidence and acceptance, not the
+  eligibility design. Amend this proposal before AS1/AS2/AS3 and LE5.
+
+  **Recorded proof and task 10.5.** The live record is controller evidence
+  from the installed `codex-cli 0.154.0`. Its successful workspace-write cold
+  control and completed `command_execution` output make the observations
+  attributable. In the raw report, each phase's two command items are the
+  in-progress and completed events, not two independent write experiments.
+  Denied writes print `EXIT=2` and `Read-only file system`; the enclosing
+  reporting command exits zero. An absent file alone proves no enforcement.
+  The tasks return must record one citation per axis, corroborated by the
+  corresponding raw-report phase below. In this table, **live** means
+  `.forge/tasks/controller-codex-proof-2026-09-16-live.json` and **raw** means
+  `.forge/tasks/controller-codex-proof-2026-09-16-raw-report.json`; suffixes are
+  JSON pointers, not guessed locations in unavailable controller streams.
+
+  | 10.5 axis | Recorded observation and citation | Raw corroboration |
+  |---|---|---|
+  | Exact invocation and demonstrated allowed argv | **live** `/axes/restriction_re_imposed_across_resume/resume_with_class_restored/argv`: `codex exec resume 01a0aaa4-8667-7753-94b8-b0a60607524b -c sandbox_mode=read-only --skip-git-repo-check --json -c approval_policy=never` followed by the recorded literal prompt. The array gives the exact prompt and argv; this does not qualify every adapter passthrough option. | `/phases/resume_class_reimposed/argv` |
+  | Effective class and applicable fragment re-imposed | **live** `/axes/restriction_re_imposed_across_resume`: cold read-only denies, bare same-thread resume writes, restored read-only denies. `interface_constraint` records resume's rejection of `-s` and its `-c sandbox_mode=<class>` channel. | `/phases/control_workspace_write_cold`, `/phases/cold_read_only`, `/phases/resume_bare`, `/phases/resume_class_reimposed`; completed command output, not file absence alone. The sandbox-flag rejection is the controller's interface observation, not a separate raw-report phase. |
+  | Exact same-root confirmation | **live** `/axes/same_root_confirmation/detail`: cold and resumed IDs both equal `01a0aaa4-8667-7753-94b8-b0a60607524b`. | `/same_root_confirmation`, plus `/phases/resume_class_reimposed/thread_id` |
+  | Current-only accounting | **live** `/axes/current_only_accounting`: two invocations report 303 then 308 output tokens, with cached input 98,560 then 114,176; the controller records current-invocation totals, not a cumulative re-bill. | `/phases/accounting_resume_1/usage`, `/phases/accounting_resume_2/usage` |
+  | Pre-work rejection shape | **live** `/axes/pre_work_rejection_shape/detail`: unknown session exits 1 with `no rollout found`, no `thread.started` and no `turn.started`. | `/phases/unknown_session_rejected`; the instrument's start predicate checks both event names. |
+
+  These observations discharge the recorded live axes; no fresh provider
+  measurement is needed or authorized. Close 10.5 in the tasks return when
+  the matching adapter assertions agree. The applicable fragment here is the
+  sandbox override in a no-boxed-hands invocation. This does not qualify the
+  boxed MCP fragment or measure every possible class/flag combination.
+
+  **Three-version reconciliation.** Retain 0030's 0.148.0 measurement as
+  historical evidence, and preserve 0.153.4 as the previous applicability and
+  the version of the dated September 10 observations. The current measured
+  identity and applicability become 0.154.0 together: `identity.version`
+  describes the CLI actually measured, while `identity.applies_to` names the
+  runtime admission target. Cite the September 16 live record in the current
+  interface/restriction/root/accounting evidence without claiming complete
+  interface qualification. Add a dated 0.153.4→0.154.0 reconciliation; retain
+  earlier limitations as historical statements and explicitly resolve their
+  now-observed resume axes. The reason must state that resume has no sandbox
+  flag, so the adapter re-imposes the class through `-c sandbox_mode`.
+  Keep `work-site: supported`, class `work`, boundaries `harness` and
+  `not applicable`, and `hands: none`. A root opened under another recorded
+  version still declines; historical evidence does not bypass that check.
+
+  **Assertions and removal proof.** Tests must observe production-composed
+  resume argv for both shipping coordinates: the effective class travels via
+  `-c sandbox_mode=<class>` (including the adapter's TOML-quoted value), never
+  `-s`, `--sandbox` or `--sandbox=...`; the offered root is the selected root
+  and only its exact provider confirmation produces `launch: resumed`.
+  Unavailable or drifted executable identity, or a mismatch with the recorded
+  originating identity, remains `unverified-harness`;
+  boundary/hands mismatch or missing markers remains `restrictions-unavailable`;
+  absent assessment or accounting evidence remains `unsupported-resume`.
+  Keep all other refusal tokens, precedence and bounded pre-work replacement.
+  For every claimed assertion, remove its responsible production check or
+  emitted element, record the intended assertion failure, restore exactly,
+  and rerun green. `is_err()` alone, a compile failure or an unrelated failure
+  proves nothing. Stage executable shims beside their target and rename into
+  place; temporary mutations are never committed. Deterministic tests prove
+  the adapter, while the supplied record proves live provider enforcement.
+
+  **Task 11.1 and the checked 10.1 dependency.** At this head 10.1 records
+  0.153.4 interface investigation, with an allowance for an actual replacement.
+  The three supplied artifacts establish specific 0.154.0 commands, not a full
+  version-matched resume-help/source capture for effort configuration, all
+  safe passthrough options, or the adapter's stdin prompt positional `-`.
+  The tracked September 10 evidence and 0030 are earlier-version history;
+  no supplied 0.154.0 interface artifact closes those remaining obligations.
+  Leave 11.1 unchecked and name those gaps in its tasks return, even after
+  declaration/assertion work and 10.5 complete. Preserve 10.1's historical
+  completion without treating its tick as a current-version waiver. No new
+  probe is commissioned, and preserving support alone never completes 11.1.
+
+  **Dependent artifacts and limits.** The owning design/tasks return and
+  implementation must carry this reconciliation into proposed 0056 (status
+  stays `proposed`), the declaration, current provider-guide claims and
+  shipped-assessment tests; historical/synthetic versions are not globally
+  replaced. Only proposal and the safety/evidence deltas belong to this
+  specify commit. The other three deltas and living specs are adopted unchanged.
+  Refuse provider remeasurement: it duplicates authoritative controller work.
+  Refuse qualification of `--worktree` and `--thread-source`: these new shapes
+  were never supported and this preservation proof does not measure them.
+  Claude, DSH and LaneTally remain `unmeasured`; 10.6–10.8 and 11.2–11.4,
+  Passes C/D, archive, frozen surfaces and closure are untouched.
+
+  **Validation and handoff.** Implementation owes focused suites and removal
+  controls, format, all-target/all-feature locked clippy, both workspace test
+  modes, both bundle compiles and strict active/all-item OpenSpec validation.
+  Use `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=2` and the #282 Git-environment
+  correction. Exact coverage retains literal line/branch/function equality
+  and the shared compiler pin; record fresh in-box integers with a writable
+  disk-backed `TMPDIR` outside the repository. If tools cannot run, say
+  unmeasured. Do not substitute saved reports or claim #286's skipped boundary
+  namespaces passed. Host equality and final-head remote CI remain controller
+  handoffs. Commit completed artifacts unsigned; never push, merge or start
+  another run. The phase result carries this adopted identifier in
+  `inputs.change`; it does not direct the next phase.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -3025,3 +3163,53 @@ Command logs and the byte audit are in `.forge/specify-proofs-5533cd6b/`.
 This specification draft leaves both commissioned implementation proof items
 open. It commits only this proposal and the safety/evidence deltas, unsigned,
 without pushing, archiving, changing a task state or starting another run.
+
+
+## Specify validation — CODEX, END TO END, 2026-09-16
+
+Run `codex-end-to-end-issue-226-tasks-1bd3f94f` adopts `5ef4a842` and this
+existing change. The live proof, raw report and instrument were read first
+and in full through workspace hands; the instrument was never executed.
+The dialect's own specify/return files and rendered proposal/specs instructions
+were read without invoking a workflow runner. Answer AB records the five-axis
+evidence mapping, the three-version reconciliation and the precise remaining
+10.1 interface dependency. The proposal was amended before the safety and
+launch-evidence deltas. No named `returned_from` finding requires an upstream
+return, and the existing safety design remains the basis for this slice.
+
+Strict active-change and repository-wide OpenSpec validation pass: **14 items,
+zero failures**. Archived validation passes: **six changes, zero failures**.
+Status and whitespace checks pass. The informational archive refusals for the
+withdrawn living targets remain outside the commission; the change stays open.
+A consistency check of the supplied JSON confirms the five axes, argv, root,
+usage and completed command output agree across the two records. The `-s`
+interface rejection remains attributed to the live controller record, not to
+an invented raw-report phase. This check is a read of existing evidence, not
+a provider probe.
+
+The five deltas now contain **20 requirements / 162 scenarios**: two new AS1
+scenarios distinguish live-proof completion from interface qualification, and
+one LE5 scenario requires the matching adapter assertions and removal proofs.
+All **101 task identifiers and ticks (82 checked / 19 pending)** are unchanged.
+Only this proposal and the two amended deltas change; the other **726 tracked
+files** and the three supplied evidence files retain their entry bytes.
+Design/tasks, proposed 0056, declarations, Rust production/tests, frozen
+surfaces and living specs await only their explicitly scoped owning work or
+remain untouched; this checkpoint claims no implementation or task completion.
+
+Fresh format, all-target/all-feature locked clippy, protocol/runtime and driver
+conformance suites, both workspace test modes and both bundle compiles cannot
+launch: **Cargo is absent (ENOENT)**. The pinned coverage-tool check also cannot
+launch, so the exact gate was not run and fresh in-box line, branch and
+function counts are **unmeasured**. No saved report or invalid temporary
+directory substitutes for them. Host equality under #286 and final-head remote
+CI remain pending controller evidence. Commands use `CARGO_BUILD_JOBS=2`,
+`RUST_TEST_THREADS=2` and #282's Git-environment correction.
+
+Command logs, evidence consistency checks and the tracked-byte audit are under
+`.forge/specify-codex-proof-b0bbfca4/`. This unsigned specification checkpoint
+commits exactly the proposal and two owning deltas. The tasks return still
+owns 10.5's tick after the assertions agree; 11.1 stays unchecked for missing
+0.154.0 effort, complete safe-passthrough and stdin-prompt interface evidence.
+No provider remeasurement, task tick, archive, fold, push, merge or new run
+occurred. The phase result carries the adopted change in `inputs.change`.

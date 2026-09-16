@@ -302,6 +302,15 @@ SHALL NOT be cited as live provider enforcement proof (decision 0034).
 - **AND** each commissioned uncovered path is covered or justified by its caller invariant with the required rule still tested at a reachable site; neither an exclusion nor deletion of that rule closes the residue
 - **AND** the test remains deterministic protocol evidence and is not reported as new live-provider enforcement proof
 
+#### Scenario: Recorded Codex proof is matched by adapter assertions
+- **GIVEN** the controller's September 16 proof on codex-cli 0.154.0 and the preserved shipped Codex assessment for the harness and inline no-hands work coordinates
+- **WHEN** deterministic tests exercise production-composed argv and provider confirmation through the actual adapter exchange
+- **THEN** they assert the effective class is passed as a `-c sandbox_mode` override without a sandbox flag, the selected root equals the offer, and only exact provider confirmation before work yields `launch: resumed`
+- **AND** independent controls assert `unverified-harness` for unavailable or drifted executable identity or a mismatch with a recorded originating identity, `restrictions-unavailable` for boundary/hands mismatch or missing markers, and `unsupported-resume` for missing assessment or required accounting evidence; missing or different root confirmation never reports a successful resume
+- **AND** each claimed assertion has its own compiling removal proof of the responsible emitted element or production check, an observed failure at the intended argv/root/token assertion, exact restoration and a passing rerun, all identified in the tasks return; `is_err()` alone or an unrelated failure does not count
+- **AND** executable shims are staged beside their target and renamed into place before execution, and temporary mutations are absent from the completed patch
+- **AND** the tests are adapter conformance evidence, not new provider enforcement measurements or qualification of previously unsupported shapes; all existing refusal tokens and bounded pre-work replacement behavior remain intact
+
 #### Scenario: Each composite member keeps its launch
 - **WHEN** one work-class panel member resumes and another starts cold, including inside a sequence
 - **THEN** each member's tagged evidence retains its own launch, and the aggregate does not substitute one member's state for the other
