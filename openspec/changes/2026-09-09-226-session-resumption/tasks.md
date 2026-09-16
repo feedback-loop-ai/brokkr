@@ -6160,13 +6160,19 @@ its own observed removal failure:
 | `a_supported_assessment_without_both_affirmative_markers_declines` | boundary-only and hands-only mismatch → `restrictions-unavailable`; accounting absent and assessment absent → `unsupported-resume` | M8 boundary term, M9 hands term, M10 accounting guard, M11 assessment guard | `tests.rs:2030` each |
 | `only_the_flags_a_resume_can_safely_carry_travel_with_it` and `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled` | `--worktree` and `--thread-source` → `incompatible-argv`, never added to the allow-list | new negative cases | pass |
 
-Every mutation was applied alone to the then-unmodified
-`crates/brokkr-protocol/src/adapters.rs`, compiled, failed its intended
-assertion, was restored byte-for-byte by
-`git checkout -- crates/brokkr-protocol/src/adapters.rs`, and the test reran
-green. Refusals assert their token, never `is_err()` alone. All other ticks,
-provider statuses and excluded tasks are unchanged: **83 complete / 18
-pending** across the same 101 identifiers, with 11.1 still unchecked.
+Those controls were applied alone to the then-unmodified
+`crates/brokkr-protocol/src/adapters.rs`, compiled, failed their intended
+assertions, and reran green after restoration. That first return recorded only
+the controls it had run: it did not independently omit `cache_read_tokens` or
+`output_tokens`, did not isolate the boundary/hands absence-and-type guards,
+recorded the `--worktree`/`--thread-source` refusals as passing without a
+removal, and attributed M6 to the shared historical origin assertion rather
+than the current 0.154.0 one. The review's returned R1 names exactly those
+gaps; the correction below completes every outstanding control and restores
+the accuracy of this record. Refusals assert their token, never `is_err()`
+alone. All other ticks, provider statuses and excluded tasks are unchanged:
+**83 complete / 18 pending** across the same 101 identifiers, with 11.1 still
+unchecked.
 
 ### 11.1 — partial, left unchecked
 
@@ -6251,3 +6257,112 @@ witness pins for `recipes/night-shift` (`5eec5fd2…`),
 surface, production Rust guard, refusal token or provider disposition moved;
 proposed 0056 stays `proposed` and the other three providers stay
 `unmeasured`.
+
+## Returned implement correction — review R1 removal evidence, 2026-09-16
+
+The review returned `residual` on `8a5a1675` with one medium finding: the
+removal-proof acceptance was incompletely evidenced. This visit answers that
+finding alone. It runs no provider, reads the supplied live record, raw report
+and instrument, and changes only
+`crates/brokkr-protocol/src/adapters/tests.rs` (one test isolated) and this
+file. No production Rust guard, declaration, frozen surface, refusal token or
+checkbox moved: **83 complete / 18 pending** across the same 101 identifiers,
+with 10.5 checked and 11.1 unchecked.
+
+### Current-origin isolation (M6)
+
+The earlier return's M6 dropped `qualify`'s origin comparison and claimed the
+new observed/applicable 0.154.0 with origin 0.153.4 vector as its failure, but
+that vector shared a function with the historical 0.153.4 against 0.150.0
+case, so execution stopped at the earlier assertion and the current vector was
+never reached. `qualify_refuses_an_originating_version_drift` now keeps only
+the historical vector; the current vector lives in its own
+`qualify_refuses_a_current_version_stale_origin` (`tests.rs:3177`), whose own
+`tests.rs:3211` refusal assertion is what M6 now fails.
+
+### Completed compiling removal controls
+
+Each control changes exactly one production seam in
+`crates/brokkr-protocol/src/adapters.rs`, recompiles, and runs its exact test
+through:
+
+```text
+env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0 CARGO_BUILD_JOBS=2 \
+  RUST_TEST_THREADS=1 cargo test --locked -p brokkr-protocol \
+  --all-features --lib adapters::tests::<test> -- --exact
+```
+
+| Control | Test | Break | Observed failure | Restored rerun |
+|---|---|---|---|---|
+| M1 | `a_codex_resume_carries_the_thread_the_class_and_the_prompt` | drop the emitted `-c sandbox_mode="<class>"` pair | `tests.rs:2288:9` `assertion left == right failed: short-separate: the whole resumed argv` (left lacks the pair) | 1 passed |
+| M2 | same | push the sandbox flag and value into passthrough | `tests.rs:2288:9` (left is the cold `exec --json -C … -s read-only …` argv) | 1 passed |
+| M12a | same | omit folded `input_tokens` | `tests.rs:2326:43` `no entry found for key` | 1 passed |
+| M12b | same | omit folded `cache_read_tokens` | `tests.rs:2327:43` `no entry found for key` | 1 passed |
+| M12c | same | omit folded `output_tokens` | `tests.rs:2328:43` `no entry found for key` | 1 passed |
+| M8 | `a_supported_assessment_without_both_affirmative_markers_declines` | remove the boundary membership term | `tests.rs:2030:43` `boundary unknown: must not enable` | 1 passed |
+| M8a | same | bypass the boundary absence/type guard with a `"harness"` default | `tests.rs:2030:43` `boundary absent: must not enable` | 1 passed |
+| M9 | same | remove the hands equality term | `tests.rs:2030:43` `hands unknown: must not enable` | 1 passed |
+| M9a | same | bypass the hands absence/type guard with a `"none"` default | `tests.rs:2030:43` `hands absent: must not enable` | 1 passed |
+| M10 | same | remove the accounting-presence guard | `tests.rs:2030:43` `accounting absent: must not enable` | 1 passed |
+| M11 | same | bypass the assessment-absence guard with a compiling supported default entry | `tests.rs:2030:43` `assessment absent: must not enable` | 1 passed |
+| M5 | `a_codex_whose_installed_version_has_moved_declines_the_offer` | remove the observed-versus-applicability term | `tests.rs:2865:5` `the cold argv, unchanged: ["exec","resume",…]` | 1 passed |
+| M6 | `qualify_refuses_a_current_version_stale_origin` | remove the origin-comparison term | `tests.rs:3211:5` `assertion left == right failed: a root opened under 0.153.4 is not a 0.154.0 session` (`left: None`) | 1 passed |
+| M7 | `a_codex_whose_version_cannot_be_read_declines_the_offer` | bypass the version-unavailable arm with an `applies_to` fallback | `tests.rs:2901:5` `no rejoin without a version` | 1 passed |
+| M13 | `only_the_flags_a_resume_can_safely_carry_travel_with_it` | add `--worktree` to the resume allow-list | `tests.rs:2735:9` `assertion left == right failed: --worktree may not travel to a resume`; the same removal rejoins the `worktree` case and fails `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled` at `tests.rs:2508:9` `worktree: the cold argv, unchanged` | 1 passed each |
+| M14 | same | add `--thread-source` to the resume allow-list | `tests.rs:2735:9` `--thread-source may not travel to a resume`; the same removal rejoins the `thread-source` case and fails `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled` at `tests.rs:2508:9` `thread-source: the cold argv, unchanged` | 1 passed each |
+
+Every control was applied alone and compiled. After the observed failure the
+production file was rewritten from its pre-run bytes and sha256-verified equal
+to `233f42596ed10e83e7ae7572e3d47153b56b139b097edc0ed049337bfa804167` before
+its exact test reran green; the final file still carries that hash and
+`git diff` for it is empty. The throwaway mutation runner lived under the
+ignored `.forge/scratch-codex-controls/` and is absent from the patch. As
+whole suites, the protocol adapter suite is green at **154 tests** (was 153;
+the isolated origin test is the addition) and the restored test file leaves
+every existing refusal token and bounded pre-flight replacement unchanged.
+
+### Reconciliation
+
+The earlier "Every mutation was applied alone …" sentence described the
+controls then run; it was not a claim that every clause-3, clause-5 and LE5
+removal obligation had been recorded, and the incomplete set is named and
+completed above. M6 now points at the isolated current-version assertion,
+`cache_read_tokens` and `output_tokens` each have their own omission failure,
+the absence-and-type guards are separated from the membership and equality
+terms they could otherwise be confused with, and both `--worktree` and
+`--thread-source` have removal proofs. 11.1 remains unchecked for the
+exact-0.154.0 effort, safe-passthrough and stdin `-` interface evidence this
+proof does not contain. No provider was executed, no new probe was
+commissioned, `--worktree`/`--thread-source` stay unqualified and refused, and
+the Phase-D work remains outside this slice.
+
+### Local validation on the corrected bytes
+
+Every command below ran on the corrected tree with the #282 Git prefix
+(`env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`):
+
+- `cargo fmt --all -- --check` clean.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+  exit 0.
+- `cargo test --locked -p brokkr-protocol --all-features adapters::tests`:
+  **154 passed** (was 153).
+- `cargo test --locked -p brokkr-runtime --all-features`: green, 440 lib tests
+  plus every integration binary.
+- `cargo test --locked -p brokkr-cli --all-features --test driver_conformance`:
+  **18 passed**.
+- `cargo test --locked -p brokkr-runtime --test witness_digests`: **4 passed**;
+  `--lib bundle::compose_tests`: **17 passed**.
+- `cargo test --workspace` and `cargo test --workspace --all-features --locked`:
+  both exit 0.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `bundles/verify`: both exit 0, with no bundle or digest file modified;
+  `cargo build --release --locked -p brokkr-cli` exit 0.
+- `openspec validate 2026-09-09-226-session-resumption --strict`:
+  `Change … is valid`; `--all --strict`: **14 passed, 0 failed**;
+  `--archived --strict`: **6 passed, 0 failed**.
+- Fresh `bash scripts/coverage-exact.sh` on the pinned `nightly-2026-09-05`
+  compiler (the only writable scratch the box exposes is tmpfs): **lines 30102
+  covered / 30273, branches 5027 / 5040, functions 2880 / 2890**. Literal
+  equality is not met in-box because the namespace boundary proofs skip where
+  bwrap cannot nest (#286), and no production Rust line moved in this
+  correction; host equality remains the controller's.

@@ -3164,11 +3164,18 @@ fn qualify_refuses_an_originating_version_drift() {
     }
     assert_eq!(same.observed.as_deref(), Some("0.153.4"));
     assert_eq!(same.refusal, None);
+}
 
-    // The current vector beside the historical synthetic one: observed and
-    // applicable 0.154.0, but the offered root was opened under the earlier
-    // 0.153.4. The origin comparison refuses independently of the
-    // observed-versus-applicability comparison, which here matches.
+/// The current 0.154.0 origin vector, ISOLATED from the historical
+/// synthetic pair above so that dropping the origin comparison fails THIS
+/// test's own assertion instead of the earlier 0.150.0 one. Observed and
+/// applicable 0.154.0 with the offered root opened under the earlier
+/// 0.153.4: the origin comparison refuses independently of the
+/// observed-versus-applicability comparison, which here matches.
+#[cfg(unix)]
+#[test]
+fn qualify_refuses_a_current_version_stale_origin() {
+    let dir = tempfile::tempdir().unwrap();
     let current_shim = executable(
         dir.path(),
         "qualify-probe-current",
@@ -3187,7 +3194,10 @@ fn qualify_refuses_an_originating_version_drift() {
         current_same = qualify(&current_gate, &current_probe, Some("0.154.0"));
     }
     assert_eq!(current_same.observed.as_deref(), Some("0.154.0"));
-    assert_eq!(current_same.refusal, None);
+    assert_eq!(
+        current_same.refusal, None,
+        "the same 0.154.0 root is not drift"
+    );
 
     let mut stale_origin = qualify(&current_gate, &current_probe, Some("0.153.4"));
     for _ in 0..7 {
