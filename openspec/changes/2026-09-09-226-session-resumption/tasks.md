@@ -1,42 +1,39 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current commission: run `the-whole-family-branch-integrat-0a5cdb4f`, tasks
-return at `d194645`, adopts proposal Y/Z/specifications `e8b99c5`, the current
-D10 design return and implementation `bcefcf6`. The commissioned baseline
-remains the operator's revert `5ee48aa`; its coverage is not a measurement of
-this later checkout. Only F1 whole-family relocation with independent
-fail-closed admission, F2 global ownership including wrapper-created addresses,
-and F3 Windows-safe regression fixtures belong to this slice. The reverted
-`5ca534b` is neither restored, adapted nor used as implementation input. Its
-failure was assessment relocation without the executing member's confinement:
-missing markers enabled a namespace/boxed work-site rejoin, while a stale
-hands-bearing sibling wrongly declined the no-hands mirror.
+Current commission: **THE PROOFS**, run
+`the-proofs-branch-integration-22-5533cd6b`, phase tasks, adopts proposal AA and
+specifications `614abde`, design `80772ce` and production repairs `4daaa7d`.
+The predecessor return in
+`.forge/results/99cbdaee-9e9d-4fdc-b2f7-25cb2aa60def.json` was read first:
+the canonical `Bundle.sites` family, exact drain-all relocation, authoring/final
+ownership census, runtime readers and affirmative dispatch markers are delivered.
+Their commits and proposed 0056 stand. No production rework is commissioned.
 
-Execute the [whole-family acceptance order](#current-tasks-visit--whole-family-execution-order-2026-09-16)
-under the existing numbered checkbox groups. It repairs the two-mediums
-instructions at `4d7d452` in place, retaining their dependency order and legal
-collision constructions. D10 now requires one canonical owned `SiteFacts`
-value from collection through execution, affirmative confinement and an
-independent adapter absence guard. Five separate moves, paired filtered walks
-and a compiler-only repair are superseded. No upstream choice remains.
+Execute the [THE PROOFS acceptance order](#current-tasks-visit--the-proofs-execution-order-2026-09-16)
+under the existing numbered checkbox groups: preserve/measure before; connect
+the existing test transports; prove all six gate decisions and their mutations;
+cover the two reachable compiler refusals and remove only the unreachable
+same-owner census tolerance; run local gates; measure after and commit evidence.
+D10 resolves the test seam and coverage dispositions. No upstream choice remains.
 
-The ledger remains **82 complete / 19 pending across 101 identifiers**.
-The clauses refine existing acceptance; historical ticks attest adopted work,
-not completion of these residual repairs or their proofs. Record each clause's
-actual progress and proof without changing checkbox states. In particular,
-8.8, 8.10, 9.6 and 11.1–11.4 remain pending; 11.5 retains its recorded
-completion. Passes C/D, archive, re-folding living specs, provider enablement
-and the settled reader seam remain outside scope. Adopt `bcefcf6`'s existing
-0056 clarification and retain its `proposed` status; no further decision edit
-is required by this return.
+Only these two items belong to this visit. The broader F2 campaign, selected-single
+follow-up and historical repair instructions below are adopted history or wider
+change acceptance. Their remaining proof does not expand AA. Keep the whole
+family indivisible, absence refused, and namespace/boxed Codex refused;
+affirmative markers alone do not qualify an incompatible coordinate. All six rows use the production gate, with
+confirmed engine-offered retries for supported forms.
 
-The current inventory remains **20 requirements / 159 scenarios** (31 evidence,
-64 safety, 11 boundary, 20 progress, 33 site). The two-mediums F3 inventory
-correction is adopted history; this commission's F3 is Windows portability.
-Do not write heading-count tests or repeat settled inventory work.
+The ledger remains **82 complete / 19 pending across 101 identifiers**. Every
+checkbox state is preserved; record clause progress and evidence without a
+whole-change tick. In particular, 8.8, 8.10, 9.6 and 11.1–11.4 stay pending,
+and 11.5 keeps its recorded completion. Passes C/D, archive, re-folding living
+specs, frozen-byte edits and provider enablement remain excluded. Proposed 0056
+stays `proposed`; the settled census simplification requires no semantic redesign.
+The unchanged five deltas contain **20 requirements / 159 scenarios** (31
+evidence, 64 safety, 11 boundary, 20 progress, 33 site).
 
 Earlier operator-ruling tasks return, retained as dated execution history;
-the current whole-family acceptance order supersedes its instructions to repeat work:
+the current THE PROOFS acceptance order supersedes its instructions to repeat work:
 
 Current commission: run `operator-ruling-slice-branch-int-bf5f6a32`, tasks
 return, adopts design `78098d5`, the F1 task checkpoint `26f665e`, proposal
@@ -282,11 +279,12 @@ saved for the phase commit.
       the full unfiltered workspace suite required on archived bytes before
       the delivery commit, and exact-head controller evidence external to the
       task state (10).
-      For the whole-family return, adopt `bcefcf6`'s rulings 1/6 clarification
-      for the entire site-facts family and affirmative current confinement,
-      as Y/Z/D10 requires; retain `Status: proposed` and accepted 0030's safe
-      supported rejoin. Clause 1 below owns the existing decision-index check;
-      adoption of the text does not attest runtime compliance or fresh validation.
+      For THE PROOFS, adopt the landed rulings 1/6 clarification for the
+      entire site-facts family and affirmative current confinement. Retain
+      `Status: proposed` and accepted 0030's safe supported rejoin; no decision
+      amendment is commissioned. Clause 5 runs the existing decision-index
+      check; adoption does not attest runtime compliance or fresh validation.
+      The remaining amendment instructions are inherited history/acceptance.
       Preserve the existing ruling text that remains true; amend ruling 10 and
       its enforcement binding rather than replacing the decision or implying
       operator acceptance. For the earlier operator-ruling slice, first amend
@@ -483,11 +481,12 @@ saved for the phase commit.
       site is composed, and carry it through single dispatch, `MemberRun`
       and sequence model dispatch. Panel workers hand the context key
       beside their checkpoints to the single journal writer for stamping.
-      A reused completed step invokes no driver and gains no launch. For Y/D10,
-      clause 3 below makes every actual dispatch read the same owned facts,
-      replaces or clears inherited confinement markers, and uses the selected
-      single's executing `site_name` at spawn. Unknown confinement never becomes
-      a known no-hands instance — site / SR1, SR2; safety / AS1, AS2.
+      A reused completed step invokes no driver and gains no launch. Adopt
+      `4daaa7d`'s canonical readers, marker replacement/clearing and selected
+      single's executing `site_name`. Unknown confinement never becomes a known
+      no-hands instance. THE PROOFS clauses 2–3 exercise the existing composition
+      at the six commissioned decisions; no dispatch rework is planned —
+      site / SR1, SR2; safety / AS1, AS2.
 - [x] 3.5 Add the compile-time uniqueness check for the existing
       flattened `Site` addresses within their actual candidate and
       boundary lookup scopes in `crates/brokkr-runtime/src/bundle.rs`, so
@@ -495,21 +494,23 @@ saved for the phase commit.
       ambiguous bundle fails before spawn with a message naming both
       sites. Ordinary repeated member names under different steps stay
       valid, and chain progression and historical tag meanings do not
-      move. For Y/D10, clauses 2–3 register every authoring owner before any
-      evidence insertion, reserve wrapper destinations and deterministic
-      validator addresses before writes, then check final ownership globally.
-      Include cases/defaults, inline/agent leaves and factless owners. Populate
-      one canonical `SiteFacts` table; refuse distinct owners with the full
-      label and both owners named, retaining legitimate same-owner merges —
+      move. Adopt the delivered authoring census before evidence insertion,
+      wrapper destination/validator claims before writes and final global census,
+      including cases/defaults, inline/agent leaves and factless owners. Keep
+      one canonical `SiteFacts` table and distinct-owner refusals naming the full
+      label and both owners. THE PROOFS clause 4 removes only unreachable
+      same-owner census tolerance under D10's enumeration invariant, retaining
+      legitimate same-owner fact merges and the tested collision refusal —
       site / SR1, SR2; safety / AS1, AS2.
 - [x] 3.6 Tests in `crates/brokkr-runtime/src/bundle/tests.rs`: the
       colliding pair is refused at compile time; two panels each holding
       an `alpha` still compile; every bundle under `recipes/` and
-      `bundles/` walks clean. Y/D10's clauses 1–4 add raw, wrapper-created,
-      default and deterministic-owner collision decisions with live renamed
-      controls, all six F1 forms, independent unknown-confinement refusals and
-      identity invalidation. Require each new test's compiling removal failure
-      at its claimed decision and restored pass; F3 fixtures are platform-valid —
+      `bundles/` walks clean. THE PROOFS clauses 2–4 cover only AS1's six
+      compiled decisions/exchanges, independent confinement controls and the
+      three commissioned coverage sites. Adopt existing collision/relocation
+      controls; the wider F2 live-rename/identity campaign is not this visit.
+      Each new test needs a compiling mutation failure at its claimed decision
+      or refusal and a restored pass; direct shebang fixtures are Unix-only —
       site / SR1, SR2; safety / AS1, AS2; evidence / LE2, LE5.
 - [x] 3.7 Tests in `crates/brokkr-runtime/src/engine/resume_tests.rs`:
       the canonical key is stable across process runs and moves for each
@@ -667,14 +668,14 @@ saved for the phase commit.
 - [x] 6.3 Carry the selected assessment through `Candidate`/`SiteSpawn`
       into the driver's private context inside `Start.input`, separate
       from the rendered `context`, the phase inputs and the resume
-      handle. For Y/F1, clauses 2–4 retain `inline_resume`, `pin_drivers`,
-      `hands`, former `context.records` and former `context.drivers` in one
-      owned `SiteFacts` value on `Bundle`, moved once by structural ancestry.
-      Engine assessment, HandsSpec and boundary/instance readers share that
-      authority; manifest maps are projections only. Resolve no-hands explicitly
-      and fail closed independently in `resume_gate` on missing/invalid markers.
-      Prove all six decisions, supported exact-root launches and executing-site
-      witness invalidation. No wire type or label fallback is added — safety /
+      handle. Adopt `4daaa7d`'s one owned `SiteFacts` value containing
+      `inline_resume`, `pin_drivers`, tri-state `hands`, agent record and driver
+      evidence, relocated once by structural ancestry. Runtime readers share
+      that authority; manifest maps remain projections. Keep the independent
+      `resume_gate` refusal on missing/invalid markers. THE PROOFS clauses 2–3
+      prove the six compiled decisions and supported exact-root launches;
+      broader witness-invalidation proof is outside this visit. No wire type,
+      public gate API or label fallback is added — safety /
       AS1, AS2; site / SR1, SR2, SR4; evidence / LE2, LE5.
 - [x] 6.4 Write the assessments into `adapters/codex.json`,
       `adapters/claude.json`, `adapters/dsh.json` and
@@ -1224,17 +1225,20 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 For the current whole-family slice, execute only Y/Z/D10's six F1
-      shape decisions, selected-single dispatch/unknown-owner controls,
-      independent unknown-confinement refusals, F2 raw/final
-      collision refusals with live renamed controls, declaration-identity
-      refusal and every new test's removal proof, in clauses 1–4 below. F3
-      requires a real target-platform executable or `#[cfg(unix)]` for direct
-      shebang fixtures; no production shell fallback. Extend existing runtime,
-      adapter and CLI conformance suites; a repaired assessment/marker, guessed
-      offer or map-only assertion is insufficient. Keep this checkbox pending
-      for inherited C/D work — safety / AS1, AS2, AS3; site / SR1, SR2, SR4,
-      SR5; evidence / LE2, LE5.
+- [ ] 8.10 For THE PROOFS, execute only AA/D10's two items in clauses 1–6
+      below: six wrapped/unwrapped compiled Codex gate decisions and supported
+      exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and
+      unreachable census-arm consolidation. Every new test needs an observed
+      compiling mutation failure at its claimed assertion and a restored pass.
+      Extend the existing runtime/protocol/CLI suites using the test-only seam;
+      do not substitute fabricated roots, repaired markers or map assertions.
+      A no-offer refusal is judged by the private production gate with actual
+      composed facts. Namespace/boxed remains refused; preserve shipping
+      harness/none and no-hands live controls. Directly executed shebang tests
+      are Unix-only or use a real target-platform executable. Clauses 5–6 own
+      fresh gates, coverage and the unsigned evidence commit. Keep this checkbox
+      pending for inherited C/D work — safety / AS1, AS2; site / SR1, SR2,
+      SR3, SR4; evidence / LE2, LE5; progress / PM4.
       The following provider-planner and operator-ruling breakdown is inherited
       acceptance/history, not additional work commissioned by this slice.
       Complete each provider-local planner guard and its tests in
@@ -5297,231 +5301,236 @@ Readouts and audits are retained in `.forge/tasks-operator-ruling-f2-bf5f6a32/`.
 This is an unsigned task-draft checkpoint, with implementation completion,
 provider qualification and archive unclaimed. No push, merge or new run occurs.
 
-## Current tasks visit — whole-family execution order, 2026-09-16
+## Current tasks visit — THE PROOFS execution order, 2026-09-16
 
-This tasks-only return adopts Y/Z and D2/D10/D11 at `d194645`.
-`returned_from` is design's `drafted` result: strict validation passes, with
-inherited informational archive-target notices for adapter-resume-safety and
-sdd-progress-markers. Archive remains excluded; these notices require no
-fold or upstream repair for this slice. D10 identifies implementation gaps,
-not unanswered design choices. AS1's six inline forms and mismatched-evidence
-scenario, AS2's current restrictions, SR1's repeated-label ownership cases, SR2's identity
-fence and LE2/LE5's decisions, launch and removal proofs own F1–F3. D10 records
-the choices under Decisions; no upstream repair is needed. These six clauses
-replace the two-mediums clauses from `4d7d452` in their existing order, without
-new checkbox IDs or states. Record each clause's actual completion and proof
-here; none authorizes a whole-change tick. Do not read or adapt `5ca534b`.
+This tasks visit adopts proposal AA, AS1/AS2 and LE5 at `614abde`, and D10's
+THE PROOFS reconciliation at `80772ce`, over production `4daaa7d`. The supplied
+run context has design's `drafted` result and no named `returned_from` finding.
+The predecessor return `.forge/results/99cbdaee-9e9d-4fdc-b2f7-25cb2aa60def.json`
+was read first. Its delivered family/census/dispatch repairs and four observed,
+restored removal controls stand. D10 answers the proof seam and all three
+coverage dispositions; no earlier artifact fault requires `upstream`.
 
-Adopt the landed `SiteFacts`, tri-state `HandsState`, independent adapter
-absence refusal, deterministic `owner_sites` and final global ownership check.
-Clauses 2–3 still owe the pre-collection census, exact source/owner movement,
-claim-time refusal, canonical runtime readers and selected-single marking.
-Clause 4 still owes decision and removal evidence; none is supplied by this
-tasks return or by the presence of the implementation. Preserve the six-clause
-order and all existing requirement bindings; do not rebuild settled foundations.
+These six acceptance clauses refine the existing numbered checkbox groups;
+they introduce no task identifiers or ticks. They supersede the prior six-clause
+whole-family work list for this visit. Each names the owning tasks and
+requirements. Execute item 1 before item 2, recording actual clause progress
+and evidence before continuing. Historical ticks do not attest these new
+proofs; the ledger remains 101 IDs, 82 checked / 19 pending. The broader F2
+collision/rename/identity campaign, selected-single follow-up, C/D, every
+whole-change tick, archive and living-spec fold remain outside this commission.
 
-1. **Preserve evidence and expose the failures.** Existing 1.1, 3.6, 6.3,
-   8.10 and group 15 — site / SR1, SR2; safety / AS1, AS2; evidence / LE2,
-   LE5; progress / PM1, PM4. Retain entry hashes and coverage reports; obtain
-   the unchanged exact gate's fresh before measurement under clause 6's
-   constraints, or record its missing prerequisite. The supplied
-   30,036/30,036 lines, 5,038/5,038 branches and 2,863/2,863 functions remain
-   inherited evidence. Adopt the landed proposed-0056 rulings 1/6 clarification
-   for whole-family ownership and affirmative confinement; preserve its status
-   and verify it with `cargo test -p brokkr-cli --test decisions_index`.
+1. **Preserve the baseline and establish measurement prerequisites.** Existing
+   1.1 and group 15 — safety / AS1; evidence / LE5; progress / PM1, PM4.
+   Record entry revision, clean/dirty state, frozen/living-spec and task-state
+   hashes, and preserve existing coverage reports before another run overwrites
+   them. Retain proposed 0056 unchanged; its family and affirmative-confinement
+   decisions are adopted. Before any test or source edit, run the unchanged exact
+   gate using clause 6's compiler/scratch rules, or name the unavailable
+   prerequisite. The supplied host baseline at `4daaa7d` is **30,269/30,275
+   lines, 5,039/5,040 branches, 2,890/2,890 functions**, covered/total; it is
+   not a new in-box run. Verify the baseline record identifies environment,
+   revision and all three measures separately.
 
-   Extend existing `bundle/tests.rs`, `engine/resume_tests.rs`, engine boundary/
-   agent suites, protocol `adapters/tests.rs` and CLI `tests/driver_conformance.rs`.
-   Establish decision baselines for all six AS1 rows using the shipped
-   declaration, author-pinned argv and actual wrapper: no-hands single,
-   namespace/boxed hands-bearing inline panel member and no-hands inline panel
-   member, each wrapped and unwrapped. Supported cold invocations must produce
-   durable confirmed roots and actual engine retry offers. Capture Start/Resume
-   and pass them unchanged through the production adapter exchange before the
-   boxed validator runs, or drive the exchange under the engine. Refused forms
-   use real engine-composed facts at the production gate even without an eligible
-   root; invent no offer or refusal record for a no-offer cold launch. A repaired
-   assessment/marker or simplified topology cannot prove this seam.
+2. **Connect the existing test transports to the production exchange.** Existing
+   3.6, 6.3 and 8.10 — site / SR1, SR2, SR3, SR4; safety / AS1, AS2;
+   evidence / LE2, LE5. Follow settled D10: one temporary-realm builder
+   parameterizes the three inline Codex forms and wrapping. Use
+   `Bundle::compile_with_realm`, shipped dialect/adapter declarations and valid
+   author-pinned work argv. Keep the compiled wrapper, complete command,
+   canonical site facts and instance identity intact. Reuse the capture patterns
+   in `engine/resume_tests.rs` (`received`, `route_start`) and CLI
+   `tests/driver_conformance.rs` (`make_shim`, `drive_codex`, `launch_row`), sharing
+   ordinary test modules where needed. Add only development dependencies on
+   existing workspace crates if required for protocol-unit access to compiler,
+   engine and store; no production hook, public gate API or registry dependency.
 
-   Prepare clause 4's valid F2 collisions and rename-only live controls. Against
-   otherwise supported/accounted evidence, test boundary alone missing, hands
-   alone missing, both absent, null, non-string and unknown marker vocabulary;
-   missing assessment must not mask these cases. F3 applies from the first new
-   fixture: directly executed shebang text is `#[cfg(unix)]`, or unconditional
-   tests use a real target-platform executable. Do not assume Windows has `sh`
-   or add a production shell interpreter.
+   Forward the actual engine cold Start through `brokkr driver codex` with the
+   existing deterministic provider shim. Return the adapter's real accepted,
+   checkpoint and result messages through normal engine recording; the provider
+   announces the cold root before work and the engine durably stamps it. The
+   existing `driver`/`model_driver` helpers' invented roots cannot substitute.
+   Retain the same provider home/origin and instance across cold and retry:
+   `drive_codex` currently creates fresh homes per call, so shared test support
+   must own those homes for the pair. Capture the engine's retry Resume and
+   Start, then forward them unchanged to a fresh real adapter process. Never
+   inject `resume_context`, a test-selected offer, repaired markers or shortened
+   argv. Observe the model step before the boxed validator; keep that step
+   compiled, without requiring namespace creation or validator completion.
 
-2. **Protect evidence before collection.** Existing 3.5–3.6, 6.3 — site /
-   SR1, SR2; safety / AS1, AS2. Follow D10's pre-collection census of structural
-   owners across all phases, selectors/cases/defaults, single/member/step
-   ancestry, inline/agent leaves and deterministic dialect leaves. Register
-   factless and later-parsed owners before any assessment, effort/resume witness,
-   hands or agent/driver evidence insertion. A distinct owner claiming the same
-   full label yields `CompileError::Invalid` with label and both owners, even
-   if wrapping would later separate the raw aliases. Use existing `SiteKey`
-   structural owners in the compilation-only census before `enforce_model_pins`;
-   `collect_unpinned` alone omits agent leaves. Bind every fact write to its
-   reservation and verify the raw collision and renamed control in clause 4.
+   Keep direct no-offer assertions in `crates/brokkr-protocol/src/adapters/tests.rs`,
+   where the same private production `resume_gate` is accessible. Shared support
+   supplies the unchanged engine-composed `Start.input`; do not copy the
+   predicate or return an expected token from a helper. Verify this bridge
+   with clause 3's cold/root/retry and private-gate assertions; helper construction
+   alone is not proof. Every added launch is Unix-only when it executes a shebang
+   file directly, or uses a real target-platform executable. The CLI conformance
+   suite already has `#![cfg(unix)]`; do not assume unconditional tests can execute
+   scripts or Windows supplies `sh`, and keep production `Command` semantics.
 
-   Populate one canonical `BTreeMap<String, SiteFacts>` by registered owner;
-   the value owns `inline_resume`, `pin_drivers`, `hands`, `record` and `driver`.
-   Preserve legitimate same-owner digest merges; equal facts never legitimize
-   distinct owners. Initialize hands as unknown; only successful resolution of
-   the actual declaration establishes no-hands or its HandsSpec. Registration
-   alone grants neither confinement nor capability. Retain this table on
-   `Bundle`; manifest `hands`/`agents`/`drivers` are existing-vocabulary projections,
-   not mutable runtime authorities. Do not zip separately collected maps.
-   Clauses 2–3 are one coherent repair; checkpoint no partial relocation.
+3. **Close item 1 at all six decisions, with observed mutations.** Existing
+   3.6, 6.3 and 8.10 — safety / AS1, AS2; site / SR1, SR2, SR3, SR4;
+   evidence / LE2, LE5. With clause 2's one builder, execute this matrix; assert
+   the actual gate result for every row, not only maps or offer presence.
 
-3. **Move the whole family, reserve final owners and fail closed.** Existing
-   3.4–3.6, 6.3, 8.10 — site / SR1, SR2, SR4; safety / AS1, AS2;
-   evidence / LE2, LE5. Pair each source owner with its executing owner and new
-   ancestry directly from the parsed single or panel at the wrapper
-   transformation: `verify` becomes `verify:checks`; `verify:<m>` becomes
-   `verify:checks:<m>`. Drain those exact facts AND their source reservations
-   before destination claims so `x` beside `checks:x` cannot overwrite a
-   still-needed source or falsely collide. Move each complete `SiteFacts` once
-   with its owner transformation; a sixth field follows automatically. Missing
-   source/field remains unknown. No separate-map checklist, prefix scan, colon
-   splitting, paired filtered walks or iteration-order inference is acceptable.
+   | Compiled form | Required decision and exchange |
+   |---|---|
+   | Wrapped no-hands single, `verify:checks` | Enabled; provider-confirmed cold root, engine's exact same-root retry, confirmed `launch: resumed`. |
+   | Wrapped hands-bearing member, `verify:checks:alpha` | Namespace/boxed gives `Disabled("restrictions-unavailable")`; no resumed launch. |
+   | Wrapped no-hands member, `verify:checks:x` | Enabled and confirmed same-root retry beside hands-bearing `checks:x`, executing at `verify:checks:checks:x`. |
+   | Unwrapped no-hands single, `verify` | The same enabled, confirmed retry. |
+   | Unwrapped hands-bearing member, `verify:alpha` | The same confinement refusal and token. |
+   | Unwrapped no-hands member, `verify:x` | The same live retry beside its own hands-bearing `checks:x` sibling. |
 
-   After draining, reserve destinations and the injected validator against the
-   complete owner table before writing relocated/synthetic facts. Refuse before
-   overwrite, then check final ownership globally across all phases/cases/
-   defaults, including authored/injected deterministic steps. Preserve useful
-   within-body diagnostics. The model-only `structural_sites` walk omits dialect
-   leaves and is insufficient; empty maps and transient overwrites do not excuse
-   aliasing. Keep the landed `owner_sites`/`refuse_global_aliasing` final check.
-   Runtime hands, boundary/delivery, spawn composition, inline assessment fallback
-   and instance readers use `Bundle.sites`, with no runtime projection fallback.
-   Preserve selected-candidate assessment precedence for agent sites and the
-   existing manifest projections/vocabulary. `hands_spec() == None` cannot
-   distinguish unknown from positively resolved no-hands; retain the tri-state
-   distinction through identity/eligibility as well as marker composition.
+   For live rows assert the durable cold root equals the engine offer, provider
+   argv uses `exec resume` with that root and current sandbox/effort, confirmation
+   precedes work, and the launch names that exact root as `resumed` without
+   `resume_refusal`. An unconfirmed root must never produce `resumed`. For a
+   refused row assert the private production gate's exact token on the captured
+   input, even when no eligible root exists. An actual offered fallback also
+   asserts its cold launch and token; a no-offer cold exchange carries no
+   invented refusal record. Namespace/boxed remains refused even with both
+   strings present: applicable affirmative markers are necessary, not sufficient.
+   Keep the existing shipping harness/none live control under its own composition;
+   never relabel a boxed member or broaden its assessment. Report any safely
+   refused coordinate explicitly. This is deterministic protocol evidence,
+   not new installed-provider qualification.
 
-   At each single/selected-single, panel member, sequence single and sequence
-   panel-member dispatch, replace or clear inherited markers. Resolved no-hands
-   emits `boundary: not applicable`, `hands: none`; resolved hands emits the
-   current boundary and `boxed` only for boxed boundaries, otherwise `none`.
-   Unknown emits no affirmative permission and cannot qualify as a known
-   no-hands instance. Selected singles use executing `site_name` beside
-   `mark_delivery`, after the requested-input digest check. Preserve that
-   requested-input/spawn-time boundary and the supported selector-single offer.
+   Preserve `Unknown` / `NoHands` / `Hands`. Keep the independent adapter matrix
+   against otherwise supported/accounted evidence: boundary missing, hands
+   missing, both missing, null, non-string and unrecognized values each decline
+   `restrictions-unavailable`. Absent/unsupported assessment or absent accounting
+   instead declines `unsupported-resume`. Exercise unresolved/unknown executing
+   confinement through real composition without borrowing parent/sibling markers;
+   altered-input unit controls remain separate from the six unchanged captures.
+   Retain the existing member `checks`, unrelated literal `verify:foo`, harness,
+   identity, argv, accounting, fresh-gate and cold-replacement controls. Their
+   retention does not commission the predecessor's wider F2 live-rename campaign.
 
-   Retain the landed independent absence refusal in `adapters.rs::resume_gate`:
-   otherwise supported/accounted evidence requires both recognized string
-   markers; missing, null, non-string or unknown markers decline
-   `restrictions-unavailable`. Absent/unsupported assessment and absent accounting
-   keep `unsupported-resume`. Retain identity, applicability, current restrictions,
-   exact-root, argv and accounting checks. Unknown and namespace/boxed Codex stay
-   refused; established no-hands/harness controls stay live. The complete family
-   and independent guard are the minimum adoptable F1 repair.
+   For **every new test**, record the exact compiling mutation, named assertion
+   failure and intended cause, restore the bytes, and record the passing rerun
+   before continuing. Apply D10's bindings: disable whole relocation for supported
+   wrapped rejoins; lose executing hands/marking for the no-hands mirror; falsely
+   mark a hands-bearing member as known no-hands to break its direct gate-refusal
+   assertion; delete the independent absence refusal to break otherwise supported
+   unknown-marker controls. Common marker/assessment mutations must also fail
+   unwrapped controls; relocation-only mutations cannot prove them. Include the
+   missing-assessment token and confirmation controls when newly tested. Existing
+   argv guards may keep an erroneously enabled boxed gate cold, so the direct
+   decision assertion is essential; do not weaken another guard to force `resumed`.
+   Map panics, compiler errors, earlier fixture failures or masked mutations do
+   not count. Temporary partial-family mutations are isolated experiments only:
+   restore them completely and never commit partial relocation. Preserve the
+   four predecessor controls as dated evidence, not substitutes for new proofs.
 
-4. **Prove decisions, identity and every new test by removal.** Existing 3.6,
-   6.3, 8.10 — site / SR1, SR2, SR4, SR5; safety / AS1, AS2, AS3;
-   evidence / LE2, LE5. Each supported AS1 row must show its confirmed cold root,
-   the engine's exact offer, `exec resume` with current sandbox/effort, provider
-   confirmation before work and `launch: resumed` without `unsupported-resume`.
-   Wrapped and unwrapped namespace/boxed panel members must reach
-   `restrictions-unavailable`, never an enabled work-site assessment; an
-   unconfirmed root never yields `launch: resumed`. Prove live no-hands `x`
-   beside refused hands-bearing `checks:x`, a member called `checks`, an
-   independent `verify:foo` phase and the shipped harness coordinate. Exercise
-   unregistered and registered/unresolved confinement through engine composition,
-   including stale parent/sibling markers, and clause 1's independent adapter
-   marker cases. D10's selected-single scenario also needs a `work:chore`
-   confirmed cold root and unchanged production exchange reaching exact-root
-   `launch: resumed`; removing its dispatch-time marking must fail that live
-   assertion. For its missing/unresolved owner controls, clear stale parent
-   markers and require `restrictions-unavailable` at the adapter, without
-   manufacturing an eligible engine offer. Validators and all gate-class model
-   sites receive no offer.
+4. **Close item 2 at the three adopted source locations.** Existing 3.5, 3.6
+   and 8.10 — site / SR1, SR2; safety / AS1, AS2; evidence / LE5. Only after
+   item 1, extend the existing bundle/selected-agent suites and apply D10's
+   settled dispositions. Line numbers identify `4daaa7d`, not permanent addresses.
 
-   F2 refuses each valid collision with the full label and both owners:
-   (a) phase `work`, case `chore` versus literal phase `work:chore`;
-   (b) `work`/`chore`/step `engine:stage` versus
-   `work:chore`/`engine`/step `stage`; (c) selected default versus literal phase;
-   (d) wrapped no-hands Codex versus literal `verify:checks` exec with hands
-   and no assessment; (e) wrapped member versus literal `verify:checks:alpha`,
-   including a factless owner; (f) injected validator versus literal no-hands
-   Codex `verify:dialect-verify`. For the raw alias that wrapping later separates,
-   use D10's pinned DSH verify-panel member `alpha` beside literal pinned Codex
-   phase `verify:alpha`: refuse before collection, in both declaration orders.
-   Rename only the literal phase; require the member's own pin/assessment and
-   the renamed Codex phase's confirmed exact-root live rejoin. A shape mismatch
-   or mixed-map assertion cannot replace that admission refusal. For (a)/(b),
-   keep Codex at the first owner and a conflicting Claude assessment without Codex work-site support at the
-   other. Supply legal `chore`/`engine` cases, defaults, results and model/effort
-   pins. Rename only the conflicting outer phase in
-   EACH construction and require compilation plus a supported exact-root Codex
-   rejoin with its own facts. Retain ordinary repeated-name, same-owner digest
-   merge and shipped recipe/bundle address controls.
+   - `assemble`, lines 1528–1531: compile dialect verify with legal
+     `Select { cases: {}, default: Single }`, ordinary role/driver and results
+     on the outer seat. The single default passes `selected(None)` so the outer
+     Select reaches the second refusal. Assert `dialect verify currently
+     requires a single or panel verify seat`. Keep both current guards and the
+     existing sequence refusal. Mutate this reached diagnostic, observe the
+     named assertion fail, restore and rerun; do not claim that changing a
+     diagnostic removes all backstops or establishes future selector policy.
+   - `parse_selected_body`, line 3042: put `{"agent":""}` in a legal named
+     strategy case, with a valid default and ordinary library/adapter setup;
+     keep results on the outer seat. Assert both the selector-qualified seat
+     and `agent must be a non-empty string`. Mutate the reached diagnostic/error
+     propagation so this assertion fails, restore and rerun. An earlier
+     unknown-key/load failure or arbitrary compile error does not cover this
+     continuation; retain the resolver's refusal.
+   - `owner_index`, line 1780 and branch at 1770: remove only the unreachable
+     same-owner tolerance by replacing guarded `Some(first)` plus `Some(_)`
+     with one existing-label refusal and insertion on absence. Record D10's
+     invariant beside the simplification: unique phase keys; unique case keys
+     from `SELECT_STRATEGIES`, which excludes `default`; no nested selection;
+     each body emits its single once or members/steps with distinct enumerated
+     indices in `SiteKey`. The census cannot revisit an equal owner. Different
+     structural keys can flatten to the same label and must still refuse with
+     the label and both owners. Same-owner **fact merges** remain legal,
+     separately from structural enumeration. Preserve authoring/final censuses
+     and wrapper destination claims. If a legitimate parsed counterexample
+     disproves the invariant, cover it and reconcile that evidence with D10
+     instead of silently rejecting it. Verify with existing
+     `a_literal_phase_that_aliases_a_selected_case_is_refused_globally` and its
+     rename-only compile control. Temporarily disable this refusal in both
+     census invocations so a backstop cannot mask the mutation, observe the
+     collision assertion fail while the renamed construction stays valid,
+     restore and rerun. This is the retained rule's proof, not a new F2 campaign.
 
-   With another provider present, change only a copied Codex declaration and
-   require old-root refusal at the actual eligibility/adapter identity fence.
-   Extend the existing identity test; a witness/map or manifest difference is
-   supplementary and cannot substitute for the decision.
+   Retain exact mutation diffs/failures/restored passes for both new refusal
+   tests and the census control. Cover reachable rules; never delete a required
+   rule, add `#[cfg(...)]`/`coverage(off)` to hide production code, change the
+   gate or predict an after denominator. This settled simplification changes
+   no constructible bundle's behavior; proposed 0056 stays unchanged. An actual
+   semantic departure needs its owning proposed decision, not an undocumented
+   cleanup under coverage.
 
-   For EVERY new test retain the compiling temporary mutation, exact diff,
-   named behavioral assertion failure, exact restoration and passing rerun.
-   Disable whole relocation for supported wrapped decisions; temporarily drop
-   family fields to expose the hands-bearing and mirror cases without committing
-   a partial-move path. Independently break affirmative marker production and
-   adapter absence enforcement; the latter must enable an otherwise supported
-   unknown-marker case so its refusal assertion catches it. Break witness
-   propagation until the changed declaration wrongly permits an old root. Remove
-   raw and wrapper/final protections for their respective collision assertions,
-   removing the minimal complete protection when guards overlap; separately
-   prove destination claims refuse before any relocated/synthetic fact write.
-   Removing only the final walk while claim-time protection still masks the
-   mutation is not evidence. Unwrapped, harness and portable controls need their claimed decision/launch mutation.
-   Build errors, map panics, fixture failures and masking guards prove nothing.
-   Restore every mutation; rerun retained identity, boundary, hands, accounting,
-   argv, ownership, fresh-gate and cold-replacement negatives.
+5. **Run the focused suites and complete local validation.** Existing
+   14.1–14.2, 15.1–15.4 — every requirement for integration gates;
+   safety / AS1, evidence / LE5, progress / PM3, PM4. After all mutations are
+   restored, use #282's `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` on every
+   Git invocation and parent test/script command (including children running
+   `git init`), with `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. Run the named
+   focused tests during clauses 2–4 and then:
 
-   Keep F1/F2 decision checks runnable inside the box with the real compiled
-   topology and production facts; #286 excuses no decision test. Label shims as
-   deterministic engineering evidence. Audit all new launches for F3; Linux
-   passes supply no Windows/macOS result. Those await final-head controller CI.
+   ```text
+   cargo test -p brokkr-runtime -p brokkr-protocol --all-features --locked
+   cargo test -p brokkr-cli --test driver_conformance --test decisions_index --all-features --locked
+   cargo fmt --all -- --check
+   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+   cargo test --workspace
+   cargo test --workspace --all-features --locked
+   cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
+   cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+   cargo build --release --locked -p brokkr-cli
+   openspec validate 2026-09-09-226-session-resumption --strict
+   openspec validate --all --strict
+   git diff --check
+   ```
 
-5. **Measure pins and run local gates.** Existing 14.1–14.2, 15.1–15.4 —
-   safety / AS1; progress / PM3, PM4; every requirement for integration gates.
-   After repair and restored controls settle, run witness/compose tests and
-   update only their reported changed pins. Prefix every Git invocation and
-   parent test command with `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`,
-   including tests that run `git init`, with
-   `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. Run `cargo fmt --all -- --check`,
-   `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`,
-   affected protocol/runtime suites and CLI driver conformance,
-   `cargo test --workspace`, `cargo test --workspace --all-features --locked`,
-   `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`, the
-   same compile for `bundles/verify`, and
-   `cargo build --release --locked -p brokkr-cli`. Run strict active/all-item
-   OpenSpec validation and `git diff --check`. Record actual exits/results;
-   inherited passes supply no fresh result. Add no archive filter or gate change.
+   Keep witness/compose checks green; update only a digest actually reported
+   changed by a commissioned edit, never re-pin from a stale expected value.
+   Record exact commands, revision and exits. No archive filter, gate reduction
+   or inherited pass counts as current validation. Missing Cargo or another
+   prerequisite is unavailable, not success. #281's DeepSeek turn/token defect
+   requires no investigation here. These partial-scope runs do not complete
+   the whole-change gate or enablement checkboxes.
 
-6. **Measure coverage and commit the bounded result.** Existing group 15 —
-   every requirement; progress / PM1, PM4; evidence / LE5. Run unchanged
-   `scripts/coverage-exact.sh` before edits under clause 1 and after the restored
-   repair using `rust-nightly-version.txt`'s compiler. Verify a writable disk-backed
-   `TMPDIR` outside the repository; `/tmp`, an in-repo directory and unverified
-   inherited TMPDIR are unsuitable. Retain command, revision, compiler/tool
-   versions, report hashes and the gate's own covered/total line, branch and
-   function integers for both runs. Cover every new production path; never lower
-   equality, change exclusions or substitute saved reports. Record #286's actual
-   in-box shortfall; host equality belongs to the controller. If compiler or
-   scratch is unavailable, name that prerequisite and leave measurement pending.
-   CI, release admission and coverage retain their shared compiler pin.
+6. **Measure after, record the bounded result and commit.** Existing group 15 —
+   every requirement for integration evidence; evidence / LE5; progress / PM1,
+   PM4. Run unchanged `bash scripts/coverage-exact.sh` after the restored work,
+   as before in clause 1, with the compiler from `rust-nightly-version.txt` and
+   a verified writable **disk-backed TMPDIR outside the repository**. Never
+   substitute an in-repo path or an unverified inherited TMPDIR; `/tmp` and
+   `/dev/shm` were tmpfs in the predecessor's seat. If compiler or scratch is
+   unavailable, name it and report all three fresh measures as unmeasured.
+   Preserve the gate summary, JSON/LCOV reports, hashes, exact commands,
+   revision and tool versions before another run overwrites them. Report the
+   gate's own before/after covered/total integers for lines, branches and
+   functions, with remaining uncovered source regions. New callers or the
+   census removal may change emitted totals; do not infer equality from six
+   lines/one branch disappearing or subtract #286's skipped boundary code.
+   In-box shortfall is reported honestly; host equality and final-head native
+   Windows/macOS CI remain pending controller evidence. All six decision tests
+   still run inside the box; #286 excuses no decision row. CI, release admission
+   and coverage retain their common compiler pin.
 
-   Audit unchanged task IDs/states, frozen bytes and withdrawn living specs;
-   record clause outcomes, removal failures/restored passes and remaining proof.
-   Commit completed commissioned edits unsigned in repository style. F1 remains
-   first, then F2, then F3; capacity exhaustion is `oversized` with the precise
-   remainder, never `broken`. Unknown confinement stays refused. No 8.8, 8.10,
-   9.6, 11.x or other whole-change tick, archive/fold, push, merge, publication
-   or new run belongs to this slice. Host equality and final-head remote/platform
-   CI remain pending controller handoffs. This tasks office uses only `drafted`
-   or `upstream`; task drafting proves no runtime completion.
+   Record each clause's actual outcome, the six gate decisions and tokens,
+   provider-confirmed retry evidence, per-test mutation/restoration results,
+   coverage dispositions and fresh measurements or precise missing prerequisites.
+   Audit task IDs/states, frozen bytes, withdrawn living specs and adopted
+   production invariants. Commit completed commissioned edits unsigned in
+   repository style; no temporary mutation belongs in the commit. No checkbox
+   tick, archive, fold, C/D, provider enablement, push, merge, publication or
+   additional Brokkr run is authorized. If implementation runs out of room,
+   report `oversized` with item 1 prioritized and the exact remainder, never
+   `broken`. This tasks office uses `drafted`/`upstream` and claims a committed
+   breakdown only, not completed implementation or a gate's next phase.
 
 ### Prior tasks-phase validation and handoff — two mediums
 
@@ -5623,3 +5632,58 @@ This unsigned task draft reports `drafted`. Implementation, decision/removal
 proofs and local Rust validation remain owed; #286 host equality and final-head
 native-platform CI remain controller handoffs. No runtime or whole-change
 completion, archive/fold, push, merge, publication or new run is claimed.
+
+### Tasks validation — THE PROOFS, adopted design `80772ce`, 2026-09-16
+
+Run `the-proofs-branch-integration-22-5533cd6b`, this phase's only seat, read
+`.forge/results/99cbdaee-9e9d-4fdc-b2f7-25cb2aa60def.json` before substantive
+planning, then the dialect tasks/return files, rendered tasks instructions,
+proposal AA, the safety/evidence deltas, D10's reconciliation and its answered
+Open Questions. Current source confirms the settled gate, cold/retry transport
+seams and three coverage locations. No design question or requirement fault
+requires an upstream repair.
+
+Reconciled the current scope, owning 1.1/3.4–3.6/6.3/8.10 descriptions and
+existing six-clause execution order. Production repairs are adopted, six
+compiled gate decisions precede the three coverage dispositions, and every
+clause binds requirements plus observable verification. The transport instructions
+retain the provider origin across cold/retry and distinguish real adapter roots
+from synthetic helper checkpoints. No broader F2 campaign, selected-single
+follow-up, new provider qualification or whole-change completion is commissioned.
+No scenario, design choice, task identifier or checkbox state was added.
+
+Strict active OpenSpec validation passes; strict all-item validation reports
+**14 passed / 0 failed**. Status confirms planning artifacts exist, not runtime
+completion. The inherited archive-target notices for adapter-resume-safety and
+sdd-progress-markers remain informational and outside this no-archive visit.
+Whitespace and requirement-binding audits pass. All **101 IDs / 82 checked /
+19 pending** retain their entry states. Only `tasks.md` changes; the other
+**728 tracked files** and all **28 inventoried coverage reports** retain their
+entry hashes. The unchanged deltas contain **20 requirements / 159 scenarios**.
+Production/tests, proposed 0056, declarations, frozen surfaces, gate scripts
+and living specifications are unchanged.
+
+Fresh validation attempts could not start because **Cargo is absent in this
+workspace-tool seat** (ENOENT, recorded as exit 127): format, all-target/all-feature
+locked clippy, runtime/protocol suites, CLI conformance/decision-index suites,
+both workspace test modes, both bundle compiles and release build. The pinned
+llvm-cov prerequisite also could not start. Commands inherited #282's Git
+cleanup and `CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`. No Rust or mutation-test
+pass is claimed. The exact script was not launched without its compiler, and
+no external disk-backed scratch was established for a run.
+
+**Fresh in-box before/after: lines unmeasured; branches unmeasured; functions
+unmeasured.** The supplied host before at production `4daaa7d` remains
+**30,269/30,275 lines, 5,039/5,040 branches, 2,890/2,890 functions**, covered/total.
+It is not this seat's measurement; saved reports were neither overwritten nor
+substituted for one. CI, release admission and coverage still consume the
+unchanged `nightly-2026-09-05` pin. Implementation owes the actual decision,
+mutation and coverage results. Host equality under #286 and final-head native
+Windows/macOS CI remain pending controller evidence.
+
+Evidence is retained under `.forge/tasks-proofs-3910b832/`. This unsigned
+checkpoint reports `drafted`: the breakdown is coherent with the settled
+artifacts, while implementation and measured proof remain owed. No task tick,
+archive, living-spec fold, frozen-byte edit, push, merge, publication or
+additional Brokkr run occurred. The phase result carries the adopted change
+identifier and selects no next phase.
