@@ -50,15 +50,56 @@ None.
 
 ## Impact
 
-Implementation is confined to `crates/brokkr-view/` and the named DSH header
-boundary defect in `crates/brokkr-cli/src/ui.rs`, with tests proving that
-repair. CLI and TUI behavior changes through the shared projection; no new
-reader interface or serialized field is introduced. A later house decision
-must carry status `proposed` and supplement decision 0055 ruling 3's
-member-per-turn and text-only rules; the operator alone accepts decisions.
-This specification commit authors only this change's proposal, capability
-deltas and creation metadata. Design, tasks, the house decision and code
-remain subsequent artifacts/work, not completed claims here.
+Production implementation is confined to `crates/brokkr-view/` and the named
+DSH header boundary defect in `crates/brokkr-cli/src/ui.rs`. CLI and TUI
+behavior changes through the shared projection; no new reader interface or
+serialized field is introduced. A later house decision must carry status
+`proposed` and supplement decision 0055 ruling 3's member-per-turn and
+text-only rules; the operator alone accepts decisions.
+
+### D0 return: dependent test scope requires an explicit fence amendment
+
+The design returned `upstream` at `555ad9f8` because the original Impact
+inventory omitted a necessary CLI test correction. This specify visit adopts
+that finding. At the unchanged production base, the existing
+`crates/brokkr-cli/tests/transcript_command.rs::packed_dsh_members_have_separate_selectable_turns`
+projects an uncited packed `["a", "b", "c"]` row followed by user text `q`.
+It requires four turns, `b` at index two/stamp `999`, `q` at index four,
+and packed/ordinary index-two equality. The adopted reading rule instead
+requires `abc` at index one/stamp `1000`, then `q` at index two/stamp `2000`.
+The command delta now pins those exact inputs and outputs, including the
+ordinary-row control and the reason-bearing refusal at packed index three.
+
+The following is the concrete **proposed test-only scope amendment** to the
+commission's fence. It is pending controller/operator authorization; naming
+it here does not itself authorize edits outside that fence.
+
+| Dependent test file | Narrowly required correction or proof |
+|---|---|
+| `crates/brokkr-cli/tests/transcript_command.rs` | Replace the contradictory packed-member selection expectations with the two-turn packed result and four-turn ordinary control; cover whole/selected JSON and the retained 7,797 versus refused 7,798 boundary with the exact reason and notices. |
+| `crates/brokkr-cli/tests/transcript_surfaces.rs` | Derive a real synthetic DSH source through the shared reader and compare coalesced whole/selected CLI output, TUI pane indices, both doors and structural-cap notices against that same result. |
+| `crates/brokkr-cli/src/tui/tests.rs` | Prove the packed text/reasoning two-chunk doors and the `abcd` to `a`, `c`, assembly refresh using projected source snapshots; keep generic six-turn navigation coverage without presenting injected turns as packed decoding evidence. |
+| `crates/brokkr-cli/src/ui/tests.rs` | Extend only the already commissioned header repair's exact-limit and cap-plus-one cases, with and without newline, under both admitted versions; assert `DiscoveryLimit` and its metadata. |
+
+The first three test files are the requested extension; the last makes the
+existing header-test dependency explicit. This adds no CLI/TUI production
+work beyond the named `ui.rs` repair and no exception to the exclusions below.
+The existing commission's tests-required rule explains why these dependencies
+must be resolved, but cannot silently erase its express file fence.
+
+Reasoned refusal: keeping the old four-turn packed assertion, undoing merging
+in the command, skipping the contradictory test, or weakening workspace
+validation would violate the adopted shared-projection contract. This visit
+therefore records the upstream scope dependency rather than disguising it as
+an implementation task. The owning design decision D0 and its migration plan
+retain that authorization prerequisite. No test or production file is changed
+by this specification return.
+
+This return amends the adopted proposal, dependent command/TUI scenarios and
+the existing design's D0 status in dependency order. The reading delta already
+owns the correct merge rule and is retained unchanged. Creation metadata is
+adopted, not recreated. Tasks, the proposed house decision, implementation,
+living-spec synchronization and measurement evidence remain subsequent work.
 
 The scope excludes `adapters/codex.json`,
 `crates/brokkr-protocol/src/adapters*`,
@@ -127,19 +168,23 @@ Before implementation can be reported complete:
 
 ## Specification validation
 
-Strict validation of `2026-09-17-bound-transcript-projector` passed in the
-specify seat; OpenSpec reports proposal and specs done, with design and tasks
-not yet authored. Full existing requirement blocks and their scenario names
-were preserved as the dialect requires; superseded member-per-turn examples
-were revised explicitly, with general coalescing examples beside the narrower
-single-member and suppression-gap cases. The authored budget examples were
-checked arithmetically: 7,797 one-byte turns cost 3,999,861 accounting bytes,
-and the next costs 4,000,374 in total. Those are specification arithmetic,
-not allocation measurements.
+The initial specify visit (`b82d2479`) passed strict change validation; the
+subsequent design visit (`555ad9f8`) passed all 15 OpenSpec items. On this
+return, the existing proposal/specs/design are adopted and tasks remain
+unauthored. Existing modified requirement blocks and scenario identities are
+preserved. The command example is made concrete using the contradictory test's
+source; the TUI example requires the actual shared projection. Neither changes
+the reading delta's merge or budget semantics. The budget examples remain
+specification arithmetic: 7,797 one-byte turns cost 3,999,861 accounting bytes,
+and the next costs 4,000,374 in total, not measured allocations.
 
-This seat exposes no `cargo` command or discoverable Rust toolchain. Rust
-format/clippy/tests, both bundle compiles, in-box coverage totals, allocation
-measurement and removal proofs therefore have no new results from this
-specification visit. They remain required implementation/verification evidence;
-the proposed bound is not reported as implemented or measured. The controller
-still owns the external host coverage and final-head remote checks.
+Return validation: strict validation of this change passed, and
+`openspec validate --all --strict --no-interactive` passed all 15 items with
+zero failures. `git diff --check` passed. OpenSpec reports proposal, specs and
+design present and tasks unauthored; artifact presence is not scope approval
+or implementation evidence. The boxed seat still exposes no `cargo` command. Rust formatting/clippy/tests, both bundle
+compiles, in-box coverage totals, allocation measurements and removal proofs
+have no new results from this specification return. They remain required
+implementation/verification evidence; the bound is not reported as implemented
+or measured. Host exact coverage and final-head remote CI remain pending for
+the controller. D0's test-scope authorization is separately pending.

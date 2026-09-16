@@ -52,8 +52,9 @@ and any malformed-line or unrecognized-record notices.
 - **THEN** the pane clears the previous turns, explains the selected reference's unavailability and neither reading door exposes the old seat's prose
 
 #### Scenario: A packed row is readable through individual turns and the whole door
-- **WHEN** a readable DSH source contains three uncited nonempty text members in one packed row and three uncited nonempty reasoning members in another, within both budgets
-- **THEN** the pane exposes two assistant turns under the shared coalescing rule; Enter on turn one opens the entire text chunk and Enter with no selection opens both chunks in order, agreeing with CLI whole and selected reads
+- **WHEN** the shared reader derives a valid version-zero DSH source with text members `["a", "b", "c"]` at times 1000, 999 and 1004 in one uncited packed row, followed by reasoning members `["x", "y", "z"]` at times 2000, 2001 and 2002 in another, with distinct sequences and both budgets satisfied
+- **THEN** the pane exposes exactly two assistant turns from that projection: text chunk `abc` stamped `"1000"`, then reasoning chunk `xyz` stamped `"2000"`; Enter on either index opens its entire corresponding chunk and Enter with no selection opens both in order
+- **AND** whole and selected CLI reads of the same source return the identical roles, stamps, block kinds, content, indices and notices; preview clipping cannot turn the six source members into six selectable turns
 
 #### Scenario: Structural truncation bounds the refreshed pane
 - **WHEN** a working DSH seat's source grows to 10,000 ordinary one-byte tool-call turns with absent data

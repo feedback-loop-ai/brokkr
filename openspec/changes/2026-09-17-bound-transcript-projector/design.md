@@ -4,8 +4,12 @@ Status: proposed. Change: `2026-09-17-bound-transcript-projector`.
 
 Adopt the proposal and three capability deltas committed at `b82d2479`, on
 production base `5ef4a842`; see [proposal.md](proposal.md) for motivation.
-This visit authors only this design. There is no `returned_from` finding in
-the supplied context. The council inputs are the complete run-local
+The initial design visit authored this design at `555ad9f8` and returned D0
+upstream. This specify return adopts that design, answers D0 in the proposal
+and consuming scenarios, and updates its dependency status here. The concrete
+test-only fence amendment remains pending controller/operator authorization;
+no additional implementation scope is inferred. The council inputs are the
+complete run-local
 `.forge/design/positions/simplicity.md` and
 `.forge/design/positions/robustness.md`; their claims are reconciled below.
 They are evidence, not additional artifacts to commit.
@@ -32,15 +36,20 @@ unit tests, `ui.rs::dsh_header`, CLI/TUI transcript tests; and the history
 of `b809e02` and `5aee618`. Line numbers in the commission predate this tree.
 No frozen material or scope-fenced implementation has been changed.
 
-Validation on this visit: the adopted change passes strict OpenSpec
-validation, and `openspec validate --all --strict --no-interactive` reports
+Validation on the initial design visit: the adopted change passed strict OpenSpec
+validation, and `openspec validate --all --strict --no-interactive` reported
 15 passed, zero failed (with informational notices for other changes and
-long requirements). The design section/decision inventory also passes a
+long requirements). The design section/decision inventory also passed a
 local structural check. Formatting, clippy, workspace tests and both bundle
 compile commands were attempted; each could not start because `cargo` is
 absent from this boxed seat. There are no new Rust, coverage, allocation or
 removal-proof results. Host/remote gates remain pending, not inferred from
 the green production base.
+
+On the specify return, strict change validation and all 15 OpenSpec items
+passed again, with zero failures; `git diff --check` passed. The amended
+proposal records current validation and D0's pending scope authorization.
+No new Rust or measurement results are claimed by this artifact update.
 
 ## Goals / Non-Goals
 
@@ -62,12 +71,13 @@ It is not a deferrable implementation choice.
 
 ## Decisions
 
-### D0. Adopt the change; return the missing dependent-test scope upstream
+### D0. Adopt the returned dependency; require the test-only fence amendment
 
 The operator's merge ruling and the adopted reading/command deltas agree.
-The proposal's Impact section, however, confines implementation to
+The original proposal's Impact section confined implementation to
 `crates/brokkr-view/` and the named `ui.rs` header repair, without admitting
-an indispensable dependent CLI test edit outside that fence.
+an indispensable dependent CLI test edit outside that fence. The commission
+still has that fence; the proposal now records the required amendment below.
 
 Concrete counterexample: the existing
 `crates/brokkr-cli/tests/transcript_command.rs::packed_dsh_members_have_separate_selectable_turns`
@@ -79,30 +89,41 @@ ordinary index two. Under the commissioned rule there are two turns:
 `cargo test --workspace` to pass. No change confined to the permitted
 projector and header code can satisfy both assertions honestly.
 
-The upstream correction is to the proposal's scope/dependency inventory,
-with the commission's fence explicitly reconciled: admit test-only changes
-in `crates/brokkr-cli/tests/transcript_command.rs` for the new projection and
-selection behavior. Also name the directly dependent surface proof in
+The specify return records the concrete correction in [proposal.md's Impact
+section](proposal.md#d0-return-dependent-test-scope-requires-an-explicit-fence-amendment):
+test-only changes in `crates/brokkr-cli/tests/transcript_command.rs`,
 `crates/brokkr-cli/tests/transcript_surfaces.rs` and
-`crates/brokkr-cli/src/tui/tests.rs`, plus `ui/tests.rs` for the authorized
-header repair. This grants no additional CLI/TUI production changes and
-no exception to the explicitly forbidden files. The controller/operator
-owns any necessary clarification of that fence; this design does not
-silently grant it.
+`crates/brokkr-cli/src/tui/tests.rs`, with
+`crates/brokkr-cli/src/ui/tests.rs` named for the existing header repair.
+It names the purpose of each file, preserves all exclusions and grants no
+additional CLI/TUI production changes. The command delta now spells out this
+counterexample's two-turn packed result, first-member timestamp, four-turn
+ordinary control and exact `turn-not-retained` refusal at packed index three.
 
 The TUI test `six_packed_members_are_readable_through_both_doors` currently
 supplies `read_of(turns_of(6), false)` directly. It does not parse a packed
-row, so it is not an independent proof of either old or new packed
-semantics. Preserve its generic navigation coverage and add or adapt the
-real projected-source surface case after the test scope is reconciled.
+row, so it is not an independent proof of either old or new packed semantics.
+The amended TUI scenario specifies a real source projected into `abc` and
+`xyz`, including block kinds and first-member stamps. Preserve the generic
+six-turn navigation coverage and add or adapt the projected-source surface
+case only after the named test scope is authorized. The existing structural
+cap and partial-assembly refresh scenarios remain required.
 
-Rejected alternatives: retain old CLI indices only in tests; make CLI undo
-coalescing; skip or weaken the contradictory integration test; or declare
-workspace success based only on the view crate. Each defeats either the
-one-projection contract or the required verification. No earlier artifact
-is rewritten by this design-only commit. The phase result is `upstream`
-for this concrete dependency fault, with the design below retained for
-adoption on return.
+Disposition: adopt the finding and the narrowly specified amendment; its
+**authorization remains upstream** because the commission's express file
+fence is not superseded by an artifact written by a seat. The house rule
+requiring tests establishes the need for these edits, not permission to
+ignore that fence. The controller/operator must authorize the amendment
+before tasks can claim the full implementation lies within scope. No such
+authorization appears in this return's supplied context.
+
+Rejected alternatives remain: retain old CLI indices only in tests; make CLI
+undo coalescing; skip or weaken the contradictory integration test; or declare
+workspace success based only on the view crate. Each defeats the shared
+projection or required verification. This is an upstream scope dependency,
+not a downstream coding choice or a claim that the design is implemented.
+The return updates only OpenSpec artifacts; test and production files remain
+unchanged. D1-D9's technical decisions are adopted without a new council.
 
 ### D1. Collect complete-prefix facts, then project a bounded prefix
 
@@ -426,7 +447,7 @@ closes claims that otherwise risk being mistaken for accepted instructions.
 | Robustness R1-R5; F1-F5/F9 | Adopt the complete-prefix ordering, single cost, member geometry and unused-index avoidance. Use source spans and citation intervals instead of per-member maps; preserve assembly readability before tool association (D1-D4). |
 | Robustness R6-R7; F11-F12 | Adopt header-length reasoning, independent lifetime observations, selection-after-cap and borrowing key observations; use the same process proxy rather than a custom allocator (D6-D8). |
 | Robustness F6-F10 and alternatives A1-A5 | Reject early capping and full payload/ref accumulation. Accept parser, block-count and non-DSH intermediate costs as explicit measured residuals, not a silent exemption or a four-MB RSS claim (D5). |
-| Robustness migration inventory | Adopt the view test and decision/living-spec dependencies in the Migration Plan. Add the overlooked, actually contradictory CLI test as D0's upstream finding. |
+| Robustness migration inventory | Adopt the view test and decision/living-spec dependencies in the Migration Plan. Adopt the contradictory CLI test dependency as D0's finding; the specify return records its exact correction and pending test-scope authorization. |
 | Robustness proposed scenario retitles | No semantic correction is needed: the command scenario's retained singleton turns are explicitly separated by suppression, and the TUI's individual turns are the two coalesced chunks in its body. The specify seat preserved existing scenario names as dialect identities and added general coalescing scenarios. Reject treating these headings as permission to restore member-per-turn behavior or as an independent upstream fault. |
 
 Only the operator accepts house decisions. The later semantic implementation
@@ -454,8 +475,9 @@ block-text-only budget and general packed/plain equivalence, while leaving
 - [A green final-output test misses transient allocation] -> Observe actual
   construction/retention and prove each observation with its own compiled
   regression mutation; preserve the final cap during the accumulation test.
-- [Scope expansion is hidden as test maintenance] -> D0 returns the concrete
-  upstream dependency now. Do not edit the forbidden files or silently
+- [Scope expansion is hidden as test maintenance] -> D0 and the proposal name
+  the exact test-only amendment and its pending authorization. Do not treat
+  the amended scenarios as permission to cross the commission's fence or
   broaden CLI/TUI production work.
 - [Exact coverage is confused with an in-box percentage] -> Report literal
   hit/total lines, branches and functions when measured. Namespace skips
@@ -464,10 +486,12 @@ block-text-only budget and general packed/plain equivalence, while leaving
 
 ## Migration Plan
 
-1. Resolve D0 in the upstream scope/commission record and adopt this design
-   on return. Author tasks afterward in dialect dependency order. No
-   `tasks.md`, house decision, code, test or measurement artifact is claimed
-   complete by this design visit.
+1. Obtain controller/operator authorization for the proposal's named test-only
+   amendment and record that resolution in D0 and the proposal. This specify
+   return has adopted the existing design and made the dependent scenarios
+   explicit; it has not changed the commission's fence. Author tasks afterward
+   in dialect dependency order. No `tasks.md`, house decision, implementation,
+   test or measurement artifact is claimed complete by this return.
 2. Add the proposed house decision and index entry with the explicit 0055
    supplement described in D9. Implement and test the shared charge, fact
    indexes, packed visitor and bounded collector in `transcript.rs` and its
@@ -506,7 +530,8 @@ weigh that operational cost. No source files or journals need conversion.
 
 ## Open Questions
 
-No unresolved design choice is delegated to implementation. D0 is an explicit
-upstream scope finding, not an optional question. The measurement outcomes,
-remaining coverage regions and controller host/remote results are pending
+No unresolved design choice is delegated to implementation. D0's concrete
+amendment is recorded in the proposal, but authorization to cross the test-file
+fence remains an upstream prerequisite, not an optional question. Measurement
+outcomes, remaining coverage regions and controller host/remote results are pending
 evidence; they cannot be replaced by predictions or declared passed here.

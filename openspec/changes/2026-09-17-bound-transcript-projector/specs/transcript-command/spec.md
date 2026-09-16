@@ -63,9 +63,10 @@ The command SHALL not scan past the caps to satisfy a turn request.
 - **THEN** the suppression gap leaves two separate chunk turns: `--turn 1` returns member 10's chunk, `--turn 2` returns member 12's chunk and `--turn 3` returns the assembly; the unsplit case instead follows the next scenario
 
 #### Scenario: Packed selection addresses coalesced chunks
-- **WHEN** a supported DSH text packed row yields three uncited nonempty members followed by an ordinary user message, with both budgets satisfied
-- **THEN** `--turn 1` returns the whole coalesced chunk at its first visible member's stamp, `--turn 2` returns the user message and `--turn 3` returns `turn-not-retained`; the TUI has those same two indices
-- **AND** equivalent ordinary chunk rows keep their three fragment indices with the user message at index four
+- **WHEN** a version-zero DSH snapshot contains an uncited `text-chunks` row with `seq0: 10`, `time0: 1000`, `data.turn: 1`, `data.step: 1`, `data.index: 0`, `data.dt: [-1, 5]` and `data.texts: ["a", "b", "c"]`, followed by an ordinary user message containing `q` at time 2000, with both budgets satisfied
+- **THEN** whole text and JSON output contain exactly two turns: assistant chunk `abc` stamped `"1000"` and user message `q` stamped `"2000"`; `--turn 1` and `--turn 2` return those unchanged turns, and the TUI has the same two indices
+- **AND** `--turn 3` exits one with `turn-not-retained` and no turns, retaining `truncated: false`, zero malformed/unrecognized counts and no notices; a different refusal is not equivalent
+- **AND** an otherwise identical snapshot using three ordinary chunk rows instead retains four turns: `a` at `"1000"`, `b` at `"999"`, `c` at `"1004"`, then `q` at `"2000"`; ordinary index two selects `b` and index four selects `q`, so packed and ordinary index two deliberately differ
 
 #### Scenario: Partial citations recompute the displayed indices
 - **WHEN** a complete DSH snapshot has chunks at sequences 10, 11, 12 and 14 followed by a readable same-step assembly citing `[[10, 12]]`
