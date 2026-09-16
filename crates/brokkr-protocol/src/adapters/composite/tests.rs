@@ -841,19 +841,30 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
         fs::set_permissions(&path, perms).unwrap();
         path
     };
+    // Each refusal is asserted by its REASON, not merely by being an error.
+    // A bare `is_err()` is satisfied by a spawn that failed for an unrelated
+    // cause — `Text file busy` on a shim written moments ago, say — so the
+    // check under test is never reached and the only trace is a branch the
+    // coverage gate reports missing. Name the reason and the test says what
+    // it means.
+    let refusal = |path: std::path::PathBuf| match spawn_node_runtime_at(path) {
+        Ok(runtime) => panic!("expected a refusal, got {}", runtime.version),
+        Err(error) => error.to_string(),
+    };
     let good = stage("node-good", "#!/bin/sh\nprintf 'v1.2.3\\n'\n");
     assert_eq!(spawn_node_runtime_at(good).unwrap().version, "v1.2.3");
     let failed = stage("node-fail", "#!/bin/sh\nexit 3\n");
-    assert!(spawn_node_runtime_at(failed).is_err());
+    assert!(!refusal(failed).is_empty());
+    let unreadable = "no single readable line";
     let empty = stage("node-empty", "#!/bin/sh\ntrue\n");
-    assert!(spawn_node_runtime_at(empty).is_err());
+    assert!(refusal(empty).contains(unreadable));
     // A version carrying a NUL or a second line is not one readable line.
     let nul = stage("node-nul", "#!/bin/sh\nprintf 'v1\\0x\\n'\n");
-    assert!(spawn_node_runtime_at(nul).is_err());
+    assert!(refusal(nul).contains(unreadable));
     let multiline = stage("node-multiline", "#!/bin/sh\nprintf 'v1\\nv2\\n'\n");
-    assert!(spawn_node_runtime_at(multiline).is_err());
+    assert!(refusal(multiline).contains(unreadable));
     // A path that cannot be spawned at all.
-    assert!(spawn_node_runtime_at(dir.path().join("absent")).is_err());
+    assert!(!refusal(dir.path().join("absent")).is_empty());
 }
 
 #[test]
