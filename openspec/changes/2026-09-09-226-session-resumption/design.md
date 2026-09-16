@@ -1,5 +1,31 @@
 ## Context
 
+Current commission: **THE PROOFS**, run
+`the-proofs-branch-integration-22-5533cd6b`, adopting
+`2026-09-09-226-session-resumption` at `614abde` (specification adoption atop
+production `4daaa7d`). The predecessor return
+`.forge/results/99cbdaee-9e9d-4fdc-b2f7-25cb2aa60def.json` was read first.
+It reports delivered production repairs and four restored removal controls,
+and explicitly leaves the decision proofs unfinished. Adopt those commits and
+proposed 0056; do not repeat their implementation or the broader F2 campaign.
+
+Proposal answer AA and amended AS1/LE5 commission only two items, in order:
+the six wrapped/unwrapped Codex gate decisions and exchanges, then the new
+`bundle.rs` coverage residue. The run context supplies clarification's `clear`
+result and no named `returned_from` finding. This does not certify execution.
+The current D10 reconciliation below answers both complete council positions;
+no upstream requirement fault is established and no settled mechanism is reopened.
+
+Only `design.md` is this phase's rendered artifact. AA already supersedes the
+older instructions to repeat production repairs or finish wider F2 proofs.
+The inherited tasks retain those broader obligations as history/change-wide
+acceptance, not this visit's work list; their existing decision/removal/gate
+clauses still bind. No task ID, checkbox, capability or delta scenario changes.
+This amendment records proof choices and their limits under `## Decisions`.
+Implementation, observed mutations and measured coverage remain owed.
+
+Earlier whole-family design return, retained as dated history:
+
 Current commission: `the-whole-family-branch-integrat-0a5cdb4f`, design return
 at `e8b99c5`, adopting `2026-09-09-226-session-resumption`. Proposal Y/Z,
 design `e77c205`, tasks `b1916a7` and implementation `bcefcf6` stand; the
@@ -313,19 +339,20 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
-**Current goals:** Carry all five facts as one owned value through wrapping;
-prove the single, hands-bearing panel member and no-hands panel member at the
-Codex decision, each wrapped and unwrapped. Preserve supported confirmed rejoins
-and refuse unknown or inapplicable confinement. Refuse raw and wrapper-created
-global ownership collisions, including factless and validator owners. Keep new
-launch tests valid on their declared platforms and prove their claims by removal.
+**Current goals:** Prove AS1's three inline Codex forms, wrapped and
+unwrapped, at the production gate; supported retries confirm the engine's
+owned root, and refused confinement names `restrictions-unavailable`. Keep
+`x` / `checks:x` as the independent no-hands/hands mirror. Cover the two
+reachable compiler refusals and remove only the unreachable same-owner census
+tolerance, with its invariant stated and collision refusal retained.
 
-**Current non-goals:** No Pass C/D, 8.8/8.10/9.6 or 11.x tick, provider
-qualification, new provider support, public address/manifest grammar, contract
-version, task catalogue, archive, living-spec fold or frozen-byte edit. The
-independent adapter guard and engine marker correction are commissioned by Y;
-the old compiler-only/unchanged-gate restriction does not apply. Earlier
-accepted declaration scope, reader-seam repair and four-low work stand.
+**Current non-goals:** No production redesign, partial family relocation,
+marker relaxation, new support coordinate, broader F2 proof campaign, provider
+qualification, new decision, task plan or tick, Pass C/D, archive, living-spec
+fold or frozen-byte edit. Production repairs at `4daaa7d` and the proposed
+0056 clarifications stand. Only the two proof items are commissioned; earlier
+whole-family repair instructions below are historical scope.
+
 The broader original goals and earlier pass boundary follow for context.
 
 **Goals:** Derive one owned offer per executing work site from existing durable
@@ -3064,7 +3091,174 @@ unchanged for that reason, not because implementation or proof is complete.
 The landed proposed-0056 clarification is adopted. No new test, runtime fix,
 removal result or coverage pass is established by this return.
 
+#### THE PROOFS council reconciliation — 2026-09-16, adopted `614abde`
+
+Read both positions in full. Robustness SHA-256:
+`9a71fcf82dfc46bdc88122ca1e67fca5d5f929945491b164442a6059711e72e8`;
+simplicity SHA-256:
+`17df7039005add46f4b198b05abb030cefdfa0fee68965b6a4aa889080bb1253`.
+Copies are retained under `.forge/design-proofs-618578c9/`. Both are source
+analyses, not observed provider decisions, mutation results or gate runs.
+This sitting applies AA to the settled D10 mechanism; it neither replaces that
+mechanism nor adopts the earlier implementation gaps as a new work list.
+
+**Council dispositions and answered questions.**
+
+| Claim / question | Disposition, evidence and rejected alternative |
+|---|---|
+| Both: six decisions, real compilation, shipped assessment and unchanged dispatch facts. | Adopt. `engine/tests.rs::a_selected_single_publishes_its_own_confinement_at_dispatch` asserts markers only; existing Codex CLI conformance supplies its input by hand. Neither alone connects the compiled shape to the real gate. Combine the existing compiler/engine and provider harnesses, with the controls below. No map-only substitute. |
+| Simplicity: reuse `received`/`route_start`, `make_shim`/`drive_codex`/`launch_row`; no production capture hook. Robustness Q3: settle the seam's home. | Adopt test-only transport capture and the existing CLI exchange. Correct the proposed record-only shortcut: `resume_tests::driver`/`model_driver` invent their session checkpoints, so those responses cannot establish this proof's cold root. Real adapter responses must reach the engine's normal checkpoint/store path before it computes retry. The negative gate assertion belongs in the protocol adapter unit tests, as explained below; no public gate API or second production dispatch path. |
+| Robustness: establish a confirmed root and assert `cold` plus a token for every row. Simplicity: the launch row is always the decision oracle. | Adopt for an actual offered retry; reject the universal claim. `codex_launch` returns `cold(None, ...)` on no offer, and a disabled gate cannot qualify a recorded root. AA/AS1 explicitly allow direct production-gate refusal with real composed facts. Do not invent an eligible root, an offer, or a refusal checkpoint for that case. |
+| Both: retain a live control only for an applicable affirmative pair. | Adopt. Shipped `work-site` declares `harness`/`not applicable` and `hands: none`; namespace/boxed stays refused even when both strings are present. Preserve the shipping harness control using its own composition. Do not relabel a boxed member or broaden the assessment. Positive markers are necessary, not sufficient. |
+| Both: single builder, existing deterministic provider shim, no committed fixture or new decision. | Adopt. Temporary realms and shared test support suffice; 0056 stays proposed. Reject duplicated per-shape realms, frozen corpus additions, new providers, persisted fields and production hooks. Test-only access to the actual gate must not copy its predicate. |
+| Both: cover the second verify refusal with a Select whose default is a Single. Robustness Q2: permanent refusal or future support? | Cover the current rule; future selector support is uncommissioned. `selected(None)` passes the first guard, while matching the outer `SeatBody::Select` reaches the second. Keep both guards and the existing sequence control; neither invent permanent language policy nor merge guards for coverage. |
+| Both: resolve an invalid agent inside a selector (robustness Q4). | Adopt the empty reference, asserting the selector-qualified diagnostic. It must be inside a legal selector case/default, not the top-level agent path. The selected body is `{"agent":""}`; results belong to the outer seat. Simplicity's example with `results` on that leaf would hit an earlier unknown-key refusal. Provide the ordinary library/adapter setup so no earlier load failure masks the continuation. |
+| Both: same-owner census tolerance is unreachable (robustness Q1). | Adopt with the precise invariant below: enumeration never repeats the same structural key; distinct keys can still flatten to one label and must refuse. Same-owner fact merging is a different operation and stays legal. Reject weakening the selector vocabulary to manufacture the dead case. |
+| Robustness: each new test needs a compiling mutation; unwrapped controls need decision failures too. | Adopt. Correct the claim that dropping markers must itself yield a resumed boxed launch: the independent gate should refuse absence, and intact argv checks may also keep a gate-enabled mutation cold. Assert the exact gate outcome as well as available exchange facts; do not weaken another safety check merely to manufacture `resumed`. |
+| Simplicity: excluded test sources mean tests move no counts and removal must change totals by exactly the residue. | Adopt only the test-source exclusion. Tests can increase covered production counts; new callers/instantiations and code removal can change emitted records. Only the unchanged candidate-bound gate establishes numerators and denominators for all three measures; no predicted after totals or boundary subtraction. |
+| Both: portable launches, bounded scope, host/CI handoff. | Adopt. Directly executed scripts stay Unix-only or use a real executable. No new skip/exclusion, C/D, checkbox change, archive, fold, push, merge or Brokkr run. Simplicity's Cargo and `/var/tmp` availability are its seat's observations; this chief's environment is measured separately. |
+
+**Item 1: complete the existing composition-to-decision proof.** One temporary
+realm builder parameterizes the three shapes and wrapping. Compile with
+`Bundle::compile_with_realm` and the shipped dialect/adapter declarations,
+using valid author-pinned inline work argv. Retain the actual compiled wrapper,
+canonical facts, full command and instance identity for both invocations. A
+transport recorder may intercept dispatch but may not replace facts, shorten
+argv, change topology or recompute a second input. In particular, copying a
+hand-built `resume_context` into captured Start is not this proof.
+
+Reuse the existing log-reading pattern and Codex exchange. For supported rows,
+forward the exact cold Start through `brokkr driver codex` with the existing
+deterministic provider shim, and return its actual accepted/checkpoint/result
+messages through normal engine recording. The provider must announce a cold
+root before work; the engine must durably record that root with its own stamps.
+On a retry/re-entry of that same instance, capture the engine's own Resume and
+Start and forward them unchanged into a fresh real adapter process. Assert the
+offer equals the recorded root, the provider sees `exec resume` with that id
+and current sandbox/effort, and the launch confirms exactly it as `resumed`
+without `resume_refusal`. No test-supplied root substitutes for that round trip.
+Observe the model decision before the boxed validator; validator completion is
+not a precondition for this proof and its compiled step is not removed.
+
+The no-offer negatives require a separate observation of the **same private
+production `resume_gate`**. Keep that assertion in `adapters/tests.rs`, sharing
+the temporary-realm/engine-capture support with the CLI tests through ordinary
+test modules. Development-only edges to existing workspace crates may provide
+compiler, engine and store access there; no new registry dependency or public
+production hook is needed. Pass the captured `Start.input` unchanged and
+assert `Disabled("restrictions-unavailable")`, not merely the absence of a
+root. The test must execute the gate compiled from production, never a copied
+predicate or a helper that returns an expected token. Where an actual offered
+fallback exists, also assert its `cold` row and exact refusal. A no-offer cold
+exchange must carry no refusal; it does not by itself prove a gate token.
+
+| Form | Decision obligation |
+|---|---|
+| Wrapped no-hands single (`verify:checks`) | Enabled; durable cold root, exact engine retry, confirmed `launch: resumed`. |
+| Wrapped hands-bearing member (`verify:checks:alpha`) | Namespace/boxed: `Disabled("restrictions-unavailable")`; no resumed launch. Unknown confinement also declines with that token. |
+| Wrapped no-hands member (`verify:checks:x`) | Enabled and confirmed same-root retry beside hands-bearing `checks:x`, which executes at `verify:checks:checks:x`. |
+| Unwrapped no-hands single (`verify`) | The same enabled, confirmed retry. |
+| Unwrapped hands-bearing member (`verify:alpha`) | The same confinement refusal and token. |
+| Unwrapped no-hands member (`verify:x`) | The same live retry, without borrowing facts from `checks:x`. |
+
+Keep the existing affirmative harness control and independent marker matrix:
+missing either marker, both missing, null, non-string and unknown vocabulary
+refuse `restrictions-unavailable` against supported/accounted evidence; absent
+assessment or accounting is `unsupported-resume`. These negative mutations are
+separate controls, not repairs to the six captured inputs. Keep member `checks`
+and the unrelated literal `verify:foo` preservation checks already adopted;
+this visit does not expand them into the predecessor's wider F2 campaign.
+
+##### Scenario: A refused member needs no invented resumable root
+
+- **GIVEN** the real engine Start for a wrapped or unwrapped namespace/boxed
+  inline Codex member and the shipped supported work-site assessment
+- **WHEN** the production shape gate judges that unchanged input without a
+  test inventing an eligible root
+- **THEN** it returns `Disabled("restrictions-unavailable")`; correct strings
+  do not make an inapplicable boundary/hands pair eligible
+- **AND** a no-offer cold exchange reports no invented refusal, while supported
+  no-hands and genuinely applicable harness controls still confirm their own
+  engine-offered retries as resumed.
+
+**Item 2: two reachable refusals and one redundant census arm.** Adopted line
+numbers below refer to production `4daaa7d`, not permanent addresses.
+
+- `assemble:1528–1531`: extend `bundle/tests.rs` with dialect-wrapped verify
+  `Select { cases: {}, default: Single }`, legal outer results and an ordinary
+  role/driver. Assert `dialect verify currently requires a single or panel
+  verify seat`. Its default passes the first `selected(None)` guard, isolating
+  the outer-body refusal. Keep the existing sequence refusal as the control.
+- `parse_selected_body:3042`: use a legal strategy case containing `agent: ""`
+  and a valid default, with normal library setup. Assert the error names that
+  selected seat and `agent must be a non-empty string`. This reaches the
+  `resolve_reference(...)?` error propagation; accepting any compile error or
+  changing the resolver's rule is insufficient.
+- `owner_index:1770/1780`: replace guarded distinct-owner match plus
+  `Some(_) => {}` with one existing-label refusal and the existing insert on
+  absence. State why the census cannot legitimately encounter an equal owner:
+  phases are unique map keys; cases are unique keys from `SELECT_STRATEGIES`
+  which excludes `default`; selection cannot nest; each body emits its single
+  once, or members/steps with distinct enumerated indices in `SiteKey`.
+  Consequently equal keys cannot be emitted twice. A repeated flattened label
+  can still name **different** keys, which the retained diagnostic must name
+  and refuse. This removes unreachable tolerance only; it does not remove
+  same-owner evidence merges, the authoring/final census, destination claims
+  or any required collision rule. If a legitimate parsed counterexample is
+  found, cover it instead and amend this invariant on that evidence.
+
+##### Scenario: Selected verify refuses at its reachable wrapper rule
+
+- **GIVEN** a legal strategy-selected verify body with a single default
+- **WHEN** dialect verification tries to wrap that outer Select
+- **THEN** the compiler returns the named single-or-panel-only refusal, even
+  though resolving its default yields a Single; the existing sequence refusal
+  remains independently effective.
+
+##### Scenario: A selected agent failure retains its cause
+
+- **GIVEN** a legal selector with an empty agent reference in a named case
+  and an otherwise valid library, default and surrounding bundle
+- **WHEN** that case is parsed through `parse_selected_body`
+- **THEN** compilation reports that selected seat's `agent must be a non-empty
+  string` error, without swallowing or replacing the resolver's cause.
+
+**Removal and measurement obligations.** Each added test needs the exact
+compiling mutation, named decision/refusal assertion failure, byte restoration
+and passing rerun recorded by implementation. Disabling whole relocation must
+break supported wrapped rejoin. Losing only hands/marking must break the
+no-hands mirror at admission; absent assessment must fail with its own token.
+A production mutation falsely marking a hands-bearing member as known no-hands
+must break its direct gate-refusal assertion. Deleting the independent absence
+refusal must break the otherwise supported unknown-marker controls. Common
+marker/assessment mutations must also break the unwrapped decision controls;
+a relocation-only mutation cannot prove an unwrapped path.
+
+For the two compiler tests, mutate the reached guard's diagnostic or error
+propagation, not an earlier parser failure; changing a diagnostic is evidence
+of that reached rule, not a claim to have removed every backstop. For the
+consolidated census, disable its refusal in both walks and observe the existing
+cross-phase selector/literal collision test fail while its rename control stays
+valid. No additional global-ownership campaign is commissioned. Restore every
+mutation before the normal gates; never commit a partial relocation.
+
+The supplied host baseline is **30,269/30,275 lines, 5,039/5,040 branches,
+2,890/2,890 functions** (covered/total) at `4daaa7d`. Preserve it as supplied.
+Implementation owes fresh candidate-bound before/after integers from the
+unchanged exact script, using `rust-nightly-version.txt`, #282's Git cleanup
+and a verified writable disk-backed TMPDIR outside the repository. Preserve
+reports before another run overwrites them. List the remaining source regions,
+including #286's in-box skips, without subtracting them to claim equality.
+Host equality and final-head native CI remain controller handoffs. Neither
+council source inspection nor this design amendment closes either proof item.
+
 ### D11 — Verify transitions and trace every requirement
+
+For THE PROOFS, apply AA and D10's current reconciliation only: AS1/AS2 and
+LE5 own the six gate/exchange rows and mutation controls; the three `bundle.rs`
+locations own the bounded compiler coverage work. Existing task clauses bind
+that evidence without new IDs or state changes. The broader whole-family
+bindings below are retained obligations, not an expansion of this commission.
 
 For the whole-family slice, D10 binds six F1 shape decisions, independent
 unknown-confinement refusals, raw/final ownership refusals and their live controls,
@@ -3220,7 +3414,26 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
-Current whole-family risks and their disposition:
+Current proof risks and their disposition:
+
+- A recorder can silently substitute synthetic session checkpoints. Return the
+  real adapter's cold output through the engine before computing retry, and
+  compare the recorded, offered and provider-confirmed root.
+- No-offer cold rows hide the gate's refusal token. Observe the private gate
+  directly in its owning tests with real engine input; never manufacture an
+  offer or infer a token from cold alone. Test-only workspace linkage is a
+  smaller cost than exposing production gate/capture APIs.
+- A boxed member remains unsafe despite affirmative strings. Keep its direct
+  refusal and the separately composed supported control; intact argv guards
+  may prevent a resumed launch even under an admission mutation.
+- Source reachability and coverage totals are different evidence. Retain the
+  reachable rules, state the structural-key invariant and measure the exact
+  script; do not predict its new totals or exclude difficult regions.
+- These deterministic proofs establish Brokkr decisions, not installed-provider
+  qualification or namespace enforcement. Missing local tools and #286 remain
+  explicit limits; host coverage and native CI are pending controller evidence.
+
+Earlier whole-family risks and their disposition:
 
 - Independent maps or an uninitialized hands field can lose confinement while
   retaining support. One retained facts value and explicitly resolved no-hands
@@ -3462,6 +3675,22 @@ Earlier whole-change and Pass B risks remain recorded below:
 
 ## Migration Plan
 
+For THE PROOFS, adopt AA, the settled D10 design and production `4daaa7d`.
+Close item 1 first, then the three item-2 coverage sites. Keep the existing
+suite/transport patterns, add no production mechanism for the proofs, and keep
+0056 proposed. The census simplification changes no constructible bundle's
+behavior; no public data, manifest grammar, provider declaration or frozen
+contract migrates. Same-owner fact merging and distinct-owner refusal remain.
+
+Run the existing validation commands below and each observed mutation/restore
+control. Measure the unchanged exact gate before/after implementation with the
+required external scratch; missing prerequisites mean unmeasured. This design
+checkpoint commits only `design.md`, unsigned, with evidence under `.forge/`.
+AA supplies the bounded interpretation of the unchanged dependent task clauses;
+no task state, archive, living-spec fold, push, merge or new run follows.
+
+Earlier whole-family migration, retained as history:
+
 For the current whole-family slice, retain the existing task order without a
 new breakdown: adopt Y/Z, `bcefcf6` and its proposed-0056 clarification at
 `e8b99c5`. Finish the raw census before collection and the destination claims
@@ -3618,6 +3847,20 @@ leave a new-run decision to the operator/controller. Historical version/channel
 facts are not current references to replace.
 
 ## Open Questions
+
+No current design choice is deferred. D10 answers robustness Q1–Q4: consolidate
+the unreachable equal-owner census tolerance under its stated invariant; keep
+and test today's Select-verify refusal without ruling on future support; use
+test-only engine transport capture, the existing real CLI exchange and the
+private gate's own test module for no-offer negatives; use the selected empty
+agent reference with its exact diagnostic. Both positions' universal-root and
+coverage-count claims receive explicit corrections there. No earlier artifact
+fault is established. If implementation disproves an upstream rule, report
+`upstream`; do not disguise it with altered markers or weaker assertions.
+Observed decisions, compiling mutation failures and gate measurements remain
+pending evidence, not unresolved design choices.
+
+Earlier whole-family answers, retained as history:
 
 No current design choice is deferred. The current D10 return answers all four
 robustness questions: the raw census was not intentionally waived; runtime
@@ -4694,3 +4937,43 @@ commits only the declared artifact. Runtime repairs, executable removal proofs,
 local Rust validation, #286 host equality and final-head native-platform CI
 remain pending their actual evidence. No task completion, frozen edit, archive,
 living-spec fold, push, merge, publication or new Brokkr run occurred.
+
+## Council design validation — THE PROOFS, 2026-09-16
+
+This chief adopted `614abde` atop production `4daaa7d`, read the predecessor
+return before other substantive evidence, and reconciled both complete current
+positions under D10. Context, goals, proof bindings, risks, migration and open
+questions now apply AA's two-item scope. Three design scenarios state the
+no-invented-root refusal and the two reachable compiler errors. No production
+semantics, test or mutation changed in this documentation checkpoint; their
+implementation and observed proof remain owed.
+
+Strict active OpenSpec validation passes; `--all --strict --no-interactive`
+reports **14 passed, 0 failed**, and `--archived` validation reports **6 passed,
+0 failed**. Existing informational archive-target notices for
+adapter-resume-safety and sdd-progress-markers remain; archive and refolding
+are outside this commission. Status confirms planning artifacts are present,
+not that implementation is complete. Whitespace and artifact audits pass:
+only `design.md` changes, while the other **728 tracked files** retain their
+entry hashes. The unchanged deltas contain **20 requirements / 159 scenarios**;
+all **101 task IDs, 82 checked / 19 pending**, and proposed 0056 retain their
+states. This audit verifies preservation; it adds no heading-count test.
+
+All ten requested Rust validation commands and the pinned coverage-tool probe
+could not launch because `cargo` is absent in this workspace-tool seat. The
+attempts cover format, all-target/all-feature locked clippy, protocol/runtime
+and CLI conformance suites, both workspace test commands, both bundle compiles
+and the release build. They inherited #282's Git cleanup and
+`CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2`; no Rust pass is claimed.
+The unchanged exact gate was not launched without its compiler. Fresh in-box
+before/after line, branch and function counts are **unmeasured**, not zero or
+passing. The supplied host before remains **30,269/30,275 lines,
+5,039/5,040 branches, 2,890/2,890 functions** at `4daaa7d`; host after and
+final-head native CI remain pending. CI, release admission and coverage still
+consume the unchanged `nightly-2026-09-05` pin. Neither inherited reports nor
+another seat's tool availability substitute for these missing measurements.
+
+Evidence is retained under `.forge/design-proofs-618578c9/`. This phase commits
+only the rendered design artifact unsigned, returns the adopted change in
+`inputs.change`, and selects no next phase. No task completion, provider
+qualification, archive, living-spec fold, push, merge or new run is claimed.
