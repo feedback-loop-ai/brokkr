@@ -1681,7 +1681,8 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
 
 /// The operator's 2026-09-15 ruling: the Codex `work-site` rejoin main
 /// already performs under decision 0030 stays live across the drift
-/// between its 0.148.0 measurement and the installed 0.153.4. This loads
+/// between its 0.148.0 measurement and the proof-exercised installed
+/// 0.154.0, now named by both declared identity fields. This loads
 /// the SHIPPED adapter through `Adapters::load` and composes the real
 /// candidate under `harness`, so the declaration's `harness`/`none`
 /// scope is checked against the argv and input facts the engine actually

@@ -1916,19 +1916,21 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
         );
     }
 
-    // The shipped resume dispositions (operator ruling 2026-09-15). Codex
-    // `work-site` preserves main's harness/none AND inline/not-applicable
-    // rejoins as `supported`, keeping the historical 0.148.0 measurement and
-    // the applicable 0.153.4 with the dated current-accounting reference; the
-    // other three are new rejoins main does not perform and stay `unmeasured`.
+    // The shipped resume dispositions (operator ruling 2026-09-15, reconciled
+    // against the 2026-09-16 live proof). Codex `work-site` preserves main's
+    // harness/none AND inline/not-applicable rejoins as `supported`; both
+    // identity fields now name the proof-exercised 0.154.0, with 0030's
+    // historical 0.148.0 measurement and the earlier 0.153.4 applicability
+    // retained in evidence. The other three are new rejoins main does not
+    // perform and stay `unmeasured`.
     let codex_resume = adapters.adapter("codex").unwrap().resume.shape("work-site");
     let codex_resume = codex_resume.expect("codex declares work-site");
     assert_eq!(codex_resume.status, ResumeStatus::Supported);
     assert_eq!(
         codex_resume.identity,
         ResumeIdentity::Measured {
-            version: "0.148.0".into(),
-            applies_to: "0.153.4".into(),
+            version: "0.154.0".into(),
+            applies_to: "0.154.0".into(),
             wrapper_digest: None,
         }
     );

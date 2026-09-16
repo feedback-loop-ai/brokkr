@@ -1801,7 +1801,7 @@ itself (`safety / AS1`).
       Claude, how the underlying Claude version is read through a
       measured interface, and the capture marker's attribution point. No
       LaneTally version command is invented. Prerequisite of 8.7 — safety / AS1.
-- [ ] 10.5 Consume the completed Codex controller proof, first and in full:
+- [x] 10.5 Consume the completed Codex controller proof, first and in full:
       `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
       `.forge/tasks/controller-codex-proof-2026-09-16-raw-report.json` and
       `.forge/tools/codex-enforcement-probe.py` (read only; never execute it).
@@ -6087,3 +6087,167 @@ planning commit contains only this file, and the phase result carries the
 adopted identifier in `inputs.change`, without selecting another phase. No
 provider experiment, declaration edit, production change, archive, spec fold,
 push, merge, publication or new Brokkr run occurred.
+
+## Implementation return — the Codex 0.154.0 reconciliation landed, 2026-09-16
+
+This implement seat landed the reconciliation and the matching assertions
+atop the planning commits `d24189a8`/`036390bf`/`0cc62301`; production was
+`5ef4a842` and no provider probe, network lookup or new measurement was run.
+Changed: `adapters/codex.json`; the shipped-version assertions and their
+comments in `crates/brokkr-runtime/src/agents/tests.rs` and
+`crates/brokkr-runtime/src/engine/boundary_tests.rs`; the shipped and proof
+shims plus `proof_shim_body` in
+`crates/brokkr-cli/tests/driver_conformance.rs`; `CODEX_VERSION`, the resume
+argv test and the gate/refusal cases in
+`crates/brokkr-protocol/src/adapters/tests.rs`; proposed 0056's current Codex
+prose and `docs/guides/provider-adapters.md`; and the derived witness/compose
+digest pins in `crates/brokkr-runtime/tests/witness_digests.rs` and
+`crates/brokkr-runtime/src/bundle/compose_tests.rs`, copied from the actual
+compiles.
+
+### 10.5 — ticked; one recorded citation per axis
+
+The recorded table above gives one live citation per axis. The tick rests on
+those observations plus the executed assertions and removal controls below;
+the exercised identity is the controller's `codex-cli 0.154.0`.
+
+- **Exact invocation and demonstrated allowed argv — safety / AS1, AS3.**
+  Citation: live `/axes/restriction_re_imposed_across_resume/resume_with_class_restored/argv`.
+  `adapters::tests::a_codex_resume_carries_the_thread_the_class_and_the_prompt`
+  now drives `-s X`, `--sandbox X` and `--sandbox=X` and asserts the whole
+  resumed argv, exactly one paired `-c sandbox_mode="X"`, no surviving sandbox
+  flag, the selected positional thread and the stdin `-`. Removal M1 (drop the
+  emitted `-c sandbox_mode=` pair) failed it at `tests.rs:2287`; M2 (leave the
+  sandbox flag in passthrough) failed the same assertion via the retained
+  allow-list backstop `incompatible-argv`; restore reran green.
+- **Effective class and applicable fragment re-imposed — safety / AS2.**
+  Citation: live `/axes/restriction_re_imposed_across_resume` (cold denial, bare
+  resume write, restored denial with `Read-only file system` and `EXIT=2`) and
+  `interface_constraint` (resume offers no sandbox flag; only
+  `-c sandbox_mode=<class>`). The whole-argv assertion covers it: no `-s`
+  survives and the class rides only the config override.
+- **Exact same-root confirmation — site / SR3; evidence / LE1.** Citation:
+  live `/axes/same_root_confirmation/detail`, both ids
+  `01a0aaa4-8667-7753-94b8-b0a60607524b`. The same test asserts the published
+  `root_session.id` equals the offered `THREAD`; removal M3 (mutate the
+  appended id) failed it; restore green. The shipped-coordinate CLI tests
+  `the_shipped_codex_harness_work_seat_rejoins_its_retry`,
+  `the_shipped_inline_codex_work_seat_rejoins_its_retry` and
+  `the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`
+  pass; removal M4 (accept a different announced root as `resumed`) failed
+  `a_resumed_mismatch_is_never_an_accepted_success` at
+  `driver_conformance.rs:1424`; restore green.
+- **Current-only accounting — evidence / LE4.** Citation: live
+  `/axes/current_only_accounting` (303 then 308 output tokens; cached input
+  98,560 then 114,176). The protocol test now pins `input_tokens: 100`,
+  `cache_read_tokens: 96` and `output_tokens: 4` from the shim's one current
+  turn; removal M12 (omit the folded `input_tokens`) failed it at
+  `tests.rs:2325`; restore green.
+- **Pre-work rejection shape — safety / AS4; evidence / LE3.** Citation: live
+  `/axes/pre_work_rejection_shape/detail` (unknown id exits 1, `no rollout
+  found`, neither `thread.started` nor `turn.started`).
+  `a_refused_resume_is_a_cold_spawn_with_the_refusal_journaled` and
+  `a_resume_that_started_and_failed_is_not_respawned_cold` pass unchanged.
+
+Independent refusal assertions, each with valid unrelated prerequisites and
+its own observed removal failure:
+
+| Test | Assertion | Removal | Observed failure |
+|---|---|---|---|
+| `a_codex_whose_installed_version_has_moved_declines_the_offer` | observed 0.160.0 vs applicable 0.154.0 → `unverified-harness`; observed version recorded, never the pin | M5 drop the observed-vs-applicability term | `tests.rs:2864` |
+| `a_codex_whose_version_cannot_be_read_declines_the_offer` | absent executable → `unverified-harness`, no guessed identity, cold argv | M7 admit the version-unavailable arm | `tests.rs:2900` |
+| `qualify_refuses_an_originating_version_drift` | observed/applicable 0.154.0 with origin 0.153.4 → `unverified-harness` | M6 drop the origin term | `tests.rs:3151` |
+| `a_supported_assessment_without_both_affirmative_markers_declines` | boundary-only and hands-only mismatch → `restrictions-unavailable`; accounting absent and assessment absent → `unsupported-resume` | M8 boundary term, M9 hands term, M10 accounting guard, M11 assessment guard | `tests.rs:2030` each |
+| `only_the_flags_a_resume_can_safely_carry_travel_with_it` and `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled` | `--worktree` and `--thread-source` → `incompatible-argv`, never added to the allow-list | new negative cases | pass |
+
+Every mutation was applied alone to the then-unmodified
+`crates/brokkr-protocol/src/adapters.rs`, compiled, failed its intended
+assertion, was restored byte-for-byte by
+`git checkout -- crates/brokkr-protocol/src/adapters.rs`, and the test reran
+green. Refusals assert their token, never `is_err()` alone. All other ticks,
+provider statuses and excluded tasks are unchanged: **83 complete / 18
+pending** across the same 101 identifiers, with 11.1 still unchecked.
+
+### 11.1 — partial, left unchecked
+
+The declaration reconciliation, shipped-assessment bump, digest re-pins and
+the argv/root/refusal/current-usage assertions are delivered and pass. The
+whole 11.1 tick is NOT awarded: 10.1's exact current-version interface
+acceptance is still missing at this head, so no supplied 0.154.0 help/source
+capture establishes (a) effort configuration, (b) the complete
+safe-passthrough list, or (c) the stdin prompt positional `-`. Preserving the
+shipping disposition does not complete them.
+
+### Local validation on the restored bytes
+
+`cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` clean; `cargo test --workspace
+--all-features --locked --no-fail-fast` and `cargo test --workspace --locked
+--no-fail-fast` green once every git-invoking command is prefixed with
+`env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` (#282 — without it three
+`brokkr-cli` git tests fail and the first poisons the shared test lock);
+`cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+`bundles/verify` both exit 0; `cargo build --release --locked -p brokkr-cli`
+succeeds; strict active and repository-wide OpenSpec validation pass. The
+in-box exact-coverage attempt reported, on the host's tmpfs `TMPDIR` (the box
+exposes no writable disk-backed scratch and `/var/tmp` is read-only):
+**lines 30273 total / 30102 covered, branches 5040 / 5027, functions 2890 /
+2880** — literal equality is not met because the boundary proofs skip inside
+the box, which cannot create a bubblewrap namespace (#286). No production Rust
+line was added, so that shortfall is the box's, not this edit's. Host literal
+equality remains the controller's.
+
+## Returned implement correction — review R1–R4, 2026-09-16
+
+The review returned `residual` on `db05da57` with one medium and three low
+findings plus an informational note. This visit answers each; it runs no
+provider probe, reads the live record, raw report and instrument already
+supplied, and leaves every checkbox state intact (**83 complete / 18 pending**
+across the same 101 identifiers, with 10.5 checked and 11.1 unchecked).
+
+- **R1 (medium) — the completed-work commit was GPG-signed.** `db05da57`
+  carried a `gpgsig` header from the DSH delegated-signing loan, contrary to
+  CONTRIBUTING.md:91 and decision 0054 ruling 8 (seat commits are unsigned;
+  the operator's squash-merge is the signed commit). The previous implement
+  result's claim that it was unsigned was therefore inaccurate. The signed
+  commit was replaced by an unsigned re-commit of the same tree carrying
+  these corrections; the final head is named in this visit's result artifact.
+  The #282 prefix (`env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`) removes
+  the malformed `GIT_CONFIG_COUNT`, but the linked worktree's config still
+  forces `commit.gpgsign=true`, so the replacement was committed with
+  `--no-gpg-sign`; `git cat-file -p HEAD` shows no `gpgsig` header.
+- **R2 (low) — the declaration did not cite the superseding live record.**
+  `adapters/codex.json` now names
+  `.forge/tasks/controller-codex-proof-2026-09-16-live.json` in the
+  `interface` evidence and in the dated `2026-09-16` reconciliation
+  limitation, so the live record is disambiguated from the refuted partial
+  by path, not date alone. All five historical limitation strings (indices
+  0–4) are byte-for-byte unchanged; every bounded value stays within the
+  loader's 400-character limit (interface 342, reconciliation 396).
+- **R3 (low) — the compose comment misstated the moved pins.**
+  `crates/brokkr-runtime/src/bundle/compose_tests.rs` now says the
+  reconciliation moves `recipes/panel-review` **and** `bundles/self`, while
+  `recipes/fast` and `bundles/verify` keep their digests. The golden
+  digests themselves were measured, not guessed (see below).
+- **R4 (low) — the `-C`/`-s` attribution over-claimed the live proof.**
+  The resume-argv comment in `crates/brokkr-protocol/src/adapters/tests.rs`
+  now records that decision 0030 established both `-C` and `-s` on
+  codex-cli 0.148.0, and that the 2026-09-16 live proof re-confirms `-s` on
+  the exercised 0.154.0 while recording no `-C` observation.
+- **Informational — the guide counted four axes.** `docs/guides/provider-adapters.md`
+  now says "five measured live axes" and names exact invocation in the
+  enumeration, matching the five-axis mapping 10.5 cites.
+
+Because the declaration text moved, the bundles that pin its digest were
+re-measured with a temporary throwaway test that printed each
+`manifest_digest()` from the same `Bundle::compile_with` the pinning suites
+use; the temp file was deleted and never committed. Updated goldens are the
+witness pins for `recipes/night-shift` (`5eec5fd2…`),
+`recipes/wager-harness` (`1f6f5d58…`), `recipes/triage` (`5e820770…`) and
+`recipes/gpt-flash` (`9d73bc9e…`), and the compose pins for
+`recipes/panel-review` (`9020c5c2…`), `bundles/self` (`71428b28…`) and
+`recipes/triage` (the same `5e820770…`). `witness_digests` (4 tests) and
+`bundle::compose_tests` (17 tests) pass on the restored bytes. No frozen
+surface, production Rust guard, refusal token or provider disposition moved;
+proposed 0056 stays `proposed` and the other three providers stay
+`unmeasured`.

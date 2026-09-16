@@ -1061,6 +1061,11 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// assessment from, exactly as its gate seats already pinned the
 /// declaration that authorises them. The other three witness only
 /// deterministic exec gates, so composition still moves none of them.
+/// The 2026-09-16 Codex declaration reconciliation moves
+/// `recipes/panel-review` and `bundles/self` among these four: each
+/// pins the codex adapter declaration its seats resolve, so the measured
+/// declaration edit moves their composed identity. `recipes/fast` and
+/// `bundles/verify` keep their digests.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
@@ -1068,11 +1073,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "28078bff14c153e429847ac064b5bd4e1f9cb9726c6004e965ece913cfff244a",
+        "9020c5c295b269b77f2bd143a0fc73804f8d1a20ef8ccb5ee3c88bcbaaedbcb5",
     ),
     (
         "bundles/self",
-        "4009a5b24d8d1064fe6a052e9fdbbffbf17cc0f2c16ae875743be0b2326342ce",
+        "71428b2815c603bb20f2c449abf6151ba9167a5f64daf413179305cded5d18d9",
     ),
     (
         "bundles/verify",
@@ -1199,10 +1204,11 @@ fn a_composed_bundles_manifest_is_pinned() {
         // which every phase of this route resolves. The F1 return moves it
         // once more: the Codex declaration's preserved shape now names the
         // inline `not applicable` coordinate too, so the adapter digest the
-        // route's Codex lanes witness moved. The value agrees with
-        // the `recipes/triage` pin in `tests/witness_digests.rs`; the two
-        // had drifted apart and this restores the measured value.
-        "85fdb273d4fe2ef921749132672515a2c3c283e49a699f15f5670b8b982ccb19",
+        // route's Codex lanes witness moved. The 2026-09-16 Codex
+        // declaration reconciliation moves it again, and this value agrees
+        // with the `recipes/triage` pin in `tests/witness_digests.rs`; both
+        // are that edit's actual compiles.
+        "5e8207703e22b448b0b00f2903a5523f9ba87813c33ac7201d249abeaf7b4cce",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

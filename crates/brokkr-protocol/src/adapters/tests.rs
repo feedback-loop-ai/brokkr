@@ -1957,6 +1957,22 @@ fn a_supported_assessment_without_both_affirmative_markers_declines() {
     both_absent.as_object_mut().unwrap().remove("hands");
     let mut absent_assessment = baseline.clone();
     absent_assessment["resume_context"] = json!({"assessment": {}});
+    // One marker valid and the other genuinely elsewhere: the site's own
+    // word and its hands mode are two facts, and a measurement covers a
+    // shape only when it covers both, so either alone is enough to say
+    // the restrictions were not measured HERE.
+    let mut boundary_only = baseline.clone();
+    boundary_only["boundary"] = json!("namespace");
+    let mut hands_only = baseline.clone();
+    hands_only["hands"] = json!("boxed");
+    // An otherwise valid supported assessment whose current-work
+    // accounting reference is missing cannot buy a rejoin whose totals
+    // nobody can attribute (ruling 9).
+    let mut unaccounted = baseline.clone();
+    unaccounted["resume_context"]["assessment"][CODEX_SHAPE]["evidence"]
+        .as_object_mut()
+        .unwrap()
+        .remove("accounting");
 
     for (case, gate, reason) in [
         (
@@ -1996,7 +2012,18 @@ fn a_supported_assessment_without_both_affirmative_markers_declines() {
             set("hands", json!("gloves")),
             "restrictions-unavailable",
         ),
+        (
+            "boundary-only mismatch",
+            boundary_only,
+            "restrictions-unavailable",
+        ),
+        (
+            "hands-only mismatch",
+            hands_only,
+            "restrictions-unavailable",
+        ),
         ("assessment absent", absent_assessment, "unsupported-resume"),
+        ("accounting absent", unaccounted, "unsupported-resume"),
     ] {
         match resume_gate(&gate, CODEX_SHAPE) {
             ResumeGate::Disabled(token) => assert_eq!(token, reason, "{case}"),
@@ -2094,7 +2121,7 @@ const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 /// assessments below are qualified against. A shim that answers
 /// `--version` with anything else is a shim whose resume is disabled
 /// with `unverified-harness`, which is the point of the check.
-const CODEX_VERSION: &str = "0.153.4";
+const CODEX_VERSION: &str = "0.154.0";
 
 /// The version-answering preamble every provider shim needs, now that
 /// an enabled shape probes its executable once per invocation. It exits
@@ -2199,73 +2226,108 @@ fn codex_uses_its_own_model_header_when_the_event_stream_omits_it() {
 }
 
 /// The resume argv, whole: the subcommand, the seat's own sandbox class
-/// re-expressed as the config override `codex exec resume` accepts (it
-/// takes neither `-C` nor `-s`, verified against codex-cli 0.148.0), the
+/// re-expressed as the config override `codex exec resume` accepts (its
+/// interface takes neither `-C` nor `-s` — decision 0030 established both
+/// on codex-cli 0.148.0, and the 2026-09-16 live proof re-confirms `-s`
+/// on the exercised 0.154.0 while recording no `-C` observation), the
 /// rest of the seat's passthrough in order, the thread positionally, and
 /// `-` for the prompt — the only spelling that makes a resume read the
 /// prompt this driver writes to its stdin.
+///
+/// All three input spellings of the one class declaration are exercised,
+/// and each composes exactly one `-c sandbox_mode="<class>"` pair with no
+/// surviving sandbox flag. The usage fields are the shim's current-turn
+/// totals: a cumulative fold would carry a prior turn's counts and fail
+/// them, which is the normalization the provider's per-invocation
+/// accounting (2026-09-16 live proof) requires.
 #[cfg(unix)]
 #[test]
 fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let argv = dir.path().join("argv");
-    let shim = codex_shim(dir.path(), "codex", &argv);
-    let extra: Vec<String> = ["--sandbox", "read-only", "--model", "gpt-5.6-sol"]
-        .iter()
-        .map(|part| part.to_string())
-        .collect();
-    let mut emitted = Vec::new();
-    let invocation = with_codex_bin(&shim, || {
-        invoke(
-            AdapterKind::Codex,
-            &extra,
-            "the prompt",
-            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
-            Some(THREAD),
-            &[],
-            &mut |event| emitted.push(event.clone()),
-        )
-        .unwrap()
-    });
+    for (case, sandbox, class) in [
+        ("short-separate", vec!["-s", "read-only"], "read-only"),
+        ("long-separate", vec!["--sandbox", "read-only"], "read-only"),
+        (
+            "long-joined-work",
+            vec!["--sandbox=workspace-write"],
+            "workspace-write",
+        ),
+    ] {
+        let argv = dir.path().join(format!("argv-{case}"));
+        let shim = codex_shim(dir.path(), &format!("codex-{case}"), &argv);
+        let mut extra: Vec<String> = sandbox.iter().map(|part| part.to_string()).collect();
+        extra.push("--model".into());
+        extra.push("gpt-5.6-sol".into());
+        let mut emitted = Vec::new();
+        let invocation = with_codex_bin(&shim, || {
+            invoke(
+                AdapterKind::Codex,
+                &extra,
+                "the prompt",
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                Some(THREAD),
+                &[],
+                &mut |event| emitted.push(event.clone()),
+            )
+            .unwrap()
+        });
 
-    assert_eq!(
-        recorded(&argv),
-        [
-            "exec",
-            "resume",
-            "--json",
-            "-c",
-            "sandbox_mode=\"read-only\"",
-            "--model",
-            "gpt-5.6-sol",
-            THREAD,
-            "-",
-        ]
-    );
-    assert_eq!(
-        std::fs::read_to_string(format!("{}.stdin", argv.display())).unwrap(),
-        "the prompt"
-    );
-    // The launch is published only once the harness names the exact
-    // thread it was handed — which is why it stands behind the locator
-    // row, not in front of the spawn — and it carries the class
-    // re-imposed on it and the root it stands on.
-    let launches = launch_rows(&emitted);
-    assert_eq!(launches.len(), 1, "{emitted:?}");
-    assert_eq!(
-        *launches[0],
-        json!({"step":"harness-started", "harness":"codex", "launch":"resumed",
-               "sandbox":"read-only",
-               "root_session":{"kind":"codex-thread", "id": THREAD,
-                               "harness_version": CODEX_VERSION, "persistent": true}}),
-        "the launch says it rejoined under the declared class"
-    );
-    // The fold still reads the thread out of the resumed stream, so the
-    // NEXT attempt of this seat has an id to be offered in its turn.
-    assert_eq!(invocation.session_meta["transcript"]["locator"], THREAD);
-    assert_eq!(invocation.session_meta["cache_read_tokens"], 96);
-    assert_eq!(invocation.exit_code, 0);
+        let expected: Vec<String> = vec![
+            "exec".into(),
+            "resume".into(),
+            "--json".into(),
+            "-c".into(),
+            format!("sandbox_mode=\"{class}\""),
+            "--model".into(),
+            "gpt-5.6-sol".into(),
+            THREAD.into(),
+            "-".into(),
+        ];
+        let seen = recorded(&argv);
+        assert_eq!(seen, expected, "{case}: the whole resumed argv");
+        assert_eq!(
+            seen.windows(2)
+                .filter(|pair| pair[0] == "-c" && pair[1].starts_with("sandbox_mode="))
+                .count(),
+            1,
+            "{case}: exactly one `-c sandbox_mode=` pair: {seen:?}"
+        );
+        assert!(
+            !seen
+                .iter()
+                .any(|part| part == "-s" || part == "--sandbox" || part.starts_with("--sandbox=")),
+            "{case}: no sandbox flag survives on resume: {seen:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(format!("{}.stdin", argv.display())).unwrap(),
+            "the prompt"
+        );
+        // The launch is published only once the harness names the exact
+        // thread it was handed — which is why it stands behind the locator
+        // row, not in front of the spawn — and it carries the class
+        // re-imposed on it and the root it stands on.
+        let launches = launch_rows(&emitted);
+        assert_eq!(launches.len(), 1, "{case}: {emitted:?}");
+        assert_eq!(
+            *launches[0],
+            json!({"step":"harness-started", "harness":"codex", "launch":"resumed",
+                   "sandbox": class,
+                   "root_session":{"kind":"codex-thread", "id": THREAD,
+                                   "harness_version": CODEX_VERSION, "persistent": true}}),
+            "{case}: the launch says it rejoined under the declared class"
+        );
+        // The fold still reads the thread out of the resumed stream, so
+        // the NEXT attempt of this seat has an id to be offered in turn.
+        assert_eq!(invocation.session_meta["transcript"]["locator"], THREAD);
+        // Current-only accounting in the fold: the shim emits one turn of
+        // 100 input / 96 cached / 4 output, and the invocation reports
+        // exactly those.
+        assert_eq!(invocation.session_meta["input_tokens"], 100, "{case}");
+        assert_eq!(invocation.session_meta["cache_read_tokens"], 96, "{case}");
+        assert_eq!(invocation.session_meta["output_tokens"], 4, "{case}");
+        assert_eq!(invocation.exit_code, 0, "{case}");
+    }
 }
 
 /// A qualified codex resume re-expresses the effort pin as the config
@@ -2335,7 +2397,7 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cases: [(&str, Vec<&str>, &str); 9] = [
+    let cases: [(&str, Vec<&str>, &str); 11] = [
         // Nothing declared: a codex resume does not inherit the class
         // its thread was opened under, so there is nothing to re-impose.
         ("undeclared", vec!["--model", "sol"], "sandbox-unavailable"),
@@ -2392,6 +2454,19 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         (
             "positional",
             vec!["--sandbox", "read-only", "some-other-thread"],
+            "incompatible-argv",
+        ),
+        // Shapes NEW in 0.154.0 and never previously supported: a managed
+        // git worktree session and an alternate thread source. They are
+        // outside the allow-list and are not read as qualified.
+        (
+            "worktree",
+            vec!["--sandbox", "read-only", "--worktree"],
+            "incompatible-argv",
+        ),
+        (
+            "thread-source",
+            vec!["--sandbox", "read-only", "--thread-source"],
             "incompatible-argv",
         ),
         // An id that is not a plain thread id never reaches an argv.
@@ -2645,6 +2720,11 @@ fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
         "-C",
         "--ignore-rules",
         "--dangerously-bypass-approvals-and-sandbox",
+        // Shapes NEW in 0.154.0 and never previously supported: a managed
+        // git worktree session and an alternate thread source. Neither is
+        // in the allow-list and neither may be read as qualified.
+        "--worktree",
+        "--thread-source",
         "a-bare-word",
         "--a-flag-codex-has-not-invented-yet",
         // The joined spelling is the same declaration, and gets the
@@ -2795,6 +2875,48 @@ fn a_codex_whose_installed_version_has_moved_declines_the_offer() {
         launches[0]["root_session"]["harness_version"], "0.160.0",
         "the OBSERVED version is recorded, never the desired pin: {}",
         launches[0]
+    );
+}
+
+/// An enabled shape whose executable cannot be probed — absent or
+/// unreadable — answers no version at all, and the offer is declined
+/// `unverified-harness` rather than admitted on a guess. This is a
+/// direct private-path case so the version-unavailable refusal is
+/// isolated from the spawn that a missing binary would otherwise fail;
+/// the cold argv stands and no identity is recorded for a later root.
+#[cfg(unix)]
+#[test]
+fn a_codex_whose_version_cannot_be_read_declines_the_offer() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("codex-does-not-exist");
+    let workdir = dir.path().to_string_lossy().into_owned();
+    let launch = codex_launch(
+        absent.to_str().unwrap(),
+        &["--sandbox".to_string(), "read-only".into()],
+        &workdir,
+        Some(THREAD),
+        &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+    )
+    .unwrap();
+    assert!(launch.rejoining.is_none(), "no rejoin without a version");
+    assert_eq!(launch.refusal, Some("unverified-harness"));
+    assert!(
+        launch.harness_version.is_none(),
+        "no guessed identity: {:?}",
+        launch.harness_version
+    );
+    assert_eq!(
+        launch.command,
+        codex_cold(
+            absent.to_str().unwrap(),
+            &["--sandbox".to_string(), "read-only".into()],
+            &workdir
+        ),
+        "the cold argv, unchanged"
+    );
+    assert!(
+        !launch.command.iter().any(|part| part == "resume"),
+        "the cold argv carries no resume subcommand"
     );
 }
 
@@ -3042,6 +3164,45 @@ fn qualify_refuses_an_originating_version_drift() {
     }
     assert_eq!(same.observed.as_deref(), Some("0.153.4"));
     assert_eq!(same.refusal, None);
+
+    // The current vector beside the historical synthetic one: observed and
+    // applicable 0.154.0, but the offered root was opened under the earlier
+    // 0.153.4. The origin comparison refuses independently of the
+    // observed-versus-applicability comparison, which here matches.
+    let current_shim = executable(
+        dir.path(),
+        "qualify-probe-current",
+        "#!/bin/sh\nprintf '0.154.0\\n'\n",
+    );
+    let current_probe = vec![current_shim.to_string_lossy().into_owned()];
+    let current_gate = ResumeGate::Enabled {
+        applies_to: "0.154.0".to_string(),
+    };
+    let mut current_same = qualify(&current_gate, &current_probe, Some("0.154.0"));
+    for _ in 0..7 {
+        if current_same.observed.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        current_same = qualify(&current_gate, &current_probe, Some("0.154.0"));
+    }
+    assert_eq!(current_same.observed.as_deref(), Some("0.154.0"));
+    assert_eq!(current_same.refusal, None);
+
+    let mut stale_origin = qualify(&current_gate, &current_probe, Some("0.153.4"));
+    for _ in 0..7 {
+        if stale_origin.observed.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        stale_origin = qualify(&current_gate, &current_probe, Some("0.153.4"));
+    }
+    assert_eq!(stale_origin.observed.as_deref(), Some("0.154.0"));
+    assert_eq!(
+        stale_origin.refusal,
+        Some("unverified-harness"),
+        "a root opened under 0.153.4 is not a 0.154.0 session"
+    );
 }
 
 /// The claude resume argv, whole (proposed decision 0056 ruling 6): the

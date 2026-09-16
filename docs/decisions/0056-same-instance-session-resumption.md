@@ -83,8 +83,9 @@ Alternatives weighed, each rejected on evidence rather than taste:
 - **Keep a NEW, never-supported shape enabled until something contradicts
   it.** Rejected for the same reason, one version later: a shape main does
   not perform has no shipping behavior to preserve, the original Codex
-  measurement was 0.148.0 and the installed CLI is 0.153.4, and version
-  drift disables such a shape until it is remeasured. It does not disable
+  measurement was 0.148.0, the earlier applicability was 0.153.4 and the
+  2026-09-16 live proof exercised 0.154.0, and version drift disables such
+  a shape until it is remeasured. It does not disable
   a rejoin main already performs: the operator's 2026-09-15 ruling,
   “keep decision 0030's rejoin live, do not regress codex,” preserves
   Codex's harness work seat across that historical drift.
@@ -237,9 +238,10 @@ Alternatives weighed, each rejected on evidence rather than taste:
    Codex work seat main already rejoins stays live in BOTH coordinates it
    ships — the engine-composed `harness` argv and the author-written INLINE
    argv (`recipes/standby`, `recipes/wager-harness`, reported as
-   `boundary: not applicable` with `hands: none`) — across the
-   difference between its historical 0.148.0 measurement and the
-   applicable installed 0.153.4, with every observed/origin identity,
+   `boundary: not applicable` with `hands: none`) — across the historical
+   drift between its 0.148.0 measurement and the earlier 0.153.4
+   applicability, now reconciled to the proof-exercised 0.154.0, with
+   every observed/origin identity,
    boundary, hands, ownership and accounting check still binding. For the
    inline coordinate the compiler carries the named adapter's assessment
    into the engine exactly as an agent-resolved site's candidate does, so
@@ -247,8 +249,13 @@ Alternatives weighed, each rejected on evidence rather than taste:
    no-hands driver no declaration names still carries none. The
    same history does not enable a new, never-supported shape: a rejoin
    main does not perform today stays disabled until its own
-   installed-version measurement qualifies it. Preserving the shipping
-   Codex rejoin does not complete the remeasurement it still owes.
+   installed-version measurement qualifies it. The 2026-09-16 live proof
+   on codex-cli 0.154.0 closes the restriction, same-root, current-only
+   accounting and pre-work rejection axes and reconciles the declaration
+   to 0.154.0; preserving the shipping Codex rejoin still does not
+   complete the remaining interface qualification it owes — effort
+   configuration, the complete safe-passthrough list and the stdin `-`
+   prompt positional.
 
    DSH's session integration is selected as one exact route: the latest
    official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at
@@ -528,15 +535,20 @@ Alternatives weighed, each rejected on evidence rather than taste:
 - **Codex's shipping harness work rejoin is preserved, not newly
   enabled.** The operator's 2026-09-15 ruling — “keep decision 0030's
   rejoin live, do not regress codex” — holds main's `work-site` rejoin
-  live across the drift between 0030's 0.148.0 measurement and the
-  installed 0.153.4. Its declaration says `supported`, scopes the
+  live across the drift between 0030's 0.148.0 measurement and the earlier
+  0.153.4 applicability; the 2026-09-16 live proof on the exercised
+  codex-cli 0.154.0 reconciles both declared identity fields to 0.154.0.
+  Its declaration says `supported`, scopes the
   measurement to the harness boundary and the inline `not applicable`
   coordinate, with no boxed-hands marker, and
-  cites the dated 0.153.4 current-accounting observation; observed
+  cites that dated live proof for the restriction, same-root,
+  accounting and pre-work rejection axes; observed
   identity, boundary, hands and accounting mismatches still refuse. The
   compiler carries each inline built-in model driver's assessment into the
   engine so the inline coordinate is judged, not read as unmeasured. Full
-  installed-version remeasurement and task 11.1 remain owed. The Claude
+  0.154.0 interface qualification (effort configuration, the complete
+  safe-passthrough list and the stdin `-` positional) and task 11.1 remain
+  owed. The Claude
   `boxed-workspace`, DSH `headless-work` and LaneTally `wrapper-work-site`
   rejoins stay `unmeasured` because main does not perform them; the
   ruling enables none of the three.
