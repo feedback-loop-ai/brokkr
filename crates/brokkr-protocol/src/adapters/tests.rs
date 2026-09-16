@@ -479,10 +479,19 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
 fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    std::fs::write(&path, body).unwrap();
-    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    // Written beside the target and renamed into place, never written at
+    // the target itself. `exec` refuses a file any process still holds
+    // open for writing with ETXTBSY, and a suite this parallel forks
+    // constantly: a child forked between this thread's open and close
+    // inherits the write descriptor and holds it until it execs. Rename is
+    // atomic and the destination never carried a writer, so the race has
+    // nowhere to happen (#255).
+    let staging = dir.join(format!(".{name}.staging"));
+    std::fs::write(&staging, body).unwrap();
+    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::set_permissions(&staging, permissions).unwrap();
+    std::fs::rename(&staging, &path).unwrap();
     path
 }
 

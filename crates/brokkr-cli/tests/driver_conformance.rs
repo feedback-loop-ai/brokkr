@@ -291,11 +291,18 @@ fn exec_refusal_is_the_scripts_own_failure_not_a_provider_refusal() {
 
 fn make_shim(dir: &Path, body: &str) -> PathBuf {
     let path = dir.join("shim");
-    std::fs::write(&path, body).unwrap();
-    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    // Staged beside the target and renamed into place: `exec` refuses a
+    // file any process still holds open for writing, and a forked child
+    // inherits this thread's write descriptor until it execs. The
+    // destination never carries a writer, so ETXTBSY has nowhere to
+    // happen (#255).
+    let staging = dir.join(".shim.staging");
+    std::fs::write(&staging, body).unwrap();
+    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     use std::os::unix::fs::PermissionsExt;
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::set_permissions(&staging, permissions).unwrap();
+    std::fs::rename(&staging, &path).unwrap();
     path
 }
 

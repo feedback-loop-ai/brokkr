@@ -833,12 +833,17 @@ fn global_folders_reads_node_path_home_and_the_runtime_prefix() {
 fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
+    // Staged beside the target and renamed in: the destination never
+    // carries a write descriptor, so a child forked mid-write cannot make
+    // `exec` refuse it with ETXTBSY (#255).
     let stage = |name: &str, body: &str| {
         let path = dir.path().join(name);
-        fs::write(&path, body).unwrap();
-        let mut perms = fs::metadata(&path).unwrap().permissions();
+        let staging = dir.path().join(format!(".{name}.staging"));
+        fs::write(&staging, body).unwrap();
+        let mut perms = fs::metadata(&staging).unwrap().permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&path, perms).unwrap();
+        fs::set_permissions(&staging, perms).unwrap();
+        fs::rename(&staging, &path).unwrap();
         path
     };
     // Each refusal is asserted by its REASON, not merely by being an error.
