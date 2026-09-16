@@ -2033,6 +2033,15 @@ fn patch_proof_bundle(bundle: &mut Bundle, from: &str, to: &str) {
     }
 }
 
+/// A scratch path safe to splice into a generated POSIX shim body. The
+/// test's `TMPDIR` is caller-supplied and may contain spaces (the review
+/// reproduced exactly that), so an unquoted redirection would split the
+/// path and silently lose the log; single-quoting keeps one word and the
+/// embedded-quote escape keeps it valid for any POSIX path.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 /// The deterministic provider: it announces one fixed thread id on every
 /// invocation and writes no result file, so the attempt fails after the
 /// launch row is journaled and the engine parks with a retryable effect.
@@ -2044,7 +2053,7 @@ fn proof_shim_body(dir: &Path, offered: &str) -> String {
          printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
          printf '{{\"type\":\"turn.started\"}}\\n'\n\
          printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
-        log = dir.join("argv.log").display(),
+        log = shell_quote(&dir.join("argv.log").to_string_lossy()),
         offered = offered,
     )
 }
@@ -2065,7 +2074,7 @@ fn make_proof_recorder(dir: &Path) -> PathBuf {
          printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"a\",\"type\":\"accepted\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"session_ref\":null}}\\n' \"$eid\" \"$aid\"\n\
          printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"r\",\"type\":\"result\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"status\":\"failed\",\"error\":\"capture only\"}}\\n' \"$eid\" \"$aid\"\n\
          read -r done\n",
-        log = log.display(),
+        log = shell_quote(&log.to_string_lossy()),
     );
     std::fs::write(&path, body).unwrap();
     use std::os::unix::fs::PermissionsExt;
@@ -2198,6 +2207,10 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             resume_line.contains("sandbox_mode=\"danger-full-access\""),
             "{shape:?} wrapped={wrapped}: the class is re-expressed: {resume_line}"
         );
+        assert!(
+            resume_line.contains("model_reasoning_effort=\"xhigh\""),
+            "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
+        );
         drop(recipe);
     }
     std::env::remove_var("BROKKR_CODEX_BIN");
@@ -2209,9 +2222,13 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
 /// member, wrapped and unwrapped) cannot affirm confinement, so the
 /// production gate refuses it. The engine cannot offer a root here (the
 /// boxed site records none), so its own composed Start is captured and
-/// forwarded unchanged into a fresh adapter: with no offer the exchange
-/// is cold and carries no invented refusal, and with an offer the gate
-/// names `restrictions-unavailable` and still launches nothing.
+/// forwarded unchanged into a fresh adapter. With no offer the exchange
+/// is cold and carries no invented refusal; with an offer the gate names
+/// `restrictions-unavailable`, and the declined offer still falls back
+/// to a fresh cold launch of the provider (the refusal is to REJOIN, not
+/// to run). The gate exchange and its token are asserted before any
+/// supplemental confinement-marker check, so a mutation that publishes a
+/// hands site as known no-hands fails at the gate's own decision.
 #[test]
 fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
     let _guard = PROOF_ENV.lock().unwrap();
@@ -2224,14 +2241,6 @@ fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
         let recorder = make_proof_recorder(run_dir.path());
         patch_proof_bundle(&mut bundle, &from, &recorder.to_string_lossy());
         let input = capture_proof_input(run_dir.path(), bundle, proof_seat_label(shape, wrapped));
-        assert_eq!(
-            input["boundary"], "namespace",
-            "{shape:?} wrapped={wrapped}: the compiled site's own boundary"
-        );
-        assert_eq!(
-            input["hands"], "boxed",
-            "{shape:?} wrapped={wrapped}: the compiled site's own boxed marker"
-        );
 
         let driver = proof_codex_driver();
         let shim = make_shim(
@@ -2257,7 +2266,9 @@ fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
             "{shape:?} wrapped={wrapped}: no offer invents no refusal: {cold:?}"
         );
 
-        // An offer: the gate names the refusal before any provider work.
+        // An offer: the production gate names its refusal. This is the
+        // decision assertion, taken ahead of any marker fixture, so the
+        // hands->no-hands removal mutation fails HERE.
         let refused = drive_codex(
             &driver,
             &shim,
@@ -2266,14 +2277,33 @@ fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
                 json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
                        "effect_id":"fx","attempt_id":"a1","session_ref":PROOF_OFFER}),
                 json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
-                       "effect_id":"fx","attempt_id":"a1","seat":"verify","input":input}),
+                       "effect_id":"fx","attempt_id":"a1","seat":"verify","input":input.clone()}),
                 json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
             ],
         );
-        let refused_launch = launch_row(&refused, "cold");
+        let refused_row = refused
+            .iter()
+            .find(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started")
+            .unwrap_or_else(|| panic!("{shape:?} wrapped={wrapped}: one launch row: {refused:?}"));
         assert_eq!(
-            refused_launch["resume_refusal"], "restrictions-unavailable",
+            refused_row["data"]["resume_refusal"], "restrictions-unavailable",
             "{shape:?} wrapped={wrapped}: the gate's own token: {refused:?}"
+        );
+        // The refusal declines to rejoin; the provider still runs cold.
+        assert_eq!(
+            refused_row["data"]["launch"], "cold",
+            "{shape:?} wrapped={wrapped}: the declined offer falls back cold: {refused:?}"
+        );
+
+        // Supplemental: the same captured Start still carries the real
+        // compiled confinement facts the gate judged.
+        assert_eq!(
+            input["boundary"], "namespace",
+            "{shape:?} wrapped={wrapped}: the compiled site's own boundary"
+        );
+        assert_eq!(
+            input["hands"], "boxed",
+            "{shape:?} wrapped={wrapped}: the compiled site's own boxed marker"
         );
         drop(recipe);
     }

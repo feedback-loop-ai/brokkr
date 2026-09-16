@@ -3252,6 +3252,24 @@ including #286's in-box skips, without subtracting them to claim equality.
 Host equality and final-head native CI remain controller handoffs. Neither
 council source inspection nor this design amendment closes either proof item.
 
+**Returned-implement reconciliation — refused-row seam, 2026-09-16.** The
+disposition above names `adapters/tests.rs` as the home for the refused-row
+observation, sharing the temporary-realm/engine-capture support with the CLI
+suite, and forbids inventing an offer. The delivered proof keeps that
+observation in `crates/brokkr-cli/tests/driver_conformance.rs`: it captures the
+unchanged engine-composed `Start.input`, forwards it into the shipped
+`brokkr driver codex` adapter, and reads the production `resume_gate`'s own
+`resume_refusal` token before any supplemental confinement-marker check. The
+offered exchange necessarily passes a session reference through the driver
+protocol, so the test does not claim it invented no offer; the gate decides on
+the real compiled boundary/hands facts, and a no-offer cold exchange still
+carries no invented refusal. The direct private-gate unit seam was refused for
+this bounded return because a cross-crate call needs a new development-only
+edge and a shared engine-capture module that the commissioned tests do not
+otherwise require, widening the change beyond the two proof items. This note
+records the seam difference only: it changes no requirement, scenario or
+decision obligation, and proposed 0056 remains `proposed`.
+
 ### D11 — Verify transitions and trace every requirement
 
 For THE PROOFS, apply AA and D10's current reconciliation only: AS1/AS2 and
