@@ -803,7 +803,15 @@ mod tests {
     fn claim_refuses_absolute_traversal_and_escaping_values() {
         let (dir, _) = binding(SHIPPED.as_bytes(), "route.yml");
         let workdir = dir.path().to_string_lossy().into_owned();
-        for (value, needle) in [("/etc/passwd", "absolute"), ("../escape.yml", "`..`")] {
+        // An absolute path is spelled differently per platform, and the
+        // refusal under test is the one `Path::is_absolute` decides, so the
+        // proof holds on both rather than being gated to one.
+        let absolute = if cfg!(windows) {
+            "C:\\Windows\\win.ini"
+        } else {
+            "/etc/passwd"
+        };
+        for (value, needle) in [(absolute, "absolute"), ("../escape.yml", "`..`")] {
             let input = json!({
                 "resume_context": { "route_overlay": { "value": value, "digest": "a".repeat(64) } }
             });

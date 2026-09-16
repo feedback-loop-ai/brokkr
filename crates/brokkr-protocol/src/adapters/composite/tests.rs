@@ -789,6 +789,11 @@ fn executable_resolution_walks_path_entries_and_refuses_a_miss() {
     assert!(resolve_executable_in("a\\b", None).is_err());
 }
 
+// Unix only: the case is built from POSIX literals — a `:`-separated
+// NODE_PATH and `/`-joined expectations — and Windows separates PATH with
+// `;` and joins with `\`. The production reader is platform-correct; only
+// this fixture's spelling is not.
+#[cfg(unix)]
 #[test]
 fn global_folders_reads_node_path_home_and_the_runtime_prefix() {
     let node = NodeRuntime {
