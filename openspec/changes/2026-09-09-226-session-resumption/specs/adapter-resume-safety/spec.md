@@ -223,6 +223,11 @@ hands marker as unknown confinement, never as those affirmative values. With oth
 supported evidence, unknown or mismatched confinement SHALL decline as
 `restrictions-unavailable`; absent or unsupported assessment SHALL decline as
 `unsupported-resume`. Neither case SHALL enable a work-site assessment.
+Affirmative markers SHALL be necessary, not sufficient: both SHALL describe
+this executing site's actual confinement and match the supported assessment.
+An affirmative namespace/boxed pair SHALL NOT enable a Codex shape that does
+not support it. A live supported control SHALL use its own correctly composed
+facts, never replacement no-hands markers for a hands-bearing invocation.
 Same-site/instance ownership, local origin, exact-root confirmation,
 current restriction re-imposition and fresh gates remain binding. A historical
 measurement-version difference alone SHALL NOT cause a preserved shipping shape
@@ -427,7 +432,9 @@ read as history, not as a current claim.
 | Hands-bearing inline panel member, unwrapped under namespace | `verify:alpha` | The same namespace/boxed shape remains refused by the production shape gate as `restrictions-unavailable` with its hands effective. |
 | No-hands inline panel member, unwrapped | `verify:x` | The supported confirmed retry remains live; a hands-bearing sibling `checks:x` supplies none of this site's facts. |
 
-- **AND** for the supported rows the cold invocation records the qualified root, the engine offers that exact root and the provider confirms it before current work; removing the assessment produces `unsupported-resume`, removing either confinement marker produces `restrictions-unavailable`, and removing the declared boundary's support refuses the retry
+- **AND** every row asserts the production provider gate's enabled or refused decision and the refused row's exact token; assertions about the compiled facts alone do not discharge any row
+- **AND** for the supported rows the cold invocation records the qualified root, the engine offers that exact root and the provider confirms it before current work; removing the assessment or required accounting evidence produces `unsupported-resume`, removing either confinement marker produces `restrictions-unavailable`, and removing the declared boundary's support refuses the retry
+- **AND** a hands-bearing member with unknown or inapplicable confinement refuses `restrictions-unavailable` in both wrapped and unwrapped forms; even affirmative `namespace` / `boxed` markers retain that refusal under the shipped shape, while an actually supported control with both correct, applicable markers retains live rejoin without relabelling the refused member as no-hands
 - **AND** the engine-composed supported `harness` coordinate also retains affirmative boundary/hands facts and its live rejoin; preserving inline sites does not regress that coordinate
 - **AND** a member called `checks` retains its complete path, and an independent literal `verify:foo` phase retains its own facts instead of moving by label prefix
 - **AND** deterministic validators and gate-class sites receive no offer, and no harness replaces missing compiled facts to obtain a passing launch
@@ -443,9 +450,9 @@ read as history, not as a current claim.
 - **GIVEN** Codex's shipping work-site shape is supported under the operator ruling
 - **WHEN** the observed executable identity is missing or unreadable, differs from declared applicability or the originating root's recorded identity, the invocation's boundary or hands do not match, or required current-accounting evidence is absent or inapplicable
 - **THEN** the invocation does not rejoin and any permitted safe cold launch reports the corresponding bounded refusal under LE2
-- **AND** independently testing missing boundary alone, missing hands alone, both missing, null markers and markers outside the admitted vocabulary against an otherwise supported assessment always declines as `restrictions-unavailable`, before any resume launch; the adapter never interprets missing evidence as `not applicable` / `none`
+- **AND** independently testing missing boundary alone, missing hands alone, both missing, null markers, non-string markers and markers outside the admitted vocabulary against an otherwise supported assessment always declines as `restrictions-unavailable`, before any resume launch; the adapter never interprets missing evidence as `not applicable` / `none`
 - **AND** an unregistered executing owner or unresolved hands state remains unknown even when an enclosing or sibling input previously carried affirmative markers; production composition clears or replaces those facts and the otherwise supported assessment declines `restrictions-unavailable`, while a positively resolved no-hands control retains its live rejoin
-- **AND** an absent or unsupported assessment still declines `unsupported-resume`; an assessment alone or a sibling's evidence never establishes the executing site's confinement
+- **AND** an absent or unsupported assessment, or absent required accounting evidence, still declines `unsupported-resume`; an assessment alone or a sibling's evidence never establishes the executing site's confinement
 - **AND** a different site, instance or unverifiable local origin supplies no offer under SR2; a provider that fails to confirm the exact offered root never yields `launch: resumed`
 
 #### Scenario: The measured installed version still applies

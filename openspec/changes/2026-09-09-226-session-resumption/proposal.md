@@ -1,5 +1,25 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit, run `the-proofs-branch-integration-22-5533cd6b`, adopts
+`2026-09-09-226-session-resumption` and the production repairs at HEAD
+`4daaa7d2265b521ba40565f54a12eeba715e373b` on
+`integration/226-resume-prepared`. Read the predecessor's return notes in
+`.forge/results/99cbdaee-9e9d-4fdc-b2f7-25cb2aa60def.json` before framing this
+visit. Its run `the-whole-family-branch-integrat-0a5cdb4f` parked at
+`IMPL-OVERSIZED-EXHAUSTED` with production repairs delivered and decision-level
+proofs still owed. Those commits, proposed 0056 and the settled design stand.
+
+**THE PROOFS commissions only two items:** AS1's six wrapped/unwrapped Codex
+decisions through the production gate and exchange, then the six uncovered
+lines and one branch in `bundle.rs`. Answer AA under Decisions records their
+acceptance, the supplied host baseline and the bounded coverage rule. This
+scope supersedes earlier visit instructions to repeat production repairs or
+finish the broader F2 proof inventory; those remain adopted history or wider
+change obligations, not additional work for this visit. No task state changes.
+This specification checkpoint does not claim either proof item completed.
+
+Earlier whole-family specify return, retained as history:
+
 This specify return adopts `2026-09-09-226-session-resumption` at observed
 checkout HEAD `bcefcf68d657fe036aef209905ecd0af641b144a` on
 `integration/226-resume-prepared`, for run
@@ -101,10 +121,18 @@ the operator's 2026-09-15 ruling requires preserving that shipping behavior
 while keeping new, unmeasured resume shapes disabled. The failed relocation
 repair showed that carrying an assessment without its confinement facts can
 turn a safe refusal into an unsafe rejoin; site ownership and explicit
-confinement evidence must hold together.
+confinement evidence must hold together. At the adopted `4daaa7d` head,
+those production repairs stand, but their gate-decision proofs are missing and
+the supplied host exact-coverage gate still refuses six lines and one branch.
 
 ## What Changes
 
+- For THE PROOFS, complete only the decision/exchange proofs in AS1 and LE5
+  and the bounded new-code coverage residue recorded in answer AA. Preserve
+  the six decisions, their refusal tokens and the existing safety rules;
+  prove each new test by a compiling mutation, observed failure and restoration.
+  The existing capability inventory and design remain adopted. The following
+  bullets retain the broader change and earlier commissions as context.
 - For THE WHOLE FAMILY, preserve all execution-site facts as one indivisible
   family through wrapping, and independently refuse unknown confinement at
   the adapter. Reject globally ambiguous ownership even when an owner has no
@@ -1758,6 +1786,95 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   removal experiments and exact coverage require actual execution evidence;
   unavailable tools do not turn the supplied baseline into a new pass.
 
+- **AA — THE PROOFS, 2026-09-16: adopt `4daaa7d`; close evidence, not design.**
+  The current run context contains triage's `engine` result with no problem
+  and no named `returned_from`. Adopt the predecessor's explicit missing-proof
+  finding and this commission's host residue. Neither identifies an upstream
+  specification fault: AS1/AS2 and LE5 already require these decisions and
+  removal proofs. This visit amends the proposal first, then those existing
+  safety/evidence scenarios; it creates no operation, capability, decision,
+  council pass or task plan. Proposed 0056 retains `proposed` status.
+
+  **Adopted repairs and evidence.** The predecessor's return and source at
+  `4daaa7d` establish the one `Bundle.sites` family, tri-state hands, drain-all
+  exact relocation, authoring/final ownership census, runtime readers of that
+  family and dispatch-time affirmative markers. The four reported removal
+  proofs (authoring census, prefix sweep, drain-before-insert and dispatch
+  mark) remain identified as predecessor evidence, not experiments rerun here.
+  A map assertion or any of those prior proofs does not discharge the six
+  outstanding provider decisions. Do not rewrite or partially move the family.
+
+  **Item 1 — decision and exchange.** Amend AS1's existing six-row scenario
+  and LE5's retry scenario in place. The wrapped no-hands single and no-hands
+  panel member must reach a live, provider-confirmed same-root retry; all three
+  unwrapped forms retain their corresponding decisions. The hands-bearing
+  panel member must refuse with `restrictions-unavailable` when confinement is
+  unknown or incompatible, including the existing namespace/boxed shape.
+  Affirmative markers are necessary but not sufficient: both must describe
+  the actual executing site and match the shipped assessment, alongside all
+  identity, accounting, ownership and confirmation checks. A matching supported
+  control stays live; a test may not rewrite a namespace/boxed member's facts
+  to impersonate that control or broaden the declaration to enable it.
+
+  Use real compiled facts and the engine's cold/confirmed-root/retry exchange
+  for supported forms. Refused forms exercise the actual production decision
+  with their composed facts, without inventing an eligible root. Assert the
+  gate's enabled/refused outcome and exact refusal token, plus the confirmed
+  `launch: resumed` exchange for live rows. The independent missing, null,
+  non-string and unknown-marker controls remain `restrictions-unavailable`;
+  absent assessment or accounting remains `unsupported-resume`. Keep the
+  overlapping `x` / `checks:x` mirror. Deterministic protocol shims are not new
+  provider qualification. Item 1 has priority if delivery must remain partial.
+
+  **Item 2 — only the predecessor's new uncovered code.** The controller's
+  supplied host gate at `4daaa7d` reports **30,269/30,275 lines,
+  5,039/5,040 branches and 2,890/2,890 functions**, covered/total. These are
+  supplied before counts, not a fresh in-box measurement. The entire
+  commissioned residue is in `crates/brokkr-runtime/src/bundle.rs`:
+
+  | Adopted location | Required disposition |
+  |---|---|
+  | `assemble`, lines 1528–1531, single/panel-only refusal | Reach the rule with a behavioral test, or demonstrate the earlier invariant that makes this duplicate guard unreachable and retain one reachable, tested enforcement of the rule. |
+  | `owner_index`, line 1780 (`Some(_) => {}`) and branch at 1770 | Cover the same-owner path if reachable; otherwise prove why the structural census cannot revisit that owner and remove only redundant guarding structure. Distinct-owner refusal and legal same-owner evidence merges remain required. |
+  | `parse_selected_body`, line 3042 (`)?;`) | Exercise the selected agent-reference continuation/error propagation through the owning compiler behavior; do not erase its refusal to satisfy coverage. |
+
+  Line numbers identify the adopted revision, not permanent source positions.
+  Unreachability requires caller/invariant evidence, not an uncovered report.
+  Consolidating a repeated rule at one tested reachable site is allowed;
+  deleting an accepted rule, bypassing the census or excluding code with
+  `#[cfg(...)]`/`coverage(off)` is refused. This does not prohibit LE5's required
+  Unix guard on a directly executed shebang test. No unrelated cleanup or new
+  global-ownership proof campaign belongs to this two-item commission.
+
+  **Proof, validation and handoff.** Every new test records a compiling
+  mutation of the exact line/behavior claimed, its named decision or refusal
+  assertion failure, exact restoration and a passing rerun. An unrelated
+  compile failure, lookup panic or redundant backstop does not prove that
+  line; prior removal proofs are retained but not substituted for new ones.
+  Keep format, all-target/all-feature locked clippy, crate suites, both
+  workspace test commands, both bundle compiles and strict OpenSpec validation
+  green before claiming implementation success. Report the unchanged exact
+  gate's own covered/total integers for lines, branches and functions before
+  and after, labelled by revision and host/in-box environment; never subtract
+  skipped boundary code to manufacture equality or reuse a stale report.
+  Use the pinned compiler, a writable disk-backed `TMPDIR` outside the repo
+  and #282's `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` for Git and test
+  children. Missing tools or scratch mean unmeasured, not passing. Under #286,
+  in-box equality is unattainable; the controller owns host measurement and
+  final-head CI, including the first Windows/macOS signal. Test launches retain
+  direct `Command` semantics and LE5's executable/Unix-only requirement.
+
+  **Scope refusals.** Reject re-planning the settled design, broad F2 follow-up,
+  blanket Codex disablement, relaxed markers and fabricated positive controls:
+  none closes these two items safely. If a case cannot be live and safe, retain
+  the refusal and report it. No Pass C/D, task tick (including 8.8, 8.10, 9.6 or
+  any 11.x), archive, living-spec fold, frozen-byte edit, provider enablement,
+  push, merge or new Brokkr run is authorized. The implementation's exhausted
+  result is `oversized`, never `broken`; this specify office uses its own
+  `drafted`/`upstream` contract and returns the adopted identifier in
+  `inputs.change`, without selecting a next phase. Earlier design/tasks and
+  dated evidence remain intact; no new source semantics require a decision edit.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -2876,3 +2993,35 @@ Fresh command logs, the coverage status and the artifact audit are under
 This is an unsigned specification checkpoint, not F1/F2/F3 delivery closure or
 a passing Rust/coverage gate. The result reports the adopted change identifier;
 no next phase is selected. No task tick, archive, push, merge or new run occurs.
+
+
+## Specify validation — THE PROOFS, 2026-09-16
+
+Run `the-proofs-branch-integration-22-5533cd6b` adopts `4daaa7d` and this
+change. The predecessor return was read first, followed by the dialect's own
+specify/return files and proposal/specs instructions through workspace hands.
+No workflow runner was invoked. Answer AA bounds the two proof items; the
+proposal precedes in-place AS1/LE5 amendments. The five deltas retain all
+**20 requirement / 159 scenario headings**. Design, tasks, proposed 0056,
+production/tests, frozen surfaces and living specs retain their entry bytes.
+The artifact audit identifies exactly three changed files and **726 unchanged
+tracked files**. No implementation proof or task completion is claimed.
+
+Strict active-change and repository-wide validation pass (**14 items,
+0 failures**); archived validation passes (**6 changes, 0 failures**).
+OpenSpec status and whitespace checks pass. The inherited informational
+archive refusals for the withdrawn living targets remain outside this scope.
+
+Format, all-target/all-feature locked clippy, protocol/runtime/driver-conformance
+suites, both workspace test modes and both bundle compiles could not launch:
+**Cargo is absent (ENOENT)**. The pinned coverage-tool probe also could not
+launch, so the exact gate was not run. Fresh in-box before/after line, branch
+and function counts are **unmeasured**, not passing. The supplied host before
+counts remain **30,269/30,275 lines, 5,039/5,040 branches, 2,890/2,890 functions**
+at `4daaa7d`; no saved report or invalid temporary directory was substituted.
+Host after-measurement and final-head remote CI remain controller handoffs.
+
+Command logs and the byte audit are in `.forge/specify-proofs-5533cd6b/`.
+This specification draft leaves both commissioned implementation proof items
+open. It commits only this proposal and the safety/evidence deltas, unsigned,
+without pushing, archiving, changing a task state or starting another run.

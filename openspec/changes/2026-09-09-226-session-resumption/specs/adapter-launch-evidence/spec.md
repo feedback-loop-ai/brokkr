@@ -265,8 +265,22 @@ Every new regression test for this correction SHALL have a recorded removal
 proof: a compiling mutation of the enforcement it exercises makes its claimed
 decision, exchange or collision-refusal assertion fail; exact restoration
 makes it pass. An earlier map lookup panic, compile error or unrelated fixture
-failure SHALL NOT substitute for that behavioral failure. Temporary mutations
-SHALL NOT be committed. Directly executing a shebang text file as the program
+failure SHALL NOT substitute for that behavioral failure. The proof record
+SHALL identify the test, the changed enforcement line/behavior, the observed
+assertion failure and the passing rerun after restoration. Earlier removal
+proofs SHALL NOT substitute for the new test's own experiment. Temporary
+mutations SHALL NOT be committed.
+
+New uncovered production paths within the commissioned correction SHALL be
+covered or shown unreachable from their callers and invariants. A redundant
+unreachable guard SHALL be removed or its rule consolidated at a reachable,
+tested enforcement point without deleting any required refusal or ownership
+rule. Coverage exclusions SHALL NOT substitute for that evidence. Before/after
+counts SHALL come from the unchanged exact gate and identify the revision and
+environment; skipped namespace-boundary tests SHALL NOT be subtracted to claim
+host equality. Missing tooling or measurements SHALL remain explicitly pending.
+
+Directly executing a shebang text file as the program
 SHALL be limited to `#[cfg(unix)]` tests; an unconditional test SHALL use an
 executable valid on the target platform. Production spawning SHALL NOT acquire
 a shell interpreter to accommodate a test fixture.
@@ -281,8 +295,11 @@ SHALL NOT be cited as live provider enforcement proof (decision 0034).
 - **WHEN** the test drives the engine-composed retry through production offer admission and provider launch for each supported AS1 form and each SR1 renamed control
 - **THEN** it observes the exact offered thread rejoined with current sandbox and effort re-expressed and confirmed `launch: resumed`
 - **AND** disabling that shipped shape or breaking the tested ownership/enforcement makes the claimed decision or exchange assertion fail; reading back its status, checking a map or substituting a synthetic supported assessment cannot satisfy this conformance case
-- **AND** the companion hands-bearing and unknown-confinement cases decline with `restrictions-unavailable`, absent assessment declines with `unsupported-resume`, and an unconfirmed root never yields `launch: resumed`
-- **AND** the before/after coverage record uses the exact gate's own covered/total line, branch and function integers, identifies its revision and environment, and keeps unmeasured host equality and remote CI pending
+- **AND** the companion hands-bearing cases with unknown or inapplicable confinement decline with `restrictions-unavailable` in both wrapped and unwrapped forms; absent assessment or required accounting evidence declines with `unsupported-resume`, and an unconfirmed root never yields `launch: resumed`
+- **AND** all six AS1 rows reach a production gate decision, independently of whether this test environment can create a namespace; an unchanged captured engine exchange may bridge the test to the adapter, but no row is discharged by map assertions, fabricated confinement or a boundary-test skip
+- **AND** each new test's compiling removal experiment fails at its claimed decision/exchange or refusal assertion, then passes after exact restoration; prior map-level removal experiments alone do not prove these decisions
+- **AND** the before/after coverage record uses the exact gate's own covered/total line, branch and function integers, identifies its revision and environment, and keeps unmeasured host equality and remote CI pending; supplied host counts stay labelled as supplied, and unavailable in-box measurements are never replaced by stale or adjusted totals
+- **AND** each commissioned uncovered path is covered or justified by its caller invariant with the required rule still tested at a reachable site; neither an exclusion nor deletion of that rule closes the residue
 - **AND** the test remains deterministic protocol evidence and is not reported as new live-provider enforcement proof
 
 #### Scenario: Each composite member keeps its launch
