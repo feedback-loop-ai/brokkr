@@ -1,0 +1,26 @@
+# Patch layer contributed by dsh-plugin-cli-session.
+#
+# Replaces the shipped one-shot headless runner with a resume-capable one that
+# can also emit machine-readable output. Everything else in the headless bundle
+# (toolchain, persistence, sandbox) is inherited untouched.
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
+
+- insert:
+    - id: cli-startup
+      name: dsh-plugin-cli-session/startup
+
+    - id: cli-runner
+      name: dsh-plugin-cli-session
+      inject: [cliStartup]
+      config:
+        request: !!js ctx.cliStartup
+
+# --workdir chdirs inside cli-startup's action, before it provides cliStartup.
+# Forcing sandbox-policy to wait on that service makes it mount AFTER the chdir,
+# so its workspaceRoot (!!js process.cwd()) follows the requested directory.
+- id: sandbox-policy
+  inject: [cliStartup]

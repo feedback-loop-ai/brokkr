@@ -13,6 +13,24 @@ visit, answer the finding in `returned_from`; if the change was already
 archived, reopen it with `git mv` before amending it. Where the dialect declares
 an archive operation, fold the change into the living truth as the final task.
 
+Record progress in the task artifact as you go, not at commit time. Before a
+group's first edit, record the group as in progress and name the focused
+acceptance checks it will be judged by. When a task's implementation and those
+checks both pass, persist its tick and its concise evidence before starting the
+next group. A task whose implementation is partial, or whose checks failed or
+have not run, stays unchecked and carries the next action. Group completion,
+workspace validation, the commit and external delivery are four separate facts:
+do not let one stand for another.
+
+On a retry or a re-entry, whether the session was resumed or started cold, read
+the change's current specification, design and task artifacts and the current
+worktree before continuing. Reconcile the ticks against the edits that survived
+and the verification they cite. Preserve work that still satisfies its task;
+return a task whose work no longer holds to pending with the reason. Never erase
+partial uncommitted edits merely because you do not remember writing them, and
+never read another session's private transcript. Current evidence outranks
+memory.
+
 Report completion only with all finished tasks ticked, the relevant tests
 green, and the work committed.
 

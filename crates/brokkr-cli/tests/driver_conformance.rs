@@ -9,7 +9,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use brokkr_store::{validate_seat_record, SeatRecordVersion};
+use brokkr_core::realms::Boundary;
+use brokkr_runtime::agents::{Adapters, Availability, Library};
+use brokkr_runtime::dialect::Dialect;
+use brokkr_runtime::engine::{compose_site, BuiltBoundary};
+use brokkr_runtime::{
+    operator_command, resolve_agent, Bundle, Engine, SeatBody, SeatClass, StepBody,
+};
+use brokkr_store::{validate_seat_record, SeatRecordVersion, Store};
 use serde_json::{json, Value};
 
 fn brokkr_bin() -> &'static str {
@@ -97,6 +104,38 @@ printf '{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens
 /// has no `--effort` flag, so one reaching this shim's argv is a
 /// driver that forwarded the pin the wrong way, and the shim fails.
 const DSH_USAGE_SHIM: &str = r#"#!/bin/sh
+prompt=$*
+target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
+[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
+root=
+sp=
+prev=
+for a in "$@"; do
+  [ "$a" = --effort ] && exit 3
+  if [ "$prev" = --patch ]; then
+    root=$(awk -F"'" '/^    root: /{print $2}' "$a")
+    sp=$(awk -F"'" '/^    path: /{print $2}' "$a")
+  fi
+  prev=$a
+done
+d="$root/--conformance--/session-served"
+mkdir -p "$d"
+f="$d/session.v3.jsonl"
+printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
+if [ -n "$sp" ]; then
+  lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")
+  printf '{"type":"request/header","data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash","reasoningEffort":"%s"}}}}\n' "$lvl" >> "$f"
+fi
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
+"#;
+
+/// The same shim, writing the name the previously shipped, plugin-free
+/// core wrote. A disabled or identity-mismatched launch runs whatever
+/// core the host has installed, so this is not a legacy curiosity: it is
+/// the cold route AS1 requires to keep the telemetry it already had. The
+/// filename is a LITERAL here, so moving a constant cannot quietly move
+/// what this shim proves.
+const DSH_SHIPPED_USAGE_SHIM: &str = r#"#!/bin/sh
 prompt=$*
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
@@ -252,11 +291,18 @@ fn exec_refusal_is_the_scripts_own_failure_not_a_provider_refusal() {
 
 fn make_shim(dir: &Path, body: &str) -> PathBuf {
     let path = dir.join("shim");
-    std::fs::write(&path, body).unwrap();
-    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    // Staged beside the target and renamed into place: `exec` refuses a
+    // file any process still holds open for writing, and a forked child
+    // inherits this thread's write descriptor until it execs. The
+    // destination never carries a writer, so ETXTBSY has nowhere to
+    // happen (#255).
+    let staging = dir.join(".shim.staging");
+    std::fs::write(&staging, body).unwrap();
+    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     use std::os::unix::fs::PermissionsExt;
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::set_permissions(&staging, permissions).unwrap();
+    std::fs::rename(&staging, &path).unwrap();
     path
 }
 
@@ -441,6 +487,51 @@ fn assert_seat_records_conform(messages: &[Value], label: &str, case: &str) {
 }
 
 #[test]
+fn the_shipped_cold_transcript_name_keeps_its_seat_telemetry() {
+    // The regression this guards: admitting version three moved the one
+    // shared transcript name, and the shipped cold route read it too, so
+    // a disabled or mismatched launch silently lost every seat turn —
+    // succeeding with no model, no effort and no token totals. Discovery
+    // now reads both generations, and this drives the built binary to
+    // prove it end to end rather than at the unit seam.
+    for (name, shim_body) in [
+        ("session.v3.jsonl", DSH_USAGE_SHIM),
+        ("session.jsonl", DSH_SHIPPED_USAGE_SHIM),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let shim = make_shim(dir.path(), shim_body);
+        let args: Vec<&str> = vec![
+            "dsh",
+            "--",
+            "--model",
+            "deepseek/deepseek-v4-flash",
+            "--effort",
+            "medium",
+        ];
+        let out = drive(&args, &shim, dir.path());
+        let served: Vec<&Value> = out
+            .iter()
+            .filter(|m| m["type"] == "checkpoint")
+            .filter(|m| m["data"]["model"] == "deepseek-v4-flash")
+            .collect();
+        assert!(
+            !served.is_empty(),
+            "{name}: no seat turn named what served: {out:?}"
+        );
+        assert!(
+            served
+                .iter()
+                .any(|m| m["data"]["input_tokens"] == 13 && m["data"]["output_tokens"] == 3),
+            "{name}: the seat turn carries no token totals: {served:?}"
+        );
+        assert!(
+            served.iter().any(|m| m["data"]["effort"] == "medium"),
+            "{name}: the seat turn carries no effort: {served:?}"
+        );
+    }
+}
+
+#[test]
 fn conformance_across_all_builtin_adapters() {
     for case in ["obedient", "silent"] {
         let dir = tempfile::tempdir().unwrap();
@@ -487,10 +578,15 @@ fn conformance_across_all_builtin_adapters() {
             let out = drive(&args, shim, dir.path());
             let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if (claude || lanetally) && case == "obedient" {
-                // Transcript, three tool turns, session-finished.
+                // Transcript, the launch row proposed decision 0056
+                // ruling 7 requires of every model adapter, three tool
+                // turns, session-finished. The launch row is what issue
+                // #226 found missing here: claude and dsh reported no
+                // launch field at all.
                 &[
                     "capabilities",
                     "accepted",
+                    "checkpoint",
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
@@ -539,10 +635,14 @@ fn conformance_across_all_builtin_adapters() {
                 ]
             } else {
                 // A silent Claude-shaped stream still reports the common
-                // transcript shape before its finishing checkpoint.
+                // transcript shape and its own launch row before the
+                // finishing checkpoint. The launch is a fact about what
+                // this adapter DID — it took the fresh-session path —
+                // so a stream that said nothing does not erase it.
                 &[
                     "capabilities",
                     "accepted",
+                    "checkpoint",
                     "checkpoint",
                     "checkpoint",
                     "result",
@@ -604,35 +704,51 @@ fn conformance_across_all_builtin_adapters() {
                     "{label}: the locator is journaled at init: {}",
                     out[2]
                 );
+                // The launch row rides directly behind the locator, one
+                // per executing model site (proposed decision 0056
+                // ruling 7). No offer was made here, so the launch is
+                // cold, it names no refusal — a reason without an offer
+                // would be invented — and it carries no root, because
+                // this shape's assessment is not enabled and no version
+                // was observed to record one with. Issue #226's
+                // complaint was that this row did not exist.
                 assert_eq!(
                     out[3]["data"],
+                    json!({"step": "harness-started", "harness": "claude",
+                           "launch": "cold", "model": "not reported",
+                           "effort": "not reported"}),
+                    "{label}: {}",
+                    out[3]
+                );
+                assert_eq!(
+                    out[4]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs", "model": "claude-fable-5-1",
                            "effort": "xhigh",
                            "input_tokens":13, "output_tokens":2,
                            "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
-                    out[3]
+                    out[4]
                 );
                 assert_eq!(
-                    out[4]["data"],
+                    out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs", "model": "claude-fable-5-1",
                            "effort": "high",
                            "input_tokens":15, "output_tokens":3,
                            "cache_read_tokens":10}),
                     "{label}: {}",
-                    out[4]
+                    out[5]
                 );
                 assert_eq!(
-                    out[5]["data"],
+                    out[6]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
                            "target": "src/out.rs", "model": "claude-fable-5-1",
                            "effort": "high"}),
                     "{label}: {}",
-                    out[5]
+                    out[6]
                 );
-                let finished = &out[6]["data"];
+                let finished = &out[7]["data"];
                 assert_eq!(finished["step"], "claude-code-session-finished", "{label}");
                 assert_eq!(finished["transcript"], *transcript, "{label}");
                 assert_eq!(finished["num_turns"], 2, "{label}");
@@ -649,7 +765,7 @@ fn conformance_across_all_builtin_adapters() {
                 // absence is decision 0035 ruling 4 in the journal, not
                 // an omission: never zero, never back-filled per turn.
                 assert_eq!(finished["reasoning_output_tokens"], 4, "{label}");
-                for turn in &out[3..6] {
+                for turn in &out[4..7] {
                     assert!(
                         turn["data"].get("reasoning_output_tokens").is_none(),
                         "{label}: a claude turn invents no reasoning count: {turn}"
@@ -663,35 +779,51 @@ fn conformance_across_all_builtin_adapters() {
                 // plus the constant ledger-capture marker and the
                 // list-price cost flowing through unchanged.
                 assert_eq!(out[2]["data"]["step"], "transcript", "{label}: {}", out[2]);
+                // The launch row rides directly behind the locator, one
+                // per executing model site (proposed decision 0056
+                // ruling 7). No offer was made here, so the launch is
+                // cold, it names no refusal — a reason without an offer
+                // would be invented — and it carries no root, because
+                // this shape's assessment is not enabled and no version
+                // was observed to record one with. Issue #226's
+                // complaint was that this row did not exist.
                 assert_eq!(
                     out[3]["data"],
+                    json!({"step": "harness-started", "harness": "claude",
+                           "launch": "cold", "model": "not reported",
+                           "effort": "not reported"}),
+                    "{label}: {}",
+                    out[3]
+                );
+                assert_eq!(
+                    out[4]["data"],
                     json!({"step": "seat-turn", "turn": 1, "tool": "Read",
                            "target": "src/lib.rs", "model": "claude-fable-5-1",
                            "effort": "xhigh",
                            "input_tokens":13, "output_tokens":2,
                            "cache_read_tokens":3, "cache_write_tokens":4}),
                     "{label}: {}",
-                    out[3]
+                    out[4]
                 );
                 assert_eq!(
-                    out[4]["data"],
+                    out[5]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Edit",
                            "target": "src/main.rs", "model": "claude-fable-5-1",
                            "effort": "high",
                            "input_tokens":15, "output_tokens":3,
                            "cache_read_tokens":10}),
                     "{label}: {}",
-                    out[4]
+                    out[5]
                 );
                 assert_eq!(
-                    out[5]["data"],
+                    out[6]["data"],
                     json!({"step": "seat-turn", "turn": 2, "tool": "Write",
                            "target": "src/out.rs", "model": "claude-fable-5-1",
                            "effort": "high"}),
                     "{label}: {}",
-                    out[5]
+                    out[6]
                 );
-                let finished = &out[6]["data"];
+                let finished = &out[7]["data"];
                 assert_eq!(
                     finished["step"], "claude-lanetally-session-finished",
                     "{label}"
@@ -709,19 +841,28 @@ fn conformance_across_all_builtin_adapters() {
                 assert_eq!(finished["cache_read_tokens"], 13, "{label}");
                 assert_eq!(finished["cache_write_tokens"], 4, "{label}");
             } else if codex && case == "obedient" {
-                // Nobody offered this attempt a session, so the launch
-                // is cold and says so with no reason to give: a reason
-                // exists only where an offer could not be taken.
+                // The locator comes first now and the launch row behind
+                // it, because proposed decision 0056 ruling 7 publishes
+                // a launch only once the harness has named its own
+                // session — which is the same moment the locator is
+                // recorded. Before this change the row was emitted
+                // before the child even spawned, which said `resumed`
+                // ahead of any evidence that a rejoin had happened.
                 assert_eq!(
                     out[2]["data"],
-                    json!({"step":"harness-started", "harness":"codex", "launch":"cold",
+                    json!({"step":"transcript", "transcript": transcript,
                            "model":"not reported", "effort":"not reported"}),
                     "{label}: {}",
                     out[2]
                 );
+                // Nobody offered this attempt a session, so the launch
+                // is cold and says so with no reason to give: a reason
+                // exists only where an offer could not be taken. No
+                // root either — the shape's assessment is not enabled,
+                // so no version was observed to record one with.
                 assert_eq!(
                     out[3]["data"],
-                    json!({"step":"transcript", "transcript": transcript,
+                    json!({"step":"harness-started", "harness":"codex", "launch":"cold",
                            "model":"not reported", "effort":"not reported"}),
                     "{label}: {}",
                     out[3]
@@ -1186,4 +1327,1004 @@ printf '{{"type":"result","num_turns":1,"total_cost_usd":0.0}}\n'
             .contains(SECRET_VALUE),
         "{result}"
     );
+}
+
+/// Design D7's terminal half through the real driver protocol: a resumed
+/// invocation the provider answers with a DIFFERENT root — or with none —
+/// is `failed` even when the child exits zero and writes the current
+/// attempt's result. There is no accepted success, no guessed launch row
+/// and no replacement; the delivered file is left for diagnosis.
+#[test]
+fn a_resumed_mismatch_is_never_an_accepted_success() {
+    let other = "01a06183-0000-0000-0000-000000000000";
+    let offered = "019c4b7e-0000-0000-0000-000000000001";
+    for (case, announced) in [("a different root", other), ("no root", "")] {
+        let dir = tempfile::tempdir().unwrap();
+        let workdir = dir.path();
+        let result = workdir.join("results/fx.json");
+        std::fs::create_dir_all(workdir.join("results")).unwrap();
+        let announce = if announced.is_empty() {
+            String::new()
+        } else {
+            format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{announced}\"}}\\n'\n")
+        };
+        let shim = make_shim(
+            workdir,
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; \
+                 exit 0 ;; esac\ncat >/dev/null\ncase \"$*\" in *resume*)\n{announce}\
+                 printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\
+                 \"output_tokens\":1}}}}\\n'\n\
+                 printf '{{\"result\":\"delivered\"}}' > {result}\n\
+                 exit 0 ;; esac\nexit 0\n",
+                result = result.display()
+            ),
+        );
+        let input = json!({
+            "feature": "conformance", "phase": "work", "seat": "work",
+            "role_path": workdir.join("missing-role.md"),
+            "workdir": workdir,
+            "result_path": result,
+            "allowed_results": ["complete"], "context": {},
+            "boundary": "namespace", "hands": "boxed",
+            "resume_context": {"assessment": {"work-site": {
+                "status": "supported",
+                "identity": {"version": "0.153.4", "applies_to": "0.153.4"},
+                "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                "evidence": {"interface": "i", "restrictions": "r",
+                             "root": "o", "accounting": "a"},
+                "limitations": [], "reason": null
+            }}}
+        });
+        let messages = [
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ];
+        let operator_home = tempfile::tempdir().unwrap();
+        let codex_home = tempfile::tempdir().unwrap();
+        let mut child = Command::new(brokkr_bin())
+            .arg("driver")
+            .args(["codex", "--", "--sandbox", "read-only"])
+            .env("BROKKR_CODEX_BIN", &shim)
+            .env("HOME", operator_home.path())
+            .env("CODEX_HOME", codex_home.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for message in &messages {
+            writeln!(stdin, "{message}").unwrap();
+        }
+        drop(stdin);
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let parsed: Vec<Value> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert!(
+            std::fs::metadata(&result).is_ok(),
+            "{case}: the delivered file is retained for diagnosis"
+        );
+        let result_message = parsed
+            .iter()
+            .find(|m| m["type"] == "result")
+            .unwrap_or_else(|| panic!("{case}: one result: {parsed:?}"));
+        assert_eq!(result_message["status"], "failed", "{case}: {parsed:?}");
+        assert!(
+            !parsed
+                .iter()
+                .any(|m| m["type"] == "result" && m["status"] == "succeeded"),
+            "{case}: never an accepted successful seat: {parsed:?}"
+        );
+        assert!(
+            !parsed
+                .iter()
+                .any(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started"),
+            "{case}: no guessed launch: {parsed:?}"
+        );
+    }
+}
+
+/// The operator's 2026-09-15 ruling, proved through the real driver: a
+/// Codex harness work-seat retry that main rejoins under decision 0030
+/// still rejoins here, fed the SHIPPED `adapters/codex.json` assessment
+/// and the production-composed harness argv — no synthetic supported
+/// status. A cold invocation establishes the root; a fresh driver
+/// process receives a correlated `resume` for it and must launch
+/// `codex exec resume` with the exact thread and current sandbox/effort
+/// re-expressed. Reverting the shipped status to `unmeasured` makes the
+/// first gate decline with `unsupported-resume` and this test fails, so
+/// it proves behavior rather than reading a declaration back.
+#[test]
+fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let hands = library
+        .agent("reviewer")
+        .expect("the shipped reviewer")
+        .hands
+        .clone();
+    // The production resolver composes the boxed-style argv; the same
+    // candidate's own `hands_fragment` is stripped so `compose_site`
+    // composes it under `harness`, exactly as the compiler does for a
+    // harness realm. No hand-written shortened workspace command.
+    let resolution = resolve_agent(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "reviewer",
+    )
+    .expect("the shipped reviewer resolves");
+    let candidate = resolution
+        .candidates
+        .iter()
+        .find(|candidate| candidate.provider == "codex")
+        .expect("reviewer chains the codex lane");
+    assert!(candidate.argv.ends_with(&candidate.hands_fragment));
+    let mut command = candidate.argv.clone();
+    command.truncate(command.len() - candidate.hands_fragment.len());
+
+    let workdir = tempfile::tempdir().unwrap();
+    let result_path = workdir.path().join("results/fx.json");
+    std::fs::create_dir_all(workdir.path().join("results")).unwrap();
+    let result = result_path.to_str().unwrap();
+    let spawn = compose_site(
+        BuiltBoundary::Harness,
+        SeatClass::Work,
+        command,
+        hands.as_ref(),
+        Some(candidate),
+        workdir.path(),
+        &[],
+        result,
+        None,
+    );
+    assert_eq!(
+        &spawn.argv[spawn.argv.len() - 2..],
+        ["--sandbox", "workspace-write"],
+        "{:?}",
+        spawn.argv
+    );
+    let driver: Vec<String> = spawn.argv[1..].to_vec();
+    assert_eq!(driver[0], "driver");
+
+    let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let argv_log = workdir.path().join("argv.log");
+    let shim = make_shim(
+        workdir.path(),
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+             printf '%s\\n' \"$*\" >> {log}\n\
+             cat > /dev/null\n\
+             printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+            log = argv_log.display(),
+            result = result,
+            offered = offered,
+        ),
+    );
+    let assessment = adapters
+        .adapter("codex")
+        .expect("the shipped codex adapter")
+        .resume
+        .value();
+    let input = json!({
+        "feature": "conformance", "phase": "work", "seat": "work",
+        "role_path": workdir.path().join("missing-role.md"),
+        "workdir": workdir.path(),
+        "result_path": result_path,
+        "allowed_results": ["resolved"], "context": {},
+        // The engine's own facts for the harness work seat (composition
+        // bridge): the word and the affirmative no-hands marker.
+        "boundary": "harness",
+        "hands": "none",
+        "resume_context": {"assessment": assessment},
+    });
+
+    // Cold: the production driver establishes the root.
+    let cold = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"shutdown"}),
+        ],
+    );
+    let cold_launch = launch_row(&cold, "cold");
+
+    // Retry in a fresh driver process, offered the root the cold one
+    // established. This is the assertion that names the regression:
+    // under a disabled shipped shape the gate declines with
+    // `unsupported-resume` and this row is `cold`, not `resumed`.
+    let resumed = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ],
+    );
+    let resumed_launch = launch_row(&resumed, "resumed");
+    assert_eq!(resumed_launch["root_session"]["id"], offered, "{resumed:?}");
+    assert_eq!(resumed_launch["sandbox"], "workspace-write", "{resumed:?}");
+    assert!(
+        resumed_launch.get("resume_refusal").is_none(),
+        "a preserved rejoin carries no refusal: {resumed:?}"
+    );
+    assert_eq!(
+        resumed.last().unwrap()["status"],
+        "succeeded",
+        "{resumed:?}"
+    );
+    // The cold invocation recorded the versioned root the retry offered.
+    assert_eq!(
+        cold_launch["root_session"]["id"], offered,
+        "the cold invocation established the root: {cold:?}"
+    );
+
+    // The provider actually saw the resume argv: `exec resume`, exactly
+    // the offered thread, current sandbox and effort re-expressed.
+    let log = std::fs::read_to_string(&argv_log).unwrap();
+    let resume_line = log
+        .lines()
+        .find(|line| line.contains("exec resume"))
+        .unwrap_or_else(|| panic!("the shim saw a resume argv: {log:?}"));
+    assert!(resume_line.contains(offered), "{resume_line}");
+    assert!(
+        resume_line.contains("sandbox_mode=\"workspace-write\""),
+        "{resume_line}"
+    );
+    assert!(
+        resume_line.contains("model_reasoning_effort=\"xhigh\""),
+        "{resume_line}"
+    );
+    assert!(resume_line.contains("gpt-6-astra"), "{resume_line}");
+}
+
+/// The operator's 2026-09-15 ruling at the INLINE coordinate main actually
+/// ships: `recipes/standby` and `recipes/wager-harness` seat implement as a
+/// raw `brokkr driver codex` command whose own `--sandbox` class is the
+/// author's, with no Brokkr boundary and no hands marker. That is the
+/// coordinate the engine reports as `boundary: not applicable`,
+/// `hands: none`, and the declaration now names it. A cold invocation must
+/// establish the qualified root and a fresh driver must rejoin it with the
+/// author's sandbox re-expressed as `-c sandbox_mode`. Reverting the shipped
+/// status to `unmeasured` — or dropping `not applicable` from the declared
+/// boundaries — makes the retry cold and fails this test.
+#[test]
+fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let assessment = adapters
+        .adapter("codex")
+        .expect("the shipped codex adapter")
+        .resume
+        .value();
+
+    // The exact argv `recipes/standby`/`recipes/wager-harness` ship for
+    // implement: author-written, self-sandboxed, no engine-composed hands.
+    let driver: Vec<String> = [
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "xhigh",
+        "--sandbox",
+        "danger-full-access",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect();
+
+    let workdir = tempfile::tempdir().unwrap();
+    let result_path = workdir.path().join("results/fx.json");
+    std::fs::create_dir_all(workdir.path().join("results")).unwrap();
+    let result = result_path.to_str().unwrap();
+    let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let argv_log = workdir.path().join("argv.log");
+    let shim = make_shim(
+        workdir.path(),
+        &format!(
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+             printf '%s\\n' \"$*\" >> {log}\n\
+             cat > /dev/null\n\
+             printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+             printf '{{\"type\":\"turn.started\"}}\\n'\n\
+             printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+            log = argv_log.display(),
+            result = result,
+            offered = offered,
+        ),
+    );
+    // The engine's own words for an inline no-hands site are affirmative
+    // now: `not applicable` and `none`, present on the input the adapter
+    // gate requires (design D10 F1).
+    let input = json!({
+        "feature": "conformance", "phase": "work", "seat": "work",
+        "role_path": workdir.path().join("missing-role.md"),
+        "workdir": workdir.path(),
+        "result_path": result_path,
+        "allowed_results": ["resolved"], "context": {},
+        "boundary": "not applicable",
+        "hands": "none",
+        "resume_context": {"assessment": assessment},
+    });
+
+    let cold = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"shutdown"}),
+        ],
+    );
+    let cold_launch = launch_row(&cold, "cold");
+    assert_eq!(
+        cold_launch["root_session"]["id"], offered,
+        "the enabled inline shape records the qualified root the retry offers: {cold:?}"
+    );
+
+    let resumed = drive_codex(
+        &driver,
+        &shim,
+        &[
+            json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                   "engine_version":"test"}),
+            json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                   "effect_id":"fx","attempt_id":"a1","session_ref":offered}),
+            json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                   "effect_id":"fx","attempt_id":"a1","seat":"work","input":input.clone()}),
+            json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+        ],
+    );
+    let resumed_launch = launch_row(&resumed, "resumed");
+    assert_eq!(resumed_launch["root_session"]["id"], offered, "{resumed:?}");
+    assert_eq!(
+        resumed_launch["sandbox"], "danger-full-access",
+        "{resumed:?}"
+    );
+    assert!(
+        resumed_launch.get("resume_refusal").is_none(),
+        "a preserved rejoin carries no refusal: {resumed:?}"
+    );
+
+    let log = std::fs::read_to_string(&argv_log).unwrap();
+    let resume_line = log
+        .lines()
+        .find(|line| line.contains("exec resume"))
+        .unwrap_or_else(|| panic!("the shim saw a resume argv: {log:?}"));
+    assert!(resume_line.contains(offered), "{resume_line}");
+    assert!(
+        resume_line.contains("sandbox_mode=\"danger-full-access\""),
+        "{resume_line}"
+    );
+}
+
+/// The one `harness-started` launch row with the expected word, or a
+/// panic naming what the driver actually emitted.
+fn launch_row<'a>(parsed: &'a [Value], word: &str) -> &'a Value {
+    let row = parsed
+        .iter()
+        .find(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started")
+        .unwrap_or_else(|| panic!("one launch row: {parsed:?}"));
+    assert_eq!(row["data"]["launch"], word, "{parsed:?}");
+    &row["data"]
+}
+
+/// Drive `brokkr driver …` with test-owned homes and the given protocol
+/// messages, returning the parsed stdout.
+fn drive_codex(driver: &[String], shim: &Path, messages: &[Value]) -> Vec<Value> {
+    let operator_home = tempfile::tempdir().unwrap();
+    let codex_home = tempfile::tempdir().unwrap();
+    let mut child = Command::new(brokkr_bin())
+        .args(driver)
+        .env("BROKKR_CODEX_BIN", shim)
+        .env("HOME", operator_home.path())
+        .env("CODEX_HOME", codex_home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for message in messages {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// THE PROOFS (design D10): the compiled inline Codex shapes at the
+// production provider gate.
+//
+// The engine, not a test, composes the Start the adapter sees. The live
+// rows run the real engine with the real `brokkr driver codex` adapter
+// and a deterministic provider shim, and read the launch checkpoints the
+// engine journals: a cold invocation records the provider-confirmed
+// root, and the engine's own retry offers exactly that root back as
+// `resumed`. A hands-bearing namespace site cannot record a root, so its
+// engine-composed Start is captured through a recording driver and
+// forwarded unchanged into a fresh real adapter process, where the
+// production gate names `restrictions-unavailable`.
+// ---------------------------------------------------------------------------
+
+/// One process-wide gate for the variables the engine's grandchildren
+/// inherit. Because the engine spawns the real adapter, the proof tests
+/// must set `BROKKR_CODEX_BIN`/`HOME`/`CODEX_HOME` on the test process;
+/// two proof tests running together must not borrow each other's shim.
+/// The other conformance tests pass their shim per child and never read
+/// these process variables.
+static PROOF_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+const PROOF_OFFER: &str = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+#[derive(Clone, Copy, Debug)]
+enum ProofShape {
+    /// A single inline Codex work seat.
+    Single,
+    /// A panel whose `alpha` member bears workspace hands.
+    HandsMember,
+    /// A panel whose `x` member has no hands beside a hands-bearing
+    /// `checks:x` sibling.
+    NoHandsMember,
+}
+
+fn proof_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn proof_codex_argv() -> Value {
+    json!([
+        "{brokkr}",
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "xhigh",
+        "--sandbox",
+        "danger-full-access"
+    ])
+}
+
+fn proof_codex_driver() -> Vec<String> {
+    [
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "xhigh",
+        "--sandbox",
+        "danger-full-access",
+    ]
+    .iter()
+    .map(|part| part.to_string())
+    .collect()
+}
+
+fn proof_member(hands: Option<&str>) -> Value {
+    let mut member = json!({
+        "role": "roles/role.md",
+        "driver": {"command": proof_codex_argv()},
+    });
+    if let Some(hands) = hands {
+        member["hands"] = json!(hands);
+    }
+    member
+}
+
+fn proof_verify(shape: ProofShape) -> Value {
+    let limits = json!({"max_attempts": 1, "timeout_seconds": 30});
+    match shape {
+        ProofShape::Single => json!({
+            "results": ["pass", "fail"],
+            "class": "work",
+            "limits": limits,
+            "role": "roles/role.md",
+            "driver": {"command": proof_codex_argv()},
+        }),
+        // A panel carries no seat-level class: its members carry their own
+        // (decision 0021 ruling 1), which is why the members need none.
+        ProofShape::HandsMember => json!({
+            "results": ["pass", "fail"],
+            "limits": limits,
+            "aggregate": "unanimous-pass",
+            "panel": {
+                "alpha": proof_member(Some("workspace")),
+                "beta": proof_member(None),
+            },
+        }),
+        ProofShape::NoHandsMember => json!({
+            "results": ["pass", "fail"],
+            "limits": limits,
+            "aggregate": "unanimous-pass",
+            "panel": {
+                "x": proof_member(None),
+                "checks:x": proof_member(Some("workspace")),
+            },
+        }),
+    }
+}
+
+fn proof_member_of(shape: ProofShape, wrapped: bool) -> Option<&'static str> {
+    match (shape, wrapped) {
+        (ProofShape::Single, true) => Some("checks"),
+        (ProofShape::Single, false) => None,
+        (ProofShape::NoHandsMember, true) => Some("checks:x"),
+        (ProofShape::NoHandsMember, false) => Some("x"),
+        (ProofShape::HandsMember, _) => Some("alpha"),
+    }
+}
+
+fn proof_seat_label(shape: ProofShape, wrapped: bool) -> &'static str {
+    match (shape, wrapped) {
+        (ProofShape::HandsMember, true) => "verify:checks:alpha",
+        (ProofShape::HandsMember, false) => "verify:alpha",
+        _ => panic!("only the hands member has a refusal capture"),
+    }
+}
+
+fn write_proof_recipe(dir: &Path, shape: ProofShape, wrapped: bool) {
+    std::fs::create_dir_all(dir.join("roles")).unwrap();
+    std::fs::write(dir.join("roles/role.md"), "# role").unwrap();
+    // The wrapper is applied only when the machine names a dialect phase;
+    // `design` is terminal here because the proof begins at `verify`.
+    let (phases, terminal) = if wrapped {
+        (
+            json!(["verify", "review", "done", "design"]),
+            json!(["done", "design"]),
+        )
+    } else {
+        (json!(["verify", "review", "done"]), json!(["done"]))
+    };
+    let policy = json!({
+        "phases": phases,
+        "initial": "verify",
+        "terminal": terminal,
+        "rules": [
+            {"id":"V","from":"verify","result":"pass","next":"review","reason":"pass"},
+            {"id":"VF","from":"verify","result":"fail","next":"verify","reason":"retry"},
+            {"id":"R","from":"review","result":"clean","next":"done","reason":"clean"},
+        ],
+    });
+    let config = json!({
+        "name": "proofs",
+        "policy": "policy.json",
+        "seats": {
+            "verify": proof_verify(shape),
+            "review": {
+                "results": ["clean"],
+                "role": "roles/role.md",
+                "driver": {"command": ["driver"]},
+            },
+        },
+    });
+    std::fs::write(
+        dir.join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("policy.json"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+}
+
+/// The compiler expands `{brokkr}` to the running test binary; patch it
+/// to the built binary for the real adapter process. The rest of the
+/// compiled command, the wrapper, the canonical facts and the instance
+/// identity are untouched.
+fn patch_proof_body(body: &mut SeatBody, from: &str, to: &str) {
+    fn patch_command(command: &mut [String], from: &str, to: &str) {
+        for part in command.iter_mut() {
+            if part == from {
+                *part = to.to_string();
+            }
+        }
+    }
+    match body {
+        SeatBody::Single { command, .. } => patch_command(command, from, to),
+        SeatBody::Panel { members, .. } => {
+            for member in members.iter_mut() {
+                patch_command(&mut member.command, from, to);
+            }
+        }
+        SeatBody::Sequence { steps } => {
+            for step in steps.iter_mut() {
+                match &mut step.body {
+                    StepBody::Single { command, .. } => patch_command(command, from, to),
+                    StepBody::Panel { members, .. } => {
+                        for member in members.iter_mut() {
+                            patch_command(&mut member.command, from, to);
+                        }
+                    }
+                    StepBody::Dialect { execution } => patch_command(&mut execution.argv, from, to),
+                }
+            }
+        }
+        SeatBody::Select { cases, default, .. } => {
+            for case in cases.values_mut() {
+                patch_proof_body(case, from, to);
+            }
+            if let Some(default) = default {
+                patch_proof_body(default, from, to);
+            }
+        }
+    }
+}
+
+fn compile_proof_shape(shape: ProofShape, wrapped: bool) -> (tempfile::TempDir, Bundle, String) {
+    let root = proof_root();
+    let recipe = tempfile::tempdir().unwrap();
+    write_proof_recipe(recipe.path(), shape, wrapped);
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let bundle = Bundle::compile_with_realm(
+        recipe.path(),
+        &root.join("agents"),
+        &root.join("adapters"),
+        None,
+        if wrapped { Some(&dialect) } else { None },
+        Boundary::Namespace,
+    )
+    .unwrap();
+    let from = std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    (recipe, bundle, from)
+}
+
+fn patch_proof_bundle(bundle: &mut Bundle, from: &str, to: &str) {
+    for seat in bundle.seats.values_mut() {
+        patch_proof_body(&mut seat.body, from, to);
+    }
+}
+
+/// A scratch path safe to splice into a generated POSIX shim body. The
+/// test's `TMPDIR` is caller-supplied and may contain spaces (the review
+/// reproduced exactly that), so an unquoted redirection would split the
+/// path and silently lose the log; single-quoting keeps one word and the
+/// embedded-quote escape keeps it valid for any POSIX path.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// The deterministic provider: it announces one fixed thread id on every
+/// invocation and writes no result file, so the attempt fails after the
+/// launch row is journaled and the engine parks with a retryable effect.
+fn proof_shim_body(dir: &Path, offered: &str) -> String {
+    format!(
+        "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+         printf '%s\\n' \"$*\" >> {log}\n\
+         cat > /dev/null\n\
+         printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
+         printf '{{\"type\":\"turn.started\"}}\\n'\n\
+         printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
+        log = shell_quote(&dir.join("argv.log").to_string_lossy()),
+        offered = offered,
+    )
+}
+
+/// A driver that logs the engine's own `start` line and then fails, so a
+/// refused shape's exact composed Start can be forwarded unchanged.
+fn make_proof_recorder(dir: &Path) -> PathBuf {
+    let path = dir.join("recorder");
+    // One file per invocation, never a shared append. A composed `start`
+    // is kilobytes long and several seats record concurrently; an append
+    // that large has no atomicity guarantee, so a shared log interleaves
+    // and a reader meets half a line. Linux happened to win that race and
+    // macOS did not — the bug was always there.
+    let log = dir.join("starts");
+    std::fs::create_dir_all(&log).unwrap();
+    let body = format!(
+        "#!/bin/sh\n\
+         read -r hello\n\
+         printf '%s\\n' '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"cap\",\"type\":\"capabilities\",\"driver\":\"test\",\"version\":\"1\",\"supports\":[]}}'\n\
+         read -r start\n\
+         printf '%s\\n' \"$start\" > {log}/$$.json\n\
+         eid=$(printf '%s' \"$start\" | sed -n 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
+         aid=$(printf '%s' \"$start\" | sed -n 's/.*\"attempt_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
+         printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"a\",\"type\":\"accepted\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"session_ref\":null}}\\n' \"$eid\" \"$aid\"\n\
+         printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"r\",\"type\":\"result\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"status\":\"failed\",\"error\":\"capture only\"}}\\n' \"$eid\" \"$aid\"\n\
+         read -r done\n",
+        log = shell_quote(&log.to_string_lossy()),
+    );
+    std::fs::write(&path, body).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    path
+}
+
+fn run_proof_engine(
+    run_dir: &Path,
+    bundle: Bundle,
+) -> (Store, String, Vec<brokkr_core::envelope::EventEnvelope>) {
+    std::fs::create_dir_all(run_dir.join("work")).unwrap();
+    let store = Store::open(&run_dir.join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, bundle, "proofs", Some(run_dir.join("work"))).unwrap();
+    let run_id = engine.run_id.clone();
+    let _ = engine.drive();
+    let events = engine.store.load(&run_id).unwrap();
+    (engine.store, run_id, events)
+}
+
+fn proof_launch_rows(
+    events: &[brokkr_core::envelope::EventEnvelope],
+    member: Option<&str>,
+) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for event in events {
+        let value = serde_json::to_value(event).unwrap();
+        let checkpoint = &value["payload"]["checkpoint"];
+        if checkpoint["step"] != "harness-started" {
+            continue;
+        }
+        if checkpoint.get("member").and_then(Value::as_str) == member {
+            rows.push(checkpoint.clone());
+        }
+    }
+    rows
+}
+
+fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
+    std::fs::create_dir_all(run_dir.join("work")).unwrap();
+    let store = Store::open(&run_dir.join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, bundle, "proofs", Some(run_dir.join("work"))).unwrap();
+    let _ = engine.drive();
+    let mut seen = Vec::new();
+    let dir = run_dir.join("starts");
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        let Some(line) = text.lines().next() else {
+            continue;
+        };
+        let value: Value = serde_json::from_str(line)
+            .unwrap_or_else(|error| panic!("{}: {error}: {line:?}", entry.path().display()));
+        if value["seat"] == label {
+            return value["input"].clone();
+        }
+        seen.push(value["seat"].clone());
+    }
+    panic!("the engine composed no start for '{label}'; it composed {seen:?}");
+}
+
+/// Design D10 item 1: the compiled no-hands shapes (single and panel
+/// member, wrapped and unwrapped) rejoin the provider-confirmed root the
+/// cold invocation recorded. The provider announces one fixed root; the
+/// engine records it and offers exactly that root back on its own retry,
+/// which the real adapter confirms as `resumed` with the current sandbox
+/// re-expressed and no refusal.
+#[test]
+fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() {
+    let _guard = PROOF_ENV.lock().unwrap();
+    for (shape, wrapped) in [
+        (ProofShape::Single, true),
+        (ProofShape::Single, false),
+        (ProofShape::NoHandsMember, true),
+        (ProofShape::NoHandsMember, false),
+    ] {
+        let (recipe, mut bundle, from) = compile_proof_shape(shape, wrapped);
+        patch_proof_bundle(&mut bundle, &from, brokkr_bin());
+        let run_dir = tempfile::tempdir().unwrap();
+        let shim = make_shim(
+            run_dir.path(),
+            &proof_shim_body(run_dir.path(), PROOF_OFFER),
+        );
+        std::env::set_var("BROKKR_CODEX_BIN", &shim);
+        std::env::set_var("HOME", run_dir.path());
+        std::env::set_var("CODEX_HOME", run_dir.path().join("codex-home"));
+        let member = proof_member_of(shape, wrapped);
+
+        let (mut store, run_id, events) = run_proof_engine(run_dir.path(), bundle.clone());
+        let cold = proof_launch_rows(&events, member);
+        let cold_row = cold
+            .last()
+            .unwrap_or_else(|| panic!("{shape:?} wrapped={wrapped}: a cold launch row"));
+        assert_eq!(
+            cold_row["launch"], "cold",
+            "{shape:?} wrapped={wrapped}: the first invocation is cold"
+        );
+        assert_eq!(
+            cold_row["root_session"]["id"], PROOF_OFFER,
+            "{shape:?} wrapped={wrapped}: the provider-confirmed root is recorded"
+        );
+        assert_eq!(
+            cold_row["boundary"], "not applicable",
+            "{shape:?} wrapped={wrapped}: a resolved no-hands site is affirmative"
+        );
+
+        operator_command(&mut store, &run_id, "retry", "operator", "once more").unwrap();
+        let mut engine =
+            Engine::resume(store, bundle, &run_id, Some(run_dir.path().join("work"))).unwrap();
+        engine.drive().unwrap();
+        let events = engine.store.load(&run_id).unwrap();
+        let retry = proof_launch_rows(&events, member);
+        let resumed = retry
+            .iter()
+            .find(|row| row["launch"] == "resumed")
+            .unwrap_or_else(|| {
+                panic!("{shape:?} wrapped={wrapped}: the retry rejoins, rows={retry:#?}")
+            });
+        assert_eq!(
+            resumed["root_session"]["id"], PROOF_OFFER,
+            "{shape:?} wrapped={wrapped}: confirmed as the offered root"
+        );
+        assert!(
+            resumed.get("resume_refusal").is_none(),
+            "{shape:?} wrapped={wrapped}: a live rejoin carries no refusal: {resumed}"
+        );
+
+        let log = std::fs::read_to_string(run_dir.path().join("argv.log")).unwrap_or_default();
+        let resume_line = log
+            .lines()
+            .find(|line| line.contains("exec resume") && line.contains(PROOF_OFFER))
+            .unwrap_or_else(|| {
+                panic!("{shape:?} wrapped={wrapped}: the provider saw a resume argv: {log:?}")
+            });
+        assert!(
+            resume_line.contains("sandbox_mode=\"danger-full-access\""),
+            "{shape:?} wrapped={wrapped}: the class is re-expressed: {resume_line}"
+        );
+        assert!(
+            resume_line.contains("model_reasoning_effort=\"xhigh\""),
+            "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
+        );
+        drop(recipe);
+    }
+    std::env::remove_var("BROKKR_CODEX_BIN");
+    std::env::remove_var("HOME");
+    std::env::remove_var("CODEX_HOME");
+}
+
+/// Design D10 item 1: the compiled hands-bearing namespace site (panel
+/// member, wrapped and unwrapped) cannot affirm confinement, so the
+/// production gate refuses it. The engine cannot offer a root here (the
+/// boxed site records none), so its own composed Start is captured and
+/// forwarded unchanged into a fresh adapter. With no offer the exchange
+/// is cold and carries no invented refusal; with an offer the gate names
+/// `restrictions-unavailable`, and the declined offer still falls back
+/// to a fresh cold launch of the provider (the refusal is to REJOIN, not
+/// to run). The gate exchange and its token are asserted before any
+/// supplemental confinement-marker check, so a mutation that publishes a
+/// hands site as known no-hands fails at the gate's own decision.
+#[test]
+fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
+    let _guard = PROOF_ENV.lock().unwrap();
+    for (shape, wrapped) in [
+        (ProofShape::HandsMember, true),
+        (ProofShape::HandsMember, false),
+    ] {
+        let (recipe, mut bundle, from) = compile_proof_shape(shape, wrapped);
+        let run_dir = tempfile::tempdir().unwrap();
+        let recorder = make_proof_recorder(run_dir.path());
+        patch_proof_bundle(&mut bundle, &from, &recorder.to_string_lossy());
+        let input = capture_proof_input(run_dir.path(), bundle, proof_seat_label(shape, wrapped));
+
+        let driver = proof_codex_driver();
+        let shim = make_shim(
+            run_dir.path(),
+            &proof_shim_body(run_dir.path(), PROOF_OFFER),
+        );
+        let hello = json!({"proto":"forge-driver/v1","msg_id":"m1","type":"hello",
+                           "engine_version":"test"});
+        // No offer: cold, and no invented refusal record.
+        let cold = drive_codex(
+            &driver,
+            &shim,
+            &[
+                hello.clone(),
+                json!({"proto":"forge-driver/v1","msg_id":"m2","type":"start",
+                       "effect_id":"fx","attempt_id":"a1","seat":"verify","input":input.clone()}),
+                json!({"proto":"forge-driver/v1","msg_id":"m3","type":"shutdown"}),
+            ],
+        );
+        let cold_launch = launch_row(&cold, "cold");
+        assert!(
+            cold_launch.get("resume_refusal").is_none(),
+            "{shape:?} wrapped={wrapped}: no offer invents no refusal: {cold:?}"
+        );
+
+        // An offer: the production gate names its refusal. This is the
+        // decision assertion, taken ahead of any marker fixture, so the
+        // hands->no-hands removal mutation fails HERE.
+        let refused = drive_codex(
+            &driver,
+            &shim,
+            &[
+                hello,
+                json!({"proto":"forge-driver/v1","msg_id":"m2","type":"resume",
+                       "effect_id":"fx","attempt_id":"a1","session_ref":PROOF_OFFER}),
+                json!({"proto":"forge-driver/v1","msg_id":"m3","type":"start",
+                       "effect_id":"fx","attempt_id":"a1","seat":"verify","input":input.clone()}),
+                json!({"proto":"forge-driver/v1","msg_id":"m4","type":"shutdown"}),
+            ],
+        );
+        let refused_row = refused
+            .iter()
+            .find(|m| m["type"] == "checkpoint" && m["data"]["step"] == "harness-started")
+            .unwrap_or_else(|| panic!("{shape:?} wrapped={wrapped}: one launch row: {refused:?}"));
+        assert_eq!(
+            refused_row["data"]["resume_refusal"], "restrictions-unavailable",
+            "{shape:?} wrapped={wrapped}: the gate's own token: {refused:?}"
+        );
+        // The refusal declines to rejoin; the provider still runs cold.
+        assert_eq!(
+            refused_row["data"]["launch"], "cold",
+            "{shape:?} wrapped={wrapped}: the declined offer falls back cold: {refused:?}"
+        );
+
+        // Supplemental: the same captured Start still carries the real
+        // compiled confinement facts the gate judged.
+        assert_eq!(
+            input["boundary"], "namespace",
+            "{shape:?} wrapped={wrapped}: the compiled site's own boundary"
+        );
+        assert_eq!(
+            input["hands"], "boxed",
+            "{shape:?} wrapped={wrapped}: the compiled site's own boxed marker"
+        );
+        drop(recipe);
+    }
 }

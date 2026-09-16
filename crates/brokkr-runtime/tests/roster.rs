@@ -678,10 +678,12 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
     }
 }
 
-/// Decision 0044 ruling 5, the dsh shape: a `--patch` overlay on a dsh site
-/// is the fetch grant, and it appears in `research-dsh` alone; that
-/// recipe's role file is the library charter's bytes, so the configurable
-/// prompt stays one text.
+/// Decision 0044 ruling 5 and its erratum of 2026-09-04, the dsh shape: the
+/// `--patch` overlay on a dsh site is the pinned model's ROUTE overlay, and
+/// it appears in `research-dsh` alone; the fetch grant is the composed
+/// `headless` profile's own and enters the composite through its
+/// `profile-bundle` lines. That recipe's role file is the library charter's
+/// bytes, so the configurable prompt stays one text.
 #[test]
 fn the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter() {
     let root = workspace();
@@ -715,4 +717,35 @@ fn the_dsh_fetch_overlay_is_the_research_lanes_alone_and_its_role_is_the_charter
         charter, role,
         "recipes/research-dsh/roles/researcher.md is a copy of agents/charters/researcher.md"
     );
+}
+
+/// Each shipped adapter declares its resume assessment under exactly the
+/// shape name its driver's gate and `brokkr doctor` read as a Rust
+/// literal (`CODEX_SHAPE`, `CLAUDE_SHAPE`, `DSH_SHAPE`,
+/// `LANETALLY_SHAPE`, and doctor's own `DSH_SHAPE`). The literals live in
+/// two crates and the names in four JSON files; a spelling that drifted
+/// would not fail to load, it would silently read as an absent shape —
+/// `unsupported-resume` at the gate and "nothing declared" at the doctor
+/// line — so the agreement is pinned here, against the files.
+#[test]
+fn every_shipped_adapter_declares_the_shape_its_gate_and_doctor_read() {
+    let root = workspace();
+    for (adapter, shape) in [
+        ("claude", "boxed-workspace"),
+        ("codex", "work-site"),
+        ("dsh", "headless-work"),
+        ("lanetally", "wrapper-work-site"),
+    ] {
+        let declared = json(&root.join(format!("adapters/{adapter}.json")));
+        let shapes: Vec<&String> = declared["resume"]
+            .as_object()
+            .unwrap_or_else(|| panic!("adapters/{adapter}.json declares a resume map"))
+            .keys()
+            .collect();
+        assert_eq!(
+            shapes,
+            [shape],
+            "adapters/{adapter}.json declares exactly the shape its gate reads"
+        );
+    }
 }

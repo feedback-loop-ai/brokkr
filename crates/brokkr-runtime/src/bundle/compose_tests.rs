@@ -1051,22 +1051,32 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// declared tool vocabulary gained `webfetch` and `websearch`, and every
 /// bundle here pins that adapter through an agent or an inline gate. No
 /// recipe charter, table or hire moved.
+/// Proposed decision 0056 moves all four again for the same reason: the
+/// `resume` assessment is adapter DATA, so it rides the declaration
+/// digest every one of these bundles pins. That is not incidental — a
+/// declaration edit moving bundle identity is what makes an in-flight
+/// run refuse the offer rather than resume under a changed rule.
+/// The returned F1 correction moves `recipes/fast` once more alone: its
+/// inline Claude implementer now pins the declaration it reads its resume
+/// assessment from, exactly as its gate seats already pinned the
+/// declaration that authorises them. The other three witness only
+/// deterministic exec gates, so composition still moves none of them.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "76b46f29e359a1d02bbc0c08ad3bb94a60d7ff4c26bb8f1c363bcd02b539bd31",
+        "a3e7ded619b34de0c0da1c77e75fbae7802e9849e65219ae80716ddf3dd80585",
     ),
     (
         "recipes/panel-review",
-        "1cbd4b2047d568fe8bf7335d39715a551a37c2718934f9c3d937586aebe36122",
+        "28078bff14c153e429847ac064b5bd4e1f9cb9726c6004e965ece913cfff244a",
     ),
     (
         "bundles/self",
-        "d1de6784822d55081e786d064065f153309677119a7684dd62ed721e0aab9e4f",
+        "4009a5b24d8d1064fe6a052e9fdbbffbf17cc0f2c16ae875743be0b2326342ce",
     ),
     (
         "bundles/verify",
-        "3983105a23fa0070ff10ed79c009fa37a23e2cb79fda0ddcf005d44c17d9eb0d",
+        "0ce8628510a1c4d2b2e99c63883d536b58937fa0e43b311faecf4a43342fb4ac",
     ),
 ];
 
@@ -1182,7 +1192,17 @@ fn a_composed_bundles_manifest_is_pinned() {
         // Decision 0042's five SDD phases and the returned reviews' restored
         // contracts are bundle identity: judges consume the deterministic
         // check and closed drift vocabulary, and the smith names every result.
-        "1f80150efbc263310669a73c7eb701dd880b24daab2f7122e1a4b70cdea08743",
+        // Moved by proposed decision 0056: an adapter's `resume` assessment
+        // is adapter data, so it rides the declaration digest the manifest
+        // pins — which is exactly what makes a declaration edit spawn cold.
+        // Its ruling 10 moves it again through the SDD smith's charter,
+        // which every phase of this route resolves. The F1 return moves it
+        // once more: the Codex declaration's preserved shape now names the
+        // inline `not applicable` coordinate too, so the adapter digest the
+        // route's Codex lanes witness moved. The value agrees with
+        // the `recipes/triage` pin in `tests/witness_digests.rs`; the two
+        // had drifted apart and this restores the measured value.
+        "85fdb273d4fe2ef921749132672515a2c3c283e49a699f15f5670b8b982ccb19",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

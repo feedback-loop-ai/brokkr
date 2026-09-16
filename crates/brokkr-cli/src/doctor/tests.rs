@@ -1765,6 +1765,7 @@ fn doctor_names_the_boundaries_this_machine_offers_and_judges_hands_by_the_realm
             never_ambient,
             boundary,
             None,
+            no_composite,
         )
         .render()
     };
@@ -1903,4 +1904,204 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
 #[test]
 fn the_posix_shell_probe_executes_a_portable_shell_operation() {
     assert_eq!(tool_version("sh").as_deref(), Some("POSIX shell"));
+}
+
+#[test]
+fn the_dsh_composite_detail_reports_each_disposition() {
+    let digest = "a".repeat(64);
+    let other = "b".repeat(64);
+
+    // No declared digest at all: informational, never a warning.
+    let (warning, line) = composite_detail(None, false, Ok((&digest, "plugin")));
+    assert!(!warning);
+    assert!(line.contains("no declared wrapper_digest"), "{line}");
+    assert!(line.contains("plugin"), "{line}");
+
+    // A matching digest is informational even when the shape is supported.
+    let (warning, line) = composite_detail(Some(&digest), true, Ok((&digest, "plugin")));
+    assert!(!warning);
+    assert!(
+        line.contains("matches the declared wrapper_digest"),
+        "{line}"
+    );
+
+    // A differing digest warns only when a supported shape declares one.
+    let (warning, line) = composite_detail(Some(&digest), true, Ok((&other, "plugin")));
+    assert!(warning);
+    assert!(line.contains("differs from the declared"), "{line}");
+    assert!(!composite_detail(Some(&digest), false, Ok((&other, "plugin"))).0);
+
+    // An unreadable composite warns only when a supported shape declares
+    // a digest; the detail names the unreadable component.
+    let (warning, line) =
+        composite_detail(Some(&digest), true, Err("plugin component is unreadable"));
+    assert!(warning);
+    assert!(line.contains("unreadable"), "{line}");
+    assert!(!composite_detail(Some(&digest), false, Err("plugin component is unreadable")).0);
+    assert!(!composite_detail(None, true, Err("plugin component is unreadable")).0);
+}
+
+#[test]
+fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
+    let dir = tempfile::tempdir().unwrap();
+    fn fake_composite(_: &Adapter) -> (bool, String) {
+        (
+            false,
+            "composite deadbeef plugin feedface (no declared wrapper_digest)".to_string(),
+        )
+    }
+    let rendered = doctor_in(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_present,
+        never_ambient,
+        Boundary::Namespace,
+        None,
+        fake_composite,
+    )
+    .render();
+    assert!(
+        rendered.contains("ok       dsh:")
+            && rendered.contains("composite deadbeef plugin feedface"),
+        "{rendered}"
+    );
+}
+
+/// The injected composite probe reporting a difference is a warning, not
+/// just a suffix: `probe_providers` routes it through `report.warn`.
+#[test]
+fn doctor_warns_when_the_dsh_composite_differs_from_a_declared_digest() {
+    let dir = tempfile::tempdir().unwrap();
+    fn warning_composite(_: &Adapter) -> (bool, String) {
+        (
+            true,
+            "composite deadbeef plugin feedface (differs from the declared wrapper_digest feedface)"
+                .to_string(),
+        )
+    }
+    let rendered = doctor_in(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_present,
+        never_ambient,
+        Boundary::Namespace,
+        None,
+        warning_composite,
+    )
+    .render();
+    assert!(
+        rendered.contains("warn") && rendered.contains("dsh:"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("composite deadbeef plugin feedface"),
+        "{rendered}"
+    );
+}
+
+/// `dsh_composite_line` reads the shipped adapter's real seams; whether the
+/// host has a DSH install or not, it reports a composite detail and never
+/// panics.
+#[test]
+fn dsh_composite_line_reads_the_real_adapter_and_its_seams() {
+    let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
+    let adapter = adapters
+        .providers()
+        .find(|adapter| adapter.provider == "dsh")
+        .expect("the shipped dsh adapter");
+    let (_warning, line) = dsh_composite_line(adapter);
+    assert!(line.contains("composite"), "{line}");
+}
+
+/// The mapping `dsh_composite_line` applies to a readable composite: the
+/// canonical digest and the plugin component, and nothing else. Driven
+/// directly because the real producer needs a DSH install and a node probe.
+#[test]
+fn composite_identity_reads_the_canonical_digest_and_the_plugin() {
+    let composite = DshComposite {
+        canonical: "canonical-digest".into(),
+        core: "core".into(),
+        node: "v22.23.2".into(),
+        plugin: "plugin-digest".into(),
+        dependencies: Vec::new(),
+        plugin_patch: "plugin-patch".into(),
+        profile_patch: "profile-patch".into(),
+        profile_bundles: Vec::new(),
+        profile_patch_reload: "startup".into(),
+        home_patch: "absent".into(),
+        extension: None,
+        core_root: PathBuf::new(),
+        profile: PathBuf::new(),
+    };
+    assert_eq!(
+        composite_identity(composite),
+        ("canonical-digest".to_string(), "plugin-digest".to_string())
+    );
+}
+
+/// `dsh_composite_line`'s own arms: an Unknown identity declares no digest
+/// and a readable composite becomes the detail. Both are driven over the
+/// injected producer, because the real one needs a DSH install and a node
+/// probe that a unit test must not require.
+#[test]
+fn dsh_composite_line_reports_an_unknown_identity_and_a_readable_composite() {
+    use brokkr_runtime::agents::{ResumeAssessment, ResumeEvidence, ResumeShape};
+    use std::collections::BTreeMap;
+
+    let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
+    let base = adapters
+        .providers()
+        .find(|adapter| adapter.provider == "dsh")
+        .expect("the shipped dsh adapter")
+        .clone();
+    let digest = "a".repeat(64);
+    let shape = |identity: ResumeIdentity| ResumeShape {
+        status: ResumeStatus::Supported,
+        identity,
+        classes: vec!["work".into()],
+        boundaries: vec!["not applicable".into()],
+        hands: "none".into(),
+        evidence: ResumeEvidence::default(),
+        limitations: Vec::new(),
+        reason: None,
+    };
+    let with_identity = |identity: ResumeIdentity| {
+        let mut adapter = base.clone();
+        let mut shapes = BTreeMap::new();
+        shapes.insert("headless-work".to_string(), shape(identity));
+        adapter.resume = ResumeAssessment::new(shapes);
+        adapter
+    };
+
+    // An Unknown identity carries no declared digest, so the readable
+    // composite is informational and reports no comparison to make.
+    let unknown = with_identity(ResumeIdentity::Unknown {
+        reason: "nobody has identified this wrapper".into(),
+    });
+    let (warning, line) =
+        dsh_composite_line_with(&unknown, || Ok((digest.clone(), "plugin".into())));
+    assert!(!warning, "{line}");
+    assert!(line.contains("no declared wrapper_digest"), "{line}");
+    assert!(line.contains(&digest) && line.contains("plugin"), "{line}");
+
+    // A Measured digest that matches the composite is informational too,
+    // and names the match.
+    let measured = with_identity(ResumeIdentity::Measured {
+        version: "0.1.5-rc.1".into(),
+        applies_to: "0.1.5-rc.1".into(),
+        wrapper_digest: Some(digest.clone()),
+    });
+    let (warning, line) =
+        dsh_composite_line_with(&measured, || Ok((digest.clone(), "plugin".into())));
+    assert!(!warning, "{line}");
+    assert!(
+        line.contains("matches the declared wrapper_digest"),
+        "{line}"
+    );
 }

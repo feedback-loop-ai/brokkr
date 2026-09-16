@@ -6,7 +6,8 @@
 
 use super::tests::{bundle, checkpointing_command, driver_command, member, single_body, state};
 use super::*;
-use crate::agents::{HarnessHands, ResultDoor};
+use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
+use crate::bundle::{HandsState, SiteFacts};
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
@@ -29,6 +30,7 @@ fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -
         argv,
         hands_fragment: hands_fragment.iter().map(|part| part.to_string()).collect(),
         harness,
+        resume: Default::default(),
     }
 }
 
@@ -86,6 +88,13 @@ fn boxed_bundle(dir: &Path, boundary: Boundary, command: Vec<String>) -> Bundle 
     let mut bundle = bundle(dir, single_body(command));
     bundle.boundary = boundary;
     bundle.hands.insert("work".into(), HandsSpec::default());
+    bundle.sites.insert(
+        "work".into(),
+        SiteFacts {
+            hands: HandsState::Hands(HandsSpec::default()),
+            ..Default::default()
+        },
+    );
     bundle.manifest["hands"] = json!({"work": HandsSpec::default().to_value()});
     bundle.manifest["boundary"] = json!({"work": boundary.word()});
     bundle
@@ -1139,10 +1148,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
 
     // A gate-class boxed single seat under `harness`: one entry.
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     assert_eq!(
         engine.boundary_entries(executable, "work", true),
         Some(json!([{"member": null, "boundary": "harness", "gate": true}]))
@@ -1159,14 +1165,13 @@ fn effect_started_carries_the_boundary_beside_provenance() {
     // read their step's class.
     engine.boundary = Boundary::Namespace;
     engine.bundle.hands.clear();
-    engine
-        .bundle
-        .hands
-        .insert("design:validate".into(), HandsSpec::default());
-    engine
-        .bundle
-        .hands
-        .insert("design:review:left".into(), HandsSpec::default());
+    engine.bundle.sites.clear();
+    super::tests::set_site_hands(&mut engine.bundle, "design:validate", HandsSpec::default());
+    super::tests::set_site_hands(
+        &mut engine.bundle,
+        "design:review:left",
+        HandsSpec::default(),
+    );
     let steps = vec![
         SequenceStep {
             name: "author".into(),
@@ -1219,10 +1224,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
         members: vec![member("a", vec!["driver".into()])],
         aggregate: Aggregate::UnanimousPass,
     };
-    engine
-        .bundle
-        .hands
-        .insert("review:a".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "review:a", HandsSpec::default());
     let (executable, _) = panel.selected(None).unwrap();
     assert_eq!(
         engine.boundary_entries(executable, "review", true),
@@ -1239,10 +1241,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
         },
     )));
     driven.boundary = Boundary::Open;
-    driven
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut driven.bundle, "work", HandsSpec::default());
     let requested = super::tests::requested(&driven, "effect");
     driven
         .execute(
@@ -1332,10 +1331,7 @@ fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
     // none is appended without the driver's, and the successful result
     // carries the word beside its model.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let command = checkpointing_command(
         "effect",
         "attempt",
@@ -1429,7 +1425,7 @@ fn the_stamp_rides_beside_the_model_and_replaces_a_drivers_word() {
 fn site_boundary_of(spec: &HandsSpec) -> Option<()> {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     assert_eq!(engine.site_boundary("work"), None);
-    engine.bundle.hands.insert("work".into(), spec.clone());
+    super::tests::set_site_hands(&mut engine.bundle, "work", spec.clone());
     engine.boundary = Boundary::Open;
     assert_eq!(engine.site_boundary("work"), Some(Boundary::Open));
     Some(())
@@ -1443,10 +1439,7 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // aggregate carries none.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work:boxed".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work:boxed", HandsSpec::default());
     let pass = |member: &str| {
         checkpointing_command(
             "effect",
@@ -1505,10 +1498,7 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // ending result and the `sequence-step-finished` marker of the
     // first step carry each step's word.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("work:second".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work:second", HandsSpec::default());
     let step = |name: &str, results: Vec<&str>, result: &str| SequenceStep {
         name: name.into(),
         class: SeatClass::Gate,
@@ -1576,18 +1566,40 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     file_door.result = ResultDoor::File;
     let filed = candidate("codex", CODEX_FRAGMENT.to_vec(), file_door);
 
-    // No hands: neither field, under any boundary.
+    // Unknown confinement: no affirmative marker, under any boundary.
     for boundary in brokkr_core::realms::BOUNDARIES {
         engine.boundary = boundary;
         let mut input = json!({});
         engine.mark_hands("work", &mut input);
         engine.mark_delivery("work", true, Some(&codex), &mut input);
-        assert_eq!(input, json!({}));
+        assert_eq!(input, json!({"boundary": null, "hands": null}));
     }
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    // A registered, resolved no-hands site names both fields
+    // affirmatively, under every boundary.
+    engine.bundle.sites.insert(
+        "work".into(),
+        SiteFacts {
+            hands: HandsState::NoHands,
+            ..Default::default()
+        },
+    );
+    for boundary in brokkr_core::realms::BOUNDARIES {
+        engine.boundary = boundary;
+        let mut input = json!({});
+        engine.mark_hands("work", &mut input);
+        assert_eq!(
+            input,
+            json!({"boundary": "not applicable", "hands": "none"})
+        );
+    }
+    engine.bundle.sites.insert(
+        "work".into(),
+        SiteFacts {
+            hands: HandsState::Hands(HandsSpec::default()),
+            ..Default::default()
+        },
+    );
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     for boundary in [Boundary::Namespace, Boundary::Seatbelt, Boundary::Container] {
         engine.boundary = boundary;
         let mut input = json!({});
@@ -1606,26 +1618,26 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     engine.mark_delivery("work", true, Some(&codex), &mut input);
     assert_eq!(
         input,
-        json!({"boundary": "harness", "result_delivery": "last-message"})
+        json!({"boundary": "harness", "hands": "none", "result_delivery": "last-message"})
     );
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", true, Some(&filed), &mut input);
-    assert_eq!(input, json!({"boundary": "harness"}));
+    assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", false, Some(&codex), &mut input);
-    assert_eq!(input, json!({"boundary": "harness"}));
+    assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", true, None, &mut input);
-    assert_eq!(input, json!({"boundary": "harness"}));
+    assert_eq!(input, json!({"boundary": "harness", "hands": "none"}));
     // `open`: the word and nothing else.
     engine.boundary = Boundary::Open;
     let mut input = json!({});
     engine.mark_hands("work", &mut input);
     engine.mark_delivery("work", true, Some(&codex), &mut input);
-    assert_eq!(input, json!({"boundary": "open"}));
+    assert_eq!(input, json!({"boundary": "open", "hands": "none"}));
 
     // The requested input carries the word through `seat_input`, and a
     // panel member's derived input through `member_runs`.
@@ -1634,11 +1646,8 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
     assert_eq!(seat["boundary"], "harness");
-    assert!(seat.get("hands").is_none());
-    engine
-        .bundle
-        .hands
-        .insert("review:left".into(), HandsSpec::default());
+    assert_eq!(seat["hands"], "none");
+    super::tests::set_site_hands(&mut engine.bundle, "review:left", HandsSpec::default());
     let members = vec![
         member("left", vec!["driver".into()]),
         member("right", vec!["driver".into()]),
@@ -1664,8 +1673,147 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     );
     assert_eq!(runs[0].input["boundary"], "harness");
     assert_eq!(runs[0].boundary, Some(Boundary::Harness));
-    assert!(runs[1].input.get("boundary").is_none());
+    assert_eq!(runs[1].input["boundary"], Value::Null);
     assert_eq!(runs[1].boundary, None);
+}
+
+// ─────────── the shipped Codex harness work seat keeps main's rejoin
+
+/// The operator's 2026-09-15 ruling: the Codex `work-site` rejoin main
+/// already performs under decision 0030 stays live across the drift
+/// between its 0.148.0 measurement and the installed 0.153.4. This loads
+/// the SHIPPED adapter through `Adapters::load` and composes the real
+/// candidate under `harness`, so the declaration's `harness`/`none`
+/// scope is checked against the argv and input facts the engine actually
+/// builds. Reverting the shipped status to `unmeasured`, or moving the
+/// declared hands back to `boxed`, breaks the driver proof that consumes
+/// this composition; the boxed coordinate is composed here as the
+/// negative, with its full MCP-bearing fragment, and is not covered by
+/// the narrowed declaration.
+#[test]
+fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
+    let library = Library::load(&root.join("agents")).expect("the shipped library loads");
+    let hands = library
+        .agent("reviewer")
+        .expect("the shipped reviewer")
+        .hands
+        .clone();
+    let shape = adapters
+        .adapter("codex")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .expect("codex declares work-site");
+    assert_eq!(shape.status.word(), "supported");
+    assert_eq!(
+        shape.boundaries,
+        vec!["harness".to_string(), "not applicable".to_string()]
+    );
+    assert_eq!(shape.hands, "none");
+
+    let _dir = tempfile::tempdir().unwrap();
+    let workdir = tempfile::tempdir().unwrap();
+    let result_path = workdir.path().join("results/fx.json");
+    let result_path = result_path.to_str().unwrap();
+
+    // Harness resolution is unboxed: no workspace MCP fragment travels.
+    let report = crate::agents::report_under(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "reviewer",
+        brokkr_core::realms::Boundary::Harness,
+    )
+    .unwrap();
+    let resolution = crate::agents::resolve_report(report, &adapters).unwrap();
+    let candidate = resolution
+        .candidates
+        .iter()
+        .find(|candidate| candidate.provider == "codex")
+        .expect("reviewer chains the codex lane");
+    assert!(
+        candidate.hands_fragment.is_empty(),
+        "harness resolution appends no boxed fragment: {:?}",
+        candidate.argv
+    );
+    let spawn = compose_site(
+        BuiltBoundary::Harness,
+        SeatClass::Work,
+        candidate.argv.clone(),
+        hands.as_ref(),
+        Some(candidate),
+        workdir.path(),
+        &[],
+        result_path,
+        None,
+    );
+    assert_eq!(
+        &spawn.argv[spawn.argv.len() - 2..],
+        ["--sandbox", "workspace-write"],
+        "the shipped harness.work fragment: {:?}",
+        spawn.argv
+    );
+    assert!(
+        !spawn
+            .argv
+            .iter()
+            .any(|part| part.contains("mcp_servers.brokkr")),
+        "a harness work seat serves no workspace tool: {:?}",
+        spawn.argv
+    );
+
+    // The input facts the driver proof pins: the word, no boxed marker.
+    let (_bundle_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
+    engine.boundary = Boundary::Harness;
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
+    let seat = engine
+        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .unwrap();
+    assert_eq!(seat["boundary"], "harness");
+    assert_eq!(seat["hands"], "none");
+
+    // The boxed coordinate composes its complete MCP-bearing fragment and
+    // the narrowed declaration does not cover it.
+    let boxed_report = crate::agents::report_under(
+        &library,
+        &adapters,
+        &Availability::unspecified(),
+        "reviewer",
+        brokkr_core::realms::Boundary::Namespace,
+    )
+    .unwrap();
+    let boxed = crate::agents::resolve_report(boxed_report, &adapters).unwrap();
+    let boxed_candidate = boxed
+        .candidates
+        .iter()
+        .find(|candidate| candidate.provider == "codex")
+        .expect("reviewer chains the codex lane");
+    assert!(boxed_candidate
+        .argv
+        .ends_with(&boxed_candidate.hands_fragment));
+    assert!(
+        boxed_candidate
+            .argv
+            .iter()
+            .any(|part| part.contains("mcp_servers.brokkr")),
+        "the full boxed workspace argv: {:?}",
+        boxed_candidate.argv
+    );
+    assert!(
+        !shape.boundaries.iter().any(|word| word == "namespace"),
+        "the boxed coordinate is not covered by the narrowed declaration"
+    );
+    engine.boundary = Boundary::Namespace;
+    let mut boxed_input = json!({});
+    engine.mark_hands("work", &mut boxed_input);
+    assert_eq!(boxed_input["hands"], "boxed");
 }
 
 // ─────────────────────── boundary-manifest-pin: resume names the word
@@ -1730,10 +1878,7 @@ fn a_resume_under_another_word_is_refused_naming_boundary() {
 fn a_harness_gate_on_a_last_message_door_names_its_result_path() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     engine.boundary = Boundary::Harness;
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let codex = candidate("codex", CODEX_FRAGMENT.to_vec(), codex_harness());
     let spawn = engine.compose(
         "attempt",
@@ -1785,6 +1930,8 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
             rewalk: Some(layer.join("scripts")),
             refusal: None,
         },
+        offer: None,
+        context: None,
         input: json!({}),
     }];
     let deadline = std::time::Duration::from_secs(5);
@@ -1847,10 +1994,7 @@ fn emitted_boundary_entries_validate_and_plain_started_payloads_keep_their_shape
     assert!(validator.is_valid(&json!({})));
     for word in brokkr_core::realms::BOUNDARIES {
         engine.boundary = word;
-        engine
-            .bundle
-            .hands
-            .insert("work".into(), HandsSpec::default());
+        super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
         let entries = engine.boundary_entries(executable, "work", true).unwrap();
         assert!(validator.is_valid(&json!({"boundary":entries})));
     }
@@ -1961,13 +2105,32 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
         .any(|event| event.event_type == EventType::EffectSucceeded));
     let failed = events.last().unwrap();
     assert_eq!(failed.event_type, EventType::EffectFailed);
+    // The contract named is the one this run's engine wrote: the 0.10
+    // line reads v5 (proposed decision 0056 ruling 7's amendment to the
+    // boundary-record dispatch). The boundary's own authority is
+    // unchanged — `chroot` is not one of decision 0046's five words
+    // under either version.
     assert!(
         failed.payload["error"]
             .as_str()
             .unwrap()
-            .contains("seat-record.v4"),
+            .contains("seat-record.v5"),
         "{failed:?}"
     );
+    for version in [
+        brokkr_store::SeatRecordVersion::V4,
+        brokkr_store::SeatRecordVersion::V5,
+    ] {
+        assert!(
+            brokkr_store::validate_seat_record(
+                &json!({"result":"complete", "model":"m", "boundary":"chroot"}),
+                2,
+                version,
+            )
+            .is_err(),
+            "{version:?} refuses a word that is not the realm's"
+        );
+    }
     assert!(
         !failed.payload["error"].as_str().unwrap().contains("chroot"),
         "invalid values stay out of diagnostics"
@@ -2061,8 +2224,12 @@ fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_bo
             .unwrap();
         assert_eq!(input["boundary"], boundary.word());
         assert_eq!(
-            input.get("hands").is_some(),
-            boundary == Boundary::Namespace
+            input["hands"],
+            if boundary == Boundary::Namespace {
+                json!("boxed")
+            } else {
+                json!("none")
+            }
         );
         let prompt = brokkr_protocol::adapters::render_prompt(
             &input,

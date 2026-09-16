@@ -24,7 +24,14 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 21] = [
+const FROZEN: [(&str, &str); 22] = [
+    // Proposed decision 0056 ruling 7 lands seat-record v5 beside v4;
+    // v4's bytes are pinned here so that slice can prove it edited none
+    // of them, exactly as decision 0046 pinned v3's when v4 landed.
+    (
+        "contracts/seat-record.v4.schema.json",
+        "84d1238783db3b77a862207639fafa5c2edaf401c657dca78443e96ab9ae9222",
+    ),
     (
         "contracts/realms.v1.schema.json",
         "4a9d0051823995b090935a2a5b326d12ec7953f62c61161b30ec1dbaf0135fbb",
@@ -272,6 +279,13 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/run-manifest.v10.schema.json",
             "Forge run manifest v10",
+        ),
+        // Proposed decision 0056 ruling 7: the confirmed root, the two
+        // engine stamps and the five added refusal tokens arrive as v5
+        // beside v4, whose bytes are pinned above and did not move.
+        (
+            "contracts/seat-record.v5.schema.json",
+            "Forge seat record v5",
         ),
     ] {
         let body: serde_json::Value =

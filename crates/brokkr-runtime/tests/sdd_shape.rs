@@ -68,6 +68,72 @@ fn the_implement_prompt_carries_the_dialects_archive_instruction() {
     );
 }
 
+/// Proposed decision 0056 ruling 10: the SDD smith's progress-timing and
+/// recovery clauses reach the seat through the OFFICE, so both dialects
+/// inherit them without either one carrying a copy.
+///
+/// The proof is where the rule sits, not what a model does with it. The
+/// implement seat resolves to `implementer-sdd`'s one charter — the same
+/// charter whichever dialect is composed, because the recipe names an
+/// agent and the dialect supplies only its own instructions — and no
+/// dialect gains an implement phase, a task template clause or a
+/// duplicate timing rule (decision 0042 ruling 6). What a live model then
+/// does with the instruction is judgment's to check, which the charter
+/// and the guides both say out loud.
+#[test]
+fn the_progress_rule_reaches_the_smith_through_its_office_not_a_dialect() {
+    let charter = root().join("agents/charters/implementer-sdd.md");
+    let flat = std::fs::read_to_string(&charter)
+        .unwrap()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(flat.contains("before starting the next group"));
+    assert!(flat.contains("resumed or started cold"));
+
+    let dialect = Dialect::load(&root().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let bundle = compile(Some(&dialect)).unwrap();
+    let SeatBody::Select { cases, .. } = &bundle.seats["implement"].body else {
+        panic!("the implement seat selects by delivery class");
+    };
+    let SeatBody::Single { role_path, .. } = &cases["design"] else {
+        panic!("the SDD delivery class seats one smith");
+    };
+    assert_eq!(
+        role_path.canonicalize().unwrap(),
+        charter.canonicalize().unwrap(),
+        "the SDD smith reads the one charter that carries the rule"
+    );
+
+    // Neither dialect carries a copy, an implement phase of its own, or
+    // a duplicate timing rule in its task instructions.
+    for name in ["openspec", "speckit"] {
+        let document = std::fs::read_to_string(root().join(format!("dialects/{name}.json")))
+            .unwrap()
+            .to_lowercase();
+        assert!(
+            !document.contains("\"implement\""),
+            "{name} gains no implement phase"
+        );
+        for directory in [
+            root().join("dialects").join(name),
+            root().join("crates/brokkr-cli/dialects").join(name),
+        ] {
+            for entry in std::fs::read_dir(&directory).unwrap() {
+                let path = entry.unwrap().path();
+                let body = std::fs::read_to_string(&path).unwrap_or_default();
+                assert!(
+                    !body.contains("before starting the next group"),
+                    "{} duplicates the office's timing rule",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn every_artifact_phase_ends_in_the_boxed_dialect_validator() {
     let dialect = Dialect::load(&root().join("dialects/openspec.json"))

@@ -34,6 +34,7 @@ fn candidate(agent: &str, model: &str) -> Candidate {
         argv: vec!["driver".into(), "--model".into(), model.into()],
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
+        resume: Default::default(),
     }
 }
 
@@ -149,10 +150,14 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         command: vec!["inline-driver".into()],
         candidates: Vec::new(),
     };
-    let (selection, provenance) =
+    let (selection, provenance, chains) =
         select_candidates(&[], "effect", inline.selected(None).unwrap().0);
-    assert!(selection.is_empty());
+    assert!(
+        selection.get(&None).is_none(),
+        "an inline site selects none"
+    );
     assert!(provenance.is_none());
+    assert!(chains.is_empty(), "an inline site walks no chain");
     assert_eq!(
         argv_for(&selection, &None, &["inline-driver".to_string()]),
         ["inline-driver".to_string()]
@@ -164,8 +169,13 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         candidates: vec![candidate("worker", "opus"), candidate("worker", "sonnet")],
     };
     let events = vec![failure("effect", json!([null]))];
-    let (selection, provenance) =
+    let (selection, provenance, chains) =
         select_candidates(&events, "effect", resolved.selected(None).unwrap().0);
+    assert_eq!(
+        chains.get(&None).copied(),
+        Some(1),
+        "the site walked to its second link, and that index is part of its owner identity"
+    );
     assert_eq!(
         provenance.unwrap(),
         // The effort pin is journaled beside the model it was hired
@@ -343,14 +353,16 @@ fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
         failure("effect", json!([null])),
         failure("effect", json!([null])),
     ];
-    let (before, provenance_before) =
+    let (before, provenance_before, chains_before) =
         select_candidates(&events, "effect", body.selected(None).unwrap().0);
     // A second, wholly independent selection: no memory, no re-probe.
-    let (after, provenance_after) =
+    let (after, provenance_after, chains_after) =
         select_candidates(&events, "effect", body.selected(None).unwrap().0);
-    assert_eq!(before, after);
+    assert_eq!(before.get(&None), after.get(&None));
     assert_eq!(provenance_before, provenance_after);
-    assert_eq!(before[&None].model, "third");
+    assert_eq!(chains_before, chains_after);
+    assert_eq!(chains_before.get(&None).copied(), Some(2));
+    assert_eq!(before.get(&None).unwrap().model, "third");
     assert_eq!(provenance_before.unwrap()[0]["chain_index"], 2);
 }
 
@@ -371,6 +383,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             provider: "claude".into(),
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
+            resume: Default::default(),
             argv: vec!["driver".into(), "--model".into(), "fable".into()],
         },
     );

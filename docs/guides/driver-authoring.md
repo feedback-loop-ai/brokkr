@@ -185,6 +185,23 @@ What a driver has to do to participate:
   is the session handle for the attempt the next `start` describes, and
   nothing else. One offer belongs to one seat; a `start` with no
   `resume` in front of it is a cold start.
+- **Correlate it, and consume it once** (proposed decision 0056 ruling
+  4). The message carries `effect_id` and `attempt_id`; compare them
+  with the `start` that follows. An offer whose correlation does not
+  match, a second offer before one `start`, a `resume` before
+  `capabilities` were negotiated, or an envelope with no handle at all
+  is a **poisoned exchange**: launch no provider, and do not repair it
+  into a cold execution — a cold run there is work the engine did not
+  ask for, on an attempt whose instructions were already confused. Send
+  a bounded protocol failure where the correlation is known, and discard
+  pending state on cancel, shutdown and EOF. The built-ins answer
+  `resume exchange refused: <what was wrong>`, which the engine reads as
+  an ordinary driver defect.
+- **Advertising `resume` is receipt, not capability.** It says you know
+  what a handle is, will correlate it, and will decide it — including
+  deciding to decline it and say why. All four built-in model adapters
+  advertise it; only the ones whose shape has been measured actually
+  rejoin anything.
 - **Rejoin that session itself.** What you resume is your provider's own
   session, by the id you captured — never a fork, a copy, or a new
   session seeded with the old transcript. A session belongs to the
@@ -203,11 +220,23 @@ What a driver has to do to participate:
   refusal, and carry on.
 
 What the ENGINE checks before it offers you anything (decision 0030
-ruling 4). Every one of these is a refusal — the offer is made only when
-all of them agree:
+ruling 4, generalised by proposed decision 0056 rulings 1 and 2). Every
+one of these is a refusal — the offer is made only when all of them
+agree:
 
-- the same run and the same seat: a retry of that seat, or a re-entry
-  into it. Never another seat, and never another run;
+- the same run and the same **site**: a retry of that site, or a
+  re-entry into it. A site is the outer seat, the selected case and the
+  full member/step path — a single seat, a panel member, a sequence
+  model step, or a member of a sequence panel — taken from the compiled
+  walk, never from the flat `<step>:<member>` display tag. A label
+  reused under a different parent is a different site and is offered
+  nothing;
+- **work class only.** Every gate-class invocation starts fresh, at
+  every topology, on retry and re-entry alike: decision 0042 ruling 2
+  requires the next judge to be fresh and blind and to read prior
+  answers from the artifacts. A judge is not offered its own previous
+  conversation, and a work author whose output a later step judges still
+  is;
 - the same driver binary and the same resolved model, provider and agent
   as the attempt that opened the session. A decision-0016 chain fallback
   to another model gets nothing;
@@ -238,6 +267,19 @@ is a function of the journal a reader already has, plus whether that
 journal is still at home. What you DID with it — rejoined, or started
 cold and why — is yours to journal, in a checkpoint, and it is the only
 record of it there will be. Send one.
+
+Send exactly one, and send it when your provider has confirmed which
+session you are in (proposed decision 0056 ruling 7). `launch: resumed`
+is published only after provider evidence names the exact root you were
+offered, before any work; `launch: cold` only when you actually took the
+fresh-session path. A resume flag, a preassigned id, a known old handle,
+surviving edits, replayed transcript rows and an exit status of zero are
+none of them evidence — the built-ins publish the row at the same moment
+they record the locator, because that is the moment the harness says
+which session it opened. If your harness never says, publish nothing for
+a rejoin: neither word would be true, and an unconfirmed resume is
+uncertain rather than cold. A `resume_refusal` appears exactly beside the
+cold launch a declined offer produced; no offer, no reason.
 
 ## `accepted` is the load-bearing message
 

@@ -37,8 +37,11 @@ const CHARTERS: [(&str, &str); 13] = [
         "c6d224031f2e18010fc5e104cf4692fe7c51713e9c43da9f89f748331f4a69da",
     ),
     (
+        // Moved by proposed decision 0056 ruling 10: the SDD smith
+        // persists task progress before the next group and reconciles it
+        // against the worktree on recovery, warm or cold.
         "implementer-sdd.md",
-        "7218965b11a5c32277001d7ad6aafa4043e950974e2a9c7aff9063b3c338aaff",
+        "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
     ),
     (
         "implementer.md",
@@ -243,6 +246,79 @@ fn sdd_offices_name_the_closed_return_contracts() {
     for result in ["`broken`", "`blocked`", "`oversized`"] {
         assert!(smith.contains(result), "SDD smith omits result {result}");
     }
+}
+
+/// Proposed decision 0056 ruling 10: the SDD smith persists task
+/// progress before the next group, and reconciles it against the
+/// worktree on recovery.
+///
+/// The rule lives in this ONE charter, inherited by both dialects, and
+/// it names the task artifact generically. Decision 0042 ruling 6 is
+/// what keeps a framework path out of an office charter: `tasks.md` is
+/// OpenSpec's spelling and a phased row is spec-kit's, and a charter
+/// that named either would be a realm's dialect written into Brokkr's
+/// office.
+#[test]
+fn the_sdd_smith_persists_progress_before_the_next_group_and_reconciles_on_recovery() {
+    let charters = workspace().join("agents/charters");
+    // Prose wraps, so the clauses are matched against one collapsed
+    // line: a rewrap must not be able to fail this test, and a deleted
+    // clause must not be able to pass it.
+    let flat = |name: &str| {
+        std::fs::read_to_string(charters.join(name))
+            .unwrap()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let smith = flat("implementer-sdd.md");
+
+    // The timing rule, its partial-work arm, and the four facts that may
+    // not stand for one another.
+    for clause in [
+        "not at commit time",
+        "record the group as in progress",
+        "name the focused acceptance checks",
+        "before starting the next group",
+        "stays unchecked and carries the next action",
+        "four separate facts",
+    ] {
+        assert!(
+            smith.contains(clause),
+            "the SDD smith omits the progress clause {clause:?}"
+        );
+    }
+    // The recovery clause, warm or cold, and its two prohibitions.
+    for clause in [
+        "resumed or started cold",
+        "current worktree",
+        "Reconcile the ticks",
+        "return a task whose work no longer holds to pending",
+        "Never erase partial uncommitted edits",
+        "never read another session's private transcript",
+        "Current evidence outranks memory",
+    ] {
+        assert!(
+            smith.contains(clause),
+            "the SDD smith omits the recovery clause {clause:?}"
+        );
+    }
+    // No framework path and no repository command: the dialect owns
+    // both, and this charter serves OpenSpec and spec-kit alike
+    // (decision 0042 ruling 6).
+    for framework in ["tasks.md", "openspec", "spec-kit", "specify", "cargo "] {
+        assert!(
+            !smith.to_lowercase().contains(framework),
+            "the SDD charter names {framework:?}, which belongs to the dialect"
+        );
+    }
+
+    // The rule is the SDD office's, not every implementer's: the non-SDD
+    // charter has no required dialect task artifact to persist into.
+    assert!(
+        !flat("implementer.md").contains("before starting the next group"),
+        "the non-SDD implementer gains no progress-timing rule"
+    );
 }
 
 /// Every shipped agent resolves against the shipped adapters, with no

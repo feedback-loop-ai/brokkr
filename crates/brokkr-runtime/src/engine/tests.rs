@@ -76,6 +76,39 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         }),
         protected_phase: "review".into(),
         hands: BTreeMap::new(),
+        inline_resume: BTreeMap::new(),
+        sites: Default::default(),
+    }
+}
+
+/// Test-only: register a site's hands in both the canonical family table
+/// and its `hands` projection, the way the compiler does. The engine's
+/// marker composition reads the table, its boundary readers the
+/// projection.
+pub(super) fn set_site_hands(
+    bundle: &mut Bundle,
+    label: &str,
+    spec: brokkr_protocol::hands::HandsSpec,
+) {
+    bundle.hands.insert(label.into(), spec.clone());
+    bundle.sites.insert(
+        label.into(),
+        crate::bundle::SiteFacts {
+            hands: crate::bundle::HandsState::Hands(spec),
+            ..Default::default()
+        },
+    );
+}
+
+/// Test-only: mirror a compiled `inline_resume` projection into the
+/// canonical family table the engine actually reads.
+pub(super) fn set_inline_resume(
+    bundle: &mut Bundle,
+    resume: &std::collections::BTreeMap<String, Value>,
+) {
+    bundle.inline_resume = resume.clone();
+    for (label, value) in resume {
+        bundle.sites.entry(label.clone()).or_default().inline_resume = Some(value.clone());
     }
 }
 
@@ -149,6 +182,92 @@ fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
         json!({"phase":"work", "case":"default"})
     );
     drop(dir);
+}
+
+#[test]
+fn a_selected_single_publishes_its_own_confinement_at_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("work");
+    std::fs::create_dir(&repo).unwrap();
+    let log = dir.path().join("start.log");
+    let script = format!(
+        "read -r hello\n\
+         printf '%s\\n' '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"cap\",\"type\":\"capabilities\",\"driver\":\"test\",\"version\":\"1\",\"supports\":[]}}'\n\
+         read -r start\n\
+         printf '%s' \"$start\" > '{log}'\n\
+         effect_id=$(printf '%s' \"$start\" | sed -n 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
+         attempt_id=$(printf '%s' \"$start\" | sed -n 's/.*\"attempt_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
+         printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"accepted\",\"type\":\"accepted\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"session_ref\":null}}\\n' \"$effect_id\" \"$attempt_id\"\n\
+         printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"result\",\"type\":\"result\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"status\":\"succeeded\",\"result\":{{\"result\":\"complete\"}},\"error\":null}}\\n' \"$effect_id\" \"$attempt_id\"\n\
+         read -r done\n",
+        log = log.display().to_string().replace('\\', "/")
+    );
+    let triage_script = r#"
+read -r hello
+printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}\n' "$effect_id" "$attempt_id"
+printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"engine"},"error":null}\n' "$effect_id" "$attempt_id"
+read -r done
+"#;
+    let mut cases = BTreeMap::new();
+    cases.insert(
+        "engine".to_string(),
+        single_body(vec!["sh".into(), "-c".into(), script]),
+    );
+    let body = SeatBody::Select {
+        cases,
+        default: Some(Box::new(single_body(vec!["missing-driver".into()]))),
+        case_gates: BTreeMap::new(),
+        default_gate: false,
+    };
+    let mut compiled = bundle(dir.path(), body);
+    compiled.machine = Machine::from_table(&json!({
+        "phases":["triage", "work", "review", "ship", "done", "stop"],
+        "initial":"triage", "terminal":["done", "stop"],
+        "rules":[
+            {"id":"TRIAGE", "from":"triage", "result":"engine", "next":"work", "reason":"route"},
+            {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
+            {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
+            {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
+        ]
+    }))
+    .unwrap();
+    compiled.seats.insert(
+        "triage".into(),
+        Seat {
+            has_gate: false,
+            results: vec!["engine".into()],
+            limits: Limits::default(),
+            inputs: Vec::new(),
+            secrets: Vec::new(),
+            body: single_body(vec!["sh".into(), "-c".into(), triage_script.into()]),
+        },
+    );
+    // The selected case's canonical facts resolve hands; the seat's PHASE
+    // label owns none, so only dispatch-time marking can publish this.
+    set_site_hands(
+        &mut compiled,
+        "work:engine",
+        brokkr_protocol::hands::HandsSpec::default(),
+    );
+
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut runtime = Engine::start(store, compiled, "selection", Some(repo)).unwrap();
+    for _ in 0..20 {
+        if log.exists() {
+            break;
+        }
+        let _ = runtime.drive_once();
+    }
+    let start: Value = serde_json::from_str(&std::fs::read_to_string(&log).unwrap()).unwrap();
+    assert_eq!(
+        start["input"]["boundary"], "namespace",
+        "the selected single publishes its own boundary: {start}"
+    );
+    assert_eq!(start["input"]["hands"], "boxed", "{start}");
 }
 
 #[test]
@@ -456,6 +575,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
             provider: "exec".into(),
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
+            resume: Default::default(),
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -541,6 +661,7 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             provider: "exec".into(),
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
+            resume: Default::default(),
             argv: driver_command(
                 "effect",
                 "attempt",
@@ -3183,22 +3304,19 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
     let plain = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
-    assert!(plain.get("hands").is_none());
+    // An unregistered site's confinement is unknown, and unknown publishes
+    // no affirmative marker (design D10 F1).
+    assert_eq!(plain["hands"], Value::Null);
+    assert_eq!(plain["boundary"], Value::Null);
 
-    engine
-        .bundle
-        .hands
-        .insert("work".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let boxed = engine
         .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
         .unwrap();
     assert_eq!(boxed["hands"], "boxed");
 
     // A panel member is marked by its own label, never by the seat's.
-    engine
-        .bundle
-        .hands
-        .insert("review:security".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "review:security", HandsSpec::default());
     let member = |name: &str| PanelMember {
         name: name.into(),
         role_path: PathBuf::from(format!("{name}.md")),
@@ -3226,7 +3344,7 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         false,
     );
     assert_eq!(runs[0].input["hands"], "boxed");
-    assert!(runs[1].input.get("hands").is_none());
+    assert_eq!(runs[1].input["hands"], Value::Null);
 }
 
 #[test]
@@ -3234,10 +3352,7 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     use brokkr_protocol::hands::{BindMode, HandsSpec};
 
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("ship".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "ship", HandsSpec::default());
     let input = engine
         .seat_input(&state(Some("ship"), Cursor::Idle), "ship", "effect")
         .unwrap();
@@ -3272,10 +3387,7 @@ fn selected_ship_site_receives_the_runtime_journal_bind() {
     use brokkr_protocol::hands::{BindMode, HandsSpec};
 
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
-    engine
-        .bundle
-        .hands
-        .insert("ship:feature".into(), HandsSpec::default());
+    set_site_hands(&mut engine.bundle, "ship:feature", HandsSpec::default());
 
     let hands = engine.runtime_hands("ship:feature").unwrap();
     assert_eq!(hands.binds.len(), 1);
@@ -4739,6 +4851,7 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     // These unit scenarios replace the compiled commands with the protocol
     // fake below; the box itself has its dedicated boxed proof.
     bundle.hands.clear();
+    bundle.sites.clear();
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir(&work).unwrap();
@@ -4865,6 +4978,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             provider: "exec".into(),
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
+            resume: Default::default(),
             argv: driver_command(
                 "check-effect",
                 "check-attempt",
@@ -4933,6 +5047,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             provider: "exec".into(),
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
+            resume: Default::default(),
             argv: driver_command(
                 "clean-effect",
                 "clean-attempt",
@@ -4997,6 +5112,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             provider: "exec".into(),
             hands_fragment: Vec::new(),
             harness: HarnessHands::default(),
+            resume: Default::default(),
             argv: driver_command(
                 "analyze-effect",
                 "analyze-attempt",
@@ -6416,4 +6532,38 @@ fn a_supersede_racing_a_growing_journal_refuses_rather_than_writing() {
         8,
         "the peer's event is there and the supersede is not",
     );
+}
+
+#[test]
+fn a_single_patch_value_admits_exactly_one_well_formed_pair() {
+    let one = |parts: &[&str]| {
+        let owned: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
+        single_patch_value(&owned).map(str::to_string)
+    };
+    assert_eq!(one(&["--patch", "route.yml"]).as_deref(), Some("route.yml"));
+    assert_eq!(
+        one(&["-x", "value", "--patch", "route.yml", "tail"]).as_deref(),
+        Some("route.yml")
+    );
+    // A second --patch, an empty value, a flag value, a joined spelling and
+    // a bare --patch all yield no value.
+    assert_eq!(one(&["--patch", "a", "--patch", "b"]), None);
+    assert_eq!(one(&["--patch", ""]), None);
+    assert_eq!(one(&["--patch", "--other"]), None);
+    assert_eq!(one(&["--patch=a"]), None);
+    assert_eq!(one(&["--patch"]), None);
+}
+
+#[test]
+fn a_route_overlay_binding_refuses_a_resolved_path_that_is_not_a_regular_file() {
+    // `resolved` canonicalizes inside the layer but is a directory: the
+    // binding is absent, and the adapter's pre-work failure to start is
+    // the one refusal (design D6 mechanism 1). The manifest names the
+    // path, so only the regular-file check keeps this from binding.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("as-directory")).unwrap();
+    let mut bundle = bundle(dir.path(), single_body(vec!["missing-driver".into()]));
+    bundle.manifest["files"]["as-directory"] = json!("a".repeat(64));
+    let command = vec!["--patch".to_string(), "as-directory".to_string()];
+    assert!(route_overlay_binding(&bundle, &command, dir.path()).is_none());
 }

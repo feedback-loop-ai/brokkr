@@ -1916,6 +1916,71 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
         );
     }
 
+    // The shipped resume dispositions (operator ruling 2026-09-15). Codex
+    // `work-site` preserves main's harness/none AND inline/not-applicable
+    // rejoins as `supported`, keeping the historical 0.148.0 measurement and
+    // the applicable 0.153.4 with the dated current-accounting reference; the
+    // other three are new rejoins main does not perform and stay `unmeasured`.
+    let codex_resume = adapters.adapter("codex").unwrap().resume.shape("work-site");
+    let codex_resume = codex_resume.expect("codex declares work-site");
+    assert_eq!(codex_resume.status, ResumeStatus::Supported);
+    assert_eq!(
+        codex_resume.identity,
+        ResumeIdentity::Measured {
+            version: "0.148.0".into(),
+            applies_to: "0.153.4".into(),
+            wrapper_digest: None,
+        }
+    );
+    assert_eq!(
+        codex_resume.boundaries,
+        vec!["harness".to_string(), "not applicable".to_string()]
+    );
+    assert_eq!(codex_resume.hands, "none");
+    for reference in [
+        &codex_resume.evidence.interface,
+        &codex_resume.evidence.restrictions,
+        &codex_resume.evidence.root,
+        &codex_resume.evidence.accounting,
+    ] {
+        assert!(reference.is_some(), "a supported shape names all four");
+    }
+    for (provider, shape) in [
+        ("claude", "boxed-workspace"),
+        ("dsh", "headless-work"),
+        ("lanetally", "wrapper-work-site"),
+    ] {
+        let entry = adapters
+            .adapter(provider)
+            .unwrap()
+            .resume
+            .shape(shape)
+            .unwrap_or_else(|| panic!("{provider} declares {shape}"));
+        assert_eq!(
+            entry.status,
+            ResumeStatus::Unmeasured,
+            "{provider} is not enabled by the Codex ruling"
+        );
+        assert!(
+            entry
+                .reason
+                .as_deref()
+                .is_some_and(|why| why.contains("main does not perform")),
+            "{provider} names its non-shipping disposition"
+        );
+    }
+    match &adapters
+        .adapter("dsh")
+        .unwrap()
+        .resume
+        .shape("headless-work")
+        .unwrap()
+        .identity
+    {
+        ResumeIdentity::Measured { wrapper_digest, .. } => assert!(wrapper_digest.is_none()),
+        other => panic!("dsh stays a measured identity: {other:?}"),
+    }
+
     let library = Library::load(&root.join("agents")).expect("the shipped library loads");
     let resolution = resolve(
         &library,
@@ -1937,4 +2002,455 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
         .find(|candidate| candidate.model == "fable")
         .expect("the reviewer chains fable");
     assert_eq!(&fable.harness, claude);
+}
+
+// --------------------------------------------- the resume assessment
+
+/// One well-formed measured assessment, as an adapter that HAD measured
+/// its shape would declare it.
+fn supported_resume() -> Value {
+    json!({
+        "work-site": {
+            "status": "supported",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+            "classes": ["work"],
+            "boundaries": ["namespace"],
+            "hands": "boxed",
+            "evidence": {
+                "interface": "probe of 2026-09-09",
+                "restrictions": "class re-imposition observed",
+                "root": "the same root id came back, and it persists",
+                "accounting": "the current-work cursor is the turn index"
+            }
+        }
+    })
+}
+
+fn with_resume(resume: Value) -> Tree {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &agent_body());
+    let mut adapter = claude_body();
+    adapter["resume"] = resume;
+    tree.write("adapters/claude.json", &adapter);
+    tree
+}
+
+/// Proposed decision 0056 ruling 5: the three statuses load, and only a
+/// MEASURED identity with all four evidence references can support
+/// enablement.
+#[test]
+fn each_resume_status_loads_and_only_a_measured_supported_shape_enables_anything() {
+    let tree = with_resume(supported_resume());
+    let adapters = tree.adapters();
+    let adapter = adapters.adapter("claude").unwrap();
+    assert_eq!(
+        adapter.resume.shape("work-site").map(|shape| shape.status),
+        Some(ResumeStatus::Supported)
+    );
+    // A shape this assessment does not name is absent, and so is a
+    // shape on an adapter that declares nothing at all: absent loads,
+    // compiles and invokes cold.
+    assert!(adapter.resume.shape("some-other-shape").is_none());
+    let bare = ready();
+    let bare_adapters = bare.adapters();
+    let bare_adapter = bare_adapters.adapter("claude").unwrap();
+    assert!(bare_adapter.resume.is_empty());
+    assert!(
+        bare_adapter.resume.shape("work-site").is_none(),
+        "an absent `resume` key loads and enables nothing"
+    );
+    assert_eq!(
+        bare_adapter.resume.value(),
+        Value::Null,
+        "and reaches the driver as an explicit absence, never as implicit support"
+    );
+
+    // The two honest unmeasured shapes an adapter must be able to write
+    // BEFORE anything is measured: an unknown identity with its reason,
+    // and a measured identity that does not qualify the installed
+    // version. Neither is an authoring error and neither enables
+    // anything.
+    for identity in [
+        json!({"unknown": "no wrapper measurement exists yet"}),
+        json!({"version": "0.148.0", "applies_to": "0.153.4"}),
+    ] {
+        let tree = with_resume(json!({"work-site": {
+            "status": "unmeasured",
+            "identity": identity,
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+            "reason": "the installed version has not been remeasured"
+        }}));
+        let adapters = tree.adapters();
+        assert_eq!(
+            adapters
+                .adapter("claude")
+                .unwrap()
+                .resume
+                .shape("work-site")
+                .map(|shape| shape.status),
+            Some(ResumeStatus::Unmeasured)
+        );
+    }
+
+    // An unsupported shape carries its measured reason and loads.
+    let tree = with_resume(json!({"work-site": {
+        "status": "unsupported",
+        "identity": {"version": "0.1.2-rc.1", "applies_to": "0.1.2-rc.1"},
+        "classes": ["work"], "boundaries": ["not applicable"], "hands": "none",
+        "reason": "the runner mints its own agent and takes no session selector"
+    }}));
+    let adapters = tree.adapters();
+    let shape = adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(shape.status, ResumeStatus::Unsupported);
+    assert!(shape.reason.is_some());
+}
+
+/// The closed data the driver reads out of its private start context:
+/// every field, in both identity forms, for each of the three statuses.
+/// This is the whole of what crosses into the adapter — no evidence
+/// database, no probe, no path by which a declaration enables itself.
+#[test]
+fn the_assessment_reaches_the_driver_as_closed_data_in_both_identity_forms() {
+    let tree = with_resume(json!({
+        "work-site": supported_resume()["work-site"],
+        "wrapper-site": {
+            "status": "unsupported",
+            "identity": {"unknown": "no wrapper measurement exists"},
+            "classes": ["work"], "boundaries": ["harness"], "hands": "none",
+            "reason": "a wrapper is qualified on its own wrapper",
+            "limitations": ["the underlying version is read through no measured interface"]
+        }
+    }));
+    let adapters = tree.adapters();
+    let value = adapters.adapter("claude").unwrap().resume.value();
+    assert_eq!(value["work-site"]["status"], "supported");
+    assert_eq!(value["work-site"]["identity"]["version"], "1.2.3");
+    assert_eq!(value["work-site"]["identity"]["applies_to"], "1.2.3");
+    assert_eq!(
+        value["work-site"]["evidence"]["accounting"],
+        "the current-work cursor is the turn index"
+    );
+    assert_eq!(value["work-site"]["reason"], Value::Null);
+    assert_eq!(value["wrapper-site"]["status"], "unsupported");
+    assert_eq!(
+        value["wrapper-site"]["identity"]["unknown"],
+        "no wrapper measurement exists"
+    );
+    assert_eq!(value["wrapper-site"]["evidence"]["root"], Value::Null);
+    assert_eq!(
+        value["wrapper-site"]["limitations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    // The three words are the three words, and nothing else is one.
+    assert_eq!(ResumeStatus::Unmeasured.word(), "unmeasured");
+    assert_eq!(ResumeStatus::Unsupported.word(), "unsupported");
+    assert_eq!(ResumeStatus::Supported.word(), "supported");
+}
+
+/// The other half of the same distinction (task repairs F2 and F6):
+/// data that is PRESENT and malformed is a loader refusal naming the
+/// field, never a silent downgrade to `unmeasured`. An authoring error
+/// must not be able to pass itself off as honest ignorance.
+#[test]
+fn present_and_malformed_resume_data_is_refused_and_never_read_as_unmeasured() {
+    for (case, resume, expected) in [
+        ("bare true", json!(true), "must be an object"),
+        (
+            "unknown status token",
+            json!({"work-site": {"status": "probably",
+                   "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "needs 'status'",
+        ),
+        (
+            "supported with an unknown identity",
+            json!({"work-site": {"status": "supported",
+                   "identity": {"unknown": "nobody looked"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"interface": "i", "restrictions": "r",
+                                "root": "o", "accounting": "a"}}}),
+            "only a MEASURED identity can support enablement",
+        ),
+        // Each of the four, missing on its own. One does not imply the
+        // others, so any one of them absent leaves the shape unsupported.
+        (
+            "supported missing its accounting evidence",
+            json!({"work-site": {"status": "supported",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"interface": "i", "restrictions": "r", "root": "o"}}}),
+            "must name all four evidence references",
+        ),
+        (
+            "supported missing its root evidence",
+            json!({"work-site": {"status": "supported",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"interface": "i", "restrictions": "r", "accounting": "a"}}}),
+            "must name all four evidence references",
+        ),
+        (
+            "supported missing its restriction evidence",
+            json!({"work-site": {"status": "supported",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"interface": "i", "root": "o", "accounting": "a"}}}),
+            "must name all four evidence references",
+        ),
+        (
+            "supported missing its interface evidence",
+            json!({"work-site": {"status": "supported",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"restrictions": "r", "root": "o", "accounting": "a"}}}),
+            "must name all four evidence references",
+        ),
+        (
+            "an empty limitation",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "limitations": [""]}}),
+            "bounded non-empty line",
+        ),
+        (
+            "unsupported with no measured reason",
+            json!({"work-site": {"status": "unsupported",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "needs its measured 'reason'",
+        ),
+        (
+            "neither identity form",
+            json!({"work-site": {"status": "unmeasured", "identity": {},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "non-empty string 'version'",
+        ),
+        (
+            "no identity at all",
+            json!({"work-site": {"status": "unmeasured",
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "is required: either the measured form",
+        ),
+        (
+            "an identity that is not an object",
+            json!({"work-site": {"status": "unmeasured", "identity": "1.2.3",
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "is required: either the measured form",
+        ),
+        (
+            "an evidence key behind the four",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"vibes": "good"}}}),
+            "unknown key 'vibes'",
+        ),
+        (
+            "an unbounded evidence reference",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "evidence": {"interface": "x".repeat(401)}}}),
+            "bounded non-empty line",
+        ),
+        (
+            "an unbounded limitation",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "limitations": ["x".repeat(401)]}}),
+            "bounded non-empty line",
+        ),
+        (
+            "a class outside the grammar",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["Work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "does not match",
+        ),
+        (
+            "unknown identity with no reason",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": ""},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "non-empty string 'unknown'",
+        ),
+        (
+            "a shape name outside the grammar",
+            json!({"Work Site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "does not match",
+        ),
+        (
+            "a key behind the closed shape",
+            json!({"work-site": {"status": "unmeasured", "identity": {"unknown": "why"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "probe": ["run", "this"]}}),
+            "unknown key 'probe'",
+        ),
+        (
+            "a measured identity with a key behind the set",
+            json!({"work-site": {"status": "unmeasured",
+                   "identity": {"version": "1.2.3", "applies_to": "1.2.3", "probe": "x"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}}),
+            "unknown key 'probe'",
+        ),
+        (
+            "an unbounded reason",
+            json!({"work-site": {"status": "unsupported",
+                   "identity": {"version": "1", "applies_to": "1"},
+                   "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed",
+                   "reason": "x".repeat(401)}}),
+            "bounded non-empty line",
+        ),
+    ] {
+        let tree = with_resume(resume);
+        let error = tree.adapters_error();
+        assert!(
+            error.contains(expected),
+            "{case}: expected a refusal naming {expected:?}, got {error}"
+        );
+    }
+}
+
+/// Design D6 / task 8.8(a): the optional `wrapper_digest` member is
+/// admitted in the measured form only, carried into the closed data the
+/// driver reads, moves the adapter content digest, and is refused by name
+/// when malformed or placed beside the unknown form.
+#[test]
+fn the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name() {
+    let digest = "a".repeat(64);
+
+    // Absent: a measured identity without the member still loads.
+    let plain = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3"},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let plain_adapters = plain.adapters();
+    let shape = plain_adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(
+        shape.identity,
+        ResumeIdentity::Measured {
+            version: "1.2.3".into(),
+            applies_to: "1.2.3".into(),
+            wrapper_digest: None,
+        }
+    );
+
+    // Present and well formed: loaded and carried in the closed data.
+    let wrapped = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3", "wrapper_digest": digest},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let wrapped_adapters = wrapped.adapters();
+    let shape = wrapped_adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(
+        shape.identity,
+        ResumeIdentity::Measured {
+            version: "1.2.3".into(),
+            applies_to: "1.2.3".into(),
+            wrapper_digest: Some(digest.clone()),
+        }
+    );
+    assert_eq!(shape.identity.value()["wrapper_digest"], json!(digest));
+    // The adapter content digest moves when the member moves.
+    assert_ne!(
+        plain_adapters.digest("claude"),
+        wrapped_adapters.digest("claude")
+    );
+
+    // A digest whose bytes are decimal digits is the other half of the
+    // lowercase-hex predicate: `0` is a hex character, so it loads.
+    let digits = "0".repeat(64);
+    let numeric = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"version": "1.2.3", "applies_to": "1.2.3", "wrapper_digest": digits},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let numeric_adapters = numeric.adapters();
+    let shape = numeric_adapters
+        .adapter("claude")
+        .unwrap()
+        .resume
+        .shape("work-site")
+        .unwrap();
+    assert_eq!(
+        shape.identity,
+        ResumeIdentity::Measured {
+            version: "1.2.3".into(),
+            applies_to: "1.2.3".into(),
+            wrapper_digest: Some(digits.clone()),
+        }
+    );
+
+    // Malformed: refused, naming the field.
+    for bad in [
+        json!("A".repeat(64)),
+        json!("a".repeat(63)),
+        json!("a".repeat(65)),
+        json!("g".repeat(64)),
+    ] {
+        let tree = with_resume(json!({
+            "work-site": {"status": "unmeasured",
+                "identity": {"version": "1.2.3", "applies_to": "1.2.3", "wrapper_digest": bad},
+                "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+        }));
+        let error = tree.adapters_error();
+        assert!(error.contains("wrapper_digest"), "{error}");
+    }
+
+    // Beside `unknown`: the unknown form admits `unknown` alone.
+    let tree = with_resume(json!({
+        "work-site": {"status": "unmeasured",
+            "identity": {"unknown": "why", "wrapper_digest": digest},
+            "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
+    }));
+    let error = tree.adapters_error();
+    assert!(error.contains("unknown key 'wrapper_digest'"), "{error}");
+}
+
+/// The assessment is adapter DATA: it rides the declaration digest, so a
+/// declaration edit moves every bundle identity that consults it. That
+/// is what makes decision 0030 ruling 4's "an adapter edit spawns cold"
+/// hold for this field too.
+#[test]
+fn an_edited_resume_assessment_moves_the_adapter_digest() {
+    let before = ready();
+    let after = with_resume(supported_resume());
+    assert_ne!(
+        before.adapters().digest("claude").unwrap(),
+        after.adapters().digest("claude").unwrap()
+    );
+    // And the resolved candidate carries the assessment to the engine,
+    // which holds no adapter at spawn.
+    assert_eq!(
+        resolved(&after, &Availability::unspecified()).candidates[0]
+            .resume
+            .shape("work-site")
+            .map(|shape| shape.status),
+        Some(ResumeStatus::Supported)
+    );
+    // The bare adapter declares no map at all, so the candidate carries
+    // no shape — which the gate reads exactly as it reads `unmeasured`.
+    assert!(
+        resolved(&before, &Availability::unspecified()).candidates[0]
+            .resume
+            .shape("work-site")
+            .is_none()
+    );
 }

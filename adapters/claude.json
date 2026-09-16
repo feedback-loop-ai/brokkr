@@ -62,5 +62,33 @@
       "--allowedTools",
       "mcp__brokkr__workspace"
     ]
+  },
+  "resume": {
+    "boxed-workspace": {
+      "status": "unmeasured",
+      "identity": {
+        "version": "2.1.266",
+        "applies_to": "2.1.266"
+      },
+      "classes": [
+        "work"
+      ],
+      "boundaries": [
+        "namespace",
+        "seatbelt",
+        "container"
+      ],
+      "hands": "boxed",
+      "evidence": {
+        "interface": ".forge/controller-host-provider-interface.json (2026-09-09) and the installed 2.1.266 help: -r/--resume [value], --permission-mode, --tools, --strict-mcp-config, --mcp-config, --allowedTools, --no-session-persistence, --system-prompt-snapshot"
+      },
+      "reason": "main does not perform this rejoin: the 2.1.266 interface is captured and partial controller and September 10 probes observed resumed behavior, but complete rejoin enforcement, the filesystem boundary and flag precedence remain unmeasured on installed 2.1.270, so this new shape stays disabled",
+      "limitations": [
+        "controller captures and a September 10 same-root cold+warm probe on 2.1.266 observed root continuity, an expired Read grant renewed, the new Read grant operating, Write and MCP tools removed on the rejoin, init tool/server admission, raw message/tool ids, terminal totals and reconciled accounting",
+        "those observations are partial and do not establish the complete filesystem boundary or flag precedence for the installed 2.1.270, so no restriction or accounting evidence reference is claimed and no shape is enabled",
+        "--system-prompt-snapshot defaults to on and replays the recorded prompt verbatim on every resume, so the current task stays on the current user-input path",
+        "--bg with --resume may start a COPY of a running session, per the installed help; background, cloud, teleport, worktree, fork and continue selectors are refused on every path"
+      ]
+    }
   }
 }

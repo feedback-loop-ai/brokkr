@@ -14,10 +14,23 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro
+ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro · composite b2777e9a69a8b11c274c85811d55aaaf725ed4244b86956fdb2df50488b4477c plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
+
+The `dsh` line also reports the **composite** the adapter's own seam
+resolution reads (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or `dsh` on `PATH`,
+and `$DSH_HOME` or `$HOME/.dsh`): the canonical composite digest, the
+plugin component, and whether it equals, differs from or has no declared
+`wrapper_digest`. It is informational while no `supported` shape declares
+one, and a warning once one does and the installed home differs or is
+unreadable — an operator deploying the pair can see the digest their home
+must reproduce instead of reading an unexplained `unverified-harness`
+decline. It reads package metadata, the profile manifest, lock, plugin
+and patch files and spawns only the `dsh` and `node` version probes; it
+opens no seat's gate and grants no exemption from the current-restriction
+proof.
 
 The `boundaries` line (decision
 [0046](../decisions/0046-the-boundary-is-named.md) ruling 2) names what
@@ -235,6 +248,87 @@ Of claude, codex and dsh, then, a `harness` gate stands on codex today
 and on claude once measured. A dsh work seat with hands may run under
 `open` at its harness's default; its gate refuses under `namespace`
 for the untrusted tier and under `harness` for the missing gate fragment.
+
+## Resume — what has been measured, per named shape
+
+A work site's retry is offered the session that site's own earlier
+attempt opened (decision 0030, generalised by proposed decision 0056).
+The engine decides *whether to offer*; the adapter decides *whether it
+can be taken*. Those are two different questions, and the second one is
+answered from measurement, per named execution shape, in the
+declaration's `resume` key:
+
+| Field | Meaning |
+|---|---|
+| `status` | `unmeasured`, `unsupported` or `supported`. Only `supported` ever enables a rejoin. |
+| `identity` | Either `{"version": …, "applies_to": …}` — what was measured, and the installed version it is claimed to apply to — or `{"unknown": "<reason>"}`. Only a measured identity can support enablement. |
+| `classes`, `boundaries`, `hands` | The site facts the measurement covers. A shape measured under another boundary or hands mode is not measured *here*. |
+| `evidence` | Four independent references: `interface`, `restrictions`, `root`, `accounting`. A `supported` entry names all four. |
+| `reason`, `limitations` | Bounded prose. Required of every `unsupported` entry. |
+
+An **absent** `resume` key, or a shape the assessment does not name,
+reads as `unmeasured`: the adapter loads, the site compiles, and the
+invocation is cold. Data that is **present and malformed** — a bare
+`true`, a status outside the three words, a `supported` entry without a
+measured identity or missing one of its four evidence references, an
+`unsupported` entry with no measured reason — is a loader refusal naming
+the field. An authoring error must not be able to pass itself off as
+honest ignorance.
+
+The four requirements are separate because one does not imply the
+others. A captured `--help` is not enforcement — decision 0030's own
+measurement found a codex thread opened `-s read-only` writing files on
+a bare resume. One denied write is not permission binding, native-tool
+removal, MCP exclusion and grant renewal. And whether a resumed stream
+replays the turns you already paid for is a fact about that provider:
+until it is measured, a rejoin cannot be enabled at all, because nobody
+could attribute its totals.
+
+A measurement also expires with its version — for a shape Brokkr has not
+shipped. Each invocation of an enabled shape probes its executable's
+version once, through that harness's measured version interface, and
+compares it with the pinned assessment *and* with the version the offered
+root was opened under. A missing, unreadable or changed identity disables
+that new rejoin with `unverified-harness`. A rejoin main already performs
+is preserved instead: the operator's 2026-09-15 ruling, “keep decision
+0030's rejoin live, do not regress codex,” holds Codex's harness work
+seat live across the drift between its 0.148.0 measurement and the
+installed 0.153.4, with every observed identity, boundary, hands and
+accounting check still binding.
+
+### What the four shipped adapters say today
+
+| Adapter | Shape | Status | Why |
+|---|---|---|---|
+| `codex` | `work-site` | `supported` | **Preserved, not newly measured.** Main already rejoins this harness work seat under accepted decision 0030, and the operator's 2026-09-15 ruling keeps it live across the drift between 0030's **0.148.0** measurement and the installed **0.153.4**. The declaration scopes the measurement to `boundaries: ["harness", "not applicable"]` with `hands: "none"` — the engine-composed harness work seat main runs (`--sandbox workspace-write`, no boxed-hands marker) beside the author-written inline coordinate main also rejoins (`boundary: not applicable`, the argv's own `--sandbox` class) — and cites a September 10 bounded cold/warm probe on **0.153.4** for current-only accounting. Observed identity must still equal the declared applicability **0.153.4** and, where the offered root recorded one, the same opening version: a **0.148.0** observation or a **0.148.0** recorded origin still refuses, and every boundary, hands, ownership and accounting mismatch still refuses. A boxed Codex work seat keeps its MCP `-c` fragment, which main's resume allow-list already refuses; this declaration declines that coordinate as `restrictions-unavailable`. Full installed-version remeasurement and task 10.5/11.1 remain owed — preservation is not a new live measurement. |
+| `claude` | `boxed-workspace` | `unmeasured` | Main does not perform this rejoin. The 2.1.266 interface is captured — `--resume`, `--permission-mode`, `--tools`, `--strict-mcp-config`, `--mcp-config`, `--no-session-persistence`. Controller captures and a September 10 same-root cold+warm probe record resumed behavior: root continuity, an expired Read grant renewed, the new Read grant operating, Write and MCP tools removed on the rejoin, init tool/server admission, raw message and tool ids, terminal totals and reconciled accounting. They are partial, not an admission proof: the measured binary is **2.1.266** while the installed CLI is **2.1.270**, and the complete filesystem boundary and flag precedence are not established for the installed version, so no shape is enabled. |
+| `dsh` | `headless-work` | `unmeasured` | Main does not perform this rejoin. The exact route is selected: official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`, or the release answer N1 resolves in its place) with the repository-owned six-file adaptation of `dsh-plugin-cli-session` **0.2.0** at `0f487e74c81ed102c6899440d9f5d65e8e9eabda` under `extensions/dsh/plugin-cli-session/`, composed only in worktree- or task-owned storage through DSH's documented extension and `agents.resume` APIs. An isolated live cold+warm qualification (2026-09-12, `.forge/tasks/dsh-pair-qualification-015rc1.json`) emitted successful result envelopes, continued one root, recalled the nonce and reported per-message usage with the global pin unchanged and the installed bytes matching the provenance block. The route still stays disabled because consumer-side exact-root and independent-root confirmation, current headless model/effort and restriction precedence, a multi-message/retry current-sequence accounting boundary, and the declared composite digest are unmeasured, and the Rust route is unimplemented. The documented `--session <id>` extension interface is distinct from the installed **0.1.2-rc.1** one-shot runner, whose fresh-root result remains bounded history for that entry only. The operator's 2026-09-10 ruling reversed the earlier **0.1.0-rc.6** pin and superseded `.forge/tasks/dsh-pair-qualification-010rc6.json`; both are dated history, never the selected route, and the removal of `agent.session.events` was a measured pair incompatibility fixed by the one-expression adaptation, never a global DSH or extension limitation. The separate hands/tools plugin deferral is unrelated. |
+| `lanetally` | `wrapper-work-site` | `unmeasured` | Main does not perform this rejoin. Identity explicitly **unknown**: a wrapper is qualified on its own wrapper, never on what it wraps. Claude's captured interface says nothing about what this wrapper forwards, and support by analogy is what the field refuses. |
+
+So today the three unmeasured shapes spawn cold **and say so**, with the
+reason in the record, while Codex's harness work seat rejoins main's
+thread. That is the part of issue #226 that no measurement was waiting
+on: before this, claude and dsh reported no `launch` field at all, and an
+operator could not tell a warm retry from a cold one.
+
+Three limits this guide will not hide:
+
+- **A kill inside the held window leaves no session evidence.** The
+  launch and locator rows are held until work begins (decision 0053
+  ruling 8), so an attempt killed between the harness's announcement and
+  its first turn journals neither, and its retry starts cold. That is
+  ruling 1's price, named.
+- **The local origin check is not account authentication.**
+  `Store::started_here` says the run was created on this machine and
+  account. It cannot ask a provider who owns a session, and cannot see a
+  credential home re-pointed between two attempts a second apart. The
+  engine fails closed on a detectable owner rejection and does not
+  inspect credentials to invent a stronger guarantee.
+- **A charter instruction is not an engine guarantee.** The SDD smith is
+  told to persist task progress before the next group and to reconcile
+  it against the worktree on recovery; the tests prove both dialects'
+  smiths are told, and that an interrupted exercise recovers from what is
+  on disk. Whether a live model obeys is judgment's to check.
 
 A dsh **work** seat under `harness` is confined by dsh's own sandbox,
 which writes only under the session workspace. A linked `git worktree`

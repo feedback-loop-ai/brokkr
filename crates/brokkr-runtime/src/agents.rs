@@ -299,7 +299,202 @@ pub struct Adapter {
     /// than leaving a reader to wonder whether anyone ever looked.
     pub tool_permissions_gap: Option<String>,
     pub mcp: Option<McpSupport>,
+    /// Proposed decision 0056 ruling 5: what has actually been MEASURED
+    /// about resuming this provider, per named execution shape. Absent
+    /// reads as an empty assessment, under which every shape is
+    /// unmeasured and nothing is enabled — the fail-closed reading
+    /// `hands` already uses, and the reading every adapter written
+    /// before this ruling gets.
+    pub resume: ResumeAssessment,
     pub digest: String,
+}
+
+/// Which of the three things is true of one named execution shape. The
+/// vocabulary is closed and the distinction between the first two is
+/// load-bearing: a shape nobody has measured is not a shape someone
+/// measured and found wanting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeStatus {
+    Unmeasured,
+    Unsupported,
+    Supported,
+}
+
+impl ResumeStatus {
+    pub fn word(self) -> &'static str {
+        match self {
+            ResumeStatus::Unmeasured => "unmeasured",
+            ResumeStatus::Unsupported => "unsupported",
+            ResumeStatus::Supported => "supported",
+        }
+    }
+}
+
+/// Whose behaviour the assessment describes. Two explicit forms, and the
+/// second exists because an honest `unmeasured` declaration has to be
+/// WRITABLE before anything is measured: a shape whose CLI or wrapper
+/// nobody has identified yet says so, with its reason, rather than
+/// inventing a version or being omitted.
+///
+/// Only `Measured` can support enablement, which is what leaves the
+/// per-invocation version check a pinned version to compare the observed
+/// one against wherever resume is enabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResumeIdentity {
+    Measured {
+        /// The CLI or wrapper version the assessment was measured on.
+        version: String,
+        /// The installed version it is claimed to apply to. Where the
+        /// two differ, a NEW, never-supported shape must not be
+        /// `supported`: its measurement does not transfer. A shape main
+        /// already ships is preserved across that drift — the operator's
+        /// 2026-09-15 ruling, “keep decision 0030's rejoin live, do not
+        /// regress codex” — with every observed/origin identity,
+        /// boundary, hands and accounting check still binding (proposed
+        /// decision 0056 ruling 5).
+        applies_to: String,
+        /// The optional declared composite identity for a provider whose
+        /// runner is a composed set of packages rather than a single
+        /// binary (design D6). 64 lowercase hex, checked at load; absent
+        /// for every provider whose identity is the version alone.
+        wrapper_digest: Option<String>,
+    },
+    Unknown {
+        reason: String,
+    },
+}
+
+impl ResumeIdentity {
+    fn value(&self) -> Value {
+        match self {
+            ResumeIdentity::Measured {
+                version,
+                applies_to,
+                wrapper_digest,
+            } => {
+                let mut object = json!({"version": version, "applies_to": applies_to});
+                if let Some(digest) = wrapper_digest {
+                    object["wrapper_digest"] = Value::String(digest.clone());
+                }
+                object
+            }
+            ResumeIdentity::Unknown { reason } => json!({"unknown": reason}),
+        }
+    }
+
+    fn is_measured(&self) -> bool {
+        matches!(self, ResumeIdentity::Measured { .. })
+    }
+}
+
+/// The four independent observations a `supported` shape names. They are
+/// separate because one of them does not imply the others: a captured
+/// interface is not enforcement, and one denied write is not permission
+/// binding, native-tool removal, MCP exclusion and grant renewal.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResumeEvidence {
+    pub interface: Option<String>,
+    pub restrictions: Option<String>,
+    pub root: Option<String>,
+    pub accounting: Option<String>,
+}
+
+impl ResumeEvidence {
+    fn complete(&self) -> bool {
+        self.interface.is_some()
+            && self.restrictions.is_some()
+            && self.root.is_some()
+            && self.accounting.is_some()
+    }
+
+    fn value(&self) -> Value {
+        json!({
+            "interface": self.interface,
+            "restrictions": self.restrictions,
+            "root": self.root,
+            "accounting": self.accounting,
+        })
+    }
+}
+
+/// One named execution shape's assessment. Closed and compact by design
+/// (design D5): the admission-relevant facts and nothing behind them —
+/// no evidence database, no probe DSL, no version-range resolver, and no
+/// path by which a declaration enables itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumeShape {
+    pub status: ResumeStatus,
+    pub identity: ResumeIdentity,
+    /// Which site classes this shape covers, in the `work`/`gate`
+    /// vocabulary. A gate is never offered a session whatever this says;
+    /// the field exists so a shape measured only for work seats cannot
+    /// be read as covering more.
+    pub classes: Vec<String>,
+    /// Which boundaries this shape was measured under, in decision
+    /// 0046's five words plus the sentinel.
+    pub boundaries: Vec<String>,
+    /// `boxed`, `harness` or `none` — which hands mode was in force.
+    pub hands: String,
+    pub evidence: ResumeEvidence,
+    pub limitations: Vec<String>,
+    /// The MEASURED reason a shape is unsupported. Required of every
+    /// `unsupported` entry: "we looked and it cannot" is a different
+    /// statement from "nobody looked", and only one of them is evidence.
+    pub reason: Option<String>,
+}
+
+impl ResumeShape {
+    fn value(&self) -> Value {
+        json!({
+            "status": self.status.word(),
+            "identity": self.identity.value(),
+            "classes": self.classes,
+            "boundaries": self.boundaries,
+            "hands": self.hands,
+            "evidence": self.evidence.value(),
+            "limitations": self.limitations,
+            "reason": self.reason,
+        })
+    }
+}
+
+/// One adapter's whole resume assessment: named shape → what is known
+/// about it. An empty assessment is the honest reading of an adapter
+/// that declares nothing, and it enables nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResumeAssessment(BTreeMap<String, ResumeShape>);
+
+impl ResumeAssessment {
+    pub fn new(shapes: BTreeMap<String, ResumeShape>) -> ResumeAssessment {
+        ResumeAssessment(shapes)
+    }
+
+    /// What this adapter says about one named shape. A shape the
+    /// assessment does not name is absent — the site compiles and invokes
+    /// cold, and nothing is enabled; the driver's gate reads the same
+    /// absence as `unsupported-resume`.
+    pub fn shape(&self, shape: &str) -> Option<&ResumeShape> {
+        self.0.get(shape)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The closed data the driver reads out of its private start
+    /// context. `Null` for an adapter that declares nothing, which the
+    /// driver reads as unmeasured, never as implicit support.
+    pub fn value(&self) -> Value {
+        if self.0.is_empty() {
+            return Value::Null;
+        }
+        Value::Object(
+            self.0
+                .iter()
+                .map(|(name, shape)| (name.clone(), shape.value()))
+                .collect(),
+        )
+    }
 }
 
 /// How a gate seat's result reaches the engine under the `harness`
@@ -371,6 +566,12 @@ pub struct Candidate {
     /// The adapter's `hands.harness`, carried to the engine, which holds
     /// no adapter at spawn.
     pub harness: HarnessHands,
+    /// The resolved provider's resume assessment (proposed decision 0056
+    /// ruling 5), carried here for the same reason `harness` is: the
+    /// engine holds no adapter at spawn, and the driver's private start
+    /// context is built there. Empty for an inline site, which no
+    /// adapter answers for.
+    pub resume: ResumeAssessment,
 }
 
 /// An optional-capability gap: a WARNING that lands in the run manifest.
@@ -834,6 +1035,18 @@ pub(crate) fn resolve_report(
             argv: entry.argv.clone(),
             hands_fragment: entry.hands_fragment.clone(),
             harness: entry.harness.clone(),
+            // The resolved provider's own assessment, carried beside
+            // its harness declaration for the same reason: the engine
+            // holds no adapter at spawn. An unmapped provider cannot
+            // reach here — `resolve_report` refuses one above — so an
+            // empty assessment here is an adapter that declares none,
+            // which enables nothing.
+            resume: entry
+                .provider
+                .as_deref()
+                .and_then(|provider| adapters.adapter(provider))
+                .map(|adapter| adapter.resume.clone())
+                .unwrap_or_default(),
         })
         .collect();
     let skipped: Vec<Value> = report.entries[..chosen]

@@ -124,7 +124,9 @@ const TRIAGE: &Roster = &[
     (
         "implement:design",
         "claude-opus-5",
-        "7218965b11a5c32277001d7ad6aafa4043e950974e2a9c7aff9063b3c338aaff",
+        // Moved by proposed decision 0056 ruling 10: the SDD smith's
+        // charter gained the progress-timing and recovery clauses.
+        "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
     ),
     (
         "review:design:positions:spec-compliance",
@@ -149,7 +151,9 @@ const TRIAGE: &Roster = &[
     (
         "tasks:author",
         "claude-opus-5",
-        "7218965b11a5c32277001d7ad6aafa4043e950974e2a9c7aff9063b3c338aaff",
+        // Moved by proposed decision 0056 ruling 10: the SDD smith's
+        // charter gained the progress-timing and recovery clauses.
+        "ce6456bf7466cddf9ff73a18ab3e4ce0df9ecfb0a490d1940dbcaabe9aa1e07c",
     ),
     (
         "clarify:judge",
