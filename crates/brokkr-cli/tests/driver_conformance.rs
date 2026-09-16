@@ -2062,13 +2062,19 @@ fn proof_shim_body(dir: &Path, offered: &str) -> String {
 /// refused shape's exact composed Start can be forwarded unchanged.
 fn make_proof_recorder(dir: &Path) -> PathBuf {
     let path = dir.join("recorder");
-    let log = dir.join("start.log");
+    // One file per invocation, never a shared append. A composed `start`
+    // is kilobytes long and several seats record concurrently; an append
+    // that large has no atomicity guarantee, so a shared log interleaves
+    // and a reader meets half a line. Linux happened to win that race and
+    // macOS did not — the bug was always there.
+    let log = dir.join("starts");
+    std::fs::create_dir_all(&log).unwrap();
     let body = format!(
         "#!/bin/sh\n\
          read -r hello\n\
          printf '%s\\n' '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"cap\",\"type\":\"capabilities\",\"driver\":\"test\",\"version\":\"1\",\"supports\":[]}}'\n\
          read -r start\n\
-         printf '%s\\n' \"$start\" >> {log}\n\
+         printf '%s\\n' \"$start\" > {log}/$$.json\n\
          eid=$(printf '%s' \"$start\" | sed -n 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
          aid=$(printf '%s' \"$start\" | sed -n 's/.*\"attempt_id\":\"\\([^\"]*\\)\".*/\\1/p')\n\
          printf '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"a\",\"type\":\"accepted\",\"effect_id\":\"%s\",\"attempt_id\":\"%s\",\"session_ref\":null}}\\n' \"$eid\" \"$aid\"\n\
@@ -2120,14 +2126,21 @@ fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
     let store = Store::open(&run_dir.join("forge.db")).unwrap();
     let mut engine = Engine::start(store, bundle, "proofs", Some(run_dir.join("work"))).unwrap();
     let _ = engine.drive();
-    let text = std::fs::read_to_string(run_dir.join("start.log")).unwrap_or_default();
-    for line in text.lines() {
-        let value: Value = serde_json::from_str(line).unwrap();
+    let mut seen = Vec::new();
+    let dir = run_dir.join("starts");
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        let Some(line) = text.lines().next() else {
+            continue;
+        };
+        let value: Value = serde_json::from_str(line)
+            .unwrap_or_else(|error| panic!("{}: {error}: {line:?}", entry.path().display()));
         if value["seat"] == label {
             return value["input"].clone();
         }
+        seen.push(value["seat"].clone());
     }
-    panic!("the engine composed no start for '{label}': {text:?}");
+    panic!("the engine composed no start for '{label}'; it composed {seen:?}");
 }
 
 /// Design D10 item 1: the compiled no-hands shapes (single and panel

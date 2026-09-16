@@ -3266,6 +3266,9 @@ fn a_claude_argument_that_selects_a_conversation_refuses_before_any_provider_wor
 /// the alias pair `--allowedTools`/`--allowed-tools` — is how a last-wins
 /// CLI would silently replace the plan the engine composed, so it is
 /// refused before any provider work on cold and resume alike.
+// Unix only: the warm half stands a `#!/bin/sh` shim behind the version
+// probe, and `executable`/`version_preamble` are Unix-only helpers.
+#[cfg(unix)]
 #[test]
 fn claude_refuses_a_duplicate_or_valueless_authoritative_restriction() {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
@@ -4540,31 +4543,47 @@ fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
          printf '\\377\\n'\n\
          printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
     );
-    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-    let launch = DshLaunch {
-        command: vec![shim.to_string_lossy().into_owned()],
-        rejoining: None,
-        refusal: None,
-        observed: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: None,
-        stream_json: true,
-        effortless: true,
-        facts: crate::hands::GitFacts::default(),
-        staged: None,
-        first_seq: None,
-        locator: "seat".to_string(),
-        root: root.clone(),
-        overlay,
+    // `Text file busy` is not this test's subject. A shim written moments
+    // ago can still be held open for writing by a concurrently forked
+    // child, and `exec` then refuses with ETXTBSY (#255); the window
+    // widens under the instrumented coverage run, which is where it has
+    // actually been seen. The plan owns its overlay and cannot be cloned,
+    // so each attempt builds its own, and every other error is raised
+    // untouched on the first try.
+    let mut attempt = 0;
+    let (invocation, _emitted) = loop {
+        let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
+        let launch = DshLaunch {
+            command: vec![shim.to_string_lossy().into_owned()],
+            rejoining: None,
+            refusal: None,
+            observed: Some("0.1.5-rc.1".to_string()),
+            wrapper_digest: None,
+            stream_json: true,
+            effortless: true,
+            facts: crate::hands::GitFacts::default(),
+            staged: None,
+            first_seq: None,
+            locator: "seat".to_string(),
+            root: root.clone(),
+            overlay,
+        };
+        let mut round = Vec::new();
+        match invoke_dsh_launch(
+            launch,
+            "the prompt",
+            dir.path().to_str().unwrap(),
+            &mut |value| round.push(value.clone()),
+            |_| panic!("the qualified arm does not poll the child"),
+        ) {
+            Ok(invocation) => break (invocation, round),
+            Err(problem) if problem.contains("Text file busy") && attempt < 20 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(problem) => panic!("{problem}"),
+        }
     };
-    let mut emitted = Vec::new();
-    let invocation = invoke_dsh_launch(
-        launch,
-        "the prompt",
-        dir.path().to_str().unwrap(),
-        &mut |value| emitted.push(value.clone()),
-        |_| panic!("the qualified arm does not poll the child"),
-    )
-    .unwrap();
     assert_eq!(invocation.launch, LaunchTerminal::Cold);
     assert!(
         invocation.session_meta.get("session_id").is_none(),

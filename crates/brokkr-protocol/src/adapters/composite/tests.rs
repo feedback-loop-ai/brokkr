@@ -570,6 +570,8 @@ fn npm_versions_with_any_whitespace_are_unreadable() {
     );
 }
 
+// Unix only: the case is a symlinked ancestor, and Windows has no std::os::unix::fs::symlink.
+#[cfg(unix)]
 #[test]
 fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
     // Council return 2026-09-13: the containment boundary is canonical,
@@ -589,6 +591,8 @@ fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
     assert_eq!(base.canonical, same.canonical);
 }
 
+// Unix only: a broken symlink is the input under test.
+#[cfg(unix)]
 #[test]
 fn containment_compares_canonical_components_not_string_prefixes() {
     // A near-prefix sibling (`headless-extra`) is outside the canonical
