@@ -49,7 +49,12 @@ the green production base.
 On the specify return, strict change validation and all 15 OpenSpec items
 passed again, with zero failures; `git diff --check` passed. The amended
 proposal records current validation and D0's pending scope authorization.
-No new Rust or measurement results are claimed by this artifact update.
+No new Rust or measurement results are claimed by that artifact update. The
+second-visit commission for #277 cleared both blockers: it widened D0's fence
+and reported a warmed, cargo-verified box. Formatting, clippy, the workspace
+suites, both bundle compiles, the removal proofs and the D8 measurements are
+now recorded in the implementation-evidence section below; only host
+exact-coverage equality and final-head remote CI remain controller work.
 
 ## Goals / Non-Goals
 
@@ -109,21 +114,19 @@ six-turn navigation coverage and add or adapt the projected-source surface
 case only after the named test scope is authorized. The existing structural
 cap and partial-assembly refresh scenarios remain required.
 
-Disposition: adopt the finding and the narrowly specified amendment; its
-**authorization remains upstream** because the commission's express file
-fence is not superseded by an artifact written by a seat. The house rule
-requiring tests establishes the need for these edits, not permission to
-ignore that fence. The controller/operator must authorize the amendment
-before tasks can claim the full implementation lies within scope. No such
-authorization appears in this return's supplied context.
+Disposition: adopt the finding and the narrowly specified amendment. The
+second-visit commission for #277 **authorized the amendment and widened the
+fence** to the three named CLI/TUI test files, and verified `cargo` in the
+warmed box; that authorization supersedes the earlier pending state. The
+implementation corrected those assertions to the merged shape and added the
+surface and refresh proofs, with no production change beyond the named
+`ui.rs` header repair.
 
 Rejected alternatives remain: retain old CLI indices only in tests; make CLI
 undo coalescing; skip or weaken the contradictory integration test; or declare
 workspace success based only on the view crate. Each defeats the shared
-projection or required verification. This is an upstream scope dependency,
-not a downstream coding choice or a claim that the design is implemented.
-The return updates only OpenSpec artifacts; test and production files remain
-unchanged. D1-D9's technical decisions are adopted without a new council.
+projection or required verification. D1-D9's technical decisions are adopted
+without a new council.
 
 ### D1. Collect complete-prefix facts, then project a bounded prefix
 
@@ -535,3 +538,80 @@ amendment is recorded in the proposal, but authorization to cross the test-file
 fence remains an upstream prerequisite, not an optional question. Measurement
 outcomes, remaining coverage regions and controller host/remote results are pending
 evidence; they cannot be replaced by predictions or declared passed here.
+
+## Implementation evidence (second visit for #277)
+
+The controller authorized D0's fence amendment and verified `cargo` in the
+warmed box. The merge, the shared `DISPLAY_EVENT_COST = 512` charge, the
+two-pass bounded DSH projection and the blockless guard are implemented in
+`crates/brokkr-view/src/transcript.rs`; the Codex association observation
+and the header true-EOF length predicate are preserved and re-proved.
+
+**Removal proofs** (mutate one protection, run its targeted test, observe
+the intended assertion fail, restore and pass):
+
+| Protection | Mutation | Failing assertion observed |
+|---|---|---|
+| Packed coalescing | expand one payload event per token, coalesce later | `packed_candidates() == 1` failed: left `1001`, right `1`; returned turns still `1` |
+| Structural charge | drop `DISPLAY_EVENT_COST` from `display_cost` | `display_cost(&[text("x")])` left `Some(1)`, right `Some(513)` |
+| Intermediate retention | uncapped `admit`, final `display_cap` intact | `peak_retained() <= 7_812` failed while the returned prefix stayed 7,797 |
+| Blockless guard | retain every ordinary event | retained slots left `3`, right `1` |
+| Codex key sharing (Count) | fresh `Rc::from` at the count site | during-pass pointer/count left `[(Count,false,2),…]`, right `[(Count,true,3),…]` |
+| Codex key sharing (Lookup) | fresh `Rc::from` at the lookup site | during-pass left `[…,(Lookup,false,4)]`, right `[…,(Lookup,true,5)]` |
+| Header true EOF | overflow-probe-only predicate | cap-plus-one at EOF left `None`, right `Some(DiscoveryLimit)` |
+
+**Measurement method.** `/usr/bin/time -v` around the release-built
+`brokkr_view` test executable directly, not Cargo, running the ignored
+`transcript::tests::measure_projection_peak` (or `measure_input_only` /
+`measure_parse_only`) with `BROKKR_MEASURE_FILE` naming a fixture. Three
+fresh processes per case; the maximum observed peak is reported. Fixtures
+were generated outside the frozen corpus into `target/measure/` with
+`python3`: a version-zero header plus text packed rows whose members are
+one-character tokens at one-millisecond gaps, valid positions, consecutive
+nonoverlapping sequences and no assemblies. Compiler/profile/target: the
+default stable toolchain's `--release` build on x86_64-unknown-linux-gnu.
+
+| Fixture | bytes | sha256 |
+|---|---|---|
+| `case_a_16x16384.jsonl` (16 rows × 16,384 = 262,144 members) | 1,574,523 | `a7ff3d32d12a5e9b28027a1d4ee658d76812ce8d084e046c35be8a3387275a64` |
+| `case_b_1x262144.jsonl` (one row, same 262,144 members) | 1,572,992 | `7fba91101491f24e9976cbfc6f5f79a395e852d032c2e5c708876c198a88c36b` |
+| `case_tiny_calls.jsonl` (10,000 absent-data `tool/call`) | 538,925 | `44d659a29107c29088a1cdb17fefb33211eafe730178ca4b8843bf9177e9bc26` |
+| `case_blockless.jsonl` (10,000 blockless rows between two events) | 444,163 | `a044d7f5bccacf8439731d0eb7c6378f3aa735cd86b481cc7650e278ae88a2f7` |
+| `case_quiet_packed.jsonl` (16 rows × 16,384 tool-arg fragments) | 1,574,747 | `6374ca430338e771167a7a578b0e388c98038a5378c4067fee9246ade1a9257b` |
+| `case_block_dense.jsonl` (one turn, 50,000 blocks) | 1,350,131 | `76bc07620853bcefd5249615f46008e2bf9b539c797064b37f816e0c3230eafe` |
+
+**Observed maxima (KB, three fresh processes).**
+
+| Case | Base `5ef4a842` turns / max RSS | Candidate turns / max RSS |
+|---|---|---|
+| 16 × 16,384 packed members | 262,144 / 144,800 | 16 / 6,904 |
+| one row, 262,144 members | 262,144 / 154,172 | 1 / 29,596 |
+| 10,000 tiny calls | 10,000 / 8,144 | 7,797 / 5,540 |
+| 10,000 blockless rows | 2 / 6,056 | 2 / 4,640 |
+| 16 × 16,384 quiet tool args | 0 / 21,740 | 0 / 7,012 |
+| 50,000-block message | 1 / 48,232 | 1 / 48,756 |
+| Claude, 10,000 tiny messages | 10,000 / 7,596 | 7,797 / 7,372 |
+| Codex, 10,000 tiny rows | 10,000 / 9,324 | 7,797 / 9,376 |
+
+Input-only controls read the fixture and dropped it (4.5-4.9 MB); the
+parse-only control decoded every row without projecting (case A 6.3 MB;
+case B 29.1 MB). Case B's candidate peak therefore equals its parse-only
+control: that residual is the single huge row's `serde_json::Value`, not
+retained projector events, exactly the measured residual D5 names. The
+16-row case is where the projector expands: the candidate holds 16 chunks
+charged 270,336 bytes and peaks ~138 MB below the base. Tiny calls show the
+constant charge truncating at 7,797 turns; blockless rows show the guard
+avoiding 10,000 empty payload slots. Quiet packed rows show the span
+identity replacing a per-member `observed` vector. The block-dense message
+is unchanged, as D5 predicts: the charge is per turn, not per block.
+
+**Limitations.** Process peak includes the Rust test runtime, file read,
+JSON parsing and allocator fragmentation; it is a defensible proxy, not an
+exact per-allocation measurement, and no unrelated process maxima are
+subtracted. The Claude and Codex tiny-row probes measured the shared charge
+truncating all three kinds alike at 7,797 turns; their peaks stay
+JSON-parsing dominated. In-box, the pinned-nightly gate reported lines 30,422/30,593, branches
+5,067/5,080 and functions 2,918/2,928; every residue is in out-of-scope
+boundary/sandbox files whose tests skip without a namespace (#286), and
+`crates/brokkr-view/src/transcript.rs` has no uncovered line or branch. The
+host exact-coverage gate and final-head remote CI remain controller work.

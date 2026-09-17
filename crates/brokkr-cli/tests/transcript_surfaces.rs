@@ -525,6 +525,54 @@ fn one_derivation_reaches_every_surface() {
     compare_refusal(&world, &read, "not-found");
 }
 
+/// A real packed DSH source reaches CLI text/JSON, the TUI pane and both
+/// doors as the same coalesced chunks: consecutive text and reasoning
+/// members become one chunk each at the first member's stamp, so packed and
+/// ordinary indices deliberately differ (command delta).
+#[test]
+fn packed_dsh_coalescing_reaches_every_surface() {
+    let _home = home_lock();
+    let body = "{\"type\":\"session\",\"version\":0}\n\
+        {\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"a\",\"b\",\"c\"]}}\n\
+        {\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"r\",\"s\"]}}\n";
+    let world = make_world("dsh-session", "sessions/one", body);
+    std::env::set_var("HOME", &world.home);
+    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    assert!(read.is_readable(), "{read:?}");
+    assert_eq!(read.turns.len(), 2);
+    assert_eq!(read.turns[0].blocks[0].text, "abc");
+    assert_eq!(read.turns[0].ts, "1000");
+    assert_eq!(read.turns[1].blocks[0].text, "rs");
+    assert_eq!(read.turns[1].ts, "2000");
+    compare(&world, &read, Some(0));
+}
+
+/// The shared structural charge is one more surface agreement: 10,000 tiny
+/// `tool/call` rows with absent data retain exactly 7,797 one-byte turns,
+/// and the CLI, its selected read, the TUI pane, both doors and the JSON
+/// document all carry the same truncation notice.
+#[test]
+fn structural_cap_notices_reach_every_surface() {
+    let _home = home_lock();
+    let mut body = String::from("{\"type\":\"session\",\"version\":0}\n");
+    for seq in 1..=10_000 {
+        body.push_str(&format!(
+            "{{\"type\":\"tool/call\",\"seq\":{seq},\"time\":1000,\"data\":{{}}}}\n"
+        ));
+    }
+    let world = make_world("dsh-session", "sessions/one", &body);
+    std::env::set_var("HOME", &world.home);
+    let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
+    assert!(read.is_readable(), "{read:?}");
+    assert_eq!(read.turns.len(), 7_797);
+    assert!(read.truncated);
+    assert_eq!(
+        read.notices,
+        vec!["transcript truncated (size cap)".to_string()]
+    );
+    compare(&world, &read, Some(7_796));
+}
+
 /// A DSH semantic refusal after a readable-looking prefix, and the
 /// ambiguity between two safe roots, travel the same TUI seam as every
 /// other refusal: no reading door, the retained counts/notices/hint and

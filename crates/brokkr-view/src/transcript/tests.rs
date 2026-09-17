@@ -447,8 +447,13 @@ fn dsh_admits_numeric_zero_and_projects_messages() {
         "{\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"q\"}]},\"time\":1000}\n",
         "{\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"},{\"type\":\"reasoning\",\"text\":\"r\"}]}},\"time\":1004}\n",
     );
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: false,
@@ -470,8 +475,13 @@ fn dsh_rejects_foreign_versions_with_zero_counts() {
         "not json\n",
         "{\"type\":\"future/event\"}\n",
     );
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: false,
@@ -489,9 +499,15 @@ fn dsh_packed_rows_reconstruct_sequence_and_time() {
     let text = concat!(
         "{\"type\":\"session\",\"version\":0}\n",
         "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[5],\"texts\":[\"a\",\"b\"]}}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":2,\"index\":0,\"dt\":[],\"texts\":[\"c\"]}}\n",
     );
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: false,
@@ -499,9 +515,13 @@ fn dsh_packed_rows_reconstruct_sequence_and_time() {
         },
     );
     assert!(projection.unavailable.is_none());
+    // Each row coalesces to one chunk at its first member's stamp, and
+    // separate rows never merge.
     assert_eq!(projection.turns.len(), 2);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("ab")]);
     assert_eq!(projection.turns[0].ts, "1000");
-    assert_eq!(projection.turns[1].ts, "1005");
+    assert_eq!(projection.turns[1].blocks, vec![Block::text("c")]);
+    assert_eq!(projection.turns[1].ts, "2000");
 }
 
 #[test]
@@ -510,8 +530,13 @@ fn dsh_required_unknown_refuses_but_ignorable_omits() {
         "{\"type\":\"session\",\"version\":0}\n",
         "{\"type\":\"future/event\"}\n",
     );
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: refused.as_bytes(),
             overflow: false,
@@ -524,8 +549,13 @@ fn dsh_required_unknown_refuses_but_ignorable_omits() {
         "{\"type\":\"session\",\"version\":0}\n",
         "{\"type\":\"future/event\",\"ignorable\":true}\n",
     );
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: omitted.as_bytes(),
             overflow: false,
@@ -1236,7 +1266,7 @@ fn dsh_refused_opening_header_never_decodes_later_rows() {
 }
 
 #[test]
-fn dsh_packed_and_ordinary_fragments_are_equivalent() {
+fn dsh_packed_multi_member_fragments_coalesce_while_ordinary_rows_keep_their_boundaries() {
     let ordinary = [
         row(json!({"type":"session","version":0})),
         dsh_chunk(10, 1000, 1, 1, "a"),
@@ -1270,7 +1300,33 @@ fn dsh_packed_and_ordinary_fragments_are_equivalent() {
     assert_eq!(projection.turns[3].blocks, vec![Block::reasoning("r1")]);
     assert_eq!(projection.turns[4].blocks, vec![Block::reasoning("r2")]);
     assert_eq!(projection.turns[5].blocks, vec![Block::reasoning("r3")]);
-    assert_eq!(dsh(&packed), projection);
+
+    // The same content packed coalesces each consecutive run into one
+    // chunk at its first member's stamp; ordinary rows keep six turns.
+    let coalesced = dsh(&packed);
+    assert!(coalesced.unavailable.is_none());
+    assert_eq!(coalesced.skipped_lines, 0);
+    assert_eq!(coalesced.unrecognized_records, 0);
+    assert_eq!(coalesced.turns.len(), 2);
+    assert_eq!(coalesced.turns[0].blocks, vec![Block::text("abc")]);
+    assert_eq!(coalesced.turns[0].ts, "1000");
+    assert_eq!(coalesced.turns[1].blocks, vec![Block::reasoning("r1r2r3")]);
+    assert_eq!(coalesced.turns[1].ts, "1000");
+}
+
+#[test]
+fn dsh_single_member_packed_rows_match_their_ordinary_encoding() {
+    let ordinary = [
+        row(json!({"type":"session","version":0})),
+        dsh_chunk(10, 1000, 1, 1, "only"),
+    ]
+    .concat();
+    let packed = [
+        row(json!({"type":"session","version":0})),
+        packed_text_chunks(10, 1000, 1, 1, &[], &["only"]),
+    ]
+    .concat();
+    assert_eq!(dsh(&packed), dsh(&ordinary));
 }
 
 #[test]
@@ -1383,8 +1439,13 @@ fn dsh_incomplete_and_cap_cut_packed_rows_supply_no_members() {
     assert_eq!(projection.skipped_lines, 0);
     assert_eq!(projection.unrecognized_records, 0);
 
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: true,
@@ -1480,10 +1541,17 @@ fn dsh_empty_absent_and_partial_citations_preserve_uncited_content() {
         for cites in [Some(json!([])), None] {
             let projection = two_chunk_citation(cites, packed);
             assert!(projection.unavailable.is_none(), "packed={packed}");
-            assert_eq!(projection.turns.len(), 3, "packed={packed}");
-            assert_eq!(projection.turns[0].blocks, vec![Block::text("c10")]);
-            assert_eq!(projection.turns[1].blocks, vec![Block::text("c11")]);
-            assert_eq!(projection.turns[2].blocks, vec![Block::text("assembled")]);
+            if packed {
+                // The two uncited packed members coalesce into one chunk.
+                assert_eq!(projection.turns.len(), 2, "packed={packed}");
+                assert_eq!(projection.turns[0].blocks, vec![Block::text("c10c11")]);
+                assert_eq!(projection.turns[1].blocks, vec![Block::text("assembled")]);
+            } else {
+                assert_eq!(projection.turns.len(), 3, "packed={packed}");
+                assert_eq!(projection.turns[0].blocks, vec![Block::text("c10")]);
+                assert_eq!(projection.turns[1].blocks, vec![Block::text("c11")]);
+                assert_eq!(projection.turns[2].blocks, vec![Block::text("assembled")]);
+            }
         }
         let projection = two_chunk_citation(Some(json!([10])), packed);
         assert!(projection.unavailable.is_none(), "packed={packed}");
@@ -1583,20 +1651,57 @@ fn dsh_citation_validation_refuses_and_large_ranges_stay_bounded() {
     assert_eq!(projection.turns[0].blocks, vec![Block::text("assembled")]);
 }
 
+/// Citation suppression splits a packed row's run, so the display cap can
+/// stop between the surviving chunks: member 10's chunk fits exactly and
+/// member 12's does not.
 #[test]
-fn dsh_display_cap_stops_between_packed_members() {
-    let huge = "x".repeat(DISPLAY_CAP);
+fn dsh_display_cap_stops_between_suppressed_packed_members() {
+    let fits = "x".repeat(DISPLAY_CAP - DISPLAY_EVENT_COST);
     let text = format!(
-        "{}{}",
+        "{}{}{}",
         row(json!({"type":"session","version":0})),
-        packed_text_chunks(10, 1000, 1, 1, &[1], &[&huge, "tail"]),
+        packed_text_chunks(10, 1000, 1, 1, &[1, 1], &[fits.as_str(), "middle", "tail"]),
+        dsh_assembly(20, 1020, 1, 1, Some(json!([11]))),
     );
     let projection = dsh(&text);
     assert!(projection.unavailable.is_none());
     assert!(projection.truncated);
     assert_eq!(projection.unrecognized_records, 0);
     assert_eq!(projection.turns.len(), 1);
-    assert_eq!(projection.turns[0].blocks[0].text.len(), DISPLAY_CAP);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text(&fits)]);
+}
+
+/// A packed chunk is indivisible under the charged budget: two unsuppressed
+/// members whose combined text barely overflows retain no turn at all, and
+/// one byte less retains the whole chunk at equality. The reader never
+/// keeps only the first member to evade the coalesced boundary.
+#[test]
+fn dsh_display_cap_never_splits_an_indivisible_packed_chunk() {
+    let first = "x".repeat(DISPLAY_CAP - DISPLAY_EVENT_COST - 1);
+    let over = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        packed_text_chunks(10, 1000, 1, 1, &[1], &[first.as_str(), "yy"]),
+    );
+    let projection = dsh(&over);
+    assert!(projection.unavailable.is_none());
+    assert!(projection.truncated);
+    assert_eq!(projection.unrecognized_records, 0);
+    assert!(projection.turns.is_empty());
+
+    let exact = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        packed_text_chunks(10, 1000, 1, 1, &[1], &[first.as_str(), "y"]),
+    );
+    let projection = dsh(&exact);
+    assert!(projection.unavailable.is_none());
+    assert!(!projection.truncated);
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(
+        projection.turns[0].blocks[0].text.len(),
+        DISPLAY_CAP - DISPLAY_EVENT_COST
+    );
 }
 
 #[test]
@@ -1609,8 +1714,13 @@ fn dsh_event_refusal_preserves_prefix_counts_and_all_notices() {
         row(json!({"type":"future/b"})),
     ]
     .concat();
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
     let projection = project(
-        TranscriptKind::DshSession,
+        kind,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: true,
@@ -1985,9 +2095,11 @@ fn dsh_negative_zero_time_renders_zero() {
     );
     let projection = dsh(&packed);
     assert!(projection.unavailable.is_none(), "{projection:?}");
-    assert_eq!(projection.turns.len(), 2);
+    // The two text members coalesce into one chunk at the first member's
+    // zero stamp; a later member's timestamp creates no second turn.
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("ab")]);
     assert_eq!(projection.turns[0].ts, "0");
-    assert_eq!(projection.turns[1].ts, "1");
 }
 
 #[test]
@@ -2342,43 +2454,32 @@ fn dsh_integral_float_positions_match_their_integer_spelling() {
 
 #[test]
 fn packed_empty_members_allocate_no_events_but_stay_observed() {
+    // A packed row contributes one observed identity span and no payload
+    // object per member, so a row of empty members costs one span.
+    let mut spans = Vec::new();
     let object = json!({"type":"text-chunks","seq0":5,"time0":100,
         "data":{"turn":1,"step":1,"index":0,"dt":[0,0],"texts":["","",""]}});
-    let map = object.as_object().expect("object");
-    match dsh_packed(
-        "text-chunks",
-        map,
-        object.get("data").unwrap(),
-        &object.to_string(),
-    ) {
-        DshRow::Packed(events, observed) => {
-            assert!(
-                events.is_empty(),
-                "empty text members allocate no projected events"
-            );
-            assert_eq!(observed, vec![5, 6, 7]);
-        }
-        _ => panic!("a complete packed row is Packed"),
-    }
+    packed_facts(&object, &object.to_string(), &mut spans).expect("complete packed row");
+    assert_eq!(spans, vec![(5, 7)], "the whole member span is observed");
 
+    let mut spans = Vec::new();
     let object = json!({"type":"tool-call-chunks","seq0":5,"time0":100,
         "data":{"turn":1,"step":1,"index":0,"dt":[0],"args":["a","b"],"id":"c1"}});
-    let map = object.as_object().expect("object");
-    match dsh_packed(
-        "tool-call-chunks",
-        map,
-        object.get("data").unwrap(),
-        &object.to_string(),
-    ) {
-        DshRow::Packed(events, observed) => {
-            assert!(
-                events.is_empty(),
-                "argument fragments never allocate a projected call"
-            );
-            assert_eq!(observed, vec![5, 6]);
-        }
-        _ => panic!("a complete packed row is Packed"),
-    }
+    packed_facts(&object, &object.to_string(), &mut spans).expect("complete packed row");
+    assert_eq!(spans, vec![(5, 6)]);
+
+    // Neither row supplies a displayed turn.
+    let text = format!(
+        "{}{}{}",
+        row(json!({"type":"session","version":0})),
+        row(json!({"type":"text-chunks","seq0":5,"time0":100,
+            "data":{"turn":1,"step":1,"index":0,"dt":[0,0],"texts":["","",""]}})),
+        row(json!({"type":"tool-call-chunks","seq0":20,"time0":100,
+            "data":{"turn":1,"step":1,"index":0,"dt":[0],"args":["a","b"],"id":"c1"}})),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none());
+    assert!(projection.turns.is_empty());
 }
 
 /// Shape (c) of #277: a blockless ordinary DSH event (`tool/result` or
@@ -2415,7 +2516,7 @@ fn blockless_ordinary_dsh_events_are_observed_but_not_retained() {
     );
     assert_eq!(
         observed,
-        vec![7, 8, 9],
+        vec![(7, 7), (8, 8), (9, 9)],
         "every recorded sequence is still observed"
     );
     assert_eq!(events.len(), 1, "only the block-bearing event is retained");
@@ -3211,8 +3312,9 @@ fn packed_reasoning_chunks_project_reasoning() {
         "{\"type\":\"reasoning-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[5],\"texts\":[\"a\",\"b\"]}}\n",
     );
     let projection = project_text(TranscriptKind::DshSession, text);
-    assert_eq!(projection.turns.len(), 2);
-    assert_eq!(projection.turns[0].blocks, vec![Block::reasoning("a")]);
+    // Consecutive reasoning members coalesce into one chunk.
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::reasoning("ab")]);
 }
 
 #[test]
@@ -3294,7 +3396,7 @@ fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
             }),
         }
     }
-    let mut events = vec![DshEvent {
+    let mut retained = vec![DshEvent {
         blocks: vec![tool("t"), tool("t")],
         role: "assistant".to_string(),
         ts: String::new(),
@@ -3306,8 +3408,23 @@ fn dedicated_tool_events_deduplicate_blocks_within_one_event() {
         cited: Vec::new(),
         dedicated: true,
     }];
-    associate_dsh_tools(&mut events);
-    assert_eq!(events[0].blocks.len(), 2);
+    let mut assemblies = Vec::new();
+    let mut dedicated = HashMap::new();
+    collect_ordinary_facts(&mut retained, 3, true, &mut assemblies, &mut dedicated);
+    assert_eq!(
+        dedicated.get(&(
+            "t".to_string(),
+            DshDirection::Call,
+            Position::Int(1),
+            Position::Int(1)
+        )),
+        Some(&1),
+        "one dedicated event counts its key once however many blocks carry it"
+    );
+    assert!(
+        retained.is_empty(),
+        "the observed event is released, not retained"
+    );
 }
 
 #[test]
@@ -4231,4 +4348,344 @@ fn dsh_zero_digit_underflow_and_duplicate_members_are_not_zero() {
         );
         assert_eq!(projection.unrecognized_records, 1, "{body}");
     }
+}
+
+// ------------------------------------------ #277 bounded projector (#277)
+
+/// The merge ruling's regression witness: a many-member packed run
+/// constructs exactly one candidate payload, never one per token, even
+/// transiently. The observation counters record actual construction, so an
+/// expand-then-coalesce mutation that restores per-member construction
+/// still fails this assertion.
+#[test]
+fn packed_coalescing_constructs_one_candidate_not_one_per_token() {
+    observe::reset();
+    let gaps = vec![1i64; 999];
+    let members = vec!["a"; 1000];
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        packed_text_chunks(10, 1000, 1, 1, &gaps, &members),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(
+        projection.turns[0].blocks,
+        vec![Block::text("a".repeat(1000))]
+    );
+    assert_eq!(
+        observe::packed_candidates(),
+        1,
+        "one coalesced candidate, not one per member"
+    );
+    assert_eq!(observe::peak_candidates(), 1);
+}
+
+/// The structural charge bounds tiny ordinary rows during projection:
+/// 10,000 absent-data `tool/call` rows retain exactly 7,797 one-byte turns,
+/// and the retained prefix never exceeds the charged count.
+#[test]
+fn tiny_ordinary_calls_stay_within_the_structural_budget() {
+    observe::reset();
+    let mut text = row(json!({"type":"session","version":0}));
+    for seq in 1..=10_000 {
+        text.push_str(&row(
+            json!({"type":"tool/call","seq":seq,"time":1000,"data":{}}),
+        ));
+    }
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert!(projection.truncated);
+    assert_eq!(projection.unrecognized_records, 0);
+    assert_eq!(projection.turns.len(), 7_797);
+    assert_eq!(
+        projection
+            .turns
+            .iter()
+            .map(|turn| turn.blocks[0].text.len())
+            .sum::<usize>(),
+        7_797
+    );
+    assert!(
+        observe::peak_retained() <= 7_812,
+        "retained slots stay within floor(cap / charge)"
+    );
+}
+
+/// Exactly 7,797 tiny calls fit with no truncation, and the count is one
+/// over the charged bound rather than an ordinary-row turn count.
+#[test]
+fn seventy_seven_ninety_seven_tiny_calls_fit_exactly() {
+    let mut text = row(json!({"type":"session","version":0}));
+    for seq in 1..=7_797 {
+        text.push_str(&row(
+            json!({"type":"tool/call","seq":seq,"time":1000,"data":{}}),
+        ));
+    }
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert!(!projection.truncated);
+    assert_eq!(projection.turns.len(), 7_797);
+}
+
+/// A required refusal after the display budget is exhausted still returns
+/// the complete-prefix diagnostics and no turns: an early display stop
+/// never hides a semantic refusal.
+#[test]
+fn complete_prefix_refusal_survives_the_display_cap() {
+    let mut text = row(json!({"type":"session","version":0}));
+    for seq in 1..=10_000 {
+        text.push_str(&row(
+            json!({"type":"tool/call","seq":seq,"time":1000,"data":{}}),
+        ));
+    }
+    text.push_str(&row(json!({"type":"future/required"})));
+    let projection = dsh(&text);
+    assert_eq!(projection.unavailable, Some(Unavailable::UnsupportedFormat));
+    assert_eq!(projection.unrecognized_records, 1);
+    assert!(!projection.truncated, "only source truncation would set it");
+    assert!(projection.turns.is_empty());
+}
+
+/// The shared charge helper is the single rule for every kind: an empty
+/// block list supplies no turn, and the structural constant is charged
+/// beside the emitted text bytes.
+#[test]
+fn display_cap_charges_the_constant_and_drops_empty_turns() {
+    let mut truncated = false;
+    let kept = display_cap(
+        vec![
+            Turn {
+                role: "empty".to_string(),
+                ts: String::new(),
+                blocks: Vec::new(),
+            },
+            Turn {
+                role: "one".to_string(),
+                ts: String::new(),
+                blocks: vec![Block::text("x")],
+            },
+            Turn {
+                role: "over".to_string(),
+                ts: String::new(),
+                blocks: vec![Block::text("x".repeat(DISPLAY_CAP))],
+            },
+        ],
+        &mut truncated,
+    );
+    assert!(truncated);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].role, "one");
+    assert_eq!(display_cost(&[]), None);
+    assert_eq!(
+        display_cost(&[Block::text("x")]),
+        Some(DISPLAY_EVENT_COST + 1)
+    );
+}
+
+/// The uniqueness index collapses overlapping spans to `multiple` while
+/// keeping singly covered values, and its endpoints do not wrap at the
+/// signed-integer boundary.
+#[test]
+fn unique_segments_classify_overlap_and_boundaries() {
+    let unique = UniqueSegments::new(&[(10, 12), (11, 11), (20, 20), (i64::MAX, i64::MAX)]);
+    assert!(unique.is_unique(10));
+    assert!(!unique.is_unique(11), "two spans cover 11");
+    assert!(unique.is_unique(12));
+    assert!(!unique.is_unique(13));
+    assert!(unique.is_unique(20));
+    assert!(unique.is_unique(i64::MAX));
+    assert!(!unique.is_unique(i64::MAX - 1));
+    assert!(!unique.is_unique(i64::MIN));
+    let negative = UniqueSegments::new(&[(i64::MIN, i64::MIN)]);
+    assert!(negative.is_unique(i64::MIN));
+}
+
+/// The collector seals at the first overflow and refuses every later
+/// candidate, and an empty block list never supplies a turn. This exercises
+/// the defensive branches directly with a bounded collector.
+#[test]
+fn the_collector_seals_and_discards_every_later_candidate() {
+    let mut collector = DshCollector::new(false);
+    collector.admit(
+        "first".to_string(),
+        String::new(),
+        vec![Block::text("x".repeat(DISPLAY_CAP))],
+    );
+    assert!(collector.sealed);
+    assert!(collector.turns.is_empty());
+    collector.admit("later".to_string(), String::new(), vec![Block::text("y")]);
+    assert!(collector.turns.is_empty());
+    flush_run(&mut collector, BlockKind::Text, &[json!("z")], 0, 1, 1, 0);
+    assert!(collector.turns.is_empty());
+
+    let mut fresh = DshCollector::new(false);
+    fresh.admit("empty".to_string(), String::new(), Vec::new());
+    assert!(fresh.turns.is_empty() && !fresh.sealed);
+}
+
+/// Citation coverage keeps the greatest citing row ordinal per `(turn,
+/// step)` region, so a later assembly can suppress what an earlier one
+/// already covered without expanding any interval.
+#[test]
+fn citation_coverage_keeps_the_latest_citing_ordinal() {
+    let assemblies = vec![
+        AssemblyFact {
+            ordinal: 1,
+            turn: Position::Int(1),
+            step: Position::Int(1),
+            cited: vec![(10, 20)],
+        },
+        AssemblyFact {
+            ordinal: 5,
+            turn: Position::Int(1),
+            step: Position::Int(1),
+            cited: vec![(15, 25)],
+        },
+        AssemblyFact {
+            ordinal: 9,
+            turn: Position::Int(1),
+            step: Position::Int(2),
+            cited: vec![(10, 10)],
+        },
+    ];
+    let coverage = CitationCoverage::new(&assemblies);
+    assert_eq!(
+        coverage.latest_ordinal(Position::Int(1), Position::Int(1), 10),
+        Some(1)
+    );
+    assert_eq!(
+        coverage.latest_ordinal(Position::Int(1), Position::Int(1), 15),
+        Some(5)
+    );
+    assert_eq!(
+        coverage.latest_ordinal(Position::Int(1), Position::Int(1), 21),
+        Some(5)
+    );
+    assert_eq!(
+        coverage.latest_ordinal(Position::Int(1), Position::Int(1), 26),
+        None
+    );
+    assert_eq!(
+        coverage.latest_ordinal(Position::Int(1), Position::Int(2), 10),
+        Some(9)
+    );
+    assert_eq!(
+        coverage.latest_ordinal(Position::Int(2), Position::Int(1), 10),
+        None
+    );
+}
+
+/// Empty members preserve identity and time without splitting a run: an
+/// empty first member contributes its sequence but not the first stamp.
+#[test]
+fn coalescing_preserves_empty_member_identity_and_the_first_visible_stamp() {
+    let text = format!(
+        "{}{}",
+        row(json!({"type":"session","version":0})),
+        packed_text_chunks(10, 1000, 1, 1, &[1, 1, 1], &["", "a", "", "b"]),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.turns.len(), 1);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("ab")]);
+    assert_eq!(projection.turns[0].ts, "1001");
+}
+
+/// A blockless row that duplicates a packed member's sequence keeps a
+/// citation to it ambiguous, so the member is not suppressed; the blockless
+/// row itself retains no turn.
+#[test]
+fn a_blockless_duplicate_sequence_keeps_a_packed_citation_ambiguous() {
+    let text = format!(
+        "{}{}{}{}",
+        row(json!({"type":"session","version":0})),
+        packed_text_chunks(10, 1000, 1, 1, &[1], &["a", "b"]),
+        row(json!({"type":"user/message","seq":11,"data":{}})),
+        dsh_assembly(20, 1020, 1, 1, Some(json!([11]))),
+    );
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(projection.turns.len(), 2);
+    assert_eq!(projection.turns[0].blocks, vec![Block::text("ab")]);
+    assert_eq!(projection.turns[0].ts, "1000");
+    assert_eq!(projection.turns[1].blocks, vec![Block::text("assembled")]);
+}
+
+// ------------------------------------ D8's process-memory measurement seam
+
+/// D8's fresh-process peak-RSS proxy. Ignored so ordinary suites skip it:
+/// the release-built test executable is run directly under `/usr/bin/time
+/// -v`. `BROKKR_MEASURE_FILE` names a pre-generated fixture; this process
+/// reads it, projects it once, prints the retained shape and does no
+/// generation, network or TUI work. The counters are the returned result,
+/// not an allocator report.
+#[test]
+#[ignore]
+fn measure_projection_peak() {
+    let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
+    let bytes = std::fs::read(&path).expect("fixture");
+    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
+        Ok("claude") => TranscriptKind::ClaudeSession,
+        Ok("codex") => TranscriptKind::CodexThread,
+        _ => TranscriptKind::DshSession,
+    };
+    let projection = project(
+        kind,
+        &Snapshot {
+            bytes: &bytes,
+            overflow: false,
+            eof: true,
+        },
+    );
+    let blocks: usize = projection.turns.iter().map(|turn| turn.blocks.len()).sum();
+    let text: usize = projection
+        .turns
+        .iter()
+        .flat_map(|turn| &turn.blocks)
+        .map(|block| block.text.len())
+        .sum();
+    let charged = 512usize * projection.turns.len() + text;
+    println!(
+        "MEASURE bytes={} turns={} blocks={} text={} charged={} truncated={} unavailable={:?}",
+        bytes.len(),
+        projection.turns.len(),
+        blocks,
+        text,
+        charged,
+        projection.truncated,
+        projection.unavailable
+    );
+}
+
+/// The parse-only control: read the fixture and decode every row as JSON,
+/// counting members, without invoking the projector.
+#[test]
+#[ignore]
+fn measure_parse_only() {
+    let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
+    let bytes = std::fs::read(&path).expect("fixture");
+    let text = std::str::from_utf8(&bytes).expect("utf8");
+    let mut rows = 0usize;
+    let mut members = 0usize;
+    for line in text.lines() {
+        let value: serde_json::Value = serde_json::from_str(line).expect("row");
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("text-chunks") {
+            members += value["data"]["texts"].as_array().map(Vec::len).unwrap_or(0);
+        }
+        rows += 1;
+    }
+    println!("PARSE bytes={} rows={rows} members={members}", bytes.len());
+}
+
+/// The input-only control: read the fixture and drop it, measuring the
+/// resident source bytes without parsing or projecting.
+#[test]
+#[ignore]
+fn measure_input_only() {
+    let path = std::env::var("BROKKR_MEASURE_FILE").expect("BROKKR_MEASURE_FILE");
+    let bytes = std::fs::read(&path).expect("fixture");
+    println!("INPUT bytes={}", bytes.len());
+    std::hint::black_box(bytes);
 }

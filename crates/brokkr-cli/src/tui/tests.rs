@@ -5464,8 +5464,11 @@ fn moving_from_a_readable_claude_seat_to_an_unavailable_participant_clears_prose
     );
 }
 
+/// Generic six-turn navigation over injected turns. This is not packed
+/// decoding evidence: a real projected packed source is proved separately
+/// by `a_packed_source_reaches_the_pane_and_both_doors_as_coalesced_chunks`.
 #[test]
-fn six_packed_members_are_readable_through_both_doors() {
+fn six_turns_are_readable_through_both_doors() {
     let mut views = views();
     views.transcript = Some(read_of(turns_of(6), false));
     let mut tui = at_transcript(&views);
@@ -5491,6 +5494,128 @@ fn six_packed_members_are_readable_through_both_doors() {
         all.find("prose of turn 0").unwrap() < all.find("prose of turn 5").unwrap(),
         "member order: {all}"
     );
+}
+
+/// Project one version-zero DSH body and wrap it as the shared read the
+/// pane and both doors consume.
+fn read_dsh_zero(body: &str) -> TranscriptRead {
+    let projection = brokkr_view::transcript::project(
+        brokkr_view::transcript::TranscriptKind::DshSession,
+        &brokkr_view::transcript::Snapshot {
+            bytes: body.as_bytes(),
+            overflow: false,
+            eof: true,
+        },
+    );
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    read_kind(
+        brokkr_view::transcript::TranscriptKind::DshSession,
+        "seat/v0",
+        "/home/operator",
+        Some("/home/operator/seat/v0/project/seat/session.jsonl"),
+        projection.turns,
+    )
+}
+
+/// A real version-zero packed source coalesces each consecutive run into
+/// one chunk; the pane and both doors consume those same two chunks, with
+/// the first member's stamps. This is the projected-source proof of the
+/// merge ruling, not injected turns.
+#[test]
+fn a_packed_source_reaches_the_pane_and_both_doors_as_coalesced_chunks() {
+    let body = concat!(
+        "{\"type\":\"session\",\"version\":0}\n",
+        "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"a\",\"b\",\"c\"]}}\n",
+        "{\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"x\",\"y\",\"z\"]}}\n",
+    );
+    let mut views = views();
+    views.transcript = Some(read_dsh_zero(body));
+    let mut tui = at_transcript(&views);
+    let frame = frame_of(&tui, &views, 120, 30);
+    assert!(frame.contains("#1"), "{frame}");
+    assert!(frame.contains("#2"), "{frame}");
+    assert!(!frame.contains("#3"), "{frame}");
+
+    // Turn two alone through the selected-turn door.
+    apply(&mut tui, &views, Key::Down);
+    apply(&mut tui, &views, Key::Char('j'));
+    apply(&mut tui, &views, Key::Enter);
+    let one = tui.reading.clone().expect("turn two opens alone");
+    assert!(one.starts_with("#2 "), "{one}");
+    assert!(one.contains("xyz"), "{one}");
+    assert!(!one.contains("abc"), "{one}");
+
+    // The whole door carries both coalesced chunks in source order.
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Escape);
+    apply(&mut tui, &views, Key::Enter);
+    let all = tui.reading.clone().expect("the whole transcript opens");
+    assert!(all.contains("abc"), "{all}");
+    assert!(all.contains("xyz"), "{all}");
+    assert!(all.find("abc").unwrap() < all.find("xyz").unwrap(), "{all}");
+}
+
+/// A live refresh that appends a suppressing assembly splits the formerly
+/// one-chunk `abcd` run into `a`, `c` and the assembly at its own position;
+/// the pane recomposes onto the new projection's one-based indices.
+#[test]
+fn a_packed_chunk_run_splits_across_a_live_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-7");
+    let home = dir.path().to_string_lossy().to_string();
+    let file = dir
+        .path()
+        .join("seat")
+        .join("p")
+        .join("s")
+        .join("session.jsonl");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let packed = "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1,1],\"texts\":[\"a\",\"b\",\"c\",\"d\"]}}\n";
+    std::fs::write(&file, format!("{DSH_HEADER_V0}{packed}")).unwrap();
+    let mut head = None;
+    let mut seen = None;
+    let first = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        true,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let old = first.transcript.unwrap();
+    assert_eq!(old.turns.len(), 1);
+    assert_eq!(old.turns[0].blocks[0].text, "abcd");
+
+    let assembly = "{\"type\":\"assistant/message\",\"seq\":20,\"time\":2000,\"sourceEventSeqs\":[11,13],\"data\":{\"turn\":1,\"step\":1,\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"assembled\"}]}}}\n";
+    std::fs::write(&file, format!("{DSH_HEADER_V0}{packed}{assembly}")).unwrap();
+    let fresh = refresh_subject(
+        &db,
+        subject_of_kind("dsh-session", "seat", &home, true),
+        false,
+        &mut head,
+        &mut seen,
+    )
+    .unwrap();
+    let new = fresh.transcript.unwrap();
+    assert!(
+        transcript_invalidates(Some(&old), Some(&new)),
+        "a replaced chunk prefix clears the old selection and its overlay"
+    );
+    assert_eq!(new.turns.len(), 3);
+    assert_eq!(new.turns[0].blocks[0].text, "a");
+    assert_eq!(new.turns[0].ts, "1000");
+    assert_eq!(new.turns[1].blocks[0].text, "c");
+    assert_eq!(new.turns[1].ts, "1002");
+    assert_eq!(new.turns[2].blocks[0].text, "assembled");
+    assert_eq!(new.turns[2].ts, "2000");
+
+    let mut views = views();
+    views.transcript = Some(new);
+    let tui = at_transcript(&views);
+    let frame = frame_of(&tui, &views, 120, 30);
+    assert!(frame.contains("#3"), "{frame}");
+    assert!(!frame.contains("#4"), "{frame}");
 }
 
 /// Project one version-three body and wrap it as the shared read the pane
