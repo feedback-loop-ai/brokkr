@@ -533,85 +533,79 @@ weigh that operational cost. No source files or journals need conversion.
 
 ## Open Questions
 
-No unresolved design choice is delegated to implementation. D0's concrete
-amendment is recorded in the proposal, but authorization to cross the test-file
-fence remains an upstream prerequisite, not an optional question. Measurement
-outcomes, remaining coverage regions and controller host/remote results are pending
-evidence; they cannot be replaced by predictions or declared passed here.
+No unresolved design choice is delegated to implementation. D0's fence
+amendment was authorized by the second-visit commission and the dependent
+CLI/TUI assertions were corrected to the merged shape, so no upstream
+prerequisite remains. The full reproducible measurement record, removal
+proofs and in-box coverage result live in
+[measurements.md](measurements.md); the controller still owns host exact
+coverage and remote CI.
 
 ## Implementation evidence (second visit for #277)
 
-The controller authorized D0's fence amendment and verified `cargo` in the
-warmed box. The merge, the shared `DISPLAY_EVENT_COST = 512` charge, the
-two-pass bounded DSH projection and the blockless guard are implemented in
-`crates/brokkr-view/src/transcript.rs`; the Codex association observation
-and the header true-EOF length predicate are preserved and re-proved.
+The commission authorized D0's fence amendment, widened the fence to the
+three dependent CLI/TUI test files, and verified `cargo` in the warmed box.
+The merge, the shared `DISPLAY_EVENT_COST = 512` charge, the two-pass
+bounded DSH projection, the blockless guard, the D2 no-consumer index
+optimization and the header true-EOF predicate are implemented. The full
+record — deterministic fixture generator, exact build and run commands,
+per-process observations, controls, retained shape and compiled mutations —
+is [measurements.md](measurements.md); this section states the summary.
 
-**Removal proofs** (mutate one protection, run its targeted test, observe
-the intended assertion fail, restore and pass):
+**In-pass observations.** D8's construction/retention/release seams now sit
+at the actual boundaries in both passes: `retain_ordinary_events` records
+every ordinary candidate and every blockless release, `collect_ordinary_facts`
+records the fact-pass buffer depth and live payload text as it drains,
+`flush_run` records the materialized candidate length and its release, and
+`DshCollector::admit` records retained text and charged bytes. Tests assert
+`fact_retained_events`, `peak_fact_depth`, `peak_fact_text`,
+`peak_retained_text`, `peak_retained_charged` and `peak_candidate_text`
+directly, so an uncapped or per-token intermediate allocation fails even
+when the returned prefix is unchanged.
+
+**Removal proofs** (mutate one protection, compile, run its targeted test,
+observe the intended assertion fail, restore and pass). Exact patches,
+commands and observed output are in
+[measurements.md](measurements.md#independent-compiled-removals).
 
 | Protection | Mutation | Failing assertion observed |
 |---|---|---|
-| Packed coalescing | expand one payload event per token, coalesce later | `packed_candidates() == 1` failed: left `1001`, right `1`; returned turns still `1` |
+| Packed coalescing | materialize one payload per member, then concatenate | `packed_candidates()` left `1000`, right `1`; returned turns still `1` |
 | Structural charge | drop `DISPLAY_EVENT_COST` from `display_cost` | `display_cost(&[text("x")])` left `Some(1)`, right `Some(513)` |
-| Intermediate retention | uncapped `admit`, final `display_cap` intact | `peak_retained() <= 7_812` failed while the returned prefix stayed 7,797 |
-| Blockless guard | retain every ordinary event | retained slots left `3`, right `1` |
-| Codex key sharing (Count) | fresh `Rc::from` at the count site | during-pass pointer/count left `[(Count,false,2),…]`, right `[(Count,true,3),…]` |
-| Codex key sharing (Lookup) | fresh `Rc::from` at the lookup site | during-pass left `[…,(Lookup,false,4)]`, right `[…,(Lookup,true,5)]` |
+| Intermediate retention | uncapped `admit` plus a final `display_cap` | `peak_retained_charged() <= DISPLAY_CAP` failed while the returned prefix stayed 7,797 |
+| Blockless guard | retain every ordinary event | `blockless_released_count()` left `0`, right `10_000` |
+| Codex key sharing (Count) | fresh `Rc::from` at the count site | during-pass left `[(Count,false,2),(Count,false,2),(Lookup,true,3)]`, right `[(Count,true,3),(Count,true,4),(Lookup,true,5)]` |
+| Codex key sharing (Lookup) | fresh `Rc::from` at the lookup site | during-pass left `[(Count,true,3),(Count,true,4),(Lookup,false,4)]`, right `[(Count,true,3),(Count,true,4),(Lookup,true,5)]` |
 | Header true EOF | overflow-probe-only predicate | cap-plus-one at EOF left `None`, right `Some(DiscoveryLimit)` |
 
-**Measurement method.** `/usr/bin/time -v` around the release-built
-`brokkr_view` test executable directly, not Cargo, running the ignored
-`transcript::tests::measure_projection_peak` (or `measure_input_only` /
-`measure_parse_only`) with `BROKKR_MEASURE_FILE` naming a fixture. Three
-fresh processes per case; the maximum observed peak is reported. Fixtures
-were generated outside the frozen corpus into `target/measure/` with
-`python3`: a version-zero header plus text packed rows whose members are
-one-character tokens at one-millisecond gaps, valid positions, consecutive
-nonoverlapping sequences and no assemblies. Compiler/profile/target: the
-default stable toolchain's `--release` build on x86_64-unknown-linux-gnu.
+**Observed maxima** (KB, three fresh processes; individual runs, elapsed
+times, controls and retained shape in [measurements.md](measurements.md)).
 
-| Fixture | bytes | sha256 |
-|---|---|---|
-| `case_a_16x16384.jsonl` (16 rows × 16,384 = 262,144 members) | 1,574,523 | `a7ff3d32d12a5e9b28027a1d4ee658d76812ce8d084e046c35be8a3387275a64` |
-| `case_b_1x262144.jsonl` (one row, same 262,144 members) | 1,572,992 | `7fba91101491f24e9976cbfc6f5f79a395e852d032c2e5c708876c198a88c36b` |
-| `case_tiny_calls.jsonl` (10,000 absent-data `tool/call`) | 538,925 | `44d659a29107c29088a1cdb17fefb33211eafe730178ca4b8843bf9177e9bc26` |
-| `case_blockless.jsonl` (10,000 blockless rows between two events) | 444,163 | `a044d7f5bccacf8439731d0eb7c6378f3aa735cd86b481cc7650e278ae88a2f7` |
-| `case_quiet_packed.jsonl` (16 rows × 16,384 tool-arg fragments) | 1,574,747 | `6374ca430338e771167a7a578b0e388c98038a5378c4067fee9246ade1a9257b` |
-| `case_block_dense.jsonl` (one turn, 50,000 blocks) | 1,350,131 | `76bc07620853bcefd5249615f46008e2bf9b539c797064b37f816e0c3230eafe` |
+| Case | Base `5ef4a842` max RSS | Candidate max RSS | Candidate shape |
+|---|---|---|---|
+| 16 × 16,384 packed members | 144,748 | 6,868 | 16 turns / 262,144 text / 270,336 charged |
+| one row, 262,144 members | 154,140 | 29,764 | 1 turn / 262,656 charged |
+| 10,000 tiny calls | 8,168 | 5,620 | 7,797 turns / 3,999,861 charged, truncated |
+| 10,000 blockless rows | 6,076 | 4,080 | 2 turns / 1,032 charged |
+| 16 × 16,384 quiet tool args | 21,912 | 6,576 | 0 turns |
+| 50,000-block message | 48,232 | 48,764 | 1 turn / 50,512 charged |
+| Claude, 10,000 tiny messages | 7,400 | 7,280 | 7,797 turns, truncated |
+| Codex, 10,000 tiny rows | 9,260 | 9,460 | 7,797 turns, truncated |
 
-**Observed maxima (KB, three fresh processes).**
-
-| Case | Base `5ef4a842` turns / max RSS | Candidate turns / max RSS |
-|---|---|---|
-| 16 × 16,384 packed members | 262,144 / 144,800 | 16 / 6,904 |
-| one row, 262,144 members | 262,144 / 154,172 | 1 / 29,596 |
-| 10,000 tiny calls | 10,000 / 8,144 | 7,797 / 5,540 |
-| 10,000 blockless rows | 2 / 6,056 | 2 / 4,640 |
-| 16 × 16,384 quiet tool args | 0 / 21,740 | 0 / 7,012 |
-| 50,000-block message | 1 / 48,232 | 1 / 48,756 |
-| Claude, 10,000 tiny messages | 10,000 / 7,596 | 7,797 / 7,372 |
-| Codex, 10,000 tiny rows | 10,000 / 9,324 | 7,797 / 9,376 |
-
-Input-only controls read the fixture and dropped it (4.5-4.9 MB); the
-parse-only control decoded every row without projecting (case A 6.3 MB;
-case B 29.1 MB). Case B's candidate peak therefore equals its parse-only
-control: that residual is the single huge row's `serde_json::Value`, not
-retained projector events, exactly the measured residual D5 names. The
-16-row case is where the projector expands: the candidate holds 16 chunks
-charged 270,336 bytes and peaks ~138 MB below the base. Tiny calls show the
-constant charge truncating at 7,797 turns; blockless rows show the guard
-avoiding 10,000 empty payload slots. Quiet packed rows show the span
-identity replacing a per-member `observed` vector. The block-dense message
-is unchanged, as D5 predicts: the charge is per turn, not per block.
+Case B's candidate peak equals its own parse-only control (29,104 KB): the
+residue is the single huge row's `serde_json::Value`, the measured D5
+residual, not retained projector events. Candidate elapsed time stays within
+0.06 s on every case. The D2 no-consumer optimization omits both
+suppression indexes and releases the observation spans when no eligible
+citing assembly exists, so a version-three session builds no unused index;
+citation validation is unchanged.
 
 **Limitations.** Process peak includes the Rust test runtime, file read,
 JSON parsing and allocator fragmentation; it is a defensible proxy, not an
 exact per-allocation measurement, and no unrelated process maxima are
-subtracted. The Claude and Codex tiny-row probes measured the shared charge
-truncating all three kinds alike at 7,797 turns; their peaks stay
-JSON-parsing dominated. In-box, the pinned-nightly gate reported lines 30,422/30,593, branches
-5,067/5,080 and functions 2,918/2,928; every residue is in out-of-scope
+subtracted. The in-box coverage result is recorded in
+[measurements.md](measurements.md); every residue is in out-of-scope
 boundary/sandbox files whose tests skip without a namespace (#286), and
-`crates/brokkr-view/src/transcript.rs` has no uncovered line or branch. The
-host exact-coverage gate and final-head remote CI remain controller work.
+`crates/brokkr-view/src/transcript.rs` keeps no uncovered line or branch.
+The host exact-coverage gate and final-head remote CI remain controller
+work.
