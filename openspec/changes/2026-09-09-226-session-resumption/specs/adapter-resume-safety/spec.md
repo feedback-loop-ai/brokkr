@@ -175,9 +175,18 @@ applicable installed version. The operator's 2026-09-15 ruling, “keep decision
 requirement to disable historically supported Codex during remeasurement.
 Codex `work-site` is preservation of a rejoin main already performs under
 accepted decision 0030. Its declaration SHALL describe that disposition and
-ruling, retain the dated 0.148.0 measurement and 0.153.4 applicability, and
-name the interface, restriction, exact-root and current-accounting evidence
-without relabelling old or partial observations as a new live measurement.
+ruling and distinguish accepted 0030's historical 0.148.0 measurement, the
+previous 0.153.4 applicability and the exercised 0.154.0 binary in the
+September 16 controller proof. The current measured identity and applicability
+SHALL name 0.154.0, with a dated 0.153.4→0.154.0 reconciliation citing
+`.forge/tasks/controller-codex-proof-2026-09-16-live.json`. Its interface,
+restriction, exact-root and current-accounting evidence SHALL identify each
+observation's version and scope. Earlier limitations SHALL remain dated
+history, with the new entry explicitly resolving the now-measured resume axes.
+The reason SHALL state that `codex exec resume` offers no sandbox flag and
+therefore the adapter re-imposes the class through `-c sandbox_mode=<class>`.
+Neither this reconciliation nor the historical evidence SHALL be described as
+complete qualification of unobserved 0.154.0 interface options or new shapes.
 The preserved shape SHALL name BOTH work-seat coordinates main rejoins: the
 engine-composed `harness` argv (`--sandbox workspace-write`, explicitly no boxed hands)
 AND the author-written INLINE argv (`boundary: not applicable`, the command's
@@ -191,8 +200,10 @@ adapter declaration pins, hands, agent record and driver evidence as one
 indivisible owned family, including panel members. Evidence SHALL neither
 remain at an old coordinate nor answer for a sibling. Unwrapped forms SHALL
 retain their existing supported or refused behavior.
-Installed-version remeasurement remains a delivery obligation; preserving this
-shipping behavior SHALL NOT complete that obligation or an enablement task.
+Complete installed-version qualification remains a delivery obligation; the
+supplied live proof SHALL be consumed without repetition, while preserving
+shipping behavior SHALL NOT complete missing interface evidence or an
+enablement task.
 
 An unmeasured rejoin main does not perform SHALL remain disabled during
 preparation. A version change SHALL invalidate that new shape's prior-version
@@ -412,11 +423,26 @@ read as history, not as a current claim.
 - **AND** a numeric total is reported only when every contributing message and attempt is attributable; otherwise it is omitted, and the plugin's last-wins usage is never reported as the total of a multi-message interval
 
 #### Scenario: An installed version differs from historical Codex evidence
-- **GIVEN** main already rejoins this Codex work-site shape under accepted decision 0030, its historical measurement identifies codex-cli 0.148.0, and its declared applicability and observed installed identity are 0.153.4
-- **WHEN** an eligible same-instance work-seat retry offers its owned thread with matching identity, boundary, hands and current-accounting evidence
-- **THEN** the shipped adapter rejoins that exact thread with current restrictions re-expressed and, on provider confirmation before work, reports `launch: resumed` without `unsupported-resume` merely because the measurement names 0.148.0
-- **AND** its declaration identifies preservation under the 2026-09-15 operator ruling; the 0.148.0 measurement remains historical, 0.153.4 remains the applicable target, and full remeasurement and task 11.1 remain pending
-- **AND** later cold sandbox startup/enforcement evidence does not become a claim of resumed enforcement, exact-root confirmation or current-only accounting; each cited observation retains its actual scope
+- **GIVEN** main already rejoins this Codex work-site shape under accepted decision 0030, its historical measurement identifies codex-cli 0.148.0, its previous applicability was 0.153.4, and the September 16 controller proof exercises installed 0.154.0
+- **WHEN** the declaration adopts that proof and an eligible same-instance work-seat retry offers its owned thread with matching current identity, boundary, hands and current-accounting evidence
+- **THEN** the current measured identity and applicability both name 0.154.0 and the adapter rejoins that exact thread with current restrictions re-expressed, reporting `launch: resumed` only on exact provider confirmation before work
+- **AND** its declaration retains the 2026-09-15 preservation ruling, the historical 0.148.0 evidence, and a dated 0.153.4→0.154.0 reconciliation referencing the new proof; `supported`, class `work`, boundaries `harness` and `not applicable`, and `hands: none` remain its scope
+- **AND** an executable or originating root whose recorded identity differs from 0.154.0 still refuses as `unverified-harness`; retaining historical evidence does not admit historical identities
+- **AND** the old cold-only and partial limitations keep their dates and the new reconciliation resolves their measured resume axes without claiming that task 11.1 or complete current-version interface qualification follows
+
+#### Scenario: Supplied Codex proof establishes the live resume axes
+- **GIVEN** the September 16 live record and raw report identify codex-cli 0.154.0 and a successful workspace-write cold control, followed by attributable completed command output
+- **WHEN** the existing Codex live-proof task is reconciled with adapter assertions that agree with those observations
+- **THEN** its return cites each of the five axes separately: exact demonstrated resume argv; effective class and applicable sandbox fragment re-imposed; exact same-root confirmation; current-only accounting; and pre-work rejection
+- **AND** the recorded cold read-only denial, successful bare-resume write and restored-class denial establish the need for `-c sandbox_mode`; the denied write reports `EXIT=2` and `Read-only file system` even though its reporting shell exits zero
+- **AND** the root is exactly `01a0aaa4-8667-7753-94b8-b0a60607524b`, the two resumed output counts are 303 and 308 for separate invocations, and the unknown-session rejection is exit 1 with the provider's named cause and neither thread nor turn start
+- **AND** task 10.5 completes on that cited evidence and agreeing assertions without repeating the provider experiment; the no-boxed-hands sandbox override does not qualify a boxed MCP fragment or every allowed passthrough option
+
+#### Scenario: Complete live axes do not complete the interface dependency
+- **GIVEN** the 0.154.0 live axes and matching adapter assertions are established, while checked task 10.1 records historical 0.153.4 interface investigation and no supplied 0.154.0 help/source capture establishes effort configuration, every allowed passthrough option and the stdin prompt positional `-`
+- **WHEN** task 11.1's full installed-version acceptance is evaluated
+- **THEN** 11.1 remains unchecked and its return names those exact missing interface obligations; 10.1's historical completion is not represented as current-version qualification
+- **AND** the shipping rejoin remains supported under the operator ruling, all refusal checks still bind, and neither a new provider probe nor qualification of `--worktree` or `--thread-source` follows from this proof
 
 #### Scenario: The preserved inline Codex coordinate is judged by its adapter
 - **GIVEN** inline work-class Codex sites compiled with the shipped assessment and author-pinned argv, including the raw commands in `recipes/standby` and `recipes/wager-harness`, and the following verify single/panel forms
@@ -450,6 +476,7 @@ read as history, not as a current claim.
 - **GIVEN** Codex's shipping work-site shape is supported under the operator ruling
 - **WHEN** the observed executable identity is missing or unreadable, differs from declared applicability or the originating root's recorded identity, the invocation's boundary or hands do not match, or required current-accounting evidence is absent or inapplicable
 - **THEN** the invocation does not rejoin and any permitted safe cold launch reports the corresponding bounded refusal under LE2
+- **AND** missing, unreadable or drifted executable identity, or a mismatch with a recorded originating identity, reports `unverified-harness`; a boundary/hands mismatch or absent confinement marker reports `restrictions-unavailable`; an absent or unsupported assessment or absent accounting evidence reports `unsupported-resume`, with the existing closed-gate precedence
 - **AND** independently testing missing boundary alone, missing hands alone, both missing, null markers, non-string markers and markers outside the admitted vocabulary against an otherwise supported assessment always declines as `restrictions-unavailable`, before any resume launch; the adapter never interprets missing evidence as `not applicable` / `none`
 - **AND** an unregistered executing owner or unresolved hands state remains unknown even when an enclosing or sibling input previously carried affirmative markers; production composition clears or replaces those facts and the otherwise supported assessment declines `restrictions-unavailable`, while a positively resolved no-hands control retains its live rejoin
 - **AND** an absent or unsupported assessment, or absent required accounting evidence, still declines `unsupported-resume`; an assessment alone or a sibling's evidence never establishes the executing site's confinement
@@ -504,8 +531,10 @@ a restriction. Resume SHALL NOT promote trust, add a boundary backend, admit
 an unsupported hands shape or change which adapters can hold a gate.
 
 #### Scenario: Codex re-imposes its sandbox and effort
-- **WHEN** a Codex invocation with a supported explicit class and effort rejoins its own thread
-- **THEN** the effective class and effort are re-expressed through the measured resume interface, including 0030's safe class override, rather than inherited from the old thread
+- **WHEN** a Codex invocation with a supported explicit class and effort rejoins its own thread in either shipping work-site coordinate (`harness` or inline `not applicable`, both with `hands: none`)
+- **THEN** the production-composed resume argv carries the effective class through `-c sandbox_mode=<class>` (including the adapter's TOML quoting), contains no `-s`, `--sandbox` or `--sandbox=...`, and selects the exact offered root
+- **AND** current effort, model, workdir and result delivery remain effective; effort is re-expressed rather than inherited, while complete 0.154.0 interface qualification remains a separate evidence obligation
+- **AND** the declaration explains why the override is necessary: the bare resume drops the class and the resume subcommand offers no sandbox flag
 
 #### Scenario: Claude re-imposes the entire boxed fragment
 - **WHEN** Claude resumes a site whose current restrictions include permission mode, MCP configuration, allowed tools and boxed workspace hands
@@ -698,6 +727,7 @@ invocation exactly as an enabled shape does.
 #### Scenario: Codex unsafe passthrough remains blocked
 - **WHEN** passthrough contains an alternate selector, extra positional handle, sandbox bypass or conflicting configuration
 - **THEN** the resume is not invoked and the refusal remains bounded; 0030's allow-list protections are preserved
+- **AND** the new 0.154.0 `--worktree` and `--thread-source` shapes remain unqualified; on an otherwise eligible supported offer their unadmitted passthrough still declines as `incompatible-argv`, without weakening any earlier gate refusal
 
 #### Scenario: A bundle supplies a Codex resume selector on a cold launch
 - **GIVEN** driver passthrough after the adapter's `--` contains `resume <id>`, with or without an engine offer, including when the shape is unmeasured
