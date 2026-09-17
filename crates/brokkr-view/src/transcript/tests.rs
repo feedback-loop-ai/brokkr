@@ -2381,6 +2381,47 @@ fn packed_empty_members_allocate_no_events_but_stay_observed() {
     }
 }
 
+/// Shape (c) of #277: a blockless ordinary DSH event (`tool/result` or
+/// `user/message` with absent data) is pure retained waste. Its sequence
+/// must still be observed so duplicate identity stays ambiguous, but it
+/// must never be pushed into the retained prefix. The final empty filter
+/// would hide the difference, so this pins retention itself: removing the
+/// guard retains the empty events and fails this assertion.
+#[test]
+fn blockless_ordinary_dsh_events_are_observed_but_not_retained() {
+    let event = |seq: i64, blocks: Vec<DshBlock>| DshEvent {
+        blocks,
+        role: "tool".to_string(),
+        ts: "1".to_string(),
+        seq: Some(seq),
+        turn: Some(Position::Int(1)),
+        step: Some(Position::Int(1)),
+        chunk: false,
+        assembly: false,
+        cited: Vec::new(),
+        dedicated: true,
+    };
+
+    let mut observed = Vec::new();
+    let mut events = Vec::new();
+    retain_ordinary_events(
+        vec![
+            event(7, Vec::new()),
+            event(8, vec![DshBlock::plain(Block::tool_result("ok"))]),
+            event(9, Vec::new()),
+        ],
+        &mut observed,
+        &mut events,
+    );
+    assert_eq!(
+        observed,
+        vec![7, 8, 9],
+        "every recorded sequence is still observed"
+    );
+    assert_eq!(events.len(), 1, "only the block-bearing event is retained");
+    assert_eq!(events[0].seq, Some(8));
+}
+
 #[test]
 fn codex_quiet_top_level_without_payload_is_not_counted() {
     for kind in [
@@ -2728,6 +2769,57 @@ fn codex_record_id_is_allocated_once_and_shared_by_its_blocks() {
     let (_, shared) = records[0].blocks[0].fact.as_ref().expect("identified");
     assert_eq!(records[0].blocks.len(), 1000);
     assert_eq!(Rc::strong_count(shared), 1000);
+
+    // The pass must hold that one allocation while its keys are live, not
+    // only before and after: observe both key-construction sites with a
+    // canonical and a fallback record built from one id. A regression that
+    // copies the bytes per key fails on pointer identity and count here,
+    // during the pass, which the before/after checks cannot see.
+    let id = codex_id(Some("shared-canary")).expect("a nonempty id");
+    let mut pair = vec![
+        CodexRecord {
+            blocks: vec![CodexBlock::identified(
+                Block::tool("a"),
+                CodexFact::Call,
+                Some(&id),
+            )],
+            role: String::new(),
+            ts: String::new(),
+            unrecognized: false,
+            canonical: true,
+        },
+        CodexRecord {
+            blocks: vec![CodexBlock::identified(
+                Block::tool("b"),
+                CodexFact::Call,
+                Some(&id),
+            )],
+            role: String::new(),
+            ts: String::new(),
+            unrecognized: false,
+            canonical: false,
+        },
+    ];
+    drop(id);
+    let mut during = Vec::new();
+    associate_codex_observed(&mut pair, |site, source, key| {
+        during.push((site, Rc::ptr_eq(source, key), Rc::strong_count(source)));
+    });
+    assert_eq!(
+        during,
+        vec![
+            (CodexKeySite::Count, true, 3),
+            (CodexKeySite::Count, true, 4),
+            (CodexKeySite::Lookup, true, 5),
+        ],
+        "each live key is the record's own allocation, with only the pass's references"
+    );
+    assert_eq!(pair[0].blocks.len(), 1, "the canonical block stays");
+    assert!(
+        pair[1].blocks.is_empty(),
+        "the proven fallback block is removed"
+    );
+
     let full = codex(&row(message));
     assert_eq!(full.turns.len(), 1);
     assert_eq!(full.turns[0].blocks.len(), 1000);

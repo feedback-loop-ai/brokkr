@@ -1156,6 +1156,28 @@ fn collect_codex(admitted: &Admitted<'_>, projection: &mut Projection) -> Vec<Co
 /// identity keeps both records, and only the blocks the canonical record
 /// actually covers disappear.
 fn associate_codex(records: &mut [CodexRecord]) {
+    associate_codex_observed(records, |_, _, _| {});
+}
+
+/// The two places `associate_codex` builds an association key from a
+/// record's shared identity. A test observer names them so a regression
+/// that copies the recorded bytes instead of the `Rc` fails while the
+/// pass is live, not only before and after it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CodexKeySite {
+    /// Counting `seen`/canonical/fallback during the first sweep.
+    Count,
+    /// The fallback-retention lookup in the second sweep.
+    Lookup,
+}
+
+/// `associate_codex` with a live observation of the actual `(source id,
+/// key)` pair at each key construction. The observer borrows both, so it
+/// changes no strong count; production passes a no-op.
+fn associate_codex_observed<F>(records: &mut [CodexRecord], mut observe: F)
+where
+    F: FnMut(CodexKeySite, &CodexId, &CodexId),
+{
     use std::collections::{HashMap, HashSet};
     // Keys share each record's id allocation: a key is a reference count,
     // never a copy of the recorded bytes.
@@ -1168,6 +1190,7 @@ fn associate_codex(records: &mut [CodexRecord]) {
                 continue;
             };
             let key = (*fact, Rc::clone(id));
+            observe(CodexKeySite::Count, id, &key.1);
             if !seen.insert(key.clone()) {
                 continue;
             }
@@ -1185,6 +1208,7 @@ fn associate_codex(records: &mut [CodexRecord]) {
         record.blocks.retain(|block| match &block.fact {
             Some((fact, id)) => {
                 let key = (*fact, Rc::clone(id));
+                observe(CodexKeySite::Lookup, id, &key.1);
                 canonical.get(&key) != Some(&1) || fallback.get(&key) != Some(&1)
             }
             None => true,
@@ -2098,6 +2122,29 @@ fn first_physical_row<'a>(admitted: &'a Admitted<'_>) -> FirstRow<'a> {
     }
 }
 
+/// Retain the ordinary events one row contributes to the projected prefix.
+/// Every sequence is observed first, because a duplicate identity must
+/// still keep a citation ambiguous; a blockless event is then released,
+/// since it never suppresses (the sweep requires a readable block),
+/// indexes as a chunk, yields a turn or owns a tool fact. This is shape
+/// (c) of #277: the blockless `tool/result` and `user/message` rows with
+/// absent data are harmless but pure retained waste until the final empty
+/// filter would drop them.
+fn retain_ordinary_events(
+    rows: Vec<DshEvent>,
+    observed: &mut Vec<i64>,
+    events: &mut Vec<DshEvent>,
+) {
+    for row in rows {
+        if let Some(seq) = row.seq {
+            observed.push(seq);
+        }
+        if !row.blocks.is_empty() {
+            events.push(row);
+        }
+    }
+}
+
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
@@ -2132,16 +2179,11 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
             return;
         }
         match dsh_row(&value, raw, admitted_header.version) {
-            DshRow::Events(mut rows, row_unrecognized) => {
+            DshRow::Events(rows, row_unrecognized) => {
                 if row_unrecognized {
                     unrecognized += 1;
                 }
-                for row in &rows {
-                    if let Some(seq) = row.seq {
-                        observed.push(seq);
-                    }
-                }
-                events.append(&mut rows);
+                retain_ordinary_events(rows, &mut observed, &mut events);
             }
             DshRow::Packed(mut rows, member_seqs) => {
                 observed.extend(member_seqs);
