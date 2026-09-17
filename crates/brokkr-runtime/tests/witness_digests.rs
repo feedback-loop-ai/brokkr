@@ -193,6 +193,12 @@ fn workspace() -> PathBuf {
 /// bundles, the agent-backed ones and `recipes/preflight` keep their
 /// digests: a seat that consulted no inline model declaration is not
 /// touched.
+/// The 2026-09-16 Codex declaration reconciliation moves the four bundles
+/// whose inline or composed work sites read `adapters/codex.json`'s resume
+/// assessment: `recipes/night-shift`, `recipes/wager-harness`,
+/// `recipes/triage` and `recipes/gpt-flash`. The other six are unchanged;
+/// their measured digests below are the copies of that edit's actual
+/// compiles, never recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -208,15 +214,15 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "097a57e37997ec9eba9c2ebe64f3786a2670af8782ddb764143439ce28d56bf7",
+        "5eec5fd2c04e1dd55b63f7acf72c9878aaaa12d05b3fc469f1a16dd29e0631f5",
     ),
     (
         "recipes/wager-harness",
-        "45a17bce7c3a6c819042a6d2b1eda32b63ad965dfb35998b3b7b2011e04bb0fd",
+        "1f6f5d58dcf4cda2944126ace576ad8fc34ab376131fd8fbf03628e5f204e79d",
     ),
     (
         "recipes/triage",
-        "85fdb273d4fe2ef921749132672515a2c3c283e49a699f15f5670b8b982ccb19",
+        "5e8207703e22b448b0b00f2903a5523f9ba87813c33ac7201d249abeaf7b4cce",
     ),
     (
         "recipes/research",
@@ -228,7 +234,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/gpt-flash",
-        "04cf396d92618fc5f363be6cad7da5b4069ae9d92c66e4b5318696275951534e",
+        "9d73bc9e5c4ebf14be395806bb4243c329ec31a5fee6e72ffee9b4fbb7312232",
     ),
     (
         "bundles/verify",

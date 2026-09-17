@@ -1511,7 +1511,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
     let shim = make_shim(
         workdir.path(),
         &format!(
-            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\
              printf '%s\\n' \"$*\" >> {log}\n\
              cat > /dev/null\n\
              printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
@@ -1660,7 +1660,7 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     let shim = make_shim(
         workdir.path(),
         &format!(
-            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+            "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\
              printf '%s\\n' \"$*\" >> {log}\n\
              cat > /dev/null\n\
              printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
@@ -2054,7 +2054,7 @@ fn shell_quote(value: &str) -> String {
 /// launch row is journaled and the engine parks with a retryable effect.
 fn proof_shim_body(dir: &Path, offered: &str) -> String {
     format!(
-        "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.153.4\\n'; exit 0 ;; esac\n\
+        "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\
          printf '%s\\n' \"$*\" >> {log}\n\
          cat > /dev/null\n\
          printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
