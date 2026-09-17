@@ -2171,6 +2171,9 @@ fn retain_ordinary_events(
         }
         if !row.blocks.is_empty() {
             events.push(row);
+        } else {
+            #[cfg(test)]
+            observe::blockless_released();
         }
     }
 }
@@ -2333,6 +2336,19 @@ impl CitationCoverage {
     }
 }
 
+/// The suppression consumer the projection pass queries (design D2). When
+/// the fact pass observed no eligible citing assembly there is no consumer,
+/// so neither the multiplicity nor the coverage index is built, the
+/// collected observation spans are released, and a suppression query is
+/// answered without touching either.
+enum Suppression {
+    None,
+    Active {
+        unique: UniqueSegments,
+        coverage: CitationCoverage,
+    },
+}
+
 /// True when a chunk at `ordinal` with this recorded identity is suppressed
 /// by a strictly later readable assembly (design D2).
 fn dsh_suppressed(
@@ -2340,9 +2356,11 @@ fn dsh_suppressed(
     turn: Position,
     step: Position,
     seq: i64,
-    unique: &UniqueSegments,
-    coverage: &CitationCoverage,
+    suppression: &Suppression,
 ) -> bool {
+    let Suppression::Active { unique, coverage } = suppression else {
+        return false;
+    };
     unique.is_unique(seq)
         && coverage
             .latest_ordinal(turn, step, seq)
@@ -2383,18 +2401,20 @@ impl DshCollector {
             self.sealed = true;
             return;
         }
+        #[cfg(test)]
+        let text_bytes: usize = blocks.iter().map(|block| block.text.len()).sum();
         self.remaining -= cost;
         self.turns.push(Turn { role, ts, blocks });
         #[cfg(test)]
-        observe::retained_turn();
+        observe::retained_turn(text_bytes, cost);
     }
 }
 
-/// Test-only observations of the DSH projector's actual construction and
-/// retention lifetimes (design D8). They compile only for this crate's unit
-/// tests, so a production build carries no counter and the CLI/TUI
-/// integration tests cannot observe them. The counters are logical, not
-/// allocator measurements.
+/// Test-only observations of the DSH projector's actual construction,
+/// retention and release lifetimes across both passes (design D8). They
+/// compile only for this crate's unit tests, so a production build carries
+/// no counter and the CLI/TUI integration tests cannot observe them. The
+/// counters are logical, not allocator measurements.
 #[cfg(test)]
 mod observe {
     use std::cell::Cell;
@@ -2403,21 +2423,46 @@ mod observe {
         static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
         static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
         static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+        static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
         static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
         static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
+        static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+        static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+        static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+        static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+        /// Ordinary events that reached the fact pass's retained buffer.
+        static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
+        static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
+        static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
+        static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
+        /// Blockless ordinary events released without retention.
+        static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
     }
 
     pub(super) fn reset() {
         PACKED_CANDIDATES.with(|cell| cell.set(0));
         LIVE_CANDIDATES.with(|cell| cell.set(0));
         PEAK_CANDIDATES.with(|cell| cell.set(0));
+        PEAK_CANDIDATE_TEXT.with(|cell| cell.set(0));
         RETAINED_TURNS.with(|cell| cell.set(0));
         PEAK_RETAINED.with(|cell| cell.set(0));
+        RETAINED_TEXT.with(|cell| cell.set(0));
+        PEAK_RETAINED_TEXT.with(|cell| cell.set(0));
+        RETAINED_CHARGED.with(|cell| cell.set(0));
+        PEAK_RETAINED_CHARGED.with(|cell| cell.set(0));
+        FACT_RETAINED.with(|cell| cell.set(0));
+        PEAK_FACT_DEPTH.with(|cell| cell.set(0));
+        FACT_LIVE_TEXT.with(|cell| cell.set(0));
+        PEAK_FACT_TEXT.with(|cell| cell.set(0));
+        BLOCKLESS_RELEASED.with(|cell| cell.set(0));
     }
 
-    /// One packed-row candidate (a coalesced run's payload) is constructed.
-    pub(super) fn packed_candidate() {
+    /// One packed-row candidate is constructed and materialized at this
+    /// text length; its payload is live until it is released into the
+    /// collector.
+    pub(super) fn packed_candidate(text_bytes: usize) {
         PACKED_CANDIDATES.with(|cell| cell.set(cell.get() + 1));
+        PEAK_CANDIDATE_TEXT.with(|peak| peak.set(peak.get().max(text_bytes)));
         LIVE_CANDIDATES.with(|cell| {
             let live = cell.get() + 1;
             cell.set(live);
@@ -2430,13 +2475,47 @@ mod observe {
         LIVE_CANDIDATES.with(|cell| cell.set(cell.get().saturating_sub(1)));
     }
 
-    /// One final turn joins the retained prefix.
-    pub(super) fn retained_turn() {
+    /// One final turn joins the retained prefix with this emitted text and
+    /// charged cost; the prefix itself is never released.
+    pub(super) fn retained_turn(text_bytes: usize, charged: usize) {
         RETAINED_TURNS.with(|cell| {
             let retained = cell.get() + 1;
             cell.set(retained);
             PEAK_RETAINED.with(|peak| peak.set(peak.get().max(retained)));
         });
+        RETAINED_TEXT.with(|cell| {
+            let text = cell.get() + text_bytes;
+            cell.set(text);
+            PEAK_RETAINED_TEXT.with(|peak| peak.set(peak.get().max(text)));
+        });
+        RETAINED_CHARGED.with(|cell| {
+            let total = cell.get() + charged;
+            cell.set(total);
+            PEAK_RETAINED_CHARGED.with(|peak| peak.set(peak.get().max(total)));
+        });
+    }
+
+    /// Ordinary events reached the fact pass's retained buffer at this
+    /// depth and payload size, before `collect_ordinary_facts` drains them.
+    pub(super) fn fact_retained(depth: usize, text_bytes: usize) {
+        FACT_RETAINED.with(|cell| cell.set(cell.get() + depth));
+        PEAK_FACT_DEPTH.with(|peak| peak.set(peak.get().max(depth)));
+        FACT_LIVE_TEXT.with(|cell| {
+            let live = cell.get() + text_bytes;
+            cell.set(live);
+            PEAK_FACT_TEXT.with(|peak| peak.set(peak.get().max(live)));
+        });
+    }
+
+    /// One retained ordinary event leaves the fact-pass buffer.
+    pub(super) fn fact_released(text_bytes: usize) {
+        FACT_LIVE_TEXT.with(|cell| cell.set(cell.get().saturating_sub(text_bytes)));
+    }
+
+    /// One blockless ordinary event was constructed and released without
+    /// ever joining the retained buffer.
+    pub(super) fn blockless_released() {
+        BLOCKLESS_RELEASED.with(|cell| cell.set(cell.get() + 1));
     }
 
     pub(super) fn packed_candidates() -> usize {
@@ -2447,9 +2526,46 @@ mod observe {
         PEAK_CANDIDATES.with(Cell::get)
     }
 
+    pub(super) fn peak_candidate_text() -> usize {
+        PEAK_CANDIDATE_TEXT.with(Cell::get)
+    }
+
     pub(super) fn peak_retained() -> usize {
         PEAK_RETAINED.with(Cell::get)
     }
+
+    pub(super) fn peak_retained_text() -> usize {
+        PEAK_RETAINED_TEXT.with(Cell::get)
+    }
+
+    pub(super) fn peak_retained_charged() -> usize {
+        PEAK_RETAINED_CHARGED.with(Cell::get)
+    }
+
+    /// Ordinary events that joined the fact-pass retained buffer; a
+    /// blockless event surviving the guard would raise this above the
+    /// number of content-bearing rows.
+    pub(super) fn fact_retained_events() -> usize {
+        FACT_RETAINED.with(Cell::get)
+    }
+
+    pub(super) fn peak_fact_depth() -> usize {
+        PEAK_FACT_DEPTH.with(Cell::get)
+    }
+
+    pub(super) fn peak_fact_text() -> usize {
+        PEAK_FACT_TEXT.with(Cell::get)
+    }
+
+    pub(super) fn blockless_released_count() -> usize {
+        BLOCKLESS_RELEASED.with(Cell::get)
+    }
+}
+
+/// The emitted UTF-8 byte length of a row's blocks. Test observation only.
+#[cfg(test)]
+fn block_text_bytes(blocks: &[DshBlock]) -> usize {
+    blocks.iter().map(|block| block.block.text.len()).sum()
 }
 
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
@@ -2540,8 +2656,17 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
         projection.unavailable = Some(Unavailable::UnsupportedFormat);
         return;
     }
-    let unique = UniqueSegments::new(&spans);
-    let coverage = CitationCoverage::new(&assemblies);
+    // The indexes exist only to answer a suppression query (design D2):
+    // without an eligible citing assembly no chunk can be suppressed, so
+    // omit both rather than sort the observed spans for no consumer.
+    let suppression = if assemblies.is_empty() {
+        Suppression::None
+    } else {
+        Suppression::Active {
+            unique: UniqueSegments::new(&spans),
+            coverage: CitationCoverage::new(&assemblies),
+        }
+    };
     drop(spans);
     drop(assemblies);
 
@@ -2566,7 +2691,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                     .unwrap_or_default();
                 let view = validate_packed(kind, object, data, raw)
                     .expect("the fact pass refused an invalid packed row");
-                emit_packed(&mut collector, kind, &view, ordinal, &unique, &coverage);
+                emit_packed(&mut collector, kind, &view, ordinal, &suppression);
             }
             DshRow::Events(rows, _) => {
                 for row in rows {
@@ -2575,8 +2700,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                         row,
                         ordinal,
                         associate,
-                        &unique,
-                        &coverage,
+                        &suppression,
                         &dedicated,
                     );
                 }
@@ -2613,7 +2737,17 @@ fn collect_ordinary_facts(
     assemblies: &mut Vec<AssemblyFact>,
     dedicated: &mut HashMap<(String, DshDirection, Position, Position), u32>,
 ) {
+    #[cfg(test)]
+    observe::fact_retained(
+        retained.len(),
+        retained
+            .iter()
+            .map(|row| block_text_bytes(&row.blocks))
+            .sum::<usize>(),
+    );
     for mut row in retained.drain(..) {
+        #[cfg(test)]
+        observe::fact_released(block_text_bytes(&row.blocks));
         if row.assembly
             && !row.cited.is_empty()
             && row
@@ -2657,8 +2791,7 @@ fn emit_packed(
     kind: &str,
     view: &PackedView<'_>,
     ordinal: u32,
-    unique: &UniqueSegments,
-    coverage: &CitationCoverage,
+    suppression: &Suppression,
 ) {
     if view.tool {
         // Argument fragments are recognized quiet omissions.
@@ -2685,7 +2818,7 @@ fn emit_packed(
             continue;
         }
         let seq = view.seq0 + member_index as i64;
-        if dsh_suppressed(ordinal, view.turn, view.step, seq, unique, coverage) {
+        if dsh_suppressed(ordinal, view.turn, view.step, seq, suppression) {
             if let Some(start) = run_start.take() {
                 flush_run(
                     collector,
@@ -2744,7 +2877,7 @@ fn flush_run(
     }
     let mut text = String::with_capacity(run_length);
     #[cfg(test)]
-    observe::packed_candidate();
+    observe::packed_candidate(run_length);
     for member in &members[start..end] {
         // A validated member is always a string; an empty fragment pushes
         // nothing and never splits the run.
@@ -2759,7 +2892,7 @@ fn flush_run(
     #[cfg(test)]
     observe::packed_candidate_released();
     #[cfg(test)]
-    observe::retained_turn();
+    observe::retained_turn(run_length, cost);
 }
 
 /// Emit one ordinary DSH event: suppression first, then dedicated-tool
@@ -2769,13 +2902,12 @@ fn emit_ordinary(
     row: DshEvent,
     ordinal: u32,
     associate: bool,
-    unique: &UniqueSegments,
-    coverage: &CitationCoverage,
+    suppression: &Suppression,
     dedicated: &HashMap<(String, DshDirection, Position, Position), u32>,
 ) {
     if row.chunk {
         if let (Some(turn), Some(step), Some(seq)) = (row.turn, row.step, row.seq) {
-            if dsh_suppressed(ordinal, turn, step, seq, unique, coverage) {
+            if dsh_suppressed(ordinal, turn, step, seq, suppression) {
                 return;
             }
         }

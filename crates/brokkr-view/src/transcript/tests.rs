@@ -447,13 +447,8 @@ fn dsh_admits_numeric_zero_and_projects_messages() {
         "{\"type\":\"user/message\",\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"q\"}]},\"time\":1000}\n",
         "{\"type\":\"assistant/message\",\"data\":{\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"},{\"type\":\"reasoning\",\"text\":\"r\"}]}},\"time\":1004}\n",
     );
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: false,
@@ -475,13 +470,8 @@ fn dsh_rejects_foreign_versions_with_zero_counts() {
         "not json\n",
         "{\"type\":\"future/event\"}\n",
     );
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: false,
@@ -501,13 +491,8 @@ fn dsh_packed_rows_reconstruct_sequence_and_time() {
         "{\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[5],\"texts\":[\"a\",\"b\"]}}\n",
         "{\"type\":\"text-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":2,\"index\":0,\"dt\":[],\"texts\":[\"c\"]}}\n",
     );
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: false,
@@ -530,13 +515,8 @@ fn dsh_required_unknown_refuses_but_ignorable_omits() {
         "{\"type\":\"session\",\"version\":0}\n",
         "{\"type\":\"future/event\"}\n",
     );
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: refused.as_bytes(),
             overflow: false,
@@ -549,13 +529,8 @@ fn dsh_required_unknown_refuses_but_ignorable_omits() {
         "{\"type\":\"session\",\"version\":0}\n",
         "{\"type\":\"future/event\",\"ignorable\":true}\n",
     );
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: omitted.as_bytes(),
             overflow: false,
@@ -1439,13 +1414,8 @@ fn dsh_incomplete_and_cap_cut_packed_rows_supply_no_members() {
     assert_eq!(projection.skipped_lines, 0);
     assert_eq!(projection.unrecognized_records, 0);
 
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: true,
@@ -1714,13 +1684,8 @@ fn dsh_event_refusal_preserves_prefix_counts_and_all_notices() {
         row(json!({"type":"future/b"})),
     ]
     .concat();
-    let kind = match std::env::var("BROKKR_MEASURE_KIND").as_deref() {
-        Ok("claude") => TranscriptKind::ClaudeSession,
-        Ok("codex") => TranscriptKind::CodexThread,
-        _ => TranscriptKind::DshSession,
-    };
     let projection = project(
-        kind,
+        TranscriptKind::DshSession,
         &Snapshot {
             bytes: text.as_bytes(),
             overflow: true,
@@ -4380,11 +4345,18 @@ fn packed_coalescing_constructs_one_candidate_not_one_per_token() {
         "one coalesced candidate, not one per member"
     );
     assert_eq!(observe::peak_candidates(), 1);
+    assert_eq!(
+        observe::peak_candidate_text(),
+        1000,
+        "the one candidate materialized the whole 1000-byte run"
+    );
 }
 
-/// The structural charge bounds tiny ordinary rows during projection:
-/// 10,000 absent-data `tool/call` rows retain exactly 7,797 one-byte turns,
-/// and the retained prefix never exceeds the charged count.
+/// The structural charge bounds tiny ordinary rows during projection and
+/// observes the fact-pass lifetime directly: 10,000 absent-data `tool/call`
+/// rows each construct one candidate in the fact pass, retain exactly 7,797
+/// one-byte turns, and never let retained text or charged bytes exceed the
+/// shared budget.
 #[test]
 fn tiny_ordinary_calls_stay_within_the_structural_budget() {
     observe::reset();
@@ -4407,10 +4379,115 @@ fn tiny_ordinary_calls_stay_within_the_structural_budget() {
             .sum::<usize>(),
         7_797
     );
+    assert_eq!(
+        observe::fact_retained_events(),
+        10_000,
+        "every ordinary row is constructed and retained once in the fact pass"
+    );
+    assert_eq!(observe::peak_fact_depth(), 1, "one row is live at a time");
+    assert!(
+        observe::peak_fact_text() >= 1,
+        "the fact pass measured live payload text, not only slots"
+    );
+    assert_eq!(
+        observe::blockless_released_count(),
+        0,
+        "a tool/call row is content-bearing"
+    );
     assert!(
         observe::peak_retained() <= 7_812,
         "retained slots stay within floor(cap / charge)"
     );
+    assert!(
+        observe::peak_retained_charged() <= DISPLAY_CAP,
+        "retained charged bytes never exceed the shared budget"
+    );
+    assert!(
+        observe::peak_retained_text() <= DISPLAY_CAP,
+        "retained text never exceeds the shared budget"
+    );
+}
+
+/// The budget is enforced during accumulation, not only on the returned
+/// prefix: an oversized ordinary turn arriving after the prefix is nearly
+/// full is discarded whole, so charged and text retention never exceed
+/// `DISPLAY_CAP` even though the returned prefix is unchanged.
+#[test]
+fn oversized_ordinary_turn_never_exceeds_the_intermediate_budget() {
+    observe::reset();
+    let mut text = row(json!({"type":"session","version":0}));
+    for seq in 1..=7_797 {
+        text.push_str(&row(
+            json!({"type":"tool/call","seq":seq,"time":1000,"data":{}}),
+        ));
+    }
+    let oversized = "x".repeat(1_000_000);
+    text.push_str(&row(json!({
+        "type":"assistant/message",
+        "seq":10_000,
+        "time":2000,
+        "data":{"turn":1,"step":1,"message":{"content":[{"type":"text","text":oversized}]}}
+    })));
+    text.push_str(&row(
+        json!({"type":"tool/call","seq":10_001,"time":3000,"data":{}}),
+    ));
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert!(projection.truncated);
+    assert_eq!(
+        projection.turns.len(),
+        7_797,
+        "the oversized turn is dropped whole"
+    );
+    assert!(
+        observe::peak_retained_charged() <= DISPLAY_CAP,
+        "charged retention is bounded throughout, not only at the end"
+    );
+    assert!(
+        observe::peak_retained_text() <= DISPLAY_CAP,
+        "retained text is bounded throughout, not only at the end"
+    );
+}
+
+/// Thousands of absent-data blockless rows between two visible events are
+/// observed and released in the fact pass: they never join the retained
+/// buffer, so no empty payload slot survives even though the final empty
+/// filter would hide the difference in displayed turns.
+#[test]
+fn thousands_of_blockless_rows_retain_no_fact_slots() {
+    observe::reset();
+    let mut text = row(json!({"type":"session","version":0}));
+    text.push_str(&row(json!({
+        "type":"assistant/message","seq":1,"time":1000,
+        "data":{"turn":1,"step":1,"message":{"content":[{"type":"text","text":"a"}]}}
+    })));
+    for seq in 2..=10_001 {
+        text.push_str(&row(
+            json!({"type":"tool/result","seq":seq,"time":1000,"data":{}}),
+        ));
+    }
+    text.push_str(&row(json!({
+        "type":"assistant/message","seq":10_002,"time":2000,
+        "data":{"turn":1,"step":2,"message":{"content":[{"type":"text","text":"b"}]}}
+    })));
+    let projection = dsh(&text);
+    assert!(projection.unavailable.is_none(), "{projection:?}");
+    assert_eq!(
+        projection.turns.len(),
+        2,
+        "only the two visible events survive"
+    );
+    assert_eq!(
+        observe::blockless_released_count(),
+        10_000,
+        "every blockless row was constructed and released unretained"
+    );
+    assert_eq!(
+        observe::fact_retained_events(),
+        2,
+        "only the two content-bearing rows reached the retained buffer"
+    );
+    assert_eq!(observe::peak_fact_depth(), 1);
 }
 
 /// Exactly 7,797 tiny calls fit with no truncation, and the count is one
