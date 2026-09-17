@@ -207,6 +207,16 @@ fn compare(world: &World, read: &TranscriptRead, selected: Option<usize>) {
     assert!(presentation.get("blocks").is_none(), "{presentation}");
     for turn in &read.turns {
         for block in &turn.blocks {
+            // Only text long enough to BE evidence is searched for. A one- or
+            // two-character block is a substring of almost any JSON document —
+            // including the temporary path this response legitimately carries —
+            // so asserting its absence tests the platform's mkdtemp, not the
+            // transport. macOS and Windows failed here where Linux passed for
+            // exactly that reason: their temp paths happened to contain the
+            // letter.
+            if block.text.chars().count() < 4 {
+                continue;
+            }
             assert!(
                 !response.body.contains(&block.text),
                 "the browser transport must not carry prose: {presentation}"
@@ -533,16 +543,19 @@ fn one_derivation_reaches_every_surface() {
 fn packed_dsh_coalescing_reaches_every_surface() {
     let _home = home_lock();
     let body = "{\"type\":\"session\",\"version\":0}\n\
-        {\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"a\",\"b\",\"c\"]}}\n\
-        {\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"r\",\"s\"]}}\n";
+        {\"type\":\"text-chunks\",\"seq0\":10,\"time0\":1000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1,1],\"texts\":[\"Prose-Alpha \",\"Prose-Bravo \",\"Prose-Charlie\"]}}\n\
+        {\"type\":\"reasoning-chunks\",\"seq0\":20,\"time0\":2000,\"data\":{\"turn\":1,\"step\":1,\"index\":0,\"dt\":[1],\"texts\":[\"Reason-Delta \",\"Reason-Echo\"]}}\n";
     let world = make_world("dsh-session", "sessions/one", body);
     std::env::set_var("HOME", &world.home);
     let read = brokkr_cli::read_local(Some(&world.reference), LegacyProvenance::Absent, None);
     assert!(read.is_readable(), "{read:?}");
     assert_eq!(read.turns.len(), 2);
-    assert_eq!(read.turns[0].blocks[0].text, "abc");
+    assert_eq!(
+        read.turns[0].blocks[0].text,
+        "Prose-Alpha Prose-Bravo Prose-Charlie"
+    );
     assert_eq!(read.turns[0].ts, "1000");
-    assert_eq!(read.turns[1].blocks[0].text, "rs");
+    assert_eq!(read.turns[1].blocks[0].text, "Reason-Delta Reason-Echo");
     assert_eq!(read.turns[1].ts, "2000");
     compare(&world, &read, Some(0));
 }
