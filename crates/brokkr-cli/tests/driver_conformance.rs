@@ -1508,17 +1508,22 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
 
     let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     let argv_log = workdir.path().join("argv.log");
+    let parts_log = workdir.path().join("argv.parts");
     let shim = make_shim(
         workdir.path(),
         &format!(
             "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\
              printf '%s\\n' \"$*\" >> {log}\n\
+             printf '%s\\n' '{mark}' >> {parts}\n\
+             for a in \"$@\"; do printf '%s\\n' \"$a\" >> {parts}; done\n\
              cat > /dev/null\n\
              printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
              printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
              printf '{{\"type\":\"turn.started\"}}\\n'\n\
              printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
             log = argv_log.display(),
+            parts = parts_log.display(),
+            mark = INVOCATION_MARK,
             result = result,
             offered = offered,
         ),
@@ -1607,6 +1612,18 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         "{resume_line}"
     );
     assert!(resume_line.contains("gpt-6-astra"), "{resume_line}");
+    // The same argv over element boundaries. The class expected here is
+    // the one this coordinate declares and the composed spawn argv above
+    // already pinned: `--sandbox workspace-write`, from the shipped
+    // `hands.harness.work` fragment. A shipped change to that fragment
+    // fails this test rather than passing under a re-derived expectation.
+    assert_resume_argv(
+        &resume_parts(&parts_log),
+        "workspace-write",
+        "xhigh",
+        offered,
+        "shipped harness work seat",
+    );
 }
 
 /// The operator's 2026-09-15 ruling at the INLINE coordinate main actually
@@ -1657,17 +1674,22 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     let result = result_path.to_str().unwrap();
     let offered = "0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     let argv_log = workdir.path().join("argv.log");
+    let parts_log = workdir.path().join("argv.parts");
     let shim = make_shim(
         workdir.path(),
         &format!(
             "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\
              printf '%s\\n' \"$*\" >> {log}\n\
+             printf '%s\\n' '{mark}' >> {parts}\n\
+             for a in \"$@\"; do printf '%s\\n' \"$a\" >> {parts}; done\n\
              cat > /dev/null\n\
              printf '{{\"result\":\"resolved\",\"notes\":\"shim\",\"model\":\"seat-claim\"}}' > {result}\n\
              printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
              printf '{{\"type\":\"turn.started\"}}\\n'\n\
              printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
             log = argv_log.display(),
+            parts = parts_log.display(),
+            mark = INVOCATION_MARK,
             result = result,
             offered = offered,
         ),
@@ -1736,6 +1758,120 @@ fn the_shipped_inline_codex_work_seat_rejoins_its_retry() {
     assert!(
         resume_line.contains("sandbox_mode=\"danger-full-access\""),
         "{resume_line}"
+    );
+    // The same argv over element boundaries. The class expected here is
+    // `danger-full-access` because that is what THIS coordinate declares
+    // in the shipped recipe argv above — not the harness lane's
+    // `workspace-write`. AS1 and AS2 preserve the class the seat
+    // declared; normalising the two would assert a class this coordinate
+    // never carries.
+    assert_resume_argv(
+        &resume_parts(&parts_log),
+        "danger-full-access",
+        "xhigh",
+        offered,
+        "shipped inline work seat",
+    );
+}
+
+/// The line every codex shim here writes before its own argv, so one
+/// invocation's parts can be told from the next's in a shared append.
+const INVOCATION_MARK: &str = "--brokkr-invocation--";
+
+/// The argv of the one invocation that carried `resume`, read one part
+/// per line out of the companion log the codex shims write beside their
+/// space-joined `$*` line.
+///
+/// `$*` joins the argv with spaces and cannot reconstruct element
+/// boundaries: a `contains` over that text cannot tell a whole part from
+/// a substring of one, and cannot exclude a competing flag sitting next
+/// to the one it found. These parts can. The companion log is written
+/// BESIDE the `$*` line rather than in place of it, so every assertion
+/// already made over that line keeps measuring exactly what it measured.
+fn resume_parts(parts_log: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(parts_log)
+        .unwrap_or_else(|error| panic!("the shim wrote {}: {error}", parts_log.display()));
+    let mut invocations: Vec<Vec<String>> = Vec::new();
+    for line in text.lines() {
+        if line == INVOCATION_MARK {
+            invocations.push(Vec::new());
+        } else if let Some(current) = invocations.last_mut() {
+            current.push(line.to_string());
+        }
+    }
+    invocations
+        .into_iter()
+        .find(|argv| argv.iter().any(|part| part == "resume"))
+        .unwrap_or_else(|| panic!("a resume invocation in {}", parts_log.display()))
+}
+
+/// One `-c <key>="<value>"` pair, occurring exactly once, with the `-c`
+/// immediately in front of it. Adjacency is the point: a `-c` that has
+/// drifted away from its override is a `-c` applied to something else.
+fn assert_paired_override(parts: &[String], key: &str, expected: &str, case: &str) {
+    let prefix = format!("{key}=");
+    let at: Vec<usize> = parts
+        .iter()
+        .enumerate()
+        .filter(|(_, part)| part.starts_with(&prefix))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(at.len(), 1, "{case}: exactly one {key} part: {parts:?}");
+    let index = at[0];
+    assert!(index > 0, "{case}: {key} has a part before it: {parts:?}");
+    assert_eq!(
+        parts[index - 1],
+        "-c",
+        "{case}: {key} is paired with its own -c: {parts:?}"
+    );
+    assert_eq!(parts[index], expected, "{case}: {key}: {parts:?}");
+}
+
+/// What a preserved rejoin's argv must show at either shipping
+/// coordinate, observed over element boundaries rather than over a
+/// space-joined line.
+///
+/// The class is the one THAT coordinate declares and is passed in, never
+/// normalised to a single literal across both: the harness lane composes
+/// `--sandbox workspace-write` out of the shipped `adapters/codex.json`
+/// `hands.harness.work` fragment, while the inline lane declares
+/// `--sandbox danger-full-access` in the argv `recipes/standby` and
+/// `recipes/wager-harness` ship. Prescribing one class for both would
+/// assert a class one coordinate never declares, and the cheapest way to
+/// make that pass would be to edit what ships.
+///
+/// The effort literal genuinely is shared, and for two separate reasons:
+/// the harness lane's `xhigh` comes from the shipped `agents/reviewer.json`
+/// `efforts.astra`, the inline lane's from the literal `--effort xhigh`
+/// in the shipped recipe argv.
+fn assert_resume_argv(parts: &[String], class: &str, effort: &str, offered: &str, case: &str) {
+    assert_paired_override(
+        parts,
+        "sandbox_mode",
+        &format!("sandbox_mode=\"{class}\""),
+        case,
+    );
+    assert_paired_override(
+        parts,
+        "model_reasoning_effort",
+        &format!("model_reasoning_effort=\"{effort}\""),
+        case,
+    );
+    // `codex exec resume` has no sandbox flag — the 2026-09-16 live proof
+    // records `-s` rejected as an unexpected argument — so the class can
+    // only travel as the override above, and no spelling of the flag may
+    // survive beside it.
+    assert!(
+        !parts
+            .iter()
+            .any(|part| part == "-s" || part == "--sandbox" || part.starts_with("--sandbox=")),
+        "{case}: no sandbox flag reaches a resume: {parts:?}"
+    );
+    assert!(parts.len() >= 2, "{case}: a resume argv: {parts:?}");
+    assert_eq!(
+        &parts[parts.len() - 2..],
+        [offered, "-"],
+        "{case}: the confirmed root then the stdin positional: {parts:?}"
     );
 }
 
@@ -2056,11 +2192,15 @@ fn proof_shim_body(dir: &Path, offered: &str) -> String {
     format!(
         "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\
          printf '%s\\n' \"$*\" >> {log}\n\
+         printf '%s\\n' '{mark}' >> {parts}\n\
+         for a in \"$@\"; do printf '%s\\n' \"$a\" >> {parts}; done\n\
          cat > /dev/null\n\
          printf '{{\"type\":\"thread.started\",\"thread_id\":\"{offered}\"}}\\n'\n\
          printf '{{\"type\":\"turn.started\"}}\\n'\n\
          printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":3,\"output_tokens\":1}}}}\\n'\n",
         log = shell_quote(&dir.join("argv.log").to_string_lossy()),
+        parts = shell_quote(&dir.join("argv.parts").to_string_lossy()),
+        mark = INVOCATION_MARK,
         offered = offered,
     )
 }
@@ -2230,6 +2370,16 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         assert!(
             resume_line.contains("model_reasoning_effort=\"xhigh\""),
             "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
+        );
+        // The same argv over element boundaries, at all four compiled
+        // shapes. These are inline coordinates, so the class is the
+        // `danger-full-access` the recipe declares.
+        assert_resume_argv(
+            &resume_parts(&run_dir.path().join("argv.parts")),
+            "danger-full-access",
+            "xhigh",
+            PROOF_OFFER,
+            &format!("compiled live inline {shape:?} wrapped={wrapped}"),
         );
         drop(recipe);
     }
