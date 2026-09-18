@@ -6579,8 +6579,15 @@ fresh experiment is inaccurate.
 - The three-spelling sandbox argv assertion, exact-root confirmation,
   current-only usage pins and every independent refusal token, with removal
   controls **M1–M14** recorded in the two 2026-09-16 returns above.
-- `--worktree` and `--thread-source` refusal at both the blocker seam and the
-  launch seam, with M13/M14 as their controls.
+- `--worktree` and `--thread-source` refusal in their **bare** spellings at
+  both the blocker seam (`tests.rs:2726-2727`) and the launch seam
+  (`tests.rs:2462-2471`), with M13/M14 as their controls. Those controls
+  admitted each name to `CODEX_RESUME_BARE_FLAGS` and are valid for exactly
+  the dangling shape they exercised. They say nothing about a value-bearing
+  spelling: a name in `CODEX_RESUME_VALUE_FLAGS` with nothing after it is
+  still refused, so a dangling case passes under that admission and cannot
+  detect it. E2, E3 and E4 close that hole; this bullet is not a claim that
+  it is closed today.
 
 ### Ordered clauses E1–E11
 
@@ -6595,8 +6602,8 @@ breaks the ledger tests and the box's global default may be read-only or
 tmpfs. Verification: an honest before-measurement, never a reused historical
 total; a filter that discovers zero tests is not a pass.
 
-**E2. The nine exec-only options at the blocker seam — 11.1; safety / AS1,
-AS3; evidence / LE5.** In
+**E2. The nine exec-only options and the two new shapes at the blocker seam
+— 11.1; safety / AS1, AS3; evidence / LE5.** In
 `adapters::tests::only_the_flags_a_resume_can_safely_carry_travel_with_it`
 (`crates/brokkr-protocol/src/adapters/tests.rs:2688`) the refused list
 exercises `--profile`, `--add-dir`, `--approve-for-me` and `-C`, but never
@@ -6615,22 +6622,77 @@ document a value, construct the bare shape and mutate
 claimed. A bare-list mutation cannot prove value consumption, and a
 value-list mutation beside a dangling flag proves nothing either.
 
+Then the two shapes NEW in 0.154.0, in the spellings no recorded control has
+reached. The refused list exercises `--worktree` and `--thread-source` only as
+dangling flags (`tests.rs:2726-2727`), and a dangling flag is refused by the
+value branch (`adapters.rs:2429-2432`) exactly as it is by the fall-through —
+so M13/M14 falsify a bare-list admission and nothing else. These cases cannot
+ride the existing single-part loop (`tests.rs:2735-2739`), whose body appends
+one part to `["--model", "sol"]`; add them beside it, as their own
+`assert_eq!` calls or a second loop over `(Vec<&str>, &str)` pairs. Four
+cases, each preceded by `--model sol` so the value branch is exercised first:
+`["--thread-source", "github"]` and `["--worktree", "/distinctive-worktree"]`,
+each asserting `Some(<the flag NAME>)`, which is the part the fall-through
+returns; and `"--thread-source=github"` and `"--worktree=/distinctive-worktree"`,
+each asserting `Some(<the WHOLE joined part>)`, because `split_once('=')`
+(`adapters.rs:2434-2437`) refuses the part entire when the name is not
+admitted. Removal control, one name at a time: admit `--thread-source` to
+`CODEX_RESUME_VALUE_FLAGS` (arity 7 -> 8, `adapters.rs:2388`), observe BOTH of
+its value-bearing cases fail, and record in the same breath that the dangling
+case **still passes** — that passing dangling case is the evidence the adopted
+control was blind. Repeat for `--worktree`. Restore sha256-verified bytes and
+rerun the named test after each. Constructing a value shape asserts what this
+adapter composes, not a provider arity: the September 17 record enumerates
+names, and the return says so.
+
 **E3. The whole-argv consequence of the same options — 11.1; safety / AS1,
-AS2, AS3; evidence / LE3, LE5.** In
+AS2, AS3; evidence / LE3, LE5.** E2's seam observes one thing: the value
+`codex_resume_blocker` returns. The launch token, the unchanged cold argv and
+the absent root are observable only here, so every option E2 refuses at the raw
+seam also earns a case in
 `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled`
-(`tests.rs:2397`, eleven cases today) add otherwise-eligible cases for
-`--cd /distinctive-workdir` and at least one bare member (`--oss`), each
-carrying `--sandbox read-only` so the class path is satisfied and only
-passthrough admission fails. Assert `resume_refusal` is exactly
-`incompatible-argv`, the cold argv is unchanged
-(`exec --json -C <workdir>` then the seat's own parts in order), exactly one
-launch row, `launch: cold`, and `root_session` absent. Widen the
-`[(&str, Vec<&str>, &str); 11]` arity to the new count. Do **not** add
-`--sandbox` itself here: at the launch seam a declared class is translated,
-not refused, and its absence from the resume surface is already proved by the
-argv test's no-sandbox-flag assertion. Removal control per case: admit the
-corresponding option with that case's arity, observe its own cold-argv or
-refusal assertion fail, restore, rerun.
+(`tests.rs:2397`, eleven cases today), which exercises `--profile` alone of the
+nine (`:2439-2443`). Adopted design `7e36fb15` (`design.md:3543-3544`) requires
+launch-level cases for all eight non-sandbox exec-only options and for the
+value-bearing new shape. Construct these nine, each carrying
+`--sandbox read-only` first so the class path is satisfied and only passthrough
+admission fails:
+
+| case | parts after `--sandbox read-only` | constructed arity | list its control mutates |
+|---|---|---|---|
+| `workdir` | `--cd`, `/distinctive-workdir` | value | `CODEX_RESUME_VALUE_FLAGS` |
+| `added-dir` | `--add-dir`, `/distinctive-added-dir` | value | `CODEX_RESUME_VALUE_FLAGS` |
+| `colored` | `--color`, `never` | value | `CODEX_RESUME_VALUE_FLAGS` |
+| `local-provider` | `--local-provider`, `distinctive-provider` | value | `CODEX_RESUME_VALUE_FLAGS` |
+| `oss` | `--oss` | bare | `CODEX_RESUME_BARE_FLAGS` |
+| `approving` | `--approve-for-me` | bare | `CODEX_RESUME_BARE_FLAGS` |
+| `versioned` | `--version` | bare | `CODEX_RESUME_BARE_FLAGS` |
+| `thread-source-value` | `--thread-source`, `github` | value | `CODEX_RESUME_VALUE_FLAGS` |
+| `thread-source-joined` | `--thread-source=github` | joined value | `CODEX_RESUME_VALUE_FLAGS` |
+
+`--profile` keeps its existing `profiled` case and is not duplicated;
+`--sandbox`, the ninth exec-only name, is deliberately absent — see below. The
+loop body already observes everything each case needs: the whole cold argv by
+equality (`exec --json -C <workdir>` then the seat's own parts in order,
+`:2501-2508`), exactly one launch row (`:2510`), `launch: cold` (`:2511`), the
+exact `resume_refusal` string (`:2512-2516`) and absent `root_session`
+(`:2517-2521`). So the work here is the cases and the arity, not new
+assertions: every new row declares `incompatible-argv` and inherits those five
+observations. Widen the `[(&str, Vec<&str>, &str); 11]` arity to **20** — or to
+whatever the executor actually constructs, counted off the array rather than
+copied from this line. Do **not** add `--sandbox` itself here: at the launch
+seam a declared class is translated, not refused, and its absence from the
+resume surface is already proved by the argv test's no-sandbox-flag assertion.
+Removal control per case, one at a time: admit that case's option to the list
+its row names, correct the array length so it compiles, observe THAT case's
+assertion fail — for an admitted value flag the passthrough becomes admissible,
+the launch comes back `resumed` and both the `incompatible-argv` and the
+cold-argv assertions go, which is the intended falsification — then restore
+sha256-verified bytes and rerun. A bare-list admission cannot falsify a
+value-shaped case: the flag continues, its value lands as a bare word and the
+case is refused for a second reason, so the control proves nothing. Arity is
+constructed, not claimed: the September 17 record enumerates NAMES, and the
+return says no provider arity is asserted.
 
 **E4. The allow-list measured against the surface — 11.1; safety / AS1, AS3;
 evidence / LE5.** No test today compares `CODEX_RESUME_VALUE_FLAGS`
@@ -6652,7 +6714,21 @@ equality with the surface: equality would authorize `--config`, `--enable`,
 `--dangerously-bypass-approvals-and-sandbox`. Removal controls: for the
 subset direction admit one option absent from `resume_accepts`; for
 disjointness admit `--sandbox`; each alone, each failing its own assertion,
-each restored. Membership is a surface check and qualifies nothing — see E11.
+each restored. Membership is a surface check and qualifies nothing — see
+E11. In one direction it is worse than inert, and the test must say which:
+`--worktree` and `--thread-source` ARE members of `resume_accepts`, so the
+subset direction admits them and the disjointness direction — which
+quantifies over `exec_accepts_but_resume_does_not` — never sees them.
+Admitting either to `CODEX_RESUME_VALUE_FLAGS` leaves both directions
+passing. Add therefore one assertion that is not blind: neither name occurs
+in `CODEX_RESUME_VALUE_FLAGS` nor in `CODEX_RESUME_BARE_FLAGS`, asserted
+directly against the two constants. Its own control is the same mutation E2
+runs — admit `--thread-source` to the value list — and both this
+non-membership assertion and E2's two value-bearing cases must fail under
+it; record both failures, restore, rerun. State in the return that the
+refusal of these two rests on E2's value-bearing blocker cases and E3's
+launch cases, and that a passing membership assertion establishes nothing
+whatever about them.
 
 **E5. The effort field's exact spelling — 11.1; safety / AS1; evidence /
 LE5.** `a_codex_resume_re_expresses_the_effort_pin_as_a_config_override`
@@ -6691,32 +6767,77 @@ runner's cwd. Removal controls, each alone: drop the trailing `-` push
 (`adapters.rs:2591`); substitute the appended positional with another legal
 id; omit the stdin write; remove the `current_dir` call.
 
-**E7. Both shipping coordinates, with argument boundaries — 11.1; safety /
-AS1, AS2; site / SR2, SR3, SR4; evidence / LE1, LE5.** The shipped harness and
-inline tests (`crates/brokkr-cli/tests/driver_conformance.rs:1451`, `:1623`,
-`:2160` and `proof_shim_body` at `:2055`, with runtime
+**E7. Both shipping coordinates, each bound to the class IT declares — 11.1;
+safety / AS1, AS2; site / SR2, SR3, SR4; evidence / LE1, LE5.** The shipped
+harness and inline tests (`crates/brokkr-cli/tests/driver_conformance.rs:1451`,
+`:1623`, `:2160` and `proof_shim_body` at `:2055`, with runtime
 `engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`
 at `boundary_tests.rs:1695`) log their argv as `"$*"`, space-joined, which
 cannot reconstruct element boundaries — a `contains` over that text cannot
 exclude a competing flag. Add a boundary-preserving companion log
 (`for a in "$@"; do printf '%s\n' "$a" >> <log>.parts; done`) **beside** the
 existing `$*` line rather than replacing it, so no existing assertion changes
-meaning, and assert over the parts: the `-c` / `sandbox_mode="workspace-write"`
-pair adjacent and exactly once; the `-c` / `model_reasoning_effort="xhigh"`
-pair likewise; no `-s`, `--sandbox` or `--sandbox=` part; and the final two
-parts equal to the confirmed root and `-`. Keep the shipped assessment, the
+meaning, and assert over the parts:
+
+- exactly one `sandbox_mode=` part in the whole resume argv, immediately
+  preceded by its own `-c`, and its text equal to the class **that coordinate
+  declares**, not one literal imposed on both. The harness coordinate composes
+  `--sandbox workspace-write` — the shipped `adapters/codex.json`
+  `hands.harness.work` fragment, already asserted as the last two parts of the
+  composed spawn argv at `driver_conformance.rs:1500-1505` and
+  `boundary_tests.rs:1758-1763` — so its expected pair is
+  `["-c", "sandbox_mode=\"workspace-write\""]`. The inline coordinate declares
+  `--sandbox danger-full-access` in the argv `recipes/standby` and
+  `recipes/wager-harness` ship (`driver_conformance.rs:1647-1648`), and the
+  compiled live proof already asserts `sandbox_mode="danger-full-access"` at
+  `:2227`, so its expected pair is
+  `["-c", "sandbox_mode=\"danger-full-access\""]` at `:1623` and at all four
+  shapes of `:2160`. AS1 and AS2 preserve the class the seat declared;
+  prescribing `workspace-write` for both coordinates would assert a class the
+  inline coordinate never declares, and the only way to make that assertion
+  pass would be to edit the shipped inline argv — a silent change to what
+  ships, dressed as a test repair;
+- the `-c` / `model_reasoning_effort="xhigh"` pair, adjacent and exactly once,
+  at both coordinates. Here the literal genuinely is shared, and for two
+  separate reasons that must each be cited: the harness lane's effort comes
+  from the shipped `agents/reviewer.json` `efforts.astra`, the inline lane's
+  from the literal `--effort xhigh` at `driver_conformance.rs:1645-1646`;
+- no `-s`, `--sandbox` or `--sandbox=` part anywhere in the resume argv;
+- the final two parts equal to the confirmed root and `-`.
+
+Read each expected value off the coordinate's own declared parts and pin the
+literal beside it, so that a shipped change fails the test rather than passing
+under a silently re-derived expectation. Keep the shipped assessment, the
 production composition bridge and the captured engine exchange as they are;
-fabricate no offer and repair no marker. Removal control: break each
-strengthened emission at its production seam, one at a time. Shims are staged
-beside their target, closed, then renamed into place before execution (#255);
-Git-invoking children inherit the #282 cleanup.
+fabricate no offer and repair no marker. Removal controls: break each
+strengthened emission at its production seam, one at a time; and additionally,
+to prove the class binding is load-bearing rather than a presence check, mutate
+the declared class at each coordinate separately — inline, change
+`danger-full-access` to `workspace-write` in the driver fixture at `:1647-1648`
+and observe the exact-pair assertion fail; harness, change
+`hands.harness.work` in `adapters/codex.json` to `read-only` and observe both
+the composed-argv assertion and the resume-pair assertion fail. The harness control touches shipped data: restore it by sha256 and confirm
+no other byte of the declaration moved, and expect it to be loud — the
+composed class participates in bundle identity, so a witness or compose
+digest assertion may fail ahead of the resume-pair assertion. If it does,
+record THAT actual failure, then run the narrower substitute control in its
+place: put the other coordinate's class in this test's expected literal and
+observe the exact-pair assertion fail. Say which of the two controls
+actually ran, and never claim the one that did not. Shims are staged beside their target, closed, then
+renamed into place before execution (#255); Git-invoking children inherit the
+#282 cleanup.
 
 **E8. Keep adopted controls separate from fresh ones — evidence / LE5.**
 M1–M14 stand as dated evidence with their recorded failures and line numbers.
 The return presents this visit's experiments in their own table and does not
 restate an adopted control as new. Where E2–E7 strengthen a test an adopted
 control ran against, re-run that control if the strengthening could mask it,
-and say which ones were re-run and which were adopted unchanged.
+and say which ones were re-run and which were adopted unchanged. M13 and M14
+carry a further scope limit that the return must state where it repeats them:
+each admitted a new-in-0.154.0 name to `CODEX_RESUME_BARE_FLAGS` against a
+dangling case, so each is evidence for the bare shape alone. The value-bearing
+shapes of `--worktree` and `--thread-source` have no adopted control at all;
+theirs are fresh in E2, E3 and E4 and belong in this visit's own table.
 
 **E9. Declaration, prose and measured digests — 11.1; safety / AS1;
 evidence / LE5; progress / PM4.** Only after E2–E7 pass. `adapters/codex.json`
@@ -6829,6 +6950,29 @@ coverage, integration and closure.
 - **Arity is constructed, not claimed.** The record enumerates names. Each E2
   case declares the shape it constructs and mutates the list of that arity, so
   no unmeasured provider arity is asserted anywhere.
+- **Each shipping coordinate is bound to the class it declares** (answers the
+  2026-09-18 analyze finding F1). An earlier draft of E7 prescribed
+  `sandbox_mode="workspace-write"` for the harness and the inline coordinates
+  alike. The inline coordinate declares `danger-full-access`
+  (`driver_conformance.rs:1647-1648`) and its compiled proof asserts exactly
+  that (`:2227`); AS1/AS2 preserve the seat's own class rather than normalising
+  it. One literal across both coordinates asserts the wrong thing at one of
+  them, and the cheapest way to make it green is to edit what ships.
+- **A dangling flag cannot falsify a value-list admission** (answers F3). A
+  name admitted to `CODEX_RESUME_VALUE_FLAGS` with nothing after it is still
+  refused (`adapters.rs:2429-2432`), so the recorded `--worktree` and
+  `--thread-source` cases pass under the very mutation they are supposed to
+  catch. Membership against the measured surface is blind in the same place,
+  because both names occur in `resume_accepts`. Hence the value-bearing
+  separate and joined cases in E2, the launch cases in E3, and the direct
+  non-membership assertion in E4 — three seams, because no one of them covers
+  the shape alone.
+- **Both seams, for every exec-only option** (answers F2). The blocker seam
+  observes a returned string; only the launch seam observes `incompatible-argv`,
+  the unchanged cold argv and the absent root. Design `7e36fb15` names all
+  eight non-sandbox exec-only options at the launch seam, and E3 now carries
+  them; refusing an option at the raw seam alone leaves the consequence the
+  engine actually journals unobserved.
 
 ### Tasks-phase validation and handoff — adopted design `7e36fb15`
 
@@ -6869,3 +7013,36 @@ E11, is expected to remain unchecked after the clauses pass, for the two
 qualifications the supplied evidence does not establish. No provider
 experiment, declaration edit, production change, archive, spec fold, push,
 merge or new Brokkr run occurred.
+
+### Tasks-phase second sitting — the three analyze findings answered
+
+Returned from analyze at `c54c8601` with `result: drift`, `drift_in: tasks`,
+three findings all owned by this artifact and no earlier artifact fault
+established. Each is answered in the clause that carried it, in dependency
+order, and recorded under `### Decisions` above; no requirement, scenario,
+decision, task identifier or checkbox moved, and the ledger stays **83
+complete / 18 pending** across the same 101 identifiers with 10.1 and 10.5
+checked and 11.1 unchecked.
+
+| Finding | Where it was wrong | What the artifact now orders |
+|---|---|---|
+| F1, inconsistency, E7 | It prescribed `sandbox_mode="workspace-write"` for the harness AND the inline shipping coordinates. The inline coordinate declares `danger-full-access` (`driver_conformance.rs:1647-1648`) and its compiled proof asserts exactly that (`:2227`); AS1/AS2 preserve the declared class. | E7 binds the expected `-c` pair to each coordinate's own declared class — `workspace-write` at the harness seam (`:1500-1505`, `boundary_tests.rs:1758-1763`), `danger-full-access` at `:1623` and all four shapes of `:2160` — and adds a per-coordinate declared-class mutation as the control that proves the binding is exact rather than a presence check. The `xhigh` effort literal is shared, and E7 now cites the separate source at each coordinate instead of assuming one. |
+| F2, coverage gap, E3 | It added launch cases for `--cd` and `--oss` only, leaving `--add-dir`, `--approve-for-me`, `--color`, `--local-provider` and `--version` with no launch-level case, against `design.md:3543`. E2's seam observes only the blocker's return value. | E3 now tables nine launch cases with their constructed arity and the list each removal control mutates, names the five that were missing, states that the loop body already supplies the five observations each case needs (`tests.rs:2501-2521`), widens the array arity to 20, and keeps `--sandbox` out with its reason. |
+| F3, coverage gap, E4/E8 | It adopted M14's bare `--thread-source` proof as if it covered the name. It does not: a value-list admission leaves a dangling flag refused (`adapters.rs:2429-2432`), and surface membership is blind because both new names occur in `resume_accepts`. | E2 adds separate and joined value-bearing cases for `--thread-source` and `--worktree` with their exact expected parts, and a control that must record the dangling case still passing. E3 adds the two `--thread-source` launch cases. E4 adds a direct non-membership assertion against both constants with its own control. E8 and the adopted-evidence bullet now scope M13/M14 to the bare shape they exercised. |
+
+`openspec` 1.12.0 ran again on the edited bytes: strict validation of
+`2026-09-09-226-session-resumption` reports `Change … is valid`;
+repository-wide strict validation passes **14 items, zero failures**; archived
+strict validation passes **six changes, zero failures**. The five deltas remain
+**20 requirements / 165 scenarios**; this sitting adds none.
+
+Cargo remains **absent from this box**: `cargo --version` exits 127,
+`command not found`, and neither `rustc` nor `rustup` is present. That is
+ENOENT, not the permission denial the 2026-09-18 implement visit met, and it is
+reported here rather than worked around. fmt, clippy, the crate suites, both
+bundle compiles, the release build and `scripts/coverage-exact.sh` are
+therefore **UNRUN** on this head and in-box covered/total lines, branches and
+functions are **unmeasured** — not zero and not an inherited report. No
+production or test byte moved in this sitting to disturb that standing.
+`/var/tmp` still does not exist here and `TMPDIR` is `/tmp` on tmpfs, so E1's
+disk-backed scratch premise remains the compiling seat's to satisfy.
