@@ -7046,3 +7046,150 @@ functions are **unmeasured** — not zero and not an inherited report. No
 production or test byte moved in this sitting to disturb that standing.
 `/var/tmp` still does not exist here and `TMPDIR` is `/tmp` on tmpfs, so E1's
 disk-backed scratch premise remains the compiling seat's to satisfy.
+
+## Implement visit — E1–E11 delivered on a seat with a toolchain; 11.1 still unchecked, 2026-09-18
+
+Entered at `5732233a` on `slice-codex-enable`. This seat has `cargo` and
+`git`, so the 2026-09-18 permission blocker and the toolchain-less tasks
+sitting above are both behind us: every claim below rests on a command that
+ran. Landed as `8271d5e4` (E2–E6), `2dcd7426` (E7) and `88085c7f` (E9), all
+unsigned. The ledger stays **83 complete / 18 pending** across the same 101
+identifiers, 10.1 and 10.5 checked and **11.1 unchecked**. No requirement,
+scenario, decision or task identifier moved.
+
+### E1 — entry state, measured rather than quoted
+
+`adapters::tests` **154**, `driver_conformance` **18**, `witness_digests`
+**4**, `bundle::compose_tests` **17**, each by running it. Those totals are
+unchanged at exit: this slice strengthens existing tests rather than adding
+new ones, as ordered.
+
+E1's scratch premise could not be satisfied and did not need to be. This
+seat's file writes are confined to the worktree, so a disk-backed `TMPDIR`
+outside the repository cannot be created; `TMPDIR` is `/tmp`, tmpfs, with
+~30G free. The default was writable and every suite that builds tempdirs
+passed under it, the ledger tests included. **No in-repo `TMPDIR` was used.**
+Separately, `env` and env-assignment prefixes are refused by this seat, so
+E10's `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` prefix could not be
+applied — and was not needed: #282 is a defect of the installed DSH core,
+and bare `git status`, `git add` and `git commit` all work cleanly here.
+
+### This visit's controls, kept separate from the adopted ones
+
+M1–M14 stand as dated evidence and are **not** restated as new. M13 and M14
+are scoped, where they bear on this work, to the **bare** shape each
+exercised: each admitted a new-in-0.154.0 name to `CODEX_RESUME_BARE_FLAGS`
+against a dangling case, and says nothing about a value-bearing one. The
+thirty controls below are this visit's own. Each was run alone; after each
+group `adapters.rs` and `adapters/codex.json` were confirmed **byte-identical
+to HEAD** with `git diff`, which is a stronger restoration check than a
+self-computed digest.
+
+| # | Mutation | Observed failure |
+|---|---|---|
+| N1 | `--cd` → `CODEX_RESUME_BARE_FLAGS` (4→5) | `--cd may not travel to a resume`, `left: None right: Some("--cd")` (`tests.rs:2933`) |
+| N2 | `--color` → bare list | same assertion, `--color` |
+| N3 | `--local-provider` → bare list | same assertion, `--local-provider` |
+| N4 | `--oss` → bare list | same assertion, `--oss` |
+| N5 | `--version` → bare list | same assertion, `--version` |
+| N6 | `--thread-source` → `CODEX_RESUME_VALUE_FLAGS` (7→8) | `--thread-source may not travel to a resume in a value-bearing spelling` (`tests.rs:2971`). **The dangling case at `:2933` passed under this same admission** — the evidence that the adopted control was blind. |
+| N7 | `--worktree` → value list (7→8) | same assertion, `--worktree`; its dangling case also still passed |
+| N8 | `--absent-from-the-measured-surface` → bare list | `… is admitted to a resume but is absent from the measured resume surface` (`tests.rs:3050`) |
+| N9 | `--sandbox` → bare list | `--sandbox is refused by \`codex exec resume\` itself and must not be admitted` (`tests.rs:3040`) |
+| N10 | `--thread-source` → value list, with the two value-bearing `--thread-source` cases removed | `--thread-source is parsed by the resume subcommand and is still not admitted to one: parsing is not qualification` (`tests.rs:3078`) |
+| N11 | `--cd` → value list | `workdir: the cold argv, unchanged` (`tests.rs:2687`); the resume argv carried `--cd /distinctive-workdir` across |
+| N12 | `--add-dir` → value list | `added-dir: the cold argv, unchanged` |
+| N13 | `--color` → value list | `colored: the cold argv, unchanged` |
+| N14 | `--local-provider` → value list | `local-provider: the cold argv, unchanged` |
+| N15 | `--thread-source` → value list | `thread-source-value: the cold argv, unchanged`; the dangling `thread-source` launch case still passed |
+| N16 | `--oss` → bare list | `oss: the cold argv, unchanged` |
+| N17 | `--approve-for-me` → bare list | `approving: the cold argv, unchanged` |
+| N18 | `--version` → bare list | `versioned: the cold argv, unchanged` |
+| N19 | `codex_effort_config` key → `model_reasoning_effrot` | `separate: the whole resumed argv` (`tests.rs:2461`) |
+| N20 | omit the emitted `-c`/effort pair | same assertion |
+| N21 | let the author's `--effort` survive into passthrough | same assertion; the whole rejoin collapsed to a **cold spawn**, because the surviving flag reached the blocker |
+| N22 | drop the trailing `-` push | `short-separate: the whole resumed argv` (`tests.rs:2303`) |
+| N23 | substitute another legal id for the appended positional | same assertion |
+| N24 | omit the stdin write in `invoke_codex` | `short-separate: the complete prompt arrives on stdin`, `left: ""` (`tests.rs:2351`) |
+| N25 | remove `Command::current_dir` | `short-separate: the rejoined seat runs in the workdir it was given` (`tests.rs:2362`); `left` was the runner's own cwd, which confirms the fixture workdir genuinely differs |
+| N26 | inline coordinate's declared class → `workspace-write` in the shipped recipe fixture | reached the **pre-existing** launch-row assertion at `driver_conformance.rs:1743`; E7's new assertion was **not** reached |
+| N27 | substitute for N26: the other coordinate's class in the inline expected literal | `shipped inline work seat: sandbox_mode`, `left danger-full-access right workspace-write` |
+| N28 | `hands.harness.work` → `read-only` in `adapters/codex.json` | reached the **pre-existing** composed-argv assertion at `driver_conformance.rs:1500`; E7's new assertion was **not** reached. Shipped data restored and confirmed unchanged by `git diff`. |
+| N29 | substitute for N28: the other coordinate's class in the harness expected literal | `shipped harness work seat: sandbox_mode`, `left workspace-write right danger-full-access` |
+| N30 | production seam: `-c` reordered away from `sandbox_mode=` in `codex_launch` | `shipped harness work seat: sandbox_mode is paired with its own -c` (`driver_conformance.rs:1825`). **The pre-existing `$*` `contains` assertion passed under this mutation** — the concrete demonstration that a space-joined log cannot exclude a competing flag. |
+
+Three honest negatives, recorded rather than papered over:
+
+- **E5's follow-on assertions were never reached.** All three of N19–N21
+  failed at the whole-argv literal first. The pair-count, literal-key and
+  no-surviving-`--effort` assertions are therefore subsumed by that equality
+  for every production mutation available; they stand as clearer diagnostics,
+  not as independently controlled claims.
+- **E4's disjointness direction had no control until the order changed.**
+  The two measured lists are disjoint by construction, so admitting any
+  exec-only name falsifies the subset direction too and the subset assertion
+  always fired first. Disjointness is now asserted **before** subset, which
+  gives each direction its own falsifying mutation (N9 and N8). This is
+  recorded as a repair the control found, not as something that was already
+  true.
+- **E7's two declared-class mutations reached earlier assertions** (N26,
+  N28), exactly as E7 warned they might. The narrower substitutes it
+  authorises were run in their place (N27, N29) and are what proves the class
+  binding is exact rather than a presence check. Both facts are stated; the
+  control that did not run is not claimed.
+
+### E10 — gates on restored bytes
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | PASS, no diagnostics |
+| `cargo test --workspace --all-features --locked` | PASS, **73 test targets, zero failures** |
+| `cargo test --locked -p brokkr-protocol --all-features adapters::tests` | PASS, 154 |
+| `cargo test --locked -p brokkr-cli --all-features --test driver_conformance` | PASS, 18 |
+| `cargo test --locked -p brokkr-runtime --test witness_digests` | PASS, 4 |
+| `cargo test --locked -p brokkr-runtime --lib bundle::compose_tests` | PASS, 17 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | PASS |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | PASS |
+| `cargo build --release --locked -p brokkr-cli` | PASS |
+| `openspec validate … --strict` | **UNRUN** |
+| `bash scripts/coverage-exact.sh` | **UNRUN** |
+
+The last two are a **grant** limitation of this seat, not #286 and not a
+property of the edit: this seat's Bash allow-list is `cargo` and `git`, and
+both `openspec` and `bash` come back `This command requires approval`. In-box
+covered/total **lines, branches and functions are unmeasured** — not zero,
+and not an inherited report. Strict OpenSpec validation of this file's own
+edit is likewise owed. Both belong to the controller alongside the host
+coverage measurement. Every cargo-shaped gate ran and passed.
+
+### E9 — the pins, measured
+
+Only the pairs actually reported changed were copied: `recipes/panel-review`,
+`bundles/self` and `recipes/triage` in `compose_tests.rs`, and
+`recipes/night-shift`, `recipes/wager-harness`, `recipes/triage` and
+`recipes/gpt-flash` in `witness_digests.rs`. `recipes/triage` measured the
+same value in both files, which is the cross-check that these are real
+compiles rather than transcriptions. No pin was guessed.
+
+### E11 — what 11.1 still owes, and why this is not a tick
+
+**11.1 stays unchecked.** Its assertion half is delivered and its prose debt
+is retired, and neither completes it.
+
+| Missing qualification | Why nothing supplied closes it |
+|---|---|
+| `--ephemeral`, admitted by `CODEX_RESUME_BARE_FLAGS` | The September 17 record lists it under `not_previously_supported`, and `codex_launch` sets `persistent: true` on both arms. No supplied observation establishes the ephemeral shape's persistence, restriction, root or current-accounting behaviour. |
+| `--output-schema`, admitted by `CODEX_RESUME_VALUE_FLAGS` | Listed the same way; no supplied observation establishes that a schema argument is safe on a resume. |
+
+The allow-list was changed in **neither** direction. Removing either entry or
+inferring `persistent: false` decides an unresolved semantic; widening it
+decides the same semantic the other way. Both are the operator's word, and
+this visit says neither. E4's membership assertion does not resolve it —
+that was the point of adding the non-membership assertion beside it — and
+preserving the shipping disposition does not complete an enablement task.
+
+Nothing outside this commission was ticked, started or planned: 10.6, 10.7,
+10.8, 11.2, 11.3, 11.4, 8.8, 8.10, 9.6, passes C and D and groups 14 and 15
+are untouched. No provider was re-measured; every Codex fact cited here comes
+from the two controller records. No push, merge, archive or Brokkr run.
