@@ -1,24 +1,33 @@
 ## Context
 
-Current commission: **CODEX, END TO END**, run
-`codex-end-to-end-issue-226-tasks-1bd3f94f`, adopting
-`2026-09-09-226-session-resumption` at specify commit `d24189a8`, atop
-production `5ef4a842` on `slice-codex-proof`. See [proposal.md](proposal.md),
-answer AB, and AS1/LE5. The supplied September 16 live proof, raw report and
-instrument were read first and in full; the instrument is evidence, not a
-command to execute. The controller exercised installed `codex-cli 0.154.0`.
-Accepted 0030 measured 0.148.0; the declaration currently admits 0.153.4.
-Reconcile those three roles without withdrawing the operator's supported
-work-site disposition or admitting a new shape.
+Current commission: **CODEX ENABLEMENT**, run
+`codex-enablement-issue-226-task--a1d8e540`, adopting change
+`2026-09-09-226-session-resumption` at specification commit `d0b4f639` on
+`slice-codex-enable`. See [proposal.md](proposal.md), answer AC, and AS1/LE5.
+Adopt predecessor item 1 at `85cf6d55` without repeating it; `9da5ff92`
+already discharged 10.5 and reconciled both identity fields to `0.154.0`.
+The September 16 live proof, September 17 interface record and probe source
+were read first and in full. The instrument was not run. Both stated
+dependencies of 11.1 are discharged; adapter assertions and their removal
+proofs remain this commission's substance.
 
 Clarify returned `clear`; no `returned_from` finding is supplied. Both complete
-council positions are reconciled in the current D10 sitting below. The fault
-is stale design guidance to keep the old pin and repeat the live measurement,
-not an upstream requirement: AB and the two amended deltas already establish
-the intended behavior. D5/D6 are revised in place; prior dated returns remain
-history. Only `design.md` is this phase's declared tracked artifact. Tasks,
-declaration, tests and current documentation changes are the ordered handoff,
-not completed implementation. No task checkbox moves in this checkpoint.
+council positions are reconciled in D10's September 18 sitting below. Source
+inspection informs this design, not a verification result. In these workspace
+hands, `cargo test --workspace` exits 127 (`cargo: No such file or directory`);
+that blocker was reported immediately. Other seats' tool availability and
+earlier green tests do not replace this seat's missing execution evidence.
+
+Only `design.md` is this phase's declared tracked artifact. The next tasks
+visit reconciles its current account under AC without re-authoring 10.1 or
+10.5; implementation owns the Rust assertions, observed mutations, declaration
+prose and directly affected digest checks. This design preserves the supported
+disposition, both identity fields, both shipping coordinates and every refusal.
+It chooses no allow-list movement or handle-grammar change. 11.1 remains
+unchecked: unresolved `--ephemeral`/`--output-schema` qualification provenance
+cannot be discharged by parser-membership tests. No upstream specification
+fault is established; AC already provides this partial-delivery path.
+Earlier dated visits below retain their scope.
 
 Earlier THE PROOFS design return, retained as dated history:
 
@@ -361,20 +370,20 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
-**Current goals:** Consume the recorded five-axis proof through a bounded
-Codex declaration reconciliation and assertions over existing production seams.
-Keep measured identity, runtime applicability, shipped-assessment shims and
-current explanatory text coherent. Specify independently falsifiable checks
-for argv translation, exact-root confirmation and each refusal reason. Separate
-10.5's live evidence from 11.1's missing exact-version interface evidence.
+**Current goals:** Complete AC's bounded assertions over existing protocol,
+engine-composition and real-driver seams. Bind each strengthened assertion to
+its compiling removal control. Distinguish adopted controller observations from
+adapter evidence, reconcile current prose and record remaining 11.1 acceptance.
 
-**Current non-goals:** No new production mechanism, declaration key, refusal
-token, version grammar or numbered decision; no provider remeasurement. The
-allow-list, cold sandbox fragment and confinement markers keep their behavior.
-`--worktree` and `--thread-source` gain no support. Other providers, 10.6–10.8,
-11.2–11.4, Passes C/D, archive, living-spec folds and frozen surfaces are outside
-this slice. Proposed 0056 remains proposed. An implementation defect may justify
-only a demonstrated local repair under its existing rule.
+**Current non-goals:** No new production mechanism, key, refusal token, version
+or identifier grammar, numbered decision or provider experiment. No allow-list
+expansion or withdrawal, including inherited `--ephemeral`/`--output-schema`.
+`--worktree` and `--thread-source` stay refused. Preserve the declaration's
+supported status, 0.154.0 identities, scope and cold fragments; 0056 stays
+proposed. Do not start, tick or plan 10.6–10.8, 11.2–11.4, 8.8/8.10/9.6,
+Passes C/D or groups 14/15. No archive, frozen-surface edit or remote action.
+A demonstrated implementation defect is judged under its existing rule; a
+faulty earlier rule returns upstream.
 
 Earlier THE PROOFS goals, retained as history:
 
@@ -721,17 +730,17 @@ version change invalidates prior-version qualification until new dated proof
 establishes the applicable shape. For a currently shipping rejoin, historical
 measurement drift alone does not withdraw support: the operator's 2026-09-15
 ruling preserves Codex `work-site` under accepted 0030 while current-version
-qualification was pending. Proposal AB now spends the supplied September 16 proof: set
-`identity.version = 0.154.0` and `applies_to = 0.154.0` together. `version`
-describes the current measured executable; `applies_to` is the string
-`resume_gate` actually enforces through `qualify`. Retain 0030's 0.148.0
-measurement and previous 0.153.4 applicability as dated evidence. Append the
-2026-09-16 reconciliation to the limitations ledger without changing earlier
-entries; current interface/restriction/root/accounting references name the
-live proof and its bounded scope. `reason` keeps the preservation ruling and
-states that resume offers no sandbox flag, so the class travels through
-`-c sandbox_mode=<class>`. All bounded text must fit the loader's 400-character
-limit. D10's F1 reconciliation sets
+qualification was pending. The `9da5ff92` reconciliation already set both
+`identity.version` and `identity.applies_to` to `0.154.0`; AC adopts those
+bytes. `version` describes the measured executable; `applies_to` is the
+string `resume_gate` enforces through `qualify`. Retain 0030's 0.148.0
+measurement, former 0.153.4 applicability and all six limitations as dated
+history. The September 17 record supplies the deferred interface observations;
+D10's current sitting specifies the bounded evidence/reason correction and
+dated addition, preserving identity and the live-axis evidence. `reason` keeps
+the preservation ruling and `-c sandbox_mode=<class>` requirement. Amended
+bounded strings must fit the loader's 400-character limit. D10's F1
+reconciliation sets
 `boundaries: ["harness", "not applicable"]` and `hands: "none"` for the two
 shipping work-seat coordinates: the engine-composed harness argv
 (`--sandbox workspace-write`) and the author-written inline argv
@@ -742,7 +751,7 @@ MCP `-c` arguments that main already refused for resume; it is not enabled by
 this ruling. Do not relabel partial evidence as a new enforcement measurement.
 
 The current executable must still match `applies_to` and any originating-root
-version actually recorded. After this reconciliation the declaration admits
+version actually recorded. The adopted declaration admits
 observed `0.154.0`; observed `0.148.0` or `0.153.4` still declines
 `unverified-harness`, as does an observed 0.154.0 with recorded origin 0.153.4.
 A later applicability change requires its own reviewed declaration/evidence
@@ -795,7 +804,7 @@ and measured confirmation/accounting rules.
 
 | Adapter | Construction decision | Remaining provider proof (Codex preservation does not await it) |
 |---|---|---|
-| Codex | Preserve the shipping `work-site` under the 2026-09-15 ruling. Reconcile both identity fields to 0.154.0 with the supplied September 16 proof, retaining 0.148.0/0.153.4 history. Keep explicit `exec resume --json`, `current_dir`, `-c sandbox_mode`, effort, safe passthrough and the existing rejection of arbitrary MCP/config arguments. | The live five-axis proof is complete and must not be repeated. 10.5 closes when its cited observations and matching assertions agree. 11.1 remains pending: 10.1 supplies no complete 0.154.0 effort, safe-passthrough or stdin `-` interface capture. Boxed MCP fragments and new shapes remain unqualified. |
+| Codex | Preserve the shipping `work-site` and both 0.154.0 identity fields already reconciled at `9da5ff92`. Keep `exec resume --json`, `current_dir`, `-c sandbox_mode`, effort translation and closed passthrough admission. | Adopt completed 10.5 and 10.1's citations at `85cf6d55`; repeat no measurement. Complete AC's adapter/removal proofs. 11.1 stays unchecked while the inherited `--ephemeral`/`--output-schema` qualification conflict is unresolved. Boxed MCP and new worktree/thread-source shapes remain refused. |
 | Claude | Known print/stream-json path with exactly `--resume <owned-id>` and the current restriction plan: permission mode, model/effort, `--tools ""`, strict MCP config, current MCP document and allowed workspace tool where boxed. Current prompt stays on stdin. | Root-opening semantics, complete effective restrictions/precedence, persistent identity and current-only stream/accounting on 2.1.266. |
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
 | DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay, folding the bound route overlay ahead of those rows where the bundle carries one (below); use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
@@ -3333,7 +3342,7 @@ otherwise require, widening the change beyond the two proof items. This note
 records the seam difference only: it changes no requirement, scenario or
 decision obligation, and proposed 0056 remains `proposed`.
 
-#### CODEX, END TO END council reconciliation — 2026-09-16, adopted `d24189a8`
+#### Historical CODEX, END TO END council reconciliation — 2026-09-16, adopted `d24189a8`
 
 This sitting applies proposal AB to production `5ef4a842`. Both positions were
 read in full and retained under `.forge/design-codex-proof-0e9ba014/`:
@@ -3465,16 +3474,157 @@ Preserved support, a checked historical 10.1 and deterministic argv tests do
 not turn them into observed provider facts. Both current specification
 scenarios already encode that distinction; no upstream amendment is needed.
 
+#### CODEX ENABLEMENT council reconciliation — 2026-09-18, adopted `d0b4f639`
+
+This sitting applies AC without repeating predecessor item 1. Both complete
+positions are retained under `.forge/design-codex-enable-a1d8e540/`:
+robustness SHA-256
+`a93f2f90f4d435983c4c6f263ac91925f3cd2304f0ee348118e2c17b5c4a7217`;
+simplicity SHA-256
+`7aab9f18ba3853e297bc2056376f883989b9df812f954caca4317881e6967a5a`.
+Their pass labels are positions, not proof of delivery. This sitting supersedes
+the September 16 sitting's instructions to change identities, tick 10.5 or
+wait for the three interface observations. Those actions are already adopted.
+
+**Council dispositions, including the four robustness questions.**
+
+| Claim | Disposition, evidence and rejected alternative |
+|---|---|
+| Simplicity: existing assertion seams, no mechanism or allow-list refactor. | Adopt. Extend the four protocol anchors and existing shipping tests. Reject the stronger claim that four test extensions alone discharge acceptance: AC also requires independent gates, shipping exchange, removal evidence and coherent prose. |
+| Robustness FM1/FM2, I1/I3, P2, Q1; simplicity's provenance risk. | Combine as a blocking qualification residual. The allow-list contains `--ephemeral`/`--output-schema`, but September 17 lists both as not previously supported and cautions that parsing is not qualification. `codex_launch` sets `persistent: true` on both arms. No supplied observation establishes persistence or restriction/root/accounting behavior for the ephemeral shape, or safety of output-schema on resume. Leave 11.1 unchecked and inherited behavior unchanged under AC. Neither infer `persistent: false` nor delete either entry; either would decide unresolved semantics. This does not certify the inherited behavior as safe. |
+| Robustness FM3/I2; simplicity's surface check. | Adopt only the subset direction: admitted long options occur in the measured resume surface and none of the exec-only options are admitted. Parsed bypass flags, selectors, worktree and thread-source are negative controls. Equality would authorize bypasses; membership cannot resolve FM1/FM2. |
+| Robustness FM4/I4/P1: unify handle validation to stop rootless successful resumes. | Reject the proposed repair on its stated evidence: the claimed production trace omits transcript normalization. `fold_codex_event` calls `Transcript::record`, which limits the locator to 80 characters before `LaunchHold::observe` calls `confirm`. An ASCII 81–128-character offer echoed by the provider therefore differs from the locator; `confirm` takes `Mismatch` and publishes no launch. A direct call to `confirm` bypasses this seam. The predicate bounds do differ, but the alleged successful path is not established. Retain full-fold exact-confirmation tests; inspection supplies no new passing experiment. |
+| Robustness FM5: admit underscores through the record grammar. | Reject. The multi-provider record envelope does not qualify Codex-selectable identifiers. Widening is outside AC and unnecessary for its measured UUID-shaped root. Keep `invalid-session-id` and the existing grammar. |
+| Robustness FM6/I5/Q4: class eligibility needs its own seam. | Adopt the ownership distinction; reject a second adapter class check. `engine/resume.rs::eligible_offer` excludes `SeatClass::Gate`; `resume_gate` checks assessment/confinement/identity. Reuse `no_gate_topology_is_ever_offered_a_session` and eligible work controls rather than creating a duplicate. Adapter tests cannot certify fresh judges. |
+| Robustness FM7/I6: isolate causes and preserve precedence. | Adopt the order below and otherwise eligible fixtures. Simultaneous defects cannot prove individual checks because the first refusal masks later guards. |
+| Robustness FM8/I8; simplicity's effort/stdin extensions. | Adopt independent expected literals, both effort spellings, final `[THREAD, "-"]` and exact distinctive stdin. The controller's strict-config control establishes key recognition, not every value or inheritance. Never call the production formatter to construct expectations. |
+| Robustness FM9/I7; simplicity's one-test-file limit. | Adopt FM9, reject the file limit. Strengthen existing harness and inline driver-conformance checks with argument boundaries, exact pairs and absence of sandbox flags. Contains-only checks cannot exclude a competing flag. Reuse the production-composition bridge; add no new harness/API. |
+| Robustness FM10/I9; simplicity's bare-list mutation for any option. | Adopt matched-arity mutations, reject that blanket instruction. Value-shaped cases need the value list and a supplied value; bare-shaped cases use the bare list. Otherwise a dangling option/orphan value can still cause refusal. |
+| Robustness FM11: missing `--cd` relies on cwd. | Adopt. Resume omits cold `-C`; `invoke_codex` sets `Command::current_dir(workdir)`. Assert the shim's cwd beside exact argv; author `--cd`/`-C` still declines as `incompatible-argv`. |
+| Robustness FM12/I10; simplicity's optional Tier 2 prose edit. | Adopt measured digest sequencing; reject optional false current prose. AC requires declaration evidence/reason, dated limitation addition, proposed 0056 and guide reconciliation even with 11.1 open. Preserve six old limitations and identity/scope bytes. Direct witness/compose consequences do not commission groups 14/15. |
+| Robustness Q2: where must the rejection name the offending part? | At `codex_resume_blocker` assert the exact returned string; at launch assert `incompatible-argv`, unchanged cold argv and absent resumable root. LE5 already distinguishes these seams. Add no argv text to accounting and no new token. |
+| Robustness Q3: what is accounting mismatch? | Absent/non-string `evidence.accounting` gives `unsupported-resume` at admission. Numeric attribution is a separate fold assertion. The gate compares no totals or evidence contents; the loader owns nonempty/bounded strings. Reject a third numeric gate or a safety inference from string presence. |
+| Both: no new files/decision; simplicity's coverage prediction and inherited passes. | Adopt existing suites and proposed 0056, with no new production data file or numbered decision. Reject a predicted coverage delta: the gate excludes test source; emitted production instances determine totals. Simplicity's four passes and tool version are attributed position evidence, not this chief's results. This chief's workspace test cannot launch; Rust/coverage results remain unavailable. |
+
+**Admission order and test prerequisites.** `codex_launch` refuses a
+seat-authored `resume` selector before planning. `resume_gate` evaluates:
+assessment present and supported; accounting string present; boundary marker
+readable; hands marker readable; boundary membership and hands equality;
+applicability string present. On an offer the closed gate's token wins before
+local checks; next come plain session syntax, sandbox presence, supported
+class, passthrough admission and executable-version qualification. `qualify`
+checks version availability, applicability equality and separately any recorded
+originating-version equality. The no-offer branch retains cold argv and makes
+no offered-resume refusal claim. Preserve this order; each negative case
+explicitly satisfies every preceding condition.
+
+Use `a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks`,
+`a_supported_assessment_without_both_affirmative_markers_declines`,
+`a_codex_whose_installed_version_has_moved_declines_the_offer`,
+`a_codex_whose_version_cannot_be_read_declines_the_offer` and
+`qualify_refuses_a_current_version_stale_origin`. Extend their owning cases
+only where an independent token/control is missing. Missing, null, non-string
+and unknown confinement markers still decline. Preserve selector rejection,
+`invalid-session-id`, `sandbox-unavailable`, `unsupported-sandbox`,
+`incompatible-argv`, `unverified-harness`, `restrictions-unavailable`,
+`unsupported-resume` and bounded pre-work replacement.
+
+**Assertion and removal bindings.** These are delivery obligations, not
+experiments executed by this chief. Run each mutation separately, observe a
+compiling failure at the intended assertion, restore exact bytes and rerun.
+If a whole-argv assertion catches a mutation before a later count/absence
+assertion, record the actual failure; do not claim the later assertion ran.
+
+| Existing seam/test | Strengthened observation | Compiling control that must falsify it |
+|---|---|---|
+| `a_codex_resume_carries_the_thread_the_class_and_the_prompt` | All three sandbox spellings give whole expected argv, exactly one `["-c", "sandbox_mode=\"<class>\""]` pair, no short/long sandbox flags, final `[THREAD, "-"]`, exact multi-word stdin and observed cwd. | Remove the sandbox pair; independently add a competing sandbox flag; omit trailing `-`; substitute the offered positional; omit/change the stdin write; remove `current_dir` with a fixture workdir distinct from the runner's cwd. Map each experiment to its actual assertion. |
+| `a_codex_resume_re_expresses_the_effort_pin_as_a_config_override` | Separate/joined inputs each give exactly one literal `["-c", "model_reasoning_effort=\"high\""]` pair and no surviving effort flag. | Misspell the production key; independently omit its pair or allow the author effort flag to survive when claiming count/consumption coverage. Expectations never call `codex_effort_config`. |
+| `only_the_flags_a_resume_can_safely_carry_travel_with_it` | Test-local literal of September 17's long-option surface; subset/disjointness only. Exact offending part for the nine exec-only options at this raw seam, with separate/joined value cases and relevant existing aliases. | Admit each newly claimed forbidden option independently to the list matching the constructed case's arity. A bare-list mutation cannot prove value consumption. Sandbox input at the real launch seam is translated, not rejected merely because resume lacks its flag. |
+| `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled` | Otherwise eligible cases for the other eight exec-only options, including missing `--cd`, `--color`, `--local-provider`, `--oss` and `--version`: exact `incompatible-argv`, unchanged cold argv, no recorded root. | Admit the corresponding option with the input case's arity; observe its cold-argv/refusal assertion fail, restore and rerun. |
+| Same blocker/launch tests, independent new-shape cases | Bare author `--worktree` and value-bearing `--thread-source` with a distinctive value stay refused; keep relevant joined/value-less negatives. This tests adapter-composable input, not unmeasured provider option arity. | Add worktree to the bare list. Separately add thread-source to the value list for its value-bearing case. Update array lengths so both compile. Adding a value flag while testing only a dangling flag proves nothing. |
+| Gate tests named above | Independent identity, accounting and confinement tokens and positive controls; no failed version probe masks an origin test. | Remove each targeted presence/membership/equality guard independently. At direct gate seams assert the exact `ResumeGate` result so a later planner check cannot mask removal. |
+| Existing exact-root and unsettled Codex tests | Offered, received and confirmed roots agree on success; absent/different confirmation cannot succeed even with exit zero and delivered result. Preserve bounded replacement. | Change the appended root; independently relax `LaunchHold::confirm` equality or the unsettled-terminal check. The claimed no-launch/failed-status assertion must fail for its intended reason. |
+| Resumed usage assertions in the class test | Only the current invocation supplies 100 input / 96 cache-read / 4 output tokens from its shim. | Omit each claimed folded field independently; its exact numeric assertion fails. The controller's `/axes/current_only_accounting` supplies the provider observation; the shim establishes adapter attribution only. |
+| Shipped harness and inline driver-conformance tests with runtime bridge | Exact tokenized argv, sandbox/effort pairs and flag absence, same cold root offered and confirmed. Retain actual engine confinement facts. | Break the emission for each strengthened argv assertion. Retain/adopt dated declaration/ownership controls as dated evidence and distinguish them from fresh experiments. |
+| `no_gate_topology_is_ever_offered_a_session` | Engine-owned exclusion with eligible work controls and all admitted gate topologies in the existing suite. | Adopt unchanged prior evidence with its date; if strengthened here, remove `SeatClass::Gate` exclusion, record the intended no-offer assertion failure and restore. |
+
+The positive shipping seams remain
+`the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`,
+`the_shipped_codex_harness_work_seat_rejoins_its_retry`,
+`the_shipped_inline_codex_work_seat_rejoins_its_retry` and
+`the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root`.
+Synthetic assessments alone cannot discharge either shipping coordinate.
+Keep the existing wrapped/unwrapped ownership proofs without expanding their
+commission. Keep `an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result`
+and the current pre-work replacement controls.
+
+The surface snapshot belongs in the existing Rust test module and cites
+`.forge/tasks/controller-codex-interface-2026-09-17.json` and its
+`/obligations/allowed_safe_passthrough` pointers; tests never read run-local
+files. Compare long options directly and pin only the existing short aliases,
+without inventing measured aliases the supplied enumeration does not contain.
+Do not admit parsed bypass flags, selectors, ignore-rules/ignore-user-config
+or arbitrary author `-c`. A `$*` shim log may be strengthened to preserve argv
+element boundaries; splitting arbitrary spaces cannot reconstruct them.
+Executable shims are platform-appropriate, staged beside their target, closed
+and renamed before execution; Git test children inherit the #282 cleanup.
+
+##### Scenario: Accounting refusal is independent of confinement.
+
+- **GIVEN** an enabled assessment, matching identity, explicit valid
+  boundary/hands, supported sandbox, legal root and admitted arguments
+- **WHEN** only accounting evidence is absent or non-string
+- **THEN** admission reports `unsupported-resume`; restoring the string is
+  the positive control, without claiming the gate validates provider totals.
+
+##### Scenario: Offending argument and journal reason have different owners.
+
+- **GIVEN** otherwise eligible input with author `--cd /distinctive-workdir`
+- **WHEN** the blocker and launch path evaluate it
+- **THEN** the blocker returns exactly `--cd`; launch records
+  `incompatible-argv` with unchanged cold argv and no resumable root, adding
+  no raw argument text to the seat record.
+
+##### Scenario: Parsed inherited options do not complete qualification.
+
+- **GIVEN** the argv/gate assertions and removal controls pass but supplied
+  evidence still leaves ephemeral persistence and output-schema safety
+  unestablished for restriction, root and current-accounting guarantees
+- **WHEN** the tasks return evaluates whole 11.1 acceptance
+- **THEN** it records the delivered subset, leaves 11.1 unchecked and names
+  both missing qualifications, preserving the allow-list and disposition.
+
+**Coherence and completion.** Reconcile only current declaration
+`evidence.interface` and `reason` plus one bounded dated limitation addition.
+Preserve the six existing limitation strings byte-for-byte and in order,
+`supported`, both `0.154.0` fields, scope, cold fragments and live-axis evidence.
+Current 0056 ruling 5/consequences and the Codex guide row distinguish discharged
+interface observations from remaining adapter proof and option qualification.
+0056 stays `proposed`; accepted 0030 and historical examples retain their facts.
+This correction is owed even with 11.1 unticked.
+
+Land assertion work first; then correct declaration/prose, measure witness
+and compose digests through the compiled Rust producer, and update only
+affected assertions. This is no version bump or group-14/15 work. The tasks
+return records exact tests/assertions, mutation diffs, observed failures and
+restored passes, with logs in task-owned storage. 10.1's citations and 10.5's
+completion stay adopted. The tasks office reconciles stale current ordering
+and debt under existing 11.1 without a new task family or unrelated tick.
+
+The qualification residual is a settled scope disposition, not permission to
+guess or a reason to stop independent assertion work. No provider experiment
+or operator ruling is commissioned. Full 11.1 completion is not claimable on
+the supplied record even after this assertion subset passes.
+
 ### D11 — Verify transitions and trace every requirement
 
-For CODEX, END TO END, AB and current D10 bind AS1's version/live-axis/interface
-scenarios and LE5's matching-assertion scenario to the existing protocol,
-runtime and CLI suites. The implementation return must cite each 10.5 axis,
-record each actual removal/restore result, preserve all refusal reasons and
-leave 11.1 unchecked for the three 0.154.0 interface gaps. Supplied controller
-proof replaces provider experiments in this slice; boxed coverage and remote
-CI are reported within their actual evidence limits. Task text reconciliation
-is the following phase's artifact; this design changes no tick or task ID.
+For CODEX ENABLEMENT, AC and D10's September 18 sitting bind AS1/AS2/AS3,
+LE1/LE4/LE5 and engine-owned site rules to existing protocol, runtime and CLI
+tests. Adopt 10.1/10.5; record fresh assertion/removal results separately from
+dated inherited evidence. 11.1 stays unchecked for unresolved option
+qualification and, until executed, local adapter proof. The next tasks phase
+owns the current acceptance account; this design changes no task ID or tick.
+Host coverage and final-head remote results remain controller handoffs.
 
 Earlier THE PROOFS bindings, retained as history:
 
@@ -3507,10 +3657,11 @@ not discharge whole-change enablement, C/D or archived provenance acceptance.
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 162 scenarios:
-`adapter-launch-evidence` 32 + `adapter-resume-safety` 66 + `boundary-record` 11 +
-`sdd-progress-markers` 20 + `site-session-resumption` 33 = 162. AB added two AS1
-scenarios and one LE5 scenario to the former 159-scenario inventory. It includes
+The current five deltas contain 20 requirements and 165 scenarios:
+`adapter-launch-evidence` 32 + `adapter-resume-safety` 69 + `boundary-record` 11 +
+`sdd-progress-markers` 20 + `site-session-resumption` 33 = 165. AC added three
+provenance/stdin/exec-only scenarios to AB's 162-scenario inventory; AB had
+added two AS1 scenarios and one LE5 scenario to the former 159. It includes
 the five remediation scenarios and three operator-ruling scenarios omitted
 from the former 150-scenario inventory, plus the inherited inline Codex
 scenario added after that 158-scenario checkpoint. The earlier slice's F3 heading recount
@@ -3639,26 +3790,27 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
-Current Codex reconciliation risks:
+Current Codex enablement risks:
 
-- [A version bump can silently force cold retries] → Change both identity
-  fields, shipped-assessment shims and assertions together. Old observed or
-  recorded-origin versions continue to refuse; do not preserve cache by
-  weakening equality. Declaration digest changes also fence older instances.
-- [A preserved allow-list is mistaken for full 0.154.0 qualification] → Keep
-  the three named interface gaps beside unticked 11.1. Unknown flags decline;
-  old admitted flags retain the operator's preservation scope, not a new proof.
-- [Declaration text exceeds loader limits or erases history] → Check every
-  amended string against 400 characters and compare old limitation bytes/order.
-- [A passing test hits the wrong refusal or reports only a plan] → Keep valid
-  independent controls, exact tokens, actual provider confirmation and observed
-  removal/restore logs. Preserve cold, mismatch and unconfirmed distinctions.
-- [Accounting evidence is overclaimed] → The gate reads a declared string;
-  the controller measured the provider and local tests prove only normalization.
-- [The boxed toolchain cannot provide fresh coverage] → Record unavailable
-  tools or actual in-box integers honestly. Use the unchanged compiler pin and
-  a verified writable disk-backed TMPDIR outside the repository when available;
-  #286 host equality and final-head remote CI remain controller handoffs.
+- [Parser acceptance is mistaken for safety] → Keep the allow-list unchanged,
+  test only the subset relation and leave 11.1 unchecked for the named
+  ephemeral/output-schema qualifications. Keep both new shapes refused.
+- [A mutation hits an unrelated refusal] → Otherwise eligible controls,
+  matched arity, exact reason/argv assertions and separately recorded failures.
+  Compiler errors, poisoned locks and dangling options are not proof.
+- [A council allegation causes a grammar change] → Trace the complete fold
+  and confirmation route, retain exact-match guards and require executable
+  evidence before repair. This chief claims design reasoning only.
+- [Prose corrections erase history or leave stale digests] → Preserve both
+  identities and six limitations; append dated evidence, honor string bounds,
+  measure affected digests and then re-pin.
+- [Shims overstate provider/platform qualification] → Attribute controller
+  measurements separately, keep Unix guards/portable helpers and leave
+  final-head Windows/macOS results pending.
+- [Tooling or scratch is unavailable] → Report the actual blocker and no fresh
+  counts. Exact coverage uses the shared compiler pin and verified writable
+  disk-backed external TMPDIR. #286 skips remain in the denominator; host
+  equality and remote CI belong to the controller.
 
 Earlier THE PROOFS risks and their disposition:
 
@@ -3921,35 +4073,39 @@ Earlier whole-change and Pass B risks remain recorded below:
 
 ## Migration Plan
 
-For CODEX, END TO END, adopt AB and `d24189a8`; this design checkpoint commits
-only `design.md`, unsigned. The next owning artifacts follow dependency order:
+For CODEX ENABLEMENT, adopt AC at `d0b4f639`, item 1 at `85cf6d55` and
+completed 10.5 at `9da5ff92`. This chief commits exactly `design.md` unsigned.
+The following owning visits use the existing task IDs:
 
-1. Reconcile existing tasks 10.5/11.1 with D10's fixed evidence and proof
-   obligations. Replace the instruction to re-probe; add no task family or
-   premature checkbox. Preserve 10.1's dated completion.
-2. Land the declaration identity/evidence reconciliation with the dependent
-   shipped-assessment tests and focused argv/root/refusal assertions. Amend
-   current 0056/provider-guide claims in the same coherent implementation;
-   proposed 0056 carries the existing semantic rule and stays proposed.
-3. Run and record every focused removal control, restore production bytes, and
-   rerun green. Then record 10.5's five cited axes and assertion agreement;
-   leave 11.1 pending for its three current-version interface gaps.
-4. Run format, locked all-target/all-feature clippy, `cargo test --workspace`,
-   the locked all-feature workspace suite, both self/verify bundle compiles and
-   strict active/all-item OpenSpec validation. Use `CARGO_BUILD_JOBS=2`,
-   `RUST_TEST_THREADS=2` and `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0`
-   for Git and the parent commands of tests that invoke Git. Measure the
-   unchanged exact gate with the pinned compiler and writable disk-backed
-   external TMPDIR; report actual covered/total lines, branches and functions.
-   Unavailable tools mean unmeasured; #286 is not a license to lower equality.
+1. Reconcile the current tasks account with adopted dependency completion,
+   D10's test/removal bindings and qualification residual. Do not repeat
+   item 1, change completed ticks or authorize fenced work.
+2. Extend existing tests, execute each removal control and restore exact
+   production bytes. Do not change the allow-list, identity or identifier
+   grammar. Unexpected behavior needs a compiling reproduction; inspection
+   alone does not close an executable proof obligation.
+3. Correct declaration evidence/reason, append dated history and reconcile
+   current proposed-0056 and guide prose. Measure and update directly affected
+   witness/compose assertions after the declaration edit.
+4. Run focused protocol/runtime/driver-conformance suites, format, locked
+   all-target/all-feature clippy, `cargo test --workspace` and the locked
+   all-feature workspace suite, both self/verify bundle compiles, the required
+   release binary build and strict OpenSpec validation on restored final bytes.
+   Use `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=2` and
+   `env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` for Git and test parents.
+   A refused/unavailable build is reported immediately, without a workaround.
+5. Use the unchanged exact gate and pinned compiler with verified writable
+   disk-backed external TMPDIR. Report actual covered/total lines, branches
+   and functions, or unmeasured if a prerequisite is absent. Record assertion
+   delivery separately from whole-task acceptance; 11.1 stays unchecked for
+   the two unresolved option qualifications.
 
-No frozen contract, journal, corpus, stored-root format or global provider
-configuration migrates. A changed adapter digest invalidates old offers under
-the existing instance rule. A rollback reverts the declaration, dependent
-assertions and current prose together to their prior dated pin; it restores
-neither an old root's eligibility under a new identity nor an exemption from
-confinement checks. Controller host coverage and final-head remote CI remain
-pending; this seat never pushes, merges, publishes, archives or starts a run.
+No stored data, frozen contract/corpus or provider configuration migrates.
+Declaration prose changes its content digest, so existing instance rules can
+withhold an old offer; those checks stay intact. Rollback restores the
+declaration, dependent measured pins and current prose together, preserving
+historical completion facts. Host equality under #286 and final-head remote
+CI remain pending. No push, merge, publication, archive or new run occurs.
 
 Earlier THE PROOFS migration, retained as history:
 
@@ -4126,15 +4282,18 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No design choice is deferred for CODEX, END TO END. Current D10 resolves both
-positions' identity question, the minimal existing-test accounting pin, the
-synthetic-versus-shipped version edit set and the need to reconcile proposed
-0056/current provider documentation. The 0.154.0 effort, full passthrough and
-stdin-prompt interface gaps are explicitly pending evidence for 11.1, not
-permission to probe or guess. Implementation mutation results and host coverage
-are also pending observations. If implementation establishes a fault in an
-earlier requirement, report `upstream` to its owner rather than changing the
-support scope or hiding the discrepancy in a downstream test.
+No design choice is deferred for CODEX ENABLEMENT. D10 answers all four
+robustness questions and rejects the unsupported handle-repair trace. The
+ephemeral/output-schema conflict has a fixed present disposition: keep behavior
+and the tick unchanged while completing independent assertion work. Resolving
+it needs evidence or authority outside this bounded commission; no provider
+experiment or unresolved design choice is delegated to delivery.
+
+Implementation results, mutation failures/restorations and coverage counts are
+pending observations. Cargo's absence in this chief's hands does not predict
+another office's environment or authorize claiming its passes. If an executable
+counterexample establishes an earlier artifact is at fault, report `upstream`
+rather than weakening its requirement.
 
 Earlier THE PROOFS questions, retained as history:
 
@@ -5314,3 +5473,45 @@ tick requires the cited proof plus agreeing adapter assertions; 11.1 remains
 pending for 0.154.0 effort, complete safe-passthrough and stdin-prompt interface
 evidence. No task tick, new shape, provider remeasurement, archive, fold, push,
 merge, publication or new Brokkr run occurred.
+
+## Council design validation — CODEX ENABLEMENT, 2026-09-18
+
+Adopted `d0b4f639` and predecessor item 1 at `85cf6d55` under the existing
+change. Read the three commissioned evidence files first and in full, both
+complete council positions, the dialect descriptor and design/return files,
+and rendered `openspec instructions design` through workspace hands. No
+workflow runner, provider probe or additional Brokkr run was invoked. D10
+reconciles every position and all four robustness questions, records the
+matched-arity proof plan and explains the rejected handle-grammar repair.
+Context, goals, D5/D6, D11, risks, migration and questions now agree with AC.
+
+Strict active-change validation and planning status pass. The inherited
+informational archive refusals for the absent living adapter-resume-safety
+and sdd-progress-markers targets remain outside this no-archive slice.
+Status describes artifact presence, not implementation or task completion.
+The five untouched deltas contain 20 requirements / 165 scenarios; the task
+ledger retains 101 identifiers, 83 checked / 18 pending, including unchecked
+11.1. The tracked-byte audit and whitespace check confirm that only
+`design.md` changes; code/tests, declaration, proposed 0056, tasks, frozen
+surfaces and all other tracked artifacts retain their entry bytes.
+
+The attempted `cargo test --workspace` used the #282 environment cleanup,
+`CARGO_BUILD_JOBS=2` and `RUST_TEST_THREADS=2`; it exited 127 because Cargo
+is absent in this chief's workspace hands. This was reported immediately;
+no alternative shell or source-reading claim replaced execution. Format,
+clippy, crate/workspace suites, bundle compiles, release build and removal
+experiments have no fresh passing result here. The exact gate was not run
+without its compiler: fresh in-box lines, branches and functions are
+**unmeasured**. No inherited counts or invalid TMPDIR are substituted.
+The positions' tool availability and earlier passes remain attributed
+observations of those seats. Host equality under #286 and final-head remote
+results remain pending controller evidence.
+
+Entry hashes, complete position copies, the actual Cargo blocker and the
+artifact audit are retained under `.forge/design-codex-enable-a1d8e540/`.
+This unsigned design checkpoint commits exactly the declared design artifact.
+The implementation assertions, observed removal controls and current-prose
+reconciliation remain delivery work. Whole 11.1 additionally lacks resolution
+of ephemeral persistence and output-schema safety qualification; no tick or
+new support follows. The result carries the adopted identifier in
+`inputs.change` and claims neither implementation completion nor Rust gates.
