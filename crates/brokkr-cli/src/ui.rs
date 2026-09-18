@@ -567,6 +567,15 @@ fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
             &bytes[..]
         }
     };
+    // The read's own overflow flag cannot bound a true-EOF header: a file
+    // of exactly cap-plus-one bytes without a newline reads fully with no
+    // probe byte left. The admitted header is the bytes before the first
+    // newline, or the whole buffer when there is none, and that slice is
+    // what the 65,536-byte budget measures. The delimiter is never an
+    // admitted header byte.
+    if header.len() > brokkr_view::transcript::DSH_HEADER_CAP {
+        return HeaderCheck::TooLarge;
+    }
     let Ok(text) = std::str::from_utf8(header) else {
         // Invalid UTF-8 prevents establishing a unique ownership answer.
         return HeaderCheck::Io;

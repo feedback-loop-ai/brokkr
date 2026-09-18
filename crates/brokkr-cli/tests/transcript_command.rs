@@ -1087,10 +1087,15 @@ fn a_turn_past_a_complete_projection_is_not_retained() {
     assert!(document["turns"].as_array().unwrap().is_empty());
 }
 
-/// A packed DSH text-chunks row yields separately selectable turns, and
-/// the equivalent ordinary chunk rows agree exactly.
+/// Consecutive packed text members coalesce into one selectable turn under
+/// the operator's merge ruling (#277). The packed row's `a`, `b`, `c`
+/// members become the single chunk `abc` at the first surviving member's
+/// stamp `1000`, then the user message `q` at `2000`. This deliberately
+/// changes the former packed/ordinary turn-count equivalence: the
+/// equivalent ordinary rows keep four turns, so ordinary index two selects
+/// `b` while packed index two selects `q`.
 #[test]
-fn packed_dsh_members_have_separate_selectable_turns() {
+fn packed_dsh_members_coalesce_into_selectable_chunks() {
     let world = world_effects(&[("eff1", "review", None)]);
     let packed = concat!(
         "{\"type\":\"session\",\"version\":0}\n",
@@ -1113,7 +1118,29 @@ fn packed_dsh_members_have_separate_selectable_turns() {
     );
     assert!(whole.status.success());
     let document = read_document(&whole);
-    assert_eq!(document["turns"].as_array().unwrap().len(), 4);
+    let turns = document["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 2, "the three packed members are one chunk");
+    assert_eq!(turns[0]["blocks"][0]["text"], "abc");
+    assert_eq!(turns[0]["ts"], "1000");
+    assert_eq!(turns[1]["blocks"][0]["text"], "q");
+    assert_eq!(turns[1]["ts"], "2000");
+
+    let first = run(
+        &world,
+        &[
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+            "--turn",
+            "1",
+        ],
+    );
+    let first = read_document(&first);
+    assert_eq!(first["turns"][0]["blocks"][0]["text"], "abc");
+    assert_eq!(first["turns"][0]["ts"], "1000");
     let second = run(
         &world,
         &[
@@ -1128,9 +1155,12 @@ fn packed_dsh_members_have_separate_selectable_turns() {
         ],
     );
     let packed_second = read_document(&second);
-    assert_eq!(packed_second["turns"][0]["blocks"][0]["text"], "b");
-    assert_eq!(packed_second["turns"][0]["ts"], "999");
-    let fourth = run(
+    assert_eq!(packed_second["turns"][0]["blocks"][0]["text"], "q");
+    assert_eq!(packed_second["turns"][0]["ts"], "2000");
+
+    // Only two turns exist; index three must refuse with the exact reason
+    // and no fabricated turn, not merely fail.
+    let third = run(
         &world,
         &[
             "transcript",
@@ -1140,14 +1170,19 @@ fn packed_dsh_members_have_separate_selectable_turns() {
             "eff1",
             "--json",
             "--turn",
-            "4",
+            "3",
         ],
     );
-    let packed_fourth = read_document(&fourth);
-    assert_eq!(packed_fourth["turns"][0]["blocks"][0]["text"], "q");
-    assert_eq!(packed_fourth["turns"][0]["ts"], "2000");
+    assert!(!third.status.success());
+    let third = read_document(&third);
+    assert_eq!(third["unavailable"], "turn-not-retained");
+    assert_eq!(third["truncated"], false);
+    assert_eq!(third["skipped_lines"], 0);
+    assert_eq!(third["unrecognized_records"], 0);
+    assert!(third["turns"].as_array().unwrap().is_empty());
+    assert!(third["notices"].as_array().unwrap().is_empty());
 
-    // The equivalent ordinary chunk rows.
+    // The equivalent ordinary chunk rows keep their four turns.
     let world = world_effects(&[("eff1", "review", None)]);
     let ordinary = concat!(
         "{\"type\":\"session\",\"version\":0}\n",
@@ -1168,6 +1203,21 @@ fn packed_dsh_members_have_separate_selectable_turns() {
     );
     let ordinary = run(
         &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    let ordinary = read_document(&ordinary);
+    let turns = ordinary["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 4, "ordinary rows keep individual turns");
+    assert_eq!(turns[0]["blocks"][0]["text"], "a");
+    assert_eq!(turns[0]["ts"], "1000");
+    assert_eq!(turns[1]["blocks"][0]["text"], "b");
+    assert_eq!(turns[1]["ts"], "999");
+    assert_eq!(turns[2]["blocks"][0]["text"], "c");
+    assert_eq!(turns[2]["ts"], "1004");
+    assert_eq!(turns[3]["blocks"][0]["text"], "q");
+    assert_eq!(turns[3]["ts"], "2000");
+    let ordinary_second = run(
+        &world,
         &[
             "transcript",
             "--run",
@@ -1179,7 +1229,107 @@ fn packed_dsh_members_have_separate_selectable_turns() {
             "2",
         ],
     );
-    assert_eq!(read_document(&ordinary)["turns"], packed_second["turns"]);
+    assert_eq!(
+        read_document(&ordinary_second)["turns"][0]["blocks"][0]["text"],
+        "b"
+    );
+    let ordinary_fourth = run(
+        &world,
+        &[
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+            "--turn",
+            "4",
+        ],
+    );
+    assert_eq!(
+        read_document(&ordinary_fourth)["turns"][0]["blocks"][0]["text"],
+        "q"
+    );
+}
+
+/// The shared structural charge bounds tiny ordinary DSH calls: 10,000
+/// `tool/call` rows with absent data each project their one-byte `?` block
+/// and cost 513 accounting bytes, so exactly 7,797 turns are retained with
+/// the truncation notice. Whole and selected JSON reads agree, and index
+/// 7,798 is refused with the reason while retaining truncation.
+#[test]
+fn structural_charge_bounds_tiny_dsh_calls_whole_and_selected() {
+    let world = world_effects(&[("eff1", "review", None)]);
+    let mut body = String::from("{\"type\":\"session\",\"version\":0}\n");
+    for seq in 1..=10_000 {
+        body.push_str(&format!(
+            "{{\"type\":\"tool/call\",\"seq\":{seq},\"time\":1000,\"data\":{{}}}}\n"
+        ));
+    }
+    write_dsh_body(&world, "sessions/one", &body);
+    checkpoint(
+        &world,
+        "eff1",
+        "att0",
+        json!({
+            "step": "session-finished",
+            "transcript": dsh_reference(&world, "sessions/one"),
+        }),
+    );
+    let whole = run(
+        &world,
+        &["transcript", "--run", "r222", "--seat", "eff1", "--json"],
+    );
+    assert!(whole.status.success());
+    let whole = read_document(&whole);
+    let turns = whole["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 7_797);
+    assert_eq!(whole["truncated"], true);
+    assert_eq!(whole["skipped_lines"], 0);
+    assert_eq!(whole["unrecognized_records"], 0);
+    assert_eq!(whole["notices"], json!(["transcript truncated (size cap)"]));
+    let retained_text: usize = turns
+        .iter()
+        .map(|turn| turn["blocks"][0]["text"].as_str().unwrap().len())
+        .sum();
+    assert_eq!(retained_text, 7_797, "each retained turn carries only `?`");
+
+    let selected = run(
+        &world,
+        &[
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+            "--turn",
+            "7797",
+        ],
+    );
+    assert!(selected.status.success());
+    let selected = read_document(&selected);
+    assert_eq!(selected["turns"][0]["blocks"][0]["text"], "?");
+    assert_eq!(selected["truncated"], true);
+
+    let past = run(
+        &world,
+        &[
+            "transcript",
+            "--run",
+            "r222",
+            "--seat",
+            "eff1",
+            "--json",
+            "--turn",
+            "7798",
+        ],
+    );
+    assert!(!past.status.success());
+    let past = read_document(&past);
+    assert_eq!(past["unavailable"], "turn-not-retained");
+    assert_eq!(past["truncated"], true);
+    assert!(past["turns"].as_array().unwrap().is_empty());
 }
 
 /// `--turn` rejects zero, negatives, non-integers and overflow before

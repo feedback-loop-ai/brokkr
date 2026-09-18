@@ -1463,6 +1463,64 @@ fn dsh_discovery_admits_a_header_exactly_at_the_cap() {
     );
 }
 
+/// The 65,536-byte budget measures the admitted header slice, not the
+/// read's separate overflow probe: a true-EOF header of cap-plus-one
+/// bytes with no newline must refuse with `discovery-limit` even though
+/// the file holds no byte beyond the read, and the exact cap must be
+/// admitted, under both admitted DSH versions.
+#[test]
+fn dsh_discovery_bounds_the_header_at_true_eof() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("dsh");
+    let locator = "sessions/one";
+    let session = root.join(locator).join("project").join("seat");
+    std::fs::create_dir_all(&session).unwrap();
+    let reference = common("dsh-session", locator, root.to_str().unwrap());
+    let cap = brokkr_view::transcript::DSH_HEADER_CAP;
+
+    for version in ["0", "3"] {
+        let base = format!("{{\"type\":\"session\",\"delegationDepth\":0,\"version\":{version}");
+        let pad = cap - base.len() - 1;
+
+        // Exactly the cap at true EOF, with no delimiter: admitted.
+        let exact = format!("{base}{}}}", " ".repeat(pad));
+        assert_eq!(exact.len(), cap);
+        std::fs::write(session.join("session.jsonl"), &exact).unwrap();
+        let read = read_common(&reference);
+        assert!(
+            read.is_readable(),
+            "version {version}: a cap-length EOF header is admitted: {read:?}"
+        );
+        assert!(read.turns.is_empty());
+
+        // One byte past the cap at true EOF, with no delimiter: the
+        // length predicate alone must refuse, since there is no overflow
+        // byte and the bytes parse as valid JSON.
+        let over = format!("{base}{}}}", " ".repeat(pad + 1));
+        assert_eq!(over.len(), cap + 1);
+        std::fs::write(session.join("session.jsonl"), &over).unwrap();
+        let read = read_common(&reference);
+        assert_eq!(
+            read.unavailable,
+            Some(Unavailable::DiscoveryLimit),
+            "version {version}: cap-plus-one at EOF refuses on the length: {read:?}"
+        );
+        assert!(read.path.is_none(), "version {version}: no confirmed path");
+        assert!(read.turns.is_empty(), "version {version}: no turns");
+        assert_eq!(read.skipped_lines, 0, "version {version}");
+        assert_eq!(read.unrecognized_records, 0, "version {version}");
+        assert!(!read.truncated, "version {version}: not body truncation");
+        assert!(
+            read.notices.is_empty(),
+            "version {version}: discovery refusal adds no notice"
+        );
+        assert!(
+            read.full_session.is_none(),
+            "version {version}: a discovery refusal keeps the null hint"
+        );
+    }
+}
+
 /// Every file below `root`, relative path -> bytes, with symlinks
 /// recorded as their link text. Used to prove a read changes no
 /// retained byte (7.6).

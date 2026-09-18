@@ -9,6 +9,7 @@
 //! and touches no filesystem — decision 0013's separation is a compile
 //! property, not a convention.
 
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -23,8 +24,16 @@ pub const TRANSCRIPT_SCHEMA: &str = "brokkr.transcript/v1";
 /// Source bytes read from a selected file, plus one overflow probe byte.
 pub const SOURCE_CAP: u64 = 33_554_432;
 
-/// The existing Claude display budget, summed over emitted block texts.
+/// The display budget: display accounting bytes every returned projection
+/// of every kind shares. See [`DISPLAY_EVENT_COST`] and [`display_cost`].
 pub const DISPLAY_CAP: usize = 4_000_000;
+
+/// The fixed structural charge one final content-bearing event/turn adds to
+/// the display accounting budget, beside its emitted block text's UTF-8
+/// bytes. 512 conservatively rounds above the approximately 330-byte
+/// per-event audit estimate in issue #277; it is a portable accounting
+/// allowance, not a measured allocator or whole-process RSS size.
+pub const DISPLAY_EVENT_COST: usize = 512;
 
 /// The bounded first-record budget for a DSH candidate header.
 pub const DSH_HEADER_CAP: usize = 65_536;
@@ -787,14 +796,35 @@ where
     skipped
 }
 
-/// Apply the 4,000,000-byte sum-of-block-texts budget after association
-/// and classification: retain whole turns in source order, stop before
-/// the first turn that would exceed it, never skip forward.
+/// The one shared display accounting rule (design D4): an empty block list
+/// costs zero and supplies no turn; any nonempty list costs
+/// [`DISPLAY_EVENT_COST`] structural bytes plus the sum of its emitted
+/// blocks' UTF-8 text byte lengths. `None` means an event that supplies no
+/// turn; `usize` arithmetic is checked so an overflow can never wrap into
+/// admission. Every kind pays this same charge.
+fn display_cost(blocks: &[Block]) -> Option<usize> {
+    if blocks.is_empty() {
+        return None;
+    }
+    let mut cost = DISPLAY_EVENT_COST;
+    for block in blocks {
+        // Saturating addition cannot wrap into admission; an impossibly
+        // huge cost stays over budget and refuses.
+        cost = cost.saturating_add(block.text.len());
+    }
+    Some(cost)
+}
+
+/// Apply the shared display accounting budget after association and
+/// classification: retain whole turns in source order, stop before the
+/// first turn that would exceed it, never skip forward. Equality fits.
 fn display_cap(turns: Vec<Turn>, truncated: &mut bool) -> Vec<Turn> {
     let mut out = Vec::new();
     let mut budget = DISPLAY_CAP;
     for turn in turns {
-        let cost: usize = turn.blocks.iter().map(|block| block.text.len()).sum();
+        let Some(cost) = display_cost(&turn.blocks) else {
+            continue;
+        };
         if cost > budget {
             *truncated = true;
             break;
@@ -1156,6 +1186,28 @@ fn collect_codex(admitted: &Admitted<'_>, projection: &mut Projection) -> Vec<Co
 /// identity keeps both records, and only the blocks the canonical record
 /// actually covers disappear.
 fn associate_codex(records: &mut [CodexRecord]) {
+    associate_codex_observed(records, |_, _, _| {});
+}
+
+/// The two places `associate_codex` builds an association key from a
+/// record's shared identity. A test observer names them so a regression
+/// that copies the recorded bytes instead of the `Rc` fails while the
+/// pass is live, not only before and after it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CodexKeySite {
+    /// Counting `seen`/canonical/fallback during the first sweep.
+    Count,
+    /// The fallback-retention lookup in the second sweep.
+    Lookup,
+}
+
+/// `associate_codex` with a live observation of the actual `(source id,
+/// key)` pair at each key construction. The observer borrows both, so it
+/// changes no strong count; production passes a no-op.
+fn associate_codex_observed<F>(records: &mut [CodexRecord], mut observe: F)
+where
+    F: FnMut(CodexKeySite, &CodexId, &CodexId),
+{
     use std::collections::{HashMap, HashSet};
     // Keys share each record's id allocation: a key is a reference count,
     // never a copy of the recorded bytes.
@@ -1168,6 +1220,7 @@ fn associate_codex(records: &mut [CodexRecord]) {
                 continue;
             };
             let key = (*fact, Rc::clone(id));
+            observe(CodexKeySite::Count, id, &key.1);
             if !seen.insert(key.clone()) {
                 continue;
             }
@@ -1185,6 +1238,7 @@ fn associate_codex(records: &mut [CodexRecord]) {
         record.blocks.retain(|block| match &block.fact {
             Some((fact, id)) => {
                 let key = (*fact, Rc::clone(id));
+                observe(CodexKeySite::Lookup, id, &key.1);
                 canonical.get(&key) != Some(&1) || fallback.get(&key) != Some(&1)
             }
             None => true,
@@ -2098,6 +2152,422 @@ fn first_physical_row<'a>(admitted: &'a Admitted<'_>) -> FirstRow<'a> {
     }
 }
 
+/// Retain the ordinary events one row contributes to the projected prefix.
+/// Every sequence is observed first, because a duplicate identity must
+/// still keep a citation ambiguous; a blockless event is then released,
+/// since it never suppresses (the sweep requires a readable block),
+/// indexes as a chunk, yields a turn or owns a tool fact. This is shape
+/// (c) of #277: the blockless `tool/result` and `user/message` rows with
+/// absent data are harmless but pure retained waste until the final empty
+/// filter would drop them.
+fn retain_ordinary_events(
+    rows: Vec<DshEvent>,
+    observed: &mut Vec<(i64, i64)>,
+    events: &mut Vec<DshEvent>,
+) {
+    for row in rows {
+        if let Some(seq) = row.seq {
+            observed.push((seq, seq));
+        }
+        if !row.blocks.is_empty() {
+            events.push(row);
+        } else {
+            #[cfg(test)]
+            observe::blockless_released();
+        }
+    }
+}
+
+/// Observe one row's singleton logical identity, if it recorded one.
+fn observe_singleton(observed: &mut Vec<(i64, i64)>, seq: Option<i64>) {
+    if let Some(seq) = seq {
+        observed.push((seq, seq));
+    }
+}
+
+/// One readable assembly's citation facts, collected in the fact pass and
+/// released once the projection pass has used them (design D1, D2). It
+/// stores source geometry, never a payload.
+struct AssemblyFact {
+    /// The physical row ordinal, so only a strictly later row can suppress.
+    ordinal: u32,
+    turn: Position,
+    step: Position,
+    cited: Vec<(i64, i64)>,
+}
+
+/// The observed multiplicity of every sequence value as a sorted, disjoint
+/// interval union of the values that occur exactly once (design D2). Built
+/// from inclusive observed spans, so a packed row's many members cost one
+/// span rather than one entry per member; a duplicate anywhere, including
+/// later than an assembly, removes the affected values.
+struct UniqueSegments {
+    unique: Vec<(i64, i64)>,
+}
+
+impl UniqueSegments {
+    fn new(spans: &[(i64, i64)]) -> UniqueSegments {
+        // Half-open endpoint deltas over `i128`: a span ending at
+        // `i64::MAX` still has a representable exclusive endpoint, and an
+        // `i64::MIN` start does not wrap.
+        let mut events: Vec<(i128, i32)> = Vec::with_capacity(spans.len() * 2);
+        for &(start, end) in spans {
+            events.push((start as i128, 1));
+            events.push((end as i128 + 1, -1));
+        }
+        events.sort_unstable();
+        let mut unique: Vec<(i64, i64)> = Vec::new();
+        let mut active = 0i64;
+        let mut cursor = 0usize;
+        let mut previous: Option<i128> = None;
+        while cursor < events.len() {
+            let coordinate = events[cursor].0;
+            if let Some(previous) = previous {
+                if active == 1 {
+                    let segment = (previous as i64, (coordinate - 1) as i64);
+                    match unique.last_mut() {
+                        Some(last) if last.1.checked_add(1) == Some(segment.0) => {
+                            last.1 = segment.1;
+                        }
+                        _ => unique.push(segment),
+                    }
+                }
+            }
+            while cursor < events.len() && events[cursor].0 == coordinate {
+                active += events[cursor].1 as i64;
+                cursor += 1;
+            }
+            previous = Some(coordinate);
+        }
+        UniqueSegments { unique }
+    }
+
+    /// True when `seq` occurs exactly once across every observed span.
+    fn is_unique(&self, seq: i64) -> bool {
+        let after = self.unique.partition_point(|&(start, _)| start <= seq);
+        if after == 0 {
+            return false;
+        }
+        // `partition_point` guarantees the selected segment's start is at
+        // most `seq`, so only its end decides membership.
+        let (_, end) = self.unique[after - 1];
+        seq <= end
+    }
+}
+
+/// The `(turn, step)` key citation coverage groups assemblies by.
+type StepKey = (Position, Position);
+/// One disjoint covered interval and the greatest citing row ordinal.
+type CoveredSpan = (i64, i64, u32);
+/// One half-open coverage endpoint: coordinate, delta and citing ordinal.
+type CoverageEdge = (i128, i32, u32);
+
+/// The latest readable assembly that cites each `(turn, step)` region
+/// (design D2): a sorted, disjoint interval union carrying the greatest
+/// citing row ordinal. A chunk is suppressed when its sequence is unique
+/// and this value is strictly greater than the chunk's own row ordinal.
+struct CitationCoverage {
+    by_step: HashMap<StepKey, Vec<CoveredSpan>>,
+}
+
+impl CitationCoverage {
+    fn new(assemblies: &[AssemblyFact]) -> CitationCoverage {
+        let mut grouped: HashMap<StepKey, Vec<CoverageEdge>> = HashMap::new();
+        for assembly in assemblies {
+            for &(start, end) in &assembly.cited {
+                let entries = grouped.entry((assembly.turn, assembly.step)).or_default();
+                entries.push((start as i128, 1, assembly.ordinal));
+                entries.push((end as i128 + 1, -1, assembly.ordinal));
+            }
+        }
+        let mut by_step = HashMap::new();
+        for (key, mut entries) in grouped {
+            entries.sort_unstable();
+            let mut segments: Vec<(i64, i64, u32)> = Vec::new();
+            let mut active: BTreeMap<u32, u32> = BTreeMap::new();
+            let mut cursor = 0usize;
+            let mut previous: Option<i128> = None;
+            while cursor < entries.len() {
+                let coordinate = entries[cursor].0;
+                if let (Some(previous), Some(maximum)) =
+                    (previous, active.keys().next_back().copied())
+                {
+                    let segment = (previous as i64, (coordinate - 1) as i64, maximum);
+                    match segments.last_mut() {
+                        Some(last)
+                            if last.1.checked_add(1) == Some(segment.0) && last.2 == maximum =>
+                        {
+                            last.1 = segment.1;
+                        }
+                        _ => segments.push(segment),
+                    }
+                }
+                while cursor < entries.len() && entries[cursor].0 == coordinate {
+                    let (_, delta, ordinal) = entries[cursor];
+                    if delta > 0 {
+                        *active.entry(ordinal).or_default() += 1;
+                    } else {
+                        let count = active
+                            .get_mut(&ordinal)
+                            .expect("a removed interval was added");
+                        *count -= 1;
+                        if *count == 0 {
+                            active.remove(&ordinal);
+                        }
+                    }
+                    cursor += 1;
+                }
+                previous = Some(coordinate);
+            }
+            by_step.insert(key, segments);
+        }
+        CitationCoverage { by_step }
+    }
+
+    fn latest_ordinal(&self, turn: Position, step: Position, seq: i64) -> Option<u32> {
+        let segments = self.by_step.get(&(turn, step))?;
+        let after = segments.partition_point(|&(start, _, _)| start <= seq);
+        if after == 0 {
+            return None;
+        }
+        // The selected segment's start is at most `seq` by construction.
+        let (_, end, ordinal) = segments[after - 1];
+        (seq <= end).then_some(ordinal)
+    }
+}
+
+/// The suppression consumer the projection pass queries (design D2). When
+/// the fact pass observed no eligible citing assembly there is no consumer,
+/// so neither the multiplicity nor the coverage index is built, the
+/// collected observation spans are released, and a suppression query is
+/// answered without touching either.
+enum Suppression {
+    None,
+    Active {
+        unique: UniqueSegments,
+        coverage: CitationCoverage,
+    },
+}
+
+/// True when a chunk at `ordinal` with this recorded identity is suppressed
+/// by a strictly later readable assembly (design D2).
+fn dsh_suppressed(
+    ordinal: u32,
+    turn: Position,
+    step: Position,
+    seq: i64,
+    suppression: &Suppression,
+) -> bool {
+    let Suppression::Active { unique, coverage } = suppression else {
+        return false;
+    };
+    unique.is_unique(seq)
+        && coverage
+            .latest_ordinal(turn, step, seq)
+            .is_some_and(|later| later > ordinal)
+}
+
+/// The bounded DSH projection collector (design D4): it retains whole final
+/// turns only while they fit the shared display accounting budget, keeps at
+/// most one current candidate, and seals permanently at the first overflow.
+/// `remaining` is checked before subtraction, so equality fits and no
+/// arithmetic wraps into admission.
+struct DshCollector {
+    turns: Vec<Turn>,
+    remaining: usize,
+    truncated: bool,
+    sealed: bool,
+}
+
+impl DshCollector {
+    fn new(truncated: bool) -> DshCollector {
+        DshCollector {
+            turns: Vec::new(),
+            remaining: DISPLAY_CAP,
+            truncated,
+            sealed: false,
+        }
+    }
+
+    fn admit(&mut self, role: String, ts: String, blocks: Vec<Block>) {
+        if self.sealed {
+            return;
+        }
+        let Some(cost) = display_cost(&blocks) else {
+            return;
+        };
+        if cost > self.remaining {
+            self.truncated = true;
+            self.sealed = true;
+            return;
+        }
+        #[cfg(test)]
+        let text_bytes: usize = blocks.iter().map(|block| block.text.len()).sum();
+        self.remaining -= cost;
+        self.turns.push(Turn { role, ts, blocks });
+        #[cfg(test)]
+        observe::retained_turn(text_bytes, cost);
+    }
+}
+
+/// Test-only observations of the DSH projector's actual construction,
+/// retention and release lifetimes across both passes (design D8). They
+/// compile only for this crate's unit tests, so a production build carries
+/// no counter and the CLI/TUI integration tests cannot observe them. The
+/// counters are logical, not allocator measurements.
+#[cfg(test)]
+mod observe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static PACKED_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+        static LIVE_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+        static PEAK_CANDIDATES: Cell<usize> = const { Cell::new(0) };
+        static PEAK_CANDIDATE_TEXT: Cell<usize> = const { Cell::new(0) };
+        static RETAINED_TURNS: Cell<usize> = const { Cell::new(0) };
+        static PEAK_RETAINED: Cell<usize> = const { Cell::new(0) };
+        static RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+        static PEAK_RETAINED_TEXT: Cell<usize> = const { Cell::new(0) };
+        static RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+        static PEAK_RETAINED_CHARGED: Cell<usize> = const { Cell::new(0) };
+        /// Ordinary events that reached the fact pass's retained buffer.
+        static FACT_RETAINED: Cell<usize> = const { Cell::new(0) };
+        static PEAK_FACT_DEPTH: Cell<usize> = const { Cell::new(0) };
+        static FACT_LIVE_TEXT: Cell<usize> = const { Cell::new(0) };
+        static PEAK_FACT_TEXT: Cell<usize> = const { Cell::new(0) };
+        /// Blockless ordinary events released without retention.
+        static BLOCKLESS_RELEASED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn reset() {
+        PACKED_CANDIDATES.with(|cell| cell.set(0));
+        LIVE_CANDIDATES.with(|cell| cell.set(0));
+        PEAK_CANDIDATES.with(|cell| cell.set(0));
+        PEAK_CANDIDATE_TEXT.with(|cell| cell.set(0));
+        RETAINED_TURNS.with(|cell| cell.set(0));
+        PEAK_RETAINED.with(|cell| cell.set(0));
+        RETAINED_TEXT.with(|cell| cell.set(0));
+        PEAK_RETAINED_TEXT.with(|cell| cell.set(0));
+        RETAINED_CHARGED.with(|cell| cell.set(0));
+        PEAK_RETAINED_CHARGED.with(|cell| cell.set(0));
+        FACT_RETAINED.with(|cell| cell.set(0));
+        PEAK_FACT_DEPTH.with(|cell| cell.set(0));
+        FACT_LIVE_TEXT.with(|cell| cell.set(0));
+        PEAK_FACT_TEXT.with(|cell| cell.set(0));
+        BLOCKLESS_RELEASED.with(|cell| cell.set(0));
+    }
+
+    /// One packed-row candidate is constructed and materialized at this
+    /// text length; its payload is live until it is released into the
+    /// collector.
+    pub(super) fn packed_candidate(text_bytes: usize) {
+        PACKED_CANDIDATES.with(|cell| cell.set(cell.get() + 1));
+        PEAK_CANDIDATE_TEXT.with(|peak| peak.set(peak.get().max(text_bytes)));
+        LIVE_CANDIDATES.with(|cell| {
+            let live = cell.get() + 1;
+            cell.set(live);
+            PEAK_CANDIDATES.with(|peak| peak.set(peak.get().max(live)));
+        });
+    }
+
+    /// A constructed candidate's payload is released into the collector.
+    pub(super) fn packed_candidate_released() {
+        LIVE_CANDIDATES.with(|cell| cell.set(cell.get().saturating_sub(1)));
+    }
+
+    /// One final turn joins the retained prefix with this emitted text and
+    /// charged cost; the prefix itself is never released.
+    pub(super) fn retained_turn(text_bytes: usize, charged: usize) {
+        RETAINED_TURNS.with(|cell| {
+            let retained = cell.get() + 1;
+            cell.set(retained);
+            PEAK_RETAINED.with(|peak| peak.set(peak.get().max(retained)));
+        });
+        RETAINED_TEXT.with(|cell| {
+            let text = cell.get() + text_bytes;
+            cell.set(text);
+            PEAK_RETAINED_TEXT.with(|peak| peak.set(peak.get().max(text)));
+        });
+        RETAINED_CHARGED.with(|cell| {
+            let total = cell.get() + charged;
+            cell.set(total);
+            PEAK_RETAINED_CHARGED.with(|peak| peak.set(peak.get().max(total)));
+        });
+    }
+
+    /// Ordinary events reached the fact pass's retained buffer at this
+    /// depth and payload size, before `collect_ordinary_facts` drains them.
+    pub(super) fn fact_retained(depth: usize, text_bytes: usize) {
+        FACT_RETAINED.with(|cell| cell.set(cell.get() + depth));
+        PEAK_FACT_DEPTH.with(|peak| peak.set(peak.get().max(depth)));
+        FACT_LIVE_TEXT.with(|cell| {
+            let live = cell.get() + text_bytes;
+            cell.set(live);
+            PEAK_FACT_TEXT.with(|peak| peak.set(peak.get().max(live)));
+        });
+    }
+
+    /// One retained ordinary event leaves the fact-pass buffer.
+    pub(super) fn fact_released(text_bytes: usize) {
+        FACT_LIVE_TEXT.with(|cell| cell.set(cell.get().saturating_sub(text_bytes)));
+    }
+
+    /// One blockless ordinary event was constructed and released without
+    /// ever joining the retained buffer.
+    pub(super) fn blockless_released() {
+        BLOCKLESS_RELEASED.with(|cell| cell.set(cell.get() + 1));
+    }
+
+    pub(super) fn packed_candidates() -> usize {
+        PACKED_CANDIDATES.with(Cell::get)
+    }
+
+    pub(super) fn peak_candidates() -> usize {
+        PEAK_CANDIDATES.with(Cell::get)
+    }
+
+    pub(super) fn peak_candidate_text() -> usize {
+        PEAK_CANDIDATE_TEXT.with(Cell::get)
+    }
+
+    pub(super) fn peak_retained() -> usize {
+        PEAK_RETAINED.with(Cell::get)
+    }
+
+    pub(super) fn peak_retained_text() -> usize {
+        PEAK_RETAINED_TEXT.with(Cell::get)
+    }
+
+    pub(super) fn peak_retained_charged() -> usize {
+        PEAK_RETAINED_CHARGED.with(Cell::get)
+    }
+
+    /// Ordinary events that joined the fact-pass retained buffer; a
+    /// blockless event surviving the guard would raise this above the
+    /// number of content-bearing rows.
+    pub(super) fn fact_retained_events() -> usize {
+        FACT_RETAINED.with(Cell::get)
+    }
+
+    pub(super) fn peak_fact_depth() -> usize {
+        PEAK_FACT_DEPTH.with(Cell::get)
+    }
+
+    pub(super) fn peak_fact_text() -> usize {
+        PEAK_FACT_TEXT.with(Cell::get)
+    }
+
+    pub(super) fn blockless_released_count() -> usize {
+        BLOCKLESS_RELEASED.with(Cell::get)
+    }
+}
+
+/// The emitted UTF-8 byte length of a row's blocks. Test observation only.
+#[cfg(test)]
+fn block_text_bytes(blocks: &[DshBlock]) -> usize {
+    blocks.iter().map(|block| block.block.text.len()).sum()
+}
+
 fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
     // Format admission precedes every projection allocation: a refused
     // opening header returns before any later physical row is decoded,
@@ -2119,44 +2589,50 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
             return;
         }
     };
-    let mut events: Vec<DshEvent> = Vec::new();
-    // Every observed logical identity counts once, including quiet
-    // omissions, so a duplicate sequence stays ambiguous for citation
-    // uniqueness.
-    let mut observed: Vec<i64> = Vec::new();
+    let version = admitted_header.version;
+    let associate = version == DshVersion::Zero || admitted_header.is_seeded == Some(false);
+
+    // ---- Fact pass (design D1): visit every complete physical row, count
+    // diagnostics, validate packed rows and citations, and retain only
+    // compact identity, citation and dedicated-tool facts. No per-token
+    // payload is ever appended to a complete-prefix event vector. ----
+    let mut spans: Vec<(i64, i64)> = Vec::new();
+    let mut assemblies: Vec<AssemblyFact> = Vec::new();
+    let mut dedicated: HashMap<(String, DshDirection, Position, Position), u32> = HashMap::new();
     let mut refused = false;
     let mut unrecognized = 0u64;
+    let mut retained: Vec<DshEvent> = Vec::new();
     let skipped = for_each_parsed_row(admitted, |index, value, raw| {
         // The admitted opening header is quiet.
         if index == 0 {
             return;
         }
-        match dsh_row(&value, raw, admitted_header.version) {
-            DshRow::Events(mut rows, row_unrecognized) => {
+        let ordinal = index as u32;
+        match dsh_row(&value, raw, version) {
+            DshRow::Events(rows, row_unrecognized) => {
                 if row_unrecognized {
                     unrecognized += 1;
                 }
-                for row in &rows {
-                    if let Some(seq) = row.seq {
-                        observed.push(seq);
-                    }
+                retain_ordinary_events(rows, &mut spans, &mut retained);
+                collect_ordinary_facts(
+                    &mut retained,
+                    ordinal,
+                    associate,
+                    &mut assemblies,
+                    &mut dedicated,
+                );
+            }
+            DshRow::Packed => match packed_facts(&value, raw, &mut spans) {
+                Ok(()) => {}
+                Err(()) => {
+                    unrecognized += 1;
+                    refused = true;
                 }
-                events.append(&mut rows);
-            }
-            DshRow::Packed(mut rows, member_seqs) => {
-                observed.extend(member_seqs);
-                events.append(&mut rows);
-            }
-            DshRow::Quiet => {
-                if let Some(seq) = dsh_seq(&value) {
-                    observed.push(seq);
-                }
-            }
+            },
+            DshRow::Quiet => observe_singleton(&mut spans, dsh_seq(&value)),
             DshRow::Unrecognized => {
                 unrecognized += 1;
-                if let Some(seq) = dsh_seq(&value) {
-                    observed.push(seq);
-                }
+                observe_singleton(&mut spans, dsh_seq(&value));
                 if !dsh_ignorable(&value) {
                     refused = true;
                 }
@@ -2165,9 +2641,7 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
                 // A recognized envelope with an unsupported nested variant
                 // keeps no content and counts once without refusing.
                 unrecognized += 1;
-                if let Some(seq) = dsh_seq(&value) {
-                    observed.push(seq);
-                }
+                observe_singleton(&mut spans, dsh_seq(&value));
             }
             DshRow::Refused => {
                 unrecognized += 1;
@@ -2182,76 +2656,281 @@ fn project_dsh(admitted: &Admitted<'_>, projection: &mut Projection) {
         projection.unavailable = Some(Unavailable::UnsupportedFormat);
         return;
     }
-    let mut seq_counts: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
-    for &seq in &observed {
-        *seq_counts.entry(seq).or_default() += 1;
-    }
-    // Citation suppression: an assembly with readable projected blocks
-    // suppresses uniquely identified, earlier readable chunks it cites in
-    // its own recorded turn/step. One interval-searchable index keyed by
-    // `(turn, step, seq)` is swept in source order, so each observed
-    // chunk and each citation range costs one logarithmic lookup and no
-    // integer range is ever expanded.
-    let mut chunk_index: std::collections::BTreeMap<(Position, Position, i64), usize> =
-        std::collections::BTreeMap::new();
-    let mut suppressed = std::collections::HashSet::new();
-    for (index, event) in events.iter().enumerate() {
-        if event.assembly
-            && !event.cited.is_empty()
-            && event
+    // The indexes exist only to answer a suppression query (design D2):
+    // without an eligible citing assembly no chunk can be suppressed, so
+    // omit both rather than sort the observed spans for no consumer.
+    let suppression = if assemblies.is_empty() {
+        Suppression::None
+    } else {
+        Suppression::Active {
+            unique: UniqueSegments::new(&spans),
+            coverage: CitationCoverage::new(&assemblies),
+        }
+    };
+    drop(spans);
+    drop(assemblies);
+
+    // ---- Projection pass (design D1, D3): re-parse the same admitted
+    // snapshot, resolve every candidate against the finalized facts, and
+    // collect only final content-bearing turns that fit the shared display
+    // accounting budget. Classification, diagnostics and association
+    // ordering were completed by the fact pass. ----
+    let mut collector = DshCollector::new(projection.truncated);
+    for_each_parsed_row(admitted, |index, value, raw| {
+        if index == 0 || collector.sealed {
+            return;
+        }
+        let ordinal = index as u32;
+        match dsh_row(&value, raw, version) {
+            DshRow::Packed => {
+                let object = value.as_object().expect("a packed row is a JSON object");
+                let data = object.get("data").unwrap_or(&Value::Null);
+                let kind = object
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let view = validate_packed(kind, object, data, raw)
+                    .expect("the fact pass refused an invalid packed row");
+                emit_packed(&mut collector, kind, &view, ordinal, &suppression);
+            }
+            DshRow::Events(rows, _) => {
+                for row in rows {
+                    emit_ordinary(
+                        &mut collector,
+                        row,
+                        ordinal,
+                        associate,
+                        &suppression,
+                        &dedicated,
+                    );
+                }
+            }
+            _ => {}
+        }
+    });
+    projection.truncated = collector.truncated;
+    projection.turns = collector.turns;
+}
+
+/// Validate one packed row and observe its whole member span, without
+/// constructing a payload-bearing event per member (design D3).
+fn packed_facts(value: &Value, raw: &str, spans: &mut Vec<(i64, i64)>) -> Result<(), ()> {
+    let object = value.as_object().ok_or(())?;
+    let kind = value.get("type").and_then(Value::as_str).ok_or(())?;
+    let data = object.get("data").unwrap_or(&Value::Null);
+    let view = validate_packed(kind, object, data, raw)?;
+    let last = view
+        .seq0
+        .checked_add(view.members.len() as i64 - 1)
+        .ok_or(())?;
+    spans.push((view.seq0, last));
+    Ok(())
+}
+
+/// Extract the readable-assembly citation facts and the dedicated-tool key
+/// counts from one row's already observed block-bearing events (design D2).
+/// The events are drained and released; only compact facts survive.
+fn collect_ordinary_facts(
+    retained: &mut Vec<DshEvent>,
+    ordinal: u32,
+    associate: bool,
+    assemblies: &mut Vec<AssemblyFact>,
+    dedicated: &mut HashMap<(String, DshDirection, Position, Position), u32>,
+) {
+    #[cfg(test)]
+    observe::fact_retained(
+        retained.len(),
+        retained
+            .iter()
+            .map(|row| block_text_bytes(&row.blocks))
+            .sum::<usize>(),
+    );
+    for mut row in retained.drain(..) {
+        #[cfg(test)]
+        observe::fact_released(block_text_bytes(&row.blocks));
+        if row.assembly
+            && !row.cited.is_empty()
+            && row
                 .blocks
                 .iter()
                 .any(|block| block.block.kind != BlockKind::Omitted)
         {
-            if let (Some(turn), Some(step)) = (event.turn, event.step) {
-                // `dsh_citations` already refuses a reversed range, so
-                // every cited interval here is ordered.
-                for (start, end) in &event.cited {
-                    let keys: Vec<(Position, Position, i64)> = chunk_index
-                        .range((turn, step, *start)..=(turn, step, *end))
-                        .map(|(key, _)| *key)
-                        .collect();
-                    for key in keys {
-                        let candidate_index =
-                            chunk_index.remove(&key).expect("a swept key is indexed");
-                        suppressed.insert(candidate_index);
+            if let (Some(turn), Some(step)) = (row.turn, row.step) {
+                assemblies.push(AssemblyFact {
+                    ordinal,
+                    turn,
+                    step,
+                    cited: std::mem::take(&mut row.cited),
+                });
+            }
+        }
+        if !associate || !row.dedicated {
+            continue;
+        }
+        let (Some(turn), Some(step)) = (row.turn, row.step) else {
+            continue;
+        };
+        let mut seen: std::collections::HashSet<(String, DshDirection, Position, Position)> =
+            std::collections::HashSet::new();
+        for block in &row.blocks {
+            let Some(tool) = &block.tool else { continue };
+            let key = (tool.id.clone(), tool.direction, turn, step);
+            if seen.insert(key.clone()) {
+                *dedicated.entry(key).or_default() += 1;
+            }
+        }
+    }
+}
+
+/// Emit one packed text/reasoning row's coalesced chunks into the bounded
+/// collector (design D3): each maximal run of unsuppressed nonempty members
+/// becomes one turn, a suppressed readable member splits the run, empty
+/// members do not, and the run keeps its first surviving member's timestamp.
+fn emit_packed(
+    collector: &mut DshCollector,
+    kind: &str,
+    view: &PackedView<'_>,
+    ordinal: u32,
+    suppression: &Suppression,
+) {
+    if view.tool {
+        // Argument fragments are recognized quiet omissions.
+        return;
+    }
+    let block_kind = if kind == "text-chunks" {
+        BlockKind::Text
+    } else {
+        BlockKind::Reasoning
+    };
+    let mut run_start: Option<usize> = None;
+    let mut run_length = 0usize;
+    let mut run_ts = view.time0;
+    let mut time = view.time0;
+    for (member_index, member) in view.members.iter().enumerate() {
+        if member_index > 0 {
+            let gap = dsh_millis(&view.dt[member_index - 1]).expect("a validated gap");
+            time = time.checked_add(gap).expect("a validated time");
+        }
+        let text = member.as_str().unwrap_or_default();
+        if text.is_empty() {
+            // An empty member supplies no text or turn and does not split a
+            // run; its sequence already participates in uniqueness.
+            continue;
+        }
+        let seq = view.seq0 + member_index as i64;
+        if dsh_suppressed(ordinal, view.turn, view.step, seq, suppression) {
+            if let Some(start) = run_start.take() {
+                flush_run(
+                    collector,
+                    block_kind,
+                    view.members,
+                    start,
+                    member_index,
+                    run_length,
+                    run_ts,
+                );
+            }
+            continue;
+        }
+        if run_start.is_none() {
+            run_start = Some(member_index);
+            run_length = 0;
+            run_ts = time;
+        }
+        run_length += text.len();
+    }
+    if let Some(start) = run_start {
+        flush_run(
+            collector,
+            block_kind,
+            view.members,
+            start,
+            view.members.len(),
+            run_length,
+            run_ts,
+        );
+    }
+}
+
+/// Finish one coalesced packed run. The run's byte length is measured before
+/// its text is allocated, so an over-budget chunk is discarded whole rather
+/// than materialized and then rejected.
+fn flush_run(
+    collector: &mut DshCollector,
+    kind: BlockKind,
+    members: &[Value],
+    start: usize,
+    end: usize,
+    run_length: usize,
+    run_ts: i64,
+) {
+    if collector.sealed {
+        return;
+    }
+    // Saturating addition cannot wrap; an impossibly huge run stays over
+    // budget and is refused whole.
+    let cost = DISPLAY_EVENT_COST.saturating_add(run_length);
+    if cost > collector.remaining {
+        collector.truncated = true;
+        collector.sealed = true;
+        return;
+    }
+    let mut text = String::with_capacity(run_length);
+    #[cfg(test)]
+    observe::packed_candidate(run_length);
+    for member in &members[start..end] {
+        // A validated member is always a string; an empty fragment pushes
+        // nothing and never splits the run.
+        text.push_str(member.as_str().unwrap_or_default());
+    }
+    collector.remaining -= cost;
+    collector.turns.push(Turn {
+        role: "assistant".to_string(),
+        ts: run_ts.to_string(),
+        blocks: vec![Block { kind, text }],
+    });
+    #[cfg(test)]
+    observe::packed_candidate_released();
+    #[cfg(test)]
+    observe::retained_turn(run_length, cost);
+}
+
+/// Emit one ordinary DSH event: suppression first, then dedicated-tool
+/// association, then the bounded collector (design D1, D4).
+fn emit_ordinary(
+    collector: &mut DshCollector,
+    row: DshEvent,
+    ordinal: u32,
+    associate: bool,
+    suppression: &Suppression,
+    dedicated: &HashMap<(String, DshDirection, Position, Position), u32>,
+) {
+    if row.chunk {
+        if let (Some(turn), Some(step), Some(seq)) = (row.turn, row.step, row.seq) {
+            if dsh_suppressed(ordinal, turn, step, seq, suppression) {
+                return;
+            }
+        }
+    }
+    let blocks: Vec<Block> = if associate && !row.dedicated {
+        match (row.turn, row.step) {
+            (Some(turn), Some(step)) => row
+                .blocks
+                .into_iter()
+                .filter(|block| match &block.tool {
+                    Some(tool) => {
+                        dedicated.get(&(tool.id.clone(), tool.direction, turn, step)) != Some(&1)
                     }
-                }
-            }
+                    None => true,
+                })
+                .map(|block| block.block)
+                .collect(),
+            _ => row.blocks.into_iter().map(|block| block.block).collect(),
         }
-        if event.chunk {
-            if let (Some(turn), Some(step), Some(seq)) = (event.turn, event.step, event.seq) {
-                if seq_counts.get(&seq) == Some(&1) {
-                    chunk_index.insert((turn, step, seq), index);
-                }
-            }
-        }
-    }
-    // Dedicated call/result events own matching embedded tool blocks at
-    // their own source positions; the owning message keeps every other
-    // block in recorded order. The pass rests on inherited identities in a
-    // seeded session, so under version three it runs only when the header
-    // records `isSeeded` exactly `false` (design D4, D7); under version
-    // zero it runs whatever the field carries.
-    if admitted_header.version == DshVersion::Zero || admitted_header.is_seeded == Some(false) {
-        associate_dsh_tools(&mut events);
-    }
-    let mut turns = Vec::new();
-    for (index, event) in events.into_iter().enumerate() {
-        if suppressed.contains(&index) {
-            continue;
-        }
-        let blocks: Vec<Block> = event.blocks.into_iter().map(|block| block.block).collect();
-        if blocks.is_empty() {
-            continue;
-        }
-        turns.push(Turn {
-            role: event.role,
-            ts: event.ts,
-            blocks,
-        });
-    }
-    projection.turns = display_cap(turns, &mut projection.truncated);
+    } else {
+        row.blocks.into_iter().map(|block| block.block).collect()
+    };
+    collector.admit(row.role, row.ts, blocks);
 }
 
 /// The recorded identifier and direction a DSH tool block carries.
@@ -2275,44 +2954,6 @@ struct DshBlock {
 impl DshBlock {
     fn plain(block: Block) -> DshBlock {
         DshBlock { block, tool: None }
-    }
-}
-
-/// Associate dedicated `tool/call` and `tool/result` events with the tool
-/// blocks embedded in messages. A dedicated event owns an embedded block
-/// only when the recorded call id and the owning `(turn, step)` pair both
-/// match exactly once; dedicated events never suppress one another and an
-/// absent, colliding or disagreeing identity keeps both copies.
-fn associate_dsh_tools(events: &mut [DshEvent]) {
-    use std::collections::{HashMap, HashSet};
-    let mut dedicated: HashMap<(String, DshDirection, Position, Position), usize> = HashMap::new();
-    for event in events.iter() {
-        if !event.dedicated {
-            continue;
-        }
-        let (Some(turn), Some(step)) = (event.turn, event.step) else {
-            continue;
-        };
-        let mut seen: HashSet<(String, DshDirection, Position, Position)> = HashSet::new();
-        for block in &event.blocks {
-            let Some(tool) = &block.tool else { continue };
-            let key = (tool.id.clone(), tool.direction, turn, step);
-            if seen.insert(key.clone()) {
-                *dedicated.entry(key).or_default() += 1;
-            }
-        }
-    }
-    for event in events.iter_mut() {
-        if event.dedicated {
-            continue;
-        }
-        let (Some(turn), Some(step)) = (event.turn, event.step) else {
-            continue;
-        };
-        event.blocks.retain(|block| match &block.tool {
-            Some(tool) => dedicated.get(&(tool.id.clone(), tool.direction, turn, step)) != Some(&1),
-            None => true,
-        });
     }
 }
 
@@ -2378,11 +3019,13 @@ struct DshEvent {
 
 enum DshRow {
     Events(Vec<DshEvent>, bool),
-    /// A complete packed storage row. Only members with projected blocks
-    /// allocate an event; every member sequence is still observed so a
-    /// duplicate identity stays ambiguous for citation uniqueness. The
-    /// second value is the complete member sequence list.
-    Packed(Vec<DshEvent>, Vec<i64>),
+    /// A complete packed storage row, classified but not yet validated or
+    /// decoded: the two projection passes validate it through
+    /// [`validate_packed`] and walk its members without ever constructing a
+    /// payload-bearing event per token (design D3). Every member sequence is
+    /// still observed so a duplicate identity stays ambiguous for citation
+    /// uniqueness.
+    Packed,
     Quiet,
     /// A recognized envelope with an unsupported or absent nested
     /// variant: counted once, no content, never a whole-read refusal.
@@ -2730,9 +3373,7 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
                 _ => DshRow::Omission,
             }
         }
-        "text-chunks" | "reasoning-chunks" | "tool-call-chunks" => {
-            dsh_packed(kind, object, data, raw)
-        }
+        "text-chunks" | "reasoning-chunks" | "tool-call-chunks" => DshRow::Packed,
         _ if dsh_quiet_event(kind, version) => DshRow::Quiet,
         _ => DshRow::Unrecognized,
     }
@@ -2755,22 +3396,34 @@ fn exact_keys(
         && required.iter().all(|key| object.contains_key(*key))
 }
 
-/// Decode one packed DSH storage row. Any structural violation refuses
-/// the whole read and counts the physical row once. The envelope and
-/// data shapes are validated exactly before any member can supply
-/// content or association.
-fn dsh_packed(
+/// A validated view over one packed storage row's decoded members. It
+/// borrows the decoded member and gap arrays and constructs no payload
+/// object; the two projection passes walk it directly (design D3).
+struct PackedView<'a> {
+    tool: bool,
+    turn: Position,
+    step: Position,
+    seq0: i64,
+    time0: i64,
+    dt: &'a [Value],
+    members: &'a [Value],
+}
+
+/// Validate one packed DSH storage row. Any structural violation refuses
+/// the whole read and counts the physical row once. The envelope and data
+/// shapes are validated exactly before any member can supply content or
+/// association, and every reconstructed sequence and time is range-checked,
+/// but no per-member event is constructed.
+fn validate_packed<'a>(
     kind: &str,
     object: &serde_json::Map<String, Value>,
-    data: &Value,
+    data: &'a Value,
     raw: &str,
-) -> DshRow {
+) -> Result<PackedView<'a>, ()> {
     if !exact_keys(object, &["type", "seq0", "time0", "data"], &[]) {
-        return DshRow::Refused;
+        return Err(());
     }
-    let Some(data) = data.as_object() else {
-        return DshRow::Refused;
-    };
+    let data = data.as_object().ok_or(())?;
     let tool = kind == "tool-call-chunks";
     let shape_ok = if tool {
         exact_keys(
@@ -2782,112 +3435,72 @@ fn dsh_packed(
         exact_keys(data, &["turn", "step", "index", "dt", "texts"], &[])
     };
     if !shape_ok {
-        return DshRow::Refused;
+        return Err(());
     }
     // The three position fields are numeric, not safe integers: a
     // fractional or exponent spelling is a valid recorded position.
-    let Some(turn) = data.get("turn").and_then(Position::parse) else {
-        return DshRow::Refused;
-    };
-    let Some(step) = data.get("step").and_then(Position::parse) else {
-        return DshRow::Refused;
-    };
-    let Some(_index) = data.get("index").and_then(Position::parse) else {
-        return DshRow::Refused;
-    };
-    let Some(seq0) = object.get("seq0").and_then(Value::as_i64) else {
-        // A negative-zero spelling parses as a float and is excluded here.
-        return DshRow::Refused;
-    };
+    let turn = data.get("turn").and_then(Position::parse).ok_or(())?;
+    let step = data.get("step").and_then(Position::parse).ok_or(())?;
+    data.get("index").and_then(Position::parse).ok_or(())?;
+    // A negative-zero spelling parses as a float and is excluded here.
+    let seq0 = object.get("seq0").and_then(Value::as_i64).ok_or(())?;
     if !(0..=DSH_SAFE_MAX).contains(&seq0) {
-        return DshRow::Refused;
+        return Err(());
     }
-    let Some(time0) = object
+    let time0 = object
         .get("time0")
         .and_then(|value| dsh_millis_exact(value, raw_top_level_token(raw, "time0")))
-    else {
-        return DshRow::Refused;
-    };
+        .ok_or(())?;
     if time0.unsigned_abs() > DSH_SAFE_MAX as u64 {
-        return DshRow::Refused;
+        return Err(());
     }
     if tool {
         // The tool id is a required string; a present name must be one.
         if data.get("id").and_then(Value::as_str).is_none() {
-            return DshRow::Refused;
+            return Err(());
         }
         if data.get("name").is_some_and(|name| name.as_str().is_none()) {
-            return DshRow::Refused;
+            return Err(());
         }
     }
-    let Some(dt) = data.get("dt").and_then(Value::as_array) else {
-        return DshRow::Refused;
-    };
+    let dt = data.get("dt").and_then(Value::as_array).ok_or(())?;
     let members = match data.get(if tool { "args" } else { "texts" }) {
         Some(Value::Array(members)) if !members.is_empty() => members,
-        _ => return DshRow::Refused,
+        _ => return Err(()),
     };
     if dt.len() + 1 != members.len() {
-        return DshRow::Refused;
+        return Err(());
     }
     if !members.iter().all(|member| member.is_string()) {
-        return DshRow::Refused;
+        return Err(());
     }
-    let mut gaps = Vec::new();
-    for gap in dt {
-        let Some(gap) = dsh_millis(gap) else {
-            return DshRow::Refused;
-        };
-        if gap.unsigned_abs() > DSH_SAFE_MAX as u64 {
-            return DshRow::Refused;
-        }
-        gaps.push(gap);
-    }
-    // A member that supplies no projected block allocates no event, so an
-    // adversarial row of empty members cannot amplify one physical row
-    // into that many logical-event allocations. Every member sequence is
-    // still observed so duplicate identity stays ambiguous.
-    let mut events = Vec::new();
-    let mut observed = Vec::with_capacity(members.len());
     let mut time = time0;
-    for (member_index, member) in members.iter().enumerate() {
+    for (member_index, _) in members.iter().enumerate() {
         if member_index > 0 {
-            time = match time.checked_add(gaps[member_index - 1]) {
+            let gap = dsh_millis(&dt[member_index - 1]).ok_or(())?;
+            if gap.unsigned_abs() > DSH_SAFE_MAX as u64 {
+                return Err(());
+            }
+            time = match time.checked_add(gap) {
                 Some(time) if time.unsigned_abs() <= DSH_SAFE_MAX as u64 => time,
-                _ => return DshRow::Refused,
+                _ => return Err(()),
             };
         }
-        let seq = match seq0.checked_add(member_index as i64) {
-            Some(seq) if (0..=DSH_SAFE_MAX).contains(&seq) => seq,
-            _ => return DshRow::Refused,
-        };
-        observed.push(seq);
-        let text = member.as_str().unwrap_or("");
-        let blocks = match kind {
-            "text-chunks" if !text.is_empty() => vec![DshBlock::plain(Block::text(text))],
-            "reasoning-chunks" if !text.is_empty() => {
-                vec![DshBlock::plain(Block::reasoning(text))]
-            }
-            // Argument fragments are recognized quiet omissions.
-            _ => Vec::new(),
-        };
-        if blocks.is_empty() {
-            continue;
-        }
-        events.push(DshEvent {
-            blocks,
-            role: "assistant".to_string(),
-            ts: time.to_string(),
-            seq: Some(seq),
-            turn: Some(turn),
-            step: Some(step),
-            chunk: kind != "tool-call-chunks",
-            assembly: false,
-            cited: Vec::new(),
-            dedicated: false,
-        });
+        let seq = seq0
+            .checked_add(member_index as i64)
+            .filter(|seq| (0..=DSH_SAFE_MAX).contains(seq))
+            .ok_or(())?;
+        let _ = seq;
     }
-    DshRow::Packed(events, observed)
+    Ok(PackedView {
+        tool,
+        turn,
+        step,
+        seq0,
+        time0,
+        dt,
+        members,
+    })
 }
 
 #[cfg(test)]
