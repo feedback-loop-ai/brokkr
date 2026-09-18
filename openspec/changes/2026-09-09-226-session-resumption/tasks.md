@@ -1988,19 +1988,34 @@ itself (`safety / AS1`).
       tests alone cannot discharge preservation — safety / AS1, AS2, AS3,
       AS4; site / SR2, SR3, SR4; evidence / LE1, LE3, LE4, LE5.
       Complete local gates and persist evidence before claiming the assertion
-      subset delivered. Tick 10.5 once its recorded axes and these assertions
-      agree, but tick this entire 11.1 only if 10.1's exact current-version
-      interface acceptance is also evidenced. That interface acceptance is no
-      longer the gap: `.forge/tasks/controller-codex-interface-2026-09-17.json`
+      subset delivered. 10.5 is ticked on its recorded axes and the agreeing
+      assertions; that tick is history, not an instruction. This entire 11.1
+      needs 10.1's exact current-version interface acceptance as well, and
+      that acceptance is a necessary condition, never a sufficient one. It is
+      no longer the gap: `.forge/tasks/controller-codex-interface-2026-09-17.json`
       measures effort configuration, the resume option surface and the stdin
       prompt positional `-` on the installed 0.154.0, as 10.1 now records
       obligation by obligation. What 11.1 still owes is its own half — the
       adapter assertions over that measured surface and their compiling removal
-      controls, enumerated in the 2026-09-18 return below. Leave 11.1 unchecked
-      until those pass; preserving support does not complete it, and neither
-      does the interface record alone. Verification: the concrete evidence
-      checklist and commands in the current tasks return, with any remaining
-      obligation explicitly pending and no new provider probe — safety / AS1;
+      controls, ordered as clauses E1–E11 in the 2026-09-18 breakdown below —
+      together with the declaration, 0056 and guide prose that still recite the
+      discharged debt, and the witness/compose digests that text moves. Those
+      clauses are this slice's substance, and they do not by themselves earn
+      the tick: D10's 2026-09-18 sitting holds a blocking qualification
+      residual open, because `CODEX_RESUME_VALUE_FLAGS` admits
+      `--output-schema` and `CODEX_RESUME_BARE_FLAGS` admits `--ephemeral`
+      while the September 17 record lists both under
+      `not_previously_supported`, and no supplied observation establishes
+      ephemeral persistence (`codex_launch` sets `persistent: true` on both
+      arms) or output-schema safety on a resume. Widening or withdrawing
+      either entry is a semantic move and the operator's word, not a seat's.
+      So leave 11.1 unchecked, change the allow-list in neither direction,
+      and name both missing qualifications in the return; preserving support
+      does not complete it, the interface record alone does not complete it,
+      and neither does a passing surface-membership assertion. Verification:
+      the concrete evidence checklist and commands in the current tasks
+      return, with any remaining obligation explicitly pending and no new
+      provider probe — safety / AS1;
       evidence / LE5; progress / PM1, PM4.
       Earlier operator-ruling implementation history follows. Its previous
       version/disposition observations remain dated history, not the new pin:
@@ -6528,3 +6543,329 @@ status`, `git log`, `git diff` and `git show` are honoured — so this visit
 could not commit its own work. The edit above is present in the working tree
 and UNCOMMITTED at `9da5ff92`; `git diff` shows it whole, and it touches this
 file alone. Committing it is the next visit's first step, or the controller's.
+
+## Current tasks visit — CODEX ENABLEMENT assertion breakdown, 2026-09-18
+
+This tasks seat adopts design `7e36fb15` and specification `d0b4f639` for run
+`codex-enablement-issue-226-task--a1d8e540` on `slice-codex-enable`, cut from
+production `9da5ff92`. Predecessor item 1 at `85cf6d55` is **adopted, not
+re-authored**: 10.1's three deferred obligations keep their citations and
+10.5 keeps its tick. The September 16 live proof, the September 17 interface
+record and `.forge/tools/codex-enforcement-probe.py` were read first and in
+full; the instrument is evidence, not a command to run. No provider, probe or
+network lookup was executed and none is commissioned. There is no supplied
+`returned_from` finding, the change is active, and no archive reopen or fold
+is authorized.
+
+Both stated dependencies of 11.1 are discharged. What remains is 11.1's own
+half — adapter assertions over the measured surface, their compiling removal
+controls, the prose that still recites the discharged debt, and the digests
+that prose moves. The clauses below are **ordered clauses of the existing
+checkbox 11.1**, not new task identifiers; the ledger stays **83 complete /
+18 pending** across the same 101 identifiers. No requirement, scenario,
+decision or task family is introduced here.
+
+### What is already delivered, and must not be redone
+
+Read off the current bytes. Everything in this list passes today and is
+adopted as dated evidence with its own date; a return that restates it as a
+fresh experiment is inaccurate.
+
+- The declaration's disposition and identity: `adapters/codex.json`
+  `work-site` is `supported`, `classes: ["work"]`,
+  `boundaries: ["harness", "not applicable"]`, `hands: "none"`, both
+  `identity.version` and `identity.applies_to` are `0.154.0`, and six dated
+  limitations stand in order. None of that is this slice's to change.
+- The three-spelling sandbox argv assertion, exact-root confirmation,
+  current-only usage pins and every independent refusal token, with removal
+  controls **M1–M14** recorded in the two 2026-09-16 returns above.
+- `--worktree` and `--thread-source` refusal at both the blocker seam and the
+  launch seam, with M13/M14 as their controls.
+
+### Ordered clauses E1–E11
+
+**E1. Record entry state and adopt both dependency records — 11.1;
+evidence / LE5; progress / PM1, PM4.** Before any edit, record the actual
+HEAD, the checkbox ledger, and the before-state test counts of every suite
+this slice touches (`adapters::tests` 154, `driver_conformance` 18,
+`witness_digests` 4, `bundle::compose_tests` 17 as last reported) by running
+them, not by quoting this line. Confirm a writable **disk-backed TMPDIR
+outside the repository** before the first Cargo command; an in-repo TMPDIR
+breaks the ledger tests and the box's global default may be read-only or
+tmpfs. Verification: an honest before-measurement, never a reused historical
+total; a filter that discovers zero tests is not a pass.
+
+**E2. The nine exec-only options at the blocker seam — 11.1; safety / AS1,
+AS3; evidence / LE5.** In
+`adapters::tests::only_the_flags_a_resume_can_safely_carry_travel_with_it`
+(`crates/brokkr-protocol/src/adapters/tests.rs:2688`) the refused list
+exercises `--profile`, `--add-dir`, `--approve-for-me` and `-C`, but never
+`--cd`, `--color`, `--local-provider`, `--oss` or `--version`, which
+`/obligations/allowed_safe_passthrough/exec_accepts_but_resume_does_not`
+measures as refused by the subcommand itself. Add all five, in their separate
+and joined spellings, asserting `codex_resume_blocker` returns
+`Some(<that exact part>)` — the exact string, never `is_some()` and never
+`is_err()`. Removal control, one option at a time: admit that option to the
+list **matching the constructed case's arity**, correct the array length so
+it compiles, observe the exact `<option> may not travel to a resume`
+assertion fail, restore sha256-verified bytes and rerun the named test. The
+supplied record enumerates option NAMES, not arities; where it does not
+document a value, construct the bare shape and mutate
+`CODEX_RESUME_BARE_FLAGS`, and say in the return that no provider arity is
+claimed. A bare-list mutation cannot prove value consumption, and a
+value-list mutation beside a dangling flag proves nothing either.
+
+**E3. The whole-argv consequence of the same options — 11.1; safety / AS1,
+AS2, AS3; evidence / LE3, LE5.** In
+`a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled`
+(`tests.rs:2397`, eleven cases today) add otherwise-eligible cases for
+`--cd /distinctive-workdir` and at least one bare member (`--oss`), each
+carrying `--sandbox read-only` so the class path is satisfied and only
+passthrough admission fails. Assert `resume_refusal` is exactly
+`incompatible-argv`, the cold argv is unchanged
+(`exec --json -C <workdir>` then the seat's own parts in order), exactly one
+launch row, `launch: cold`, and `root_session` absent. Widen the
+`[(&str, Vec<&str>, &str); 11]` arity to the new count. Do **not** add
+`--sandbox` itself here: at the launch seam a declared class is translated,
+not refused, and its absence from the resume surface is already proved by the
+argv test's no-sandbox-flag assertion. Removal control per case: admit the
+corresponding option with that case's arity, observe its own cold-argv or
+refusal assertion fail, restore, rerun.
+
+**E4. The allow-list measured against the surface — 11.1; safety / AS1, AS3;
+evidence / LE5.** No test today compares `CODEX_RESUME_VALUE_FLAGS`
+(`crates/brokkr-protocol/src/adapters.rs:2388`) and `CODEX_RESUME_BARE_FLAGS`
+(`:2397`) with the measured enumeration. Inside the existing blocker test —
+no new file, module, helper or production data file — put a **test-local
+literal** of the September 17 long-option surface, with
+`.forge/tasks/controller-codex-interface-2026-09-17.json` and its
+`/obligations/allowed_safe_passthrough` pointers cited in the doc comment;
+tests never read `.forge/` at run time. Assert **subset and disjointness
+only**: every admitted long option occurs in `resume_accepts`; no member of
+`exec_accepts_but_resume_does_not` is admitted; `--worktree` and
+`--thread-source` occur in `resume_accepts` and are still refused by the
+blocker — the sentence that says parsing is not qualification. Pin the
+existing short aliases (`-m`, `-i`, `-o`, `-C`) as this repository's
+spellings and invent no measured alias the record does not contain. Assert no
+equality with the surface: equality would authorize `--config`, `--enable`,
+`--disable`, `--last`, `--all`, `--ignore-rules`, `--ignore-user-config` and
+`--dangerously-bypass-approvals-and-sandbox`. Removal controls: for the
+subset direction admit one option absent from `resume_accepts`; for
+disjointness admit `--sandbox`; each alone, each failing its own assertion,
+each restored. Membership is a surface check and qualifies nothing — see E11.
+
+**E5. The effort field's exact spelling — 11.1; safety / AS1; evidence /
+LE5.** `a_codex_resume_re_expresses_the_effort_pin_as_a_config_override`
+(`tests.rs:2340`) today proves the pair exists by `.any()` and slices the
+first five parts. `split_effort` (`adapters.rs:2301`) accepts both
+`--effort <level>` and `--effort=<level>`, so drive both inputs and assert,
+for each: the whole expected resume argv as a literal vector; exactly one
+`["-c", "model_reasoning_effort=\"high\""]` pair by count; the literal key
+text; and that no `--effort` or `--effort=` part survives. Build the expected
+literal by hand — never by calling `codex_effort_config` (`adapters.rs:2285`),
+which would assert the formatter against itself. Removal controls, each
+alone: misspell the key inside `codex_effort_config` (`model_reasoning_effrot`,
+the spelling the controller's `--strict-config` control proves the provider
+refuses); omit the emitted pair; and let the author's `--effort` flag survive
+into passthrough. If the whole-argv literal catches a mutation before the
+count or absence assertion runs, record **that actual failure** and do not
+claim the later assertion was reached.
+
+**E6. The stdin positional and the working directory — 11.1; safety / AS1;
+site / SR3; evidence / LE1, LE5.**
+`a_codex_resume_carries_the_thread_the_class_and_the_prompt`
+(`tests.rs:2245`) already asserts the whole argv ending `[THREAD, "-"]` and
+the fed prompt. The measured `[SESSION_ID] [PROMPT]` grammar wants that
+stated directly: assert the final two parts are exactly the offered thread
+then `-`, in that order, and that exactly one `-` part and no other
+positional occur. Replace the `"the prompt"` fixture with a **distinctive
+multi-word prompt** and compare stdin with `assert_eq!` byte-for-byte; a one-
+or two-character fixture under `contains` matches a temporary path on some
+platform and passes vacuously everywhere else. Add the cwd observation
+(design FM11): the resume argv emits no `-C`, so the working directory rests
+entirely on `Command::current_dir(workdir)` in `invoke_codex`
+(`adapters.rs:2866`). Strengthen `codex_shim` (`tests.rs:2138`) to record its
+own `pwd` beside the argv it already logs one part per line, and assert it
+equals the fixture workdir, which is a tempdir and therefore differs from the
+runner's cwd. Removal controls, each alone: drop the trailing `-` push
+(`adapters.rs:2591`); substitute the appended positional with another legal
+id; omit the stdin write; remove the `current_dir` call.
+
+**E7. Both shipping coordinates, with argument boundaries — 11.1; safety /
+AS1, AS2; site / SR2, SR3, SR4; evidence / LE1, LE5.** The shipped harness and
+inline tests (`crates/brokkr-cli/tests/driver_conformance.rs:1451`, `:1623`,
+`:2160` and `proof_shim_body` at `:2055`, with runtime
+`engine::boundary_tests::the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin`
+at `boundary_tests.rs:1695`) log their argv as `"$*"`, space-joined, which
+cannot reconstruct element boundaries — a `contains` over that text cannot
+exclude a competing flag. Add a boundary-preserving companion log
+(`for a in "$@"; do printf '%s\n' "$a" >> <log>.parts; done`) **beside** the
+existing `$*` line rather than replacing it, so no existing assertion changes
+meaning, and assert over the parts: the `-c` / `sandbox_mode="workspace-write"`
+pair adjacent and exactly once; the `-c` / `model_reasoning_effort="xhigh"`
+pair likewise; no `-s`, `--sandbox` or `--sandbox=` part; and the final two
+parts equal to the confirmed root and `-`. Keep the shipped assessment, the
+production composition bridge and the captured engine exchange as they are;
+fabricate no offer and repair no marker. Removal control: break each
+strengthened emission at its production seam, one at a time. Shims are staged
+beside their target, closed, then renamed into place before execution (#255);
+Git-invoking children inherit the #282 cleanup.
+
+**E8. Keep adopted controls separate from fresh ones — evidence / LE5.**
+M1–M14 stand as dated evidence with their recorded failures and line numbers.
+The return presents this visit's experiments in their own table and does not
+restate an adopted control as new. Where E2–E7 strengthen a test an adopted
+control ran against, re-run that control if the strengthening could mask it,
+and say which ones were re-run and which were adopted unchanged.
+
+**E9. Declaration, prose and measured digests — 11.1; safety / AS1;
+evidence / LE5; progress / PM4.** Only after E2–E7 pass. `adapters/codex.json`
+`evidence.interface` (342 characters today) still ends "does not qualify
+effort configuration, safe passthrough or the stdin '-' positional", and
+`reason` (391) still ends "11.1's interface debt remains"; both are now false.
+Correct them to name
+`.forge/tasks/controller-codex-interface-2026-09-17.json` as the record that
+supplies those three observations and to state the remaining qualification
+accurately (E11). Append exactly **one** dated `2026-09-17` limitation naming
+that record and that parser acceptance is not confinement. Preserve
+`supported`, both `0.154.0` fields, `classes`, `boundaries`, `hands`, the cold
+fragments, the four live-axis evidence strings and all six existing limitation
+strings byte-for-byte and in order; every bounded value stays within the
+loader's 400-character limit — re-measure each after editing rather than
+trusting these counts. Reconcile the same distinction in proposed decision
+0056 ruling 5 and its consequences
+(`docs/decisions/0056-same-instance-session-resumption.md:257`, `:549`) and in
+the Codex row of `docs/guides/provider-adapters.md:304`; 0056 stays
+`proposed`, accepted 0030 is unchanged, and dated examples keep their dates.
+Because the declaration's text participates in bundle identity, **measure**
+the pins it moves and copy only the pairs actually reported changed:
+`crates/brokkr-runtime/tests/witness_digests.rs` (`recipes/night-shift`,
+`recipes/wager-harness`, `recipes/triage`, `recipes/gpt-flash`) and
+`crates/brokkr-runtime/src/bundle/compose_tests.rs` (`recipes/panel-review`,
+`bundles/self`, `recipes/triage`). A guessed pin is a red branch. Any
+throwaway measuring test lives under ignored `.forge/` scratch and is absent
+from the patch. This is clause work under 11.1, not group 14 or 15.
+
+**E10. Local gates on restored bytes — evidence / LE5; progress / PM4.**
+Prefix every Git command and every Cargo command whose tests spawn Git with
+`env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0` (#282); use
+`CARGO_BUILD_JOBS=2` and a bounded `RUST_TEST_THREADS`. Run each focused suite
+with an unambiguous filter and retain its actual test count:
+
+```text
+cargo test --locked -p brokkr-protocol --all-features adapters::tests
+cargo test --locked -p brokkr-runtime --all-features
+cargo test --locked -p brokkr-cli --all-features --test driver_conformance
+cargo test --locked -p brokkr-runtime --test witness_digests
+cargo test --locked -p brokkr-runtime --lib bundle::compose_tests
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace
+cargo test --workspace --all-features --locked
+cargo run --locked -p brokkr-cli -- compile --bundle bundles/self
+cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify
+cargo build --release --locked -p brokkr-cli
+openspec validate 2026-09-09-226-session-resumption --strict
+openspec validate --all --strict --no-interactive
+openspec validate --archived --strict --no-interactive
+bash scripts/coverage-exact.sh
+```
+
+The exact gate demands literal equality on lines, branches and functions, so
+every production line added is a line it will demand covered; this slice adds
+test lines and prose, and the gate excludes test source. Report the actual
+in-box covered/total integers for lines, branches and functions with their
+revision and environment. In-box literal equality is unattainable because the
+boundary proofs skip where bwrap cannot nest (#286); that shortfall is the
+box's, not the edit's, and host equality is the controller's handoff. If a
+toolchain or valid scratch is unavailable, report the counts as **unmeasured**,
+name that exact limitation, and substitute neither an old report nor a
+presumed delta.
+
+**E11. The honest acceptance account, and the commit — 11.1; evidence / LE5;
+progress / PM1, PM4.** **11.1 stays unchecked.** Record the delivered subset
+and name both missing qualifications exactly:
+
+| Missing qualification | Why nothing supplied closes it |
+|---|---|
+| `--ephemeral`, admitted by `CODEX_RESUME_BARE_FLAGS` | The September 17 record lists it under `not_previously_supported`, and `codex_launch` sets `persistent: true` on both arms. No supplied observation establishes the ephemeral shape's persistence, restriction, root or current-accounting behaviour. |
+| `--output-schema`, admitted by `CODEX_RESUME_VALUE_FLAGS` | Listed the same way; no supplied observation establishes that a schema argument is safe on a resume. |
+
+Change the allow-list in neither direction: removing either entry or
+inferring `persistent: false` decides unresolved semantics, and widening it
+decides them the other way. Both are an operator's word, and this visit says
+neither. A passing E4 membership assertion does not resolve it, and
+preserving the shipping disposition does not complete an enablement task.
+Do not tick, start or plan 10.6, 10.7, 10.8, 11.2, 11.3, 11.4, 8.8, 8.10,
+9.6, passes C and D, or groups 14 and 15. Record each new assertion's test
+name, exact invocation, responsible mutation, intended failure output,
+restoration and passing rerun; keep logs under task-owned `.forge/` storage.
+Commit only completed, verified work **unsigned** in the repository's message
+style — the linked worktree forces `commit.gpgsign=true`, so `--no-gpg-sign`
+is required (decision 0054 ruling 8). Never push, merge, archive, fold living
+specs, publish or start a Brokkr run; the controller owns remote CI, host
+coverage, integration and closure.
+
+### Decisions
+
+- **The `$*` shim logs gain a companion, not a replacement.** Rewriting the
+  existing space-joined log would silently change what every current
+  assertion over it means. A `<log>.parts` file written one argv element per
+  line adds the boundary evidence E7 needs while leaving the old assertions
+  measuring exactly what they measured before.
+- **The surface literal lives in the test, not in a data file.** Design D10
+  admits no new production data file, and a test that reads `.forge/` at run
+  time would make a hermetic suite depend on run-local storage. The pointer
+  into the controller record is cited in the doc comment, where provenance
+  belongs.
+- **Subset, never equality, against the measured surface.** The measured
+  surface contains options the adapter refuses on purpose. Asserting equality
+  would turn a safety allow-list into a mirror of whatever the provider
+  parses — the opposite of failing closed.
+- **`--sandbox` is an E2/E4 case, not an E3 case.** At the blocker seam it is
+  a refused name; at the launch seam a declared class is translated into
+  `-c sandbox_mode=<class>`, so adding it to E3's refusal cases would assert
+  the wrong outcome.
+- **Arity is constructed, not claimed.** The record enumerates names. Each E2
+  case declares the shape it constructs and mutates the list of that arity, so
+  no unmeasured provider arity is asserted anywhere.
+
+### Tasks-phase validation and handoff — adopted design `7e36fb15`
+
+This phase repairs only `tasks.md`: the stale sentence under 11.1 that read as
+though passing assertions would earn the tick, and this breakdown. The
+controller records, the instrument, every declaration, production file, test,
+decision, frozen surface and the other four artifacts of this change keep
+their entry bytes. No checkbox moved: **83 complete / 18 pending** across the
+same 101 identifiers, 10.1 and 10.5 checked and 11.1 unchecked.
+
+Fresh Cargo gates **could not be attempted**: `cargo` is absent from this box
+(`cargo --version` exits 127, `command not found`; `PATH` names
+`/home/vyanakiev/.cargo/bin`, which the box does not mount, and neither
+`rustc` nor `rustup` is present). That is ENOENT, not the permission denial
+the 2026-09-18 implement visit met, and it was reported immediately. In
+consequence fmt, clippy, the crate suites, both bundle compiles, the release
+build and `scripts/coverage-exact.sh` are **UNRUN** on this head, and fresh
+in-box covered/total lines, branches and functions are **unmeasured** — not
+zero, and not an inherited report. Nothing about this head's gate standing is
+claimed; no production or test byte moved in this phase to disturb it.
+`/var/tmp` does not exist in this box and `TMPDIR` is `/tmp` on tmpfs, so
+E1's disk-backed scratch premise must be satisfied by the seat that compiles.
+
+`openspec` 1.12.0 is present and ran on the edited bytes: strict validation of
+`2026-09-09-226-session-resumption` reports `Change … is valid`;
+repository-wide strict validation passes **14 items, zero failures**; archived
+strict validation passes **six changes, zero failures**. The existing
+informational archive-target notices concern the withdrawn living specs and
+authorize no fold. The five deltas remain **20 requirements / 165 scenarios**
+(`adapter-launch-evidence` 32 + `adapter-resume-safety` 69 +
+`boundary-record` 11 + `sdd-progress-markers` 20 + `site-session-resumption`
+33), counted on the current bytes; this visit adds none.
+
+This is a **drafted tasks artifact**, not an implementation. 11.1's assertion
+work is specified, ordered and bound to named seams, existing tests and
+falsifying controls; it is not executed here. 11.1 remains unchecked and, per
+E11, is expected to remain unchecked after the clauses pass, for the two
+qualifications the supplied evidence does not establish. No provider
+experiment, declaration edit, production change, archive, spec fold, push,
+merge or new Brokkr run occurred.
