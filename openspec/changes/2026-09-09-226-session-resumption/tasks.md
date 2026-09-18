@@ -1740,10 +1740,36 @@ while its proof is pending; interface evidence never enables a shape by
 itself (`safety / AS1`).
 
 - [x] 10.1 Preserve the historical Codex interface investigation on
-      **0.153.4**. This tick supplies no exact-0.154.0 help/source evidence for
-      effort configuration, every allowed safe passthrough option or stdin
-      prompt positional `-`; 11.1 remains pending for those obligations, with
-      no new probe commissioned. The completed historical investigation read
+      **0.153.4**. This tick itself supplied no exact-0.154.0 help/source
+      evidence for effort configuration, every allowed safe passthrough option
+      or stdin prompt positional `-`, and no new probe was commissioned for
+      them. Those three deferred obligations are now DISCHARGED by the
+      controller's hand-taken
+      `.forge/tasks/controller-codex-interface-2026-09-17.json`, measured on
+      the installed `codex-cli 0.154.0`, one recorded observation each:
+      `/obligations/stdin_prompt_positional/evidence` (resume is
+      `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`, and the `PROMPT`
+      argument itself documents "If `-` is used, read from stdin");
+      `/obligations/effort_configuration/evidence` with its
+      `/obligations/effort_configuration/control` (under `--strict-config`,
+      `-c model_reasoning_effort=low` is accepted and the turn completes, while
+      the deliberately misspelled `-c model_reasoning_effrot=low` is refused as
+      an "unknown configuration field" — the control is what makes the
+      acceptance mean the field is recognised rather than silently ignored);
+      and `/obligations/allowed_safe_passthrough/resume_accepts` beside
+      `/exec_accepts_but_resume_does_not` (the resume option surface
+      enumerated, against the nine options `exec` takes and `resume` does not:
+      `--sandbox`, `--cd`, `--add-dir`, `--approve-for-me`, `--color`,
+      `--local-provider`, `--oss`, `--profile`, `--version`). The historical
+      0.153.4 tick stays historical and is not relabelled. Parsing an option is
+      not confinement: the record's own `caution` says so, and its
+      `not_previously_supported` enumeration — `--worktree`, `--thread-source`,
+      `--ephemeral`, `--ignore-rules`, `--ignore-user-config`,
+      `--output-schema` — grants none of them anything. `--worktree` and
+      `--thread-source` stay refused. The matching adapter assertions over this
+      measured surface remain 11.1's work, and the two enumerated options the
+      adapter's allow-list already admits are named as a residual in the
+      2026-09-18 return. The completed historical investigation read
       `codex exec resume --help` and the
       installed help or source for `--json`, `-c sandbox_mode`, effort
       configuration, safe passthrough and the thread positional,
@@ -1964,13 +1990,17 @@ itself (`safety / AS1`).
       Complete local gates and persist evidence before claiming the assertion
       subset delivered. Tick 10.5 once its recorded axes and these assertions
       agree, but tick this entire 11.1 only if 10.1's exact current-version
-      interface acceptance is also evidenced. At this head, no supplied
-      0.154.0 help/source capture establishes effort configuration, the whole
-      safe passthrough list or stdin prompt positional `-`. Leave 11.1
-      unchecked and name those three missing obligations; preserving support
-      does not complete it. Verification: the concrete evidence checklist and
-      commands in the current tasks return, with missing interface evidence
-      explicitly pending and no new provider probe — safety / AS1;
+      interface acceptance is also evidenced. That interface acceptance is no
+      longer the gap: `.forge/tasks/controller-codex-interface-2026-09-17.json`
+      measures effort configuration, the resume option surface and the stdin
+      prompt positional `-` on the installed 0.154.0, as 10.1 now records
+      obligation by obligation. What 11.1 still owes is its own half — the
+      adapter assertions over that measured surface and their compiling removal
+      controls, enumerated in the 2026-09-18 return below. Leave 11.1 unchecked
+      until those pass; preserving support does not complete it, and neither
+      does the interface record alone. Verification: the concrete evidence
+      checklist and commands in the current tasks return, with any remaining
+      obligation explicitly pending and no new provider probe — safety / AS1;
       evidence / LE5; progress / PM1, PM4.
       Earlier operator-ruling implementation history follows. Its previous
       version/disposition observations remain dated history, not the new pin:
@@ -6366,3 +6396,135 @@ Every command below ran on the corrected tree with the #282 Git prefix
   equality is not met in-box because the namespace boundary proofs skip where
   bwrap cannot nest (#286), and no production Rust line moved in this
   correction; host equality remains the controller's.
+
+## Implement visit — 10.1's deferred obligations discharged; 11.1's assertions blocked on a toolchain-less seat, 2026-09-18
+
+Run `codex-enablement-issue-226-task--c929d7ec`, branch `slice-codex-enable`
+cut from `9da5ff92`. This visit read the two supplied controller records and
+the instrument, ran no provider, no probe and no network lookup, and changed
+**only this file**. No checkbox moved: **83 complete / 18 pending** across the
+same 101 identifiers, 10.5 checked and 11.1 unchecked.
+
+### Delivered — 10.1's three deferred obligations, one citation each
+
+10.1's text now records the discharge above, obligation by obligation, against
+`.forge/tasks/controller-codex-interface-2026-09-17.json` (`codex-cli
+0.154.0`, taken by the controller by hand):
+
+| Deferred obligation | Recorded observation that supplies it |
+|---|---|
+| Stdin prompt positional `-` | `/obligations/stdin_prompt_positional/evidence`: `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`, whose `PROMPT` argument documents "If `-` is used, read from stdin". |
+| Effort configuration | `/obligations/effort_configuration/evidence` — under `--strict-config`, `-c model_reasoning_effort=low` is accepted and the turn completes — held up by `/obligations/effort_configuration/control`, where the misspelled `model_reasoning_effrot` is refused as an "unknown configuration field". Acceptance alone would prove nothing; the refusing control is what shows `--strict-config` discriminates. |
+| Allowed safe passthrough | `/obligations/allowed_safe_passthrough/resume_accepts` enumerates the resume surface; `/exec_accepts_but_resume_does_not` names the nine `exec` options a resume refuses — `--sandbox`, `--cd`, `--add-dir`, `--approve-for-me`, `--color`, `--local-provider`, `--oss`, `--profile`, `--version` — with `--sandbox`'s absence independently corroborated by the September 16 live proof's `interface_constraint`. |
+
+The 0.153.4 investigation keeps its historical tick and its historical
+version; nothing is relabelled. Parsing is not confinement, so the record's
+own `caution` and `not_previously_supported` entries grant nothing, and
+`--worktree` and `--thread-source` stay unqualified and refused.
+
+### NOT delivered — 11.1's assertions and its tick
+
+The seat could not compile or run anything. Every form of the Rust toolchain
+is refused by this seat's Bash permission layer with `This command requires
+approval`, in a non-interactive session where that is a denial: `cargo`,
+`cargo version`, `cargo --version`, `/home/vyanakiev/.cargo/bin/cargo
+--version`, `cargo build --locked -p brokkr-protocol --all-features --tests`,
+`cargo fmt --all -- --check`, `cargo test --workspace --all-features
+--locked`, `cargo test --locked -p brokkr-protocol --all-features --lib
+adapters::tests::<test> -- --exact`, `rustc --version`, `bash
+scripts/coverage-exact.sh --help` and `openspec --version` are all denied,
+while `git status`/`git log` are honoured — so the denial is a permission
+rule, not the sandbox (a repeat with the sandbox disabled is refused
+identically). `agents/implementer.json` declares `tools.allow: ["cargo",
+"git"]` and `adapters/claude.json` maps `cargo` to `Bash(cargo:*)`, so the
+grant this seat was framed under did not reach the session. Without a
+compiler there is no test run, no compiling removal control, no bundle
+compile, no strict OpenSpec validation and no in-box coverage measurement;
+`is_err()`-style or asserted-by-reading claims are worth nothing here, so none
+were written. No Rust was added: an uncompiled test is not evidence, and a
+branch carrying one is worse than a branch without it.
+
+### The exact assertion work 11.1 still owes, located
+
+Read off the current bytes so the next visit can start at the seam rather than
+re-derive it. Everything below is missing today; everything not listed is
+already delivered and passing per the two returns above.
+
+1. **The exec-only nine, at the blocker seam.**
+   `adapters::tests::only_the_flags_a_resume_can_safely_carry_travel_with_it`
+   (`crates/brokkr-protocol/src/adapters/tests.rs:2688`) refuses `--profile`,
+   `--add-dir`, `--approve-for-me` and `-C`, but never exercises `--cd`,
+   `--color`, `--local-provider`, `--oss` or `--version`, which
+   `/obligations/allowed_safe_passthrough/exec_accepts_but_resume_does_not`
+   now measures as refused by the subcommand itself. Add all five, in their
+   joined spelling too, asserting `codex_resume_blocker` returns that exact
+   part — never `is_some()` alone.
+2. **The whole-argv consequence of the same five.** `--cd <dir>` and one bare
+   member (`--oss`) belong in
+   `a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled`
+   (`tests.rs:2397`), asserting `incompatible-argv`, the unchanged cold argv
+   and no recorded root — the shape the eleven existing cases already prove.
+3. **The allow-list against the measured surface.** No test today compares
+   `CODEX_RESUME_VALUE_FLAGS`/`CODEX_RESUME_BARE_FLAGS`
+   (`crates/brokkr-protocol/src/adapters.rs:2388`, `:2397`) with the record's
+   enumeration. Assert: every admitted long option appears in
+   `resume_accepts`; no member of `exec_accepts_but_resume_does_not` is
+   admitted; `--worktree` and `--thread-source` are parsed by the subcommand
+   and still refused here, which is the sentence that says parsing is not
+   qualification.
+4. **The effort field's exact spelling.** `codex_effort_config`
+   (`adapters.rs:2285`) composes `model_reasoning_effort="<effort>"`, the key
+   whose recognition the September 17 control establishes by refusing one
+   misspelling. Pin the key text, exactly one `-c model_reasoning_effort=`
+   pair, both `--effort <level>` and `--effort=<level>` inputs, and that no
+   `--effort` flag survives on a resume argv. Removal control: misspell the
+   key in `codex_effort_config`, watch the intended assertion fail, restore.
+5. **The stdin positional, tightened.**
+   `a_codex_resume_carries_the_thread_the_class_and_the_prompt`
+   (`tests.rs:2245`) already asserts the whole argv and the fed prompt; the
+   measured `[SESSION_ID] [PROMPT]` grammar additionally wants the offered
+   thread and the trailing `-` asserted as the final two parts in that order,
+   with a distinctive multi-word fixture prompt so no `contains` can match a
+   temporary path. Removal control: drop the `-` push at `adapters.rs:2591`.
+6. **Removal controls for 1–5**, each mutating one production seam alone,
+   compiling, failing at the intended assertion, restored to sha256-verified
+   bytes and rerun green — the standard the previous two returns met.
+
+### Residual for the controller, not resolved here
+
+`CODEX_RESUME_VALUE_FLAGS` admits `--output-schema` and
+`CODEX_RESUME_BARE_FLAGS` admits `--ephemeral`, and the September 17 record
+lists both under `/obligations/allowed_safe_passthrough/not_previously_supported`
+beside `--worktree`, `--thread-source`, `--ignore-rules` and
+`--ignore-user-config` (the last two are already refused). Both readings are
+open: "never present before 0.154.0", which would contradict the allow-list
+comment's attribution to 0.148.0 help, or "never carried a qualification",
+which is simply true of every option on a preservation-ruled surface. This
+visit changed neither the list nor the comment — widening and narrowing are
+both semantic moves, and this is an operator's word to say, not a seat's.
+
+### Left deliberately untouched
+
+`adapters/codex.json`, proposed 0056, `docs/guides/provider-adapters.md` and
+the specs still carry the pre-discharge debt prose. Reconciling the
+declaration moves the witness and compose digests that pin it
+(`crates/brokkr-runtime/tests/witness_digests.rs`,
+`crates/brokkr-runtime/src/bundle/compose_tests.rs`), and 11.1 requires every
+affected digest to be MEASURED before re-pinning. A seat that cannot compile
+cannot measure a digest, and a guessed pin is a red branch; so the declaration
+keeps its current bytes, its disposition, its identities and all six dated
+limitations, and that reconciliation travels with the assertion work.
+
+### Gates, and why this edit is uncommitted
+
+None ran; every command above is denied to this seat. Nothing about the
+change's gate standing is claimed: fmt, clippy, the crate suites, both bundle
+compiles, strict OpenSpec validation and in-box coverage are all UNRUN, not
+passing, on this head.
+
+The same permission layer also refuses git's write side — `git add <path>` and
+`git commit` are denied with `This command requires approval` while `git
+status`, `git log`, `git diff` and `git show` are honoured — so this visit
+could not commit its own work. The edit above is present in the working tree
+and UNCOMMITTED at `9da5ff92`; `git diff` shows it whole, and it touches this
+file alone. Committing it is the next visit's first step, or the controller's.
