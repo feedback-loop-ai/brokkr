@@ -7193,3 +7193,109 @@ Nothing outside this commission was ticked, started or planned: 10.6, 10.7,
 10.8, 11.2, 11.3, 11.4, 8.8, 8.10, 9.6, passes C and D and groups 14 and 15
 are untouched. No provider was re-measured; every Codex fact cited here comes
 from the two controller records. No push, merge, archive or Brokkr run.
+
+## Returned implement correction — review R1, invocation ownership, 2026-09-18
+
+The review of `85cf6d55..ecac7a05` returned one medium, R1: the codex shims in
+`driver_conformance.rs` appended a marker line and then **each argument
+separately** to one shared `argv.parts`. A panel runs its members
+concurrently against that same shim — `NoHandsMember` seats `x` beside
+`checks:x` — so two live invocations' writes interleave, and a reader that
+splits the shared file on the marker hands one invocation's parts to another
+or truncates one. The exact argv assertions downstream were therefore
+nondeterministic. R2 and R3 are answered below without a code move.
+
+### The defect, reproduced before it was repaired
+
+The mechanism is not theoretical here. The recording preamble was restored to
+the reviewed shared-append-with-marker form and the new ownership test run
+against it, which failed on the first attempt:
+
+```
+assertion `left == right` failed: each invocation owns one whole record of its own argv
+  left: [[], ["…invocation-00-part-36", …, "…invocation-00-part-42",
+              "…invocation-02-part-00", "…invocation-00-part-43",
+              "…invocation-02-part-01", …
+```
+
+One marker-delimited record holds invocation 00's parts braided with
+invocation 02's, and an **empty** record appears beside it — the mixing and
+the truncation R1 named, on Linux, at this workload. The reviewed code was
+then replaced by the repair and the same test passed.
+
+### The repair — a record per invocation, not a separator in a shared one
+
+`record_argv_snippet` is now the single preamble all three codex shims carry
+(`driver_conformance.rs`), and it writes this invocation's argv into a file of
+its own under `argv.parts.d`:
+
+- the file is named for the writing shell's `$$`, which **two live
+  invocations cannot share**;
+- an `-e` probe walks past a name an already-exited pid used, so ownership
+  survives pid reuse as well;
+- an empty `: >` claims the name before the first part is written, so an
+  invocation with no argv still owns its record instead of yielding the name;
+- the `$*` line still goes to `argv.log` beside it, so every assertion already
+  made over that line keeps measuring exactly what it measured.
+
+`resume_parts` now reads that directory and returns a **whole** record. It
+additionally requires every resume record present to agree, so which one is
+read cannot decide what the caller asserts: a run that produced two different
+resume argvs fails by name rather than silently asserting whichever the
+directory listed first.
+
+Two incidental repairs travelled with the shared preamble, both in the same
+family the review's own `shell_quote` note opened: the two shipping-coordinate
+shims spliced their log paths **unquoted** (`argv_log.display()`), so a
+`TMPDIR` containing a space would have split the redirection and lost the log.
+They now use the quoted form the proof shim already used.
+
+The concurrent panel is retained, and so is every exact argv assertion. No
+production source was touched by this correction — the diff is confined to
+`crates/brokkr-cli/tests/driver_conformance.rs`.
+
+### Controls for this correction
+
+Each mutation was run alone and the bytes restored and rerun afterwards.
+
+| # | Mutation | Observed failure |
+|---|---|---|
+| P1 | the preamble returned to the reviewed shared file + marker line, reader split on the marker | `each invocation owns one whole record of its own argv`, with invocation 00's and 02's parts interleaved in one record and an empty record beside it. The panic reported `driver_conformance.rs:1897` because the mutation was three lines shorter than the restored bytes; the assertion is the one at `:1901` today |
+| P2 | compiled-proof expected class `danger-full-access` → `workspace-write` | `compiled live inline Single wrapped=true: sandbox_mode`, `left "sandbox_mode=\"danger-full-access\"" right "sandbox_mode=\"workspace-write\""`, over the whole 11-part record `["exec","resume","--json","-c","sandbox_mode=\"danger-full-access\"","-c","model_reasoning_effort=\"xhigh\"","--model","gpt-6-astra","0199aaaa-…","-"]` |
+
+P2 is the control that the new reader is **not** vacuous: it shows the record
+`resume_parts` hands to `assert_resume_argv` is the real, complete resume argv
+and not a fragment that would satisfy a weaker check.
+
+### R2 and R3
+
+**R2 stands, unmoved.** `--output-schema` and `--ephemeral` remain admitted,
+and the allow-list is changed in neither direction. The two missing
+qualifications are exactly as tabled under E11 above, and **11.1 stays
+unchecked** for that reason. This correction does not touch them and does not
+claim to discharge them. **R3** asks nothing of the tree.
+
+### Gates on the corrected bytes
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | PASS, no diagnostics |
+| `cargo test --workspace --all-features --locked` | PASS, 73 test targets, zero failures, no ETXTBSY on this run |
+| `cargo test --locked -p brokkr-cli --all-features --test driver_conformance` | PASS, **19** (the ownership test is the new one) |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | PASS |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | PASS |
+| `openspec validate … --strict` | **UNRUN** |
+| `bash scripts/coverage-exact.sh` | **UNRUN** |
+
+The last two are the same **grant** limitation the previous visit recorded and
+not #286: this seat's Bash allow-list is `cargo` and `git`, and both
+`openspec` and `bash` return `This command requires approval`. In-box
+covered/total lines, branches and functions are **unmeasured**. Both remain
+the controller's, alongside the host coverage measurement. No production
+source, no pin and no digest moved, so no re-pin was owed: the edit is
+confined to a test harness source, which `scripts/coverage-exact.sh` excludes
+from the report by path.
+
+Nothing outside the commission was ticked, started or planned. No provider was
+re-measured. No push, merge, archive or Brokkr run.
