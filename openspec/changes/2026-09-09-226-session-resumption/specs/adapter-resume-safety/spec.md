@@ -462,16 +462,22 @@ read as history, not as a current claim.
 - **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
 
-#### Scenario: The corrected canonical rc.2 observables anchor a narrower fixture
-- **GIVEN** the retained canonical installation records core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, canonical executable `node_modules/@deepseek-ai/dsh/lib/bin.js` with first line `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose supplied bytes reproduce the SHA-256 values in `controller-dsh-preinstall-2026-09-19.json`
-- **AND** its profile records bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, no home-level patch and a real plugin directory with no nested `node_modules/`
-- **AND** its corrected pnpm lock has SHA-256 `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055` and is 1,982 bytes, while the core hidden npm lock is 311,184 bytes; the earlier 277-byte pnpm lock with SHA-256 `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0` describes the superseded `link:` install and is not composite ground truth
-- **AND** the controller supplies hashes and dimensions but no lock bytes, normalized dependency triples, resolved bundle targets or profile-patch bytes
-- **WHEN** the Rust producer reads a hermetic fixture
-- **THEN** the fixture reproduces the supplied core, executable, Node, manifest, absent-home-patch and six-plugin-file observables and derives the measured plugin patch digest and plugin component through the sole producer
-- **AND** a separate layout case admits a nested plugin `node_modules/` as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
-- **AND** lock entries, bundle targets and profile-patch bytes are explicitly synthetic grammar and locator inputs; no test asserts that their dependency set, profile-patch digest or resulting composite equals the retained installation
-- **AND** neither controller record, the provenance note, doctor nor the test fixture supplies a hand-computed component or composite value; only the later doctor run over the retained home may record its actual composite
+#### Scenario: The canonical rc.2 fixture reproduces the measured locator set end to end
+- **GIVEN** the retained canonical installation uses core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, executable `node_modules/@deepseek-ai/dsh/lib/bin.js` beginning `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose bytes reproduce the preinstall record's SHA-256 values
+- **AND** its profile declares bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, uses the measured profile-patch bytes, has no home-level patch and resolves each first-hit bundle within the measured canonical core root or profile boundary
+- **AND** the fixture retains the canonical reinstall's byte-exact 311,184-byte hidden npm lock with SHA-256 `b84bac2d866224a997be29811dc71bde6013dbc6e2adf8c1e77523e6f05a3847`, the 1,982-byte pnpm lock with SHA-256 `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`, and the profile-patch bytes that reproduce SHA-256 `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`; the earlier 277-byte pnpm lock with SHA-256 `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0` describes the superseded `link:` install and is not fixture ground truth
+- **WHEN** the sole Rust producer reads those files and directories through D6's fixed locators
+- **THEN** it reproduces the retained installation's complete normalized dependency values, first-hit bundle resolutions, plugin and patch components and canonical composite from that fixture
+- **AND** the expected component and composite are recorded only from that producer; no test helper, fixture generator, prose calculation or synthetic value is a second producer
+- **AND** a separate layout case admits nested plugin `node_modules/` as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
+
+#### Scenario: Hashes and dimensions do not substitute for measured fixture inputs
+- **GIVEN** the current controller records retain lock hashes and dimensions and the profile-patch hash, but omit both lock bodies, complete normalized dependency triples, resolved bundle targets and profile-patch bytes
+- **WHEN** the task 8.8(a)–(c) implementation handoff is evaluated
+- **THEN** the measured fixture requirement is unsatisfied because the sole producer cannot reproduce the retained dependency set, bundle resolution, profile-patch component or canonical composite from those observations
+- **AND** synthetic lock entries, bundle directories or profile-patch bytes may prove isolated grammar and rejection behavior but SHALL NOT be asserted as the canonical rc.2 fixture or as its composite ground truth
+- **AND** the controller SHALL retain the canonical locator bytes and resolution layout, or an equivalent complete ground-truth fixture, before design, tasks or implementation resumes; no provider or retained-home remeasurement is delegated to a boxed seat
+- **AND** task 8.8 remains unchecked, including after its later digest implementation, until part (d) and the owned 8.10 cases also complete
 
 #### Scenario: The rc.2 qualification already proves restriction precedence after restoration
 - **GIVEN** the live rc.2 cold/warm qualification restored the cold session's private nonce and the complete plugin CLI exposes no model, effort, sandbox, tool or persistence-root override
