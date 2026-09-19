@@ -1,6 +1,20 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
 This returned specify visit adopts the existing change and checkpoint
+`2f20e8dd` for run `dsh-composite-identity-issue-226-c181dcd8`. The
+controller has amended the qualification record with the measurement answer
+that the preceding visit returned upstream. Its canonical tarball reinstall
+supersedes the stale `link:` lock: the corrected pnpm lock is 1,982 bytes and
+the core hidden npm lock is 311,184 bytes, so both fit the inclusive 8 MiB
+reader bound. Answer AF reconciles that correction, the canonical plugin
+directory's lack of nested `node_modules/`, and the earlier measured nested
+layout that the producer must still tolerate. The digest implementation is
+unblocked. No provider, registry or live home is probed, and no Rust, planner
+behavior, task state or read-only byte moves in this specification return.
+
+Earlier clarify return, retained as history:
+
+This returned specify visit adopts the existing change and checkpoint
 `935f017d` for run `dsh-composite-identity-issue-226-c181dcd8`. Clarify found
 two ambiguities in answer AD. Answer AE fixes the pnpm reader at an inclusive
 8 MiB raw-byte cap and narrows the hermetic rc.2 fixture to the observable
@@ -200,15 +214,20 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   DSH planner the sole producer of the six-file plugin component and D6's
   canonical composite from fixed locators; correct complete whitespace and
   canonical-containment handling; and extend the existing doctor `dsh` line
-  through the adapter's own seam resolution. Use the controller's enumerated
-  0.1.5-rc.2 observables as fixture ground truth, while labeling lock bytes,
-  dependency triples, bundle targets and profile-patch bytes as synthetic where
-  the record supplies no bytes. Bound the pnpm lock at 8,388,608 raw bytes
-  inclusive. Require reason-bearing refusals and named compiling removal
-  failures for every added claim. Preserve the committed extension bytes and
-  provenance note. Leave 8.8(d), planner behavior, 8.10's rejection-vector
-  completion and the 8.8 checkbox pending. Answers AD/AE and the amended AS1
-  scenarios are this slice's complete scope.
+  through the adapter's own seam resolution. Use the controller's corrected
+  canonical 0.1.5-rc.2 observables as fixture ground truth: the pnpm lock is
+  1,982 bytes with SHA-256 `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`,
+  the hidden npm lock is 311,184 bytes, and the real plugin directory has no
+  nested `node_modules/`. Preserve the separately required tolerance for a
+  nested dependency directory, which the earlier working install measured.
+  Label lock bytes, dependency triples, bundle targets and profile-patch bytes
+  as synthetic where the record supplies only observables or hashes. Bound the
+  pnpm lock at 8,388,608 raw bytes inclusive. Require reason-bearing refusals
+  and named compiling removal failures for every added claim. Preserve the
+  committed extension bytes and provenance note. Leave 8.8(d), planner
+  behavior, 8.10's rejection-vector completion and the 8.8 checkbox pending.
+  Answers AD/AE/AF and the amended AS1 scenarios are this slice's complete
+  scope.
   The following bullets retain earlier commissions and the whole change as
   history and context; they authorize no additional work in this slice.
 - For CODEX ENABLEMENT, adopt completed 10.1/10.5 evidence and finish only
@@ -342,16 +361,25 @@ The current DSH digest slice consumes, read in full and without remeasurement,
 0.1.5-rc.2 by the settled `latest` rule. The second fixes the selected core,
 adaptation and six per-file digests. The third supplies the live installed
 locators and raw D6 values: Node v22.23.2, the headless profile manifest, the
-plugin/profile patch digests, absent home patch and the nested plugin
-`node_modules/` shape. It intentionally carries no plugin component or
-canonical composite; task 8.8's Rust function remains their only producer.
-`extensions/dsh/PROVENANCE.md` and its six-file sibling were read and retain
-their bytes. The qualification record does not supply either lock's bytes or
-normalized dependency triples, resolved bundle targets, the profile patch
-bytes, or the pnpm lock's raw byte length. The corresponding hashes do not
-reconstruct those inputs. No provider, registry or live DSH home is probed by
-this seat. Answers AD and AE reconcile these facts and report the missing pnpm
-length upstream.
+plugin/profile patch digests and absent home patch. Its erratum supersedes the
+stale `link:` lock and hand-placed tree with a canonical tarball reinstall:
+the corrected pnpm lock has SHA-256
+`4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`,
+1,982 bytes, 57 lines and a 186-byte longest line; the core hidden npm lock has
+311,184 bytes, 7,470 lines and a 157-byte longest line. The canonical plugin is
+a real directory with no nested `node_modules/`. The earlier working
+installation did measure a nested plugin dependency directory, so the
+producer's explicit tolerance remains required and tested without treating
+that superseded tree as canonical composite ground truth. The record
+intentionally carries no plugin component or canonical composite; task 8.8's
+Rust function remains their only producer. `extensions/dsh/PROVENANCE.md` and
+its six-file sibling were read and retain their bytes. The qualification record
+does not supply either lock's bytes or normalized dependency triples, resolved
+bundle targets or the profile patch bytes. The corresponding hashes do not
+reconstruct those inputs, so those fixture bytes remain explicitly synthetic.
+No provider, registry or live DSH home is probed by this seat. Answers AD and
+AE remain history; answer AF spends the corrected evidence and closes their
+upstream size finding.
 
 The earlier Codex slice consumes `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
 `.forge/tasks/controller-codex-interface-2026-09-17.json` and
@@ -2313,6 +2341,55 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   design, proposed decision, production file, extension byte or frozen surface
   is amended to hide the evidence gap.
 
+
+- **AF — Returned upstream finding, 2026-09-19: adopt the canonical reinstall
+  measurements and unblock implementation.** The qualification record now
+  answers AE's sole upstream finding in its
+  `ERRATUM_2026-09-19_canonical_reinstall`. The earlier 277-byte
+  `pnpm-lock.yaml` with SHA-256
+  `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0`
+  described an abandoned `link:` install and is superseded as composite
+  evidence. The controller packed the committed adaptation, installed its
+  local tarball through DSH, verified the six files 6/6, confirmed a real
+  plugin directory and re-qualified cold/warm continuity. The corrected pnpm
+  lock has SHA-256
+  `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`,
+  is 1,982 bytes over 57 lines with a 186-byte longest line, and describes the
+  local-tarball entry D6 excludes. The unchanged core hidden npm lock is
+  311,184 bytes over 7,470 lines with a 157-byte longest line. Both measured
+  files fit the inclusive 8,388,608-byte cap by direct observation, so no
+  provider remeasurement or larger speculative bound is needed.
+
+  The canonical reinstall's plugin directory has no nested
+  `node_modules/`; that corrected shape replaces AD/AE's use of the earlier
+  hand-placed tree as canonical fixture ground truth. The earlier working
+  install nevertheless measured the plugin's own dependencies nested under
+  that directory. The producer therefore still admits exactly a nested
+  `node_modules/` as the sole extra entry and tests that rule independently;
+  it does not assert that the canonical retained tree contains one. This
+  combines the later canonical evidence with the standing D6 grammar without
+  erasing either measurement.
+
+  The erratum supplies sizes and hashes, not the raw lock bytes, normalized
+  dependency triples, resolved bundle directories or profile-patch bytes.
+  Hermetic tests therefore reproduce every supplied observable and use clearly
+  synthetic bytes only for the missing grammar and locator inputs. They do not
+  claim a synthetic composite equals the retained home. The sole Rust producer
+  and the later doctor recording remain the only lawful sources of the actual
+  plugin component and canonical composite.
+
+  The controller's doctor seam record independently confirms why 8.8(c) must
+  resolve the binary through the adapter seam: a bare-PATH probe can describe a
+  different DSH than a launch using `BROKKR_DSH_BIN`. The existing doctor
+  scenario already requires the shared seam and only the DSH and Node probes;
+  no credential or settings read is added.
+
+  The upstream evidence fault is closed, so this specification result is
+  `drafted`. The implementation handoff remains strictly 8.8(a)–(c).
+  Part (d), planner production behavior, the 8.10 rejection-vector ledger, the
+  10.7 doctor recording and all remaining 8.8 acceptance stay pending. Task
+  8.8 remains unchecked.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -3610,3 +3687,29 @@ registry or retained home was invoked. The commit contains exactly the proposal
 and `adapter-resume-safety` delta. The phase result reports `upstream` with
 `inputs.change` because the missing live byte length belongs to the controller
 evidence that claimed the complete D6 raw inputs.
+
+
+## Specify return — corrected canonical DSH evidence, 2026-09-19
+
+This returned visit adopts `2026-09-09-226-session-resumption` at
+`2f20e8dd` and answers the preceding `SPECIFY-UPSTREAM` finding. The
+qualification record now supplies the missing byte-exact measurements and also
+corrects the retained install itself: its local-tarball pnpm lock is 1,982
+bytes, its hidden npm lock is 311,184 bytes, and the plugin is a real directory.
+Answer AF supersedes the stale `link:` lock as composite ground truth while
+retaining the separately measured nested-`node_modules/` tolerance. The
+amended AS1 scenarios encode both the corrected canonical fixture and the
+direct evidence that its locks fit the inclusive 8 MiB bound.
+
+Strict repository-wide OpenSpec validation passes **15/15**, and
+`git diff --check` is clean. The five deltas retain **20 requirements / 171
+scenarios**. All **101 task identifiers and states (84 checked / 17 pending)**
+retain their bytes, including unchecked 8.8. This specification checkpoint
+contains exactly the proposal and `adapter-resume-safety` delta. It changes no
+production code, test, design, task, proposed decision, frozen surface or
+`extensions/dsh/` byte and performs no provider, registry or live-home probe.
+
+The result is `drafted` with `inputs.change`. Implementation remains limited
+to 8.8(a)–(c). Part (d), planner production behavior, 8.10's cases, the 10.7
+doctor recording and the rest of 8.8 acceptance remain pending; task 8.8 stays
+unchecked.

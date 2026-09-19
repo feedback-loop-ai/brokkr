@@ -461,12 +461,14 @@ read as history, not as a current claim.
 - **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
 
-#### Scenario: The measured rc.2 observables anchor a narrower fixture
-- **GIVEN** the retained working installation records core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, canonical executable `node_modules/@deepseek-ai/dsh/lib/bin.js` with first line `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose supplied bytes reproduce the SHA-256 values in `controller-dsh-preinstall-2026-09-19.json`
-- **AND** its profile records bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, no home-level patch and a nested plugin `node_modules/`
-- **AND** the controller supplies only hashes for the locks and profile patch, with no lock bytes, normalized dependency triples, resolved bundle targets or profile-patch bytes
+#### Scenario: The corrected canonical rc.2 observables anchor a narrower fixture
+- **GIVEN** the retained canonical installation records core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, canonical executable `node_modules/@deepseek-ai/dsh/lib/bin.js` with first line `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose supplied bytes reproduce the SHA-256 values in `controller-dsh-preinstall-2026-09-19.json`
+- **AND** its profile records bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, no home-level patch and a real plugin directory with no nested `node_modules/`
+- **AND** its corrected pnpm lock has SHA-256 `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055` and is 1,982 bytes, while the core hidden npm lock is 311,184 bytes; the earlier 277-byte pnpm lock with SHA-256 `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0` describes the superseded `link:` install and is not composite ground truth
+- **AND** the controller supplies hashes and dimensions but no lock bytes, normalized dependency triples, resolved bundle targets or profile-patch bytes
 - **WHEN** the Rust producer reads a hermetic fixture
-- **THEN** the fixture reproduces the supplied core, executable, Node, manifest, absent-home-patch and six-plugin-file observables, derives the measured plugin patch digest and plugin component through the sole producer, and permits only the nested dependency directory as the extra plugin entry
+- **THEN** the fixture reproduces the supplied core, executable, Node, manifest, absent-home-patch and six-plugin-file observables and derives the measured plugin patch digest and plugin component through the sole producer
+- **AND** a separate layout case admits a nested plugin `node_modules/` as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
 - **AND** lock entries, bundle targets and profile-patch bytes are explicitly synthetic grammar and locator inputs; no test asserts that their dependency set, profile-patch digest or resulting composite equals the retained installation
 - **AND** neither controller record, the provenance note, doctor nor the test fixture supplies a hand-computed component or composite value; only the later doctor run over the retained home may record its actual composite
 
@@ -475,7 +477,7 @@ read as history, not as a current claim.
 - **WHEN** the sole producer reads each `pnpm-lock.yaml`
 - **THEN** the exact-boundary file reaches dependency parsing, while the 8,388,609-byte file is refused before normalization with `pnpm lock exceeds 8388608-byte limit`
 - **AND** the read itself consumes no more than 8,388,609 bytes, a metadata race cannot admit a larger file, and no separate line, line-length or entry-count limit changes the outcome
-- **AND** the retained rc.2 lock's SHA-256 alone does not prove its byte length; controller evidence for that same file at or below the bound remains required before implementation is unblocked
+- **AND** the controller's byte-exact measurements show that the corrected 1,982-byte rc.2 pnpm lock and 311,184-byte hidden npm lock fit the bound, closing the earlier live-size evidence return without changing the cap
 
 #### Scenario: The loader admits a measured composite pin only
 - **GIVEN** otherwise valid measured and unknown resume identities
