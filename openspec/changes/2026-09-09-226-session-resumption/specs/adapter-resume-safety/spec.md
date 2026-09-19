@@ -29,8 +29,11 @@ implementation and deterministic tests. LaneTally SHALL be assessed independentl
 
 The DSH minimum SHALL qualify the latest official core release,
 `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`,
-or the release that resolution at qualification time selects in its place,
-together with a repository-owned adaptation of the `dsh-plugin-cli-session`
+or the release that resolution at qualification time selects in its place. The
+2026-09-19 resolution exercised that rule and selected `@deepseek-ai/dsh`
+0.1.5-rc.2 with registry integrity
+`sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`.
+It SHALL be qualified together with a repository-owned adaptation of the `dsh-plugin-cli-session`
 0.2.0 extension at `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Resolution SHALL
 happen once, before the qualifying seat installs or verifies the core it
 measures, and SHALL select the version the registry's `latest` dist-tag names.
@@ -112,6 +115,73 @@ it with the qualified composite. Only a match SHALL take an eligible offer or
 construct the plugin's `--new` and `--session` launches. A mismatch or an
 unreadable identity SHALL decline any offer as `unverified-harness`, run the
 shipped cold invocation unchanged and record no offerable root.
+
+One Rust function beside the DSH planner SHALL be the only producer of the
+plugin component and canonical composite. For the plugin component it SHALL
+read exactly `LICENSE`, `README.md`, `cordis.patch.yml`, `lib/index.js`,
+`lib/startup.js` and `package.json` beneath the installed plugin directory,
+sort those relative path bytes, serialize each as `<relative
+path>\0<file SHA-256>\n`, and SHA-256 the concatenation. A missing file, a
+symlink or an extra entry SHALL make the component unreadable and name the
+drifted path. The sole exception is a nested `node_modules/` directory, whose
+packages already enter dependency identity; the producer SHALL neither hash its
+entries as plugin files nor silently ignore any other entry.
+
+The same function SHALL serialize the composite as fixed `<component>\0<value>\n`
+lines in this order: `core` with the core name, version and registry integrity;
+`node`; one `dependency` for each normalized lock-metadata name/version/integrity
+triple; `plugin`; `plugin-patch`; `profile-patch`; one `profile-bundle` for each
+manifest bundle in declared order; `profile-patch-reload`; `home-patch` with the
+home-level `cordis.patch.yml` SHA-256 or `absent`; and `extension` only when the
+conditional extension is named among those bundles. Dependency triples SHALL
+be deduplicated only when all three complete values are equal and SHALL then be
+sorted by their serialized value bytes. Different versions or integrities SHALL
+remain distinct. The core's own entry and the plugin's local-tarball entry SHALL
+be excluded; the conditional extension's local entry SHALL be excluded only
+when its installed bytes supply the `extension` line. No other component,
+including `cordis.yml`, raw profile `package.json`, `pnpm-workspace.yaml`, any
+`.env` layer, persisted state or per-seat overlay, SHALL enter the composite.
+Any lock entry without registry integrity and any source field that is empty,
+mistyped, contains NUL or LF, or contains whitespace including space, tab or CR
+SHALL make the identity unreadable with the responsible component named.
+
+For npm metadata the producer SHALL read only the core root's
+`node_modules/.package-lock.json`; it SHALL NOT fall back to a root lock. It
+SHALL consume every complete `node_modules/<package>` group in a lock key from
+left to right, treating the slash within `@scope/name` as part of one package,
+then use only the final complete package spelling and the version and integrity
+from that same entry. It SHALL ignore an optional `name` field and reject a
+malformed intermediate or terminal group, and a missing, mistyped or invalid
+version. The pnpm metadata SHALL come only from the headless profile's
+`pnpm-lock.yaml`, parsed by the bounded fail-closed line reader without a YAML
+crate. Equivalent npm and pnpm triples SHALL produce identical value bytes.
+
+The canonical executable SHALL be the selected core package's `bin.dsh`, whose
+resolved relative path is `node_modules/@deepseek-ai/dsh/lib/bin.js` and whose
+first line is exactly `#!/usr/bin/env node`. The selected core's own hidden-lock
+entry SHALL supply its version. `node` SHALL be the first executable on the
+child environment's `PATH`, observed through `node --version`. Only
+`<home>/profiles/headless/package.json` SHALL supply the non-empty string-array
+`bundles` and `patchReload` (`live` or `startup`); no other profile is searched.
+Bundle resolution SHALL preserve the provider loader's order. The producer
+SHALL canonicalize the complete profile directory once for containment while
+retaining the original profile path as the lookup anchor. It SHALL judge each
+first-hit canonical bundle directory against the canonical core root or
+canonical profile boundary, with the plugin and conditional extension inside
+the profile. A boundary or candidate that cannot be canonicalized, or a first
+hit outside those roots, SHALL be unreadable. It SHALL NOT compare raw paths,
+use string prefixes, fall back after canonicalization failure or search past an
+outside first hit. A symlinked home that resolves to the same contained profile
+SHALL produce the same identity.
+
+The existing `brokkr doctor` DSH line SHALL call this sole producer through the
+adapter's own seam resolution. It SHALL report the canonical digest and plugin
+component, or the named unreadable component, and state whether the canonical
+digest equals, differs from or has no declared `wrapper_digest`. The result is
+informational while no `supported` shape declares a digest. Once a supported
+shape declares one, difference or unreadability SHALL be a warning. This probe
+SHALL read no credential or settings file and SHALL spawn only the existing
+`dsh` and `node` version probes.
 
 The qualified composite SHALL be the value of an optional `wrapper_digest`
 member of the declaration's measured identity form, beside `version` and
@@ -220,9 +290,11 @@ version. Under this preservation ruling, the Claude `boxed-workspace`,
 DSH `headless-work` and LaneTally
 `wrapper-work-site` declarations SHALL explicitly identify themselves as this
 case and retain their unmeasured status, identities, evidence and scope. Claude's
-partial probes do not establish complete restriction enforcement; DSH's isolated
-pair lacks complete admission and composite proof; LaneTally lacks independent
-wrapper qualification. This ruling enables none of these three rejoins.
+partial probes do not establish complete restriction enforcement; DSH's live
+isolated pair qualifies core/plugin continuity and attributable per-message
+accounting but still lacks completed digest recording, restriction precedence,
+planner acceptance and end-to-end admission; LaneTally lacks independent wrapper
+qualification. This ruling enables none of these three rejoins.
 
 Preservation SHALL NOT bypass identity, boundary, hands or accounting checks.
 The observed executable identity SHALL still match declared applicability and,
@@ -377,11 +449,44 @@ read as history, not as a current claim.
 - **AND** nothing is installed into that home, and whether the operator deploys the pair there is recorded as an operator ruling rather than assumed
 
 #### Scenario: The declaration pins the qualified composite
-- **GIVEN** 10.7's qualification of the adapted pair on core 0.1.5-rc.1 passes and the delivered Rust canonicalization computes the qualified composite's digest over the task-owned home
+- **GIVEN** 10.7's qualification of the adapted pair on resolved core 0.1.5-rc.2 passes and the delivered Rust canonicalization computes the qualified composite's digest over the task-owned home
 - **WHEN** 11.3 enables the DSH `headless-work` shape
-- **THEN** the same declaration edit that sets `supported` writes that digest as `identity.wrapper_digest` beside `version` and `applies_to` `0.1.5-rc.1`, in `adapters/dsh.json` and its packaged or scaffolded equivalents
+- **THEN** the same declaration edit that sets `supported` writes that digest as `identity.wrapper_digest` beside `version` and `applies_to` `0.1.5-rc.2`, in `adapters/dsh.json` and its packaged or scaffolded equivalents
 - **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
+
+#### Scenario: The measured rc.2 installation supplies digest ground truth
+- **GIVEN** the retained working installation uses core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, canonical executable `node_modules/@deepseek-ai/dsh/lib/bin.js` with first line `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose SHA-256 values match `controller-dsh-preinstall-2026-09-19.json`
+- **AND** its headless profile declares bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, plugin patch SHA-256 `84745a1bb00d773acf2e5ab5e32dc42825ffe164100ba469375dcabbbd5f9dab`, profile patch SHA-256 `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`, no home-level patch and a nested plugin `node_modules/`
+- **WHEN** the Rust producer reads a synthetic fixture with exactly those bytes and locator relationships
+- **THEN** it derives the plugin component and canonical composite from those locators, permits only the nested dependency directory as the extra plugin entry, preserves declared bundle order and records `home-patch` as `absent`
+- **AND** neither controller record, the provenance note, doctor nor the test fixture supplies a hand-computed component or composite value; the same producer used at run time is the only source of both values
+
+#### Scenario: The loader admits a measured composite pin only
+- **GIVEN** otherwise valid measured and unknown resume identities
+- **WHEN** their declarations are loaded and the selected assessment is carried into a private start context
+- **THEN** a measured identity may omit `wrapper_digest` or carry exactly 64 lowercase hexadecimal characters, and the carried assessment preserves that exact optional member
+- **AND** uppercase, short, long or non-hexadecimal values are refused at load with the `wrapper_digest` grammar named, while the unknown identity refuses `wrapper_digest` as an unknown key and still admits `unknown` alone
+
+#### Scenario: Lock whitespace and malformed package groups are unreadable
+- **GIVEN** otherwise valid npm or pnpm lock metadata whose package, version or integrity field is separately changed to contain a space, tab, carriage return, NUL or line feed, or whose nested npm key has a malformed intermediate package group before a valid terminal group
+- **WHEN** the composite producer normalizes dependencies
+- **THEN** every variant is unreadable with the dependency field or malformed path named, before any digest can be compared
+- **AND** an assertion of `is_err()` alone does not prove the refusal; the test asserts the exact reason, while the complete 8.10 rejection-vector ledger remains pending its own task
+
+#### Scenario: Doctor reports every declared-digest disposition through DSH seams
+- **GIVEN** the DSH binary is available and the adapter's seam resolution yields either a readable composite or a named unreadable component
+- **WHEN** `brokkr doctor` renders the existing `dsh` line for an unmeasured shape with no digest, a supported shape with an equal digest, a supported shape with a different digest, and a supported shape whose composite is unreadable
+- **THEN** the line respectively reports `no declared wrapper_digest`, a match, a difference naming the declaration, or `composite unreadable` naming the component
+- **AND** the first two are informational, the latter two warn only for the supported declared shape, and no credential or settings file is read
+- **AND** only the DSH and Node version probes are spawned and the guide's doctor sample uses the same wording
+
+#### Scenario: Digest acceptance is proved by removal without completing the planner
+- **GIVEN** tests for the loader grammar and transport, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture and every doctor disposition
+- **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
+- **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
+- **AND** a compilation failure, unrelated earlier failure or bare `is_err()` is not removal evidence
+- **AND** those proofs deliver task 8.8(a)–(c) only; `dsh_launch`/`dsh_launch_with`, planner production behavior, 8.10's remaining cases and the 8.8 checkbox remain pending
 
 #### Scenario: npm nested and scoped keys produce reproducible dependency values
 - **GIVEN** a hidden npm lock with no `name` fields, including `node_modules/debug`, nested `node_modules/parent/node_modules/debug`, scoped-parent/unscoped-child entries and `node_modules/a/node_modules/@parent/b/node_modules/@scope/child` with version and integrity distinct from shallower `@scope/child` entries

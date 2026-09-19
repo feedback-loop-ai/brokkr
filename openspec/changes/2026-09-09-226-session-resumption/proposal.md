@@ -1,5 +1,19 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit, run `dsh-composite-identity-issue-226-c181dcd8`, adopts
+`2026-09-09-226-session-resumption` at `fa13eaa3` on
+`slice-dsh-composite`. **DSH COMPOSITE IDENTITY commissions only task 8.8's
+digest work (a), (b) and (c), in design D10's order.** The six-file
+adaptation and provenance note are already committed and independently
+reproduced; they are read-only inputs, not work to repeat. The controller's
+September 19 records resolve N1 to `@deepseek-ai/dsh` 0.1.5-rc.2 and supply a
+real installed composite input set. Answer AD adopts that evidence, fixes the
+digest-only acceptance and refuses planner work, a provider remeasurement, a
+second digest producer and any 8.8 tick. This checkpoint amends the proposal
+first and the owning safety delta second; it implements no Rust.
+
+Earlier CODEX ENABLEMENT specify adoption, retained as history:
+
 This specify visit, run `codex-enablement-issue-226-task--a1d8e540`, adopts
 `2026-09-09-226-session-resumption` at `85cf6d55` on `slice-codex-enable`,
 cut from main at `9da5ff92`. **CODEX ENABLEMENT commissions only task 11.1
@@ -143,8 +157,18 @@ ownership, provider enforcement and v5/store semantics as engine work.
 
 ## Why
 
+The qualified DSH installation now has measured, reproducible raw identity
+inputs, but its plugin component and canonical composite deliberately remain
+unrecorded because design D6 assigns both to one Rust producer. Until that
+producer reads the fixed locators, the loader admits the declaration's optional
+pin, and doctor reports the producer's result through the adapter seams, the
+qualified pair cannot be recorded for later enablement. This slice supplies
+that digest foundation without changing launch planning or claiming the whole
+8.8 acceptance.
+
 Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
+The following Codex account is retained history from the preceding slice.
 Issue #226 also exposes a recovery gap when safe resume is unavailable:
 completed work needs a truthful task marker before the phase's final commit.
 The operator's 2026-09-15 ruling preserves the Codex rejoin main already
@@ -157,6 +181,19 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
 
 ## What Changes
 
+- For DSH COMPOSITE IDENTITY, deliver only task 8.8(a)–(c): preserve the
+  optional load-checked `wrapper_digest`; make the one Rust function beside the
+  DSH planner the sole producer of the six-file plugin component and D6's
+  canonical composite from fixed locators; correct complete whitespace and
+  canonical-containment handling; and extend the existing doctor `dsh` line
+  through the adapter's own seam resolution. Use the controller's measured
+  0.1.5-rc.2 installation as fixture ground truth. Require reason-bearing
+  refusals and named compiling removal failures for every added claim. Preserve
+  the committed extension bytes and provenance note. Leave 8.8(d), planner
+  behavior, 8.10's rejection-vector completion and the 8.8 checkbox pending.
+  Answer AD and the amended AS1 scenarios are this slice's complete scope.
+  The following bullets retain earlier commissions and the whole change as
+  history and context; they authorize no additional work in this slice.
 - For CODEX ENABLEMENT, adopt completed 10.1/10.5 evidence and finish only
   11.1's assertions over the measured resume interface: the class override,
   exact effort key, stdin positional, allowed option surface and unchanged
@@ -281,7 +318,21 @@ boundary the engine stamps or rewriting frozen contract bytes.
 
 ## Evidence and scope
 
-The current Codex slice consumes `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
+The current DSH digest slice consumes, read in full and without remeasurement,
+`.forge/tasks/controller-n1-resolution-2026-09-19.json`,
+`.forge/tasks/controller-dsh-preinstall-2026-09-19.json` and
+`.forge/tasks/dsh-pair-qualification-015rc2.json`. The first selects core
+0.1.5-rc.2 by the settled `latest` rule. The second fixes the selected core,
+adaptation and six per-file digests. The third supplies the live installed
+locators and raw D6 values: Node v22.23.2, the headless profile manifest, the
+plugin/profile patch digests, absent home patch and the nested plugin
+`node_modules/` shape. It intentionally carries no plugin component or
+canonical composite; task 8.8's Rust function remains their only producer.
+`extensions/dsh/PROVENANCE.md` and its six-file sibling were read and retain
+their bytes. No provider, registry or live DSH home is probed by this seat.
+Answer AD reconciles these facts.
+
+The earlier Codex slice consumes `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
 `.forge/tasks/controller-codex-interface-2026-09-17.json` and
 `.forge/tools/codex-enforcement-probe.py`, read first and in full without
 executing the instrument. These are controller measurements on codex-cli
@@ -2119,6 +2170,75 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   artifacts unsigned, without push, merge or another run. This office reports
   `drafted` or `upstream` with `inputs.change`; it selects no next phase.
 
+
+- **AD — DSH COMPOSITE IDENTITY, 2026-09-19: spend the measured inputs; keep
+  8.8 open.** Adopt `fa13eaa3`, the existing change and the controller's three
+  September 19 records. N1 is resolved: the selected core is
+  `@deepseek-ai/dsh` 0.1.5-rc.2 with registry integrity
+  `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`.
+  The selected core declares the same runtime-compatible
+  `snapshotEvents(fromSeq, toSeqExclusive)` surface through its required
+  session-reference dependency. The live cold/warm qualification establishes
+  a working installation and provides D6's raw inputs; it explicitly provides
+  neither digest that 8.8(b) owns. Re-resolving the registry, probing a provider
+  or deriving either value in prose is refused because it would replace the
+  controller evidence and violate the sole-producer rule.
+
+  **Ordered digest slice.** First preserve 8.8(a)'s inherited loader path:
+  `wrapper_digest` is optional only on `ResumeIdentity::Measured`, follows the
+  64-lowercase-hex grammar at load, is refused on the closed unknown form and
+  travels with the selected assessment into the private start context. Second,
+  8.8(b)'s one Rust function beside the DSH planner produces both the plugin
+  component and canonical composite. Its inputs and byte order are D6's fixed
+  locators and line grammar, including complete npm package-group parsing,
+  equal-triple deduplication, bytewise sorting, declared profile-bundle order,
+  the patch layers and the conditional extension only when named. It rejects
+  space, tab and CR in addition to empty/NUL/LF values. It canonicalizes the
+  complete profile boundary once while retaining the original lookup anchor,
+  and judges each first hit by canonical containment without raw-path fallback
+  or a search past an outside hit. Third, 8.8(c)'s existing doctor `dsh` line
+  invokes this producer through `DshSeams::resolve`, reports the composite or
+  named unreadable component and classifies it against the declaration. It is
+  informational until a supported shape declares a digest, then warns on a
+  mismatch or unreadable identity. It reads no credential or settings file and
+  launches only the existing `dsh` and `node` version probes.
+
+  **Measured ground truth.** The fixture shall mirror the retained working
+  installation rather than a fabricated layout: core 0.1.5-rc.2 and its exact
+  integrity; executable `node_modules/@deepseek-ai/dsh/lib/bin.js` beginning
+  `#!/usr/bin/env node`; Node `v22.23.2`; headless bundles
+  `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`,
+  `dsh-plugin-cli-session` in that order with `patchReload: startup`; plugin
+  patch `84745a1bb00d773acf2e5ab5e32dc42825ffe164100ba469375dcabbbd5f9dab`;
+  profile patch `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`;
+  absent home patch; and the six installed file digests in the preinstall
+  record. The nested plugin `node_modules/` is permitted as dependency storage
+  and nothing else is silently ignored. Tests call the sole producer over
+  those locators; no fixture constant, doctor helper or test-side serializer
+  becomes another producer of the plugin component or composite.
+
+  **Proof and boundary.** Every added acceptance assertion requires a compiling
+  removal mutation that fails at that assertion, exact restoration and a
+  passing rerun. A refusal asserts its named reason and drifted file or
+  component; `is_err()` alone, a compile error or an unrelated earlier failure
+  is rejected. The implementation return names the exact test, production line
+  or behavior removed and observed assertion for loader grammar/transport,
+  plugin membership and bytes, dependency grammar/whitespace, profile
+  containment, locator exclusions, the measured fixture and every doctor
+  disposition. The complete 8.10 rejection vectors remain pending under their
+  existing task even though the whitespace behavior lands here.
+
+  Part (d), `dsh_launch`/`dsh_launch_with`, private target completion and all
+  planner behavior are outside this commission. So are tasks 10.6–10.8,
+  11.1–11.4, 8.10, 9.6 and groups 14–15. The adaptation, provenance, frozen
+  contracts, phase table, schemas, fixtures, reference and `extensions/dsh/`
+  bytes do not move. Completing (a)–(c) records a partial 8.8 delivery only;
+  the 8.8 checkbox must remain open because its acceptance includes (d) and
+  later 8.10 cases. Reaching for that tick, changing planner production
+  behavior or disguising missing downstream work as digest completion is
+  explicitly refused. Existing proposed decision 0056 owns the semantic rule
+  and remains `proposed`; no second decision is authored in this specify slice.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -3358,3 +3478,40 @@ AC's explicitly named current-prose reconciliation obligations; this office
 commits only its three artifacts. No task tick, provider probe, frozen-byte
 edit, archive, push, merge or new run occurred. The result carries the adopted
 identifier in `inputs.change`.
+
+## Specify validation — DSH COMPOSITE IDENTITY, 2026-09-19
+
+Run `dsh-composite-identity-issue-226-c181dcd8` adopts `fa13eaa3` and the
+existing dated change. The dialect's own specify instructions, the three
+controller records, the committed provenance note, decisions 0004/0005 and the
+relevant proposal, design D6/D10, task 8.8, Rust source, tests and history were
+read through workspace hands. No workflow runner, registry lookup, provider
+probe or live-home measurement ran. Answer AD records the resolved rc.2 facts,
+the ordered (a)–(c) acceptance and every refusal; the proposal was amended
+before the safety delta.
+
+Strict active-change and repository-wide OpenSpec validation pass: the adopted
+change is valid and `openspec validate --all --strict --no-interactive` reports
+**15 passed / 0 failed**. Status and `git diff --check` pass. The five deltas
+retain **20 requirements** and now contain **170 scenarios**; the five new AS1
+scenarios cover measured ground truth, loader closure, reason-bearing lock
+refusal, doctor dispositions and removal proof. All **101 task identifiers and
+states (84 checked / 17 pending)** retain their bytes, including unchecked 8.8.
+Exactly the proposal and `adapter-resume-safety` delta change. Design, tasks,
+proposed 0056, production/tests, the frozen surfaces and `extensions/dsh/`
+retain their entry bytes.
+
+The first Rust gate, `cargo fmt --all -- --check`, cannot launch because Cargo
+is absent in the workspace box (exit 127). The exact coverage script reaches
+its pinned Cargo invocation and fails for the same reason. Consequently format,
+all-target/all-feature locked clippy, the crate-scoped suites, `bundles/self`
+compilation and literal line/branch/function coverage have no fresh result in
+this seat. No saved report, source inspection or workspace-wide test run is
+substituted. This specification adds no Rust line; the implementation phase
+still owes every named assertion and compiling removal experiment, followed by
+all gates on its final head.
+
+This specification checkpoint commits only its two declared artifacts. It does
+not implement or plan part (d), alter planner production behavior, tick 8.8,
+complete 8.10, edit the adaptation/provenance bytes, archive, push, merge or
+publish. The result carries the adopted change identifier in `inputs.change`.
