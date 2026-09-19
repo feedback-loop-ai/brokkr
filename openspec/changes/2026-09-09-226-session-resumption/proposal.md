@@ -1,5 +1,19 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This returned specify visit adopts the existing change and checkpoint
+`935f017d` for run `dsh-composite-identity-issue-226-c181dcd8`. Clarify found
+two ambiguities in answer AD. Answer AE fixes the pnpm reader at an inclusive
+8 MiB raw-byte cap and narrows the hermetic rc.2 fixture to the observable
+values and bytes the controller actually supplied. It also records the
+upstream evidence fault: `.forge/tasks/dsh-pair-qualification-015rc2.json`
+gives the retained pnpm lock's SHA-256 but not its byte length, so this boxed
+seat cannot establish that the measured file fits the new cap without
+remeasuring the retained installation. No provider, registry or live home is
+probed. The result is `upstream` with the adopted change identifier; no Rust,
+planner behavior, task state or read-only byte moves.
+
+Earlier DSH COMPOSITE IDENTITY specify adoption, retained as history:
+
 This specify visit, run `dsh-composite-identity-issue-226-c181dcd8`, adopts
 `2026-09-09-226-session-resumption` at `fa13eaa3` on
 `slice-dsh-composite`. **DSH COMPOSITE IDENTITY commissions only task 8.8's
@@ -186,12 +200,15 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   DSH planner the sole producer of the six-file plugin component and D6's
   canonical composite from fixed locators; correct complete whitespace and
   canonical-containment handling; and extend the existing doctor `dsh` line
-  through the adapter's own seam resolution. Use the controller's measured
-  0.1.5-rc.2 installation as fixture ground truth. Require reason-bearing
-  refusals and named compiling removal failures for every added claim. Preserve
-  the committed extension bytes and provenance note. Leave 8.8(d), planner
-  behavior, 8.10's rejection-vector completion and the 8.8 checkbox pending.
-  Answer AD and the amended AS1 scenarios are this slice's complete scope.
+  through the adapter's own seam resolution. Use the controller's enumerated
+  0.1.5-rc.2 observables as fixture ground truth, while labeling lock bytes,
+  dependency triples, bundle targets and profile-patch bytes as synthetic where
+  the record supplies no bytes. Bound the pnpm lock at 8,388,608 raw bytes
+  inclusive. Require reason-bearing refusals and named compiling removal
+  failures for every added claim. Preserve the committed extension bytes and
+  provenance note. Leave 8.8(d), planner behavior, 8.10's rejection-vector
+  completion and the 8.8 checkbox pending. Answers AD/AE and the amended AS1
+  scenarios are this slice's complete scope.
   The following bullets retain earlier commissions and the whole change as
   history and context; they authorize no additional work in this slice.
 - For CODEX ENABLEMENT, adopt completed 10.1/10.5 evidence and finish only
@@ -329,8 +346,12 @@ plugin/profile patch digests, absent home patch and the nested plugin
 `node_modules/` shape. It intentionally carries no plugin component or
 canonical composite; task 8.8's Rust function remains their only producer.
 `extensions/dsh/PROVENANCE.md` and its six-file sibling were read and retain
-their bytes. No provider, registry or live DSH home is probed by this seat.
-Answer AD reconciles these facts.
+their bytes. The qualification record does not supply either lock's bytes or
+normalized dependency triples, resolved bundle targets, the profile patch
+bytes, or the pnpm lock's raw byte length. The corresponding hashes do not
+reconstruct those inputs. No provider, registry or live DSH home is probed by
+this seat. Answers AD and AE reconcile these facts and report the missing pnpm
+length upstream.
 
 The earlier Codex slice consumes `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
 `.forge/tasks/controller-codex-interface-2026-09-17.json` and
@@ -2203,19 +2224,26 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   mismatch or unreadable identity. It reads no credential or settings file and
   launches only the existing `dsh` and `node` version probes.
 
-  **Measured ground truth.** The fixture shall mirror the retained working
-  installation rather than a fabricated layout: core 0.1.5-rc.2 and its exact
-  integrity; executable `node_modules/@deepseek-ai/dsh/lib/bin.js` beginning
-  `#!/usr/bin/env node`; Node `v22.23.2`; headless bundles
-  `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`,
-  `dsh-plugin-cli-session` in that order with `patchReload: startup`; plugin
-  patch `84745a1bb00d773acf2e5ab5e32dc42825ffe164100ba469375dcabbbd5f9dab`;
-  profile patch `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`;
-  absent home patch; and the six installed file digests in the preinstall
-  record. The nested plugin `node_modules/` is permitted as dependency storage
-  and nothing else is silently ignored. Tests call the sole producer over
-  those locators; no fixture constant, doctor helper or test-side serializer
-  becomes another producer of the plugin component or composite.
+  **Measured ground truth.** The hermetic fixture shall reproduce the supplied
+  observable fields: core 0.1.5-rc.2 and its exact integrity; executable
+  `node_modules/@deepseek-ai/dsh/lib/bin.js` beginning `#!/usr/bin/env node`;
+  Node `v22.23.2`; headless bundles `@deepseek-ai/dsh-base`,
+  `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with
+  `patchReload: startup`; absent home patch; the nested plugin
+  `node_modules/`; and the six installed file bytes whose digests the
+  preinstall record pins. Those bytes let the sole producer reproduce the
+  measured plugin patch digest and derive the plugin component.
+
+  The controller supplied only hashes for both locks and the profile patch. It
+  supplied no lock bytes, normalized dependency triples, resolved bundle
+  targets or profile-patch bytes. Tests therefore use explicitly synthetic
+  lock metadata, bundle targets and profile-patch bytes to prove the grammar,
+  locator and moving-component rules; they SHALL NOT claim that those synthetic
+  fields, their profile-patch digest or the resulting composite reproduce the
+  retained installation. No fixture constant, doctor helper or test-side
+  serializer becomes another producer. The actual composite and the measured
+  profile-patch input remain the later 10.7 doctor recording step over the
+  retained home.
 
   **Proof and boundary.** Every added acceptance assertion requires a compiling
   removal mutation that fails at that assertion, exact restoration and a
@@ -2238,6 +2266,52 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   behavior or disguising missing downstream work as digest completion is
   explicitly refused. Existing proposed decision 0056 owns the semantic rule
   and remains `proposed`; no second decision is authored in this specify slice.
+
+
+- **AE — Clarify return, 2026-09-19: bound the reader, narrow the fixture and
+  report the missing live size upstream.** Clarify's Q1 is answered
+  semantically with one total raw-file bound: `pnpm-lock.yaml` is admitted at
+  no more than 8,388,608 bytes. The reader consumes at most 8,388,609 bytes so
+  growth or misleading metadata cannot bypass the check. Exactly 8,388,608
+  bytes reaches the grammar; byte 8,388,609 refuses before normalization as
+  `pnpm lock exceeds 8388608-byte limit`. The reason names no lock contents.
+  No separate line, line-length or entry count is imposed because the total
+  byte cap already bounds all three and preserves equivalent lock formatting.
+
+  The numeric choice is now reproducible, but the live-fit evidence is absent.
+  The rc.2 qualification record gives
+  `home/profiles/headless/pnpm-lock.yaml` SHA-256
+  `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0`
+  without its raw byte length. A digest does not reveal length, and this boxed
+  seat has neither the retained home nor authority to remeasure it. The
+  controller must append a byte-exact size observation for that same retained
+  file and show it is at most 8,388,608 bytes before implementation is treated
+  as unblocked. This is an upstream evidence omission in the record that calls
+  its block D6's raw inputs. Inventing a size, silently choosing a larger bound
+  or treating the hash as size evidence is refused.
+
+  Clarify's Q2 is answered with a narrower fixture contract. Exact measured
+  fixture inputs are limited to values or bytes actually supplied: selected
+  core name/version/integrity, executable locator and first line, Node version,
+  declared bundle order and reload mode, absent home patch, nested plugin
+  dependency directory, and the six committed plugin bytes. The plugin bytes
+  let the sole Rust producer reproduce the six per-file digests, plugin patch
+  digest and plugin component. The controller supplied hashes rather than bytes
+  for the locks and profile patch, and supplied no normalized dependency
+  triples or resolved bundle targets. Hermetic tests may create synthetic lock
+  entries, bundle locations and profile-patch bytes to exercise their rules,
+  but must label them synthetic and must not assert that their profile-patch
+  digest, dependency set or composite equals the retained installation.
+  Only the later 10.7 doctor run against the retained home can record that
+  composite. This correction supersedes AD's former end-to-end fixture claim
+  without weakening the sole-producer rule.
+
+  The missing size prevents this returned specification from honestly claiming
+  every ambiguity closed, so the phase result is `upstream`, not `drafted`.
+  Parts 8.8(a)–(c) remain the only commission. Part (d), planner behavior,
+  8.10, the 10.7 recording step and the 8.8 tick remain pending. No task,
+  design, proposed decision, production file, extension byte or frozen surface
+  is amended to hide the evidence gap.
 
 ### F7 — Amend the standing append and dispatch requirement
 
@@ -3515,3 +3589,24 @@ This specification checkpoint commits only its two declared artifacts. It does
 not implement or plan part (d), alter planner production behavior, tick 8.8,
 complete 8.10, edit the adaptation/provenance bytes, archive, push, merge or
 publish. The result carries the adopted change identifier in `inputs.change`.
+
+## Specify return — DSH COMPOSITE IDENTITY clarify findings, 2026-09-19
+
+This returned visit read the clarify finding, all three controller records,
+answer AD, D6/D10, task 8.8, the owning AS1 requirement and the inherited Rust
+reader. Answer AE and two AS1 scenarios fix the semantic ambiguities in
+dependency order: the pnpm reader now has one inclusive 8 MiB raw-byte cap and
+the fixture distinguishes supplied observables from synthetic missing inputs.
+The controller record's missing pnpm byte length remains an upstream evidence
+fault, so no implementation handoff or complete-fixture claim is made.
+
+Strict OpenSpec validation and `git diff --check` pass on the two returned
+artifacts. The five deltas retain 20 requirements and contain 171 scenarios.
+All 101 task identifiers and states remain byte-unchanged, including unchecked
+8.8. Production, tests, design, tasks, proposed 0056, frozen surfaces and
+`extensions/dsh/` retain their entry bytes. No Rust gate or removal experiment
+is claimed for this specification-only return, and no workflow runner, provider,
+registry or retained home was invoked. The commit contains exactly the proposal
+and `adapter-resume-safety` delta. The phase result reports `upstream` with
+`inputs.change` because the missing live byte length belongs to the controller
+evidence that claimed the complete D6 raw inputs.

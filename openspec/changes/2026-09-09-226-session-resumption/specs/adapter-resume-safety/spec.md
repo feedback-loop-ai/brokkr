@@ -153,8 +153,14 @@ then use only the final complete package spelling and the version and integrity
 from that same entry. It SHALL ignore an optional `name` field and reject a
 malformed intermediate or terminal group, and a missing, mistyped or invalid
 version. The pnpm metadata SHALL come only from the headless profile's
-`pnpm-lock.yaml`, parsed by the bounded fail-closed line reader without a YAML
-crate. Equivalent npm and pnpm triples SHALL produce identical value bytes.
+`pnpm-lock.yaml`, parsed by the fail-closed line reader without a YAML crate.
+The raw file SHALL be at most 8,388,608 bytes. The reader SHALL consume at most
+8,388,609 bytes so a file that grows after a metadata check cannot bypass the
+bound. Exactly 8,388,608 bytes SHALL reach grammar validation; any additional
+byte SHALL refuse before dependency normalization with `pnpm lock exceeds
+8388608-byte limit`. The total byte cap is the sole size bound; there is no
+separate line, line-length or entry-count limit. Equivalent npm and pnpm triples
+SHALL produce identical value bytes.
 
 The canonical executable SHALL be the selected core package's `bin.dsh`, whose
 resolved relative path is `node_modules/@deepseek-ai/dsh/lib/bin.js` and whose
@@ -455,12 +461,21 @@ read as history, not as a current claim.
 - **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
 
-#### Scenario: The measured rc.2 installation supplies digest ground truth
-- **GIVEN** the retained working installation uses core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, canonical executable `node_modules/@deepseek-ai/dsh/lib/bin.js` with first line `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose SHA-256 values match `controller-dsh-preinstall-2026-09-19.json`
-- **AND** its headless profile declares bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, plugin patch SHA-256 `84745a1bb00d773acf2e5ab5e32dc42825ffe164100ba469375dcabbbd5f9dab`, profile patch SHA-256 `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`, no home-level patch and a nested plugin `node_modules/`
-- **WHEN** the Rust producer reads a synthetic fixture with exactly those bytes and locator relationships
-- **THEN** it derives the plugin component and canonical composite from those locators, permits only the nested dependency directory as the extra plugin entry, preserves declared bundle order and records `home-patch` as `absent`
-- **AND** neither controller record, the provenance note, doctor nor the test fixture supplies a hand-computed component or composite value; the same producer used at run time is the only source of both values
+#### Scenario: The measured rc.2 observables anchor a narrower fixture
+- **GIVEN** the retained working installation records core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, canonical executable `node_modules/@deepseek-ai/dsh/lib/bin.js` with first line `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose supplied bytes reproduce the SHA-256 values in `controller-dsh-preinstall-2026-09-19.json`
+- **AND** its profile records bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, no home-level patch and a nested plugin `node_modules/`
+- **AND** the controller supplies only hashes for the locks and profile patch, with no lock bytes, normalized dependency triples, resolved bundle targets or profile-patch bytes
+- **WHEN** the Rust producer reads a hermetic fixture
+- **THEN** the fixture reproduces the supplied core, executable, Node, manifest, absent-home-patch and six-plugin-file observables, derives the measured plugin patch digest and plugin component through the sole producer, and permits only the nested dependency directory as the extra plugin entry
+- **AND** lock entries, bundle targets and profile-patch bytes are explicitly synthetic grammar and locator inputs; no test asserts that their dependency set, profile-patch digest or resulting composite equals the retained installation
+- **AND** neither controller record, the provenance note, doctor nor the test fixture supplies a hand-computed component or composite value; only the later doctor run over the retained home may record its actual composite
+
+#### Scenario: The pnpm reader has one exact raw-byte bound
+- **GIVEN** otherwise valid lockfile-9.0 bytes padded with grammar-accepted blank lines to exactly 8,388,608 bytes, and the same bytes followed by one additional byte
+- **WHEN** the sole producer reads each `pnpm-lock.yaml`
+- **THEN** the exact-boundary file reaches dependency parsing, while the 8,388,609-byte file is refused before normalization with `pnpm lock exceeds 8388608-byte limit`
+- **AND** the read itself consumes no more than 8,388,609 bytes, a metadata race cannot admit a larger file, and no separate line, line-length or entry-count limit changes the outcome
+- **AND** the retained rc.2 lock's SHA-256 alone does not prove its byte length; controller evidence for that same file at or below the bound remains required before implementation is unblocked
 
 #### Scenario: The loader admits a measured composite pin only
 - **GIVEN** otherwise valid measured and unknown resume identities
