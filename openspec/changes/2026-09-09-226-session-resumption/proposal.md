@@ -1,5 +1,17 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This returned specify visit adopts the existing change at `aea4c117` for run
+`dsh-composite-identity-issue-226-c181dcd8`. Answer AI closes AH's upstream
+dependency on the evidence now committed in proposed decision 0056 and D10.
+The dated decision note records N1's rc.2 selection and the three measured
+facts, preserves rc.1 as history, retains the missing digest as the fourth
+proof debt, leaves the route disabled with no `wrapper_digest`, and remains
+`proposed`; D10 withdraws its premature claim and now says the same. The
+task 8.8(a)–(c) digest handoff may therefore proceed. This phase amends the
+proposal first and the owning AS1 delta second. It does not edit decision,
+design, task, Rust, planner, frozen or extension artifacts, and it does not
+remeasure a provider.
+
 This returned specify visit adopts the existing change at `84badba2` for run
 `dsh-composite-identity-issue-226-c181dcd8`. Answer AH accepts clarify's
 remaining finding: proposed decision 0056 cannot govern the commissioned rc.2
@@ -250,7 +262,7 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   and named compiling removal failures for every added claim. Preserve the
   committed extension bytes and provenance note. Leave 8.8(d), planner
   behavior, 8.10's rejection-vector completion and the 8.8 checkbox pending.
-  Answers AD/AE/AF/AG/AH and the amended AS1 scenarios are this slice's
+  Answers AD/AE/AF/AG/AH/AI and the amended AS1 scenarios are this slice's
   complete scope.
   The following bullets retain earlier commissions and the whole change as
   history and context; they authorize no additional work in this slice.
@@ -2483,6 +2495,28 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   identifier. Part (d), planner behavior, 8.10, the 10.7 doctor recording and
   task 8.8 remain pending.
 
+- **AI — Returned specify resolution, 2026-09-19: the decision amendment
+  satisfies AH without enabling DSH.** The upstream office committed the exact
+  repair AH required at `aea4c117`. Proposed decision 0056 now carries a dated
+  note that exercises N1's existing release clause for
+  `@deepseek-ai/dsh@0.1.5-rc.2`, records its registry integrity and consumes the
+  measured exact-root continuity, restriction precedence and
+  current-sequence accounting evidence. It preserves rc.1 as dated history,
+  leaves the declared composite digest unproved, keeps the route
+  `unmeasured` and disabled with no `wrapper_digest`, and retains
+  `Status: proposed`. D10 withdraws its false claim that the amendment already
+  existed and now reconciles to those same facts.
+
+  AH's fail-closed rule remains valid for any future disagreement between the
+  governing artifacts, but its concrete prerequisite is satisfied on this
+  head. The new AS1 scenario therefore permits only task 8.8(a)–(c)'s digest
+  implementation to proceed. It grants no planner behavior, 8.10 completion,
+  retained-home doctor recording, declaration pin, enablement or 8.8 tick.
+  Repeating the registry, provider or retained-home measurements is refused:
+  the committed decision and design consume the controller evidence directly.
+  The result returns to the implementation handoff as `drafted` with the
+  adopted change identifier.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -3860,3 +3894,31 @@ readiness notes are inherited informational findings. Cargo is absent from the
 workspace box, so Rust, bundle and exact-coverage gates cannot launch in this
 specification-only return and remain implementation obligations. The result is
 `upstream` with `inputs.change`.
+
+## Specify return — resolved DSH decision dependency, 2026-09-19
+
+This returned visit adopts `2026-09-09-226-session-resumption` at
+`aea4c117` and answers the preceding `SPECIFY-UPSTREAM` result. The upstream
+office amended proposed decision 0056 and D10 exactly as AH required: rc.2 and
+its registry integrity are current, rc.1 remains dated history, exact-root
+continuity, restriction precedence and current-sequence accounting are recorded
+as measured, and the canonical digest remains the one unresolved proof. The
+route stays `unmeasured` and disabled, no `wrapper_digest` is declared, and the
+decision remains `proposed`.
+
+Answer AI and the added AS1 scenario reopen only task 8.8(a)–(c)'s digest
+implementation. Part (d), planner production behavior, 8.10's remaining cases,
+the retained-home doctor recording, enablement and the 8.8 checkbox remain
+pending. Exactly the proposal and `adapter-resume-safety` delta belong to this
+return; decisions, design, tasks, production, tests, frozen surfaces and
+`extensions/dsh/` retain their entry bytes. No provider, registry, retained
+home or workflow runner is invoked.
+
+Strict repository-wide OpenSpec validation passes **15/15**, `git diff
+--check` is clean, and the five deltas contain **20 requirements / 174
+scenarios**. The validator's two archive-readiness notes are inherited
+informational findings. All **101 task identifiers and states (84 checked / 17
+pending)** retain their bytes, including unchecked 8.8. Cargo is absent from
+the workspace box, so format, clippy, the three affected crate suites, the self
+bundle compile and exact coverage exit at the missing Cargo invocation; this
+specification-only return claims no Rust gate or removal proof.

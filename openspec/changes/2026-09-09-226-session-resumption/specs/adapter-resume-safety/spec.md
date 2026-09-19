@@ -489,6 +489,13 @@ read as history, not as a current claim.
 - **AND** the decision-owning upstream office SHALL amend ruling 5 and its consequence to record rc.2 and the measured facts, preserve rc.1 as dated history, retain `Status: proposed`, and reconcile D10 before implementation proceeds
 - **AND** the amendment SHALL keep digest recording, matching adapter/shim assertions, planner admission and end-to-end enablement pending and SHALL require no provider remeasurement
 
+#### Scenario: The amended proposed decision reopens only the digest slice
+- **GIVEN** proposed decision 0056 carries its dated 2026-09-19 note selecting `@deepseek-ai/dsh@0.1.5-rc.2` with the recorded registry integrity, preserving rc.1 as history and consuming the measured continuity, restriction-precedence and current-sequence-accounting facts
+- **AND** D10 withdraws its earlier claim that this amendment already existed and agrees that the declared composite remains unproved, the route remains `unmeasured` and disabled, no `wrapper_digest` is set, and decision 0056 remains `proposed`
+- **WHEN** the returned task 8.8(a)–(c) implementation handoff is evaluated on that amended head
+- **THEN** the stale-decision blocker is resolved and the loader, sole digest producer and doctor work SHALL proceed without repeating the registry, provider or retained-home measurements
+- **AND** planner behavior, 8.10's remaining cases, the retained-home doctor recording, the declaration pin, end-to-end enablement and the 8.8 checkbox SHALL remain pending
+
 #### Scenario: The pnpm reader has one exact raw-byte bound
 - **GIVEN** otherwise valid lockfile-9.0 bytes padded with grammar-accepted blank lines to exactly 8,388,608 bytes, and the same bytes followed by one additional byte
 - **WHEN** the sole producer reads each `pnpm-lock.yaml`
