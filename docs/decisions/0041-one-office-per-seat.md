@@ -295,6 +295,31 @@ enactment's evidence and the operator's later word.
    form: phases triage, design, implement, verify, review, ship, done,
    stop, with `fast`'s constitution below triage and ruling 5's edges.
 
+   **2026-09-19 — `design` is about who decides.** The table's `design`
+   and `feature` rows route correctly, but the charter's two criteria did
+   not partition: "work whose contract must be designed before the feature
+   path" describes every strategy, because every contract is designed
+   before implementation. Nothing forced the boundary to be operational
+   while one model applied it in private. A second reader on the same
+   criteria (the TypeSafe pilot, *Fifty-Three Cases*, issue #303) read
+   thirteen of nineteen historical `design` rulings as `feature`, ten of
+   them as its own second choice; merging the two classes moved agreement
+   from 26/53 to 39/53. The operator ruled the cut: **`design` is not
+   about whether a design decision exists — every feature contains them —
+   but about who is allowed to make it.** `design` is work that cannot be
+   specified until a choice between named alternatives is ruled from
+   outside the run, by the operator's word or a decision record, and the
+   run's first product is that ruling; `feature` is work that can be
+   specified now, whose design choices are the architect's to make within
+   the run. The operational test is one question: *is there a decision
+   this run is not allowed to make?* The charter carries the ruled text.
+   The routing in the table is unchanged by this note; whether `design`'s
+   heavier path is right for the work the gate has been sending down it
+   is #303's fourth step and a separate ruling. No historical ruling is
+   relabelled. The operator's framing, kept here because it is the reason
+   the cut matters: measuring ambiguity is important, and recognizing it
+   even more so.
+
    **Enforcement binding:** `agents/triage.json` and
    `agents/charters/triage.md`; `recipes/triage`;
    `crates/brokkr-runtime/tests/triage_shape.rs` — triage precedes every
