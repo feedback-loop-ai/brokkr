@@ -2166,7 +2166,24 @@ inherited forward-pin repair now selects the latest core with the
 repository-owned adaptation, records its admission (answer M) on decision
 0009's extension boundary, cites 0009, and keeps admission conditional and
 status `proposed`. Task 1.1 therefore stays checked. Context/alternatives cite
-this design and preserve historical accepted decision text. The required numbered
+this design and preserve historical accepted decision text.
+
+**2026-09-19 correction, on answer AG's analyze return.** An earlier form of
+this reconciliation claimed proposed 0056 already carried the resolved rc.2
+route. It did not: the decision named 0.1.5-rc.1 and the older proof gap, so
+this design asserted a downstream state its upstream artifact contradicted.
+The claim is withdrawn, and the amendment it presumed has now been made. 0056
+ruling 5 carries a dated 2026-09-19 note recording N1's selection of
+0.1.5-rc.2 with its registry integrity, the three proof gaps measured that day
+— exact-root and independent-root confirmation, restriction precedence, and the
+multi-message current-sequence accounting boundary — and the one that remains:
+the declared composite digest, whose only producer is task 8.8's function.
+0.1.5-rc.1 is preserved there as dated history and as the floor no `latest`
+may select beneath. Because that fourth fact is still unproven, the route stays
+`unmeasured`, the declaration stays disabled, no `wrapper_digest` is set, and
+0056 stays `proposed`. The amendment reconciles the decision to measured
+evidence without enabling anything; enablement remains task 11.3 and the
+operator's word. The required numbered
 rulings and enforcement bindings are:
 
 | Ruling | Required content | Enforcement binding |

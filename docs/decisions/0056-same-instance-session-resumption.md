@@ -298,6 +298,49 @@ Alternatives weighed, each rejected on evidence rather than taste:
    as the exact unmet requirement rather than a narrowed minimum or a
    permitted TUI, SDK or package-patch substitution.
 
+   **2026-09-19 — the resolved core is 0.1.5-rc.2, and three of this
+   ruling's four proof gaps are now measured.** The original text above
+   stands as written; this note records what the rule it already contains
+   selected, and what has since been proved. Answer N1's resolution ran
+   once on 2026-09-19 against the live registry: the `latest` dist-tag
+   named **0.1.5-rc.2**, so the clause "or the release answer N1 resolves
+   in its place" is exercised and the selected core is
+   `@deepseek-ai/dsh@0.1.5-rc.2`, registry integrity
+   `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`,
+   recomputed from the downloaded bytes and matched. 0.1.5-rc.1 and its
+   2026-09-12 qualification remain true as dated history and remain the
+   floor no `latest` may select beneath; they are no longer the selected
+   route. `0.1.6-alpha.2` is named only by the `alpha` tag and is
+   therefore recorded unselected, awaiting an operator ruling.
+
+   Of the four facts this ruling names as unproven, three were measured on
+   2026-09-19 in an isolated task-owned home, recorded in
+   `.forge/tasks/dsh-pair-qualification-015rc2.json`. **Exact-root and
+   independent-root confirmation**: the root was located on disk rather
+   than taken from the request-derived echo, a resume grew that same log
+   and created no sibling root or session, and continuity was proved by
+   the cold turn's private nonce returning from the warm one.
+   **Restriction precedence**: the plugin's complete command line carries
+   no model, effort, sandbox, tool or persistence-root channel, so
+   adapter-owned values cannot be overridden at all; where a channel does
+   exist the current value wins — a resume under a current model patch
+   selected it while still restoring history, removing the patch restored
+   the profile's own model, an invalid current model reached the
+   provider's own refusal, and a resumed `--workdir` was refused before
+   launch without creating a root. **A multi-message current-sequence
+   accounting boundary**: one continuous append-only log across six turns
+   with tool and attempt events after `firstSeq`, in which every
+   invocation's totals describe only its own message and no historical
+   output, tool or token appears.
+
+   **The fourth is not proved, and so this ruling's conclusion is
+   unchanged.** The declared composite digest remains unproven, because
+   task 8.8's function is its only producer and it has not landed. The
+   route therefore stays **unmeasured** for admission, the declaration
+   stays disabled, no `wrapper_digest` is set, and this decision stays
+   **proposed**. Nothing here enables DSH; that remains task 11.3 and the
+   operator's word.
+
    **Enforcement binding:** the typed `resume` assessment and its loader
    in `crates/brokkr-runtime/src/agents.rs`, pinned by the existing
    adapter content digest; the per-invocation version check in
