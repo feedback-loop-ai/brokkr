@@ -2123,6 +2123,13 @@ const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 /// with `unverified-harness`, which is the point of the check.
 const CODEX_VERSION: &str = "0.154.0";
 
+/// The prompt a rejoin is asked to carry, deliberately several words
+/// long and unlike any path this suite creates. A one- or
+/// two-character fixture makes a `contains` assertion vacuous — it
+/// matches a temporary pathname on some platform and passes everywhere
+/// else — and a prompt is the one payload that must arrive whole.
+const RESUMED_PROMPT: &str = "carry this whole sentence across the rejoin, unaltered";
+
 /// The version-answering preamble every provider shim needs, now that
 /// an enabled shape probes its executable once per invocation. It exits
 /// before the argv recorder, so the probe is never counted as an
@@ -2132,8 +2139,15 @@ fn version_preamble(banner: &str) -> String {
     format!("case \"$1\" in --version|-V|-v) printf '{banner}\\n'; exit 0 ;; esac\n")
 }
 
-/// A stand-in codex that records the argv it was given and the prompt it
-/// was fed, then answers with the two events the fold reads.
+/// A stand-in codex that records the argv it was given, the directory it
+/// was started in and the prompt it was fed, then answers with the two
+/// events the fold reads.
+///
+/// The working directory is recorded because the resume argv carries no
+/// `-C`: `codex exec resume` has no such flag, so where a rejoined seat
+/// runs rests entirely on `Command::current_dir` in `invoke_codex`. It
+/// goes to its own file rather than into the argv log, which every
+/// caller reads one part per line.
 #[cfg(unix)]
 fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std::path::PathBuf {
     let argv = argv.display();
@@ -2143,6 +2157,7 @@ fn codex_shim(dir: &std::path::Path, name: &str, argv: &std::path::Path) -> std:
         name,
         &format!(
             "#!/bin/sh\n{version}for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\n\
+             pwd > {argv}.pwd\n\
              cat >> {argv}.stdin\n\
              printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n\
              printf '{{\"type\":\"turn.completed\",\"usage\":{{\"input_tokens\":100,\
@@ -2264,7 +2279,7 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
             invoke(
                 AdapterKind::Codex,
                 &extra,
-                "the prompt",
+                RESUMED_PROMPT,
                 &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
                 Some(THREAD),
                 &[],
@@ -2299,9 +2314,56 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
                 .any(|part| part == "-s" || part == "--sandbox" || part.starts_with("--sandbox=")),
             "{case}: no sandbox flag survives on resume: {seen:?}"
         );
+        // The measured grammar is `codex exec resume [OPTIONS]
+        // [SESSION_ID] [PROMPT]`, and the PROMPT argument documents: "If
+        // `-` is used, read from stdin"
+        // (`.forge/tasks/controller-codex-interface-2026-09-17.json`,
+        // `/obligations/stdin_prompt_positional`). So the last two parts
+        // ARE those two positionals, in that order — stated directly here
+        // rather than left implicit in the whole-argv equality above.
+        assert_eq!(
+            &seen[seen.len() - 2..],
+            [THREAD, "-"],
+            "{case}: the offered thread then the stdin positional: {seen:?}"
+        );
+        // Exactly one `-`, and no other bare word anywhere: a second
+        // positional would be read as the session id ahead of the one
+        // this driver appends.
+        assert_eq!(
+            seen.iter().filter(|part| *part == "-").count(),
+            1,
+            "{case}: exactly one stdin positional: {seen:?}"
+        );
+        // And the offered thread occurs exactly once, in that final
+        // position: a second occurrence earlier in the argv would be read
+        // positionally as the session ahead of the one appended here.
+        assert_eq!(
+            seen.iter().filter(|part| *part == THREAD).count(),
+            1,
+            "{case}: the thread occurs once, as the session positional: {seen:?}"
+        );
+        // The whole prompt reaches stdin, byte for byte. A one- or
+        // two-character fixture under `contains` would match a temporary
+        // pathname on some platform and pass vacuously everywhere else.
         assert_eq!(
             std::fs::read_to_string(format!("{}.stdin", argv.display())).unwrap(),
-            "the prompt"
+            RESUMED_PROMPT,
+            "{case}: the complete prompt arrives on stdin"
+        );
+        // The resume argv emits no `-C`, because `codex exec resume` has
+        // no such flag: the working directory rests entirely on
+        // `Command::current_dir(workdir)`. The fixture workdir is a
+        // tempdir, so it differs from the runner's own cwd.
+        assert_eq!(
+            std::fs::read_to_string(format!("{}.pwd", argv.display()))
+                .unwrap()
+                .trim(),
+            std::fs::canonicalize(dir.path()).unwrap().to_string_lossy(),
+            "{case}: the rejoined seat runs in the workdir it was given"
+        );
+        assert!(
+            !seen.iter().any(|part| part == "-C" || part == "--cd"),
+            "{case}: no working-directory flag on resume: {seen:?}"
         );
         // The launch is published only once the harness names the exact
         // thread it was handed — which is why it stands behind the locator
@@ -2335,56 +2397,95 @@ fn a_codex_resume_carries_the_thread_the_class_and_the_prompt() {
 /// rejoin inherits neither. The cold arm is already pinned; this drives
 /// the resume arm with a shim whose version answers, so the override is
 /// observed in the argv actually handed to the CLI.
+///
+/// Both input spellings `split_effort` accepts are driven, because both
+/// are spellings of the one pin and both have to arrive as the same
+/// override. The key is the literal `model_reasoning_effort` the
+/// controller measured as recognised on the installed 0.154.0 under
+/// `--strict-config`, with the misspelling `model_reasoning_effrot`
+/// refused as an unknown configuration field — the control that makes
+/// the acceptance mean something
+/// (`.forge/tasks/controller-codex-interface-2026-09-17.json`,
+/// `/obligations/effort_configuration`). The expected argv is written
+/// out by hand rather than built by calling `codex_effort_config`, which
+/// would only assert the formatter against itself.
 #[cfg(unix)]
 #[test]
 fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let argv = dir.path().join("argv");
-    let shim = codex_shim(dir.path(), "codex-effort", &argv);
-    let extra: Vec<String> = [
-        "--sandbox",
-        "read-only",
-        "--model",
-        "gpt-5.6-sol",
-        "--effort",
-        "high",
-    ]
-    .iter()
-    .map(|part| part.to_string())
-    .collect();
-    with_codex_bin(&shim, || {
-        invoke(
-            AdapterKind::Codex,
-            &extra,
-            "the prompt",
-            &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
-            Some(THREAD),
-            &[],
-            &mut |_| {},
-        )
-        .unwrap()
-    });
+    for (case, pin) in [
+        ("separate", vec!["--effort", "high"]),
+        ("joined", vec!["--effort=high"]),
+    ] {
+        let argv = dir.path().join(format!("argv-{case}"));
+        let shim = codex_shim(dir.path(), &format!("codex-effort-{case}"), &argv);
+        let mut extra: Vec<String> = ["--sandbox", "read-only", "--model", "gpt-5.6-sol"]
+            .iter()
+            .map(|part| part.to_string())
+            .collect();
+        extra.extend(pin.iter().map(|part| part.to_string()));
+        with_codex_bin(&shim, || {
+            invoke(
+                AdapterKind::Codex,
+                &extra,
+                "the prompt",
+                &enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+                Some(THREAD),
+                &[],
+                &mut |_| {},
+            )
+            .unwrap()
+        });
 
-    let recorded = recorded(&argv);
-    let effort = recorded
-        .windows(2)
-        .any(|pair| pair == ["-c", "model_reasoning_effort=\"high\""]);
-    assert!(
-        effort,
-        "the resume argv carries the effort override: {recorded:?}"
-    );
-    assert_eq!(
-        &recorded[..5],
-        [
-            "exec",
-            "resume",
-            "--json",
-            "-c",
-            "sandbox_mode=\"read-only\""
-        ],
-        "the effort override follows the re-imposed sandbox class: {recorded:?}"
-    );
+        let recorded = recorded(&argv);
+        // The whole argv, by equality: the class first, then the effort
+        // override, then the seat's remaining passthrough, the thread and
+        // the stdin positional. Whichever spelling declared the pin, the
+        // composed resume is the same.
+        assert_eq!(
+            recorded,
+            vec![
+                "exec",
+                "resume",
+                "--json",
+                "-c",
+                "sandbox_mode=\"read-only\"",
+                "-c",
+                "model_reasoning_effort=\"high\"",
+                "--model",
+                "gpt-5.6-sol",
+                THREAD,
+                "-",
+            ],
+            "{case}: the whole resumed argv"
+        );
+        assert_eq!(
+            recorded
+                .windows(2)
+                .filter(|pair| pair[0] == "-c" && pair[1].starts_with("model_reasoning_effort="))
+                .count(),
+            1,
+            "{case}: exactly one `-c model_reasoning_effort=` pair: {recorded:?}"
+        );
+        // The key's literal text, checked on its own so a rename of the
+        // field is caught here and not only by the whole-argv equality.
+        assert!(
+            recorded
+                .iter()
+                .any(|part| part == "model_reasoning_effort=\"high\""),
+            "{case}: the literal key codex recognises: {recorded:?}"
+        );
+        // The pin left the argv rather than travelling beside its own
+        // re-expression: `codex exec resume` has no `--effort` flag, so a
+        // surviving one would be an unexpected argument.
+        assert!(
+            !recorded
+                .iter()
+                .any(|part| part == "--effort" || part.starts_with("--effort=")),
+            "{case}: no effort flag survives on resume: {recorded:?}"
+        );
+    }
 }
 
 /// The sandbox travels or the resume does not (decision 0030 ruling 2),
@@ -2397,7 +2498,7 @@ fn a_codex_resume_re_expresses_the_effort_pin_as_a_config_override() {
 fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let cases: [(&str, Vec<&str>, &str); 11] = [
+    let cases: [(&str, Vec<&str>, &str); 20] = [
         // Nothing declared: a codex resume does not inherit the class
         // its thread was opened under, so there is nothing to re-impose.
         ("undeclared", vec!["--model", "sol"], "sandbox-unavailable"),
@@ -2467,6 +2568,84 @@ fn a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled() {
         (
             "thread-source",
             vec!["--sandbox", "read-only", "--thread-source"],
+            "incompatible-argv",
+        ),
+        // The rest of what `codex exec` takes and `codex exec resume`
+        // does not, measured on 0.154.0 and enumerated under
+        // `/obligations/allowed_safe_passthrough/exec_accepts_but_resume_does_not`
+        // in `.forge/tasks/controller-codex-interface-2026-09-17.json`.
+        //
+        // Each also earns a case at the raw blocker seam in
+        // `only_the_flags_a_resume_can_safely_carry_travel_with_it`, but
+        // that seam observes one thing: the string the blocker returns.
+        // The consequence the engine actually journals — the refusal
+        // token, the cold argv unchanged from what the seat declared, and
+        // the absent root — is observable only here. Each case declares a
+        // class first, so the sandbox path is satisfied and the ONLY
+        // thing that fails is passthrough admission.
+        //
+        // `--sandbox` is deliberately not among them: at this seam a
+        // declared class is translated into `-c sandbox_mode=<class>`
+        // rather than refused, and its absence from the resume surface is
+        // what the argv test's no-sandbox-flag assertion already proves.
+        (
+            "workdir",
+            vec!["--sandbox", "read-only", "--cd", "/distinctive-workdir"],
+            "incompatible-argv",
+        ),
+        (
+            "added-dir",
+            vec![
+                "--sandbox",
+                "read-only",
+                "--add-dir",
+                "/distinctive-added-dir",
+            ],
+            "incompatible-argv",
+        ),
+        (
+            "colored",
+            vec!["--sandbox", "read-only", "--color", "never"],
+            "incompatible-argv",
+        ),
+        (
+            "local-provider",
+            vec![
+                "--sandbox",
+                "read-only",
+                "--local-provider",
+                "distinctive-provider",
+            ],
+            "incompatible-argv",
+        ),
+        (
+            "oss",
+            vec!["--sandbox", "read-only", "--oss"],
+            "incompatible-argv",
+        ),
+        (
+            "approving",
+            vec!["--sandbox", "read-only", "--approve-for-me"],
+            "incompatible-argv",
+        ),
+        (
+            "versioned",
+            vec!["--sandbox", "read-only", "--version"],
+            "incompatible-argv",
+        ),
+        // The value-bearing spellings of a shape NEW in 0.154.0. The
+        // `thread-source` case above carries the flag dangling, which the
+        // value branch refuses for want of a value — so it passes even
+        // when the name has been admitted to the value list and cannot
+        // detect that admission. These two can.
+        (
+            "thread-source-value",
+            vec!["--sandbox", "read-only", "--thread-source", "github"],
+            "incompatible-argv",
+        ),
+        (
+            "thread-source-joined",
+            vec!["--sandbox", "read-only", "--thread-source=github"],
             "incompatible-argv",
         ),
         // An id that is not a plain thread id never reaches an argv.
@@ -2725,17 +2904,178 @@ fn only_the_flags_a_resume_can_safely_carry_travel_with_it() {
         // in the allow-list and neither may be read as qualified.
         "--worktree",
         "--thread-source",
+        // The rest of what `codex exec` takes and `codex exec resume`
+        // does not, measured on 0.154.0 and listed under
+        // `/obligations/allowed_safe_passthrough/exec_accepts_but_resume_does_not`
+        // in `.forge/tasks/controller-codex-interface-2026-09-17.json`.
+        // The subcommand rejects each as an unexpected argument, so this
+        // driver refuses it here rather than spending a spawn to be told.
+        // Each is constructed BARE: that record enumerates option names
+        // and no arity, so no provider arity is asserted by these cases.
+        "--cd",
+        "--color",
+        "--local-provider",
+        "--oss",
+        "--version",
         "a-bare-word",
         "--a-flag-codex-has-not-invented-yet",
         // The joined spelling is the same declaration, and gets the
         // same answer: only the flag's NAME decides.
         "--profile=loose",
         "-c=sandbox_mode=\"danger-full-access\"",
+        "--cd=/distinctive-refused-workdir",
+        "--color=never",
+        "--local-provider=distinctive-refused-provider",
     ] {
         assert_eq!(
             blocker(&["--model", "sol", refused]),
             Some(refused.to_string()),
             "{refused} may not travel to a resume"
+        );
+    }
+    // The two shapes new in 0.154.0, in their VALUE-BEARING spellings.
+    // The single-part loop above can only construct a dangling flag, and
+    // a dangling flag is refused by the value branch exactly as it is by
+    // the fall-through — so a case built there passes even when the name
+    // has been admitted to `CODEX_RESUME_VALUE_FLAGS`, and cannot detect
+    // that admission. These four can. Each is preceded by `--model sol`
+    // so the value branch is exercised before the part under test.
+    //
+    // A separate spelling is refused by NAME, which is the part the
+    // fall-through returns; a joined spelling is refused ENTIRE, because
+    // `split_once('=')` looks up the name and returns the whole part when
+    // it is not admitted. Both shapes are what this adapter composes; the
+    // September 17 record enumerates names, so no provider arity is
+    // claimed here either.
+    for (parts, refused) in [
+        (
+            vec!["--model", "sol", "--thread-source", "github"],
+            "--thread-source",
+        ),
+        (
+            vec!["--model", "sol", "--worktree", "/distinctive-worktree"],
+            "--worktree",
+        ),
+        (
+            vec!["--model", "sol", "--thread-source=github"],
+            "--thread-source=github",
+        ),
+        (
+            vec!["--model", "sol", "--worktree=/distinctive-worktree"],
+            "--worktree=/distinctive-worktree",
+        ),
+    ] {
+        assert_eq!(
+            blocker(&parts),
+            Some(refused.to_string()),
+            "{refused} may not travel to a resume in a value-bearing spelling"
+        );
+    }
+
+    // The allow-list measured against the surface the provider actually
+    // parses. The literal below is the long-option enumeration recorded
+    // in `.forge/tasks/controller-codex-interface-2026-09-17.json` under
+    // `/obligations/allowed_safe_passthrough` — `resume_accepts` and
+    // `exec_accepts_but_resume_does_not`, measured on codex-cli 0.154.0.
+    // It is written here rather than read at run time: a hermetic suite
+    // does not depend on run-local `.forge/` storage, and design D10
+    // admits no new production data file.
+    //
+    // The relation asserted is SUBSET and DISJOINTNESS, never equality.
+    // Equality would turn a safety allow-list into a mirror of whatever
+    // the provider parses, and would thereby authorize `--config`,
+    // `--enable`, `--disable`, `--last`, `--all`, `--ignore-rules`,
+    // `--ignore-user-config` and
+    // `--dangerously-bypass-approvals-and-sandbox` — each of which can
+    // reach the sandbox or choose the session, and each of which the
+    // loop above refuses on purpose.
+    const RESUME_ACCEPTS: [&str; 20] = [
+        "--all",
+        "--config",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--dangerously-bypass-hook-trust",
+        "--disable",
+        "--enable",
+        "--ephemeral",
+        "--help",
+        "--ignore-rules",
+        "--ignore-user-config",
+        "--image",
+        "--json",
+        "--last",
+        "--model",
+        "--output-last-message",
+        "--output-schema",
+        "--skip-git-repo-check",
+        "--strict-config",
+        "--thread-source",
+        "--worktree",
+    ];
+    const EXEC_ACCEPTS_BUT_RESUME_DOES_NOT: [&str; 9] = [
+        "--add-dir",
+        "--approve-for-me",
+        "--cd",
+        "--color",
+        "--local-provider",
+        "--oss",
+        "--profile",
+        "--sandbox",
+        "--version",
+    ];
+    let admitted: Vec<&str> = CODEX_RESUME_VALUE_FLAGS
+        .iter()
+        .chain(CODEX_RESUME_BARE_FLAGS.iter())
+        .copied()
+        .collect();
+    // Disjointness FIRST, and the order is load-bearing rather than
+    // cosmetic. The two measured lists are disjoint — an option the
+    // resume subcommand refuses outright is by construction absent from
+    // what it accepts — so admitting any exec-only name falsifies the
+    // subset direction too. Checked the other way round, the subset
+    // assertion would always fire first and this one could never fail
+    // alone, leaving it without a control of its own.
+    for exec_only in EXEC_ACCEPTS_BUT_RESUME_DOES_NOT {
+        assert!(
+            !admitted.contains(&exec_only),
+            "{exec_only} is refused by `codex exec resume` itself and must not be admitted"
+        );
+    }
+    // Subset: nothing this driver admits is absent from the surface the
+    // subcommand parses. The short aliases are this repository's own
+    // spellings of options the record enumerates only in long form, so
+    // they are pinned separately rather than invented into the surface.
+    for long in admitted.iter().filter(|part| part.starts_with("--")) {
+        assert!(
+            RESUME_ACCEPTS.contains(long),
+            "{long} is admitted to a resume but is absent from the measured resume surface"
+        );
+    }
+    assert_eq!(
+        admitted
+            .iter()
+            .filter(|part| !part.starts_with("--"))
+            .copied()
+            .collect::<Vec<&str>>(),
+        ["-m", "-i", "-o"],
+        "the short aliases this repository admits, pinned as its own spellings"
+    );
+    // Membership in the parsed surface is NOT qualification, and these
+    // two are the sentence that says so: both occur in `resume_accepts`,
+    // so the subset direction admits them and the disjointness direction
+    // — which quantifies over the exec-only list — never sees them.
+    // Either could therefore be admitted to the allow-list with both
+    // directions above still passing. This assertion is the one that is
+    // not blind, and its controls are the value-bearing cases above.
+    for new_shape in ["--worktree", "--thread-source"] {
+        assert!(
+            RESUME_ACCEPTS.contains(&new_shape),
+            "{new_shape} is parsed by the resume subcommand"
+        );
+        assert!(
+            !CODEX_RESUME_VALUE_FLAGS.contains(&new_shape)
+                && !CODEX_RESUME_BARE_FLAGS.contains(&new_shape),
+            "{new_shape} is parsed by the resume subcommand and is still not admitted to one: \
+             parsing is not qualification"
         );
     }
 }

@@ -303,11 +303,15 @@ SHALL NOT be cited as live provider enforcement proof (decision 0034).
 - **AND** the test remains deterministic protocol evidence and is not reported as new live-provider enforcement proof
 
 #### Scenario: Recorded Codex proof is matched by adapter assertions
-- **GIVEN** the controller's September 16 proof on codex-cli 0.154.0 and the preserved shipped Codex assessment for the harness and inline no-hands work coordinates
+- **GIVEN** the controller's September 16 live proof and September 17 interface record on codex-cli 0.154.0, adopted 10.1/10.5 completion, and the preserved shipped Codex assessment for the harness and inline no-hands work coordinates
 - **WHEN** deterministic tests exercise production-composed argv and provider confirmation through the actual adapter exchange
-- **THEN** they assert the effective class is passed as a `-c sandbox_mode` override without a sandbox flag, the selected root equals the offer, and only exact provider confirmation before work yields `launch: resumed`
+- **THEN** they assert all three sandbox input spellings become exactly one quoted `-c sandbox_mode` override without a sandbox flag, the selected root equals the offer, and only exact provider confirmation before work yields `launch: resumed`
+- **AND** both effort input spellings produce exactly one correctly spelled `-c model_reasoning_effort` pair and no effort flag; the final positional parts are the offered root and `-`, with the distinctive current prompt observed on stdin
+- **AND** the measured exec-only options never reach resume, each rejection names its offending part and `incompatible-argv` where applicable, and the allow-list's long options remain within the measured resume surface without treating membership as safety qualification
 - **AND** independent controls assert `unverified-harness` for unavailable or drifted executable identity or a mismatch with a recorded originating identity, `restrictions-unavailable` for boundary/hands mismatch or missing markers, and `unsupported-resume` for missing assessment or required accounting evidence; missing or different root confirmation never reports a successful resume
 - **AND** each claimed assertion has its own compiling removal proof of the responsible emitted element or production check, an observed failure at the intended argv/root/token assertion, exact restoration and a passing rerun, all identified in the tasks return; `is_err()` alone or an unrelated failure does not count
+- **AND** added or changed effort, stdin and option assertions have their own removal experiments: a misspelled effort key, omitted stdin positional and independently admitted forbidden option each fail the exact claimed assertion; admitting `--worktree` and `--thread-source` is tested separately, with all unrelated eligibility conditions satisfied
+- **AND** the record distinguishes adopted unchanged proofs from fresh experiments and names the test, production mutation and observed assertion for each; a short substring that can match a temporary path never substitutes for a distinctive fixture assertion
 - **AND** executable shims are staged beside their target and renamed into place before execution, and temporary mutations are absent from the completed patch
 - **AND** the tests are adapter conformance evidence, not new provider enforcement measurements or qualification of previously unsupported shapes; all existing refusal tokens and bounded pre-work replacement behavior remain intact
 

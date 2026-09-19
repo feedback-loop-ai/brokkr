@@ -200,10 +200,17 @@ adapter declaration pins, hands, agent record and driver evidence as one
 indivisible owned family, including panel members. Evidence SHALL neither
 remain at an old coordinate nor answer for a sibling. Unwrapped forms SHALL
 retain their existing supported or refused behavior.
-Complete installed-version qualification remains a delivery obligation; the
-supplied live proof SHALL be consumed without repetition, while preserving
-shipping behavior SHALL NOT complete missing interface evidence or an
-enablement task.
+Complete installed-version qualification remains a delivery obligation. The
+September 16 live proof and September 17 interface record SHALL be consumed
+without repetition. Task 10.1's three deferred interface observations and
+completed 10.5 SHALL be adopted from `85cf6d55`, not re-authored. The supplied
+stdin grammar, strict-config effort-key control and enumerated option surface
+SHALL inform the matching adapter assertions. Parser acceptance SHALL NOT
+qualify confinement or widen the allow-list. Preserving shipping behavior or
+recording dependency completion SHALL NOT complete 11.1 without its whole
+acceptance, compiling removal proofs and local validation. Current evidence
+claims SHALL distinguish that discharged interface evidence from remaining
+adapter proof; historical limitations SHALL retain their dates and bytes.
 
 An unmeasured rejoin main does not perform SHALL remain disabled during
 preparation. A version change SHALL invalidate that new shape's prior-version
@@ -438,11 +445,18 @@ read as history, not as a current claim.
 - **AND** the root is exactly `01a0aaa4-8667-7753-94b8-b0a60607524b`, the two resumed output counts are 303 and 308 for separate invocations, and the unknown-session rejection is exit 1 with the provider's named cause and neither thread nor turn start
 - **AND** task 10.5 completes on that cited evidence and agreeing assertions without repeating the provider experiment; the no-boxed-hands sandbox override does not qualify a boxed MCP fragment or every allowed passthrough option
 
-#### Scenario: Complete live axes do not complete the interface dependency
-- **GIVEN** the 0.154.0 live axes and matching adapter assertions are established, while checked task 10.1 records historical 0.153.4 interface investigation and no supplied 0.154.0 help/source capture establishes effort configuration, every allowed passthrough option and the stdin prompt positional `-`
+#### Scenario: Supplied interface evidence completes dependencies but not enablement
+- **GIVEN** task 10.5 is complete and `85cf6d55` records 10.1's three deferred observations from the September 17 controller record on codex-cli 0.154.0
 - **WHEN** task 11.1's full installed-version acceptance is evaluated
-- **THEN** 11.1 remains unchecked and its return names those exact missing interface obligations; 10.1's historical completion is not represented as current-version qualification
-- **AND** the shipping rejoin remains supported under the operator ruling, all refusal checks still bind, and neither a new provider probe nor qualification of `--worktree` or `--thread-source` follows from this proof
+- **THEN** those dependencies and their exact citations are adopted without remeasurement, and 11.1 completes only if its matching adapter assertions, compiling removal proofs, coherent evidence claims and required local validation are all established
+- **AND** otherwise 11.1 stays unchecked with the exact outstanding obligations, without repeating the obsolete claim that the three interface observations are absent
+- **AND** the shipping disposition, both 0.154.0 identity fields and every refusal check remain intact; dependency completion grants neither a new shape nor a task tick
+
+#### Scenario: Parsed options have conflicting qualification provenance
+- **GIVEN** the September 17 record lists `--ephemeral` and `--output-schema` as not previously supported while the inherited adapter already allows them with historical interface attribution
+- **WHEN** the bounded 11.1 qualification accounts for that discrepancy without a new provider measurement or human ruling
+- **THEN** it records the unresolved qualification separately from parser availability, claims no new confinement proof and makes no semantic expansion or withdrawal of those inherited entries
+- **AND** if that residual prevents full acceptance, 11.1 remains unchecked and names the missing evidence; neither preservation nor a passing surface-membership assertion resolves the discrepancy by itself
 
 #### Scenario: The preserved inline Codex coordinate is judged by its adapter
 - **GIVEN** inline work-class Codex sites compiled with the shipped assessment and author-pinned argv, including the raw commands in `recipes/standby` and `recipes/wager-harness`, and the following verify single/panel forms
@@ -533,8 +547,15 @@ an unsupported hands shape or change which adapters can hold a gate.
 #### Scenario: Codex re-imposes its sandbox and effort
 - **WHEN** a Codex invocation with a supported explicit class and effort rejoins its own thread in either shipping work-site coordinate (`harness` or inline `not applicable`, both with `hands: none`)
 - **THEN** the production-composed resume argv carries the effective class through `-c sandbox_mode=<class>` (including the adapter's TOML quoting), contains no `-s`, `--sandbox` or `--sandbox=...`, and selects the exact offered root
-- **AND** current effort, model, workdir and result delivery remain effective; effort is re-expressed rather than inherited, while complete 0.154.0 interface qualification remains a separate evidence obligation
+- **AND** either `--effort <level>` or `--effort=<level>` becomes exactly one `-c` pair with the exact key `model_reasoning_effort` and the adapter's quoted level, with no `--effort` spelling surviving on resume; current model, workdir and result delivery remain effective
+- **AND** the September 17 strict-config acceptance of the real key and rejection of `model_reasoning_effrot` establish field recognition; they do not measure every effort value or prove that a resume inherits effort
 - **AND** the declaration explains why the override is necessary: the bare resume drops the class and the resume subcommand offers no sandbox flag
+
+#### Scenario: A Codex resume reads the current prompt from stdin
+- **GIVEN** the measured resume grammar is `[SESSION_ID] [PROMPT]` and the documented prompt positional `-` reads stdin
+- **WHEN** an eligible Codex invocation resumes its owned thread
+- **THEN** the final two argv parts are exactly the offered thread followed by `-`, and the current invocation's distinctive multi-word prompt reaches provider stdin byte-for-byte
+- **AND** no prompt text, alternate handle or extra positional argument displaces either position
 
 #### Scenario: Claude re-imposes the entire boxed fragment
 - **WHEN** Claude resumes a site whose current restrictions include permission mode, MCP configuration, allowed tools and boxed workspace hands
@@ -728,6 +749,14 @@ invocation exactly as an enabled shape does.
 - **WHEN** passthrough contains an alternate selector, extra positional handle, sandbox bypass or conflicting configuration
 - **THEN** the resume is not invoked and the refusal remains bounded; 0030's allow-list protections are preserved
 - **AND** the new 0.154.0 `--worktree` and `--thread-source` shapes remain unqualified; on an otherwise eligible supported offer their unadmitted passthrough still declines as `incompatible-argv`, without weakening any earlier gate refusal
+
+#### Scenario: The measured exec-only surface cannot travel to resume
+- **GIVEN** an otherwise eligible Codex offer and the September 17 record's exec-only set `--sandbox`, `--cd`, `--add-dir`, `--approve-for-me`, `--color`, `--local-provider`, `--oss`, `--profile` and `--version`
+- **WHEN** the adapter composes the invocation from the seat's options
+- **THEN** no member of that set reaches a resume argv; the declared sandbox is translated only through AS2, while every other member declines as `incompatible-argv`, retaining the safe cold argv and recording no resumed root
+- **AND** separate and joined value spellings and bare options retain the same refusal; the argument-check assertion identifies the exact offending part rather than merely observing an error
+- **AND** every admitted long passthrough option belongs to the measured resume surface, but membership alone never admits a new option or qualifies its restrictions
+- **AND** `--worktree` and `--thread-source` are explicitly parsed by the provider and still refused by the adapter on an otherwise eligible offer; earlier gate refusal precedence remains unchanged
 
 #### Scenario: A bundle supplies a Codex resume selector on a cold launch
 - **GIVEN** driver passthrough after the adapter's `--` contains `resume <id>`, with or without an engine offer, including when the shape is unmeasured

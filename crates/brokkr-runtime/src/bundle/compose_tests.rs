@@ -1073,11 +1073,11 @@ const UNCOMPOSED: [(&str, &str); 4] = [
     ),
     (
         "recipes/panel-review",
-        "9020c5c295b269b77f2bd143a0fc73804f8d1a20ef8ccb5ee3c88bcbaaedbcb5",
+        "29ed04f988e3e1f656f2cb716e50930054070dd7d83cae08322e5c83b8e5dc8f",
     ),
     (
         "bundles/self",
-        "71428b2815c603bb20f2c449abf6151ba9167a5f64daf413179305cded5d18d9",
+        "1dd39826fa6ee9c15006c721c55fa747733984ae95ea20223ab1cc4d6ff1f45b",
     ),
     (
         "bundles/verify",
@@ -1207,8 +1207,11 @@ fn a_composed_bundles_manifest_is_pinned() {
         // route's Codex lanes witness moved. The 2026-09-16 Codex
         // declaration reconciliation moves it again, and this value agrees
         // with the `recipes/triage` pin in `tests/witness_digests.rs`; both
-        // are that edit's actual compiles.
-        "5e8207703e22b448b0b00f2903a5523f9ba87813c33ac7201d249abeaf7b4cce",
+        // are that edit's actual compiles. Task 11.1's 2026-09-17 interface
+        // closure moves it once more: the declaration's `evidence.interface`
+        // and `reason` no longer recite a debt the controller has since
+        // measured, and one dated limitation was appended beside them.
+        "9a639ca5286ed1c1e511a3c819e8f8830845e6036ddef81c29eb3dfeb977cb78",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

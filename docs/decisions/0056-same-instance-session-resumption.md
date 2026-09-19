@@ -252,10 +252,16 @@ Alternatives weighed, each rejected on evidence rather than taste:
    installed-version measurement qualifies it. The 2026-09-16 live proof
    on codex-cli 0.154.0 closes the restriction, same-root, current-only
    accounting and pre-work rejection axes and reconciles the declaration
-   to 0.154.0; preserving the shipping Codex rejoin still does not
-   complete the remaining interface qualification it owes — effort
-   configuration, the complete safe-passthrough list and the stdin `-`
-   prompt positional.
+   to 0.154.0, and the 2026-09-17 interface record measures the three
+   obligations that remained — effort configuration, the resume option
+   surface and the stdin `-` prompt positional. Neither closes
+   qualification: parser acceptance is not confinement, so an option the
+   subcommand merely parses is not thereby safe to carry across a rejoin.
+   `--ephemeral` and `--output-schema` are admitted by the allow-list and
+   are listed by that record as never previously supported, and nothing
+   supplied establishes how either behaves on a resume. Widening or
+   withdrawing either entry decides an unresolved semantic and is the
+   operator's word.
 
    DSH's session integration is selected as one exact route: the latest
    official core **0.1.5-rc.1** (`@deepseek-ai/dsh@0.1.5-rc.1` at
@@ -545,10 +551,14 @@ Alternatives weighed, each rejected on evidence rather than taste:
   accounting and pre-work rejection axes; observed
   identity, boundary, hands and accounting mismatches still refuse. The
   compiler carries each inline built-in model driver's assessment into the
-  engine so the inline coordinate is judged, not read as unmeasured. Full
-  0.154.0 interface qualification (effort configuration, the complete
-  safe-passthrough list and the stdin `-` positional) and task 11.1 remain
-  owed. The Claude
+  engine so the inline coordinate is judged, not read as unmeasured. The
+  0.154.0 interface obligations — effort configuration, the resume option
+  surface and the stdin `-` positional — are measured by
+  `.forge/tasks/controller-codex-interface-2026-09-17.json`. Task 11.1
+  remains owed nonetheless: an option the subcommand parses is not thereby
+  qualified to travel on a resume, and `--ephemeral` and `--output-schema`
+  are admitted by the allow-list while no supplied observation establishes
+  the persistence, restriction, root or accounting behaviour of either. The Claude
   `boxed-workspace`, DSH `headless-work` and LaneTally `wrapper-work-site`
   rejoins stay `unmeasured` because main does not perform them; the
   ruling enables none of the three.
