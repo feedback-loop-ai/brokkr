@@ -3,7 +3,9 @@
 Current commission: **DSH COMPOSITE IDENTITY**, run
 `dsh-composite-identity-issue-226-c181dcd8`, phase tasks, adopts proposal
 answer AF, the amended safety / AS1 scenarios and design `271ab978` over
-production `fa13eaa3` on `slice-dsh-composite`. Only task 8.8's digest
+production `fa13eaa3` on `slice-dsh-composite`, as reconciled by current
+design `01fb7d65` after the proposed-0056 dependency was repaired. Only task
+8.8's digest
 work **(a), (b) and (c)** is commissioned, in D10's order. Execute the
 [digest-only breakdown](#current-tasks-return--dsh-composite-digest-breakdown-2026-09-19)
 below. Part (d), the `dsh_launch`/`dsh_launch_with` planner, is outside
@@ -20,16 +22,17 @@ Task **8.8 stays unchecked** after this slice: its acceptance still spans
 planner part (d) and 8.10. The change ledger remains **84 complete / 17
 pending across 101 identifiers**; the local digest checklist below is
 subordinate to 8.8 and creates no change-wide task identifier. The five deltas
-contain **20 requirements / 171 scenarios**. Record the delivered digest
+contain **20 requirements / 174 scenarios**. Record the delivered digest
 foundation and the pending planner and 8.10 work exactly as the earlier Codex
 enablement slice recorded its delivered subset without reaching for its
 whole-task tick.
 
-No `returned_from` finding is supplied. Proposal, safety specification and
-design agree on the loader grammar, sole producer, fixed locators, one-pass
-reads, canonical containment, bounded pnpm reader and doctor behavior, so no
-earlier artifact must change before implementation. This tasks result is
-`drafted`, not `upstream`.
+The returned design result is `drafted` and supplies no unresolved finding.
+Its current D10 reconciliation adopts the repaired proposed decision, the
+174-scenario safety delta and the same loader grammar, sole producer, fixed
+locators, one-pass reads, canonical containment, pnpm-only bounded reader and
+doctor behavior. No earlier artifact must change before implementation. This
+tasks result is `drafted`, not `upstream`.
 
 Earlier CODEX, END TO END task return, retained as dated history:
 
@@ -7376,8 +7379,9 @@ re-measured. No push, merge, archive or Brokkr run.
 ## Current tasks return — DSH composite digest breakdown, 2026-09-19
 
 This is the executable breakdown for run
-`dsh-composite-identity-issue-226-c181dcd8`. Work the groups in order and
-tick each local checkbox only after its code, focused test and named removal
+`dsh-composite-identity-issue-226-c181dcd8`, repaired against current design
+`01fb7d65` and the resolved proposed-0056 dependency. Work the groups in
+order and tick each local checkbox only after its code, focused test and named removal
 control pass. These are clauses of pending task 8.8, not new change-wide task
 identifiers. They do not change the 84/17 ledger and they never authorize the
 8.8 checkbox.
@@ -7423,7 +7427,9 @@ home recording or start any part of 8.8(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4,
   Production callers may receive one structured observation but may neither
   submit a precomputed component/composite nor call a second serializer. A
   test-only synthetic observation constructor may isolate planner/classifier
-  tests. Prove the public-surface removal with compiling crate tests and a
+  tests. Generated SHA-256 text stays private and lowercase by construction;
+  add no digest newtype or public error hierarchy. Prove the public-surface
+  removal with compiling crate tests and a
   removal mutation that exposes or substitutes a competing producer and fails
   the assertion that consumes the sole observation — safety / AS1.
 
@@ -7438,15 +7444,17 @@ home recording or start any part of 8.8(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4,
   lifetime monitor — safety / AS1.
 
 - [ ] Replace lossy plugin walking with exact relative-path validation. Admit
-  exactly the six regular non-symlink files and only a direct
-  `<plugin>/node_modules/` directory as an ignored extra; do not traverse it
+  exactly the six regular non-symlink files and only a direct, real,
+  non-symlink `<plugin>/node_modules/` directory as an ignored extra; inspect
+  its metadata before deciding to skip it and do not traverse it
   and do not ignore that name below any other unexpected directory. Refuse and
   safely name a missing, extra, non-UTF-8, symlink, special or unreadable
   entry. Order exact UTF-8 slash spellings bytewise and hash the six
   `<relative path>\0<file SHA-256>\n` lines. Extend
   `the_plugin_component_is_bytewise_path_order_and_fails_closed` and the
-  existing walk-error tests; mutate the direct-only exception, path conversion
-  and regular-file guard separately and record the exact path/reason assertion
+  existing walk-error tests; mutate the direct-only exception, dependency-
+  directory metadata check, path conversion and regular-file guard separately
+  and record the exact path/reason assertion
   each mutation breaks — safety / AS1.
 
 - [ ] Apply one source-scalar rule before concatenation: reject empty values,
@@ -7484,7 +7492,8 @@ home recording or start any part of 8.8(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4,
   reasons. Add exact-bound and one-byte-over tests alongside
   `pnpm_locks_reject_every_unrecognized_construct`; mutate the bound
   comparison and one closed-grammar arm, observe their exact assertions fail,
-  then restore and pass — safety / AS1.
+  then restore and pass. Do not add this or another size cap to the hidden npm
+  lock — safety / AS1.
 
 ### 3. Compose the fixed identity from fixed locators — 8.8(b)
 
@@ -7524,7 +7533,9 @@ home recording or start any part of 8.8(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4,
   when its bundle is named. Exclude `cordis.yml`, raw profile
   `package.json` bytes, `pnpm-workspace.yaml`, env layers, credentials,
   settings, persisted state and per-seat overlays. Give every unreadable
-  source its responsible component and safe locator/reason. Mutate line order,
+  source its responsible component and safe locator/reason through the
+  smallest internal representation that preserves that detail. Mutate line
+  order,
   bundle order, home-patch absence and one exclusion separately against
   `the_canonical_composite_orders_lines_and_moves_with_its_inputs`,
   `the_dsh_composite_reads_the_qualified_locators_and_moves_with_them` and
@@ -7543,7 +7554,10 @@ home recording or start any part of 8.8(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4,
   time; assert the exact set and all six digests, the one adapted expression,
   upstream substitution digest and delta digest. Keep lock bytes, normalized
   triples, resolved bundle targets and profile-patch bytes explicitly
-  synthetic, with separate no-nested and direct-nested layouts. Assert no
+  synthetic, with separate no-nested and direct-nested layouts. Treat the
+  corrected 1,982-byte pnpm lock and 311,184-byte hidden npm lock measurements
+  as evidence that the fixed locators fit the bound, and never use the
+  superseded 277-byte `link:` lock as canonical fixture truth. Assert no
   hand-typed golden plugin component or composite. Mutate one of the five
   previously unchecked committed-file bytes/digest assertions and the
   adapted-expression assertion, observe the exact failure, restore, and leave
@@ -7611,3 +7625,22 @@ home recording or start any part of 8.8(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4,
   enablement remain pending. Leave global task 8.8 unchecked, leave the
   84-complete/17-pending ledger unchanged, commit the verified work unsigned
   in repository style, and never push — safety / AS1.
+
+### Tasks return validation — current DSH digest reconciliation, 2026-09-19
+
+This tasks visit re-read the three controller records and
+`extensions/dsh/PROVENANCE.md` in full, adopted current D10 at `01fb7d65`,
+and repaired the executable breakdown after the proposed-0056 dependency was
+resolved. The repair records the 174-scenario inventory, the direct real
+non-symlink dependency-directory check, pnpm-only byte cap, sealed
+constructor-produced digest representation, component-specific internal error
+detail and corrected canonical lock measurements. No design ambiguity or
+earlier-artifact defect remains, so the result is `drafted`, not `upstream`.
+
+Strict repository-wide OpenSpec validation passes 15/15 and `git diff
+--check` is clean. Direct counts remain 20 requirements, 174 scenarios and
+101 global task identifiers at 84 checked / 17 pending. Every local digest
+clause remains unchecked for implementation. Global task 8.8 remains unchecked;
+part (d), 8.10, the retained-home doctor recording, enablement and all other
+excluded work remain pending. This visit changes only this task artifact and
+does not run Rust, provider, registry, retained-home or planner behavior.
