@@ -1211,6 +1211,10 @@ fn a_composed_bundles_manifest_is_pinned() {
         // closure moves it once more: the declaration's `evidence.interface`
         // and `reason` no longer recite a debt the controller has since
         // measured, and one dated limitation was appended beside them.
+        // The 2026-09-19 ruling on #303 moves it again: the triage charter's
+        // `design` and `feature` criteria are rewritten to the who-decides
+        // cut, and the charter's bytes ride every route that seats it —
+        // `night-shift` and `gpt-flash` move for the same reason.
         "d95b41d920e0ca5db3012a4eae51449d16505733c4530a4eb83445dff36f336f",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
