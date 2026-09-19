@@ -3544,8 +3544,8 @@ fn dsh_launch_with(
                     observed = Some(version.clone());
                     if &version == applies_to {
                         if let Ok(value) = composite() {
-                            if value.canonical == declared {
-                                digest = Some(value.canonical.clone());
+                            if value.canonical() == declared {
+                                digest = Some(value.canonical().to_string());
                                 qualified = true;
                             }
                         }

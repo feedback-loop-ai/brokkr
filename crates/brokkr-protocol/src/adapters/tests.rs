@@ -4342,21 +4342,11 @@ fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
 /// A synthetic composite with a chosen canonical digest, so every
 /// qualifying and drifting planner case is a plain unit test.
 fn synthetic_dsh_composite(digest: &str) -> DshComposite {
-    DshComposite {
-        canonical: digest.to_string(),
-        core: "core".to_string(),
-        node: "v22.23.2".to_string(),
-        plugin: "plugin".to_string(),
-        dependencies: Vec::new(),
-        plugin_patch: "patch".to_string(),
-        profile_patch: "profile".to_string(),
-        profile_bundles: Vec::new(),
-        profile_patch_reload: "startup".to_string(),
-        home_patch: "absent".to_string(),
-        extension: None,
-        core_root: std::path::PathBuf::new(),
-        profile: std::path::PathBuf::new(),
-    }
+    // The producer's own test-only constructor. This suite cannot
+    // assemble an observation field by field: every member is private to
+    // the producer's module, which is what keeps a precomputed digest
+    // out of production's hands (council return 2026-09-19, F6).
+    DshComposite::synthetic(digest)
 }
 
 #[cfg(unix)]

@@ -2400,18 +2400,36 @@ fn the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name() {
         }
     );
 
-    // Malformed: refused, naming the field. Uppercase, short, long and
-    // non-hex are grammar refusals; the last three are MISTYPED — a
-    // number, a null and an object are not a digest, and none of them is
-    // coerced into one.
-    for bad in [
-        json!("A".repeat(64)),
-        json!("a".repeat(63)),
-        json!("a".repeat(65)),
-        json!("g".repeat(64)),
-        json!(0),
-        json!(null),
-        json!({"digest": "a".repeat(64)}),
+    // Malformed: refused by the RESPONSIBLE reason, not merely by a
+    // message that happens to carry the field's name. Uppercase, short,
+    // long and non-hex are grammar refusals that quote the offending
+    // value back; the last three are MISTYPED — a number, a null and an
+    // object are not a digest, and none of them is coerced into one, so
+    // each fails the string rule instead.
+    //
+    // Asserting only `contains("wrapper_digest")` could not tell those
+    // two refusals apart, and would have been satisfied by a loader that
+    // rejected every digest for the wrong reason (council return
+    // 2026-09-19, F8).
+    // The refusal's prefix names the adapter FILE, whose temporary path
+    // differs on every run; everything from the shape onwards is fixed.
+    let grammar = |value: &str| {
+        format!(
+            "'resume' 'work-site' 'identity' 'wrapper_digest' must be 64 lowercase hexadecimal \
+             characters — the declared composite identity design D6 writes at enablement; \
+             '{value}' is not"
+        )
+    };
+    let mistyped =
+        "'resume' 'work-site' 'identity' needs a non-empty string 'wrapper_digest'".to_string();
+    for (bad, reason) in [
+        (json!("A".repeat(64)), grammar(&"A".repeat(64))),
+        (json!("a".repeat(63)), grammar(&"a".repeat(63))),
+        (json!("a".repeat(65)), grammar(&"a".repeat(65))),
+        (json!("g".repeat(64)), grammar(&"g".repeat(64))),
+        (json!(0), mistyped.clone()),
+        (json!(null), mistyped.clone()),
+        (json!({"digest": "a".repeat(64)}), mistyped.clone()),
     ] {
         let tree = with_resume(json!({
             "work-site": {"status": "unmeasured",
@@ -2419,7 +2437,7 @@ fn the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name() {
                 "classes": ["work"], "boundaries": ["namespace"], "hands": "boxed"}
         }));
         let error = tree.adapters_error();
-        assert!(error.contains("wrapper_digest"), "{error}");
+        assert!(error.contains(&reason), "{bad}: {error}");
     }
 
     // Beside `unknown`: the unknown form admits `unknown` alone.

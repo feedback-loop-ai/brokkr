@@ -10,6 +10,44 @@ fn write(dir: &Path, relative: &str, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
 }
 
+/// Write an executable file, STAGED beside its destination and renamed
+/// in: the destination never carries a write descriptor, so a child
+/// forked mid-write cannot make `exec` refuse it with ETXTBSY (#255).
+/// Run a prepared command, retrying only the ETXTBSY a freshly linked
+/// binary can answer with.
+///
+/// A test that re-executes its own binary can reach `exec` while another
+/// thread of this same run still holds a write descriptor to a file it
+/// staged; the kernel then refuses with `Text file busy`. That is a fact
+/// about the moment, not about the code under test, and a coverage gate
+/// that demands one clean run cannot be left to lose a race (#255).
+#[cfg(unix)]
+fn spawn_retrying_etxtbsy(command: &mut std::process::Command) -> std::process::Output {
+    for _ in 0..50 {
+        match command.output() {
+            Ok(output) => return output,
+            Err(error) if error.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => panic!("the child test binary runs: {error}"),
+        }
+    }
+    panic!("the child test binary stayed busy");
+}
+
+fn stage_executable(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
+    let path = dir.join(name);
+    let staging = dir.join(format!(".{name}.staging"));
+    fs::write(&staging, body).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    fs::rename(&staging, &path).unwrap();
+    path
+}
+
 fn plugin_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/dsh/plugin-cli-session")
 }
@@ -29,7 +67,9 @@ fn lock(text: &str) -> Value {
 /// The component digest over a directory, which is how every caller
 /// reaches it: one walk, then the serialization of what it observed.
 fn component_of(dir: &Path, expected: &[&str]) -> Result<String, CompositeError> {
-    Ok(component_digest(&plugin_file_digests(dir, expected)?))
+    Ok(component_digest(&plugin_file_digests(
+        "plugin", dir, expected,
+    )?))
 }
 
 /// The refusal from a producer whose success value is a private struct
@@ -167,11 +207,9 @@ fn pnpm_refuses_a_short_key_and_a_document_marker() {
         &[],
     )
     .unwrap_err();
-    assert!(
-        short
-            .to_string()
-            .contains("no '@' after its first character"),
-        "{short}"
+    assert_eq!(
+        short.to_string(),
+        "pnpm lock is unreadable: 'a': no '@' after the first character"
     );
     // A key whose first character is multibyte is read by character, not
     // sliced at byte one: with an `@` behind it the entry is a triple, and
@@ -189,11 +227,9 @@ fn pnpm_refuses_a_short_key_and_a_document_marker() {
         &[],
     )
     .unwrap_err();
-    assert!(
-        multibyte
-            .to_string()
-            .contains("no '@' after its first character"),
-        "{multibyte}"
+    assert_eq!(
+        multibyte.to_string(),
+        "pnpm lock is unreadable: 'éa': no '@' after the first character"
     );
     for marker in ["---", "..."] {
         let lock = format!("lockfileVersion: '9.0'\npackages:\n  {marker}\n");
@@ -329,20 +365,94 @@ fn npm_and_pnpm_agree_on_equivalent_entries() {
     );
 }
 
+/// Every refusal below is asserted by its REASON. A bare `is_err()` is
+/// satisfied by a document that failed for an unrelated cause — the
+/// construct under test never reached the reader — so it proves nothing
+/// about the grammar (council return 2026-09-19, F8).
 #[test]
 fn unrecognized_pnpm_constructs_are_refused() {
-    for text in [
-        "\tlockfileVersion: '9.0'\npackages:\n",
-        "lockfileVersion: '9.0'\n# comment\npackages:\n",
-        "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution:\n",
-        "lockfileVersion: '9.0'\npackages:\n\n  debug:\n    resolution: {integrity: sha512-X}\n",
-        "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    engines: {node: '>=1'}\n",
-        "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    resolution: {integrity: sha512-Y}\n",
-        "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {tarball: x}\n",
-        "lockfileVersion: '9.1'\npackages:\n",
+    for (text, reason) in [
+        ("\tlockfileVersion: '9.0'\npackages:\n", "a tab"),
+        (
+            "lockfileVersion: '9.0'\n# comment\npackages:\n",
+            "a comment or document marker",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution:\n",
+            "a block-form or malformed resolution",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug:\n    resolution: {integrity: sha512-X}\n",
+            "'debug': no '@' after the first character",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    engines: {node: '>=1'}\n",
+            "'debug@2.6.9': no resolution integrity",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    resolution: {integrity: sha512-Y}\n",
+            "'debug@2.6.9': repeated resolution",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {tarball: x}\n",
+            "a resolution without integrity",
+        ),
+        ("lockfileVersion: '9.1'\npackages:\n", "lockfileVersion is not 9.0"),
     ] {
-        assert!(pnpm_dependencies(text, &[]).is_err(), "{text:?}");
+        assert_eq!(
+            refused(pnpm_dependencies(text, &[])),
+            format!("pnpm lock is unreadable: {reason}"),
+            "{text:?}"
+        );
     }
+}
+
+/// The two package keys that separate a validated reader from a
+/// plausible one. `a b@1` splits into the name `a b` and the version `1`;
+/// `a@b 1` splits into the name `a` and the version `b 1`. Both
+/// serialized to the IDENTICAL dependency line `a b 1 sha512-X`, so two
+/// different installs shared one identity. The key crosses the scalar
+/// rule whole, before the split, which is what tells them apart
+/// (council return 2026-09-19, F1).
+#[test]
+fn two_package_keys_that_serialized_to_one_line_are_both_refused() {
+    let lock = |key: &str| {
+        format!("lockfileVersion: '9.0'\npackages:\n  '{key}':\n    resolution: {{integrity: sha512-X}}\n")
+    };
+    for key in ["a b@1", "a@b 1"] {
+        assert_eq!(
+            refused(pnpm_dependencies(&lock(key), &[])),
+            format!("pnpm lock is unreadable: '{key}': the key carries whitespace")
+        );
+    }
+    // The line both of them WOULD have produced, from a key that carries
+    // no whitespace at all: the collision was real, not hypothetical.
+    assert_eq!(
+        pnpm_dependencies(&lock("ab@1"), &[]).unwrap(),
+        vec!["ab 1 sha512-X".to_string()]
+    );
+    // A name that is not a package name, and a scope with no name
+    // behind it.
+    for (key, reason) in [
+        ("@scope@1.0.0", "'@scope' is not a package name"),
+        ("a/b@1.0.0", "'a/b' is not a package name"),
+        // A well-formed scope whose NAME half is not a component: the
+        // scope alone passing is not the key passing. And the mirror of
+        // it — an empty scope — which refuses before the name is read.
+        ("@scope/na/me@1.0.0", "'@scope/na/me' is not a package name"),
+        ("@/x@1.0.0", "'@/x' is not a package name"),
+    ] {
+        assert_eq!(
+            refused(pnpm_dependencies(&lock(key), &[])),
+            format!("pnpm lock is unreadable: '{key}': {reason}")
+        );
+    }
+    // A NUL inside a quoted key never reaches the dependency line.
+    let nul = lock("a\0b@1");
+    assert_eq!(
+        refused(pnpm_dependencies(&nul, &[])),
+        "pnpm lock is unreadable: 'a\0b@1': the key carries a NUL"
+    );
 }
 
 /// The pnpm lock is read through an INCLUSIVE 8,388,608-byte bound, and
@@ -513,7 +623,7 @@ fn only_an_ancestor_of_a_declared_file_is_a_walkable_directory() {
 #[test]
 fn the_committed_plugin_set_is_the_six_files_and_the_one_expression_delta() {
     let dir = plugin_dir();
-    let found = plugin_file_digests(&dir, &PLUGIN_FILES).unwrap();
+    let found = plugin_file_digests("plugin", &dir, &PLUGIN_FILES).unwrap();
     let names: Vec<&str> = found.keys().map(String::as_str).collect();
     assert_eq!(names, PLUGIN_FILES.to_vec());
     // The full committed-adapted digest map from PROVENANCE.md, not just
@@ -1009,6 +1119,227 @@ fn the_dsh_composite_composes_the_conditional_extension_only_when_listed() {
         .any(|b| b == "brokkr-dsh-resume-policy"));
 }
 
+/// A bundle candidate this producer could not INSPECT is unreadable, and
+/// the search stops there. `Path::is_file` answered `false` for a
+/// permission failure exactly as it answers `false` for absence, so the
+/// resolver walked past a candidate the Node loader would have taken and
+/// described a DIFFERENT installed copy further down the chain (council
+/// return 2026-09-19, F3).
+#[cfg(unix)]
+#[test]
+fn a_bundle_candidate_that_cannot_be_inspected_stops_the_search() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let install = Synthetic::new();
+    // The profile copy — the one the search would reach next — is valid
+    // and complete, so nothing but the sealed candidate can explain the
+    // refusal.
+    assert!(install.composite().plugin.len() == 64);
+
+    // The FIRST candidate on the chain: `<core>/node_modules/@deepseek-ai
+    // /dsh/node_modules/<bundle>`, sealed so its manifest cannot be
+    // stat'ed at all.
+    let sealed = install
+        .seams
+        .home
+        .parent()
+        .unwrap()
+        .join("core/node_modules/@deepseek-ai/dsh/node_modules/dsh-plugin-cli-session");
+    write(&sealed, "package.json", b"{}");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = dsh_composite_with(&install.seams, &install.node(), &[]);
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let error = refused(result);
+    assert!(
+        error.starts_with(&format!(
+            "the DSH layout is unreadable: bundle 'dsh-plugin-cli-session': {}/package.json cannot be read: ",
+            sealed.display()
+        )),
+        "the refusal names the candidate it could not inspect: {error}"
+    );
+
+    // With the sealed candidate GONE the same layout resolves to the
+    // profile copy, which is what makes the refusal above the candidate's
+    // and not the fixture's. (Unsealing alone is not the control: that
+    // candidate then resolves inside the core root, and a plugin outside
+    // the profile is its own refusal.)
+    fs::remove_dir_all(&sealed).unwrap();
+    assert_eq!(install.composite().plugin.len(), 64);
+
+    // A manifest that is present but is not a regular file is the same
+    // kind of failure, and is not absence either.
+    let shadow = install
+        .profile()
+        .join("node_modules/brokkr-dsh-resume-policy/package.json");
+    fs::create_dir_all(&shadow).unwrap();
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
+    );
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        format!(
+            "the DSH layout is unreadable: bundle 'brokkr-dsh-resume-policy': {} is not a regular file",
+            shadow.display()
+        )
+    );
+}
+
+/// D6's measured executable is `<core>/lib/bin.js` carrying EXACTLY
+/// `#!/usr/bin/env node`. Both are checked, and each on its own: a core
+/// whose manifest agrees with the executable it ships still has to be
+/// at the measured locator, and a CRLF shebang is not the measured first
+/// line (council return 2026-09-19, F5).
+#[test]
+fn the_core_executable_must_be_lib_bin_js_with_the_exact_shebang() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // A manifest that names a DIFFERENT file, which exists and carries
+    // the right shebang, beside a `lib/bin.js` that also exists. The
+    // manifest/executable equality holds; the locator does not.
+    let pkg = root.join("node_modules/@deepseek-ai/dsh");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/other.js"}}"#,
+    );
+    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write(&pkg, "lib/other.js", b"#!/usr/bin/env node\n");
+    write(root, "node_modules/.package-lock.json", CORE_LOCK);
+    let other = pkg.join("lib/other.js");
+    let error = refused(resolve_core(other.to_str().unwrap()));
+    assert_eq!(
+        error,
+        format!(
+            "the DSH layout is unreadable: {} is not the core package's lib/bin.js ({})",
+            other.canonicalize().unwrap().display(),
+            pkg.join("lib/bin.js").canonicalize().unwrap().display()
+        )
+    );
+
+    // The same core with the measured locator resolves, so the refusal
+    // above is the locator's alone.
+    let bin = pkg.join("lib/bin.js");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
+    );
+    assert_eq!(
+        resolve_core(bin.to_str().unwrap()).unwrap().version,
+        "1.0.0"
+    );
+
+    // A CRLF shebang. The kernel would read `env node\r`, which is not a
+    // program; the inherited reader stripped the CR and called it the
+    // measured first line.
+    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\r\nrest\n");
+    assert_eq!(
+        refused(resolve_core(bin.to_str().unwrap())),
+        format!(
+            "the DSH layout is unreadable: {}: first line is not the env node shebang",
+            bin.canonicalize().unwrap().display()
+        )
+    );
+
+    // And a core whose `lib/bin.js` is missing altogether is named by the
+    // locator it could not canonicalize, never by a raw-path fallback.
+    let bare = tempfile::tempdir().unwrap();
+    let pkg = bare.path().join("node_modules/@deepseek-ai/dsh");
+    write(
+        &pkg,
+        "package.json",
+        br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/other.js"}}"#,
+    );
+    write(&pkg, "lib/other.js", b"#!/usr/bin/env node\n");
+    write(bare.path(), "node_modules/.package-lock.json", CORE_LOCK);
+    let error = refused(resolve_core(pkg.join("lib/other.js").to_str().unwrap()));
+    assert!(
+        error.starts_with(&format!(
+            "the DSH layout is unreadable: {}: ",
+            pkg.join("lib/bin.js").display()
+        )),
+        "{error}"
+    );
+}
+
+/// Each unreadable source names the COMPONENT whose failure it is. The
+/// hidden npm lock reported as "the DSH layout" sent an operator holding
+/// a corrupt lock to look at directories, and extension drift reported as
+/// "plugin component" sent them to the wrong installed package (council
+/// return 2026-09-19, F9).
+#[test]
+fn an_unreadable_npm_lock_and_extension_are_named_by_their_own_component() {
+    let install = Synthetic::new();
+    let core = install.seams.home.parent().unwrap().join("core");
+
+    // The hidden npm lock: corrupt, then absent.
+    let lock = core.join("node_modules/.package-lock.json");
+    fs::write(&lock, b"not json").unwrap();
+    let error = refused(dsh_composite_with(&install.seams, &install.node(), &[]));
+    assert!(
+        error.starts_with(&format!(
+            "npm lock is unreadable: {}: not JSON: ",
+            lock.display()
+        )),
+        "{error}"
+    );
+    fs::remove_file(&lock).unwrap();
+    let error = refused(dsh_composite_with(&install.seams, &install.node(), &[]));
+    assert!(
+        error.starts_with(&format!("npm lock is unreadable: {}: ", lock.display())),
+        "{error}"
+    );
+    // A lock that parses but has no core record is the lock's failure too.
+    fs::write(&lock, br#"{"packages":{}}"#).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "npm lock is unreadable: no node_modules/@deepseek-ai/dsh entry"
+    );
+    fs::write(
+        &lock,
+        br#"{"packages":{
+          "node_modules/@deepseek-ai/dsh":{"version":"0.1.5-rc.2","integrity":"sha512-CORE"},
+          "node_modules/debug":{"version":"2.6.9","integrity":"sha512-DEBUG"}
+        }}"#,
+    )
+    .unwrap();
+
+    // The conditional extension's own file set, drifted.
+    write(
+        &install.profile(),
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
+    );
+    let extension = install
+        .profile()
+        .join("node_modules/brokkr-dsh-resume-policy");
+    for file in EXTENSION_FILES {
+        write(&extension, file, file.as_bytes());
+    }
+    assert!(install.composite().extension.is_some());
+    fs::remove_file(extension.join("index.js")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "extension component is unreadable: missing expected file 'index.js'",
+        "the extension's drift is the EXTENSION's, not the plugin's"
+    );
+    // The plugin's own drift still answers as the plugin's, so the two
+    // components are told apart rather than merely renamed.
+    write(&extension, "index.js", b"index.js");
+    let plugin = install
+        .profile()
+        .join("node_modules/dsh-plugin-cli-session");
+    fs::remove_file(plugin.join("README.md")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "plugin component is unreadable: missing expected file 'README.md'"
+    );
+}
+
 const CORE_LOCK: &[u8] =
     br#"{"packages":{"node_modules/@deepseek-ai/dsh":{"version":"1.0.0","integrity":"sha512-X"}}}"#;
 
@@ -1023,17 +1354,141 @@ fn core_package(root: &Path, manifest: &[u8], lock: &[u8]) -> PathBuf {
 #[test]
 fn executable_resolution_walks_path_entries_and_refuses_a_miss() {
     let dir = tempfile::tempdir().unwrap();
-    let tool = dir.path().join("mytool");
-    fs::write(&tool, b"x").unwrap();
+    let tool = stage_executable(dir.path(), "mytool", b"#!/bin/sh\ntrue\n");
     let path = Some(dir.path().as_os_str().to_os_string());
     let found = resolve_executable_in("mytool", path.clone()).unwrap();
-    assert_eq!(found, dir.path().canonicalize().unwrap().join("mytool"));
-    // An empty entry is skipped and a miss walks off the end.
-    assert!(resolve_executable_in("mytool", Some(OsString::from(""))).is_err());
-    assert!(resolve_executable_in("not-here", path).is_err());
+    assert_eq!(found, tool.canonicalize().unwrap());
+    assert_eq!(
+        refused(resolve_executable_in("not-here", path)),
+        "the DSH layout is unreadable: 'not-here' is not on PATH"
+    );
     // A command carrying a separator is canonicalized, not searched.
     assert!(resolve_executable_in("/definitely/not/here", None).is_err());
     assert!(resolve_executable_in("a\\b", None).is_err());
+}
+
+/// The search is the CHILD's. A candidate that is present but not
+/// executable is walked past exactly as a spawning child walks past it,
+/// so this resolver and `Command` agree on which file they are naming.
+///
+/// The inherited reader stopped at the first regular FILE, so a
+/// `PATH=A:B` holding a non-executable `A/dsh` beside an executable
+/// `B/dsh` paired B's version with A's composite (council return
+/// 2026-09-19, F4).
+#[cfg(unix)]
+#[test]
+fn path_resolution_walks_past_a_candidate_a_child_could_not_execute() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first");
+    let second = dir.path().join("second");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+
+    // Present, readable, a regular file — and not executable.
+    let decoy = first.join("dsh");
+    fs::write(&decoy, b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(&decoy, fs::Permissions::from_mode(0o644)).unwrap();
+    let real = stage_executable(&second, "dsh", b"#!/bin/sh\ntrue\n");
+
+    let path = Some(OsString::from(format!(
+        "{}:{}",
+        first.display(),
+        second.display()
+    )));
+    assert_eq!(
+        resolve_executable_in("dsh", path).unwrap(),
+        real.canonicalize().unwrap(),
+        "the non-executable candidate is walked past, as a spawning child walks past it"
+    );
+
+    // A directory named like the command is not a candidate, and neither
+    // is one whose metadata cannot be read at all.
+    let shadow = dir.path().join("shadow");
+    fs::create_dir_all(shadow.join("dsh")).unwrap();
+    let sealed = dir.path().join("sealed");
+    fs::create_dir_all(&sealed).unwrap();
+    stage_executable(&sealed, "dsh", b"#!/bin/sh\ntrue\n");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+    let path = Some(OsString::from(format!(
+        "{}:{}:{}",
+        shadow.display(),
+        sealed.display(),
+        second.display()
+    )));
+    let resolved = resolve_executable_in("dsh", path);
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(resolved.unwrap(), real.canonicalize().unwrap());
+
+    // Nothing executable anywhere on the search is the named refusal.
+    assert_eq!(
+        refused(resolve_executable_in(
+            "dsh",
+            Some(OsString::from(first.display().to_string()))
+        )),
+        "the DSH layout is unreadable: 'dsh' is not on PATH"
+    );
+}
+
+/// An EMPTY `PATH` entry names the current directory — POSIX's rule, and
+/// the one a spawning child follows. The inherited reader skipped it, so
+/// a command the child WOULD have found was reported as missing.
+///
+/// The working directory is process-wide state, so the positive case runs
+/// in a CHILD of this test binary whose working directory is the fixture.
+/// Changing it in-process would reach every other test in the run.
+#[cfg(unix)]
+#[test]
+fn an_empty_path_entry_is_the_current_directory() {
+    const CASE: &str = "BROKKR_COMPOSITE_EMPTY_PATH_ENTRY";
+
+    if std::env::var_os(CASE).is_some() {
+        // In the child: `mytool` exists only in the working directory the
+        // parent chose, and only the empty entry can reach it.
+        let found = resolve_executable_in("mytool", Some(OsString::from(":/nonexistent"))).unwrap();
+        assert_eq!(
+            found,
+            std::env::current_dir()
+                .unwrap()
+                .canonicalize()
+                .unwrap()
+                .join("mytool"),
+            "the empty entry resolved to the current directory"
+        );
+        assert_eq!(
+            refused(resolve_executable_in(
+                "mytool",
+                Some(OsString::from("/nonexistent"))
+            )),
+            "the DSH layout is unreadable: 'mytool' is not on PATH",
+            "and nothing else on that search could have found it"
+        );
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    stage_executable(dir.path(), "mytool", b"#!/bin/sh\ntrue\n");
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "adapters::composite::tests::an_empty_path_entry_is_the_current_directory",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .current_dir(dir.path())
+        .env(CASE, "1");
+    let output = spawn_retrying_etxtbsy(&mut child);
+    let said = String::from_utf8_lossy(&output.stdout).into_owned()
+        + &String::from_utf8_lossy(&output.stderr);
+    // A libtest filter that matches nothing exits ZERO, which would make
+    // this whole control pass while asserting nothing at all.
+    assert!(
+        said.contains("1 passed") || said.contains("1 failed"),
+        "the child ran the case rather than filtering it away: {said}"
+    );
+    assert!(output.status.success(), "{said}");
 }
 
 // Unix only: the case is built from POSIX literals — a `:`-separated
@@ -1078,21 +1533,11 @@ fn global_folders_reads_node_path_home_and_the_runtime_prefix() {
 #[cfg(unix)]
 #[test]
 fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     // Staged beside the target and renamed in: the destination never
     // carries a write descriptor, so a child forked mid-write cannot make
     // `exec` refuse it with ETXTBSY (#255).
-    let stage = |name: &str, body: &str| {
-        let path = dir.path().join(name);
-        let staging = dir.path().join(format!(".{name}.staging"));
-        fs::write(&staging, body).unwrap();
-        let mut perms = fs::metadata(&staging).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&staging, perms).unwrap();
-        fs::rename(&staging, &path).unwrap();
-        path
-    };
+    let stage = |name: &str, body: &str| stage_executable(dir.path(), name, body.as_bytes());
     // Each refusal is asserted by its REASON, not merely by being an error.
     // A bare `is_err()` is satisfied by a spawn that failed for an unrelated
     // cause — `Text file busy` on a shim written moments ago, say — so the
@@ -1146,14 +1591,62 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // `selected` answers with the executable even when the home seam
     // fails, which is what keeps doctor's version probe alive beside an
     // unreadable composite.
+    //
+    // The selection is the ADAPTER's, resolved once: the file the
+    // declared name resolves to, or that name unchanged when it resolves
+    // to nothing. Asserting the literal `dsh` here made this test fail
+    // under any configured `BROKKR_DSH_BIN` — an environment an operator
+    // running the suite may well have, and one this seat reproduced
+    // (council return 2026-09-19, F11).
     let (executable, seams) = DshSeams::selected();
-    assert_eq!(executable, "dsh");
-    assert_eq!(seams.is_ok(), crate::transcript::dsh_home().is_some());
+    let declared = super::super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
+    match resolve_executable(&declared) {
+        Ok(path) => assert_eq!(Path::new(&executable), path),
+        Err(_) => assert_eq!(executable, declared),
+    }
+    assert_eq!(
+        seams.as_ref().ok().is_some(),
+        crate::transcript::dsh_home().is_some()
+    );
+    // The probe target and the producer's input are ONE string, so a
+    // version and a composite cannot describe two installs.
+    if let Ok(seams) = &seams {
+        assert_eq!(seams.executable, executable);
+    }
+
     assert!(DshSeams::resolve_with("dsh".to_string(), None).is_err());
     let dir = tempfile::tempdir().unwrap();
     let seams = DshSeams::resolve_with("dsh".to_string(), Some(dir.path().to_path_buf())).unwrap();
     assert_eq!(seams.executable, "dsh");
     assert_eq!(seams.home, dir.path());
+
+    // Each arm of the selection, DRIVEN rather than observed: whichever
+    // `dsh` this host has installed decides which arm the real call above
+    // takes, and a gate that demands every line cannot rest on that.
+    let home = Some(dir.path().to_path_buf());
+    let resolved = dir.path().join("resolved-dsh");
+    let (executable, seams) =
+        DshSeams::selected_from("dsh".to_string(), |_| Ok(resolved.clone()), home.clone());
+    assert_eq!(Path::new(&executable), resolved);
+    assert_eq!(seams.unwrap().executable, executable);
+    // A name that resolves to nothing keeps its declared spelling, so
+    // the report that follows names what was looked for.
+    let (executable, seams) = DshSeams::selected_from(
+        "dsh".to_string(),
+        |name| Err(CompositeError::Config(format!("'{name}' is not on PATH"))),
+        home.clone(),
+    );
+    assert_eq!(executable, "dsh");
+    assert_eq!(seams.unwrap().executable, "dsh");
+    // And a resolved path this platform cannot spell as UTF-8 keeps the
+    // declared name rather than a lossy rendering of itself.
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let raw = PathBuf::from(std::ffi::OsStr::from_bytes(b"/tmp/dsh\xff"));
+        let (executable, _) = DshSeams::selected_from("dsh".to_string(), |_| Ok(raw), home);
+        assert_eq!(executable, "dsh");
+    }
 }
 
 #[test]
@@ -1175,7 +1668,7 @@ fn the_plugin_walk_refuses_symlinks_special_files_and_unreadable_roots() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), "LICENSE", b"x");
     std::os::unix::fs::symlink(dir.path().join("LICENSE"), dir.path().join("link")).unwrap();
-    let error = plugin_file_digests(dir.path(), &PLUGIN_FILES).unwrap_err();
+    let error = plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES).unwrap_err();
     assert_eq!(
         error.to_string(),
         "plugin component is unreadable: 'link' is a symlink"
@@ -1184,14 +1677,18 @@ fn the_plugin_walk_refuses_symlinks_special_files_and_unreadable_roots() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), "LICENSE", b"x");
     let _socket = UnixListener::bind(dir.path().join("sock")).unwrap();
-    let error = plugin_file_digests(dir.path(), &PLUGIN_FILES).unwrap_err();
+    let error = plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES).unwrap_err();
     assert_eq!(
         error.to_string(),
         "plugin component is unreadable: 'sock' is neither a file nor a directory"
     );
 
-    let error =
-        plugin_file_digests(Path::new("/definitely/not/a/realdir"), &PLUGIN_FILES).unwrap_err();
+    let error = plugin_file_digests(
+        "plugin",
+        Path::new("/definitely/not/a/realdir"),
+        &PLUGIN_FILES,
+    )
+    .unwrap_err();
     assert!(
         error
             .to_string()
@@ -1212,7 +1709,7 @@ fn the_plugin_walk_refuses_a_name_that_is_not_utf8() {
     write(dir.path(), "LICENSE", b"x");
     let raw = dir.path().join(std::ffi::OsStr::from_bytes(b"LICENSE\xff"));
     fs::write(&raw, b"x").unwrap();
-    let error = plugin_file_digests(dir.path(), &PLUGIN_FILES).unwrap_err();
+    let error = plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES).unwrap_err();
     assert_eq!(
         error.to_string(),
         "plugin component is unreadable: the component directory holds an entry whose name is not UTF-8"
@@ -1233,7 +1730,7 @@ fn the_plugin_walk_refuses_a_declared_file_it_cannot_read() {
     }
     let locked = dir.path().join("LICENSE");
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
-    let result = plugin_file_digests(dir.path(), &PLUGIN_FILES);
+    let result = plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES);
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).unwrap();
     let error = result.unwrap_err();
     assert!(
@@ -1256,7 +1753,15 @@ fn the_plugin_walk_refuses_a_directory_entry_the_reader_cannot_yield() {
         )))))
     };
     let mut found = BTreeMap::new();
-    let error = walk(dir.path(), "", &PLUGIN_FILES, &mut found, &failing).unwrap_err();
+    let error = walk(
+        "plugin",
+        dir.path(),
+        "",
+        &PLUGIN_FILES,
+        &mut found,
+        &failing,
+    )
+    .unwrap_err();
     assert_eq!(
         error.to_string(),
         "plugin component is unreadable: the component directory yielded an unreadable entry: \
@@ -1278,7 +1783,7 @@ fn the_plugin_walk_refuses_an_entry_metadata_it_cannot_read() {
     fs::create_dir_all(&locked).unwrap();
     write(&locked, "LICENSE", b"x");
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o400)).unwrap();
-    let result = plugin_file_digests(&locked, &PLUGIN_FILES);
+    let result = plugin_file_digests("plugin", &locked, &PLUGIN_FILES);
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
     let error = result.unwrap_err();
     assert!(error.to_string().contains("Permission denied"), "{error}");
@@ -1320,55 +1825,195 @@ fn pnpm_locks_reject_every_unrecognized_construct() {
         pnpm_dependencies(blank, &[]).unwrap(),
         vec!["debug 2.6.9 sha512-X".to_string()]
     );
-    // An all-blank document has no version header.
-    assert!(pnpm_dependencies("\n\n", &[]).is_err());
-    // A first non-blank line that is not the version header.
-    assert!(pnpm_dependencies("foo\n", &[]).is_err());
-    // A child line before `packages:` is ignored.
-    assert!(pnpm_dependencies("lockfileVersion: '9.0'\n  stray: x\npackages:\n", &[]).is_ok());
-    // A package key without a trailing colon.
-    assert!(pnpm_dependencies("lockfileVersion: '9.0'\npackages:\n  debug@2.6.9\n", &[]).is_err());
-    // An empty version after the `@`.
-    assert!(pnpm_dependencies(
-        "lockfileVersion: '9.0'\npackages:\n  a@:\n    resolution: {integrity: sha512-X}\n",
-        &[]
-    )
-    .is_err());
-    // An empty resolution integrity.
-    assert!(pnpm_dependencies(
-        "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: }\n",
-        &[]
-    )
-    .is_err());
-    // A resolution outside any entry.
-    assert!(pnpm_dependencies(
-        "lockfileVersion: '9.0'\npackages:\n    resolution: {integrity: sha512-X}\n",
-        &[]
-    )
-    .is_err());
-    // An entry with no resolution row at all.
-    assert!(pnpm_dependencies(
-        "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    engines: {node: '>=1'}\n",
-        &[]
-    )
-    .is_err());
+    // A recognized section that carries no identity keeps its body
+    // skipped, and a block-form package child opens a region whose own
+    // lines are skipped: both are the positive controls the closed
+    // arms below are measured against.
+    let full = "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: false\n\nimporters:\n\n  .:\n    dependencies:\n      x:\n        specifier: file:/tmp/x\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    engines: {node: '>=1'}\n    peerDependencies:\n      '@scope/peer': '>=1'\n\nsnapshots:\n\n  debug@2.6.9: {}\n";
+    assert_eq!(
+        pnpm_dependencies(full, &[]).unwrap(),
+        vec!["debug 2.6.9 sha512-X".to_string()]
+    );
+    for (text, reason) in [
+        // An all-blank document has no version header.
+        ("\n\n", "empty document"),
+        // A first non-blank line that is not the version header.
+        ("foo\n", "no lockfileVersion header"),
+        // A version scalar whose quote is never closed. `trim_matches`
+        // repaired this into `9.0`.
+        ("lockfileVersion: '9.0\npackages:\n", "a malformed lockfileVersion"),
+        // A CRLF document read as a Unix one: `str::lines` drops the CR
+        // silently, so the two spellings hashed alike.
+        ("lockfileVersion: '9.0'\r\npackages:\r\n", "a carriage return"),
+        // A child line before any section opened. The inherited reader
+        // IGNORED this, which is the whole of "arbitrary children are
+        // skipped".
+        (
+            "lockfileVersion: '9.0'\n  stray: x\npackages:\n",
+            "a child line outside every section",
+        ),
+        // An unrecognized top-level key, and a top-level line that is no
+        // mapping key at all.
+        (
+            "lockfileVersion: '9.0'\nrogue:\n  a@1.0.0:\npackages:\n",
+            "an unrecognized top-level key 'rogue'",
+        ),
+        ("lockfileVersion: '9.0'\nrogue\n", "a top-level line that is not a mapping key"),
+        // A document with no `packages:` section at all yields an empty
+        // dependency set, which is a silent answer rather than a read one.
+        (
+            "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: false\n",
+            "no packages section",
+        ),
+        // Odd indentation, and a depth with no open block above it.
+        (
+            "lockfileVersion: '9.0'\npackages:\n   debug@2.6.9:\n",
+            "an odd indentation",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n      deeper: x\n",
+            "a package line at an unrecognized indentation",
+        ),
+        // A package key without a trailing colon, and the flow form the
+        // grammar does not admit.
+        (
+            "lockfileVersion: '9.0'\npackages:\n  debug@2.6.9\n",
+            "a package key is not colon-terminated",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n  debug@2.6.9: {}\n",
+            "a package key is not colon-terminated",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n  debug@2.6.9: nested:\n",
+            "a package key that is itself a mapping",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n  'debug@2.6.9:\n",
+            "a malformed package key",
+        ),
+        // An empty version after the `@`.
+        (
+            "lockfileVersion: '9.0'\npackages:\n  a@:\n    resolution: {integrity: sha512-X}\n",
+            "'a@': empty version",
+        ),
+        // An unrecognized package child.
+        (
+            "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    rogue: x\n",
+            "an unrecognized package child 'rogue'",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    rogue\n",
+            "a package child that is not a mapping key",
+        ),
+        // An empty resolution integrity, and one whose quote never closes.
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: }\n",
+            "a malformed resolution flow map",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: 'sha512-X}\n",
+            "a malformed resolution flow map",
+        ),
+        // The SUBSTRING match this reader no longer makes: `xintegrity`
+        // and `fakeintegrity` answered for `integrity`, so a changed
+        // actual integrity left identity unmoved.
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {xintegrity: sha512-X}\n",
+            "a malformed resolution flow map",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {fakeintegrity: sha512-X, tarball: x}\n",
+            "a malformed resolution flow map",
+        ),
+        // A quote INSIDE a closed scalar, and a stray quote inside a bare
+        // one: neither is unwrapped into something plausible.
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: 'sha512'X'}\n",
+            "a malformed resolution flow map",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X'}\n",
+            "a malformed resolution flow map",
+        ),
+        // A nested flow map, a CLOSING brace with no opener inside the
+        // map, and a field that is no mapping at all.
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: {a: b}}\n",
+            "a malformed resolution flow map",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: a}b}\n",
+            "a malformed resolution flow map",
+        ),
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity}\n",
+            "a malformed resolution flow map",
+        ),
+        // Two integrity fields in ONE flow map: neither is the record's.
+        (
+            "lockfileVersion: '9.0'\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X, integrity: sha512-Y}\n",
+            "a repeated resolution integrity",
+        ),
+        // A child outside any record.
+        (
+            "lockfileVersion: '9.0'\npackages:\n    resolution: {integrity: sha512-X}\n",
+            "a package child outside any record",
+        ),
+        // An entry with no resolution row at all.
+        (
+            "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    engines: {node: '>=1'}\n",
+            "'a@1.0.0': no resolution integrity",
+        ),
+    ] {
+        assert_eq!(
+            refused(pnpm_dependencies(text, &[])),
+            format!("pnpm lock is unreadable: {reason}"),
+            "{text:?}"
+        );
+    }
 }
 
 #[test]
 fn read_json_and_first_line_report_io_and_encoding_failures() {
     let absent = Path::new("/definitely/not/a/file");
-    assert!(read_json(absent).is_err());
-    assert!(first_line(absent).is_err());
+    // The JSON reader answers with a REASON and no component: the same
+    // failure is the layout's for a manifest and the npm lock's for the
+    // hidden lock, and only the caller knows which file it asked for
+    // (council return 2026-09-19, F9).
+    let reason = read_json(absent).unwrap_err();
+    assert!(
+        reason.starts_with("/definitely/not/a/file: "),
+        "the reason names the file it could not read: {reason}"
+    );
+    assert_eq!(
+        refused(first_line(absent)),
+        format!("the DSH layout is unreadable: {reason}")
+    );
     let dir = tempfile::tempdir().unwrap();
     let bad = dir.path().join("bad.json");
     fs::write(&bad, b"not json").unwrap();
-    assert!(read_json(&bad).is_err());
+    let reason = read_json(&bad).unwrap_err();
+    assert!(
+        reason.starts_with(&format!("{}: not JSON: ", bad.display())),
+        "{reason}"
+    );
+    // A CRLF file's first line CARRIES its carriage return. The kernel
+    // reads `#!/usr/bin/env node\r` as an interpreter name that does not
+    // exist, so removing the CR here reported a file the loader cannot
+    // execute as the qualified one (council return 2026-09-19, F5).
     let crlf = dir.path().join("crlf");
     fs::write(&crlf, b"#!/usr/bin/env node\r\nrest\n").unwrap();
-    assert_eq!(first_line(&crlf).unwrap(), "#!/usr/bin/env node");
+    assert_eq!(first_line(&crlf).unwrap(), "#!/usr/bin/env node\r");
     let raw = dir.path().join("raw");
     fs::write(&raw, b"\xff\n").unwrap();
-    assert!(first_line(&raw).is_err());
+    assert_eq!(
+        refused(first_line(&raw)),
+        format!(
+            "the DSH layout is unreadable: {}: first line is not UTF-8",
+            raw.display()
+        )
+    );
 }
 
 /// `home-patch` distinguishes true absence from a failed observation.
@@ -1539,7 +2184,7 @@ fn the_plugin_patch_is_the_retained_component_digest() {
         .profile()
         .join("node_modules")
         .join("dsh-plugin-cli-session");
-    let digests = plugin_file_digests(&plugin_dir, &PLUGIN_FILES).unwrap();
+    let digests = plugin_file_digests("plugin", &plugin_dir, &PLUGIN_FILES).unwrap();
     assert_eq!(
         observed.plugin_patch, digests["cordis.patch.yml"],
         "plugin-patch is the retained digest of the file the component hashed"
@@ -2045,7 +2690,7 @@ fn the_measured_install_yields_its_recorded_components_and_pinned_digests() {
         .seams
         .home
         .join("profiles/headless/node_modules/dsh-plugin-cli-session");
-    let digests = plugin_file_digests(&installed, &PLUGIN_FILES).unwrap();
+    let digests = plugin_file_digests("plugin", &installed, &PLUGIN_FILES).unwrap();
     assert_eq!(
         digests,
         COMMITTED_PLUGIN_DIGESTS
@@ -2124,7 +2769,20 @@ fn the_guide_sample_shows_the_producer_s_measured_fixture_output() {
     // producer's, character for character. Doctor's half of that
     // sentence is asserted against `composite_detail` in the CLI suite,
     // where the classifier lives.
-    let bound = refused(read_pnpm(Path::new("/dev/zero")));
+    //
+    // The refusal is provoked by a FINITE oversized file rather than by
+    // `/dev/zero`: that path exists only on Unix, so on Windows the
+    // sample was compared against a "no such file" reason instead of the
+    // bound's, and the guide assertion failed for a reason the guide has
+    // nothing to do with (council return 2026-09-19, F10).
+    let dir = tempfile::tempdir().unwrap();
+    let oversized = dir.path().join("pnpm-lock.yaml");
+    fs::write(&oversized, vec![b'#'; PNPM_LIMIT + 1]).unwrap();
+    let bound = refused(read_pnpm(&oversized));
+    assert_eq!(
+        bound,
+        "pnpm lock is unreadable: pnpm lock exceeds 8388608-byte limit"
+    );
     assert!(
         guide.contains(&bound),
         "the guide's unreadable sample quotes the producer's own reason: {bound}"

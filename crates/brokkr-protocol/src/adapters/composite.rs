@@ -65,8 +65,13 @@ const PNPM_LIMIT: usize = 8_388_608;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CompositeError {
-    #[error("plugin component is unreadable: {0}")]
-    Component(String),
+    /// A file-set component that could not be observed, named by the
+    /// component it serves — `plugin` or `extension`. The name is carried
+    /// rather than fixed because both walks share one reader, and
+    /// reporting extension drift as plugin drift sends an operator to the
+    /// wrong directory (council return 2026-09-19, F9).
+    #[error("{0} component is unreadable: {1}")]
+    Component(&'static str, String),
     #[error("npm lock is unreadable: {0}")]
     NpmLock(String),
     #[error("npm key is unreadable: {0}")]
@@ -147,22 +152,25 @@ fn read_dir_entries(path: &Path) -> std::io::Result<DirEntries> {
 /// refused by reason rather than merged into a declared spelling by a
 /// lossy conversion.
 fn plugin_file_digests(
+    component: &'static str,
     dir: &Path,
     expected: &[&str],
 ) -> Result<BTreeMap<String, String>, CompositeError> {
     let mut found = BTreeMap::new();
-    walk(dir, "", expected, &mut found, &read_dir_entries)?;
+    walk(component, dir, "", expected, &mut found, &read_dir_entries)?;
     for path in expected {
         if !found.contains_key(*path) {
-            return Err(CompositeError::Component(format!(
-                "missing expected file '{path}'"
-            )));
+            return Err(CompositeError::Component(
+                component,
+                format!("missing expected file '{path}'"),
+            ));
         }
     }
     Ok(found)
 }
 
 fn walk(
+    component: &'static str,
     dir: &Path,
     relative: &str,
     expected: &[&str],
@@ -175,27 +183,35 @@ fn walk(
         true => "the component directory".to_string(),
         false => format!("'{relative}'"),
     };
-    let entries = read_dir(dir)
-        .map_err(|error| CompositeError::Component(format!("{here} cannot be read: {error}")))?;
+    let entries = read_dir(dir).map_err(|error| {
+        CompositeError::Component(component, format!("{here} cannot be read: {error}"))
+    })?;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            CompositeError::Component(format!("{here} yielded an unreadable entry: {error}"))
+            CompositeError::Component(
+                component,
+                format!("{here} yielded an unreadable entry: {error}"),
+            )
         })?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
-            return Err(CompositeError::Component(format!(
-                "{here} holds an entry whose name is not UTF-8"
-            )));
+            return Err(CompositeError::Component(
+                component,
+                format!("{here} holds an entry whose name is not UTF-8"),
+            ));
         };
         let path = match relative.is_empty() {
             true => name.to_string(),
             false => format!("{relative}/{name}"),
         };
         let metadata = std::fs::symlink_metadata(entry.path())
-            .map_err(|error| CompositeError::Component(format!("'{path}': {error}")))?;
+            .map_err(|error| CompositeError::Component(component, format!("'{path}': {error}")))?;
         let file_type = metadata.file_type();
         if file_type.is_symlink() {
-            return Err(CompositeError::Component(format!("'{path}' is a symlink")));
+            return Err(CompositeError::Component(
+                component,
+                format!("'{path}' is a symlink"),
+            ));
         }
         if file_type.is_dir() {
             // The one permitted extra entry, granted on the metadata
@@ -205,25 +221,28 @@ fn walk(
             }
             let ancestor = format!("{path}/");
             if !expected.iter().any(|file| file.starts_with(&ancestor)) {
-                return Err(CompositeError::Component(format!(
-                    "unexpected directory '{path}'"
-                )));
+                return Err(CompositeError::Component(
+                    component,
+                    format!("unexpected directory '{path}'"),
+                ));
             }
-            walk(&entry.path(), &path, expected, found, read_dir)?;
+            walk(component, &entry.path(), &path, expected, found, read_dir)?;
             continue;
         }
         if !file_type.is_file() {
-            return Err(CompositeError::Component(format!(
-                "'{path}' is neither a file nor a directory"
-            )));
+            return Err(CompositeError::Component(
+                component,
+                format!("'{path}' is neither a file nor a directory"),
+            ));
         }
         if !expected.contains(&path.as_str()) {
-            return Err(CompositeError::Component(format!(
-                "unexpected entry '{path}'"
-            )));
+            return Err(CompositeError::Component(
+                component,
+                format!("unexpected entry '{path}'"),
+            ));
         }
         let bytes = std::fs::read(entry.path())
-            .map_err(|error| CompositeError::Component(format!("'{path}': {error}")))?;
+            .map_err(|error| CompositeError::Component(component, format!("'{path}': {error}")))?;
         found.insert(path, sha256_hex(&bytes));
     }
     Ok(())
@@ -404,20 +423,179 @@ fn read_pnpm(path: &Path) -> Result<String, CompositeError> {
     String::from_utf8(bytes).map_err(|_| unreadable("not UTF-8".to_string()))
 }
 
+/// The lockfile-9 top-level keys this reader recognizes.
+///
+/// The grammar is CLOSED. A document carrying a key this list does not
+/// name is unreadable rather than partially read: a reader that silently
+/// skips what it does not understand cannot promise it saw every package,
+/// and identity is exactly that promise (council return 2026-09-19).
+const PNPM_SECTIONS: [&str; 13] = [
+    "catalogs",
+    "ignoredOptionalDependencies",
+    "importers",
+    "lockfileVersion",
+    "neverBuiltDependencies",
+    "onlyBuiltDependencies",
+    "overrides",
+    "packageExtensionsChecksum",
+    "packages",
+    "patchedDependencies",
+    "pnpmfileChecksum",
+    "settings",
+    "snapshots",
+];
+
+/// The child keys a `packages:` entry may carry. Only `resolution` is
+/// read; the rest are named so that an unrecognized child is a refusal
+/// rather than a silent skip.
+const PNPM_PACKAGE_CHILDREN: [&str; 12] = [
+    "bundledDependencies",
+    "cpu",
+    "deprecated",
+    "engines",
+    "hasBin",
+    "libc",
+    "name",
+    "os",
+    "peerDependencies",
+    "peerDependenciesMeta",
+    "resolution",
+    "version",
+];
+
+/// The keys a `resolution:` flow map may carry.
+const PNPM_RESOLUTION_KEYS: [&str; 8] = [
+    "commit",
+    "directory",
+    "integrity",
+    "path",
+    "registry",
+    "repo",
+    "tarball",
+    "type",
+];
+
+/// Unwrap a YAML scalar's quotes EXACTLY: a quote opens only when its
+/// partner closes it, and a quote inside the body refuses rather than
+/// being trimmed away.
+///
+/// The inherited `trim_matches` repaired `'sha512-X` into `sha512-X`, so
+/// an unterminated scalar entered identity bytes as though it had been
+/// written correctly. Nothing is repaired here; `None` is the refusal.
+fn pnpm_scalar(text: &str) -> Option<&str> {
+    for quote in ['\'', '"'] {
+        if let Some(rest) = text.strip_prefix(quote) {
+            // A lone quote leaves an empty remainder, which strips to
+            // `None`: an opening quote with no partner is never closed.
+            let inner = rest.strip_suffix(quote)?;
+            return match inner.contains(quote) {
+                true => None,
+                false => Some(inner),
+            };
+        }
+    }
+    match text.contains('\'') || text.contains('"') {
+        true => None,
+        false => Some(text),
+    }
+}
+
+/// A `resolution:` flow map's fields, each an exactly-named key and an
+/// exactly-unquoted value.
+///
+/// The inherited reader looked for the SUBSTRING `integrity:`, so a
+/// `xintegrity:` or `fakeintegrity:` field answered for the real one and
+/// a changed actual integrity left identity unmoved. Every field is
+/// parsed and its key matched whole.
+fn pnpm_flow_map(inner: &str) -> Option<Vec<(&str, &str)>> {
+    if inner.contains('{') || inner.contains('}') {
+        return None;
+    }
+    let mut fields = Vec::new();
+    for field in inner.split(',') {
+        let (key, value) = field.split_once(':')?;
+        let key = key.trim();
+        if !PNPM_RESOLUTION_KEYS.contains(&key) {
+            return None;
+        }
+        let value = pnpm_scalar(value.trim())?;
+        if value.is_empty() {
+            return None;
+        }
+        fields.push((key, value));
+    }
+    Some(fields)
+}
+
+/// A `packages:` key, split into the package name and the version it
+/// carries, with BOTH halves crossing the scalar rule and the package-name
+/// grammar before any exclusion or serialization.
+///
+/// `a b@1` and `a@b 1` both serialized to `a b 1 <integrity>`: two
+/// different dependencies wearing one identity line, and a name or
+/// version carrying NUL or a control byte entered the hashed stream
+/// unchecked. The whole key crosses `scalar_reason` first, which is what
+/// separates the two spellings above (council return 2026-09-19).
+fn pnpm_package(key: &str) -> Result<(&str, &str), String> {
+    if let Some(reason) = scalar_reason(key) {
+        return Err(format!("'{key}': the key {reason}"));
+    }
+    let at = scoped_at(key).ok_or_else(|| format!("'{key}': no '@' after the first character"))?;
+    let (name, version) = (&key[..at], &key[at + 1..]);
+    if version.is_empty() {
+        return Err(format!("'{key}': empty version"));
+    }
+    let named = match name.strip_prefix('@') {
+        Some(scoped) => match scoped.split_once('/') {
+            Some((scope, rest)) => valid_component(scope) && valid_component(rest),
+            None => false,
+        },
+        None => valid_component(name),
+    };
+    if !named {
+        return Err(format!("'{key}': '{name}' is not a package name"));
+    }
+    Ok((name, version))
+}
+
+/// One `packages:` record, held while its child lines are read.
+struct PnpmEntry {
+    /// The key exactly as the lock spells it, so a refusal names the
+    /// record the operator can find.
+    key: String,
+    name: String,
+    version: String,
+    integrity: Option<String>,
+}
+
 /// Every dependency triple in a pnpm lockfile-9.0 `packages:` section, parsed
 /// by the bounded, fail-closed line reader design D6 states (no YAML crate).
 /// `local` names the packages whose installed bytes already supply a
 /// component line; only their local `file:` records are excluded, so a
 /// same-named registry record is retained.
+///
+/// The grammar is closed over the document's SHAPE — its top-level keys,
+/// its indentation and the children of a `packages:` record — and over
+/// every byte identity is taken from. The bodies of the recognized
+/// sections that carry no identity (`importers`, `snapshots` and their
+/// kin) are skipped by design: nothing under them can reach a triple,
+/// because only an indent-0 key opens a section and only `packages`
+/// admits a record.
 fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, CompositeError> {
     let bad = |why: &str| CompositeError::PnpmLock(why.to_string());
     if lock.contains('\t') {
         return Err(bad("a tab"));
     }
-    let mut lines = lock.lines().enumerate().peekable();
+    // `str::lines` accepts a CRLF document by dropping the CR, which read
+    // a Windows-written lock as though it were a Unix one and hid the
+    // difference from identity.
+    if lock.contains('\r') {
+        return Err(bad("a carriage return"));
+    }
+    let mut lines = lock.lines();
     // The first non-blank line is the lockfile version.
     let mut version_seen = false;
-    for (_, line) in lines.by_ref() {
+    for line in lines.by_ref() {
         if line.trim().is_empty() {
             continue;
         }
@@ -425,7 +603,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             .strip_prefix("lockfileVersion:")
             .map(str::trim)
             .ok_or_else(|| bad("no lockfileVersion header"))?;
-        let version = version.trim_matches('\'').trim_matches('"');
+        let version = pnpm_scalar(version).ok_or_else(|| bad("a malformed lockfileVersion"))?;
         if version != "9.0" {
             return Err(bad("lockfileVersion is not 9.0"));
         }
@@ -437,46 +615,45 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     }
 
     let mut triples = BTreeSet::new();
-    let mut in_packages = false;
-    // The current entry: (key, resolution integrity).
-    let mut entry: Option<(String, Option<String>)> = None;
+    let mut section: Option<&str> = None;
+    let mut packages_seen = false;
+    let mut entry: Option<PnpmEntry> = None;
+    // Whether a block-form child is open, whose own lines this reader
+    // skips: they belong to `peerDependencies` and its kin, and none of
+    // them enters identity. A flag rather than the open child's
+    // indentation, because a child opens only at four spaces and only a
+    // line at six or more consults this — so a depth comparison would be
+    // a guard no input could falsify, which is a claim the code cannot
+    // keep.
+    let mut block = false;
 
-    let flush = |entry: Option<(String, Option<String>)>,
-                 triples: &mut BTreeSet<String>|
-     -> Result<(), CompositeError> {
-        let Some((key, integrity)) = entry else {
-            return Ok(());
+    let flush =
+        |entry: Option<PnpmEntry>, triples: &mut BTreeSet<String>| -> Result<(), CompositeError> {
+            let Some(entry) = entry else {
+                return Ok(());
+            };
+            let integrity = entry.integrity.ok_or_else(|| {
+                CompositeError::PnpmLock(format!("'{}': no resolution integrity", entry.key))
+            })?;
+            // The local tarball record, excluded by its own `file:` version
+            // rather than by its name: a registry record spelled with the
+            // same name is a real dependency and stays. The exclusion is
+            // decided AFTER the key's grammar, so an unreadable record is
+            // never waved through by looking local.
+            if local.contains(&entry.name.as_str()) && entry.version.starts_with("file:") {
+                return Ok(());
+            }
+            if let Some(reason) = scalar_reason(&integrity) {
+                return Err(CompositeError::PnpmLock(format!(
+                    "'{}': integrity {reason}",
+                    entry.key
+                )));
+            }
+            triples.insert(format!("{} {} {}", entry.name, entry.version, integrity));
+            Ok(())
         };
-        let integrity = integrity
-            .ok_or_else(|| CompositeError::PnpmLock(format!("'{key}': no resolution integrity")))?;
-        // Every entry admitted into `flush` was already checked to carry an
-        // `@` after its first character, so the lookup always finds one.
-        let at = scoped_at(&key).expect("a package key carries an '@' after its first character");
-        let name = &key[..at];
-        let version = &key[at + 1..];
-        // `at` is at least one byte, so the name is never empty; only an
-        // empty version is reachable from an admitted key.
-        if version.is_empty() {
-            return Err(CompositeError::PnpmLock(format!(
-                "'{key}': empty name or version"
-            )));
-        }
-        // The local tarball record, excluded by its own `file:` version
-        // rather than by its name: a registry record spelled with the
-        // same name is a real dependency and stays.
-        if local.contains(&name) && version.starts_with("file:") {
-            return Ok(());
-        }
-        if let Some(reason) = scalar_reason(integrity.as_str()) {
-            return Err(CompositeError::PnpmLock(format!(
-                "'{key}': integrity {reason}"
-            )));
-        }
-        triples.insert(format!("{name} {version} {integrity}"));
-        Ok(())
-    };
 
-    for (_, line) in lines {
+    for line in lines {
         if line.trim().is_empty() {
             continue;
         }
@@ -485,54 +662,110 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             return Err(bad("a comment or document marker"));
         }
         let indent = pnpm_indent(line);
+        if !indent.is_multiple_of(2) {
+            return Err(bad("an odd indentation"));
+        }
         if indent == 0 {
             flush(entry.take(), &mut triples)?;
-            in_packages = line.trim_end() == "packages:";
+            block = false;
+            let body = line.trim_end();
+            let (name, value) = body
+                .split_once(':')
+                .ok_or_else(|| bad("a top-level line that is not a mapping key"))?;
+            if !PNPM_SECTIONS.contains(&name) {
+                return Err(bad(&format!("an unrecognized top-level key '{name}'")));
+            }
+            // A section OPENS only when its key carries no inline scalar:
+            // `packageExtensionsChecksum: sha256-…` is a value, and
+            // treating it as a section would put the reader inside one.
+            section = value.trim().is_empty().then_some(name);
+            packages_seen = packages_seen || section == Some("packages");
             continue;
         }
-        if !in_packages {
+        let Some(open_section) = section else {
+            return Err(bad("a child line outside every section"));
+        };
+        if open_section != "packages" {
             continue;
         }
         if indent == 2 {
             flush(entry.take(), &mut triples)?;
-            let body = line.trim();
-            let key = body
+            block = false;
+            let key = line
+                .trim_end()
                 .strip_suffix(':')
                 .ok_or_else(|| bad("a package key is not colon-terminated"))?;
-            let key = key.trim_matches('\'').trim_matches('"').to_string();
-            if scoped_at(&key).is_none() {
-                return Err(bad("a package key has no '@' after its first character"));
+            let key = pnpm_scalar(key.trim()).ok_or_else(|| bad("a malformed package key"))?;
+            // A key that is itself a mapping — `a@1: {}` reaches this
+            // reader as `a@1: {`, and `a@1: b:` as a key ending in `b` —
+            // is a flow-form or nested record, not a package heading.
+            if key.contains(": ") {
+                return Err(bad("a package key that is itself a mapping"));
             }
-            entry = Some((key, None));
+            let (name, version) = pnpm_package(key).map_err(CompositeError::PnpmLock)?;
+            entry = Some(PnpmEntry {
+                key: key.to_string(),
+                name: name.to_string(),
+                version: version.to_string(),
+                integrity: None,
+            });
             continue;
         }
-        // A child line at four or more spaces. Only the resolution row is read.
-        let body = line.trim();
-        if let Some(rest) = body.strip_prefix("resolution:") {
-            let rest = rest.trim();
-            let inner = rest
+        if indent == 4 {
+            block = false;
+            let Some(open) = entry.as_mut() else {
+                return Err(bad("a package child outside any record"));
+            };
+            let (name, value) = trimmed
+                .trim_end()
+                .split_once(':')
+                .ok_or_else(|| bad("a package child that is not a mapping key"))?;
+            if !PNPM_PACKAGE_CHILDREN.contains(&name) {
+                return Err(bad(&format!("an unrecognized package child '{name}'")));
+            }
+            let value = value.trim();
+            if name != "resolution" {
+                // Recognized and not read. A child with no inline scalar
+                // opens a block whose own lines are skipped below.
+                if value.is_empty() {
+                    block = true;
+                }
+                continue;
+            }
+            let inner = value
                 .strip_prefix('{')
                 .and_then(|text| text.strip_suffix('}'))
                 .ok_or_else(|| bad("a block-form or malformed resolution"))?;
-            if !inner.contains("integrity:") {
-                return Err(bad("a resolution without integrity"));
+            let fields =
+                pnpm_flow_map(inner).ok_or_else(|| bad("a malformed resolution flow map"))?;
+            let mut integrity = None;
+            for (key, value) in fields {
+                if key != "integrity" {
+                    continue;
+                }
+                if integrity.is_some() {
+                    return Err(bad("a repeated resolution integrity"));
+                }
+                integrity = Some(value);
             }
-            let after = inner.split("integrity:").nth(1).unwrap_or("").trim();
-            let value = after.split(',').next().unwrap_or("").trim();
-            let value = value.trim_matches('\'').trim_matches('"');
-            if value.is_empty() {
-                return Err(bad("an empty resolution integrity"));
+            let integrity = integrity.ok_or_else(|| bad("a resolution without integrity"))?;
+            if open.integrity.is_some() {
+                return Err(bad(&format!("'{}': repeated resolution", open.key)));
             }
-            let Some((key, slot)) = entry.as_mut() else {
-                return Err(bad("a resolution outside any entry"));
-            };
-            if slot.is_some() {
-                return Err(bad(&format!("'{key}': repeated resolution")));
-            }
-            *slot = Some(value.to_string());
+            open.integrity = Some(integrity.to_string());
+            continue;
+        }
+        // Six spaces or deeper: the children of an open block-form child,
+        // and nothing else.
+        match block {
+            true => continue,
+            false => return Err(bad("a package line at an unrecognized indentation")),
         }
     }
     flush(entry.take(), &mut triples)?;
+    if !packages_seen {
+        return Err(bad("no packages section"));
+    }
     Ok(triples.into_iter().collect())
 }
 
@@ -605,17 +838,52 @@ impl DshSeams {
     }
 
     /// Both seams from ONE environment resolution: the executable the
-    /// adapter selected, and the home beside it.
+    /// adapter selected, resolved ONCE to the file it names, and the home
+    /// beside it.
     ///
-    /// The executable is a selection, not a lookup, so it always exists;
-    /// only the home can fail. A caller that must keep observing the
+    /// The returned string is the PATH lookup's answer, not the bare name
+    /// the seam spells, and it is the same string the seams carry. A
+    /// caller that probes the returned name and then asks the producer
+    /// for a composite is therefore asking about one file: two lookups of
+    /// `dsh` can disagree — a non-executable `A/dsh` ahead of an
+    /// executable `B/dsh` is skipped by a spawning child and was taken by
+    /// this crate's own resolver — and a version from one install beside
+    /// a digest from another is the defect 8.8(c) exists to close
+    /// (council return 2026-09-19).
+    ///
+    /// A name that resolves to nothing keeps its declared spelling, so
+    /// the report that follows names what was looked for. Only the home
+    /// can fail the seams outright; a caller that must keep observing the
     /// chosen installation after a home failure — doctor, whose version
     /// probe is independent of the composite (design D10's doctor state
     /// decision) — reads it here rather than resolving the environment a
     /// second time and possibly selecting a different install.
     pub fn selected() -> (String, Result<DshSeams, CompositeError>) {
-        let executable = super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-        let seams = DshSeams::resolve_with(executable.clone(), crate::transcript::dsh_home());
+        DshSeams::selected_from(
+            super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
+            resolve_executable,
+            crate::transcript::dsh_home(),
+        )
+    }
+
+    /// `selected` over an injected resolver and home, so the resolved,
+    /// unresolvable and unspellable selections are all plain tests
+    /// rather than facts about whichever `dsh` the host happens to have
+    /// installed while the suite runs.
+    fn selected_from(
+        declared: String,
+        resolve: impl FnOnce(&str) -> Result<PathBuf, CompositeError>,
+        home: Option<PathBuf>,
+    ) -> (String, Result<DshSeams, CompositeError>) {
+        let executable = match resolve(&declared) {
+            // A path this platform cannot spell as UTF-8 keeps the
+            // declared name rather than a lossy rendering of itself: the
+            // producer resolves the same name again and reaches the same
+            // file, where a mangled path would reach none.
+            Ok(path) => path.to_str().map(str::to_string).unwrap_or(declared),
+            Err(_) => declared,
+        };
+        let seams = DshSeams::resolve_with(executable.clone(), home);
         (executable, seams)
     }
 
@@ -640,28 +908,75 @@ struct NodeRuntime {
 /// The canonical composite and the raw component values that produced
 /// it, so a caller can report the drifted component rather than only the
 /// final digest.
+/// Every member is PRIVATE to this module. A caller outside it consumes
+/// an observation and reads what it needs; it cannot assemble one from
+/// digests it computed itself, nor edit one this producer returned. That
+/// is what "the only producer of either value" means in the type system
+/// rather than only in a comment (design D6 (b); council return
+/// 2026-09-19). Synthetic construction exists only under `cfg(test)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshComposite {
-    pub canonical: String,
-    pub core: String,
-    pub node: String,
-    pub plugin: String,
-    pub dependencies: Vec<String>,
-    pub plugin_patch: String,
-    pub profile_patch: String,
-    pub profile_bundles: Vec<String>,
-    pub profile_patch_reload: String,
-    pub home_patch: String,
-    pub extension: Option<String>,
-    pub core_root: PathBuf,
-    pub profile: PathBuf,
+    canonical: String,
+    core: String,
+    node: String,
+    plugin: String,
+    dependencies: Vec<String>,
+    plugin_patch: String,
+    profile_patch: String,
+    profile_bundles: Vec<String>,
+    profile_patch_reload: String,
+    home_patch: String,
+    extension: Option<String>,
+    core_root: PathBuf,
+    profile: PathBuf,
 }
 
-fn read_json(path: &Path) -> Result<Value, CompositeError> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|error| CompositeError::Config(format!("{}: not JSON: {error}", path.display())))
+impl DshComposite {
+    /// The canonical composite digest: 64 lowercase hexadecimal
+    /// characters over D6's fixed component lines.
+    pub fn canonical(&self) -> &str {
+        &self.canonical
+    }
+
+    /// The plugin component digest, which doctor reports beside the
+    /// canonical one so a drifted plugin names itself.
+    pub fn plugin(&self) -> &str {
+        &self.plugin
+    }
+
+    /// A synthetic observation with a chosen canonical digest, for the
+    /// planner and doctor suites that must drive a qualifying or
+    /// drifting case without an installed pair. Test-only by
+    /// construction: production has no way to reach it.
+    #[cfg(test)]
+    pub(crate) fn synthetic(canonical: &str) -> DshComposite {
+        DshComposite {
+            canonical: canonical.to_string(),
+            core: "core".to_string(),
+            node: "v22.23.2".to_string(),
+            plugin: "plugin".to_string(),
+            dependencies: Vec::new(),
+            plugin_patch: "patch".to_string(),
+            profile_patch: "profile".to_string(),
+            profile_bundles: Vec::new(),
+            profile_patch_reload: "startup".to_string(),
+            home_patch: "absent".to_string(),
+            extension: None,
+            core_root: PathBuf::new(),
+            profile: PathBuf::new(),
+        }
+    }
+}
+
+/// One JSON document, reported by REASON rather than by a fixed
+/// component: the same reader serves the core manifest, the profile
+/// manifest and the hidden npm lock, and each caller names the component
+/// whose failure it is. Mapping every one of them to "the DSH layout"
+/// sent an operator holding a corrupt npm lock to look at a package.json
+/// (council return 2026-09-19).
+fn read_json(path: &Path) -> Result<Value, String> {
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    serde_json::from_slice(&bytes).map_err(|error| format!("{}: not JSON: {error}", path.display()))
 }
 
 fn canonicalize(path: &Path) -> Result<PathBuf, CompositeError> {
@@ -681,6 +996,13 @@ fn required_string<'a>(
         .ok_or_else(|| CompositeError::Config(format!("{where_}: missing string '{key}'")))
 }
 
+/// The executable's first line, EXACTLY as the file spells it.
+///
+/// No carriage return is removed. A CRLF-written `#!/usr/bin/env node\r`
+/// is a different first line from the one D6 requires — the kernel reads
+/// the CR as part of the interpreter name — and repairing it here let a
+/// file the loader could not execute pass as the qualified one (council
+/// return 2026-09-19).
 fn first_line(path: &Path) -> Result<String, CompositeError> {
     let bytes = std::fs::read(path)
         .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))?;
@@ -688,12 +1010,30 @@ fn first_line(path: &Path) -> Result<String, CompositeError> {
         .iter()
         .position(|byte| *byte == b'\n')
         .unwrap_or(bytes.len());
-    let mut line = &bytes[..end];
-    if line.ends_with(b"\r") {
-        line = &line[..line.len() - 1];
-    }
-    String::from_utf8(line.to_vec())
+    String::from_utf8(bytes[..end].to_vec())
         .map_err(|_| CompositeError::Config(format!("{}: first line is not UTF-8", path.display())))
+}
+
+/// Whether a PATH candidate is a file a child could actually execute.
+///
+/// A candidate that is not a regular file, that carries no execute bit,
+/// or whose metadata cannot be read at all is NOT a hit: `execvp` walks
+/// past each of those to the next entry, so a resolver that stops at the
+/// first readable name pairs one install's path with another install's
+/// version (council return 2026-09-19).
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
+    }
 }
 
 /// Resolve `command` to a canonical path: a command carrying a separator
@@ -703,7 +1043,12 @@ fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
 }
 
 /// `resolve_executable` over an injected `PATH`, so an empty entry, a
-/// present-but-absent candidate and a miss are plain tests.
+/// non-executable candidate, a present-but-absent candidate and a miss
+/// are plain tests.
+///
+/// The search is the child's own: an EMPTY entry names the current
+/// directory rather than being skipped, and only an executable regular
+/// file ends it.
 fn resolve_executable_in(
     command: &str,
     path: Option<std::ffi::OsString>,
@@ -713,11 +1058,11 @@ fn resolve_executable_in(
     }
     let path = path.unwrap_or_default();
     for dir in std::env::split_paths(&path) {
-        if dir.as_os_str().is_empty() {
-            continue;
-        }
-        let candidate = dir.join(command);
-        if candidate.is_file() {
+        let candidate = match dir.as_os_str().is_empty() {
+            true => PathBuf::from(command),
+            false => dir.join(command),
+        };
+        if is_executable_file(&candidate) {
             return canonicalize(&candidate);
         }
     }
@@ -753,7 +1098,7 @@ fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
 /// stays production's.
 fn resolve_core_reading(
     executable: &str,
-    read_json: &dyn Fn(&Path) -> Result<Value, CompositeError>,
+    read_json: &dyn Fn(&Path) -> Result<Value, String>,
 ) -> Result<CorePackage, CompositeError> {
     let canonical = resolve_executable(executable)?;
     let mut package = None;
@@ -788,6 +1133,19 @@ fn resolve_core_reading(
             "{} is not the core package's bin.dsh ({})",
             canonical.display(),
             bin_path.display()
+        )));
+    }
+    // D6's measured locator is `<core>/lib/bin.js`, and that is a
+    // SEPARATE requirement from the manifest agreeing with the
+    // executable: a core declaring `bin.dsh: lib/other.js` and shipping
+    // that file satisfied the equality above while sitting at a layout
+    // the qualification never measured.
+    let measured_bin = canonicalize(&dir.join("lib").join("bin.js"))?;
+    if measured_bin != canonical {
+        return Err(CompositeError::Config(format!(
+            "{} is not the core package's lib/bin.js ({})",
+            canonical.display(),
+            measured_bin.display()
         )));
     }
     if first_line(&canonical)? != "#!/usr/bin/env node" {
@@ -826,11 +1184,15 @@ fn resolve_core_reading(
         ));
     }
     let package_version = required_string(&manifest, "version", "core package")?;
-    let lock = read_json(&root.join("node_modules").join(".package-lock.json"))?;
+    // The hidden npm lock's own failures are the NPM LOCK's, not the
+    // layout's: an operator told "the DSH layout is unreadable" looks at
+    // directories, and the drifted file is a lock.
+    let lock = read_json(&root.join("node_modules").join(".package-lock.json"))
+        .map_err(CompositeError::NpmLock)?;
     let entry = lock
         .get("packages")
         .and_then(|packages| packages.get(CORE_KEY))
-        .ok_or_else(|| CompositeError::Config(format!("core lock has no {CORE_KEY} entry")))?;
+        .ok_or_else(|| CompositeError::NpmLock(format!("no {CORE_KEY} entry")))?;
     let version = required_string(entry, "version", "core lock")?;
     if version != package_version {
         return Err(CompositeError::Config(format!(
@@ -873,7 +1235,7 @@ struct Profile {
 fn read_profile(home: &Path) -> Result<Profile, CompositeError> {
     let dir = home.join("profiles").join("headless");
     let canonical = canonicalize(&dir)?;
-    let manifest = read_json(&dir.join("package.json"))?;
+    let manifest = read_json(&dir.join("package.json")).map_err(CompositeError::Config)?;
     let profile = manifest
         .get("dsh")
         .and_then(|dsh| dsh.get("profile"))
@@ -990,8 +1352,28 @@ fn resolve_bundle(
     candidates.extend(globals.iter().cloned());
     for candidate in candidates {
         let dir = candidate.join(name);
-        if !dir.join("package.json").is_file() {
-            continue;
+        // `Path::is_file` answers FALSE for a permission failure, a
+        // metadata error and a symlink loop alike, and a false answer
+        // here authorizes searching a later candidate — so a bundle the
+        // loader would have taken could be skipped for one further down
+        // the chain. Only true absence continues the search (council
+        // return 2026-09-19).
+        let manifest = dir.join("package.json");
+        match std::fs::metadata(&manifest) {
+            Ok(metadata) if metadata.is_file() => {}
+            Ok(_) => {
+                return Err(CompositeError::Config(format!(
+                    "bundle '{name}': {} is not a regular file",
+                    manifest.display()
+                )))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(CompositeError::Config(format!(
+                    "bundle '{name}': {} cannot be read: {error}",
+                    manifest.display()
+                )))
+            }
         }
         let canonical = canonicalize(&dir)?;
         if canonical.starts_with(core_root) || canonical.starts_with(profile_boundary) {
@@ -1107,7 +1489,7 @@ fn dsh_composite_with(
     // over all six and `plugin-patch` from the retained digest of
     // `cordis.patch.yml`. Reopening the patch could describe a file the
     // component never saw.
-    let plugin_files = plugin_file_digests(&plugin_dir, &PLUGIN_FILES)?;
+    let plugin_files = plugin_file_digests("plugin", &plugin_dir, &PLUGIN_FILES)?;
     let plugin_patch = plugin_files
         .get("cordis.patch.yml")
         .expect("the plugin file set is complete when the walk returns")
@@ -1126,7 +1508,7 @@ fn dsh_composite_with(
                     "the extension resolves outside the profile".into(),
                 ));
             }
-            let files = plugin_file_digests(dir, &EXTENSION_FILES)?;
+            let files = plugin_file_digests("extension", dir, &EXTENSION_FILES)?;
             Some(component_digest(&files))
         }
         None => None,

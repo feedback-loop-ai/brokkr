@@ -2055,31 +2055,12 @@ fn dsh_provider_line_reads_the_real_adapter_and_its_seams() {
     assert_eq!(observed.version.is_some(), !observed.suffix.is_empty());
 }
 
-/// The mapping `dsh_provider_line` applies to a readable composite: the
-/// canonical digest and the plugin component, and nothing else. Driven
-/// directly because the real producer needs a DSH install and a node probe.
-#[test]
-fn composite_identity_reads_the_canonical_digest_and_the_plugin() {
-    let composite = DshComposite {
-        canonical: "canonical-digest".into(),
-        core: "core".into(),
-        node: "v22.23.2".into(),
-        plugin: "plugin-digest".into(),
-        dependencies: Vec::new(),
-        plugin_patch: "plugin-patch".into(),
-        profile_patch: "profile-patch".into(),
-        profile_bundles: Vec::new(),
-        profile_patch_reload: "startup".into(),
-        home_patch: "absent".into(),
-        extension: None,
-        core_root: PathBuf::new(),
-        profile: PathBuf::new(),
-    };
-    assert_eq!(
-        composite_identity(composite),
-        ("canonical-digest".to_string(), "plugin-digest".to_string())
-    );
-}
+// `composite_identity`'s mapping is asserted in
+// `the_dsh_seam_precedence_moves_the_version_and_the_composite_together`,
+// against a REAL observation of a fixture installation. The inherited
+// unit test here assembled a `DshComposite` field by field from chosen
+// strings; the producer's members are private now, precisely so that no
+// caller outside it can do that (council return 2026-09-19, F6).
 
 /// The shipped DSH adapter with one named shape's identity replaced, so
 /// each declaration disposition is a plain test.
@@ -2343,7 +2324,29 @@ fn install_dsh(root: &Path, version: &str) -> String {
     ] {
         put(&plugin, file, file.as_bytes());
     }
-    pkg.join("lib/bin.js").display().to_string()
+    let bin = pkg.join("lib/bin.js");
+    // The PATH case resolves this file through a child's own rules, which
+    // admit only an EXECUTABLE regular file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    bin.canonicalize().unwrap().display().to_string()
+}
+
+/// The version a DSH installation records for ITSELF, read from the
+/// package.json beside the selected executable.
+///
+/// This is doctor's probe under test conditions: a real observation of
+/// the file the seam selected, not a fabricated constant. A constant
+/// cannot tell two installations apart, so it cannot witness which one
+/// the report described (council return 2026-09-19, F7).
+#[cfg(test)]
+fn recorded_version(binary: &str) -> Option<String> {
+    let manifest = Path::new(binary).parent()?.parent()?.join("package.json");
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(manifest).ok()?).ok()?;
+    Some(value.get("version")?.as_str()?.to_string())
 }
 
 /// Task 8.8(c), hermetically: the adapter seam's `BROKKR_DSH_BIN`, then
@@ -2352,26 +2355,37 @@ fn install_dsh(root: &Path, version: &str) -> String {
 ///
 /// The environment is process-global, so each case runs in a re-executed
 /// copy of this test binary rather than racing every other test here.
-/// Each child installs two distinguishable DSH trees and asserts that the
-/// version probe and the producer-derived composite both describe the one
-/// the seam selected — the pairing the measured 2026-09-19 defect broke.
+/// Each child installs three distinguishable DSH trees and asserts that
+/// the version probe and the producer-derived composite both describe the
+/// one the seam selected — the pairing the measured 2026-09-19 defect
+/// broke.
+///
+/// Unix only: the fixture builds an executable `node` shim and a symlink
+/// on the child's `PATH`, both of which are POSIX spellings. The
+/// production seam is platform-correct; only this fixture is not.
+#[cfg(unix)]
 #[test]
 fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
     const CASE: &str = "BROKKR_DOCTOR_SEAM_CASE";
     const CHOSEN: &str = "BROKKR_DOCTOR_SEAM_CHOSEN";
 
+    const REJECTED: &str = "BROKKR_DOCTOR_SEAM_REJECTED";
+
     if let Ok(case) = std::env::var(CASE) {
         let chosen = std::env::var(CHOSEN).expect("the parent names the expected selection");
+        let rejected = std::env::var(REJECTED).expect("the parent names the rejected install");
+        let home = PathBuf::from(std::env::var_os("DSH_HOME").expect("the parent names the home"));
         let adapter = dsh_adapter_declaring(None);
         let probed = std::cell::RefCell::new(Vec::new());
-        // The REAL seam resolution and the REAL producer: only the
-        // version probe is injected, because a shell shim would test the
-        // shim rather than the selection.
+        // The REAL seam resolution and the REAL producer. Only the
+        // version probe is injected, and it is not a constant: it reads
+        // the version out of the selected installation's own manifest,
+        // so the reported version can only be the selected install's.
         let observed = dsh_provider_line_with(
             &adapter,
             |binary| {
                 probed.borrow_mut().push(binary.to_string());
-                Some(format!("probed {binary}"))
+                recorded_version(binary)
             },
             DshSeams::selected,
             |seams| {
@@ -2387,38 +2401,95 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             "case {case}: the version probe reads the selected executable, once"
         );
         assert_eq!(
-            observed.version.as_deref(),
-            Some(format!("probed {chosen}").as_str()),
-            "case {case}: the reported version is that executable's"
+            observed.version,
+            recorded_version(&chosen),
+            "case {case}: the reported version is that executable's own"
         );
-        // The producer ran over the SAME resolution. A host without a
-        // usable `node` cannot finish the composite — that is a fact
-        // about this machine, not about the seam — so the assertion is
-        // that whatever the producer says, it never describes the
-        // install the seam did NOT select.
-        let rejected = std::env::var("BROKKR_DOCTOR_SEAM_REJECTED").unwrap_or_default();
-        assert!(!observed.suffix.is_empty(), "case {case}: no composite arm");
-        assert!(
-            rejected.is_empty() || !observed.suffix.contains(&rejected),
-            "case {case}: the composite must not describe {rejected}: {}",
-            observed.suffix
+        assert_ne!(
+            recorded_version(&chosen),
+            recorded_version(&rejected),
+            "case {case}: the two installs are distinguishable by version"
         );
-        if !observed.suffix.contains("unreadable") {
-            let digest = observed
-                .suffix
-                .strip_prefix("composite ")
-                .and_then(|rest| rest.split(' ').next())
-                .expect("a readable composite names its canonical digest");
-            assert_eq!(digest.len(), 64, "case {case}: {}", observed.suffix);
-        }
+
+        // The producer ran over the SAME resolution, and the child's
+        // `PATH` holds a scripted `node`, so BOTH digests below are
+        // deterministic and neither depends on this machine.
+        let digest_of = |executable: &str| {
+            let seams = DshSeams {
+                executable: executable.to_string(),
+                home: home.clone(),
+            };
+            let composite = dsh_composite(&seams).expect("the fixture install composes");
+            // `composite_identity`'s own mapping, over a real
+            // observation: the canonical digest first, the plugin
+            // component second, and nothing else.
+            assert_eq!(
+                composite_identity(composite.clone()),
+                (
+                    composite.canonical().to_string(),
+                    composite.plugin().to_string()
+                )
+            );
+            assert_eq!(composite.canonical().len(), 64);
+            assert_ne!(composite.canonical(), composite.plugin());
+            (
+                composite.canonical().to_string(),
+                composite.plugin().to_string(),
+            )
+        };
+        let (chosen_digest, chosen_plugin) = digest_of(&chosen);
+        let (rejected_digest, _) = digest_of(&rejected);
+        assert_ne!(
+            chosen_digest, rejected_digest,
+            "case {case}: the two installs have different composites"
+        );
+        let expected = format!(
+            "composite {chosen_digest} plugin {chosen_plugin} (no declared wrapper_digest)"
+        );
+        assert_eq!(
+            observed.suffix, expected,
+            "case {case}: the reported composite is the SELECTED install's, exactly"
+        );
+
+        // And the REAL entry point over the same controlled environment:
+        // production's own seam resolver and producer closure, not the
+        // injected pair above. Only a fixture that installs a `node` and
+        // a `dsh` of its own reaches this deterministically — which is
+        // why the whole case runs in a child.
+        let real = dsh_provider_line(&adapter, recorded_version);
+        assert_eq!(real.binary, chosen, "case {case}: the real line's binary");
+        assert_eq!(
+            real.version,
+            recorded_version(&chosen),
+            "case {case}: the real line's version"
+        );
+        assert_eq!(real.suffix, expected, "case {case}: the real line's suffix");
+        assert!(!real.warning, "case {case}: nothing is declared to differ");
         return;
     }
 
     let dir = tempfile::tempdir().unwrap();
     let primary = install_dsh(&dir.path().join("primary"), "0.1.5-rc.2");
     let legacy = install_dsh(&dir.path().join("legacy"), "0.1.4");
+    let on_path = install_dsh(&dir.path().join("pathwise"), "0.1.3");
     assert_ne!(primary, legacy);
     let home = dir.path().join("primary/home");
+
+    // The child's whole `PATH`: a scripted `node` so the producer never
+    // depends on this machine's runtime, and a `dsh` so the third case
+    // selects a KNOWN installation instead of whatever the host happens
+    // to have. Without this the `neither` case could only be asserted
+    // conditionally, which is how a failing child passed for a reason
+    // nobody read (council return 2026-09-19, F7).
+    let shims = dir.path().join("shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    std::fs::write(shims.join("node"), b"#!/bin/sh\necho v22.23.2\n").unwrap();
+    std::os::unix::fs::symlink(&on_path, shims.join("dsh")).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(shims.join("node"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+    }
 
     for (case, set_primary, set_legacy, chosen, rejected) in [
         // Primary wins over legacy.
@@ -2431,8 +2502,9 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             legacy.as_str(),
             primary.as_str(),
         ),
-        // Neither: the bare name the adapter declares, resolved on PATH.
-        ("neither", false, false, "dsh", primary.as_str()),
+        // Neither: the bare name the adapter declares, resolved on the
+        // child's PATH — and reported as the FILE it resolved to.
+        ("neither", false, false, on_path.as_str(), primary.as_str()),
     ] {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
         child
@@ -2448,8 +2520,9 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             ])
             .env(CASE, case)
             .env(CHOSEN, chosen)
-            .env("BROKKR_DOCTOR_SEAM_REJECTED", rejected)
+            .env(REJECTED, rejected)
             .env("DSH_HOME", &home)
+            .env("PATH", &shims)
             .env_remove("BROKKR_DSH_BIN")
             .env_remove("FORGE_DSH_BIN");
         if set_primary {
@@ -2458,7 +2531,19 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
         if set_legacy {
             child.env("FORGE_DSH_BIN", &legacy);
         }
-        let output = child.output().expect("the child test binary runs");
+        // Only ETXTBSY is retried: a test that re-executes its own
+        // binary can reach `exec` while another thread of this run still
+        // holds a write descriptor to a file it staged, which is a fact
+        // about the moment rather than about the seam (#255).
+        let output = loop {
+            match child.output() {
+                Ok(output) => break output,
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(error) => panic!("case {case}: the child test binary runs: {error}"),
+            }
+        };
         let said = String::from_utf8_lossy(&output.stdout).into_owned()
             + &String::from_utf8_lossy(&output.stderr);
         // A filter that matches nothing exits ZERO. Without this the
@@ -2467,17 +2552,9 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             said.contains("1 passed") || said.contains("1 failed"),
             "case {case}: the child ran the case, rather than filtering it away: {said}"
         );
-        match case {
-            // The `neither` case selects the bare `dsh`, which this
-            // machine may or may not have installed: the selection and
-            // the probe are asserted, and the composite arm only where
-            // that executable resolves. The two override cases always do.
-            "neither" => assert!(
-                output.status.success() || said.contains("composite unreadable"),
-                "case {case}: the bare name is still what the seam chose: {said}"
-            ),
-            _ => assert!(output.status.success(), "case {case}: {said}"),
-        }
+        // Every case is now unconditional: the installs, the runtime and
+        // the search are all the fixture's.
+        assert!(output.status.success(), "case {case}: {said}");
     }
 }
 

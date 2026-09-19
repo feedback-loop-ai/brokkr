@@ -192,7 +192,10 @@ type CompositeProbe = fn(&Adapter, fn(&str) -> Option<String>) -> Observed;
 /// inline so a unit test can read the mapping without a DSH install; the
 /// real `dsh_provider_line` reaches it only through the real seams.
 fn composite_identity(composite: DshComposite) -> (String, String) {
-    (composite.canonical, composite.plugin)
+    (
+        composite.canonical().to_string(),
+        composite.plugin().to_string(),
+    )
 }
 
 /// The DSH provider line (task 8.8(c)).

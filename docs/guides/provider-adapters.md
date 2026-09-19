@@ -45,6 +45,16 @@ failed `$DSH_HOME` is the other way round: it is a named composite
 failure that leaves the version visible, never evidence that the binary
 is missing.
 
+Resolving the seam once means resolving it the way the child would. A
+bare name is searched along `PATH` under the spawning rules: an entry
+that is empty names the working directory, and a candidate that is
+present but not executable is walked past rather than taken — so a
+non-executable `A/dsh` sitting ahead of a real `B/dsh` cannot pair B's
+version with A's digest. The line then names the FILE the search chose,
+not the word that was looked up; a name that resolves to nothing keeps
+its declared spelling, so a missing provider still reports what was
+looked for.
+
 Where the composite cannot be read, the line says which component
 refused and keeps the declaration context without inventing a comparison:
 
