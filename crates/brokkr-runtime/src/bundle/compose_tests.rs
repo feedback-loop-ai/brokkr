@@ -1211,7 +1211,7 @@ fn a_composed_bundles_manifest_is_pinned() {
         // closure moves it once more: the declaration's `evidence.interface`
         // and `reason` no longer recite a debt the controller has since
         // measured, and one dated limitation was appended beside them.
-        "9a639ca5286ed1c1e511a3c819e8f8830845e6036ddef81c29eb3dfeb977cb78",
+        "d95b41d920e0ca5db3012a4eae51449d16505733c4530a4eb83445dff36f336f",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 
