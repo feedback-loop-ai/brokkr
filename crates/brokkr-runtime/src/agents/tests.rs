@@ -2400,12 +2400,18 @@ fn the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name() {
         }
     );
 
-    // Malformed: refused, naming the field.
+    // Malformed: refused, naming the field. Uppercase, short, long and
+    // non-hex are grammar refusals; the last three are MISTYPED — a
+    // number, a null and an object are not a digest, and none of them is
+    // coerced into one.
     for bad in [
         json!("A".repeat(64)),
         json!("a".repeat(63)),
         json!("a".repeat(65)),
         json!("g".repeat(64)),
+        json!(0),
+        json!(null),
+        json!({"digest": "a".repeat(64)}),
     ] {
         let tree = with_resume(json!({
             "work-site": {"status": "unmeasured",

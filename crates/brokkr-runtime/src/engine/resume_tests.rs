@@ -1956,7 +1956,10 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         argv: argv.clone(),
         hands_fragment: Vec::new(),
         harness: HarnessHands::default(),
-        resume: Default::default(),
+        // Task 8.8(a): this site's SELECTED declaration, carrying the
+        // optional member, so the private start context can be read for
+        // it on the real single-site path beside the owned target.
+        resume: dsh_assessment_declaring(Some(&"c".repeat(64))),
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -2002,10 +2005,31 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_single_site() {
         starts[1]["input"]["resume_context"]["originating_wrapper_digest"],
         "a".repeat(64)
     );
+    // Task 8.8(a): the DECLARED member is a different fact from the
+    // originating checkpoint's, and both travel. The declaration's value
+    // rides inside the selected assessment, at both attempts.
+    for start in &starts {
+        assert_eq!(
+            start["input"]["resume_context"]["assessment"]["headless-work"]["identity"]
+                ["wrapper_digest"],
+            "c".repeat(64),
+            "the selected declaration's exact member: {start}"
+        );
+    }
+    assert_ne!(
+        starts[1]["input"]["resume_context"]["assessment"]["headless-work"]["identity"]
+            ["wrapper_digest"],
+        starts[1]["input"]["resume_context"]["originating_wrapper_digest"],
+        "the declaration is not the originating observation"
+    );
     // The private carrier is not rendered into the prompt context.
     assert!(
         starts[1]["context"].get("owned_target").is_none(),
         "the owned target never reaches the rendered context"
+    );
+    assert!(
+        starts[1]["context"].get("assessment").is_none(),
+        "the assessment never reaches the rendered context"
     );
 }
 
@@ -2018,17 +2042,24 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
     std::fs::create_dir_all(&home).unwrap();
     let home_text = home.display().to_string();
     let locator = "sessions/brokkr/alpha";
+    let argv = dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text, 2);
+    let mut alpha = member("alpha", argv.clone());
+    // Task 8.8(a): the panel member's own SELECTED declaration, so the
+    // second production `start_context` call site is read too.
+    alpha.candidates = vec![Candidate {
+        agent: "implementer".into(),
+        model: "deepseek-v4-flash".into(),
+        effort: Some("medium".into()),
+        provider: "dsh".into(),
+        argv,
+        hands_fragment: Vec::new(),
+        harness: HarnessHands::default(),
+        resume: dsh_assessment_declaring(Some(&"d".repeat(64))),
+    }];
     let mut seats = BTreeMap::new();
     seats.insert(
         "work".into(),
-        seat(
-            panel(vec![member(
-                "alpha",
-                dsh_model_driver(dir.path(), "alpha", &["pass"], locator, &home_text, 2),
-            )]),
-            &["pass", "fail"],
-            1,
-        ),
+        seat(panel(vec![alpha]), &["pass", "fail"], 1),
     );
     seats.insert(
         "review".into(),
@@ -2069,6 +2100,16 @@ fn an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member() {
         starts[1]["input"]["resume_context"]["originating_wrapper_digest"],
         "a".repeat(64)
     );
+    // Task 8.8(a): the member's own declared member travels at this
+    // call site too, distinct from the originating observation.
+    for start in &starts {
+        assert_eq!(
+            start["input"]["resume_context"]["assessment"]["headless-work"]["identity"]
+                ["wrapper_digest"],
+            "d".repeat(64),
+            "the panel member's selected declaration: {start}"
+        );
+    }
 }
 
 /// Run one shim command the way the engine does: hand it the first line
@@ -2250,6 +2291,106 @@ fn copy_tree(from: &Path, to: &Path) {
             std::fs::copy(entry.path(), &target).unwrap();
         }
     }
+}
+
+/// The shipped DSH declaration with its optional `wrapper_digest`
+/// member set or removed, read back through the PRODUCTION adapter
+/// loader rather than constructed in Rust: by the time the assessment
+/// exists, the 64-lowercase-hex grammar has already been enforced at
+/// load (task 8.8(a)).
+fn dsh_assessment_declaring(wrapper: Option<&str>) -> crate::agents::ResumeAssessment {
+    let scratch = tempfile::tempdir().unwrap();
+    let adapters = scratch.path().join("adapters");
+    copy_tree(&workspace_root().join("adapters"), &adapters);
+    let path = adapters.join("dsh.json");
+    let mut dsh: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let identity = &mut dsh["resume"]["headless-work"]["identity"];
+    match wrapper {
+        Some(wrapper) => identity["wrapper_digest"] = json!(wrapper),
+        None => {
+            identity
+                .as_object_mut()
+                .expect("the measured identity is an object")
+                .remove("wrapper_digest");
+        }
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&dsh).unwrap()).unwrap();
+    crate::Adapters::load(&adapters)
+        .expect("the edited adapters load")
+        .adapter("dsh")
+        .expect("the shipped dsh adapter")
+        .resume
+        .clone()
+}
+
+/// Task 8.8(a): the optional `wrapper_digest` a declaration carries
+/// reaches the driver's PRIVATE start context as the exact member the
+/// loader admitted, through the selected assessment and no new wire,
+/// store or contract field.
+///
+/// The declaration is read off disk by the real adapter loader, so the
+/// 64-lowercase-hex grammar has already been enforced by the time the
+/// assessment exists; the engine then carries it. The control beside it
+/// is the same run with the member absent: the key is simply not there,
+/// which is how "omission remains valid" is visible rather than assumed.
+#[test]
+fn a_declared_wrapper_digest_reaches_the_private_start_context() {
+    let root = workspace_root();
+    let digest = "a".repeat(64);
+
+    let _ = &root;
+    let declared = dsh_assessment_declaring;
+
+    let carried = |resume: crate::agents::ResumeAssessment| {
+        let dir = tempfile::tempdir().unwrap();
+        let argv = driver(dir.path(), "work", &["complete"]);
+        let candidate = Candidate {
+            agent: "implementer".into(),
+            model: "deepseek-v4-flash".into(),
+            effort: Some("medium".into()),
+            provider: "dsh".into(),
+            argv: argv.clone(),
+            hands_fragment: Vec::new(),
+            harness: HarnessHands::default(),
+            resume,
+        };
+        let mut seats = BTreeMap::new();
+        seats.insert(
+            "work".into(),
+            seat(single(argv, vec![candidate]), &["complete"], 1),
+        );
+        seats.insert(
+            "review".into(),
+            seat(
+                single(driver(dir.path(), "review", &["clean"]), Vec::new()),
+                &["clean"],
+                1,
+            ),
+        );
+        run(dir.path(), bundle(dir.path(), seats));
+        let start = received(dir.path(), "work")
+            .into_iter()
+            .find(|message| message["type"] == "start")
+            .expect("the seat was started");
+        start["input"]["resume_context"]["assessment"]["headless-work"]["identity"].clone()
+    };
+
+    let with_member = carried(declared(Some(&digest)));
+    assert_eq!(
+        with_member["wrapper_digest"], digest,
+        "the exact declared member reaches the private start context: {with_member}"
+    );
+    // The carriage is the assessment's, not a side channel: the two
+    // members beside it travel in the same object.
+    assert!(with_member["version"].is_string(), "{with_member}");
+    assert!(with_member["applies_to"].is_string(), "{with_member}");
+
+    let without = carried(declared(None));
+    assert!(
+        without.get("wrapper_digest").is_none(),
+        "omission stays an omission rather than a null: {without}"
+    );
+    assert!(without["version"].is_string(), "{without}");
 }
 
 /// F1: the declaration an inline work seat reads its resume assessment

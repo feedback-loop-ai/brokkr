@@ -1932,23 +1932,53 @@ fn the_dsh_composite_detail_reports_each_disposition() {
     assert!(!composite_detail(Some(&digest), false, Ok((&other, "plugin"))).0);
 
     // An unreadable composite warns only when a supported shape declares
-    // a digest; the detail names the unreadable component.
+    // a digest; the detail names the unreadable component. It asserts
+    // NO equality result — there is none to assert — but it keeps the
+    // declaration context, which doctor knows either way.
     let (warning, line) =
         composite_detail(Some(&digest), true, Err("plugin component is unreadable"));
     assert!(warning);
-    assert!(line.contains("unreadable"), "{line}");
-    assert!(!composite_detail(Some(&digest), false, Err("plugin component is unreadable")).0);
-    assert!(!composite_detail(None, true, Err("plugin component is unreadable")).0);
+    assert_eq!(
+        line,
+        format!(
+            "composite unreadable: plugin component is unreadable \
+             (declared wrapper_digest {digest}; comparison unavailable)"
+        )
+    );
+    assert!(
+        !line.contains("matches") && !line.contains("differs"),
+        "{line}"
+    );
+    // The same wording without the warning for a shape that is not
+    // `supported`, and the absent-declaration wording with neither.
+    let (warning, other_line) =
+        composite_detail(Some(&digest), false, Err("plugin component is unreadable"));
+    assert!(!warning);
+    assert_eq!(other_line, line);
+    let (warning, line) = composite_detail(None, true, Err("plugin component is unreadable"));
+    assert!(!warning);
+    assert_eq!(
+        line,
+        "composite unreadable: plugin component is unreadable (no declared wrapper_digest)"
+    );
+
+    // The reason came from a filesystem, a lock file or a child process,
+    // so a control byte in it is escaped rather than written to the
+    // operator's terminal.
+    let (_, line) = composite_detail(None, false, Err("pnpm lock is unreadable: \u{1b}[2J"));
+    assert!(!line.contains('\u{1b}'), "{line}");
 }
 
 #[test]
 fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
     let dir = tempfile::tempdir().unwrap();
-    fn fake_composite(_: &Adapter) -> (bool, String) {
-        (
-            false,
-            "composite deadbeef plugin feedface (no declared wrapper_digest)".to_string(),
-        )
+    fn fake_composite(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Observed {
+        Observed {
+            binary: adapter.binary.clone(),
+            version: probe(&adapter.binary),
+            warning: false,
+            suffix: "composite deadbeef plugin feedface (no declared wrapper_digest)".to_string(),
+        }
     }
     let rendered = doctor_in(
         None,
@@ -1975,12 +2005,15 @@ fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
 #[test]
 fn doctor_warns_when_the_dsh_composite_differs_from_a_declared_digest() {
     let dir = tempfile::tempdir().unwrap();
-    fn warning_composite(_: &Adapter) -> (bool, String) {
-        (
-            true,
-            "composite deadbeef plugin feedface (differs from the declared wrapper_digest feedface)"
-                .to_string(),
-        )
+    fn warning_composite(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Observed {
+        Observed {
+            binary: adapter.binary.clone(),
+            version: probe(&adapter.binary),
+            warning: true,
+            suffix:
+                "composite deadbeef plugin feedface (differs from the declared wrapper_digest feedface)"
+                    .to_string(),
+        }
     }
     let rendered = doctor_in(
         None,
@@ -2005,21 +2038,24 @@ fn doctor_warns_when_the_dsh_composite_differs_from_a_declared_digest() {
     );
 }
 
-/// `dsh_composite_line` reads the shipped adapter's real seams; whether the
-/// host has a DSH install or not, it reports a composite detail and never
-/// panics.
+/// `dsh_provider_line` reads the shipped adapter's real seams; whether the
+/// host has a DSH install or not, it answers without panicking and names
+/// the executable the seam selected.
 #[test]
-fn dsh_composite_line_reads_the_real_adapter_and_its_seams() {
+fn dsh_provider_line_reads_the_real_adapter_and_its_seams() {
     let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
     let adapter = adapters
         .providers()
         .find(|adapter| adapter.provider == "dsh")
         .expect("the shipped dsh adapter");
-    let (_warning, line) = dsh_composite_line(adapter);
-    assert!(line.contains("composite"), "{line}");
+    let observed = dsh_provider_line(adapter, tool_version);
+    assert_eq!(observed.binary, DshSeams::selected().0);
+    // A host without DSH reports no version and no composite suffix; a
+    // host with one reports both. Either way the two halves agree.
+    assert_eq!(observed.version.is_some(), !observed.suffix.is_empty());
 }
 
-/// The mapping `dsh_composite_line` applies to a readable composite: the
+/// The mapping `dsh_provider_line` applies to a readable composite: the
 /// canonical digest and the plugin component, and nothing else. Driven
 /// directly because the real producer needs a DSH install and a node probe.
 #[test]
@@ -2045,63 +2081,438 @@ fn composite_identity_reads_the_canonical_digest_and_the_plugin() {
     );
 }
 
-/// `dsh_composite_line`'s own arms: an Unknown identity declares no digest
-/// and a readable composite becomes the detail. Both are driven over the
-/// injected producer, because the real one needs a DSH install and a node
-/// probe that a unit test must not require.
-#[test]
-fn dsh_composite_line_reports_an_unknown_identity_and_a_readable_composite() {
+/// The shipped DSH adapter with one named shape's identity replaced, so
+/// each declaration disposition is a plain test.
+#[cfg(test)]
+fn dsh_adapter_declaring(identity: Option<ResumeIdentity>) -> Adapter {
     use brokkr_runtime::agents::{ResumeAssessment, ResumeEvidence, ResumeShape};
     use std::collections::BTreeMap;
 
     let adapters = Adapters::load(&workspace().join("adapters")).unwrap();
-    let base = adapters
+    let mut adapter = adapters
         .providers()
         .find(|adapter| adapter.provider == "dsh")
         .expect("the shipped dsh adapter")
         .clone();
-    let digest = "a".repeat(64);
-    let shape = |identity: ResumeIdentity| ResumeShape {
-        status: ResumeStatus::Supported,
-        identity,
-        classes: vec!["work".into()],
-        boundaries: vec!["not applicable".into()],
-        hands: "none".into(),
-        evidence: ResumeEvidence::default(),
-        limitations: Vec::new(),
-        reason: None,
-    };
-    let with_identity = |identity: ResumeIdentity| {
-        let mut adapter = base.clone();
+    if let Some(identity) = identity {
         let mut shapes = BTreeMap::new();
-        shapes.insert("headless-work".to_string(), shape(identity));
+        shapes.insert(
+            "headless-work".to_string(),
+            ResumeShape {
+                status: ResumeStatus::Supported,
+                identity,
+                classes: vec!["work".into()],
+                boundaries: vec!["not applicable".into()],
+                hands: "none".into(),
+                evidence: ResumeEvidence::default(),
+                limitations: Vec::new(),
+                reason: None,
+            },
+        );
         adapter.resume = ResumeAssessment::new(shapes);
-        adapter
-    };
+    }
+    adapter
+}
+
+/// A resolved home under a temporary root, so an injected `selected`
+/// hands the producer a real `DshSeams` without touching the operator's.
+#[cfg(test)]
+fn seams_at(executable: &str, home: &Path) -> (String, Result<DshSeams, CompositeError>) {
+    (
+        executable.to_string(),
+        Ok(DshSeams {
+            executable: executable.to_string(),
+            home: home.to_path_buf(),
+        }),
+    )
+}
+
+/// `dsh_provider_line`'s own arms: an Unknown identity declares no digest
+/// and a readable composite becomes the detail. Both are driven over the
+/// injected producer, because the real one needs a DSH install and a node
+/// probe that a unit test must not require.
+#[test]
+fn dsh_provider_line_reports_an_unknown_identity_and_a_readable_composite() {
+    let dir = tempfile::tempdir().unwrap();
+    let digest = "a".repeat(64);
 
     // An Unknown identity carries no declared digest, so the readable
     // composite is informational and reports no comparison to make.
-    let unknown = with_identity(ResumeIdentity::Unknown {
+    let unknown = dsh_adapter_declaring(Some(ResumeIdentity::Unknown {
         reason: "nobody has identified this wrapper".into(),
-    });
-    let (warning, line) =
-        dsh_composite_line_with(&unknown, || Ok((digest.clone(), "plugin".into())));
-    assert!(!warning, "{line}");
-    assert!(line.contains("no declared wrapper_digest"), "{line}");
-    assert!(line.contains(&digest) && line.contains("plugin"), "{line}");
+    }));
+    let observed = dsh_provider_line_with(
+        &unknown,
+        |_| Some("0.1.5-rc.2".to_string()),
+        || seams_at("dsh", dir.path()),
+        |_| Ok((digest.clone(), "plugin".into())),
+    );
+    assert!(!observed.warning, "{}", observed.suffix);
+    assert!(
+        observed.suffix.contains("no declared wrapper_digest"),
+        "{}",
+        observed.suffix
+    );
+    assert!(
+        observed.suffix.contains(&digest) && observed.suffix.contains("plugin"),
+        "{}",
+        observed.suffix
+    );
 
     // A Measured digest that matches the composite is informational too,
     // and names the match.
-    let measured = with_identity(ResumeIdentity::Measured {
-        version: "0.1.5-rc.1".into(),
-        applies_to: "0.1.5-rc.1".into(),
+    let measured = dsh_adapter_declaring(Some(ResumeIdentity::Measured {
+        version: "0.1.5-rc.2".into(),
+        applies_to: "0.1.5-rc.2".into(),
         wrapper_digest: Some(digest.clone()),
-    });
-    let (warning, line) =
-        dsh_composite_line_with(&measured, || Ok((digest.clone(), "plugin".into())));
-    assert!(!warning, "{line}");
+    }));
+    let observed = dsh_provider_line_with(
+        &measured,
+        |_| Some("0.1.5-rc.2".to_string()),
+        || seams_at("dsh", dir.path()),
+        |_| Ok((digest.clone(), "plugin".into())),
+    );
+    assert!(!observed.warning, "{}", observed.suffix);
     assert!(
-        line.contains("matches the declared wrapper_digest"),
-        "{line}"
+        observed
+            .suffix
+            .contains("matches the declared wrapper_digest"),
+        "{}",
+        observed.suffix
+    );
+
+    // The shipped declaration, whatever it currently says, reaches the
+    // same classifier: no panic and a composite suffix either way.
+    let shipped = dsh_adapter_declaring(None);
+    let observed = dsh_provider_line_with(
+        &shipped,
+        |_| Some("0.1.5-rc.2".to_string()),
+        || seams_at("dsh", dir.path()),
+        |_| Ok((digest.clone(), "plugin".into())),
+    );
+    assert!(observed.suffix.contains("composite"), "{}", observed.suffix);
+}
+
+/// Task 8.8(c)'s measured defect, closed. Doctor probed the bare declared
+/// `adapter.binary` on PATH while the composite followed the adapter's
+/// seam, so an override reported a version from one installation beside a
+/// digest from another (proved both ways on 2026-09-19). Both halves now
+/// come from ONE `DshSeams::selected`: the probe sees the selected
+/// executable, and the producer receives that same resolution.
+#[test]
+fn the_dsh_version_and_composite_come_from_one_resolved_installation() {
+    use std::cell::RefCell;
+
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = dsh_adapter_declaring(None);
+    let selected = dir.path().join("sentinel-dsh").display().to_string();
+    assert_ne!(adapter.binary, selected, "the seam selects another install");
+
+    let probed: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let seen: RefCell<Option<PathBuf>> = RefCell::new(None);
+    let observed = dsh_provider_line_with(
+        &adapter,
+        |binary| {
+            probed.borrow_mut().push(binary.to_string());
+            Some("0.1.5-rc.2 (sentinel)".to_string())
+        },
+        || seams_at(&selected, dir.path()),
+        |seams| {
+            *seen.borrow_mut() = Some(seams.home.clone());
+            Ok(("canonical".into(), "plugin".into()))
+        },
+    );
+    assert_eq!(
+        probed.into_inner(),
+        vec![selected.clone()],
+        "the version probe reads the SELECTED executable exactly once, never 'dsh' on PATH"
+    );
+    assert_eq!(
+        seen.into_inner().as_deref(),
+        Some(dir.path()),
+        "the producer receives the same resolution the probe used"
+    );
+    assert_eq!(observed.binary, selected);
+    assert_eq!(observed.version.as_deref(), Some("0.1.5-rc.2 (sentinel)"));
+    assert!(observed.suffix.contains("canonical"), "{}", observed.suffix);
+}
+
+/// A selected executable that does not answer is the whole of the line:
+/// the warning names THAT executable, and no PATH decoy is tried in its
+/// place — so the composite producer is never asked either.
+#[test]
+fn a_failed_selected_executable_is_never_retried_against_a_path_decoy() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = dsh_adapter_declaring(None);
+    let selected = dir.path().join("absent-dsh").display().to_string();
+    let observed = dsh_provider_line_with(
+        &adapter,
+        |binary| match binary == adapter.binary {
+            // The decoy the bare declared name WOULD have found.
+            true => Some("0.0.0 (decoy on PATH)".to_string()),
+            false => None,
+        },
+        || seams_at(&selected, dir.path()),
+        |_| panic!("the composite is not computed for an executable that did not answer"),
+    );
+    assert_eq!(observed.binary, selected);
+    assert_eq!(observed.version, None);
+    assert!(!observed.warning);
+    assert_eq!(observed.suffix, "");
+}
+
+/// The guide's composite wording is the classifier's own output, not a
+/// transcription of it. A sample nobody checks drifts: the inherited one
+/// had already become a digest no installation produced.
+#[test]
+fn the_guide_documents_the_wording_the_classifier_emits() {
+    let guide = std::fs::read_to_string(workspace().join("docs/guides/provider-adapters.md"))
+        .expect("the provider-adapters guide");
+    let (_, unreadable) = composite_detail(
+        Some("<digest>"),
+        false,
+        Err("pnpm lock is unreadable: pnpm lock exceeds 8388608-byte limit"),
+    );
+    assert_eq!(
+        unreadable,
+        "composite unreadable: pnpm lock is unreadable: pnpm lock exceeds 8388608-byte limit \
+         (declared wrapper_digest <digest>; comparison unavailable)"
+    );
+    assert!(
+        guide.contains(&unreadable),
+        "the guide's unreadable sample is what doctor prints: {unreadable}"
+    );
+    // And the readable vocabulary the sample line beside it uses.
+    let (_, matched) = composite_detail(None, false, Ok(("<digest>", "<plugin>")));
+    assert!(
+        guide.contains("(no declared wrapper_digest)"),
+        "the guide's readable sample: {matched}"
+    );
+}
+
+/// A minimal DSH installation at D6's locators under `root`, returning
+/// the executable path. Enough for the sole producer to return a real
+/// canonical digest, which is what makes the precedence control below a
+/// comparison between two INSTALLATIONS rather than two strings.
+#[cfg(test)]
+fn install_dsh(root: &Path, version: &str) -> String {
+    let put = |dir: &Path, name: &str, bytes: &[u8]| {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    };
+    let core = root.join("core");
+    let pkg = core.join("node_modules/@deepseek-ai/dsh");
+    put(
+        &pkg,
+        "package.json",
+        format!(
+            r#"{{"name":"@deepseek-ai/dsh","version":"{version}","bin":{{"dsh":"lib/bin.js"}}}}"#
+        )
+        .as_bytes(),
+    );
+    put(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    put(
+        &core,
+        "node_modules/.package-lock.json",
+        format!(
+            r#"{{"lockfileVersion":3,"packages":{{"node_modules/@deepseek-ai/dsh":{{"version":"{version}","integrity":"sha512-CORE-{version}"}}}}}}"#
+        )
+        .as_bytes(),
+    );
+    let profile = root.join("home/profiles/headless");
+    put(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    put(&profile, "cordis.patch.yml", b"[]\n");
+    put(
+        &profile,
+        "pnpm-lock.yaml",
+        b"lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-D}\n",
+    );
+    let plugin = profile.join("node_modules/dsh-plugin-cli-session");
+    for file in [
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml",
+        "lib/index.js",
+        "lib/startup.js",
+        "package.json",
+    ] {
+        put(&plugin, file, file.as_bytes());
+    }
+    pkg.join("lib/bin.js").display().to_string()
+}
+
+/// Task 8.8(c), hermetically: the adapter seam's `BROKKR_DSH_BIN`, then
+/// `FORGE_DSH_BIN`, then PATH precedence moves BOTH halves of the DSH
+/// line together.
+///
+/// The environment is process-global, so each case runs in a re-executed
+/// copy of this test binary rather than racing every other test here.
+/// Each child installs two distinguishable DSH trees and asserts that the
+/// version probe and the producer-derived composite both describe the one
+/// the seam selected — the pairing the measured 2026-09-19 defect broke.
+#[test]
+fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
+    const CASE: &str = "BROKKR_DOCTOR_SEAM_CASE";
+    const CHOSEN: &str = "BROKKR_DOCTOR_SEAM_CHOSEN";
+
+    if let Ok(case) = std::env::var(CASE) {
+        let chosen = std::env::var(CHOSEN).expect("the parent names the expected selection");
+        let adapter = dsh_adapter_declaring(None);
+        let probed = std::cell::RefCell::new(Vec::new());
+        // The REAL seam resolution and the REAL producer: only the
+        // version probe is injected, because a shell shim would test the
+        // shim rather than the selection.
+        let observed = dsh_provider_line_with(
+            &adapter,
+            |binary| {
+                probed.borrow_mut().push(binary.to_string());
+                Some(format!("probed {binary}"))
+            },
+            DshSeams::selected,
+            |seams| {
+                dsh_composite(seams)
+                    .map(composite_identity)
+                    .map_err(|error| error.to_string())
+            },
+        );
+        assert_eq!(observed.binary, chosen, "case {case}: the seam's choice");
+        assert_eq!(
+            probed.into_inner(),
+            vec![chosen.clone()],
+            "case {case}: the version probe reads the selected executable, once"
+        );
+        assert_eq!(
+            observed.version.as_deref(),
+            Some(format!("probed {chosen}").as_str()),
+            "case {case}: the reported version is that executable's"
+        );
+        // The producer ran over the SAME resolution. A host without a
+        // usable `node` cannot finish the composite — that is a fact
+        // about this machine, not about the seam — so the assertion is
+        // that whatever the producer says, it never describes the
+        // install the seam did NOT select.
+        let rejected = std::env::var("BROKKR_DOCTOR_SEAM_REJECTED").unwrap_or_default();
+        assert!(!observed.suffix.is_empty(), "case {case}: no composite arm");
+        assert!(
+            rejected.is_empty() || !observed.suffix.contains(&rejected),
+            "case {case}: the composite must not describe {rejected}: {}",
+            observed.suffix
+        );
+        if !observed.suffix.contains("unreadable") {
+            let digest = observed
+                .suffix
+                .strip_prefix("composite ")
+                .and_then(|rest| rest.split(' ').next())
+                .expect("a readable composite names its canonical digest");
+            assert_eq!(digest.len(), 64, "case {case}: {}", observed.suffix);
+        }
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let primary = install_dsh(&dir.path().join("primary"), "0.1.5-rc.2");
+    let legacy = install_dsh(&dir.path().join("legacy"), "0.1.4");
+    assert_ne!(primary, legacy);
+    let home = dir.path().join("primary/home");
+
+    for (case, set_primary, set_legacy, chosen, rejected) in [
+        // Primary wins over legacy.
+        ("both", true, true, primary.as_str(), legacy.as_str()),
+        // Legacy alone is honoured.
+        (
+            "legacy-only",
+            false,
+            true,
+            legacy.as_str(),
+            primary.as_str(),
+        ),
+        // Neither: the bare name the adapter declares, resolved on PATH.
+        ("neither", false, false, "dsh", primary.as_str()),
+    ] {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                // The FULL libtest path. A bare function name matches
+                // nothing under `--exact`, and a filter that matches
+                // nothing exits zero — a child that ran no assertion at
+                // all would make every case here pass vacuously.
+                "doctor::tests::the_dsh_seam_precedence_moves_the_version_and_the_composite_together",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CASE, case)
+            .env(CHOSEN, chosen)
+            .env("BROKKR_DOCTOR_SEAM_REJECTED", rejected)
+            .env("DSH_HOME", &home)
+            .env_remove("BROKKR_DSH_BIN")
+            .env_remove("FORGE_DSH_BIN");
+        if set_primary {
+            child.env("BROKKR_DSH_BIN", &primary);
+        }
+        if set_legacy {
+            child.env("FORGE_DSH_BIN", &legacy);
+        }
+        let output = child.output().expect("the child test binary runs");
+        let said = String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr);
+        // A filter that matches nothing exits ZERO. Without this the
+        // whole control would pass while asserting nothing at all.
+        assert!(
+            said.contains("1 passed") || said.contains("1 failed"),
+            "case {case}: the child ran the case, rather than filtering it away: {said}"
+        );
+        match case {
+            // The `neither` case selects the bare `dsh`, which this
+            // machine may or may not have installed: the selection and
+            // the probe are asserted, and the composite arm only where
+            // that executable resolves. The two override cases always do.
+            "neither" => assert!(
+                output.status.success() || said.contains("composite unreadable"),
+                "case {case}: the bare name is still what the seam chose: {said}"
+            ),
+            _ => assert!(output.status.success(), "case {case}: {said}"),
+        }
+    }
+}
+
+/// A failed HOME seam is a named composite failure, not evidence that the
+/// binary is missing: the version the selected executable answered with
+/// stays visible beside the unreadable reason (design D10's scenario).
+#[test]
+fn a_failed_home_seam_leaves_the_version_visible_beside_the_reason() {
+    let digest = "a".repeat(64);
+    let adapter = dsh_adapter_declaring(Some(ResumeIdentity::Measured {
+        version: "0.1.5-rc.2".into(),
+        applies_to: "0.1.5-rc.2".into(),
+        wrapper_digest: Some(digest.clone()),
+    }));
+    let observed = dsh_provider_line_with(
+        &adapter,
+        |_| Some("0.1.5-rc.2".to_string()),
+        || {
+            (
+                "dsh".to_string(),
+                Err(CompositeError::Config(
+                    "no dsh home: set DSH_HOME or HOME".into(),
+                )),
+            )
+        },
+        |_| panic!("no seams, no producer call"),
+    );
+    assert_eq!(observed.version.as_deref(), Some("0.1.5-rc.2"));
+    assert!(observed.warning, "a supported declaration warns");
+    assert_eq!(
+        observed.suffix,
+        format!(
+            "composite unreadable: the DSH layout is unreadable: \
+             no dsh home: set DSH_HOME or HOME \
+             (declared wrapper_digest {digest}; comparison unavailable)"
+        )
     );
 }

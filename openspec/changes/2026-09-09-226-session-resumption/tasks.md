@@ -7407,7 +7407,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
 
 ### 1. Preserve and prove the closed loader — 8.8(a)
 
-- [ ] Preserve the existing `ResumeIdentity::Measured.wrapper_digest:
+- [x] Preserve the existing `ResumeIdentity::Measured.wrapper_digest:
   Option<String>` and measured closed key set in
   `crates/brokkr-runtime/src/agents/load.rs`: absent remains valid; present
   is exactly 64 lowercase ASCII hexadecimal characters, without trimming or
@@ -7417,7 +7417,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   adapter content digest. Add no store, wire, contract or planner field —
   safety / AS1.
 
-- [ ] Strengthen
+- [x] Strengthen
   `agents::tests::the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name`
   and `an_edited_resume_assessment_moves_the_adapter_digest` with exact
   presence/omission, changed-digest and field-plus-grammar/type reasons for
@@ -7434,7 +7434,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
 
 ### 2. Seal the sole producer and its byte readers — 8.8(b)
 
-- [ ] Make `dsh_composite` the only production entry that produces either
+- [x] Make `dsh_composite` the only production entry that produces either
   digest, retaining `crates/brokkr-protocol/src/adapters/composite.rs` beside
   the DSH planner. Remove public re-exports of `canonical_composite`,
   `plugin_component`, `plugin_file_digests`, `npm_dependencies`,
@@ -7461,7 +7461,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   consistent retained component, observe failure, restore and rerun. This
   proves one-pass consistency, not an atomic filesystem snapshot — safety / AS1.
 
-- [ ] Replace lossy walking with exact path membership: the six regular,
+- [x] Replace lossy walking with exact path membership: the six regular,
   non-symlink files, their necessary `lib/` ancestor and, as the sole extra,
   a direct real non-symlink `<plugin>/node_modules/` directory. Check metadata
   before skipping that directory; never traverse it. Reject other directories
@@ -7477,7 +7477,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   compiling controls; assert its own path/reason or pinned digest failure,
   restore and rerun. Never mutate committed extension bytes — safety / AS1.
 
-- [ ] Apply one source-scalar rule before concatenation, rejecting empty,
+- [x] Apply one source-scalar rule before concatenation, rejecting empty,
   NUL and every whitespace character, including space, tab, CR and LF, in
   names, versions, integrities, core fields, Node's extracted version and
   profile bundle/reload values. Intentional spaces between triple fields are
@@ -7492,7 +7492,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   assertion fail, restore and rerun. These focused guards do not complete any
   of 8.10's separately owned rejection-vector ledger — safety / AS1.
 
-- [ ] Normalize npm from every complete left-to-right
+- [x] Normalize npm from every complete left-to-right
   `node_modules/<package>` group in the retained hidden lock, preserving
   scoped spellings and taking only the terminal name and that entry's verbatim
   string version/integrity; ignore optional `name`. Refuse malformed ancestor
@@ -7538,7 +7538,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   profile. Remove each delivered locator/executable/failure guard in isolation,
   record its exact failed assertion, restore and rerun — safety / AS1.
 
-- [ ] Preserve the existing `Profile { dir, canonical }` correction: original
+- [x] Preserve the existing `Profile { dir, canonical }` correction: original
   profile directory as lookup anchor, full directory canonicalized once as
   containment boundary. Keep core lookup paths before profile paths and
   judge each first-hit canonical candidate by components against canonical
@@ -7555,7 +7555,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   Do not claim a new implementation of the inherited symlinked-home fix or
   completion of 8.10 — safety / AS1.
 
-- [ ] Serialize D6's exact `<component>\0<value>\n` stream: `core`, `node`,
+- [x] Serialize D6's exact `<component>\0<value>\n` stream: `core`, `node`,
   deduplicated bytewise-sorted `dependency` values, `plugin`, `plugin-patch`,
   `profile-patch`, declared-order `profile-bundle` values,
   `profile-patch-reload`, `home-patch`, then `extension` only when
@@ -7573,7 +7573,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   failures, restore and rerun. No parallel test-side composite serializer —
   safety / AS1.
 
-- [ ] Replace the synthetic rc.2 fixture clause with complete literal measured
+- [x] Replace the synthetic rc.2 fixture clause with complete literal measured
   ground truth in `crates/brokkr-protocol/src/adapters/composite/tests.rs`.
   At authoring time copy the full hidden lock from
   `.forge/tasks/dsh-core-package-lock-015rc2.json`, full pnpm/profile-patch
@@ -7616,7 +7616,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
 
 ### 4. Make doctor observe the same resolved installation — 8.8(c)
 
-- [ ] Refactor only the DSH branch in `crates/brokkr-cli/src/doctor.rs` to
+- [x] Refactor only the DSH branch in `crates/brokkr-cli/src/doctor.rs` to
   resolve adapter seams once, version-probe the selected executable and pass
   the same seams to `dsh_composite`. Preserve non-DSH probing. In hermetic
   subprocess provider-line tests give primary override `BROKKR_DSH_BIN`,
@@ -7634,7 +7634,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   isolated compiling controls; record which paired assertion fails, restore
   and rerun — safety / AS1.
 
-- [ ] Implement D10's full truth table in the composite suffix. Readable
+- [x] Implement D10's full truth table in the composite suffix. Readable
   output includes canonical and plugin digests and exactly one of
   `matches the declared wrapper_digest`,
   `differs from the declared wrapper_digest <digest>`, or
@@ -7653,7 +7653,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   version-retention or sanitization arm separately; record its exact failed
   assertion, restore and rerun — safety / AS1.
 
-- [ ] Update `docs/guides/provider-adapters.md` with the emitted rc.2 doctor
+- [x] Update `docs/guides/provider-adapters.md` with the emitted rc.2 doctor
   vocabulary and producer-derived measured-fixture output, explicitly
   attributed to that fixture. Cover readable match/difference/undeclared and
   unreadable declaration-presence/comparison-unavailable wording. Never
@@ -7665,7 +7665,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
 
 ### 5. Verify every delivered claim and preserve the slice boundary
 
-- [ ] For every delivered substantive claim above, append a removal-proof row
+- [x] For every delivered substantive claim above, append a removal-proof row
   here naming the production mutation, exact test, exact assertion/reason
   that failed, exact restoration and passing focused rerun. Perform compiling
   mutations one at a time and undo them before the next. Replace touched bare
@@ -7689,7 +7689,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   not green. Keep this checkbox open until the required fresh external result
   exists; older counts never supply it — safety / AS1.
 
-- [ ] After every local implementation/proof/gate clause passes, tick its
+- [x] After every local implementation/proof/gate clause passes, tick its
   checkbox and record exactly what (a)–(c) delivered. Keep 8.8(d), all 8.10
   cases, 10.7's retained-home doctor recording, declaration pin, enablement,
   archive and remaining whole-change acceptance pending. Leave global 8.8
@@ -7751,3 +7751,250 @@ implementation checkbox and global 8.8 stays unchecked; (d), all 8.10 cases,
 pending. No provider probe, install, planner change, task tick, push, release
 or new Brokkr run occurred. No earlier artifact needs repair, so the phase
 result is `drafted`, with the adopted change identifier in `inputs.change`.
+
+## Implement visit — 8.8(a), (b) and (c) delivered; (d), 8.10 and the exact gate still pending, 2026-09-19
+
+Run `dsh-composite-identity-issue-226-26def5a5`, on `slice-dsh-composite-b`
+above `310c5864`. This visit delivered only the loader, the sole Rust
+composite producer and the DSH doctor report, in D10's order. **Task 8.8 stays
+unchecked**: its acceptance also spans part (d)'s planner and 8.10's
+rejection-vector ledger, neither of which this visit touched. Fourteen of the
+breakdown's eighteen local clauses are ticked above; the four that are not are
+named below with exactly what they still owe.
+
+### (a) The closed loader, and the carriage nobody had read
+
+`ResumeIdentity::Measured.wrapper_digest` and its 64-lowercase-hex check were
+already at this HEAD and are preserved unchanged. What was missing was the
+proof that the DECLARED member reaches the driver — the inherited tests read
+the originating checkpoint's digest, which is a different fact.
+
+`engine::resume_tests::a_declared_wrapper_digest_reaches_the_private_start_context`
+loads the shipped `adapters/dsh.json` through the production loader with the
+member added and then removed, runs a real seat, and reads
+`Start.input.resume_context.assessment["headless-work"].identity`. The two
+named start tests now carry a selected declaration of their own, so BOTH
+production `start_context` call sites — `run_driver` and the panel member —
+are read: `an_offered_dsh_start_carries_the_recorded_home_at_the_single_site`
+asserts `c…`, `…_at_the_panel_member` asserts `d…`, each distinct from the
+originating `a…`. Omission stays an omission rather than a null. No store,
+wire, contract or v5 member was added.
+
+### (b) One producer, sealed, over fixed locators
+
+`adapters.rs` now re-exports only `dsh_composite`, `DshSeams`, `DshComposite`
+and `CompositeError`. `canonical_composite`, `plugin_component`,
+`plugin_file_digests`, `npm_dependencies`, `pnpm_dependencies`,
+`spawn_node_runtime`, `dsh_composite_with`, `NodeRuntime`, `PLUGIN_FILES` and
+`EXTENSION_FILES` are private to the module. The planner's two call sites are
+unchanged.
+
+Delivered behaviour, each a change from the inherited bytes:
+
+- **Exact membership walking.** The walker admits the six declared files,
+  their `lib/` ancestor and — as the one extra-entry exception — a DIRECT,
+  real, non-symlink `node_modules/` directory, granted on metadata already
+  read and never traversed. A deeper `node_modules/`, an empty or stray
+  directory, a symlink, a special entry, a non-UTF-8 name and an unreadable
+  or missing file are each refusals naming their own relative path. The
+  inherited `to_string_lossy` merge is gone: a name that is not UTF-8 is
+  refused rather than mapped onto a spelling that might collide with a
+  declared one.
+- **Exact-record exclusions.** The core leaves by its exact hidden-lock KEY
+  and the plugin by its local `file:` record, so a same-named registry entry
+  and a second version of the same package are both retained. The inherited
+  name-wide list would have erased them.
+- **One scalar rule.** Empty, NUL and EVERY whitespace character — space,
+  tab, CR and LF — are refused at the source, before concatenation, naming
+  the responsible component. `node --version` is read as one record with at
+  most one terminator; the inherited `trim()` would have repaired a padded
+  banner into a plausible version.
+- **A bounded pnpm reader.** `read_pnpm` takes at most 8,388,609 bytes before
+  any unbounded allocation and trusts no metadata size.
+- **Components named for themselves.** An unreadable profile or home patch is
+  a `profile-patch`/`home-patch` refusal, not plugin drift. A dangling
+  home-patch symlink is unreadable; only a true missing path yields `absent`.
+- **One read per identity-bearing source.** `resolve_core` retains the
+  manifest from discovery and parses the hidden lock once; `npm_dependencies`
+  consumes that retained value and has no path to the filesystem at all. The
+  plugin's `cordis.patch.yml` digest is taken from the component walk and
+  reused as `plugin-patch`.
+
+**The measured fixture.** `composite/tests.rs` now embeds the complete
+measured inputs as literal Rust constants — the 311,184-byte hidden npm lock
+(SHA-256 `b84bac2d…`), the 1,982-byte pnpm lock (`4708752f…`, 57 lines,
+longest 186) and the 217-byte profile patch (`ef189a8c…`) — materialized at
+D6's locators beside the six unchanged committed plugin files. Nothing reads
+`.forge/` at build or run time. The fixture asserts the rc.2 core name,
+version and measured integrity, `node_modules/@deepseek-ai/dsh/lib/bin.js`
+with its exact shebang, Node `v22.23.2`, `startup`, the measured profile and
+plugin patches, absent home patch, the declared bundle order, and both real
+anchors: `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-headless` under the
+CORE root, `dsh-plugin-cli-session` under the PROFILE.
+
+The dependency set is asserted as complete ORDERED VALUES, not counts: 501
+distinct complete npm triples over 489 names, four pnpm triples with their
+three exact overlaps, and the 502 combined values. All three supplied
+path-grammar cases bind to their terminal spellings with that entry's own
+version and integrity. The producer's own output is then pinned:
+
+| Value | Producer output over the measured inputs |
+|---|---|
+| plugin component | `074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5` |
+| canonical composite | `a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1` |
+
+These are FIXTURE results. They are not 10.7's retained-home recording and
+they authorize no declaration.
+
+### (c) One resolved installation, in doctor
+
+The commissioned defect is closed. `probe_providers` no longer probes the
+bare `adapter.binary` for DSH: `dsh_provider_line` resolves the seam once
+through `DshSeams::selected`, probes `--version` on THAT executable and hands
+the same resolution to `dsh_composite`. A selected executable that does not
+answer is reported missing by its own name, no PATH decoy is tried, and the
+producer is not called at all. A failed `$DSH_HOME` is a named composite
+failure that leaves the observed version visible. Non-DSH providers are
+untouched.
+
+`composite_detail` now implements D10's full table: an unreadable composite
+keeps its declaration context (`no declared wrapper_digest`, or
+`declared wrapper_digest <digest>; comparison unavailable`) and asserts
+neither a match nor a difference, and its reason goes through `Safe`. The
+guide sample carries the producer-derived measured-fixture digests, and two
+tests hold it to the emitted vocabulary rather than to a transcription.
+
+### Compiling removal controls
+
+Each mutation was applied alone, its focused test run, then restored. All
+gates below ran on the restored bytes.
+
+| # | Production mutation | Test | Assertion that failed |
+|---|---|---|---|
+| A1 | `agents.rs` `ResumeIdentity::value` drops the `wrapper_digest` member | `a_declared_wrapper_digest_reaches_the_private_start_context` | "the exact declared member reaches the private start context": `Null` vs `aaaa…` |
+| A2 | `load.rs` `is_lower_hex_64` accepts `is_ascii_hexdigit` | `the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name` | the uppercase case loads instead of refusing (`unwrap_err` on `Ok`) |
+| A3 | `load.rs` measured key list drops `wrapper_digest` | same | the well-formed member is refused: "unknown key 'wrapper_digest'" |
+| A4 | same as A1 | same | `shape.identity.value()["wrapper_digest"]`: `Null` vs the digest |
+| B1 | `walk` grants the `node_modules` exception at any depth | `the_plugin_component_is_bytewise_path_order_and_fails_closed` | "unexpected directory 'lib/node_modules'" no longer refuses |
+| B2 | `walk` uses `to_string_lossy` for the entry name | `the_plugin_walk_refuses_a_name_that_is_not_utf8` | reason became "unexpected entry 'LICENSE\u{fffd}'" |
+| B3 | `walk` drops the expected-membership guard | `the_plugin_component_is_bytewise_path_order_and_fails_closed` | "unexpected entry 'extra.txt'" no longer refuses |
+| B4 | `walk` admits any directory | `only_an_ancestor_of_a_declared_file_is_a_walkable_directory` | "unexpected directory 'empty'" no longer refuses |
+| B5 | `npm_dependencies` excludes by NAME | `npm_exclusions_name_exact_records_and_keep_same_named_registry_ones` | `[]` vs the retained `@deepseek-ai/dsh 0.1.4` and registry `dsh-plugin-cli-session` |
+| B6 | `npm_dependencies` deduplicates by name | `the_measured_locks_yield_the_complete_ordered_dependency_set` | "521 records deduplicate to 501": `489` vs `501` |
+| B7 | `npm_name` returns the FIRST group | `the_measured_npm_keys_bind_to_their_terminal_spellings` | `@aws-sdk/credential-provider-http` vs `@smithy/node-http-handler` |
+| B8 | `read_pnpm` bound made exclusive (`>=`) | `the_pnpm_reader_is_bounded_inclusively_at_the_limit` | the exact-limit file no longer reaches grammar validation |
+| B10 | `scalar_reason` checks only `\n` | `npm_versions_with_any_whitespace_are_unreadable` | `" 1.0.0"` produced a triple instead of refusing |
+| B11 | `spawn_node_runtime_at` restores `trim()` | `spawn_node_runtime_reads_one_version_line_and_refuses_the_rest` | the padded banner was repaired to `v1.2.3` |
+| B12 | `home_patch` maps any metadata failure to `absent` | `a_dangling_home_patch_symlink_is_unreadable_rather_than_absent`, `a_present_unreadable_home_patch_is_not_absence` | `"absent"` returned for a failed observation |
+| B13 | `patch_digest` raises `Component` | `an_unreadable_profile_patch_is_not_a_plugin_component_failure` | the profile patch failed as "plugin component is unreadable" |
+| B14 | `resolve_bundle` continues past an outside first hit | `an_outside_first_bundle_hit_is_not_skipped_for_a_later_inside_one` | the later inside candidate was used instead of refusing |
+| B15 | `read_profile` keeps the RAW directory as the containment boundary | `the_dsh_composite_accepts_a_symlinked_home_ancestor` | the symlinked home's legitimate bundle was refused — the inherited false refusal, reproduced |
+| B16 | `resolve_core_reading` reopens the selected manifest | `the_core_manifest_and_hidden_lock_are_read_once_and_retained` | "the selected core manifest is opened once": `2` vs `1` |
+| B17 | `canonical_composite` drops the `home-patch` line | `the_measured_install_yields_…_pinned_digests`, `the_measured_composite_moves_with_every_component_it_names` | the pinned canonical digest moved, and the home-patch movement vanished |
+| B18 | `canonical_composite` sorts the bundle lines | `the_measured_composite_moves_with_every_component_it_names` | the reordered declaration no longer moved the composite |
+| B19 | `resolve_bundle` searches the profile before the core | four composite tests | each containment refusal became a success |
+| C1 | `dsh_provider_line_with` probes `adapter.binary` | `the_dsh_version_and_composite_come_from_one_resolved_installation`, `the_dsh_seam_precedence_moves_the_version_and_the_composite_together` | "the version probe reads the SELECTED executable": `["dsh"]` vs the sentinel |
+| C2 | the unreadable arm drops its declaration context | `the_dsh_composite_detail_reports_each_disposition` | `(no declared wrapper_digest)` vs `(declared wrapper_digest …; comparison unavailable)` |
+| C3 | the unreadable reason skips `Safe` | same | the escape sequence reached the rendered line |
+| C4 | the composite is computed for an unanswering binary | `a_failed_selected_executable_is_never_retried_against_a_path_decoy` | the injected producer's "not computed" panic fired |
+| C5 | a failed home seam returns no version | `a_failed_home_seam_leaves_the_version_visible_beside_the_reason` | `None` vs `Some("0.1.5-rc.2")` |
+| C6 | `composite_detail` changes its readable wording | `the_guide_documents_the_wording_the_classifier_emits` | the guide sample no longer matched the emitted string |
+
+One control found a defect in this visit's OWN test rather than in
+production: the hermetic seam-precedence case first passed under C1 because
+its child filter used a bare function name, and a libtest filter that matches
+nothing exits zero. The child now runs the full `doctor::tests::…` path and
+the parent asserts the child actually ran a case before reading its status.
+
+### Gates, on the restored final bytes
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-protocol --all-features --locked` | 338 + 99 + 1 pass, 0 fail |
+| `cargo test -p brokkr-cli --all-features --locked` | pass, 0 fail |
+| `cargo test -p brokkr-runtime --all-features --locked` | pass except three PRE-EXISTING failures (below) |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | compiles |
+| `bash scripts/coverage-exact.sh` | **PENDING** — see below |
+| `openspec validate --all --strict` | **PENDING** — see below |
+
+**Three pre-existing runtime failures, not this slice's.** `gpt_flash_shape`
+(2), `roster` (1) and `witness_digests` (1) fail at this HEAD before any edit
+of this visit. Verified by running them in a clean worktree at `310c5864`:
+byte-identical failures, including `recipes/gpt-flash manifest digest moved`
+`20b1ba15…` vs `2b6623f1…`. They follow commit `99fdbb0a`, which pinned every
+gate, chief and council office to astra without moving the recipe's pinned
+manifest digest or the panel-diversity expectations. Repairing them belongs to
+that commit's owner, not to 8.8(a)–(c).
+
+**The exact-coverage gate is pending, for two separate reasons.** First,
+`bash scripts/coverage-exact.sh` cannot be launched from this seat at all —
+script execution is refused, as `cargo`/`openspec` were for the tasks seat.
+Second, and independently: the gate's instrumented run is
+`cargo llvm-cov --workspace`, and `cargo-llvm-cov` abandons report generation
+when the test run fails. While those three pre-existing failures stand, the
+gate cannot produce a report on ANY bytes at this HEAD, this slice's included.
+Neither reason is a pass, and none is inferred.
+
+What WAS measured, with the pinned `nightly-2026-09-05` compiler, is a
+crate-scoped instrumented run over the three touched crates' library suites
+(`cargo +nightly-2026-09-05 llvm-cov --lib -p brokkr-protocol -p brokkr-cli
+-p brokkr-runtime --all-features --locked --branch`):
+`crates/brokkr-protocol/src/adapters/composite.rs` reports **FNF 100 / FNH
+100, BRF 174 / BRH 174, LF 844 / LH 844** — no uncovered line, branch or
+function. In `doctor.rs` the only zero-hit records are pre-existing paths the
+crate's INTEGRATION tests cover and this scoped run excludes (`unbuilt`, the
+boxed-probe error arm and the public `doctor` entry point); the whole
+171–300 region this visit rewrote is covered. This is evidence about the new
+lines, NOT a substitute for the gate, which stays red-and-unrun above.
+
+`openspec validate --all --strict` could not be launched from this seat
+either. The only artifact this visit changed under `openspec/` is this
+account and fourteen checkboxes inside an existing section of `tasks.md`; no
+delta, requirement or scenario was touched, and the whole-change ledger is
+unchanged at **101 global identifiers / 84 checked / 17 pending**, 8.8 among
+the pending.
+
+### What the four unticked local clauses still owe
+
+- **Retain every identity-bearing source once per call.** The manifest and
+  the hidden lock are delivered and counted (B16); `npm_dependencies` takes
+  the retained `&Value` and cannot reopen. The plugin `cordis.patch.yml`
+  reuse is delivered and asserted by value identity, but it has **no
+  behavioural removal control**: reopening an unchanged file yields the same
+  digest, so no assertion can distinguish it. A counting seam for the
+  component walk's file reads would close this; it is not built.
+- **The bounded pnpm reader.** The inclusive comparison is proved (B8) and
+  `the_pnpm_bound_stops_an_endless_source_that_reports_no_size` shows the
+  bound is applied to bytes CONSUMED, using `/dev/zero`. But removing the
+  `take` itself does not fail an assertion — it makes that test consume
+  memory without terminating, which is the harm the bound prevents rather
+  than a failing assertion, and it was **not executed** so as not to exhaust
+  the host. The closed-grammar arms were not removed one at a time.
+- **D6's locator chain.** Preserved and covered by the existing executable,
+  core, profile and layout tests, but this visit ran **no removal control**
+  on the shebang, `bin.dsh`, core-root or hidden-lock-vs-root-lock guards.
+  The clause asks for each in isolation.
+- **Gates on final restored bytes.** Pending the exact-coverage gate and
+  `openspec validate`, for the reasons above.
+
+### Explicitly not done, and still pending
+
+Part **(d)**'s planner behaviour was not started, planned or touched, and no
+planner call site changed. **8.10**'s complete whitespace and
+rejection-vector ledger, **9.6**, **10.6–10.8** (including 10.7's
+retained-home doctor recording), **11.1–11.4** and groups **14** and **15**
+remain their owners'. No `wrapper_digest` was declared in adapter data, no
+shape moved to `supported`, and the DSH route stays disabled and unmeasured
+for admission. Proposed decision 0056 keeps its `proposed` status. The frozen
+contracts, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/` and every byte under `extensions/dsh/` are untouched. No
+provider was installed, probed for qualification, or re-measured; the
+supplied qualification was adopted as given. Nothing was pushed.
+
+One residual observed but deliberately left alone: the provider-adapters
+guide's adapter-shape table still describes the selected core as **0.1.5-rc.1**
+while the qualification and this fixture are rc.2. That row is the route
+pin's, not 8.8(a)–(c)'s, and correcting it here would edit a version
+reference this commission does not own.

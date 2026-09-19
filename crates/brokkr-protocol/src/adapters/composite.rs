@@ -11,17 +11,30 @@
 //!   triple from both lock dialects, the plugin component, the patch and
 //!   profile lines and the optional extension component.
 //!
+//! `dsh_composite` is the only production entry point. Every parser, hasher,
+//! serializer and injected helper below it is private: a caller consumes the
+//! observation and cannot hand the producer an already-computed component or
+//! composite value (design D6 (b)).
+//!
+//! Within one call each identity-bearing source is read once and every use is
+//! derived from that read — the hidden lock's bytes serve both the `core` line
+//! and the npm triples, and the plugin's `cordis.patch.yml` digest serves both
+//! the plugin component and `plugin-patch`. That is a one-pass observation, not
+//! an atomic snapshot: it keeps one returned observation from contradicting
+//! itself because the producer reopened the same file.
+//!
 //! Nothing here reads a credential or settings file, and no provenance note,
 //! probe script or evidence file computes either value by hand.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// The plugin's committed six-file set, in bytewise path order.
-pub const PLUGIN_FILES: [&str; 6] = [
+const PLUGIN_FILES: [&str; 6] = [
     "LICENSE",
     "README.md",
     "cordis.patch.yml",
@@ -31,7 +44,24 @@ pub const PLUGIN_FILES: [&str; 6] = [
 ];
 
 /// The conditional extension's four-file set, in bytewise path order.
-pub const EXTENSION_FILES: [&str; 4] = ["LICENSE", "cordis.patch.yml", "index.js", "package.json"];
+const EXTENSION_FILES: [&str; 4] = ["LICENSE", "cordis.patch.yml", "index.js", "package.json"];
+
+/// The core package's name, which is also the hidden lock key of its own
+/// record — the one record the dependency lines exclude exactly.
+const CORE_NAME: &str = "@deepseek-ai/dsh";
+const CORE_KEY: &str = "node_modules/@deepseek-ai/dsh";
+
+/// The bundle name whose installed bytes supply the `plugin` line.
+const PLUGIN_BUNDLE: &str = "dsh-plugin-cli-session";
+
+/// The bundle name whose installed bytes supply the conditional
+/// `extension` line, when the profile names it.
+const EXTENSION_BUNDLE: &str = "brokkr-dsh-resume-policy";
+
+/// The inclusive byte bound on the profile's pnpm lock (design D6 (b)).
+/// Four orders of magnitude above the measured 1,982 bytes, and read
+/// before any unbounded allocation rather than trusted from metadata.
+const PNPM_LIMIT: usize = 8_388_608;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CompositeError {
@@ -43,8 +73,18 @@ pub enum CompositeError {
     NpmKey(String),
     #[error("pnpm lock is unreadable: {0}")]
     PnpmLock(String),
-    #[error("a composite value contains a NUL or newline")]
-    Value,
+    /// A patch component that is neither the plugin's nor readable: the
+    /// profile's or the home's `cordis.patch.yml`. Named separately so an
+    /// unreadable profile patch is never reported as plugin drift.
+    #[error("{0} is unreadable: {1}")]
+    Patch(&'static str, String),
+    /// A source scalar that cannot enter an identity line, named by the
+    /// component it would have served.
+    #[error("the {component} value {reason}")]
+    Value {
+        component: &'static str,
+        reason: &'static str,
+    },
     #[error("the DSH layout is unreadable: {0}")]
     Config(String),
 }
@@ -53,25 +93,34 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-fn sha256_file(path: &Path) -> Result<String, CompositeError> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| CompositeError::Component(format!("{}: {error}", path.display())))?;
-    Ok(sha256_hex(&bytes))
-}
-
 fn sha256_text(text: &str) -> String {
     sha256_hex(text.as_bytes())
 }
 
-/// Every regular file beneath `dir`, as a relative path with `/` separators
-/// mapped to its SHA-256. A nested `node_modules/` subtree is excluded
-/// because the dependency identity already covers it. A symlink, an
-/// unreadable entry or an unreadable file makes the component unreadable and
-/// names the offending path.
-pub fn plugin_file_digests(dir: &Path) -> Result<BTreeMap<String, String>, CompositeError> {
-    let mut found = BTreeMap::new();
-    walk(dir, dir, &mut found, &read_dir_entries)?;
-    Ok(found)
+/// The one scalar rule (design D6 (b)): a value entering an identity line
+/// is non-empty and carries no NUL and no whitespace — space, tab, CR and
+/// LF included. Nothing is trimmed to fit; a malformed value is refused,
+/// never repaired. The reason is returned so each caller can name the
+/// component responsible for it.
+fn scalar_reason(value: &str) -> Option<&'static str> {
+    if value.is_empty() {
+        return Some("is empty");
+    }
+    if value.contains('\0') {
+        return Some("carries a NUL");
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Some("carries whitespace");
+    }
+    None
+}
+
+/// `scalar_reason` as the refusal a named composite component raises.
+fn scalar(component: &'static str, value: &str) -> Result<(), CompositeError> {
+    match scalar_reason(value) {
+        Some(reason) => Err(CompositeError::Value { component, reason }),
+        None => Ok(()),
+    }
 }
 
 /// One directory's entries as `std::fs::read_dir` yields them, in a shape a
@@ -84,79 +133,116 @@ fn read_dir_entries(path: &Path) -> std::io::Result<DirEntries> {
     Ok(Box::new(std::fs::read_dir(path)?))
 }
 
+/// Exactly the `expected` files beneath `dir`, each as its relative path
+/// with `/` separators mapped to its SHA-256.
+///
+/// The walk admits the declared set and nothing else. Its single
+/// extra-entry exception is a direct, real, non-symlink `node_modules/`
+/// directory beneath the root, granted on its metadata and neither
+/// traversed nor hashed, because the dependency lines already carry that
+/// subtree's identity. A directory is otherwise admitted only as an
+/// ancestor the declared set needs, so an empty directory, a stray one and
+/// a deeper `node_modules/` are all drift. Every hashed member is a
+/// regular non-symlink file. A name this platform cannot spell as UTF-8 is
+/// refused by reason rather than merged into a declared spelling by a
+/// lossy conversion.
+fn plugin_file_digests(
+    dir: &Path,
+    expected: &[&str],
+) -> Result<BTreeMap<String, String>, CompositeError> {
+    let mut found = BTreeMap::new();
+    walk(dir, "", expected, &mut found, &read_dir_entries)?;
+    for path in expected {
+        if !found.contains_key(*path) {
+            return Err(CompositeError::Component(format!(
+                "missing expected file '{path}'"
+            )));
+        }
+    }
+    Ok(found)
+}
+
 fn walk(
-    root: &Path,
-    current: &Path,
+    dir: &Path,
+    relative: &str,
+    expected: &[&str],
     found: &mut BTreeMap<String, String>,
     read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
 ) -> Result<(), CompositeError> {
-    let entries = read_dir(current)
-        .map_err(|error| CompositeError::Component(format!("{}: {error}", current.display())))?;
+    // Locators in a refusal are relative to the component root: doctor
+    // renders them, and an absolute path would name the operator's home.
+    let here = match relative.is_empty() {
+        true => "the component directory".to_string(),
+        false => format!("'{relative}'"),
+    };
+    let entries = read_dir(dir)
+        .map_err(|error| CompositeError::Component(format!("{here} cannot be read: {error}")))?;
     for entry in entries {
-        let entry = entry
-            .map_err(|error| CompositeError::Component(format!("{}: {error}", root.display())))?;
-        let path = entry.path();
+        let entry = entry.map_err(|error| {
+            CompositeError::Component(format!("{here} yielded an unreadable entry: {error}"))
+        })?;
         let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name == "node_modules" {
-            continue;
-        }
-        let metadata = std::fs::symlink_metadata(&path)
-            .map_err(|error| CompositeError::Component(format!("{}: {error}", path.display())))?;
+        let Some(name) = name.to_str() else {
+            return Err(CompositeError::Component(format!(
+                "{here} holds an entry whose name is not UTF-8"
+            )));
+        };
+        let path = match relative.is_empty() {
+            true => name.to_string(),
+            false => format!("{relative}/{name}"),
+        };
+        let metadata = std::fs::symlink_metadata(entry.path())
+            .map_err(|error| CompositeError::Component(format!("'{path}': {error}")))?;
         let file_type = metadata.file_type();
         if file_type.is_symlink() {
-            return Err(CompositeError::Component(format!(
-                "{} is a symlink",
-                path.display()
-            )));
+            return Err(CompositeError::Component(format!("'{path}' is a symlink")));
         }
         if file_type.is_dir() {
-            walk(root, &path, found, read_dir)?;
-        } else if file_type.is_file() {
-            let relative = path
-                .strip_prefix(root)
-                .expect("a walked path is beneath its root")
-                .to_string_lossy()
-                .replace('\\', "/");
-            found.insert(relative, sha256_file(&path)?);
-        } else {
+            // The one permitted extra entry, granted on the metadata
+            // already read: direct, a real directory and not a symlink.
+            if relative.is_empty() && name == "node_modules" {
+                continue;
+            }
+            let ancestor = format!("{path}/");
+            if !expected.iter().any(|file| file.starts_with(&ancestor)) {
+                return Err(CompositeError::Component(format!(
+                    "unexpected directory '{path}'"
+                )));
+            }
+            walk(&entry.path(), &path, expected, found, read_dir)?;
+            continue;
+        }
+        if !file_type.is_file() {
             return Err(CompositeError::Component(format!(
-                "{} is neither a file nor a directory",
-                path.display()
+                "'{path}' is neither a file nor a directory"
             )));
         }
+        if !expected.contains(&path.as_str()) {
+            return Err(CompositeError::Component(format!(
+                "unexpected entry '{path}'"
+            )));
+        }
+        let bytes = std::fs::read(entry.path())
+            .map_err(|error| CompositeError::Component(format!("'{path}': {error}")))?;
+        found.insert(path, sha256_hex(&bytes));
     }
     Ok(())
 }
 
-/// The plugin component over `dir`: the SHA-256 of the `<relative
-/// path>\0<file SHA-256>\n` lines for exactly the `expected` set, in bytewise
-/// path order. A missing expected file, or any found file outside the
-/// expected set, is unreadable and names the drifted path.
-pub fn plugin_component(dir: &Path, expected: &[&str]) -> Result<String, CompositeError> {
-    let found = plugin_file_digests(dir)?;
-    let expected_set: BTreeSet<&str> = expected.iter().copied().collect();
-    if let Some(extra) = found
-        .keys()
-        .find(|path| !expected_set.contains(path.as_str()))
-    {
-        return Err(CompositeError::Component(format!(
-            "unexpected entry '{extra}'"
-        )));
-    }
-    let mut ordered: Vec<&str> = expected.to_vec();
-    ordered.sort_unstable();
+/// The component digest over an already-observed file-digest map: the
+/// SHA-256 of the `<relative path>\0<file SHA-256>\n` lines in bytewise
+/// path order, which is the order a `BTreeMap` keyed by those paths
+/// already yields. The map is the single read of those files, so the
+/// component and every line derived from it describe one observation.
+fn component_digest(digests: &BTreeMap<String, String>) -> String {
     let mut lines = String::new();
-    for path in ordered {
-        let digest = found
-            .get(path)
-            .ok_or_else(|| CompositeError::Component(format!("missing expected file '{path}'")))?;
+    for (path, digest) in digests {
         lines.push_str(path);
         lines.push('\0');
         lines.push_str(digest);
         lines.push('\n');
     }
-    Ok(sha256_text(&lines))
+    sha256_text(&lines)
 }
 
 fn valid_component(component: &str) -> bool {
@@ -177,7 +263,7 @@ fn valid_component(component: &str) -> bool {
 /// `@<scope>/<name>`, whose embedded `/` belongs to that scoped package.
 /// Every group is parsed and validated; only the final group's complete
 /// package spelling is the name. An optional `name` field is never read.
-pub fn npm_name(key: &str) -> Result<String, CompositeError> {
+fn npm_name(key: &str) -> Result<String, CompositeError> {
     let unreadable = |why: &str| CompositeError::NpmKey(format!("'{key}': {why}"));
     if key.is_empty()
         || key.starts_with('/')
@@ -227,41 +313,53 @@ pub fn npm_name(key: &str) -> Result<String, CompositeError> {
     }
 }
 
-/// Every dependency triple in an npm lockfile-3 hidden lock, normalized to
-/// `name version integrity` from each entry's own key and fields, deduplicated
-/// and sorted bytewise. `excluded` names the provider's own entries (the core
-/// and the local tarball installs), which are not registry dependencies.
-pub fn npm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, CompositeError> {
-    let value: Value = serde_json::from_str(lock)
-        .map_err(|error| CompositeError::NpmLock(format!("not JSON: {error}")))?;
-    let packages = value
+/// Every dependency triple in the core's retained hidden lock, normalized
+/// to `name version integrity` from each entry's own key and fields,
+/// deduplicated and sorted bytewise.
+///
+/// Exclusions identify exact RECORDS, never package names: the core's own
+/// hidden-lock key, and a local `file:` record for a name whose installed
+/// bytes already supply a component line. A same-named registry record is
+/// retained, and so is a second record of the same name at a different
+/// version or integrity — collapsing by name would erase a real
+/// dependency.
+fn npm_dependencies(lock: &Value, local: &[&str]) -> Result<Vec<String>, CompositeError> {
+    let packages = lock
         .get("packages")
         .and_then(Value::as_object)
         .ok_or_else(|| CompositeError::NpmLock("no 'packages' object".into()))?;
     let mut triples = BTreeSet::new();
     for (key, entry) in packages {
+        // Every group of every key is validated, including the excluded
+        // records': a lock this reader cannot spell is not a lock it may
+        // report a partial answer from.
         let name = npm_name(key)?;
-        if excluded.contains(&name.as_str()) {
-            continue;
-        }
         let entry = entry
             .as_object()
             .ok_or_else(|| CompositeError::NpmLock(format!("'{key}': entry is not an object")))?;
+        if key == CORE_KEY {
+            continue;
+        }
+        let resolved = entry.get("resolved").and_then(Value::as_str).unwrap_or("");
+        if local.contains(&name.as_str()) && resolved.starts_with("file:") {
+            continue;
+        }
         let version = entry
             .get("version")
             .and_then(Value::as_str)
             .ok_or_else(|| CompositeError::NpmLock(format!("'{key}': no string 'version'")))?;
-        if version.is_empty() || version.contains('\0') || version.chars().any(char::is_whitespace)
-        {
-            return Err(CompositeError::NpmLock(format!("'{key}': invalid version")));
+        if let Some(reason) = scalar_reason(version) {
+            return Err(CompositeError::NpmLock(format!(
+                "'{key}': version {reason}"
+            )));
         }
         let integrity = entry
             .get("integrity")
             .and_then(Value::as_str)
             .ok_or_else(|| CompositeError::NpmLock(format!("'{key}': no registry 'integrity'")))?;
-        if integrity.is_empty() || integrity.contains('\0') || integrity.contains('\n') {
+        if let Some(reason) = scalar_reason(integrity) {
             return Err(CompositeError::NpmLock(format!(
-                "'{key}': invalid integrity"
+                "'{key}': integrity {reason}"
             )));
         }
         triples.insert(format!("{name} {version} {integrity}"));
@@ -273,10 +371,6 @@ fn pnpm_indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
 }
 
-/// Every dependency triple in a pnpm lockfile-9.0 `packages:` section, parsed
-/// by the bounded, fail-closed line reader design D6 states (no YAML crate).
-/// `excluded` names the local-tarball entries, which are not registry
-/// identity.
 /// The byte offset of the `@` that separates a pnpm package key's name
 /// from its version: the first `@` after the key's first CHARACTER, so a
 /// scoped `@scope/name@1.0.0` skips its leading one. Walked by character
@@ -289,7 +383,33 @@ fn scoped_at(key: &str) -> Option<usize> {
         .find_map(|(index, c)| (c == '@').then_some(index))
 }
 
-pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, CompositeError> {
+/// Read the profile's pnpm lock through the inclusive `PNPM_LIMIT` bound.
+///
+/// At most one byte beyond the limit is read, which is exactly enough to
+/// tell "the largest admissible lock" from "too large": no metadata size
+/// is trusted and no unbounded string is allocated first.
+fn read_pnpm(path: &Path) -> Result<String, CompositeError> {
+    let unreadable =
+        |reason: String| CompositeError::PnpmLock(format!("{}: {reason}", path.display()));
+    let file = std::fs::File::open(path).map_err(|error| unreadable(error.to_string()))?;
+    let mut bytes = Vec::new();
+    file.take(PNPM_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| unreadable(error.to_string()))?;
+    if bytes.len() > PNPM_LIMIT {
+        return Err(CompositeError::PnpmLock(format!(
+            "pnpm lock exceeds {PNPM_LIMIT}-byte limit"
+        )));
+    }
+    String::from_utf8(bytes).map_err(|_| unreadable("not UTF-8".to_string()))
+}
+
+/// Every dependency triple in a pnpm lockfile-9.0 `packages:` section, parsed
+/// by the bounded, fail-closed line reader design D6 states (no YAML crate).
+/// `local` names the packages whose installed bytes already supply a
+/// component line; only their local `file:` records are excluded, so a
+/// same-named registry record is retained.
+fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, CompositeError> {
     let bad = |why: &str| CompositeError::PnpmLock(why.to_string());
     if lock.contains('\t') {
         return Err(bad("a tab"));
@@ -341,9 +461,18 @@ pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, C
                 "'{key}': empty name or version"
             )));
         }
-        if !excluded.contains(&name) {
-            triples.insert(format!("{name} {version} {integrity}"));
+        // The local tarball record, excluded by its own `file:` version
+        // rather than by its name: a registry record spelled with the
+        // same name is a real dependency and stays.
+        if local.contains(&name) && version.starts_with("file:") {
+            return Ok(());
         }
+        if let Some(reason) = scalar_reason(integrity.as_str()) {
+            return Err(CompositeError::PnpmLock(format!(
+                "'{key}': integrity {reason}"
+            )));
+        }
+        triples.insert(format!("{name} {version} {integrity}"));
         Ok(())
     };
 
@@ -411,8 +540,13 @@ pub fn pnpm_dependencies(lock: &str, excluded: &[&str]) -> Result<Vec<String>, C
 /// 64 lowercase hexadecimal characters. Dependencies from both lock dialects
 /// are merged, deduplicated and sorted bytewise; the extension line appears
 /// only when the profile names the conditional extension.
+///
+/// This is the serializer alone. Every scalar reaching it was validated at
+/// the source it was read from, so the separators it introduces — the
+/// spaces inside a `core` or `dependency` value, the NUL and the newline
+/// between them — are the only ones in the stream.
 #[allow(clippy::too_many_arguments)]
-pub fn canonical_composite(
+fn canonical_composite(
     core: &str,
     node: &str,
     npm: &[String],
@@ -424,24 +558,7 @@ pub fn canonical_composite(
     profile_patch_reload: &str,
     home_patch: &str,
     extension: Option<&str>,
-) -> Result<String, CompositeError> {
-    let values = [
-        core,
-        node,
-        plugin,
-        plugin_patch,
-        profile_patch,
-        profile_patch_reload,
-        home_patch,
-    ];
-    if values
-        .into_iter()
-        .chain(profile_bundles.iter().map(String::as_str))
-        .chain(extension)
-        .any(|value| value.contains('\0') || value.contains('\n'))
-    {
-        return Err(CompositeError::Value);
-    }
+) -> String {
     let mut dependencies: BTreeSet<&str> = BTreeSet::new();
     dependencies.extend(npm.iter().map(String::as_str));
     dependencies.extend(pnpm.iter().map(String::as_str));
@@ -469,7 +586,7 @@ pub fn canonical_composite(
     if let Some(extension) = extension {
         push("extension", extension);
     }
-    Ok(sha256_text(&lines))
+    sha256_text(&lines)
 }
 
 /// The two seams the DSH adapter resolves, exactly as it resolves them:
@@ -484,8 +601,22 @@ pub struct DshSeams {
 
 impl DshSeams {
     pub fn resolve() -> Result<DshSeams, CompositeError> {
+        DshSeams::selected().1
+    }
+
+    /// Both seams from ONE environment resolution: the executable the
+    /// adapter selected, and the home beside it.
+    ///
+    /// The executable is a selection, not a lookup, so it always exists;
+    /// only the home can fail. A caller that must keep observing the
+    /// chosen installation after a home failure — doctor, whose version
+    /// probe is independent of the composite (design D10's doctor state
+    /// decision) — reads it here rather than resolving the environment a
+    /// second time and possibly selecting a different install.
+    pub fn selected() -> (String, Result<DshSeams, CompositeError>) {
         let executable = super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-        DshSeams::resolve_with(executable, crate::transcript::dsh_home())
+        let seams = DshSeams::resolve_with(executable.clone(), crate::transcript::dsh_home());
+        (executable, seams)
     }
 
     /// `resolve` over an injected executable and home, so the missing-home
@@ -501,9 +632,9 @@ impl DshSeams {
 /// first `node` on the child environment's `PATH`, and the single line
 /// `node --version` prints.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeRuntime {
-    pub path: PathBuf,
-    pub version: String,
+struct NodeRuntime {
+    path: PathBuf,
+    version: String,
 }
 
 /// The canonical composite and the raw component values that produced
@@ -531,11 +662,6 @@ fn read_json(path: &Path) -> Result<Value, CompositeError> {
         .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))?;
     serde_json::from_slice(&bytes)
         .map_err(|error| CompositeError::Config(format!("{}: not JSON: {error}", path.display())))
-}
-
-fn read_text(path: &Path) -> Result<String, CompositeError> {
-    std::fs::read_to_string(path)
-        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))
 }
 
 fn canonicalize(path: &Path) -> Result<PathBuf, CompositeError> {
@@ -605,35 +731,52 @@ struct CorePackage {
     dir: PathBuf,
     version: String,
     integrity: String,
+    /// The hidden lock, parsed once: it supplies both the `core` line's
+    /// version and integrity and every npm dependency triple, so nothing
+    /// below reopens it.
+    lock: Value,
 }
 
 /// Find the core package from the canonical executable: the nearest
 /// ancestor whose `package.json` names `@deepseek-ai/dsh`, whose
 /// `bin.dsh` target is that executable with an `env node` first line and
 /// which sits at `<core root>/node_modules/@deepseek-ai/dsh`. The core
-/// lock is the hidden `<core root>/node_modules/.package-lock.json`.
+/// lock is the hidden `<core root>/node_modules/.package-lock.json`,
+/// retained here as the sole read of those bytes.
 fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
+    resolve_core_reading(executable, &read_json)
+}
+
+/// `resolve_core` over an injected JSON reader, so "each identity-bearing
+/// source is opened once" is a counted claim rather than an assertion in
+/// a comment. Only the source of the parse is injectable; the real reader
+/// stays production's.
+fn resolve_core_reading(
+    executable: &str,
+    read_json: &dyn Fn(&Path) -> Result<Value, CompositeError>,
+) -> Result<CorePackage, CompositeError> {
     let canonical = resolve_executable(executable)?;
-    let mut package_dir = None;
+    let mut package = None;
     for ancestor in canonical.ancestors().skip(1) {
-        let manifest = ancestor.join("package.json");
-        if !manifest.is_file() {
+        let path = ancestor.join("package.json");
+        if !path.is_file() {
             continue;
         }
-        if let Ok(value) = read_json(&manifest) {
-            if value.get("name").and_then(Value::as_str) == Some("@deepseek-ai/dsh") {
-                package_dir = Some(ancestor.to_path_buf());
+        if let Ok(value) = read_json(&path) {
+            if value.get("name").and_then(Value::as_str) == Some(CORE_NAME) {
+                // Retained from discovery: the manifest is read once and
+                // every later question is asked of this value.
+                package = Some((ancestor.to_path_buf(), value));
                 break;
             }
         }
     }
-    let dir = package_dir.ok_or_else(|| {
+    let (dir, manifest) = package.ok_or_else(|| {
         CompositeError::Config(format!(
-            "{}: no ancestor package.json names @deepseek-ai/dsh",
+            "{}: no ancestor package.json names {CORE_NAME}",
             canonical.display()
         ))
     })?;
-    let manifest = read_json(&dir.join("package.json"))?;
     let bin = manifest
         .get("bin")
         .and_then(|bin| bin.get("dsh"))
@@ -686,10 +829,8 @@ fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
     let lock = read_json(&root.join("node_modules").join(".package-lock.json"))?;
     let entry = lock
         .get("packages")
-        .and_then(|packages| packages.get("node_modules/@deepseek-ai/dsh"))
-        .ok_or_else(|| {
-            CompositeError::Config("core lock has no node_modules/@deepseek-ai/dsh entry".into())
-        })?;
+        .and_then(|packages| packages.get(CORE_KEY))
+        .ok_or_else(|| CompositeError::Config(format!("core lock has no {CORE_KEY} entry")))?;
     let version = required_string(entry, "version", "core lock")?;
     if version != package_version {
         return Err(CompositeError::Config(format!(
@@ -697,16 +838,15 @@ fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
         )));
     }
     let integrity = required_string(entry, "integrity", "core lock")?;
-    if integrity.contains('\0') || integrity.contains('\n') {
-        return Err(CompositeError::Config(
-            "core integrity carries a NUL or newline".into(),
-        ));
-    }
+    scalar("core", version)?;
+    scalar("core", integrity)?;
+    let (version, integrity) = (version.to_string(), integrity.to_string());
     Ok(CorePackage {
         root: root.to_path_buf(),
         dir,
-        version: version.to_string(),
-        integrity: integrity.to_string(),
+        version,
+        integrity,
+        lock,
     })
 }
 
@@ -747,14 +887,10 @@ fn read_profile(home: &Path) -> Result<Profile, CompositeError> {
         })?;
     let mut names = Vec::with_capacity(bundles.len());
     for bundle in bundles {
-        let name = bundle
-            .as_str()
-            .filter(|name| !name.is_empty())
-            .ok_or_else(|| {
-                CompositeError::Config(
-                    "a dsh.profile.bundles entry is not a non-empty string".into(),
-                )
-            })?;
+        let name = bundle.as_str().ok_or_else(|| {
+            CompositeError::Config("a dsh.profile.bundles entry is not a string".into())
+        })?;
+        scalar("profile-bundle", name)?;
         names.push(name.to_string());
     }
     let patch_reload = required_string(profile, "patchReload", "dsh.profile")?;
@@ -872,13 +1008,18 @@ fn resolve_bundle(
 }
 
 /// Spawn the first `node` on `PATH` once for its version line.
-pub fn spawn_node_runtime() -> Result<NodeRuntime, CompositeError> {
+fn spawn_node_runtime() -> Result<NodeRuntime, CompositeError> {
     let path = resolve_executable("node")?;
     spawn_node_runtime_at(path)
 }
 
 /// `spawn_node_runtime` over an already-resolved executable, so a scripted
 /// `node` exercises the success, nonzero and unreadable-version paths.
+///
+/// The output is read as exactly one record: at most one trailing line
+/// terminator is removed, and what remains must satisfy the scalar rule.
+/// `trim()` would repair a malformed banner into a plausible version, and
+/// a repaired identity is the one thing this producer must never invent.
 fn spawn_node_runtime_at(path: PathBuf) -> Result<NodeRuntime, CompositeError> {
     let output = std::process::Command::new(&path)
         .arg("--version")
@@ -889,30 +1030,49 @@ fn spawn_node_runtime_at(path: PathBuf) -> Result<NodeRuntime, CompositeError> {
             "node --version exited nonzero".into(),
         ));
     }
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if version.is_empty() || version.contains('\0') || version.contains('\n') {
-        return Err(CompositeError::Config(
-            "node --version printed no single readable line".into(),
-        ));
-    }
-    Ok(NodeRuntime { path, version })
+    let printed = String::from_utf8(output.stdout)
+        .map_err(|_| CompositeError::Config("node --version did not print UTF-8".into()))?;
+    let version = printed.strip_suffix('\n').unwrap_or(&printed);
+    let version = version.strip_suffix('\r').unwrap_or(version);
+    scalar("node", version)?;
+    Ok(NodeRuntime {
+        path,
+        version: version.to_string(),
+    })
+}
+
+/// The SHA-256 of one named patch component's bytes.
+fn patch_digest(component: &'static str, path: &Path) -> Result<String, CompositeError> {
+    let bytes = std::fs::read(path).map_err(|error| {
+        CompositeError::Patch(component, format!("{}: {error}", path.display()))
+    })?;
+    Ok(sha256_hex(&bytes))
 }
 
 /// The home-level `$DSH_HOME/cordis.patch.yml` digest, or the literal
 /// `absent`.
+///
+/// Only true missing-path evidence supplies `absent`. A dangling symlink,
+/// a permission failure or any other metadata error is unreadable: a
+/// failed observation is not absence, and reporting it as one would
+/// silently pin an identity the home does not have.
 fn home_patch(home: &Path) -> Result<String, CompositeError> {
     let path = home.join("cordis.patch.yml");
-    if !path.exists() {
-        return Ok("absent".to_string());
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => patch_digest("home-patch", &path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("absent".to_string()),
+        Err(error) => Err(CompositeError::Patch(
+            "home-patch",
+            format!("{}: {error}", path.display()),
+        )),
     }
-    sha256_file(&path)
 }
 
 /// Compute the canonical composite over the resolved seams, with the
 /// Node runtime and global folders injected so every branch is a plain
 /// test. This is the only producer of either the plugin component or the
 /// canonical composite.
-pub fn dsh_composite_with(
+fn dsh_composite_with(
     seams: &DshSeams,
     node: &NodeRuntime,
     globals: &[PathBuf],
@@ -929,7 +1089,7 @@ pub fn dsh_composite_with(
             &core.root,
             &profile.canonical,
         )?;
-        if name == "dsh-plugin-cli-session" && !dir.starts_with(&profile.canonical) {
+        if name == PLUGIN_BUNDLE && !dir.starts_with(&profile.canonical) {
             return Err(CompositeError::Config(
                 "the plugin resolves outside the profile".into(),
             ));
@@ -938,44 +1098,49 @@ pub fn dsh_composite_with(
     }
     let plugin_dir = resolved
         .iter()
-        .find(|(name, _)| name == "dsh-plugin-cli-session")
+        .find(|(name, _)| name == PLUGIN_BUNDLE)
         .map(|(_, dir)| dir.clone())
         .ok_or_else(|| {
-            CompositeError::Config("the profile does not list dsh-plugin-cli-session".into())
+            CompositeError::Config(format!("the profile does not list {PLUGIN_BUNDLE}"))
         })?;
-    let plugin = plugin_component(&plugin_dir, &PLUGIN_FILES)?;
+    // One read of the plugin's files serves both lines: the component
+    // over all six and `plugin-patch` from the retained digest of
+    // `cordis.patch.yml`. Reopening the patch could describe a file the
+    // component never saw.
+    let plugin_files = plugin_file_digests(&plugin_dir, &PLUGIN_FILES)?;
+    let plugin_patch = plugin_files
+        .get("cordis.patch.yml")
+        .expect("the plugin file set is complete when the walk returns")
+        .clone();
+    let plugin = component_digest(&plugin_files);
     // Asked of `resolved` rather than of `profile.bundles`, because the
     // loop above resolves every listed bundle or returns: a name is in
     // `resolved` exactly when it is listed. Asking the list first and
     // then the resolution second spelled a "was not resolved" refusal
     // that no input could reach, and an unreachable guard is a claim the
     // code cannot keep.
-    let extension = match resolved
-        .iter()
-        .find(|(name, _)| name == "brokkr-dsh-resume-policy")
-    {
+    let extension = match resolved.iter().find(|(name, _)| name == EXTENSION_BUNDLE) {
         Some((_, dir)) => {
             if !dir.starts_with(&profile.canonical) {
                 return Err(CompositeError::Config(
                     "the extension resolves outside the profile".into(),
                 ));
             }
-            Some(plugin_component(dir, &EXTENSION_FILES)?)
+            let files = plugin_file_digests(dir, &EXTENSION_FILES)?;
+            Some(component_digest(&files))
         }
         None => None,
     };
-    let mut excluded = vec!["@deepseek-ai/dsh", "dsh-plugin-cli-session"];
+    // The names whose installed bytes already supply a component line, so
+    // their LOCAL records — and only those — leave the dependency lines.
+    let mut local = vec![PLUGIN_BUNDLE];
     if extension.is_some() {
-        excluded.push("brokkr-dsh-resume-policy");
+        local.push(EXTENSION_BUNDLE);
     }
-    let npm = npm_dependencies(
-        &read_text(&core.root.join("node_modules").join(".package-lock.json"))?,
-        &excluded,
-    )?;
-    let pnpm = pnpm_dependencies(&read_text(&profile.dir.join("pnpm-lock.yaml"))?, &excluded)?;
-    let core_line = format!("@deepseek-ai/dsh {} {}", core.version, core.integrity);
-    let plugin_patch = sha256_file(&plugin_dir.join("cordis.patch.yml"))?;
-    let profile_patch = sha256_file(&profile.dir.join("cordis.patch.yml"))?;
+    let npm = npm_dependencies(&core.lock, &local)?;
+    let pnpm = pnpm_dependencies(&read_pnpm(&profile.dir.join("pnpm-lock.yaml"))?, &local)?;
+    let core_line = format!("{CORE_NAME} {} {}", core.version, core.integrity);
+    let profile_patch = patch_digest("profile-patch", &profile.dir.join("cordis.patch.yml"))?;
     let home_patch = home_patch(&seams.home)?;
     let canonical = canonical_composite(
         &core_line,
@@ -989,7 +1154,7 @@ pub fn dsh_composite_with(
         &profile.patch_reload,
         &home_patch,
         extension.as_deref(),
-    )?;
+    );
     let mut dependencies: BTreeSet<String> = BTreeSet::new();
     dependencies.extend(npm);
     dependencies.extend(pnpm);
@@ -1010,8 +1175,9 @@ pub fn dsh_composite_with(
     })
 }
 
-/// `dsh_composite_with` over the real seams and a real `node --version`
-/// probe.
+/// The one production producer of either value (design D6 (b)): the
+/// canonical composite and the component values behind it, over the
+/// adapter's own resolved seams and a real `node --version` probe.
 pub fn dsh_composite(seams: &DshSeams) -> Result<DshComposite, CompositeError> {
     dsh_composite_resolving(seams, spawn_node_runtime)
 }

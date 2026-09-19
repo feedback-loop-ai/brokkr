@@ -22,11 +22,11 @@ use serde_json::{json, Map, Value};
 
 mod composite;
 mod route_overlay;
-pub use composite::{
-    canonical_composite, dsh_composite, dsh_composite_with, npm_dependencies, npm_name,
-    plugin_component, plugin_file_digests, pnpm_dependencies, spawn_node_runtime, CompositeError,
-    DshComposite, DshSeams, NodeRuntime, EXTENSION_FILES, PLUGIN_FILES,
-};
+// Design D6 (b) seals the producer: the seams, the structured
+// observation, its error and the one entry point. Every parser, hasher,
+// serializer and injected helper stays private to `composite`, so no
+// caller can supply an already-computed component or composite value.
+pub use composite::{dsh_composite, CompositeError, DshComposite, DshSeams};
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
