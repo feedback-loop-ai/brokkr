@@ -9,8 +9,13 @@ earlier work reaches you only when the commission states it.
 Rule exactly one class from this closed vocabulary:
 
 - `chore` — bounded maintenance that needs an implementer and a frontier judge.
-- `feature` — ordinary product work that needs the default crew and a review panel.
-- `design` — work whose contract must be designed before the feature path.
+- `feature` — the capability can be specified now. The design choices inside it
+  exist, and they are the architect's to make within the run. The default crew
+  and a review panel.
+- `design` — the work cannot be specified until a choice between named
+  alternatives is ruled from outside the run: the operator's word, or a
+  decision record. The run's first product is that ruling. The test is one
+  question: is there a decision this run is not allowed to make?
 - `engine` — core, store, contract, or policy work needing the heaviest council.
 - `escalate` — an incoherent commission, a frozen-surface violation, or work that must be split.
 
