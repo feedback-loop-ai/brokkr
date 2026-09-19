@@ -2376,6 +2376,45 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
         let rejected = std::env::var(REJECTED).expect("the parent names the rejected install");
         let home = PathBuf::from(std::env::var_os("DSH_HOME").expect("the parent names the home"));
         let adapter = dsh_adapter_declaring(None);
+        if case == "unreadable" {
+            // The REAL entry point over a selected installation whose
+            // profile is gone. The version probe still answers for that
+            // executable, and the producer's refusal reaches the line
+            // through production's OWN `map_err` — the closure an
+            // injected failure can never run (council return
+            // 2026-09-19, finding 5).
+            let real = dsh_provider_line(&adapter, recorded_version);
+            assert_eq!(real.binary, chosen, "the seam's choice");
+            assert_eq!(
+                real.version,
+                recorded_version(&chosen),
+                "the version survives an unreadable composite"
+            );
+            let refusal = dsh_composite(&DshSeams {
+                executable: chosen.clone(),
+                home: home.clone(),
+            })
+            .map(|_| unreachable!("the fixture install is broken on purpose"))
+            .unwrap_err()
+            .to_string();
+            assert!(
+                refusal.contains("profiles/headless"),
+                "the refusal names the missing profile: {refusal}"
+            );
+            assert_eq!(
+                real.suffix,
+                format!(
+                    "composite unreadable: {} (no declared wrapper_digest)",
+                    Safe::new(&refusal).as_str()
+                ),
+                "the line carries the component's own reason and the declaration context"
+            );
+            assert!(
+                !real.warning,
+                "no shape declares a digest, so an unreadable composite stays informational"
+            );
+            return;
+        }
         let probed = std::cell::RefCell::new(Vec::new());
         // The REAL seam resolution and the REAL producer. Only the
         // version probe is injected, and it is not a constant: it reads
@@ -2491,9 +2530,15 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             .unwrap();
     }
 
-    for (case, set_primary, set_legacy, chosen, rejected) in [
+    // A home that exists but holds no `profiles/headless`, so the
+    // producer refuses for a reason of its own while the selected
+    // executable still answers with a version.
+    let broken_home = dir.path().join("broken-home");
+    std::fs::create_dir_all(&broken_home).unwrap();
+
+    for (case, set_primary, set_legacy, chosen, rejected, dsh_home) in [
         // Primary wins over legacy.
-        ("both", true, true, primary.as_str(), legacy.as_str()),
+        ("both", true, true, primary.as_str(), legacy.as_str(), &home),
         // Legacy alone is honoured.
         (
             "legacy-only",
@@ -2501,10 +2546,27 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             true,
             legacy.as_str(),
             primary.as_str(),
+            &home,
         ),
         // Neither: the bare name the adapter declares, resolved on the
         // child's PATH — and reported as the FILE it resolved to.
-        ("neither", false, false, on_path.as_str(), primary.as_str()),
+        (
+            "neither",
+            false,
+            false,
+            on_path.as_str(),
+            primary.as_str(),
+            &home,
+        ),
+        // The same seam, over an installation the producer cannot read.
+        (
+            "unreadable",
+            true,
+            false,
+            primary.as_str(),
+            legacy.as_str(),
+            &broken_home,
+        ),
     ] {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
         child
@@ -2521,7 +2583,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             .env(CASE, case)
             .env(CHOSEN, chosen)
             .env(REJECTED, rejected)
-            .env("DSH_HOME", &home)
+            .env("DSH_HOME", dsh_home)
             .env("PATH", &shims)
             .env_remove("BROKKR_DSH_BIN")
             .env_remove("FORGE_DSH_BIN");

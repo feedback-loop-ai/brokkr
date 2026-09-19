@@ -155,9 +155,10 @@ fn plugin_file_digests(
     component: &'static str,
     dir: &Path,
     expected: &[&str],
+    read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
 ) -> Result<BTreeMap<String, String>, CompositeError> {
     let mut found = BTreeMap::new();
-    walk(component, dir, "", expected, &mut found, &read_dir_entries)?;
+    walk(component, dir, "", expected, &mut found, read_dir)?;
     for path in expected {
         if !found.contains_key(*path) {
             return Err(CompositeError::Component(
@@ -408,11 +409,27 @@ fn scoped_at(key: &str) -> Option<usize> {
 /// tell "the largest admissible lock" from "too large": no metadata size
 /// is trusted and no unbounded string is allocated first.
 fn read_pnpm(path: &Path) -> Result<String, CompositeError> {
+    let file = std::fs::File::open(path)
+        .map_err(|error| CompositeError::PnpmLock(format!("{}: {error}", path.display())))?;
+    read_pnpm_from(path, file)
+}
+
+/// `read_pnpm` over an already-opened source, so "at most 8,388,609 bytes
+/// are consumed" is a number a test's own counting reader reports rather
+/// than a sentence in a comment. Only the source is injectable; the bound,
+/// the refusal and the UTF-8 conversion are production's. `path` names
+/// the source in a refusal.
+///
+/// The control for the bound must be FINITE: an endless source under a
+/// reader that has lost its `take` does not fail an assertion, it consumes
+/// the host, and a control whose failure mode is exhaustion is not a
+/// control (council return 2026-09-19, finding 4).
+fn read_pnpm_from(path: &Path, source: impl Read) -> Result<String, CompositeError> {
     let unreadable =
         |reason: String| CompositeError::PnpmLock(format!("{}: {reason}", path.display()));
-    let file = std::fs::File::open(path).map_err(|error| unreadable(error.to_string()))?;
     let mut bytes = Vec::new();
-    file.take(PNPM_LIMIT as u64 + 1)
+    source
+        .take(PNPM_LIMIT as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| unreadable(error.to_string()))?;
     if bytes.len() > PNPM_LIMIT {
@@ -429,6 +446,23 @@ fn read_pnpm(path: &Path) -> Result<String, CompositeError> {
 /// name is unreadable rather than partially read: a reader that silently
 /// skips what it does not understand cannot promise it saw every package,
 /// and identity is exactly that promise (council return 2026-09-19).
+/// The recognized top-level keys that carry an inline SCALAR instead of
+/// opening a block. Every other recognized key opens a block, and each
+/// form is required of its own key.
+///
+/// The inherited reader decided the form from the LINE — a key with an
+/// inline value was a value, a key without one opened a section — so
+/// `packages: null` and `packages: {}` were read as inline values and
+/// skipped, leaving the triples of an earlier `packages:` block standing
+/// as the document's answer. A lock whose package set this reader cannot
+/// read is unreadable, never a lock it reports an older section's
+/// identity for (council return 2026-09-19).
+const PNPM_SCALAR_SECTIONS: [&str; 3] = [
+    "lockfileVersion",
+    "packageExtensionsChecksum",
+    "pnpmfileChecksum",
+];
+
 const PNPM_SECTIONS: [&str; 13] = [
     "catalogs",
     "ignoredOptionalDependencies",
@@ -464,39 +498,63 @@ const PNPM_PACKAGE_CHILDREN: [&str; 12] = [
 ];
 
 /// The keys a `resolution:` flow map may carry.
-const PNPM_RESOLUTION_KEYS: [&str; 8] = [
-    "commit",
-    "directory",
-    "integrity",
-    "path",
-    "registry",
-    "repo",
-    "tarball",
-    "type",
+///
+/// D6 admits an integrity with an optional tarball and NOTHING else. The
+/// inherited list also named `commit`, `directory`, `path`, `registry`,
+/// `repo` and `type`, which it then ignored: a record resolving from a
+/// git commit or a local directory was read as though it had come from
+/// the registry, and its non-registry origin left identity unmoved
+/// (council return 2026-09-19).
+const PNPM_RESOLUTION_KEYS: [&str; 2] = ["integrity", "tarball"];
+
+/// The YAML indicator characters that may not OPEN a plain scalar.
+///
+/// A plain scalar is the only unquoted form this grammar admits, and a
+/// plain scalar cannot begin with an indicator. Admitting one read YAML
+/// SYNTAX as though it were the value it denotes: `*undefined` is an
+/// alias whose target this reader never follows, `[sha512-X]` is a
+/// one-element sequence, `&anchor` names a node for a later alias and
+/// `!!str` is a tag. Each of them hashed its own spelling, so the alias
+/// target or sequence member could change underneath an identity that
+/// never moved (council return 2026-09-19).
+const YAML_INDICATORS: [char; 19] = [
+    '-', '?', ':', ',', '[', ']', '{', '}', '#', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`',
 ];
 
-/// Unwrap a YAML scalar's quotes EXACTLY: a quote opens only when its
-/// partner closes it, and a quote inside the body refuses rather than
-/// being trimmed away.
+/// Unwrap a YAML scalar EXACTLY, over the three forms this grammar
+/// admits and no others.
+///
+/// - A single-quoted scalar is literal: its partner must close it and an
+///   inner `'` — which YAML would read as the `''` escape — refuses.
+/// - A double-quoted scalar admits no backslash at all. An escape is a
+///   spelling whose VALUE differs from its bytes, so `"sha512-A"`
+///   and `"a\tb"` both entered identity as their own syntax, and an
+///   escaped space defeated the whitespace rule downstream.
+/// - A plain scalar carries no quote, no `#` comment introducer and no
+///   opening indicator.
 ///
 /// The inherited `trim_matches` repaired `'sha512-X` into `sha512-X`, so
 /// an unterminated scalar entered identity bytes as though it had been
 /// written correctly. Nothing is repaired here; `None` is the refusal.
 fn pnpm_scalar(text: &str) -> Option<&str> {
-    for quote in ['\'', '"'] {
-        if let Some(rest) = text.strip_prefix(quote) {
-            // A lone quote leaves an empty remainder, which strips to
-            // `None`: an opening quote with no partner is never closed.
-            let inner = rest.strip_suffix(quote)?;
-            return match inner.contains(quote) {
-                true => None,
-                false => Some(inner),
-            };
-        }
+    if let Some(rest) = text.strip_prefix('\'') {
+        // A lone quote leaves an empty remainder, which strips to
+        // `None`: an opening quote with no partner is never closed.
+        let inner = rest.strip_suffix('\'')?;
+        return (!inner.contains('\'')).then_some(inner);
     }
-    match text.contains('\'') || text.contains('"') {
-        true => None,
-        false => Some(text),
+    if let Some(rest) = text.strip_prefix('"') {
+        let inner = rest.strip_suffix('"')?;
+        return (!inner.contains('"') && !inner.contains('\\')).then_some(inner);
+    }
+    if text.contains('\'') || text.contains('"') || text.contains('#') {
+        return None;
+    }
+    match text.chars().next() {
+        Some(first) if YAML_INDICATORS.contains(&first) => None,
+        // An empty plain scalar is the YAML null, which is not a value
+        // any caller here may hash; each of them refuses it by name.
+        _ => Some(text),
     }
 }
 
@@ -616,7 +674,11 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
 
     let mut triples = BTreeSet::new();
     let mut section: Option<&str> = None;
-    let mut packages_seen = false;
+    // Every top-level key this document has spelled. A YAML mapping key
+    // is a SINGLETON, and identity is the promise that one document has
+    // one package set; `lockfileVersion` is seeded because the header
+    // loop above already consumed the document's one spelling of it.
+    let mut seen: BTreeSet<&str> = BTreeSet::from(["lockfileVersion"]);
     let mut entry: Option<PnpmEntry> = None;
     // Whether a block-form child is open, whose own lines this reader
     // skips: they belong to `peerDependencies` and its kin, and none of
@@ -675,11 +737,29 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             if !PNPM_SECTIONS.contains(&name) {
                 return Err(bad(&format!("an unrecognized top-level key '{name}'")));
             }
-            // A section OPENS only when its key carries no inline scalar:
-            // `packageExtensionsChecksum: sha256-…` is a value, and
-            // treating it as a section would put the reader inside one.
-            section = value.trim().is_empty().then_some(name);
-            packages_seen = packages_seen || section == Some("packages");
+            if !seen.insert(name) {
+                return Err(bad(&format!("a repeated top-level key '{name}'")));
+            }
+            let value = value.trim();
+            // The form is required of the KEY, not read off the line.
+            if PNPM_SCALAR_SECTIONS.contains(&name) {
+                // Recognized and not read, but still parsed: a checksum
+                // that opens a block, or one whose quote never closes,
+                // is a document shape this grammar has not measured.
+                if pnpm_scalar(value).filter(|text| !text.is_empty()).is_none() {
+                    return Err(bad(&format!(
+                        "a malformed scalar for top-level key '{name}'"
+                    )));
+                }
+                section = None;
+                continue;
+            }
+            if !value.is_empty() {
+                return Err(bad(&format!(
+                    "an inline value on top-level section '{name}'"
+                )));
+            }
+            section = Some(name);
             continue;
         }
         let Some(open_section) = section else {
@@ -739,14 +819,18 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             let fields =
                 pnpm_flow_map(inner).ok_or_else(|| bad("a malformed resolution flow map"))?;
             let mut integrity = None;
+            let mut seen_fields = BTreeSet::new();
             for (key, value) in fields {
-                if key != "integrity" {
-                    continue;
+                // EVERY field is a singleton, not only the one read. A
+                // repeated `tarball` is two origins for one record, and a
+                // reader that keeps the last of them answers for a
+                // document with no single meaning.
+                if !seen_fields.insert(key) {
+                    return Err(bad(&format!("a repeated resolution field '{key}'")));
                 }
-                if integrity.is_some() {
-                    return Err(bad("a repeated resolution integrity"));
+                if key == "integrity" {
+                    integrity = Some(value);
                 }
-                integrity = Some(value);
             }
             let integrity = integrity.ok_or_else(|| bad("a resolution without integrity"))?;
             if open.integrity.is_some() {
@@ -763,7 +847,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
         }
     }
     flush(entry.take(), &mut triples)?;
-    if !packages_seen {
+    if !seen.contains("packages") {
         return Err(bad("no packages section"));
     }
     Ok(triples.into_iter().collect())
@@ -1014,25 +1098,48 @@ fn first_line(path: &Path) -> Result<String, CompositeError> {
         .map_err(|_| CompositeError::Config(format!("{}: first line is not UTF-8", path.display())))
 }
 
+/// Whether THIS process could execute `path`, asked of the kernel with
+/// the process's effective identity — `faccessat(AT_EACCESS)`, which is
+/// the check `execve` itself makes.
+///
+/// `mode & 0o111 != 0` asked a different question: whether ANYONE may
+/// execute the file. A candidate at mode 0641 carries an execute bit for
+/// others and none for its owner, so the inherited test said yes and the
+/// child that followed got `EACCES` and walked on to a later entry —
+/// which is exactly the two-installs disagreement 8.8(c) exists to close
+/// (council return 2026-09-19).
+#[cfg(unix)]
+fn effective_exec_access(path: &Path) -> bool {
+    rustix::fs::accessat(
+        rustix::fs::CWD,
+        path,
+        rustix::fs::Access::EXEC_OK,
+        rustix::fs::AtFlags::EACCESS,
+    )
+    .is_ok()
+}
+
 /// Whether a PATH candidate is a file a child could actually execute.
 ///
-/// A candidate that is not a regular file, that carries no execute bit,
-/// or whose metadata cannot be read at all is NOT a hit: `execvp` walks
-/// past each of those to the next entry, so a resolver that stops at the
-/// first readable name pairs one install's path with another install's
-/// version (council return 2026-09-19).
+/// A candidate that is not a regular file, that this process's effective
+/// identity may not execute, or whose metadata cannot be read at all is
+/// NOT a hit: `execvp` walks past each of those to the next entry, so a
+/// resolver that stops at the first readable name pairs one install's
+/// path with another install's version (council return 2026-09-19).
 fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };
+    if !metadata.is_file() {
+        return false;
+    }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        effective_exec_access(path)
     }
     #[cfg(not(unix))]
     {
-        metadata.is_file()
+        true
     }
 }
 
@@ -1088,6 +1195,12 @@ struct CorePackage {
 /// which sits at `<core root>/node_modules/@deepseek-ai/dsh`. The core
 /// lock is the hidden `<core root>/node_modules/.package-lock.json`,
 /// retained here as the sole read of those bytes.
+///
+/// Production reaches discovery only through `dsh_composite_reading`,
+/// which hands it the JSON reader the whole observation is counted
+/// against; this real-reader wrapper is the suite's entry to discovery
+/// alone.
+#[cfg(test)]
 fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
     resolve_core_reading(executable, &read_json)
 }
@@ -1459,7 +1572,32 @@ fn dsh_composite_with(
     node: &NodeRuntime,
     globals: &[PathBuf],
 ) -> Result<DshComposite, CompositeError> {
-    let core = resolve_core(&seams.executable)?;
+    dsh_composite_reading(seams, node, globals, &read_dir_entries, &read_json)
+}
+
+/// `dsh_composite_with` over an injected directory reader and an injected
+/// JSON reader, so the two one-read claims are claims a test can falsify
+/// rather than assertions in a comment:
+///
+/// - "the plugin's `cordis.patch.yml` is observed ONCE, inside the
+///   component walk" — a listing that changes the patch after the walk
+///   has read it makes a reopen visible, because the retained digest is
+///   the first bytes' and a second read would hash the second bytes; and
+/// - "the hidden npm lock is opened ONCE for the whole observation" — a
+///   counting JSON reader sees every open across discovery AND
+///   composition, where a count taken inside `resolve_core` alone could
+///   not see a reopen made after it returned.
+///
+/// (council return 2026-09-19, finding 4.) Only the sources are
+/// injectable; the real readers stay production's.
+fn dsh_composite_reading(
+    seams: &DshSeams,
+    node: &NodeRuntime,
+    globals: &[PathBuf],
+    read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
+    read_json: &dyn Fn(&Path) -> Result<Value, String>,
+) -> Result<DshComposite, CompositeError> {
+    let core = resolve_core_reading(&seams.executable, read_json)?;
     let profile = read_profile(&seams.home)?;
     let mut resolved: Vec<(String, PathBuf)> = Vec::new();
     for name in &profile.bundles {
@@ -1489,7 +1627,7 @@ fn dsh_composite_with(
     // over all six and `plugin-patch` from the retained digest of
     // `cordis.patch.yml`. Reopening the patch could describe a file the
     // component never saw.
-    let plugin_files = plugin_file_digests("plugin", &plugin_dir, &PLUGIN_FILES)?;
+    let plugin_files = plugin_file_digests("plugin", &plugin_dir, &PLUGIN_FILES, read_dir)?;
     let plugin_patch = plugin_files
         .get("cordis.patch.yml")
         .expect("the plugin file set is complete when the walk returns")
@@ -1508,7 +1646,7 @@ fn dsh_composite_with(
                     "the extension resolves outside the profile".into(),
                 ));
             }
-            let files = plugin_file_digests("extension", dir, &EXTENSION_FILES)?;
+            let files = plugin_file_digests("extension", dir, &EXTENSION_FILES, read_dir)?;
             Some(component_digest(&files))
         }
         None => None,

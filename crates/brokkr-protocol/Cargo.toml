@@ -19,6 +19,15 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 tempfile = { workspace = true }
 
+# The same narrow, explicit exception decision 0055 took for the local
+# transcript reader, for the same reason: a PATH lookup must decide
+# executability the way the child it stands in for does, which is
+# `faccessat(AT_EACCESS)` against the process's EFFECTIVE identity, and
+# the standard library exposes no such call. This extends a direct edge
+# to a version already in Cargo.lock; no registry version moves.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", default-features = false, features = ["fs"] }
+
 # Decision 0046 slice II design D3: one committed test-support executable
 # provides the probe's payload, descendant, guard, supervisor and startup
 # roles so the native feasibility path has no interpreter dependency. Its

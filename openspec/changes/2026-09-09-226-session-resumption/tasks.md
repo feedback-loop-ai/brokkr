@@ -7451,7 +7451,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   a visibility/compiler error does not count as behavioral removal evidence —
   safety / AS1.
 
-- [ ] Retain every identity-bearing source once per call: the selected core
+- [x] Retain every identity-bearing source once per call: the selected core
   manifest from discovery, the hidden npm lock for both core and dependencies,
   and each plugin file, reusing its retained `cordis.patch.yml` digest for
   `plugin-patch`. Do not reopen profile, lock or patch sources for another use.
@@ -7506,7 +7506,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   separately; record each exact triple/refusal failure and restored pass —
   safety / AS1.
 
-- [ ] Replace the unbounded pnpm text read with the no-YAML fail-closed raw
+- [x] Replace the unbounded pnpm text read with the no-YAML fail-closed raw
   reader: inclusive 8,388,608 bytes, consuming at most 8,388,609 before
   UTF-8 conversion. Trust no metadata size; add no npm, line, line-length or
   entry-count cap. Preserve the closed lockfile-9 state machine over the
@@ -7523,7 +7523,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
 
 ### 3. Compose the fixed identity from fixed locators — 8.8(b)
 
-- [ ] Preserve only D6's locator chain: canonical resolved executable, nearest
+- [x] Preserve only D6's locator chain: canonical resolved executable, nearest
   `@deepseek-ai/dsh` package, exact `bin.dsh` at
   `node_modules/@deepseek-ai/dsh/lib/bin.js` with exact shebang, hidden
   `<core root>/node_modules/.package-lock.json`, first executable `node` on
@@ -7665,7 +7665,7 @@ change; this partial slice cannot honestly fold its unfinished deltas.
 
 ### 5. Verify every delivered claim and preserve the slice boundary
 
-- [ ] For every delivered substantive claim above, append a removal-proof row
+- [x] For every delivered substantive claim above, append a removal-proof row
   here naming the production mutation, exact test, exact assertion/reason
   that failed, exact restoration and passing focused rerun. Perform compiling
   mutations one at a time and undo them before the next. Replace touched bare
@@ -7683,6 +7683,15 @@ change; this partial slice cannot honestly fold its unfinished deltas.
   no assertion can distinguish because reopening an unchanged file yields
   the same digest; and removing the bounded reader's `take`, whose harm is
   an unterminated read rather than a failing assertion.
+
+  *Re-tied 2026-09-19, second council return.* Both missing controls now
+  exist and fail by assertion (R24 and R25 in the second return's table
+  below): a listing that rewrites the patch the instant the walk has
+  hashed it separates one read from two, and a counting reader over a
+  FINITE source makes a lost `take` a number rather than an exhaustion.
+  The remaining checked clauses' named controls are rows R16–R49 and the
+  five-test B19 re-run; the last bare `is_err()` in the composite suite
+  carries its reason.
 
 - [ ] On final restored bytes run
   `cargo fmt --all -- --check`;
@@ -8230,3 +8239,243 @@ red.
   `proposed` status. The frozen contracts, `policy/phase-machine.json`,
   `policy/schemas/`, `fixtures/`, `reference/` and every byte under
   `extensions/dsh/` are untouched. Nothing was pushed.
+
+### Returned implement — second council return of 2026-09-19, findings 1–5
+
+This visit owns the review return on `75b5517c` (run
+`dsh-composite-identity-issue-226-26def5a5`, review by `gpt-6-astra`):
+five deduplicated findings, two of them HIGH on specification compliance
+and one HIGH on proof completeness. Every production change below answers
+a named finding. **8.8 stays unchecked**, part (d) was not started, and
+8.10's rejection-vector ledger remains its owner's. The working tree this
+visit inherited already carried an uncommitted first answer to findings
+1, 2, 3 and 5 and part of 4; it was read, kept where it was right, and
+corrected where it was not — its reader had lost the bounded `take`
+outright, which is the hazard finding 4 named, not the fix.
+
+#### What each finding cost, in production
+
+**Finding 1 — a document key is a singleton and its form is fixed.**
+`pnpm_dependencies` tracks every top-level key it has spelled; a second
+spelling of any of them is `a repeated top-level key '<name>'`, whether the
+second is `packages: null`, `packages: {}`, a second block-form `packages:`
+or a late `lockfileVersion: '8.0'`. The form is required of the KEY, not
+read off the line: `lockfileVersion`, `packageExtensionsChecksum` and
+`pnpmfileChecksum` carry a scalar, which is parsed even though it is not
+read, and every other recognized key opens a block, so `packages: null`
+with no earlier block is `an inline value on top-level section 'packages'`
+rather than an empty package set. The inherited reader decided the form
+from the line and kept the first block's triples as the document's answer
+— an ambiguous lock reporting an unchanged identity.
+
+**Finding 2 — a scalar is one of three forms, never YAML syntax.**
+`pnpm_scalar` admits a single-quoted scalar (no inner `'`), a double-quoted
+scalar with NO backslash at all, and a plain scalar that carries no quote,
+no `#` and no opening indicator from the YAML set (`- ? : , [ ] { } # & *
+! | > ' " % @ \``). `*undefined`, `[sha512-X]`, `&anchor`, `!!str`,
+`"sha512-A"` and `"a\tb"` had each entered identity as their own
+spelling, so an alias target or a sequence member could change under a
+digest that did not, and an escaped tab defeated the whitespace rule.
+`PNPM_RESOLUTION_KEYS` is D6's vocabulary and nothing more — `integrity`
+with an optional `tarball`; `commit`, `directory`, `path`, `registry`,
+`repo` and `type` are refusals, where the inherited list named them and
+then ignored them, reading a git or directory resolution as a registry
+one. Every field of a resolution flow map is a singleton, not only the one
+read.
+
+**Finding 3 — executability is the kernel's answer for THIS process.**
+`is_executable_file` asks `faccessat(AT_EACCESS)` through `rustix`, which
+is the check `execve` itself makes, instead of `mode & 0o111 != 0`, which
+asks whether ANYONE may execute the file. A mode-0641 candidate carries an
+execute bit for others and none for its owner, so the inherited test said
+yes while the owner's child got `EACCES` and walked on — the two-installs
+disagreement 8.8(c) exists to close, reached by permission rather than by
+absence. The regression case asserts whichever answer the running identity
+is entitled to (POSIX grants a privileged process `X_OK` on any file with
+an execute bit) and detects privilege with a mode-0000 file rather than
+skipping.
+
+**Finding 4 — the proofs that did not exist.** Each is named in the table
+below: the plugin-patch reread (R24), the bounded reader's `take` (R25),
+the core-root guard (R26), the hidden-lock-versus-root-lock pair (R27,
+R28), a composition-level hidden-lock reread (R29), string-prefix
+containment (R30), the altered lookup anchor (R31), every serialized
+element and the order and the deduplication (R32–R42), an omitted
+differing triple (R43), a built-in bundle at the wrong anchor (R44), each
+classifier and warning arm (R45–R48) and the real entry's reason (R49).
+B19 is re-run and its "four composite tests" are now five, named. The
+last bare `is_err()` in the composite suite
+(`resolve_core_refuses_an_executable_with_no_dsh_ancestor`) asserts the
+canonical path and the package looked for; the three containment refusals
+assert the exact outside path rather than a prefix; and the two new
+refusal tables name an ACCEPTED vector in their panic
+(`refused_vector`), so a control that lets one through reports which.
+
+Two production seams were added for these proofs, both injected and
+test-only in their injected form: `read_pnpm_from(path, source)` beneath
+`read_pnpm`, so a counting reader can report consumption; and
+`dsh_composite_reading` now takes the JSON reader as well as the directory
+reader, so a count taken across the WHOLE observation can see a reopen
+made after `resolve_core` has returned, which a count inside it could not.
+
+**Finding 5 — the producer closure is reached by a real failure.** The
+seam-precedence child gained an `unreadable` case: the real
+`dsh_provider_line` over a selected installation whose `DSH_HOME` holds no
+`profiles/headless`. The version probe still answers for that executable
+and the producer's refusal reaches the line through production's own
+`map_err`, asserted by the component's reason, the declaration context and
+the absence of a warning. The report this visit measured records that
+closure's line (`doctor.rs:213`) hit 4 times.
+
+#### Decisions
+
+- **`rustix` becomes a direct dependency of `brokkr-protocol`.** The
+  breakdown says "add no dependency"; finding 3 asks for the child's own
+  executability semantics, and the standard library exposes no
+  `faccessat`. `rustix` 1.1.4 is already a direct dependency of
+  `brokkr-cli` under decision 0055's narrow exception for the transcript
+  reader, so this extends an edge to a version already in `Cargo.lock` —
+  no registry version moves and no new crate enters the graph. The
+  alternative, a hand-rolled effective-identity check over `metadata`,
+  would have re-implemented the kernel's rule (owner, group, supplementary
+  groups, capabilities) and been wrong in exactly the cases the finding
+  is about.
+- **The `/dev/zero` control is gone, not kept beside the counting one.**
+  A control whose failure mode is exhausting the host is not a control;
+  the counting reader proves the same fact (the bound applies to bytes
+  CONSUMED, not to a metadata size) with a finite source, and the
+  file-backed path is still exercised by
+  `the_pnpm_reader_is_bounded_inclusively_at_the_limit`.
+- **The extension line's isolated control lives in the serializer test
+  alone.** At the producer level a listed extension also moves the
+  `profile-bundle` lines, so the two producer-level extension tests cannot
+  tell a dropped `extension` line from a present one; the named serializer
+  row can, and did (R40).
+
+#### Removal proofs, R16–R49
+
+Each row is one compiling mutation, applied alone, its focused test run,
+then undone before the next. Every failure is an ASSERTION or the named
+`was accepted` panic of `refused_vector`; none is a compile or setup
+error. The seat ran as uid 1000, so R23's expected selection is the
+unprivileged one. Line numbers are the test file's at the moment of the
+run.
+
+| # | Finding | Production mutation | Test | Failure |
+|---|---------|---------------------|------|---------|
+| R16 | 1 | `pnpm_dependencies` records a top-level key without refusing a repeat | `a_pnpm_document_key_is_a_singleton_and_its_form_is_fixed` | `"packages: null"`: `left: "…an inline value on top-level section 'packages'"` vs `right: "…a repeated top-level key 'packages'"` |
+| R17 | 1 | the inherited line-based form decision (`section = value.is_empty().then_some(name)`) replaces the inline-value refusal | same | `"lockfileVersion: '9.0'\npackages: null\n" was accepted` |
+| R18 | 1 | a scalar-valued top-level key is no longer parsed | same | `pnpmfileChecksum:` opening a block: `left: "…a child line outside every section"` vs `right: "…a malformed scalar for top-level key 'pnpmfileChecksum'"` |
+| R19 | 2 | `pnpm_scalar` admits an opening indicator | `a_pnpm_scalar_is_one_of_three_forms_and_never_yaml_syntax` | `"*undefined" was accepted` |
+| R20 | 2 | a double-quoted scalar admits a backslash | same | `"\"sha512-\\u0041\"" was accepted` |
+| R21 | 2 | a plain scalar admits `#` | same | `"sha512-X #note"`: `left: "…'debug@2.6.9': integrity carries whitespace"` vs `right: "…a malformed resolution flow map"` |
+| R22 | 2 | `PNPM_RESOLUTION_KEYS` back to the inherited eight | same | `"directory: /tmp/x" was accepted` |
+| R23 | 3 | `is_executable_file` back to `mode & 0o111 != 0` | `path_resolution_walks_past_a_candidate_a_child_could_not_execute` | "the candidate is taken exactly when THIS process could execute it": `left: "…/other-only/dsh"` vs `right: "…/second/dsh"` |
+| R24 | 4 | `dsh_composite_reading` reopens `cordis.patch.yml` for `plugin-patch` | `the_plugin_patch_cannot_be_a_second_read_of_a_changed_file` | "plugin-patch is the walk's observation, not a later reopen": `left: "05fefe2e…"` vs `right: "66e6d923…"` |
+| R25 | 4 | `read_pnpm_from` loses its `take` | `the_pnpm_reader_consumes_at_most_one_byte_past_the_limit` | "exactly one byte past the limit is consumed, of a source holding 4096 more": `left: 8392704` vs `right: 8388609`, in 0.01 s |
+| R26 | 4 | the core-root guard is removed | `resolve_core_refuses_a_manifest_that_does_not_match_its_binary_or_scope` | `left: "npm lock is unreadable: …/core/node_modules/.package-lock.json: No such file or directory"` vs `right: "the DSH layout is unreadable: core package is not at <core root>/node_modules/@deepseek-ai/dsh"` |
+| R27 | 4 | the hidden lock falls back to `<core root>/package-lock.json` | `the_root_package_lock_is_never_read_beside_or_instead_of_the_hidden_one` | `left: "the DSH layout is unreadable: core lock version 9.9.9 differs from package version 0.1.5-rc.2"` vs `right: "npm lock is unreadable: …/.package-lock.json: No such file or directory"` |
+| R28 | 4 | the root lock is preferred over the hidden one | same | "the core line comes from the hidden lock, not the root one": `left: "@deepseek-ai/dsh 0.1.5-rc.2 sha512-DECOY"` vs `right: "… sha512-CORE"` |
+| R29 | 4 | the hidden lock is reopened at the composition level for the triples | `the_core_manifest_and_hidden_lock_are_read_once_and_retained` | "the whole observation opens the hidden lock once": `left: 2` vs `right: 1` |
+| R30 | 4 | `resolve_bundle` decides containment by string prefix | `containment_compares_canonical_components_not_string_prefixes` | `left: "…the plugin resolves outside the profile"` vs `right: "…bundle 'dsh-plugin-cli-session' resolves outside the core root and the profile (…/headless-extra/dsh-plugin-cli-session)"` — the sibling passed the lookup and only the later plugin guard caught it |
+| R31 | 4 | the canonical profile directory is used as the lookup anchor | `the_dsh_composite_accepts_a_symlinked_home_ancestor` | "the search walked the RAW anchor's ancestry and stopped at its outside first hit": `left: "…bundle '@deepseek-ai/dsh-base' does not resolve"` vs `right: "…resolves outside … (…/aliases/node_modules/@deepseek-ai/dsh-base)"` |
+| B19 | 4 | `resolve_bundle` searches the profile before the core (re-run) | `a_bundle_candidate_that_cannot_be_inspected_stops_the_search`, `an_outside_first_bundle_hit_is_not_skipped_for_a_later_inside_one`, `containment_compares_canonical_components_not_string_prefixes`, `the_dsh_composite_refuses_a_layout_outside_the_locators`, `the_plugin_and_extension_must_resolve_inside_the_profile` | each containment refusal became a success: `expected a refusal` ×3, `unwrap_err()` on an `Ok` ×2 |
+| R32 | 4 | no `core` line | `the_canonical_composite_orders_lines_and_moves_with_its_inputs`; `the_measured_install_yields_its_recorded_components_and_pinned_digests` | "the `core` line moves the composite" (equal digests); the pinned canonical `a64fcd6d…` became `47f6eef9…` |
+| R33 | 4 | no `node` line | same | "the `node` line moves the composite"; pinned became `4680b3fc…` |
+| R34 | 4 | no `dependency` lines | same | "the `dependency (from npm)` line moves the composite"; pinned became `1dfe2e14…` |
+| R35 | 4 | no `plugin` line | same | "the `plugin` line moves the composite"; pinned became `ed0e9bb4…` |
+| R36 | 4 | no `plugin-patch` line | same | "the `plugin-patch` line moves the composite"; pinned became `cefdb493…` |
+| R37 | 4 | no `profile-patch` line | same, and `the_measured_composite_moves_with_every_component_it_names` | "the `profile-patch` line moves the composite"; pinned became `9c597ad2…`; "the profile patch moves the measured composite" |
+| R38 | 4 | no `profile-bundle` lines | same three | "the `profile-bundle (declared order)` line moves the composite"; pinned became `d7c16143…`; "the declared bundle order moves the measured composite" |
+| R39 | 4 | no `profile-patch-reload` line | same three | "the `profile-patch-reload` line moves the composite"; pinned became `0ef4446f…`; "the reload mode moves the measured composite" |
+| R40 | 4 | no `extension` line | `the_canonical_composite_orders_lines_and_moves_with_its_inputs` | "the `extension` line moves the composite" — the two producer-level extension tests stayed green, see Decisions |
+| R41 | 4 | dependencies concatenated without deduplication | serializer test; pinned digest | "an equal complete triple from both locks is ONE dependency line"; pinned became `3d085ff8…` (the measured locks share three triples) |
+| R42 | 4 | `node` serialized ahead of `core` | `the_measured_install_yields_its_recorded_components_and_pinned_digests` | "the canonical composite over the measured inputs is the producer's pinned output": `15638ea6…` vs `a64fcd6d…` — order is caught by the pin alone, as every element still moves |
+| R43 | 4 | `npm_dependencies` omits EVERY record of `@smithy/node-http-handler` 4.7.3, one of that name's two versions | `the_measured_locks_yield_the_complete_ordered_dependency_set`; pinned digest | "521 records deduplicate to 501 distinct complete triples": `left: 500` vs `right: 501`; pinned became `9d77441c…` |
+| R44 | 4 | FIXTURE: `@deepseek-ai/dsh-base` materialized under the profile instead of the core | `the_measured_install_yields_its_recorded_components_and_pinned_digests` | "@deepseek-ai/dsh-base resolves at the core anchor": `left: false` vs `right: true` |
+| R45 | 4 | `composite_detail` loses its `matches` arm | `the_dsh_composite_detail_reports_each_disposition` | the equal digest rendered `differs from the declared wrapper_digest aaaa…` |
+| R46 | 4 | a readable difference warns without a `supported` shape | same | `assertion failed: !composite_detail(Some(&digest), false, Ok((&other, "plugin"))).0` |
+| R47 | 4 | an unreadable composite warns without a `supported` shape | same | `assertion failed: !warning` at the unsupported-with-declaration row |
+| R48 | 4 | an unreadable composite warns with no declared digest | same | `assertion failed: !warning` at the supported-without-declaration row |
+| R49 | 5 | `dsh_provider_line`'s closure drops the producer's reason (`"composite unreadable"`) | `the_dsh_seam_precedence_moves_the_version_and_the_composite_together`, case `unreadable` | "the line carries the component's own reason and the declaration context": `left: "composite unreadable: composite unreadable (no declared wrapper_digest)"` vs `right: "composite unreadable: the DSH layout is unreadable: …/broken-home/profiles/headless: No such file or directory (os error 2) (no declared wrapper_digest)"` |
+
+**One control had to be redone before it fired, and the reason is worth
+keeping.** R43's first form omitted a single nested record
+(`node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler`)
+and no assertion moved: that record's complete triple is carried by
+another record too, and equal complete triples deduplicate by design. An
+omitted DIFFERING triple is one whose every record is gone, which is what
+the second form does. R30 shows the same kind of thing from the other
+side: the string-prefix lookup admitted the sibling, and the later
+plugin-inside-the-profile guard refused it anyway with a different
+reason. That guard is defence in depth, not the containment rule; the
+tightened assertion tells the two apart.
+
+#### Gates, on final restored bytes
+
+| gate | result |
+|------|--------|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `git diff --check` | clean |
+| `cargo test -p brokkr-protocol --all-features --locked` | 348 + 99 (2 ignored) + 1 pass, 0 fail |
+| `cargo test -p brokkr-cli --all-features --locked` | 30 binaries, all ok (461 lib), 0 fail |
+| `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast` | 441 lib pass, 21 binaries ok; **the same four pre-existing failures** (`gpt_flash_shape` ×2, `roster` ×1, `witness_digests` ×1), none in a file this slice reads or writes |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | compiles |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | compiles |
+| `openspec validate --all --strict` | **PENDING** — this seat's shell refuses to launch `openspec` (the reviewer's own run on `75b5517c` passed 15/15; this visit changed no delta, requirement or scenario, only this account and four local checkboxes) |
+| `bash scripts/coverage-exact.sh` | **PENDING** — below |
+
+**The exact-coverage gate stays pending, for the reasons already on
+record.** Its instrumented run is `cargo llvm-cov --workspace`, and the
+four runtime failures above stand at this HEAD; and the script builds its
+instrumented target under `$TMPDIR`, which on this host is a 31 GiB tmpfs
+that a workspace instrumented build fills. Neither is a pass and none is
+inferred.
+
+**One measurement trap, found and avoided.** The first crate-scoped run
+this visit made (`cargo +nightly-2026-09-05 llvm-cov -p brokkr-cli -p
+brokkr-protocol --all-features --locked --branch`) reported 936 zero-hit
+lines in `composite.rs` with `FNF 226 / FNH 119` — three compiled
+instances of every function, one of them with every count at zero. The
+unchanged `adapters.rs` in the same report carried the same three
+instances and no zero-hit record, so the zeros were not this slice's: an
+instrumented executable from an earlier source graph had survived in
+`target/llvm-cov-target` and joined the merge. That is exactly why the
+gate script runs `cargo llvm-cov clean --workspace` first. The
+measurement below is taken after that clean.
+
+What WAS measured, on the final bytes, with the pinned
+`nightly-2026-09-05`: `cargo +nightly-2026-09-05 llvm-cov clean
+--workspace`, then `cargo +nightly-2026-09-05 llvm-cov -p brokkr-cli
+-p brokkr-protocol --all-features --locked --branch --lcov`, every test
+binary green, evaluated record by record with the gate's OWN rule — every
+`DA` and `BRDA` record hit, and every logical function (file plus start
+line, any positive compiled instance) hit:
+
+| file | `DA` records | `BRDA` records | logical functions |
+|------|-------------|----------------|-------------------|
+| `crates/brokkr-protocol/src/adapters/composite.rs` | 984, none at zero | 230, none at zero or `-` | 119 of 119 |
+| `crates/brokkr-cli/src/doctor.rs` | 520, none at zero | 44, none at zero or `-` | 47 of 47 |
+
+The review's finding 5 was `doctor.rs` at 46 of 47 with the producer
+closure at line 213 unhit; that line now carries `DA:213,4`. This is
+evidence about the changed files, taken the way the gate takes it; it is
+NOT the gate, which stays pending above.
+
+#### Still not delivered, and named
+
+- **Part (d)**, the planner, was not started, planned or touched.
+- **8.10**'s whitespace and rejection-vector ledger; **9.6**;
+  **10.6–10.8**; **11.1–11.4**; groups **14** and **15**.
+- `openspec validate --all --strict` from a seat that can launch it, and
+  the **exact-coverage gate** on a host where the four pre-existing
+  runtime failures have been repaired by their owner and `$TMPDIR` can
+  hold a workspace instrumented build. The two gate clauses above stay
+  open on exactly that.
+- No `wrapper_digest` was declared, no shape moved to `supported`, the
+  DSH route stays disabled and unmeasured, and decision 0056 keeps its
+  `proposed` status. The frozen contracts, `policy/phase-machine.json`,
+  `policy/schemas/`, `fixtures/`, `reference/` and every byte under
+  `extensions/dsh/` are untouched. The guide's composite vocabulary did
+  not change, so its sample stands. Nothing was pushed.
