@@ -1854,7 +1854,7 @@ itself (`safety / AS1`).
       the five separately cited observations plus the named passing adapter
       tests and restored removal controls — safety / AS1, AS2, AS3, AS4;
       evidence / LE1, LE3, LE4, LE5; site / SR3.
-- [ ] 10.6 Finish Claude proof on the pinned 2.1.266 binary without
+- [x] 10.6 Finish Claude proof on the pinned 2.1.266 binary without
       repeating the supplied same-root and Read-grant observations. Preserve
       `controller-claude-root-probe.json`,
       `controller-claude-grant-probe.json`,
@@ -1870,7 +1870,25 @@ itself (`safety / AS1`).
       completed-message IDs so the exceptional empty-response/retry and
       visible-message/turn differences are attributed without a guessed baseline
       or zero. Also establish the complete filesystem boundary, flag precedence
-      and persistent identity. If only the controller can execute it, prepare
+      and persistent identity.
+      **Done by hand** in `.forge/tasks/controller-claude-proof-2026-09-18.json`,
+      completed 2026-09-19. Ten axes, each attributable to a call that
+      demonstrably ran. The axis this record previously listed as unexercised —
+      the exceptional empty-response/retry — was **induced deliberately** rather
+      than waited for: an unknown model name forces the empty response, an
+      unroutable endpoint forces the retry. The empty response retains an
+      assistant message id for a turn that never reached the API, marks itself
+      fabricated with `model: "<synthetic>"`, and reports every total as zero
+      with `api_error_status` 404 — so attribution rests on the id and the
+      status, exactly as this task demanded it must, never on a guessed baseline
+      or a zero. The retry path carries its own typed `system/api_retry` event
+      with `attempt`, `max_retries`, `retry_delay_ms` and a per-attempt uuid.
+      The adapter normalization was READ against both, not assumed: `api_retry`
+      falls through the `system`/`init`-only match so retries count no turn and
+      no usage, and `<synthetic>` is rejected by `model_token`'s character
+      grammar so a seat's real model pin survives. The binary pinned here,
+      2.1.266, is no longer installed on the host at all; this exercises the
+      installed 2.1.273, on the precedent 10.5 set for Codex. If only the controller can execute it, prepare
       and hand off an executable task-owned probe with these exact argv,
       fixture effects and assertions; do not cite worker-home EROFS as a
       controller blocker. Tick only when every missing axis has its own
