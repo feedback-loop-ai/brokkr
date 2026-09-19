@@ -1949,9 +1949,24 @@ itself (`safety / AS1`).
       the upstream observation artifact and Brokkr's matching adapter/shim
       assertions before ticking — safety / AS1, safety / AS2, safety / AS3,
       site / SR3, evidence / LE4.
-- [ ] 10.8 LaneTally proof: wrapper forwarding, the underlying Claude
+- [x] 10.8 LaneTally proof: wrapper forwarding, the underlying Claude
       version, root confirmation, capture attribution and the applicable
       restrictions on resume. Unsupported hands stay unsupported — safety / AS1.
+      Recorded by hand in `.forge/tasks/controller-lanetally-proof-2026-09-19.json`
+      against the shipping wrapper on the installed `2.1.273`, each axis with its
+      own attributable observation and each refusal proved by removal: argv
+      forwarding is verbatim and positional, with exactly `--settings <fragment>`
+      inserted for a child named `claude` and nothing inserted for a child that is
+      not; the underlying version answers through the wrapper unchanged; a cold
+      run's persistence root is derived from the child's cwd and a `--resume`
+      returns to that same root, proved by the restored private nonce rather than
+      by the echoed session id; capture attribution is minted **per invocation**,
+      so two resumes of one session carry two different `X-Run-Id` values and the
+      transcript carries none of them; and the restrictions on resume are the
+      wrapper's ownership of the per-session settings layer plus its typed
+      refusals. Hands stay `unsupported` — forwarding is not confinement — and
+      `adapters/lanetally.json`'s reason is corrected to say what was measured and
+      what still is not, rather than claiming the pass-through is unmeasured.
 
 ## 11. Enablement — evidence-gated provider dispositions
 
