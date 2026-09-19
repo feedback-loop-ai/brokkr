@@ -481,6 +481,14 @@ read as history, not as a current claim.
 - **THEN** current restriction precedence is measured for the qualified rc.2 pair and is consumed without another provider probe
 - **AND** task 10.7 still owes the post-8.8 doctor recording and matching Brokkr adapter/shim assertions; this evidence neither completes 10.7 nor authorizes planner behavior, 8.10 cases or the 8.8 checkbox
 
+#### Scenario: A stale proposed decision blocks the rc.2 digest implementation
+- **GIVEN** AS1, D6, task 8.8 and the controller records select `@deepseek-ai/dsh` 0.1.5-rc.2 with its recorded registry integrity and measured continuity, restriction precedence and current-sequence accounting
+- **AND** proposed decision 0056 ruling 5 and its consequence still select rc.1 and describe those measured rc.2 facts as outstanding
+- **WHEN** the task 8.8(a)–(c) implementation handoff is evaluated
+- **THEN** proposed 0056 does not yet agree with the evidence and SHALL NOT be treated as the governing rc.2 decision text
+- **AND** the decision-owning upstream office SHALL amend ruling 5 and its consequence to record rc.2 and the measured facts, preserve rc.1 as dated history, retain `Status: proposed`, and reconcile D10 before implementation proceeds
+- **AND** the amendment SHALL keep digest recording, matching adapter/shim assertions, planner admission and end-to-end enablement pending and SHALL require no provider remeasurement
+
 #### Scenario: The pnpm reader has one exact raw-byte bound
 - **GIVEN** otherwise valid lockfile-9.0 bytes padded with grammar-accepted blank lines to exactly 8,388,608 bytes, and the same bytes followed by one additional byte
 - **WHEN** the sole producer reads each `pnpm-lock.yaml`

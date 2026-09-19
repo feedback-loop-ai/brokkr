@@ -1,5 +1,17 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This returned specify visit adopts the existing change at `84badba2` for run
+`dsh-composite-identity-issue-226-c181dcd8`. Answer AH accepts clarify's
+remaining finding: proposed decision 0056 cannot govern the commissioned rc.2
+digest slice while ruling 5 and its consequence still select rc.1 and call
+restriction precedence and current accounting unmeasured. AS1 already requires
+the decision, declarations and guides to agree, so implementation is blocked
+until the decision-owning upstream office amends proposed 0056, preserves rc.1
+as dated history and reconciles D10's false current claim. This phase records
+the required amendment in the proposal first and the owning AS1 delta second.
+It does not edit design, decision, task, Rust, planner, frozen or extension
+artifacts, and it does not remeasure a provider.
+
 This returned specify visit adopts the existing change at `df762ccf` for run
 `dsh-composite-identity-issue-226-c181dcd8`. Answer AG corrects AS1's false
 claim that the live rc.2 qualification still lacks restriction precedence.
@@ -238,7 +250,7 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   and named compiling removal failures for every added claim. Preserve the
   committed extension bytes and provenance note. Leave 8.8(d), planner
   behavior, 8.10's rejection-vector completion and the 8.8 checkbox pending.
-  Answers AD/AE/AF/AG and the amended AS1 scenarios are this slice's
+  Answers AD/AE/AF/AG/AH and the amended AS1 scenarios are this slice's
   complete scope.
   The following bullets retain earlier commissions and the whole change as
   history and context; they authorize no additional work in this slice.
@@ -2439,6 +2451,38 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   answered. The result is `drafted` with the adopted change identifier. No
   provider, registry, retained home or workflow runner is invoked.
 
+- **AH — Clarify return, 2026-09-19: the stale proposed decision blocks
+  implementation and belongs upstream.** Clarify's finding is correct. The
+  current AS1 requirement, D6, D10, task 8.8 and all three controller records
+  select `@deepseek-ai/dsh` 0.1.5-rc.2 with registry integrity
+  `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`.
+  The live qualification measures exact-root continuity, current restriction
+  precedence and attributable current-sequence accounting. Proposed decision
+  0056 ruling 5 and its current consequence instead select rc.1 and say those
+  observations remain unproven. Under AS1's existing agreement clause, that
+  stale decision text cannot govern an rc.2 implementation.
+
+  The decision-owning upstream office must amend ruling 5 and its consequence
+  before implementation: name the rc.2 package, version and integrity; consume
+  the measured continuity, restriction-precedence and accounting facts; keep
+  digest recording, matching adapter/shim assertions, planner admission and
+  end-to-end enablement pending; preserve rc.1 as dated history; and retain
+  `Status: proposed` because only the operator accepts a decision. D10's claim
+  that proposed 0056 already carries rc.2 must be reconciled with that landed
+  amendment. Existing controller evidence is sufficient, so another provider,
+  registry or retained-home probe is refused.
+
+  This specification office cannot land that amendment. The rendered OpenSpec
+  specify dialect declares only `proposal.md` followed by capability deltas,
+  and the current 8.8(a)–(c) breakdown authorizes Rust, tests, guide, dependency
+  metadata, progress notes and resulting pins rather than a semantic decision
+  edit. Disguising the conflict in the downstream digest implementation would
+  violate the chief's upstream rule and AS1's agreement requirement. The new
+  AS1 scenario therefore blocks implementation on this exact drift and names
+  the upstream repair. The phase result is `upstream` with the adopted change
+  identifier. Part (d), planner behavior, 8.10, the 10.7 doctor recording and
+  task 8.8 remain pending.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -3789,3 +3833,30 @@ crate-scoped Rust tests and bundle compilation therefore cannot launch here.
 This specification return adds no Rust line and claims no implementation or
 removal proof. The implementation phase still owes those gates on its final
 head. The result is `drafted` with `inputs.change`.
+
+## Specify return — proposed DSH decision drift, 2026-09-19
+
+This returned visit adopts `2026-09-09-226-session-resumption` at
+`84badba2` and answers clarify's remaining finding in the earliest artifacts
+this dialect permits. Answer AH and the new AS1 scenario state that proposed
+0056 cannot govern rc.2 digest implementation while ruling 5 and its
+consequence retain rc.1 and outdated proof debts. They name the upstream
+amendment exactly: preserve proposed status and rc.1 history, record rc.2's
+name/version/integrity and measured continuity, restriction precedence and
+current accounting, retain the actual downstream debts, then reconcile D10.
+The supplied controller evidence is sufficient and no provider remeasurement
+is authorized.
+
+The implementation handoff is blocked on that decision amendment. This phase
+changes exactly the proposal and `adapter-resume-safety` delta; decision 0056,
+design, tasks, production, tests, frozen surfaces and `extensions/dsh/` retain
+their entry bytes. Part (d), planner behavior, 8.10, the post-8.8 doctor
+recording and the 8.8 checkbox remain pending.
+
+Strict repository-wide OpenSpec validation passes **15/15**, and `git diff
+--check` is clean. The five deltas retain **20 requirements / 173 scenarios**;
+the added scenario owns the returned ambiguity. The validator's two archive
+readiness notes are inherited informational findings. Cargo is absent from the
+workspace box, so Rust, bundle and exact-coverage gates cannot launch in this
+specification-only return and remain implementation obligations. The result is
+`upstream` with `inputs.change`.
