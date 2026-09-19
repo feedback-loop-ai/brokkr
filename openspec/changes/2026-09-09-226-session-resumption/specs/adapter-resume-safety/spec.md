@@ -297,10 +297,11 @@ DSH `headless-work` and LaneTally
 `wrapper-work-site` declarations SHALL explicitly identify themselves as this
 case and retain their unmeasured status, identities, evidence and scope. Claude's
 partial probes do not establish complete restriction enforcement; DSH's live
-isolated pair qualifies core/plugin continuity and attributable per-message
-accounting but still lacks completed digest recording, restriction precedence,
-planner acceptance and end-to-end admission; LaneTally lacks independent wrapper
-qualification. This ruling enables none of these three rejoins.
+isolated pair qualifies core/plugin continuity, current restriction precedence
+and attributable per-message accounting but still lacks completed digest
+recording, matching adapter/shim assertions, planner acceptance and end-to-end
+admission; LaneTally lacks independent wrapper qualification. This ruling
+enables none of these three rejoins.
 
 Preservation SHALL NOT bypass identity, boundary, hands or accounting checks.
 The observed executable identity SHALL still match declared applicability and,
@@ -471,6 +472,14 @@ read as history, not as a current claim.
 - **AND** a separate layout case admits a nested plugin `node_modules/` as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
 - **AND** lock entries, bundle targets and profile-patch bytes are explicitly synthetic grammar and locator inputs; no test asserts that their dependency set, profile-patch digest or resulting composite equals the retained installation
 - **AND** neither controller record, the provenance note, doctor nor the test fixture supplies a hand-computed component or composite value; only the later doctor run over the retained home may record its actual composite
+
+#### Scenario: The rc.2 qualification already proves restriction precedence after restoration
+- **GIVEN** the live rc.2 cold/warm qualification restored the cold session's private nonce and the complete plugin CLI exposes no model, effort, sandbox, tool or persistence-root override
+- **AND** a current model patch on resume selected `deepseek-v4-pro`, removing that patch restored the profile's `deepseek-flash`, and a deliberately invalid current model reached the provider's model-name refusal
+- **AND** resumed `--workdir` was refused before launch without creating another root, while an unknown profile selector was refused without falling back
+- **WHEN** the DSH evidence account is evaluated for task 8.8's digest slice and task 10.7's remaining acceptance
+- **THEN** current restriction precedence is measured for the qualified rc.2 pair and is consumed without another provider probe
+- **AND** task 10.7 still owes the post-8.8 doctor recording and matching Brokkr adapter/shim assertions; this evidence neither completes 10.7 nor authorizes planner behavior, 8.10 cases or the 8.8 checkbox
 
 #### Scenario: The pnpm reader has one exact raw-byte bound
 - **GIVEN** otherwise valid lockfile-9.0 bytes padded with grammar-accepted blank lines to exactly 8,388,608 bytes, and the same bytes followed by one additional byte

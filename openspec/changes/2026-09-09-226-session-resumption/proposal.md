@@ -1,5 +1,17 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This returned specify visit adopts the existing change at `df762ccf` for run
+`dsh-composite-identity-issue-226-c181dcd8`. Answer AG corrects AS1's false
+claim that the live rc.2 qualification still lacks restriction precedence.
+The controller already measured that precedence after restoration; 10.7 still
+owes only the post-8.8 doctor recording and matching adapter/shim assertions.
+The returned D10/0056 version conflict is recorded as dependent design work:
+D10 must stop claiming proposed 0056 already carries rc.2, and proposed 0056
+must be amended from rc.1 to the resolved rc.2 route while staying `proposed`.
+This specification return changes the proposal first and the owning AS1 delta
+second. It changes no design, decision, task, Rust, planner, frozen or extension
+artifact, and it does not remeasure a provider.
+
 This returned specify visit adopts the existing change and checkpoint
 `2f20e8dd` for run `dsh-composite-identity-issue-226-c181dcd8`. The
 controller has amended the qualification record with the measurement answer
@@ -226,8 +238,8 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   and named compiling removal failures for every added claim. Preserve the
   committed extension bytes and provenance note. Leave 8.8(d), planner
   behavior, 8.10's rejection-vector completion and the 8.8 checkbox pending.
-  Answers AD/AE/AF and the amended AS1 scenarios are this slice's complete
-  scope.
+  Answers AD/AE/AF/AG and the amended AS1 scenarios are this slice's
+  complete scope.
   The following bullets retain earlier commissions and the whole change as
   history and context; they authorize no additional work in this slice.
 - For CODEX ENABLEMENT, adopt completed 10.1/10.5 evidence and finish only
@@ -2390,6 +2402,43 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   10.7 doctor recording and all remaining 8.8 acceptance stay pending. Task
   8.8 remains unchecked.
 
+- **AG — Analyze return, 2026-09-19: adopt the measured restriction
+  precedence and keep the remaining debts exact.** The returned finding is
+  correct. AS1's current prose says the rc.2 qualification still lacks
+  restriction precedence, but
+  `.forge/tasks/dsh-pair-qualification-015rc2.json` records it under
+  `restriction_precedence_after_restoration`. The complete CLI has no model,
+  effort, sandbox, tool or persistence-root override. A resumed run under the
+  current model patch preserved the cold nonce while selecting
+  `deepseek-v4-pro`; removing that patch restored `deepseek-flash`, and an
+  invalid current model reached the provider's model-name refusal. A resumed
+  `--workdir` was refused before launch without creating a root, and an unknown
+  profile selector was refused rather than falling back. Those observations
+  discharge the live restriction-precedence measurement and SHALL be consumed
+  without another provider probe.
+
+  The owning AS1 requirement now says the live pair qualifies continuity,
+  current restriction precedence and attributable per-message accounting. Its
+  new scenario encodes the measured controls and keeps 10.7's actual remainder
+  explicit: the post-8.8 doctor recording and matching Brokkr adapter/shim
+  assertions. This correction does not complete 10.7 or 8.8. Digest work
+  (a)–(c) remains the implementation handoff; 8.8(d), planner behavior, the
+  8.10 vectors and the 8.8 checkbox remain pending.
+
+  The analyze return also identifies a separate downstream coherence fault.
+  D10 claims proposed decision 0056 already carries the resolved rc.2 route,
+  while `docs/decisions/0056-same-instance-session-resumption.md` still names
+  rc.1 and its older proof gap. The claim is not adopted. The next design
+  return must amend D10 and then proposed 0056 to the resolved rc.2 evidence,
+  preserve historical rc.1 facts and retain decision status `proposed`. Editing
+  either artifact here is refused because this dialect phase declares only the
+  proposal and capability deltas. Recording the dependency here prevents the
+  specification correction from disguising the later artifact fault.
+
+  With AS1 corrected, the specification finding that owns this return is
+  answered. The result is `drafted` with the adopted change identifier. No
+  provider, registry, retained home or workflow runner is invoked.
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -3713,3 +3762,30 @@ The result is `drafted` with `inputs.change`. Implementation remains limited
 to 8.8(a)–(c). Part (d), planner production behavior, 8.10's cases, the 10.7
 doctor recording and the rest of 8.8 acceptance remain pending; task 8.8 stays
 unchecked.
+
+## Specify return — measured DSH restriction precedence, 2026-09-19
+
+This returned visit adopts `2026-09-09-226-session-resumption` at
+`df762ccf` and answers the analyze finding in the earliest owning artifacts.
+Answer AG and the new AS1 scenario replace the false outstanding
+restriction-precedence claim with the controller's measured rc.2 controls.
+They leave 10.7 pending only its doctor recording and matching adapter/shim
+assertions, and leave digest implementation limited to 8.8(a)–(c). Part (d),
+planner behavior, 8.10 and the 8.8 checkbox remain pending.
+
+The separate D10/proposed-0056 rc.1 conflict is recorded for the dependent
+design return rather than hidden in specification prose. This phase does not
+edit either artifact; proposed 0056 still requires an rc.2 amendment and must
+remain `proposed`. Exactly the proposal and `adapter-resume-safety` delta belong
+to this return. Production, tests, design, tasks, decisions, frozen surfaces and
+`extensions/dsh/` retain their entry bytes. Strict repository-wide OpenSpec
+validation passes **15/15**, `git diff --check` is clean, and the five deltas
+retain **20 requirements / 172 scenarios**. All **101 task identifiers and
+states (84 checked / 17 pending)** retain their bytes, including unchecked 8.8.
+
+Cargo is absent from the workspace box. `cargo fmt --all -- --check` and
+`scripts/coverage-exact.sh` both exit 127 at their Cargo invocation; clippy,
+crate-scoped Rust tests and bundle compilation therefore cannot launch here.
+This specification return adds no Rust line and claims no implementation or
+removal proof. The implementation phase still owes those gates on its final
+head. The result is `drafted` with `inputs.change`.
