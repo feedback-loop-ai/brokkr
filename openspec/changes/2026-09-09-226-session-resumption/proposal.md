@@ -1,5 +1,21 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit adopts `2026-09-09-226-session-resumption` at
+`99fdbb0a` on `slice-dsh-composite-b` for run
+`dsh-composite-identity-issue-226-26def5a5`. Answer AK closes the predecessor's
+two correct evidence parks using the supplied raw-byte/layout addendum and
+retained hidden npm lock. The measured inputs are authoring evidence: their
+exact bytes and values become literal constants in Rust tests, which never
+read `.forge/` at runtime. Only 8.8(a), (b), then (c) are commissioned. This
+phase amends the adopted proposal first and its owning AS1 capability delta
+second, preserving proposed decision 0056 and the existing D6/D10 choices
+except for their superseded hash-only fixture account. Both the doctor version
+and composite must describe the same adapter-resolved DSH installation. Task
+8.8 remains unchecked; no planner behavior or part (d) plan is authorized.
+
+Earlier measured-fixture return, retained as dated history (AK resolves its
+evidence blocker without weakening its ground-truth requirement):
+
 This returned specify visit adopts the existing change at `cd0e8e01` for run
 `dsh-composite-identity-issue-226-c181dcd8`. Answer AJ accepts analyze's
 high-severity fixture finding. The earlier AE/AF narrowing was defective: lock
@@ -234,16 +250,12 @@ ownership, provider enforcement and v5/store semantics as engine work.
 
 ## Why
 
-The qualified DSH installation is measured, but the committed evidence does
-not retain enough of its raw identity inputs to build the required ground-truth
-fixture. It gives hashes and dimensions for the npm and pnpm locks, a hash for
-the profile patch and a manifest summary, but not the lock bytes or complete
-normalized dependency triples, the profile-patch bytes, or the resolved bundle
-targets. Those missing values determine the canonical composite. Task 8.8's
-implementation is therefore blocked until upstream evidence retains a fixture
-that the one Rust producer can read through D6's fixed locators and reproduce
-end to end. The digest slice still excludes launch planning and cannot complete
-the whole 8.8 acceptance.
+The retained canonical rc.2 installation now supplies the raw lock and patch
+bytes and measured bundle layout needed to prove its composite identity. Task
+8.8(a)–(c) must consume those inputs through the sole Rust producer and make
+doctor report that same adapter-resolved installation; hashes alone and a
+version from another binary cannot establish its identity. The digest slice
+still excludes launch planning and cannot complete the whole 8.8 acceptance.
 
 Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
@@ -265,24 +277,28 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   DSH planner the sole producer of the six-file plugin component and D6's
   canonical composite from fixed locators; correct complete whitespace and
   canonical-containment handling; and extend the existing doctor `dsh` line
-  through the adapter's own seam resolution. The hermetic rc.2 fixture must
-  retain the canonical installation's real inputs at those locators: the
+  through the adapter's own seam resolution for both version and composite.
+  The hermetic rc.2 fixture must retain the canonical installation's real
+  inputs at those locators: the
   byte-exact hidden npm and pnpm lock files, the profile-patch bytes, the
   profile manifest, the first-hit bundle targets and containment boundaries,
-  the executable and
-  core metadata, the six plugin bytes and the absent home patch. Through the
+  executable and core metadata, the six plugin bytes and the absent home patch. Through the
   sole producer it must reproduce the measured dependency values, resolved
   bundles, patch digests, plugin component and resulting canonical composite.
   Hashes, dimensions and synthetic substitutes do not discharge that proof.
-  The present controller record omits the lock bytes and triples, resolved
-  bundle targets and profile-patch bytes, so implementation is blocked on an
-  upstream evidence amendment. Preserve the separately measured tolerance for
-  a nested dependency directory and the inclusive 8,388,608-byte pnpm bound.
+  The two addenda and retained hidden lock now supply the missing inputs;
+  embed their bytes and measured expectations as literal test-source constants
+  during authoring, with no test-time `.forge/` access. Assert the complete
+  dependency values as well as counts: 521 post-exclusion npm entries, 501
+  unique complete npm triples, 489 npm names and 502 combined npm/pnpm triples.
+  Preserve the separately measured tolerance for a direct, real, non-symlink
+  nested dependency directory and the inclusive 8,388,608-byte pnpm bound.
   Require reason-bearing refusals and named compiling removal failures for every
   added claim. Preserve the committed extension bytes and provenance note.
   Leave 8.8(d), planner behavior, 8.10's rejection-vector completion and the
-  8.8 checkbox pending. Answer AJ and the amended AS1 scenarios supersede the
-  synthetic-fixture narrowing in AD/AE/AF; the other decisions remain adopted.
+  8.8 checkbox pending. Answer AK closes AJ's evidence blocker and preserves
+  its rejection of AD/AE/AF's synthetic-fixture narrowing. The other decisions
+  remain adopted; downstream fixture prose must follow this measured account.
   The following bullets retain earlier commissions and the whole change as
   history and context; they authorize no additional work in this slice.
 - For CODEX ENABLEMENT, adopt completed 10.1/10.5 evidence and finish only
@@ -409,38 +425,62 @@ boundary the engine stamps or rewriting frozen contract bytes.
 
 ## Evidence and scope
 
-The current DSH digest slice consumes, read in full and without remeasurement,
-`.forge/tasks/controller-n1-resolution-2026-09-19.json`,
-`.forge/tasks/controller-dsh-preinstall-2026-09-19.json` and
-`.forge/tasks/dsh-pair-qualification-015rc2.json`. The first selects core
-0.1.5-rc.2 by the settled `latest` rule. The second fixes the selected core,
-adaptation and six per-file digests. The third records Node v22.23.2, the
-headless profile manifest, plugin/profile patch digests, absent home patch and
-the canonical reinstall's lock hashes and dimensions. Its erratum supersedes
-the stale `link:` lock and hand-placed tree: the corrected pnpm lock has SHA-256
-`4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`,
-1,982 bytes, 57 lines and a 186-byte longest line; the core hidden npm lock has
-311,184 bytes, 7,470 lines and a 157-byte longest line. The canonical plugin is
-a real directory with no nested `node_modules/`. The earlier working
-installation measured a nested plugin dependency directory, so the explicit
-tolerance remains required without treating that superseded tree as canonical
-ground truth.
+The current DSH digest slice adopts the supplied September 19 N1 resolution,
+preinstall and pair-qualification records under `.forge/tasks/`, plus
+`controller-doctor-seam-defect-2026-09-19.json`. These are authoring inputs,
+not production or test-runtime dependencies. N1 selects core 0.1.5-rc.2; the
+preinstall record fixes its integrity and the six adapted per-file digests.
+The qualification record's canonical reinstall supersedes the stale `link:`
+lock and hand-placed tree, preserving that earlier run as historical evidence.
+The canonical plugin is a real directory with no nested `node_modules/`;
+the separately observed direct nested dependency directory remains an allowed
+layout rather than canonical fixture ground truth.
 
-The records do not retain either lock's bytes or complete normalized dependency
-triples, resolved first-hit bundle targets, or profile-patch bytes. Their hashes
-and dimensions cannot reconstruct those values. Consequently they do not yet
-supply a hermetic fixture from which the sole producer can reproduce the
-retained installation's dependency lines, bundle resolution, profile-patch
-digest and final composite. Synthetic replacements prove grammar in isolation
-but cannot serve as the commission's measured fixture ground truth. The
-controller evidence must be amended with the actual canonical locator inputs,
-or an equivalent complete measured fixture and cross-check values, before the
-8.8(a)–(c) implementation handoff resumes. The function remains the only lawful
-producer of the plugin component and composite; upstream supplies inputs, not a
-second calculation. `extensions/dsh/PROVENANCE.md` and its six-file sibling
-were read and retain their bytes. No provider, registry or live DSH home is
-probed by this seat. Answer AJ supersedes AE/AF's defective narrowing while
-retaining their corrected canonical-install and reader-bound facts.
+`ADDENDUM_2026-09-19_raw_bytes_and_bundle_layout` supplies the complete
+1,982-byte / 57-line pnpm lock (longest line 186) with SHA-256
+`4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`, the
+217-byte profile patch with SHA-256
+`ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`, the four
+pnpm dependency triples and both bundle-resolution anchors. The declared
+`@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-headless` bundles resolve at
+`node_modules/<bundle>` under the core root, each at 0.1.5-rc.2;
+`dsh-plugin-cli-session` resolves at `node_modules/dsh-plugin-cli-session`
+under the profile, at 0.2.0. Node is `v22.23.2`, `patchReload` is `startup`,
+and the home patch is absent.
+
+`ADDENDUM_2026-09-19_retained_hidden_lock` points to
+`.forge/tasks/dsh-core-package-lock-015rc2.json`, the full 311,184-byte
+hidden npm lock, SHA-256
+`b84bac2d866224a997be29811dc71bde6013dbc6e2adf8c1e77523e6f05a3847`.
+All 522 entries carry integrity. Excluding the exact core record leaves 521
+entries, 501 distinct complete triples and 489 distinct names; twelve names
+have differing versions or integrities that must survive. The accompanying
+`dsh-core-dependency-triples-015rc2.json` is a cross-check only, never a
+substitute lock input. An authoring-only comparison of the retained lock with
+that cross-check confirms every triple and its bytewise order. Three of the
+four pnpm triples equal npm triples, yielding 502 combined unique triples.
+That count is derived from the supplied values, not a measured digest or a
+replacement for full-set equality. Both lock bodies, the profile-patch bytes
+and all six committed plugin file hashes reproduce their recorded dimensions
+and digests; no plugin component or canonical composite was calculated here.
+
+Tests shall embed the complete retained lock bodies, patch bytes and measured
+expectations as literal constants while authoring, then materialize D6's
+locators under temporary roots. No runtime read or `include_*` reference to
+`.forge/`, generated-on-test-run fixture, or fabricated replacement is allowed.
+Only the delivered Rust producer may yield the expected plugin component and
+canonical composite. The controller's retained-home doctor recording still
+belongs to 10.7 and remains pending. No provider, registry or live home is
+probed here; `extensions/dsh/` and its provenance retain their bytes.
+
+The doctor defect is independently supported by the controller's two sentinel
+controls and current source: composite resolution already uses DSH seams,
+while the version probe still uses the bare adapter binary on PATH. Part (c)
+must resolve once through primary override, legacy override, then PATH, and
+use that executable and home for the whole DSH report. It does not commission
+a provider-wide seam refactor. Answer AK records the evidence closure and
+exact downstream fixture reconciliation; AJ's original refusal remains valid
+for any future handoff lacking actual bytes.
 
 The earlier Codex slice consumes `.forge/tasks/controller-codex-proof-2026-09-16-live.json`,
 `.forge/tasks/controller-codex-interface-2026-09-17.json` and
@@ -2582,6 +2622,92 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   extension-byte change is authorized by this return.
 
 
+- **AK — Successor specify, 2026-09-19: adopt the supplied bytes and close
+  both correct parks without weakening AJ.** This visit adopts the existing
+  change at `99fdbb0a`, proposed 0056 and D10's (a), (b), (c) order. No new
+  change, decision, capability or planner plan is needed. Park 1 correctly
+  demanded a measured pnpm length and exposed the stale `link:` installation;
+  the canonical tarball reinstall and nonce-continuity proof resolve it.
+  Park 2 correctly refused to reconstruct bytes from their hashes. The raw
+  pnpm/profile-patch and bundle-layout addendum resolves that absence, and the
+  retained-hidden-lock addendum supplies the full npm body as well. Three
+  npm path examples or counts alone would still be insufficient; the supplied
+  311,184-byte file, now checked against its recorded hash, closes that gap.
+
+  **Fixture answer.** Copy the complete hidden npm lock, complete pnpm lock,
+  complete profile patch and measured expectations into literal Rust test
+  constants during authoring. Use the unchanged six committed plugin files
+  and the measured two-anchor bundle layout under temporary roots. Neither
+  runtime `.forge/` access nor a synthetic substitute is permitted. Reject
+  the suggestion that a cross-check list can replace the hidden lock: the
+  producer must exercise D6's locators and derive the values from those bytes.
+  Assert all dependency values in bytewise order as well as 521/501/489 npm
+  counts, the four pnpm triples, their three exact overlaps and the 502-value
+  combined set. Counts alone cannot detect a wrong triple. Assert the real
+  nested scoped path cases, exact core/local-tarball exclusions, per-file
+  digests, patch value, absent home patch and both measured bundle anchors.
+  Expected plugin/composite hashes are recorded from the sole Rust producer
+  and then pinned with removal proofs, never supplied by a second calculation.
+  Separately labelled synthetic refusal, direct nested `node_modules/` and
+  conditional-extension cases retain their existing purposes.
+
+  **Source-based adoption.** The measured loader already admits and checks
+  `wrapper_digest`, and the selected assessment uses the existing private
+  start context. Preserve and prove exact member carriage, including omission
+  and the unknown-only refusal. The raw profile lookup anchor and its separate
+  once-canonicalized boundary are also present at this head. Preserve and
+  prove the symlinked-home correction instead of recreating it or claiming
+  the full 8.10 ledger. The remaining producer work keeps one callable
+  production entry with private helpers, single reads of shared identity
+  sources, exact plugin membership, complete scalar whitespace rejection,
+  exact record exclusions, bytewise full-triple deduplication and the bounded
+  no-YAML pnpm reader. Reasons must name the failed component and drifted path.
+
+  **Doctor answer.** The controller's override/PATH sentinel observations
+  agree with `probe_providers` still probing `adapter.binary`, while its
+  composite already calls `DshSeams::resolve`. One DSH report shall use one
+  resolved executable/home for both version and composite, following
+  `BROKKR_DSH_BIN`, `FORGE_DSH_BIN`, then PATH. Assert primary precedence,
+  legacy fallback and PATH fallback with distinguishable installs, plus a
+  failed selected binary that cannot silently fall through to another install.
+  Retain equality/difference/no-declaration diagnostics and named unreadable
+  components; only a supported declared pin turns difference/unreadability
+  into a composite warning. Update the guide sample with that wording and
+  producer-derived values. Reject a provider-wide refactor: the commission
+  and D10 scope this repair to DSH. No credential/settings reads or additional
+  subprocesses are introduced beyond the DSH/Node version probes.
+
+  **Dependency reconciliation.** AJ's missing-input blocker is resolved.
+  D6's paragraph beginning “Fixture truth is narrower than a golden composite”,
+  D10's fixture-evidence row, the design context's missing-input claim and
+  the digest task breakdown's synthetic-fixture account are superseded by
+  this answer and AS1. Their owning design/tasks phases must amend those
+  specific claims to the supplied bytes and literal-constant proof before
+  implementation resumes; all other adopted design choices and task states
+  stand. This specify phase writes only its declared proposal and delta,
+  not those later-phase artifacts. No earlier decision or controller input
+  remains faulty, so the result is `drafted`, with the adopted change in
+  `inputs.change`, rather than another evidence park. There is no supplied
+  `returned_from` finding in this new run; the predecessor's AJ finding is
+  answered explicitly rather than discarded.
+
+  **Proof and scope.** Every delivered (a)–(c) claim still requires a compiling
+  removal mutation, the exact failing test/assertion, exact restoration and
+  a passing rerun. A bare `is_err()`, a compilation failure, a count alone or
+  a producer result merely compared with itself cannot prove the claim.
+  This specify visit delivers the revised acceptance contract, not those Rust
+  proofs. Implementation owes format, all-target/all-feature locked clippy,
+  crate-scoped tests (the commission overrides the workspace-wide invocation
+  because of the reported CLI deadlock), the self-bundle compile, literal
+  100% line/branch/function coverage and strict OpenSpec validation. External
+  namespace coverage stays pending until real host/CI evidence exists; no
+  coverage threshold is lowered. Task 8.8 remains unchecked after (a)–(c):
+  part (d), 8.10's full rejection/containment vectors, 10.7's doctor recording
+  and adapter assertions, declaration pin and enablement are not delivered.
+  Tasks 10.6–10.8, 11.1–11.4, 9.6 and groups 14/15, frozen surfaces and every
+  `extensions/dsh/` byte remain outside this slice.
+
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -4022,3 +4148,49 @@ The result is `upstream` with `inputs.change`. Part (d), planner behavior, 8.10,
 the retained-home doctor recording and task 8.8 remain pending. No task tick,
 planner plan, provider remeasurement, frozen-byte edit, archive, push, merge or
 publication occurred.
+
+
+## Specify validation — retained DSH inputs, 2026-09-19
+
+Run `dsh-composite-identity-issue-226-26def5a5` adopts `99fdbb0a` and the
+existing change. This seat read the dialect's specify/return files and its
+rendered proposal/specs instructions through workspace hands; no workflow
+runner was invoked. Answer AK closes AJ's raw-input blocker from the supplied
+addenda and full retained hidden lock. Authoring checks reproduce the two lock
+hashes and lengths, the profile-patch hash and length, all six committed plugin
+file hashes, the complete 501-triple npm cross-check and its bytewise order.
+The combined-set count of 502 is derived from those supplied triples; neither
+plugin nor composite digest is calculated by a second producer.
+
+The proposal precedes the owning safety delta amendment. The five deltas now
+contain **20 requirements / 178 scenarios**, with three additional AS1
+scenarios for evidence availability, the measured complete dependency set and
+the paired doctor seam. All **101 task identifiers / 84 checked / 17 pending**
+retain their bytes and states, including unchecked 8.8. Only the proposal and
+`specs/adapter-resume-safety/spec.md` belong to this commit. The remaining four
+deltas, proposed 0056, design/tasks, production/tests, guide, declarations,
+frozen paths and all extension provenance bytes remain unchanged. AK explicitly
+supersedes the downstream hash-only fixture claims for their owning phases to
+reconcile; it does not replace their otherwise adopted design or task work.
+
+`openspec validate --all --strict --no-interactive` passes **15 items,
+0 failures**, and `git diff --check` passes. The inherited informational
+archive refusals for withdrawn living `adapter-resume-safety` and
+`sdd-progress-markers` targets remain; this visit performs no archive or fold.
+
+The requested format, all-target/all-feature locked clippy, crate-scoped
+runtime/protocol/CLI tests and self-bundle compile were attempted and could not
+launch: **Cargo is absent (ENOENT, recorded exit 127)**. The pinned coverage
+tool probe likewise cannot launch. The exact gate remains **pending external
+host/CI evidence**, with no fresh counts or passing Rust gate claimed. No Rust
+test or removal mutation was authored in this specification phase. Their
+compiling remove/fail/restore/pass records remain implementation obligations,
+as do literal 100% line/branch/function coverage and the guide update. Command
+logs are retained under `.forge/specify-26def5a5/` as local handoff evidence,
+not committed artifacts or test-runtime inputs.
+
+This is a drafted specification checkpoint for (a)–(c), not completed digest
+implementation, the 10.7 recording or whole-task acceptance. Part (d), 8.10,
+planner behavior, declaration pin and enablement remain pending. No provider
+probe, install, task tick, push, release or new Brokkr run occurred. The mandatory
+result carries the adopted identifier in `inputs.change`.

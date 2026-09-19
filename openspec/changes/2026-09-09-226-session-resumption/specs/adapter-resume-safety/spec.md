@@ -123,9 +123,13 @@ read exactly `LICENSE`, `README.md`, `cordis.patch.yml`, `lib/index.js`,
 sort those relative path bytes, serialize each as `<relative
 path>\0<file SHA-256>\n`, and SHA-256 the concatenation. A missing file, a
 symlink or an extra entry SHALL make the component unreadable and name the
-drifted path. The sole exception is a nested `node_modules/` directory, whose
-packages already enter dependency identity; the producer SHALL neither hash its
-entries as plugin files nor silently ignore any other entry.
+drifted path. The sole exception is a direct, real, non-symlink
+`node_modules/` directory beneath the plugin root, whose packages already
+enter dependency identity; the producer SHALL neither hash its entries as
+plugin files nor silently ignore any other entry, including an empty directory
+or a deeper `node_modules/` under an unexpected directory. Unrepresentable
+path names and special entries SHALL be reason-bearing unreadable outcomes;
+lossy path conversion SHALL NOT merge distinct entries.
 
 The same function SHALL serialize the composite as fixed `<component>\0<value>\n`
 lines in this order: `core` with the core name, version and registry integrity;
@@ -136,14 +140,19 @@ home-level `cordis.patch.yml` SHA-256 or `absent`; and `extension` only when the
 conditional extension is named among those bundles. Dependency triples SHALL
 be deduplicated only when all three complete values are equal and SHALL then be
 sorted by their serialized value bytes. Different versions or integrities SHALL
-remain distinct. The core's own entry and the plugin's local-tarball entry SHALL
-be excluded; the conditional extension's local entry SHALL be excluded only
-when its installed bytes supply the `extension` line. No other component,
+remain distinct. Only the core's exact own hidden-lock entry and the plugin's
+local-tarball entry SHALL be excluded; the conditional extension's local entry
+SHALL be excluded only when its installed bytes supply the `extension` line.
+Same-named registry entries SHALL remain dependency inputs. No other component,
 including `cordis.yml`, raw profile `package.json`, `pnpm-workspace.yaml`, any
 `.env` layer, persisted state or per-seat overlay, SHALL enter the composite.
 Any lock entry without registry integrity and any source field that is empty,
 mistyped, contains NUL or LF, or contains whitespace including space, tab or CR
 SHALL make the identity unreadable with the responsible component named.
+One returned observation SHALL derive repeated uses of each identity-bearing
+source from the same read, including the hidden lock and plugin patch; it
+SHALL NOT contradict itself by reopening a source within that observation.
+This requirement adds no atomic snapshot or continuous verification guarantee.
 
 For npm metadata the producer SHALL read only the core root's
 `node_modules/.package-lock.json`; it SHALL NOT fall back to a root lock. It
@@ -165,8 +174,10 @@ SHALL produce identical value bytes.
 The canonical executable SHALL be the selected core package's `bin.dsh`, whose
 resolved relative path is `node_modules/@deepseek-ai/dsh/lib/bin.js` and whose
 first line is exactly `#!/usr/bin/env node`. The selected core's own hidden-lock
-entry SHALL supply its version. `node` SHALL be the first executable on the
-child environment's `PATH`, observed through `node --version`. Only
+entry SHALL supply its version and match the core package's version. `node`
+SHALL be the first executable on the child environment's `PATH`, observed
+through `node --version` as one non-empty record with at most its single output
+terminator; trimming SHALL NOT repair whitespace inside the version value. Only
 `<home>/profiles/headless/package.json` SHALL supply the non-empty string-array
 `bundles` and `patchReload` (`live` or `startup`); no other profile is searched.
 Bundle resolution SHALL preserve the provider loader's order. The producer
@@ -180,8 +191,13 @@ use string prefixes, fall back after canonicalization failure or search past an
 outside first hit. A symlinked home that resolves to the same contained profile
 SHALL produce the same identity.
 
-The existing `brokkr doctor` DSH line SHALL call this sole producer through the
-adapter's own seam resolution. It SHALL report the canonical digest and plugin
+The existing `brokkr doctor` DSH line SHALL resolve the adapter's executable
+and home seams once and use that same resolution for both the DSH version probe
+and the sole composite producer. The executable precedence SHALL be
+`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH, with the adapter's
+existing home resolution. It SHALL NOT pair a PATH version with an
+override-selected composite or silently retry another installation when the
+selected executable fails. It SHALL report the canonical digest and plugin
 component, or the named unreadable component, and state whether the canonical
 digest equals, differs from or has no declared `wrapper_digest`. The result is
 informational while no `supported` shape declares a digest. Once a supported
@@ -464,20 +480,46 @@ read as history, not as a current claim.
 
 #### Scenario: The canonical rc.2 fixture reproduces the measured locator set end to end
 - **GIVEN** the retained canonical installation uses core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, executable `node_modules/@deepseek-ai/dsh/lib/bin.js` beginning `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose bytes reproduce the preinstall record's SHA-256 values
-- **AND** its profile declares bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, uses the measured profile-patch bytes, has no home-level patch and resolves each first-hit bundle within the measured canonical core root or profile boundary
+- **AND** its profile declares bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, uses the measured 217-byte profile patch and has no home-level patch
+- **AND** the first two bundles resolve under the core root at `node_modules/@deepseek-ai/dsh-base` and `node_modules/@deepseek-ai/dsh-headless`, each at 0.1.5-rc.2, while the plugin resolves under the profile at `node_modules/dsh-plugin-cli-session`, at 0.2.0, as a real directory with no nested `node_modules/`
 - **AND** the fixture retains the canonical reinstall's byte-exact 311,184-byte hidden npm lock with SHA-256 `b84bac2d866224a997be29811dc71bde6013dbc6e2adf8c1e77523e6f05a3847`, the 1,982-byte pnpm lock with SHA-256 `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`, and the profile-patch bytes that reproduce SHA-256 `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`; the earlier 277-byte pnpm lock with SHA-256 `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0` describes the superseded `link:` install and is not fixture ground truth
+- **AND** authoring copies the full measured lock and patch bytes and measured expectations into literal test-source constants, preserving line endings and final newlines, then tests materialize the fixed locators under temporary roots using the unchanged committed plugin files
 - **WHEN** the sole Rust producer reads those files and directories through D6's fixed locators
-- **THEN** it reproduces the retained installation's complete normalized dependency values, first-hit bundle resolutions, plugin and patch components and canonical composite from that fixture
+- **THEN** it reproduces the retained installation's complete normalized dependency values, first-hit bundle resolutions at both anchors, plugin and patch components and canonical composite from that fixture
+- **AND** tests neither read `.forge/` at runtime nor include it as a build input; they do not regenerate the measured bytes, replace the full lock with excerpts, or substitute a derived triple list for the producer's lock input
 - **AND** the expected component and composite are recorded only from that producer; no test helper, fixture generator, prose calculation or synthetic value is a second producer
-- **AND** a separate layout case admits nested plugin `node_modules/` as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
+- **AND** a separate layout case admits a direct, real, non-symlink plugin `node_modules/` directory as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
 
 #### Scenario: Hashes and dimensions do not substitute for measured fixture inputs
-- **GIVEN** the current controller records retain lock hashes and dimensions and the profile-patch hash, but omit both lock bodies, complete normalized dependency triples, resolved bundle targets and profile-patch bytes
+- **GIVEN** a handoff retains only lock hashes and dimensions and the profile-patch hash, but omits lock bodies, complete normalized dependency triples, resolved bundle targets or profile-patch bytes
 - **WHEN** the task 8.8(a)–(c) implementation handoff is evaluated
 - **THEN** the measured fixture requirement is unsatisfied because the sole producer cannot reproduce the retained dependency set, bundle resolution, profile-patch component or canonical composite from those observations
 - **AND** synthetic lock entries, bundle directories or profile-patch bytes may prove isolated grammar and rejection behavior but SHALL NOT be asserted as the canonical rc.2 fixture or as its composite ground truth
 - **AND** the controller SHALL retain the canonical locator bytes and resolution layout, or an equivalent complete ground-truth fixture, before design, tasks or implementation resumes; no provider or retained-home remeasurement is delegated to a boxed seat
 - **AND** task 8.8 remains unchecked, including after its later digest implementation, until part (d) and the owned 8.10 cases also complete
+
+#### Scenario: Retained raw bytes close the evidence parks without runtime evidence access
+- **GIVEN** the canonical reinstall's raw-byte/layout addendum retains the complete pnpm lock, profile patch, four dependency triples and two-anchor bundle layout, and the retained-hidden-lock addendum points to the complete 311,184-byte npm lock with its recorded SHA-256
+- **WHEN** authoring verifies those input bytes and embeds them and their measured expectations as literal test-source constants
+- **THEN** the missing-length and missing-input blockers are resolved without a provider, registry or retained-home remeasurement, and the measured rc.2 fixture requirement remains unchanged
+- **AND** a derived dependency list is only an independent expectation for comparison; the sole producer still reads the complete hidden lock through its declared locator
+- **AND** the earlier hash-only fixture narrowing is superseded in the dependent design and task breakdown before implementation; the existing producer is the only source of either digest, and the declaration remains disabled without a `wrapper_digest`
+- **AND** this closes evidence availability only: Rust assertions, compiling removal proofs, local gates, external exact coverage, 10.7's retained-home recording, part (d), 8.10 and the 8.8 checkbox remain pending
+
+#### Scenario: The measured dependency set distinguishes complete triples from package names
+- **GIVEN** the literal canonical hidden lock has 522 entries, all carrying integrity, including exact key `node_modules/@deepseek-ai/dsh` at 0.1.5-rc.2 with the selected core's integrity
+- **AND** the literal pnpm lock contains the four registry triples below and the excluded local entry `dsh-plugin-cli-session@file:../../../pack/dsh-plugin-cli-session-0.2.0.tgz`
+- **WHEN** the sole producer normalizes both locks, excludes only the exact core and local-tarball records, deduplicates equal complete triples and sorts their value bytes
+- **THEN** the npm input contributes 521 post-exclusion entries, 501 unique complete triples and 489 distinct names, preserving all twelve names whose versions or integrities differ
+- **AND** pnpm contributes exactly the four complete triples below, three equal to npm triples, yielding exactly 502 combined dependency values in bytewise order
+- **AND** full ordered-value equality with the embedded measured expectations is asserted alongside counts; neither 521 undeduplicated values nor 489 name-deduplicated values satisfies the claim, and no core or local-tarball record leaks into the dependency lines
+
+| pnpm package | Version | Registry integrity |
+|---|---|---|
+| `@deepseek-ai/cosmokit` | `1.8.3` | `sha512-qBo+ronVM6Eu2WNVJXi8JcMiqZ19T9BRIpV+5qJUFPXjGH/Z0QKcQMC/IZJ7L394YTOtJgcovbk9qP0w2GsBXQ==` |
+| `@deepseek-ai/schemastery` | `3.18.1` | `sha512-Qn0FCSwCQnpnj6SB31I6i2sIKgKWnkbJM8O0EU91Gv2UsYVvtZTl6IA0sCwk2e2MZf5S8w5hpq9QkeVvK9qwxg==` |
+| `@standard-schema/spec` | `1.1.0` | `sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==` |
+| `commander` | `15.0.0` | `sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==` |
 
 #### Scenario: The rc.2 qualification already proves restriction precedence after restoration
 - **GIVEN** the live rc.2 cold/warm qualification restored the cold session's private nonce and the complete plugin CLI exposes no model, effort, sandbox, tool or persistence-root override
@@ -528,17 +570,27 @@ read as history, not as a current claim.
 - **AND** the first two are informational, the latter two warn only for the supported declared shape, and no credential or settings file is read
 - **AND** only the DSH and Node version probes are spawned and the guide's doctor sample uses the same wording
 
+#### Scenario: Doctor version and composite follow the same selected DSH installation
+- **GIVEN** primary-override, legacy-override and PATH installations have distinguishable sentinel versions and distinct readable composite inputs
+- **WHEN** the primary and legacy overrides are both set, then only the legacy override is set, then neither is set
+- **THEN** the DSH report's version and composite both describe respectively the primary, legacy and PATH installation, using the same resolved home and the child PATH's Node version
+- **AND** the test asserts both the reported version and the corresponding producer-derived composite on each real provider-line path; changing just one half back to the bare binary makes that paired assertion fail
+- **AND** if the selected executable's version probe fails while a PATH binary remains available, doctor reports the selected failure without silently reporting the other installation
+- **AND** no credential/settings read or subprocess beyond the selected DSH and Node version probes is needed for this diagnostic, and the guide sample follows the same wording
+
 #### Scenario: Digest acceptance is proved by removal without completing the planner
-- **GIVEN** tests for the loader grammar and transport, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture and every doctor disposition
+- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition and the paired version/composite seam assertions
 - **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
 - **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
-- **AND** a compilation failure, unrelated earlier failure or bare `is_err()` is not removal evidence
+- **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence
 - **AND** those proofs deliver task 8.8(a)–(c) only; `dsh_launch`/`dsh_launch_with`, planner production behavior, 8.10's remaining cases and the 8.8 checkbox remain pending
 
 #### Scenario: npm nested and scoped keys produce reproducible dependency values
 - **GIVEN** a hidden npm lock with no `name` fields, including `node_modules/debug`, nested `node_modules/parent/node_modules/debug`, scoped-parent/unscoped-child entries and `node_modules/a/node_modules/@parent/b/node_modules/@scope/child` with version and integrity distinct from shallower `@scope/child` entries
+- **AND** the full measured rc.2 lock retains `node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler`, `node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers` and `node_modules/@anthropic-ai/sdk`
 - **WHEN** qualification and runtime compute the same composite through the delivered Rust canonicalization
-- **THEN** the key is parsed left to right through every package group, preserving the slash inside each scoped package; each dependency value uses only the terminal package name and that entry's exact `version` and `integrity`, joined by single ASCII spaces, with no parent path or optional `name` field supplying a value
+- **THEN** those measured keys produce respectively `@smithy/node-http-handler`, `@aws-sdk/token-providers` and `@anthropic-ai/sdk` with the exact version and integrity from each entry
+- **AND** the key is parsed left to right through every package group, preserving the slash inside each scoped package; each dependency value uses only the terminal package name and that entry's exact `version` and `integrity`, joined by single ASCII spaces, with no parent path or optional `name` field supplying a value
 - **AND** the hidden lock is the only npm source, without a root-lock fallback, and three or more package groups obey the same rule as shallow entries
 - **AND** identical complete triples produce one dependency line, different versions or integrities remain distinct, and equivalent npm and pnpm entries yield identical value bytes before bytewise sorting
 - **AND** malformed paths, including a malformed intermediate group before a valid terminal package, or missing, mistyped or invalid version fields make the identity unreadable and an offer declines as `unverified-harness`; the name is never guessed from a URL or another entry
