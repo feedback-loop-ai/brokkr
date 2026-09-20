@@ -532,6 +532,229 @@ above; 8.8.8.2 stays open because `openspec validate` could not run here;
 open with them. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15
 were not touched; 8.8 stays unchecked; 0056 stays proposed; no push.
 
+### Returned implement — review R1–R12 of the second-hold delivery, 2026-09-20
+
+Run `dsh-composite-identity-issue-226-069caa79`, phase implement, returned
+from review with `residual` (medium floor, twelve deduplicated findings) on
+`1568af91`. Every commit on `slice-dsh-composite-b` was adopted; this visit
+answers the findings in the review's own order of severity and records what
+it could not establish from this seat. It describes outcomes and directs no
+gate.
+
+**R1 — ENOTDIR is walked past.** `classify_in` now records `ENOTDIR` beside
+`ENOENT` as an entry the child's `execvp` walks past (`is_not_a_directory`,
+asked by the platform's errno like the ELOOP check), so `PATH=<file>:B`
+selects `B/dsh` exactly as the native child runs it; an explicit path with a
+file for a component is still refused by that cause, because an override has
+nowhere to walk to. The classifier test replaces its wrong assertion with the
+native oracle (`Command::new("dsh")` under the same `PATH` succeeds) and the
+continuation cell; the ENAMETOOLONG control keeps the "cannot be proved"
+refusal for a failure the child does stop on.
+
+**R2 — the `env` argument as the kernel hands it.** `binfmt_script` passes
+everything after the interpreter, trailing spaces and tabs removed, as ONE
+argument. `env_program` now selects that whole argument on Linux and
+Android: `#!/usr/bin/env reviewed extra` looks up a program named
+`reviewed extra` under the same search, so an obstructed `A/reviewed extra`
+is D10's named refusal before any probe where the child walked it to B; a
+one-word `node` with trailing blanks is still the measured form; `node
+--flag` is the program `node --flag`, which no search holds, and refuses as
+such on Linux. The other Unix kernels split the line into words, and there
+a multi-word argument refuses by name rather than being guessed either way
+(the classifier test asserts the platform-appropriate reason). New:
+`an_env_argument_is_selected_as_the_kernel_hands_it_to_env` in both the
+protocol suite (native oracle first) and the built-doctor suite (native
+child runs `B/reviewed extra`; doctor refuses naming `A/reviewed extra`'s
+missing interpreter, executes nothing, and never touches the `A/reviewed`
+decoy).
+
+**R3 — a terminal colon is the mapping indicator.** A plain flow scalar
+that ENDS in `:` refuses as unsupported flow syntax, whatever the document
+followed the colon with (padding, `,` or `}`), so `tarball: x: }`,
+`tarball: x:}`, `integrity: sha512-X:` and `integrity: sha512-X: ` no longer
+read as the control; a package heading whose key ends in `:` once its own
+colon and padding are gone (`debug@2.6.9: :`, `debug@2.6.9::`) is "a package
+key that is itself a mapping". Seven vectors added to
+`missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`;
+the separated controls and the colon-without-space URL still read to the
+control's composite.
+
+**R4 — the bounded Mach-O read.** `LC_LOAD_DYLINKER` needs twelve bytes;
+the generic eight-byte bound did not establish the offset field, and the
+`expect` behind it panicked on a 40-byte image. The command-specific read is
+now bounded by the command's declared size before it is made, and the image
+refuses as "a malformed Mach-O dynamic linker command". Covered in
+`every_macho_rule_refuses_by_name` (the `cmdsize` 8 vector), through public
+selection in `a_truncated_macho_dylinker_command_is_refused_rather_than_panicking`
+(explicit path, search, and `selected_from`), and by the built doctor in
+`a_truncated_macho_on_path_is_refused_by_name_without_a_panic` (exit code is
+not 101, no `panicked` on stderr, nothing probed, the cause named).
+
+**R5 — the Node selection is retained.** Selection now answers a `Selected
+{ path, node }`: the `node` an `env node` line selected under the same
+search is carried through `DshSeams::selected_from` into a new
+`DshSeams.node`, and `dsh_composite` probes THAT file
+(`spawn_node_runtime(retained)`), looking `node` up only when the selection
+established none (a native image, another interpreter). A script whose
+interpreter is the `env node` script retains the innermost selection. The
+reproduction is the built-doctor test
+`the_composite_probes_the_node_the_selection_retained`: `A/node` answers the
+version probe and removes its own launcher, and doctor's line carries the
+version beside `composite unreadable: … node --version: No such file or
+directory` with `B/node` never executed (marker directory), where the second
+lookup produced a readable composite through B. The protocol test
+`the_composite_observes_the_node_the_selection_retained` drives the same
+through the sole producer, and the seams test asserts the retained path
+crosses `selected_from`. `DshSeams` gained the one runtime field the
+observation needs; no stored declaration, contract or identity format moved.
+
+**R6 — the matrix count and the ELF test.** The parent asserts the tally
+against `MATRIX_LAYOUTS` (15 on Linux, 13 on the other Unixes) and the child
+asserts it built exactly that many; the ELF loader test is gated to ELF
+targets (`all(unix, not(target_vendor = "apple"))`); the classifier's
+foreign-image vectors are chosen by `image::NATIVE` (the two formats this
+target does not load, a synthetic ELF included), so a macOS run refuses a
+Mach-O for nothing and an ELF for being another target's. No macOS
+execution is claimed.
+
+**R7 — PE admission.** The PE reader now requires this target's
+optional-header magic (PE32+ on 64-bit targets, PE32 on 32-bit), 1 to 96
+sections whose table lies inside the file, every section's raw-data range
+inside the file, and a declared header size covering the headers and no
+more than the file; `admit_windows` additionally asks the OS
+(`GetBinaryTypeW`, read-only) and admits only this target's binary type.
+Seven refusal vectors and the 96-section positive were added to
+`a_pe_image_is_admitted_by_its_bounded_header`; `synthetic_pe()` is the
+shared well-formed image the resolver tests plant as a foreign candidate
+and as a foreign loader.
+
+**R8 — Windows evidence, written and unexecuted here.**
+`native_executable_resolution_matches_command_matrix_on_windows` crosses
+the eight commissioned spellings (`.\dsh`, `..\dsh`, an owned absolute
+`…\abs\dsh`, the literal `C:\Tools\dsh.exe`, `dsh.exe`, `my dsh`, a NUL
+name and `dsh`) with eleven layouts (cwd-only, PATH directory plus cwd
+decoy, absent PATH, present-empty PATH with and without a candidate,
+leading/interior/trailing empty entries, and `A;B` with a non-image, a
+directory and a working image at A) against real `Command::new(name)`
+children in a child process holding the fixture cwd; the sentinels are
+hard-linked copies of the test binary answering with their own image
+path, so every cell asserts the canonical file the platform ran or its
+exact failure. The literal drive path is asserted as the absent path a
+runner has and recorded PENDING where an operator keeps an installation
+there, never created or executed. A new built-doctor suite
+`crates/brokkr-cli/tests/doctor_dsh_selection_windows.rs` (cwd image never
+selected, native image on PATH selected as the child selects it,
+existing-but-unrunnable entries refused by cause without a panic, batch
+dispatch refused, override precedence). Both are `cfg(windows)`, compile
+against the `x86_64-pc-windows-msvc` target here (protocol crate; the cli
+crate's C dependencies need an MSVC toolchain this host lacks) and are
+**unexecuted on Windows in this seat**: Windows CI on the final head is
+the evidence, recorded pending.
+
+**R9 — the denial is named.** `Candidate::Passed { why, denied }` records
+whether an entry was walked past for `EACCES` (untraversable component,
+not a regular file, not executable by this process) or for absence;
+`Search::find` answers the first denial when nothing was admitted —
+`'dsh' is not executable by this process on PATH: <candidate>: <why>` —
+and the plain no-match otherwise, which is the child's PermissionDenied
+versus NotFound. The later-executable-wins control, the first-denial
+control, the directory-named-dsh control and the default-search spelling
+are in the classifier test; the matrix gained the "A alone, A not
+executable" layout and asserts the denial is named wherever the native
+child reports PermissionDenied.
+
+**R10 — Windows-target clippy.** `Candidate`, `is_symlink_loop` and
+`resolve_executable_in` are Unix-only or test-only; `Native::is_loader_for`
+is `cfg(any(unix, test))`; Windows `resolve_executable` goes through
+`select_in(command, None)`, which is the same directory order an unchanged
+child environment gets. Fresh `cargo clippy --target x86_64-pc-windows-msvc
+-p brokkr-protocol --all-targets --all-features --locked` reports no
+warning in `composite.rs`, `composite/image.rs`, `composite/image/tests.rs`
+or `composite/tests.rs` (the remaining Windows test-build warnings are in
+`secret/tests.rs`, `adapters/tests.rs`, `dsh_sandbox/tests.rs` and
+`hands/tests.rs`, none touched by this slice and not charged by the review).
+
+**R11 and R12.** The coverage record is below; this account describes and
+does not instruct.
+
+**Removal records** — each a compiling mutation applied ALONE in a detached
+scratch worktree of `HEAD` under the ignored `.forge/mut`, synced to the
+candidate's bytes by patch, the named test run with `cargo test -p <crate>
+--all-features --locked <name>` there, the intended assertion failing, the
+exact inverse edit applied, and the restored worktree verified
+byte-identical to the candidate before the candidate's own green runs:
+
+| # | Mutation (exact, in the scratch worktree) | Named test and failing assertion | Restored |
+|---|---|---|---|
+| M-R1 | `classify_in`: the `is_not_a_directory` arm removed, so ENOTDIR falls to "the lookup cannot be proved" | `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable` panicked at `tests.rs:4683` on the `unwrap()` of the ENOTDIR continuation cell ("the resolver walks past ENOTDIR to B as the child did"), the native child having run B | inverse edit; `ok` in the candidate suites |
+| M-R2 | `env_program`: the Linux program cut at its first blank (`&argument[..position(is_blank)]`) | protocol `an_env_argument_is_selected_as_the_kernel_hands_it_to_env`: `expected a refusal` (A's script admitted on `A/reviewed`); built-doctor `an_env_argument_is_selected_as_the_kernel_hands_it_to_env` at `doctor_dsh_selection.rs:809`: `doctor probed nothing` failed — doctor executed A's script and `env` ran `B/reviewed extra` | inverse edit; both `ok` |
+| M-R3a | `pnpm_flow_map`: `\|\| text.ends_with(':')` removed | `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`: `"{integrity: sha512-X, tarball: x: }" was accepted` | inverse edit; `ok` |
+| M-R3b | package heading: `\|\| key.ends_with(':')` removed | same test: the `debug@2.6.9: :` lock `was accepted` | inverse edit; `ok` |
+| M-R4 | `image.rs`: the `cmdsize >= 12` bound removed, the bare `expect` on the offset restored | `every_macho_rule_refuses_by_name` and `a_truncated_macho_dylinker_command_is_refused_rather_than_panicking` both PANICKED inside the reader at `image.rs:478:48`; built-doctor `a_truncated_macho_on_path_is_refused_by_name_without_a_panic` at `:888`: `doctor panicked` — the doctor child's own panic at `image.rs:478:48`, exit 101 | inverse edit; all three `ok` |
+| M-R5 | `spawn_node_runtime`: the retained runtime ignored (`retained.filter(\|_\| false)`), a second `node` lookup restored | protocol `the_composite_observes_the_node_the_selection_retained` failed at `tests.rs:5095` (the composite no longer observes A's runtime); built-doctor `the_composite_probes_the_node_the_selection_retained` at `:966`: `the version probe ran A's node once, and B's never` failed — the line carried a READABLE composite (`composite aad4eaec… plugin 8894f23e…`) through `B/node`, the reviewer's reproduction | inverse edit; both `ok` |
+| M-R6 | `MATRIX_LAYOUTS` set to the old literal 14 | `native_executable_resolution_matches_command_matrix`: child `assert_eq!(layouts.len(), MATRIX_LAYOUTS)` — `left: 15, right: 14`; parent tally assertion at `tests.rs:2605` | inverse edit; `ok` |
+| M-R7 | `pe()`: the section raw-range check replaced by `let _ = (raw_size, raw_at)` | `a_pe_image_is_admitted_by_its_bounded_header` at `image/tests.rs:972`: the "a PE section beyond the end of the file" vector was accepted (`unwrap_err` on `Ok`) | inverse edit; `ok` |
+| M-R9 | `Search::find`: the denied arm collapsed into `Candidate::Passed { .. } => {}` | `path_resolution_walks_past_a_candidate_a_child_could_not_execute` at `tests.rs:1866`: `left: "…'dsh' is not on PATH"` vs `right: "…'dsh' is not executable by this process on PATH: …/first/dsh: is not executable by this process"`; the matrix at `tests.rs:3056`: `EACCES is named as the denial it is: … layout "A alone, A not executable", native Err(PermissionDenied), resolver Err("'dsh' is not on PATH")` | inverse edit; both `ok` |
+
+R8 has no removal on this host (unexecuted Windows evidence); R10's proof is
+the Windows-target clippy output; R11's is the coverage record. After the
+last restoration the scratch worktree was reset and re-synced from the
+candidate's final diff and `diff -rq` over both `crates/` trees found only
+ignored scratch directories, no source difference.
+
+**Gates on the final candidate (this seat, Linux x86_64, cargo 1.98.0
+stable; coverage on the pinned `nightly-2026-09-05` with cargo-llvm-cov
+0.9.0):**
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean, 0 warnings |
+| `cargo clippy --target x86_64-pc-windows-msvc -p brokkr-protocol --all-targets --all-features --locked` | no warning in any file this slice touches (R10) |
+| `cargo test -p <crate> --all-features --locked --no-fail-fast`, each of the seven crates | all green on the final bytes, including `gpt_flash_shape`, roster and witness-digest suites; `brokkr-protocol` 372 lib + 99 + 1; `brokkr-cli` 0 failed, `doctor_dsh_selection` 11 passed (was 8) |
+| `cargo test --workspace --all-features --locked --no-fail-fast` | green, 0 failed; and green again inside the instrumented run below |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and `bundles/verify` | compile |
+| `git diff --check`; frozen surfaces (`contracts/`, `policy/`, `fixtures/`, `reference/`, `extensions/dsh/`, `docs/decisions/`), `Cargo.toml`, `Cargo.lock` | clean; byte-identical |
+| `openspec validate --all --strict` | **not run**: the seat sandbox refuses the `openspec` binary; pending host validation (the last recorded strict pass on this change is the tasks seat's, 15/15, at `3e18f2c9`; under `openspec/` this visit changed only this account) |
+| `bash scripts/coverage-exact.sh` | **the literal script could not be launched** (script launches are refused in this seat). Its steps were run by hand on the final bytes with fresh instrumentation: `cargo +nightly-2026-09-05 llvm-cov clean --workspace`; `cargo +nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch --json --output-path .forge/coverage-r/coverage-final.json` (every test run, 0 failed, no `--ignore-run-fail`); `llvm-cov report --branch --lcov`; then the script's LCOV rule — every `DA` and `BRDA` hit, every logical function by file + `FN` start line — transcribed in a run-local Rust tally under `.forge/lcovtool/` because the seat refuses `awk`. |
+
+Fresh coverage integers on the final bytes: **lines 31750 / 31750 (100%),
+branches 5354 / 5354 (100%), functions 3069 / 3069 (100%)**; 0 test-harness
+sources in the report. Against the previous delivery's 31684 / 5338 / 3060
+the denominators grew by 66 lines, 16 branches and 9 functions, all in the
+resolver's denial tracking, the retained selection, the `env` argument
+rule, the PE section and header checks and the Mach-O bound. A first
+measurement on these bytes found 9 lines and 1 branch unreached: the
+non-Linux arm of the `env` argument rule, compiled in by a runtime `cfg!`
+and made a compile-time `#[cfg]`, and the zero-raw-size PE section branch,
+covered by the `.bss`-like positive; the integers above are the fresh
+measurement after those two edits. The literal script on a capable host
+and the workflow's `coverage-exact` job on the final head remain the gate
+of record and are recorded as **pending**. The reviewer's fresh gate
+(31508/31684 with misses outside this slice) was a boxed run; every miss
+it named lies in namespace-dependent paths this unboxed run reaches.
+
+**Pending, recorded and not claimed:**
+
+- Native Windows execution of the Windows matrix, the Windows doctor suite,
+  the `GetBinaryTypeW` query and the Windows MSRV build: Windows CI on the
+  final head. The cli crate's Windows cross-check could not run here (its
+  C dependencies need an MSVC toolchain); the protocol crate's did.
+- Native macOS execution: the Mach-O reader, the `dyld` prerequisite and
+  the platform-split `env` argument refusal are proved on synthetic images
+  and by source only; the two missing-loader doctor cells and the two
+  matrix loader layouts print `PENDING` there.
+- The absent-PATH native-positive for Node on a host keeping `node` on its
+  default search path (this host keeps it under `~/.volta/bin`).
+- `openspec validate --all --strict`, the literal coverage script and
+  remote CI on the final head: host/CI evidence.
+
+No local clause changes state: 8.8.1.2, 8.8.2.1 and 8.8.2.2 stay open on
+the native-platform and Node positives above; 8.8.8.2 on `openspec
+validate`; 8.8.8.3 on the literal script; 8.8.8.4 with them. Part (d),
+8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 were not touched; 8.8
+stays unchecked; 0056 stays proposed; no push.
+
 ### Tasks-phase validation — second security hold, 2026-09-20
 
 This seat delivered the requirement-linked breakdown for the five open findings.
