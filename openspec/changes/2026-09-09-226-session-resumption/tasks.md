@@ -125,7 +125,7 @@ before the loader evidence below; group 2 supplies the full platform matrix.
 - [ ] 8.8.2.1 Replace catch-all non-shebang and one-level interpreter admission
   in `composite.rs` with D10's bounded, target-specific evidence, retaining
   `Candidate::{Admitted,Passed,Refused}`. First preserve native continuation,
-  accumulated permission versus NotFound causes, terminal ELOOP and failed
+  accumulated permission versus NotFound causes, terminal ELOOP on Linux (continuation on macOS, platform-qualified 2026-09-20) and failed
   canonicalization. Then inspect native images with checked offsets/counts/
   ranges: ELF architecture/header/program tables/load segments and its unique
   valid `PT_INTERP` plus loadable interpreter; macOS target Mach-O slice/

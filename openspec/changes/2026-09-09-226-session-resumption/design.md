@@ -2399,7 +2399,11 @@ observation limits, not excuses for deterministic fixture mismatches.
 - **THEN** doctor names A and its precise prerequisite obstruction without
   executing A, its interpreter or B
 - **AND** that refusal is recorded as the D10 exception, not native NotFound or
-  a successful equality cell; ELOOP retains its separate terminal cause.
+  a successful equality cell; ELOOP retains its separate terminal cause
+  on Linux only — glibc stops there (measured 2026-09-20), Apple's search
+  continues (Apple libc exec.c, posix_spawn.c); the cell is platform-qualified
+  and asserted against the running platform's native control, per the
+  2026-09-20 spec-defect correction of AS1.
 
 **3. Structural parsing before scalar admission (findings 2 and 3).**
 

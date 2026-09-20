@@ -732,7 +732,7 @@ read as history, not as a current claim.
 - **WHEN** A/dsh separately has a nonexistent shebang interpreter, an executable interpreter whose own loader is missing, or a missing native dynamic loader
 - **THEN** real native controls record the B identity they execute, while doctor takes D10's named pre-probe refusal identifying A and the unproved interpreter/loader cause, without executing either candidate
 - **AND** the refusal is not a generic selected-binary NotFound after probing A, and is not reported as equality with the native B result
-- **AND** replacing A with a self-referential symlink makes the Unix native control fail with ELOOP and resolution refuse by that cause without probing B
+- **AND** replacing A with a self-referential symlink makes the native control behave as the running platform's own search does — on Linux (glibc `execvp`, measured 2026-09-20) the search stops with ELOOP and resolution refuses by that cause without probing B; on macOS (Apple libc `exec.c` and `posix_spawn.c`) the search continues to B and resolution selects exactly what that native control runs — and the differential test asserts the running platform's outcome, never a fixed "Unix" one
 - **AND** an ordinary non-executable A followed by runnable B remains a positive continuation control, and supported explicit native-image/interpreter cases identify exactly what their native controls run
 - **AND** restoring unconditional native-image admission or one-level interpreter metadata admission fails the relevant named-cause/no-probe assertion; restoring error-erasing continuation fails the terminal-error assertion
 
