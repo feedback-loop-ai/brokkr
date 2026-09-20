@@ -985,15 +985,76 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             missing.display()
         )
     };
-    let unsupported = |interpreter: &Path| {
+    // The file `/usr/bin/env` resolves to on THIS host decides what the
+    // other-name spellings meet (fourth hold, R8): named `env`, the
+    // hard-linked copy `uu_env` — the file's own name, a prefixed `env`
+    // — is an established invocation, so doctor names A's obstruction
+    // and, with it gone, probes B's node through it exactly as the
+    // native child runs it, while the renaming symlink `env-alias` and
+    // the hard-linked copy `myenv`, no prefixed spelling, are refused
+    // with their native outcome recorded (this host's uutils `env`
+    // refuses `env-alias` itself); named otherwise, it is a link to a
+    // multicall executable and only the name `env` is established. The
+    // protocol companion runs the multicall rule on this host through
+    // an injected reference.
+    let env_file = std::fs::canonicalize(&env_binary).unwrap();
+    let named = env_file.file_name().unwrap() == "env";
+    let myenv = tools.join("myenv");
+    std::fs::hard_link(&copied_env, &myenv).unwrap();
+    // A renaming SYMLINK whose name is a prefixed spelling: the one
+    // spelling only the own-name rule refuses, and the one this host's
+    // `env` refuses natively.
+    let link_env = tools.join("link_env");
+    std::os::unix::fs::symlink(&env_binary, &link_env).unwrap();
+    let multicall = |interpreter: &Path| {
         format!(
             "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
-             '{}', a dispatch this resolver does not establish without executing it",
+             '{}', which its multicall file '{}' dispatches on and this resolver does not \
+             establish without executing it",
             launchers.join("dsh").display(),
             interpreter.display(),
-            interpreter.file_name().unwrap().to_str().unwrap()
+            interpreter.file_name().unwrap().to_str().unwrap(),
+            env_file.file_name().unwrap().to_str().unwrap()
         )
     };
+    let alias_expected = match named {
+        true => format!(
+            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
+             'env-alias', which is not the name of the file that runs ('env'), a dispatch this \
+             resolver does not establish without executing it",
+            launchers.join("dsh").display(),
+            alias.display()
+        ),
+        false => multicall(&alias),
+    };
+    let myenv_expected = match named {
+        true => format!(
+            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
+             'myenv', which does not spell env as a prefixed utility name, a dispatch this \
+             resolver does not establish without executing it",
+            launchers.join("dsh").display(),
+            myenv.display()
+        ),
+        false => multicall(&myenv),
+    };
+    let link_env_expected = match named {
+        true => format!(
+            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
+             'link_env', which is not the name of the file that runs ('env'), a dispatch this \
+             resolver does not establish without executing it",
+            launchers.join("dsh").display(),
+            link_env.display()
+        ),
+        false => multicall(&link_env),
+    };
+    eprintln!(
+        "R8: this host's env resolves to {} ({})",
+        env_file.display(),
+        match named {
+            true => "installed as env: the own-name prefixed spelling uu_env is established",
+            false => "a link to a multicall executable: only the name `env` is established",
+        }
+    );
     let impostor_refusal = format!(
         "{}: its #! interpreter '{}' is named env but is not the platform's env utility \
          '/usr/bin/env'",
@@ -1041,9 +1102,15 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // The chief's copied-and-hard-linked spelling first: it is the one
     // name recognition of either kind admits, and the marker assertion
     // that fails under that removal names it.
+    let uu_env_obstructed = match named {
+        true => obstruction(&uu_env),
+        false => multicall(&uu_env),
+    };
     for (interpreter, expected) in [
-        (&uu_env, unsupported(&uu_env)),
-        (&alias, unsupported(&alias)),
+        (&uu_env, uu_env_obstructed),
+        (&link_env, link_env_expected.clone()),
+        (&alias, alias_expected.clone()),
+        (&myenv, myenv_expected.clone()),
         (&env_binary, obstruction(&env_binary)),
         (&linked_env, obstruction(&linked_env)),
         (&copied_env, obstruction(&copied_env)),
@@ -1087,10 +1154,17 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // refused with zero markers — a whole chain establishes no dispatch
     // — and their native outcome is recorded beside the refusal.
     std::fs::remove_file(nodes_a.join("node")).unwrap();
-    for (round, interpreter) in [&env_binary, &linked_env, &copied_env]
-        .into_iter()
-        .enumerate()
-    {
+    let mut established = vec![&env_binary, &linked_env, &copied_env];
+    let mut refused = vec![
+        (&alias, alias_expected),
+        (&myenv, myenv_expected),
+        (&link_env, link_env_expected),
+    ];
+    match named {
+        true => established.push(&uu_env),
+        false => refused.push((&uu_env, multicall(&uu_env))),
+    }
+    for (round, interpreter) in established.into_iter().enumerate() {
         stage_executable(
             &launchers,
             "dsh",
@@ -1116,11 +1190,8 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         );
         assert_eq!(executed(&chain_marks), vec!["DSH_B_NODE_0.0.3".to_string()]);
     }
-    for (interpreter, expected) in [
-        (&alias, unsupported(&alias)),
-        (&uu_env, unsupported(&uu_env)),
-        (&impostor, impostor_refusal.clone()),
-    ] {
+    refused.push((&impostor, impostor_refusal.clone()));
+    for (interpreter, expected) in refused {
         stage_executable(
             &launchers,
             "dsh",
@@ -2292,6 +2363,44 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "a line in section 'snapshots' carrying the entry 'ms' carrying the malformed quoted \
              scalar ''2.0.0'",
         ),
+        // R3 (fourth hold): the STRUCTURE of an ignored body — a child
+        // below a scalar, mapping and sequence members in one block,
+        // a scalar `foo: 1` in `snapshots` with a deeper `bar: 2` —
+        // refused through the built doctor by the responsible body and
+        // its cause, never read as the control.
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 react: '>=16.8.0'\n        foo: bar\n"
+            ),
+            "a line under the package child 'peerDependencies' carrying the entry 'foo' nested \
+             below the scalar entry 'react', which opens no block",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 react: '>=16.8.0'\n      - foo\n"
+            ),
+            "a line under the package child 'peerDependencies' carrying the sequence item 'foo' \
+             at 6 spaces beside mapping entries, which mixes mapping entries and sequence items \
+             in one block",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n\nsnapshots:\n\n  foo: 1\n    \
+                 bar: 2\n"
+            ),
+            "a line in section 'snapshots' carrying the entry 'bar' nested below the scalar \
+             entry 'foo', which opens no block",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n\nsnapshots:\n\n  debug@2.6.9:\n      \
+                 deep: 1\n    mid: 2\n"
+            ),
+            "a line in section 'snapshots' carrying the entry 'mid' at 4 spaces, which dedents \
+             to no open block",
+        ),
     ] {
         let line = run(&body);
         assert!(
@@ -2324,4 +2433,17 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "{child:?}"
         );
     }
+    // And the valid nested `snapshots` body a real lock carries — a
+    // mapping block, a dedent back to its parent, a sequence block
+    // beside it and a sibling record — is still read, and still
+    // ignored: the control's own digest.
+    let snapshots = format!(
+        "{package}    resolution: {{integrity: sha512-D}}\n\nsnapshots:\n\n  debug@2.6.9:\n    \
+         dependencies:\n      ms: 2.0.0\n    transitivePeerDependencies:\n      - supports-color\n  \
+         ms@2.0.0: {{}}\n"
+    );
+    assert!(
+        run(&snapshots).contains(&format!("composite {digest} ")),
+        "{snapshots:?}"
+    );
 }

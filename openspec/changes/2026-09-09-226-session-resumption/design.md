@@ -2405,6 +2405,28 @@ refusal and removed-A positive. Unsupported multicall dispatch has a named
 limitation. Reject both name authority and blanket alias rejection. No
 production trial execution, utility scan or new identity field follows.
 
+*Implemented dispatch rule (2026-09-21, implement seat).* The reference's
+canonical file decides what `env` is installed as: a file named `env` (GNU
+`src/env.c`, Apple `usr.bin/env/env.c`, uutils standalone or its multicall
+hard-linked under `env`) or a link to a multicall of another name (busybox,
+GNU single-binary `coreutils`). Under a multicall link only the name `env` is
+established. Under a file named `env`, an other-name invocation is
+established exactly when the spelled name is the interpreter's OWN canonical
+file name (a hard link or copy, never a renaming symlink) and spells `env`
+as a prefixed utility name (a stem ending in a non-alphanumeric character:
+`uu_env`, `gnu-env`) — the one spelling every such implementation runs
+`env` under, which uutils' `src/bin/coreutils.rs` prefixed-utility rule
+reads as `env` and a dedicated `env` ignores. Native evidence on the
+delivering host, whose `/usr/bin/env` resolves to uutils installed as
+`/usr/lib/cargo/bin/coreutils/env`: the hard-linked copy `uu_env` runs
+`env` (B's node reached, doctor probes exactly B); the symlink `env-alias`
+is refused by the utility itself (`Security violation: Requested utility
+`env-alias` does not match executable name`); the hard-linked copy `myenv`
+falls to the utility's argument dispatch (`node: function/utility not
+found`). Each refused spelling records that outcome beside its named
+refusal. Source references are cited by function; their revisions and lines
+are not pinned (no source access in the seat).
+
 For ignored pnpm bodies, extend the existing closed scanner with a private
 indentation/container stack, field/body context and scalar/container kind.
 Reject children of scalars, mapping/sequence sibling switches and dedents that

@@ -3604,6 +3604,50 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             "a line in section 'settings' carrying the entry 'autoInstallPeers' carrying the \
              flow collection '[true,,false]' with a missing member at position 2",
         ),
+        // R3 (fourth hold): the STRUCTURE of an ignored body, which a
+        // line rule that saw each line without its neighbours could not
+        // refuse. A child below a scalar entry, a sequence item beside
+        // mapping entries and the reverse, a child below a sequence
+        // item, and a dedent to an indentation no open block has — in
+        // a package child's block and in an ignored section alike —
+        // are each a document YAML refuses, and each read as the
+        // control before.
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      react: '>=16.8.0'\n        foo: bar\n".to_string(),
+            "a line under the package child 'peerDependencies' carrying the entry 'foo' nested \
+             below the scalar entry 'react', which opens no block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      react: '>=16.8.0'\n      - foo\n".to_string(),
+            "a line under the package child 'peerDependencies' carrying the sequence item 'foo' \
+             at 6 spaces beside mapping entries, which mixes mapping entries and sequence items \
+             in one block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n\nsnapshots:\n\n  debug@2.6.9:\n    transitivePeerDependencies:\n      - supports-color\n      ms: 2.0.0\n".to_string(),
+            "a line in section 'snapshots' carrying the entry 'ms' at 6 spaces beside sequence \
+             items, which mixes mapping entries and sequence items in one block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n\nsnapshots:\n\n  foo: 1\n    bar: 2\n".to_string(),
+            "a line in section 'snapshots' carrying the entry 'bar' nested below the scalar \
+             entry 'foo', which opens no block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n\nsnapshots:\n\n  debug@2.6.9:\n    transitivePeerDependencies:\n      - supports-color\n        bar: 2\n".to_string(),
+            "a line in section 'snapshots' carrying the entry 'bar' nested below the sequence \
+             item 'supports-color', which opens no block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n\nsnapshots:\n\n  debug@2.6.9:\n      deep: 1\n    mid: 2\n".to_string(),
+            "a line in section 'snapshots' carrying the entry 'mid' at 4 spaces, which dedents \
+             to no open block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\nimporters:\n\n    .:\n      x: 1\n  y: 2\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n".to_string(),
+            "a line in section 'importers' carrying the entry 'y' at 2 spaces, which dedents to \
+             no open block",
+        ),
     ] {
         assert_eq!(
             refused_vector(composite_over_pnpm(&install, &lock), &lock),
@@ -3618,6 +3662,16 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
     let bodies = "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      debug:\n        specifier: ^2.6.9\n        version: 2.6.9\n      local:\n        specifier: link:../local\n        version: link:../local\n      '@scope/renamed':\n        specifier: npm:debug@^2\n        version: debug@2.6.9\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      '@scope/peer': '>=1'\n      react: '>=16.8.0 || ^17'\n    peerDependenciesMeta:\n      react:\n        optional: true\n\nsnapshots:\n\n  debug@2.6.9:\n    dependencies:\n      ms: 2.0.0\n    transitivePeerDependencies:\n      - supports-color\n      - '@scope/peer'\n";
     assert_eq!(
         composite_over_pnpm(&install, bodies).unwrap().canonical,
+        control.canonical
+    );
+    // The structural controls the rule above must keep readable: a
+    // block key with no members (YAML's null) followed by its sibling, a
+    // dedent back to an open block after a deeper one, a sequence block
+    // after a mapping block under one parent, and a body whose first
+    // line sits deeper than two spaces.
+    let structured = "lockfileVersion: '9.0'\n\nimporters:\n\n    .:\n      dependencies:\n        debug:\n          specifier: ^2.6.9\n          version: 2.6.9\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependenciesMeta:\n      react:\n        optional: true\n      '@scope/peer':\n        optional: false\n\nsnapshots:\n\n  debug@2.6.9:\n    optionalDependencies:\n    dependencies:\n      ms: 2.0.0\n      '@scope/peer': 1.0.0\n    transitivePeerDependencies:\n      - supports-color\n  ms@2.0.0: {}\n";
+    assert_eq!(
+        composite_over_pnpm(&install, structured).unwrap().canonical,
         control.canonical
     );
     // The separated spellings of each, plain and quoted, and a
@@ -5262,15 +5316,24 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // past D10's refusal; recognition by the canonical basename was
     // still recognition by name, and a COPY of `env` hard-linked as
     // `tools/uu_env` — the same bytes, no `env` name anywhere — walked
-    // past it too. The spellings, each with its own native control:
+    // past it too. And a blanket refusal of every other name was the
+    // opposite error: the chief's `uu_env` oracle RUNS `env` on a host
+    // whose `env` is a dedicated executable, and the resolver refused
+    // what native executed (fourth hold, R8). The file decides the
+    // dispatch (`EnvDispatch`). The spellings, each with its own native
+    // control:
     //
     // - `/usr/bin/env` itself, a symlink NAMED `env` elsewhere and a
     //   byte-for-byte copy named `env`: the platform's env, invoked
     //   under the name `env` — the established invocation, followed
-    //   into the `node` chain;
+    //   into the `node` chain on every host;
     // - the `env-alias` symlink and the `uu_env` hard link of the copy:
-    //   the same file under another NAME, whose dispatch the resolver
-    //   cannot establish without executing it — refused, never admitted;
+    //   the same file under another NAME — followed into the chain
+    //   where the platform's `env` is a dedicated executable, which
+    //   runs `env` under any name, and refused where it is a multicall
+    //   one, whose dispatch on that name the resolver does not
+    //   establish without executing it (the injected-reference arm
+    //   below runs the multicall rule on this host);
     // - an impostor named `env`: another file under the utility's
     //   name — refused, never admitted.
     let tools = dir.path().join("tools");
@@ -5323,16 +5386,81 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             missing.display()
         )
     };
-    let unsupported = |interpreter: &Path| {
+    // The file `/usr/bin/env` resolves to on THIS host decides which
+    // rule the other-name spellings meet: named `env`, the hard-linked
+    // copy `uu_env` — the file's own name, a prefixed `env` — is
+    // established, while the renaming symlink `env-alias` and a
+    // hard-linked copy `myenv` that is no prefixed spelling are not;
+    // named otherwise, it is a link to a multicall executable and only
+    // the name `env` is established. Each unestablished spelling's
+    // native outcome is recorded beside its refusal: on this host
+    // (uutils installed as `env`) the utility itself refuses
+    // `env-alias` as a name that is not its executable's.
+    let env_file = fs::canonicalize(&env_binary).unwrap();
+    let named = env_file.file_name().unwrap() == "env";
+    let myenv = tools.join("myenv");
+    fs::hard_link(&copied_env, &myenv).unwrap();
+    // A renaming SYMLINK whose name is a prefixed spelling: the one
+    // spelling only the own-name rule refuses (a hard link named so is
+    // established), and the one this host's `env` refuses natively.
+    let link_env = tools.join("link_env");
+    std::os::unix::fs::symlink(&env_binary, &link_env).unwrap();
+    let multicall = |interpreter: &Path, binary: &Path| {
         format!(
             "the DSH layout is unreadable: {}: its #! interpreter '{}' is the platform's env \
-             utility invoked under the name '{}', a dispatch this resolver does not establish \
-             without executing it",
+             utility invoked under the name '{}', which its multicall file '{}' dispatches on \
+             and this resolver does not establish without executing it",
+            a.join("dsh").display(),
+            interpreter.display(),
+            interpreter.file_name().unwrap().to_str().unwrap(),
+            binary.file_name().unwrap().to_str().unwrap()
+        )
+    };
+    let renamed = |interpreter: &Path| {
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '{}' is the platform's env \
+             utility invoked under the name '{}', which is not the name of the file that runs \
+             ('env'), a dispatch this resolver does not establish without executing it",
             a.join("dsh").display(),
             interpreter.display(),
             interpreter.file_name().unwrap().to_str().unwrap()
         )
     };
+    let unprefixed = |interpreter: &Path| {
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '{}' is the platform's env \
+             utility invoked under the name '{}', which does not spell env as a prefixed utility \
+             name, a dispatch this resolver does not establish without executing it",
+            a.join("dsh").display(),
+            interpreter.display(),
+            interpreter.file_name().unwrap().to_str().unwrap()
+        )
+    };
+    let uu_env_expected = |obstructed: bool| match (named, obstructed) {
+        (true, true) => Some(obstruction(&uu_env)),
+        (true, false) => None,
+        (false, _) => Some(multicall(&uu_env, &env_file)),
+    };
+    let alias_expected = match named {
+        true => renamed(&alias),
+        false => multicall(&alias, &env_file),
+    };
+    let myenv_expected = match named {
+        true => unprefixed(&myenv),
+        false => multicall(&myenv, &env_file),
+    };
+    let link_env_expected = match named {
+        true => renamed(&link_env),
+        false => multicall(&link_env, &env_file),
+    };
+    eprintln!(
+        "R8: this host's env resolves to {} ({})",
+        env_file.display(),
+        match named {
+            true => "installed as env: the own-name prefixed spelling uu_env is established",
+            false => "a link to a multicall executable: only the name `env` is established",
+        }
+    );
     // The independent native control for every spelling: reaching a
     // program at all is the proof that native lookup SELECTED `A/dsh`
     // and the kernel loaded it through that spelling — nothing was
@@ -5349,7 +5477,7 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         );
         let said = String::from_utf8_lossy(&native.stdout).trim().to_string();
         assert!(
-            said.is_empty() || said == "MARK:b-node",
+            !said.contains("MARK:a"),
             "{what}: the native child ran nothing of A's: {said:?}"
         );
         eprintln!(
@@ -5361,14 +5489,17 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         said
     };
     // The chief's copied-and-hard-linked spelling first: it is the one
-    // name recognition of either kind admits, and the assertion that
-    // fails under that removal names it.
-    for (interpreter, established) in [
-        (&uu_env, false),
-        (&alias, false),
-        (&env_binary, true),
-        (&linked_env, true),
-        (&copied_env, true),
+    // name recognition of either kind admits, the one a blanket
+    // other-name refusal refuses where native runs it, and the
+    // assertion that fails under each removal names it.
+    for (interpreter, expected) in [
+        (&uu_env, uu_env_expected(true).unwrap()),
+        (&link_env, link_env_expected.clone()),
+        (&alias, alias_expected.clone()),
+        (&myenv, myenv_expected.clone()),
+        (&env_binary, obstruction(&env_binary)),
+        (&linked_env, obstruction(&linked_env)),
+        (&copied_env, obstruction(&copied_env)),
     ] {
         stage_executable(
             &a,
@@ -5379,10 +5510,6 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         // The resolver refuses BEFORE anything is probed, under every
         // spelling: at A's obstructed `node` where the invocation is
         // established, and at the invocation itself where it is not.
-        let expected = match established {
-            true => obstruction(interpreter),
-            false => unsupported(interpreter),
-        };
         assert_eq!(
             refused(resolve_executable_in("dsh", path.clone())),
             expected,
@@ -5410,11 +5537,24 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     );
     // The valid-chain positives: with A's `node` gone, every established
     // spelling selects B's `node` and RETAINS it as the runtime, with a
-    // fresh native control each. An unestablished spelling and the
-    // impostor are still refused — the chain being whole does not
-    // establish a dispatch — and their native outcome is recorded.
+    // fresh native control each — the same-file `uu_env` among them on
+    // a host whose `env` is installed as `env`, where the native child
+    // runs B's node through it (the chief's R8 oracle). An unestablished
+    // spelling and the impostor are still refused — the chain being
+    // whole does not establish a dispatch — and their native outcome is
+    // recorded.
     fs::remove_file(a.join("node")).unwrap();
-    for interpreter in [&env_binary, &linked_env, &copied_env] {
+    let mut established = vec![&env_binary, &linked_env, &copied_env];
+    let mut unestablished = vec![
+        (&alias, alias_expected),
+        (&myenv, myenv_expected),
+        (&link_env, link_env_expected),
+    ];
+    match uu_env_expected(false) {
+        None => established.push(&uu_env),
+        Some(expected) => unestablished.push((&uu_env, expected)),
+    }
+    for interpreter in established {
         stage_executable(
             &a,
             "dsh",
@@ -5431,7 +5571,7 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             interpreter.display()
         );
     }
-    for interpreter in [&alias, &uu_env] {
+    for (interpreter, expected) in unestablished {
         stage_executable(
             &a,
             "dsh",
@@ -5440,7 +5580,9 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         native_control(interpreter, "valid chain, unestablished invocation");
         assert_eq!(
             refused(resolve_executable_in("dsh", path.clone())),
-            unsupported(interpreter)
+            expected,
+            "{}",
+            interpreter.display()
         );
     }
     stage_executable(
@@ -5452,6 +5594,136 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     assert_eq!(
         refused(resolve_executable_in("dsh", path.clone())),
         impostor_refusal
+    );
+
+    // The MULTICALL rule, run on this host through an injected
+    // reference: a stand-in that dispatches on the name it is invoked
+    // under, as busybox and a single-binary coreutils do — `env` runs
+    // the platform's env, any other name is an applet it does not
+    // have. `multi/env` is a symlink to it (the installed shape), and
+    // `multi/uu_env` a hard link: the same file, so `is_env` is true of
+    // both, and only the name `env` is an invocation the resolver
+    // establishes. The native child under `uu_env` runs nothing of A's
+    // and nothing of B's — the multicall answers with no applet — and
+    // that outcome is recorded beside the refusal, never counted as a
+    // positive.
+    let multi = tools.join("multi");
+    fs::create_dir_all(&multi).unwrap();
+    let multicall_file = stage_executable(
+        &multi,
+        "multicall",
+        format!(
+            "#!/bin/sh\ncase \"${{0##*/}}\" in\n  env) exec {ENV_REFERENCE} \"$@\" ;;\n  *) \
+             printf 'multicall: applet %s not found\\n' \"${{0##*/}}\" >&2; exit 127 ;;\nesac\n"
+        )
+        .as_bytes(),
+    );
+    let multi_env = multi.join("env");
+    std::os::unix::fs::symlink(&multicall_file, &multi_env).unwrap();
+    let multi_uu_env = multi.join("uu_env");
+    fs::hard_link(&multicall_file, &multi_uu_env).unwrap();
+    let injected = Search {
+        entries: path.clone().unwrap(),
+        default: false,
+        library: LIBRARY,
+        operation: Operation::Exec,
+        env_reference: multi_env.clone(),
+    };
+    assert_eq!(
+        env_dispatch(&multi_env),
+        Ok(EnvDispatch::Multicall("multicall".to_string()))
+    );
+    // `env_invocation` arm by arm, on files: the own-name prefixed
+    // spelling of a file installed as `env` is established; a renaming
+    // symlink to it, an own name that is no prefixed spelling, any name
+    // but `env` under a multicall link, and an interpreter that cannot
+    // be resolved are each their own refusal.
+    let named_dir = tools.join("named");
+    fs::create_dir_all(&named_dir).unwrap();
+    let named_env = named_dir.join("env");
+    fs::copy(&env_binary, &named_env).unwrap();
+    let named_uu = named_dir.join("uu_env");
+    fs::hard_link(&named_env, &named_uu).unwrap();
+    let named_alias = named_dir.join("env-alias");
+    std::os::unix::fs::symlink(&named_env, &named_alias).unwrap();
+    let named_myenv = named_dir.join("myenv");
+    fs::hard_link(&named_env, &named_myenv).unwrap();
+    let named_dash = named_dir.join("gnu-env");
+    fs::hard_link(&named_env, &named_dash).unwrap();
+    assert_eq!(env_invocation(&named_uu, "uu_env", &named_env), Ok(()));
+    assert_eq!(env_invocation(&named_dash, "gnu-env", &named_env), Ok(()));
+    assert_eq!(
+        env_invocation(&named_alias, "env-alias", &named_env),
+        Err(
+            "is the platform's env utility invoked under the name 'env-alias', which is not the \
+             name of the file that runs ('env'), a dispatch this resolver does not establish \
+             without executing it"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        env_invocation(&named_myenv, "myenv", &named_env),
+        Err(
+            "is the platform's env utility invoked under the name 'myenv', which does not spell \
+             env as a prefixed utility name, a dispatch this resolver does not establish without \
+             executing it"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        env_invocation(&multi_uu_env, "uu_env", &multi_env),
+        Err(
+            "is the platform's env utility invoked under the name 'uu_env', which its multicall \
+             file 'multicall' dispatches on and this resolver does not establish without \
+             executing it"
+                .to_string()
+        )
+    );
+    let gone = named_dir.join("gone-env");
+    let enoent_gone = fs::metadata(&gone).unwrap_err();
+    assert_eq!(
+        env_invocation(&gone, "gone-env", &named_env),
+        Err(format!(
+            "cannot be resolved to the file that runs: {enoent_gone}"
+        ))
+    );
+    // Under the name `env`, established: the chain is followed, at A's
+    // obstruction and, with it gone, to B's node; the native child runs
+    // B's node through the stand-in.
+    stage_executable(&a, "node", format!("#!{}\n", missing.display()).as_bytes());
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", multi_env.display()).as_bytes(),
+    );
+    native_control(&multi_env, "multicall env, obstructed A/node");
+    assert_eq!(
+        refused(lookup_in("dsh", &injected, &mut Vec::new())),
+        obstruction(&multi_env)
+    );
+    fs::remove_file(a.join("node")).unwrap();
+    assert_eq!(
+        native_control(&multi_env, "multicall env, valid chain"),
+        "MARK:b-node"
+    );
+    let selected = lookup_in("dsh", &injected, &mut Vec::new()).unwrap();
+    assert_eq!(selected.node, Some(b.join("node").canonicalize().unwrap()));
+    // Under the name `uu_env`, the same file: refused as the multicall
+    // dispatch it is, with the chain whole; the native child ran no
+    // node at all.
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", multi_uu_env.display()).as_bytes(),
+    );
+    assert_eq!(
+        native_control(&multi_uu_env, "multicall uu_env, valid chain"),
+        "",
+        "the multicall stand-in has no applet named uu_env"
+    );
+    assert_eq!(
+        refused(lookup_in("dsh", &injected, &mut Vec::new())),
+        multicall(&multi_uu_env, &multicall_file)
     );
     // And a file that is no `env` under any name, and is not named
     // `env`, is an ordinary interpreter: admitted, establishing no node.
@@ -5512,6 +5784,32 @@ fn env_identity_is_the_file_and_never_a_name() {
         is_env(&copy, &inspected(&copy), &absent),
         Err(format!(
             "cannot be compared with the platform's env '{}', which cannot be inspected: {enoent}",
+            absent.display()
+        ))
+    );
+    // What the reference's FILE is installed as, decided by the file it
+    // resolves to: named `env`, or — through a symlink named `env` or
+    // not — a multicall executable of another name; an unresolvable
+    // reference establishes nothing.
+    let dedicated_dir = dir.path().join("dedicated");
+    fs::create_dir_all(&dedicated_dir).unwrap();
+    let dedicated = dedicated_dir.join("env");
+    fs::copy(&reference, &dedicated).unwrap();
+    assert_eq!(env_dispatch(&dedicated), Ok(EnvDispatch::Named));
+    assert_eq!(
+        env_dispatch(&reference),
+        Ok(EnvDispatch::Multicall("reference-env".to_string()))
+    );
+    assert_eq!(
+        env_dispatch(&symlink),
+        Ok(EnvDispatch::Multicall("reference-env".to_string())),
+        "a symlink named env to a multicall file is the multicall"
+    );
+    assert_eq!(
+        env_dispatch(&absent),
+        Err(format!(
+            "cannot be compared with the platform's env '{}', whose file cannot be resolved: \
+             {enoent}",
             absent.display()
         ))
     );

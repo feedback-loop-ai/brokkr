@@ -856,6 +856,18 @@ fn split_flow_entry(field: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// One member of an ignored body whose SYNTAX was admitted: what the
+/// structure rule (`IgnoredBody`) still needs to know about the line.
+enum Member<'a> {
+    /// `- value`: a sequence item. It is a scalar and opens no block.
+    Item(&'a str),
+    /// `key:` or `key: value`: a mapping entry, with its decoded key.
+    /// `opens` is whether it carried no inline value, so that the lines
+    /// indented below it are its block rather than a child it cannot
+    /// have.
+    Entry { key: &'a str, opens: bool },
+}
+
 /// Admit the SYNTAX of one line inside a body this grammar does not
 /// read: the members of `importers`, `snapshots` and the other
 /// recognized sections, and the lines under a block-form package child
@@ -867,15 +879,17 @@ fn split_flow_entry(field: &str) -> Option<(&str, &str)> {
 /// `peerDependencies` or `snapshots` body left a document that is not
 /// YAML reading as the valid control's composite (run `09ec8d81`, R4).
 /// Nothing here reads the value: the body stays ignored, and only what
-/// YAML itself refuses is refused.
-fn pnpm_ignored_line(text: &str) -> Result<(), String> {
+/// YAML itself refuses is refused. The line's STRUCTURE — where it sits
+/// among its neighbours — is `IgnoredBody`'s question, asked of the
+/// member this returns.
+fn pnpm_ignored_line(text: &str) -> Result<Member<'_>, String> {
     if let Some(item) = text.strip_prefix('-') {
         return match item.strip_prefix(' ') {
             Some(item) => match item.trim_matches(' ') {
                 "" => Err("the sequence item '-' with no value".to_string()),
-                value => {
-                    pnpm_ignored(value).map_err(|why| format!("the sequence item carrying {why}"))
-                }
+                value => pnpm_ignored(value)
+                    .map(|()| Member::Item(value))
+                    .map_err(|why| format!("the sequence item carrying {why}")),
             },
             None if item.is_empty() => Err("the sequence item '-' with no value".to_string()),
             None => Err(format!(
@@ -890,11 +904,135 @@ fn pnpm_ignored_line(text: &str) -> Result<(), String> {
         .filter(|key| !key.is_empty())
         .ok_or_else(|| format!("the malformed key '{key}'"))?;
     match pnpm_separated(rest) {
-        Ok(Separated::Block) => Ok(()),
-        Ok(Separated::Inline(value)) => {
-            pnpm_ignored(value).map_err(|why| format!("the entry '{key_text}' carrying {why}"))
-        }
+        Ok(Separated::Block) => Ok(Member::Entry {
+            key: key_text,
+            opens: true,
+        }),
+        Ok(Separated::Inline(value)) => pnpm_ignored(value)
+            .map(|()| Member::Entry {
+                key: key_text,
+                opens: false,
+            })
+            .map_err(|why| format!("the entry '{key_text}' carrying {why}")),
         Err(why) => Err(format!("the entry '{key_text}' {why}")),
+    }
+}
+
+/// The kind of block a member belongs to: YAML gives a block mapping
+/// entries or sequence items, never both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Block {
+    Mapping,
+    Sequence,
+}
+
+impl Block {
+    fn members(self) -> &'static str {
+        match self {
+            Block::Mapping => "mapping entries",
+            Block::Sequence => "sequence items",
+        }
+    }
+}
+
+/// One open block of an ignored body: the indentation its members share
+/// and the kind they all are.
+struct Frame {
+    indent: usize,
+    block: Block,
+}
+
+/// The STRUCTURE of a body this grammar does not read, carried line by
+/// line as YAML carries it: which blocks are open, at what indentation,
+/// of what kind, and whether the previous member can have children at
+/// all.
+///
+/// `pnpm_ignored_line` admitted each line's syntax after its structural
+/// context had been discarded, so a quote-aware line rule could not
+/// refuse a child indented below a scalar (`react: '>=16'` followed by
+/// a deeper `foo: bar`), a sequence item beside mapping entries, or a
+/// dedent to an indentation no open block has — each a document YAML
+/// refuses, each read as the valid control's composite (fourth hold,
+/// R3; design D10 §4). Three rules, each YAML's own and each a separate
+/// refusal: a member that opens no block has no children; one block's
+/// members are one kind; a dedent returns to an open block. Nothing
+/// here reads a value, and the admitted dialect does not grow: a valid
+/// nested `peerDependenciesMeta` or `snapshots` body is admitted as it
+/// was, and there is still no YAML implementation behind it.
+struct IgnoredBody {
+    /// The open blocks, innermost last.
+    frames: Vec<Frame>,
+    /// The previous member where it was a scalar — an entry with an
+    /// inline value, or a sequence item — described for the refusal of a
+    /// child below it. `None` when the previous member, or the parent
+    /// that opened this body, opened a block.
+    closed: Option<String>,
+}
+
+impl IgnoredBody {
+    /// A body just opened by its parent key: no block open yet, and the
+    /// first line at any deeper indentation opens the first.
+    fn new() -> IgnoredBody {
+        IgnoredBody {
+            frames: Vec::new(),
+            closed: None,
+        }
+    }
+
+    /// Admit one line at `indent` spaces: its syntax, then its place.
+    fn admit(&mut self, indent: usize, text: &str) -> Result<(), String> {
+        // The member, how a refusal names it, and how a child below it
+        // would name it where it is a scalar (`None` where it opens a
+        // block).
+        let (block, spelled, closed) = match pnpm_ignored_line(text)? {
+            Member::Item(value) => (
+                Block::Sequence,
+                format!("the sequence item '{value}'"),
+                Some(format!("the sequence item '{value}'")),
+            ),
+            Member::Entry { key, opens } => (
+                Block::Mapping,
+                format!("the entry '{key}'"),
+                (!opens).then(|| format!("the scalar entry '{key}'")),
+            ),
+        };
+        if self.frames.last().is_none_or(|frame| indent > frame.indent) {
+            // Deeper than the innermost open block, or the body's first
+            // line: a child of the previous member, which must have
+            // opened a block for the line to be one.
+            if let Some(parent) = &self.closed {
+                return Err(format!(
+                    "{spelled} nested below {parent}, which opens no block"
+                ));
+            }
+            self.frames.push(Frame { indent, block });
+        } else {
+            // A sibling of an open block's members, or a dedent to one:
+            // the blocks below that indentation are closed, and the one
+            // at exactly that indentation must exist and be of this
+            // member's kind.
+            while self
+                .frames
+                .last()
+                .is_some_and(|frame| frame.indent > indent)
+            {
+                self.frames.pop();
+            }
+            let Some(frame) = self.frames.last().filter(|frame| frame.indent == indent) else {
+                return Err(format!(
+                    "{spelled} at {indent} spaces, which dedents to no open block"
+                ));
+            };
+            if frame.block != block {
+                return Err(format!(
+                    "{spelled} at {indent} spaces beside {}, which mixes mapping entries and \
+                     sequence items in one block",
+                    frame.block.members()
+                ));
+            }
+        }
+        self.closed = closed;
+        Ok(())
     }
 }
 
@@ -1139,13 +1277,17 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     let mut entry: Option<PnpmEntry> = None;
     // The block-form child that is open, whose own lines this reader
     // does not READ: they belong to `peerDependencies` and its kin, and
-    // none of them enters identity — but each is admitted as syntax
-    // below, named by this child. The name rather than the open child's
-    // indentation, because a child opens only at four spaces and only a
-    // line at six or more consults this — so a depth comparison would be
-    // a guard no input could falsify, which is a claim the code cannot
-    // keep.
-    let mut block: Option<&str> = None;
+    // none of them enters identity — but each is admitted as syntax and
+    // structure below, named by this child. The name rather than the
+    // open child's indentation, because a child opens only at four
+    // spaces and only a line at six or more consults this — so a depth
+    // comparison would be a guard no input could falsify, which is a
+    // claim the code cannot keep. The body beside the name carries the
+    // structure of the lines admitted so far.
+    let mut block: Option<(&str, IgnoredBody)> = None;
+    // The structure of the open section's body where the section is one
+    // this reader does not read.
+    let mut body = IgnoredBody::new();
 
     let flush =
         |entry: Option<PnpmEntry>, triples: &mut BTreeSet<String>| -> Result<(), CompositeError> {
@@ -1237,6 +1379,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 )));
             }
             section = Some(name);
+            body = IgnoredBody::new();
             continue;
         }
         let Some(open_section) = section else {
@@ -1245,8 +1388,8 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
         if open_section != "packages" {
             // A section this reader does not READ is still a section
             // the document must have spelled: every line under it is
-            // admitted as syntax before it is passed over.
-            pnpm_ignored_line(trimmed).map_err(|why| {
+            // admitted as syntax and structure before it is passed over.
+            body.admit(indent, trimmed).map_err(|why| {
                 bad(&format!(
                     "a line in section '{open_section}' carrying {why}"
                 ))
@@ -1319,7 +1462,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 // syntax. A child with no inline scalar opens a block
                 // whose own lines are skipped below.
                 match value {
-                    Separated::Block => block = Some(name),
+                    Separated::Block => block = Some((name, IgnoredBody::new())),
                     Separated::Inline(value) => pnpm_ignored(value)
                         .map_err(|why| bad(&format!("a package child '{name}' carrying {why}")))?,
                 }
@@ -1355,9 +1498,10 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             continue;
         }
         // Six spaces or deeper: the children of an open block-form child,
-        // and nothing else — each admitted as syntax, never read.
-        match block {
-            Some(child) => pnpm_ignored_line(trimmed).map_err(|why| {
+        // and nothing else — each admitted as syntax and structure, never
+        // read.
+        match block.as_mut() {
+            Some((child, body)) => body.admit(indent, trimmed).map_err(|why| {
                 bad(&format!(
                     "a line under the package child '{child}' carrying {why}"
                 ))
@@ -2967,20 +3111,135 @@ fn same_bytes(left: &mut impl Read, right: &mut impl Read, len: u64) -> Result<b
     Ok(true)
 }
 
-/// The `env` INVOCATION this resolver establishes: the platform's `env`
-/// file, invoked under the name `env`.
+/// What the platform's `env` FILE is installed as, read from the file
+/// the reference resolves to — never from executing it.
 ///
-/// File identity alone does not establish argv0-insensitive behaviour.
-/// The kernel hands the utility the interpreter path exactly as the `#!`
-/// line spells it as `argv[0]` (`fs/binfmt_script.c`); GNU coreutils'
-/// `src/env.c` dispatches nothing on it, while a multicall `env` —
-/// uutils' `coreutils`, busybox — dispatches on its basename, and under
-/// the name `env` all three run `env`. Under any other name the answer
-/// depends on which implementation the platform ships, which nothing
-/// short of executing it establishes; so the same file under another
-/// name is refused as an unestablished invocation, and a different file
-/// under the name `env` is refused as an impostor. Neither is `Ok(None)`
-/// admission (design D10, third hold).
+/// The kernel hands the utility the interpreter path exactly as the
+/// `#!` line spells it, as `argv[0]` (`fs/binfmt_script.c`). What the
+/// utility does with that name is a property of which executable it
+/// is, and the executables that serve as `env` are installed in two
+/// shapes:
+///
+/// - a file NAMED `env`: GNU coreutils' separate `src/env.c` build,
+///   whose `main` reads `argv[0]` for diagnostics only; Apple's
+///   `usr.bin/env/env.c` likewise; uutils coreutils, whose `env` is
+///   either its standalone build or its multicall binary installed
+///   under this name (`src/bin/coreutils.rs`, `main`: the utility is
+///   the name the binary runs as, exactly or as a PREFIXED spelling —
+///   any stem ending in a non-alphanumeric character before `env` —
+///   and the name it runs as is checked against the executable's own
+///   file name).
+/// - a LINK to a multicall executable of another name: busybox
+///   (`libbb/appletlib.c`, `main`: the applet is `argv[0]`'s basename)
+///   and GNU coreutils' single-binary build (`src/coreutils.c`, `main`,
+///   `launch_program` on `argv[0]`'s basename). Under the name `env` it
+///   runs `env`; under another name it runs another applet or none.
+///
+/// The source references are cited by function; their revisions and
+/// line numbers are not pinned by this seat (no source access). The
+/// native oracle on this host — uutils, installed as `env` — ran `env`
+/// through the hard-linked copy `tools/uu_env` and refused the symlink
+/// `tools/env-alias` as a name that is not its executable's, which is
+/// what `env_invocation` establishes and refuses respectively.
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EnvDispatch {
+    /// The reference resolves to a file named `env`.
+    Named,
+    /// The reference resolves to a multicall executable of this other
+    /// name, which dispatches on `argv[0]`'s basename.
+    Multicall(String),
+}
+
+#[cfg(unix)]
+fn env_dispatch(reference: &Path) -> Result<EnvDispatch, String> {
+    let file = std::fs::canonicalize(reference).map_err(|error| {
+        format!(
+            "cannot be compared with the platform's env '{}', whose file cannot be resolved: \
+             {error}",
+            reference.display()
+        )
+    })?;
+    let name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(match name == "env" {
+        true => EnvDispatch::Named,
+        false => EnvDispatch::Multicall(name),
+    })
+}
+
+/// Whether the platform's `env` file, invoked under `spelled` — a name
+/// other than `env` — is an invocation this resolver establishes as
+/// running `env`, from the file and the utilities' own dispatch rules
+/// (`EnvDispatch`) and never by executing it.
+///
+/// A blanket refusal of every name but `env` was stricter than the
+/// platform where it matters: the chief's `tools/uu_env` — a copy of
+/// `env`, hard-linked — RUNS `env` natively, and the resolver refused
+/// it (fourth hold, R8). A blanket admission of the same bytes under
+/// any name guesses: the same copy hard-linked as `ls` runs `ls` under
+/// a multicall `env`, and a symlink named `env-alias` to this host's
+/// `env` is refused by the utility itself as a name that is not its
+/// executable's. So an other-name invocation is established exactly
+/// when every implementation installed as `env` runs `env` under it:
+/// the name is the file's OWN name — a hard link or a copy, never a
+/// renaming symlink, so the name the utility runs as is the name the
+/// kernel invoked — and it spells `env` as a prefixed utility name,
+/// which the multicall dispatch installed under `env` reads as `env`
+/// and a dedicated `env` ignores. A link to a multicall of another
+/// name establishes no other-name invocation at all.
+#[cfg(unix)]
+fn env_invocation(interpreter: &Path, spelled: &str, reference: &Path) -> Result<(), String> {
+    let binary = match env_dispatch(reference)? {
+        EnvDispatch::Named => None,
+        EnvDispatch::Multicall(binary) => Some(binary),
+    };
+    if let Some(binary) = binary {
+        return Err(format!(
+            "is the platform's env utility invoked under the name '{spelled}', which its \
+             multicall file '{binary}' dispatches on and this resolver does not establish \
+             without executing it"
+        ));
+    }
+    let own = std::fs::canonicalize(interpreter)
+        .map_err(|error| format!("cannot be resolved to the file that runs: {error}"))?;
+    let own_name = own
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if own_name != spelled {
+        return Err(format!(
+            "is the platform's env utility invoked under the name '{spelled}', which is not the \
+             name of the file that runs ('{own_name}'), a dispatch this resolver does not \
+             establish without executing it"
+        ));
+    }
+    let prefixed = spelled
+        .strip_suffix("env")
+        .and_then(|stem| stem.chars().last())
+        .is_some_and(|before| !before.is_alphanumeric());
+    if !prefixed {
+        return Err(format!(
+            "is the platform's env utility invoked under the name '{spelled}', which does not \
+             spell env as a prefixed utility name, a dispatch this resolver does not establish \
+             without executing it"
+        ));
+    }
+    Ok(())
+}
+
+/// The `env` INVOCATION this resolver establishes: the platform's `env`
+/// file, invoked under the name `env` or under an other name
+/// `env_invocation` establishes.
+///
+/// File identity alone does not establish argv0-insensitive behaviour,
+/// and a name alone does not establish identity: the same file under a
+/// name it is not established to run `env` under is refused as
+/// unestablished, and a different file under the name `env` is refused
+/// as an impostor. Neither refusal is `Ok(None)` admission (design D10,
+/// third and fourth holds).
 #[cfg(unix)]
 fn env_program(
     interpreter: &Path,
@@ -3001,12 +3260,7 @@ fn env_program(
                 search.env_reference.display()
             ))
         }
-        (true, false) => {
-            return Err(format!(
-                "is the platform's env utility invoked under the name '{spelled}', a dispatch \
-                 this resolver does not establish without executing it"
-            ))
-        }
+        (true, false) => env_invocation(interpreter, &spelled, &search.env_reference)?,
         (true, true) => {}
     }
     let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';

@@ -557,6 +557,155 @@ completing the planner**. Groups 1–7 and this group's ordered proof/gates are
 prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
+### Implementation return — carry-overs of the fourth hold, 2026-09-21 (Europe/Sofia)
+
+This implement seat (run `dsh-composite-identity-issue-226-5e82d607`, the
+`IMPL-BROKEN-RETRY` return) adopted `slice-dsh-composite-b` at `417354ec`,
+every commit kept, in worktree `brokkr-wt-dsh88b` on Linux x86_64
+(`x86_64-unknown-linux-gnu`, glibc 2.42 as measured by the design seat;
+`cargo 1.98.0 (797e8a9bc 2026-08-05)` ran every gate, `nightly-2026-09-05`
+the coverage steps). It answers the gaps the previous visit named, in
+their owning clauses, and records what still cannot run from a seat. It
+describes outcomes and directs no gate.
+
+**8.8.2.1 — the supported env invocation is established from the file.**
+`env_program` no longer refuses every name but `env` outright. The
+reference's canonical file decides what `env` is installed as
+(`EnvDispatch`): a file NAMED `env` or a link to a multicall of another
+name. Under a multicall link only the name `env` is established. Under a
+file named `env`, `env_invocation` establishes an other-name invocation
+exactly when the spelled name is the interpreter's OWN canonical file name
+(a hard link or copy, never a renaming symlink) and spells `env` as a
+prefixed utility name (`uu_env`, `gnu-env`), which uutils'
+`src/bin/coreutils.rs` prefixed-utility dispatch reads as `env` and a
+dedicated `env` ignores. Every other other-name spelling is its own named
+refusal, never `Ok(None)`. Source references are cited by function in the
+code; their revisions and line numbers are NOT pinned (no source access in
+this seat). Design D10 §4 records the implemented rule.
+
+Native evidence, this host — `/usr/bin/env` resolves to
+`/usr/lib/cargo/bin/coreutils/env`, uutils installed under the name `env`
+(`an_env_argument_is_selected_as_the_kernel_hands_it_to_env`, protocol
+and doctor, every spelling with its own native child and the doctor's own
+marker directory):
+
+| Spelling of the same file | Native child (obstructed A/node; valid chain) | Resolver / doctor |
+|---|---|---|
+| `tools/uu_env`, hard link of the copy (the chief's R8 oracle) | ran B's node both times (`MARK:b-node`; doctor markers `["DSH_B_NODE_0.0.3"]`) | A's obstruction named, zero doctor markers; then B's node selected and retained, doctor `ok dsh: DSH_B_NODE_0.0.3` from exactly one probe |
+| `tools/env-alias`, symlink | exit 1 both times: `Security violation: Requested utility `env-alias` does not match executable name: /usr/lib/cargo/bin/coreutils/env` | refused: `invoked under the name 'env-alias', which is not the name of the file that runs ('env')`; zero markers |
+| `tools/link_env`, symlink spelled as a prefixed name | exit 1: the same security violation for `link_env` | refused by the own-name cause; zero markers — the cell only the own-name rule refuses |
+| `tools/myenv`, hard link, no prefixed spelling | exit 1: `node: function/utility not found` (the utility fell to its argument dispatch) | refused: `does not spell env as a prefixed utility name`; zero markers |
+| `/usr/bin/env`, `linked/env` symlink, `tools/env` copy | ran B's node | A's obstruction, then B's node (unchanged) |
+| `impostor/env` | ran B's node through the impostor | refused as not the platform's env (unchanged) |
+
+The multicall rule ran on this host through an injected reference: a
+stand-in that dispatches on `$0`'s basename (`multi/multicall`, with
+`multi/env` a symlink to it and `multi/uu_env` a hard link). Under the
+name `env` the chain is followed — A's obstruction, then B's node, the
+native child running B's node through it; under `uu_env` the resolver
+refuses by the multicall cause and the native child answers `multicall:
+applet uu_env not found` (exit 127). `env_invocation` is additionally
+asserted arm by arm on files (`env_identity_is_the_file_and_never_a_name`
+and the same test), including an interpreter that cannot be resolved.
+Doctor's expectations are computed from what `/usr/bin/env` resolves to,
+so a host whose `env` is a multicall link asserts the multicall arm
+instead; no host records a pass it did not run.
+
+**8.8.3.1 — ignored pnpm bodies keep their structure.** `pnpm_ignored_line`
+now returns the admitted MEMBER (a sequence item, or a mapping entry with
+whether it opens a block) and `IgnoredBody` carries a private stack of
+open blocks — indentation and kind — through every ignored section body
+and every block-form package child, reset when a section or child opens.
+Three rules, each YAML's own and each a separate refusal: a member that
+opens no block has no children (`the entry 'foo' nested below the scalar
+entry 'react', which opens no block`; below a sequence item likewise); one
+block's members are one kind (`the sequence item 'foo' at 6 spaces beside
+mapping entries, which mixes mapping entries and sequence items in one
+block`, and the reverse); a dedent returns to an open block (`the entry
+'mid' at 4 spaces, which dedents to no open block`). Nothing reads a value,
+no YAML dependency was added, the 8,388,608-byte bound and identity bytes
+are untouched. New vectors in
+`missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+(seven refusals: scalar parent under `peerDependencies` and in
+`snapshots`, mixed siblings both ways, a child below a sequence item, two
+dedents) and
+`ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`
+(four refusals through the built doctor, each asserted never to report the
+control's digest); readable controls kept and added — the existing nested
+`peerDependenciesMeta`/`snapshots` bodies, a null block key followed by
+its sibling, a dedent back to an open block, a sequence block after a
+mapping block, a body whose first line sits at four spaces, and a
+`snapshots` body with a sibling record through doctor — all the control's
+own digest.
+
+**Removal proofs** (each a compiling mutation of the enforcing line, run
+with `cargo test --no-fail-fast -p brokkr-protocol -p brokkr-cli
+--all-features --locked -- <the two regressions' names>`, the failed
+assertion quoted, exact restoration, the same command green again — 1
+passed in each surface — before the next):
+
+| Removal | Named regression → failed assertion |
+|---|---|
+| E1 blanket other-name refusal restored (`env_program`, the `(true, false)` arm returns the old refusal) | protocol `an_env_argument…` `tools/uu_env: no spelling bypasses D10`: left the blanket refusal, right A's obstruction; doctor `an_env_argument…` line 1124: the `uu_env` line carries the blanket refusal, not A's obstruction |
+| E2 name recognition restored (`is_env … \|\| file_name == "env"`) | protocol: impostor cell, left A's obstruction through `impostor/env`, right `is named env but is not the platform's env utility '/usr/bin/env'`; doctor: the same impostor line |
+| E3 own-name check removed (`own_name != spelled && false`) | protocol `tools/link_env: no spelling bypasses D10`: left A's obstruction (the chain FOLLOWED through a symlink native refuses), right the own-name refusal; doctor: the same `link_env` line |
+| E4 prefixed-name check removed (`!prefixed && false`) | protocol `tools/myenv: no spelling bypasses D10`: left A's obstruction, right the prefixed-name refusal; doctor: the same `myenv` line |
+| P1 parent-type check removed (`self.closed.as_ref().filter(\|_\| false)`) | protocol `missing_pnpm…`: the scalar-parent lock `…react: '>=16.8.0'\n        foo: bar\n` **was accepted**; doctor `ignored_pnpm…` line 2406: that lock reported `ok dsh … composite f742ba0e…` — the control's digest |
+| P2 collection-kind check removed (`frame.block != block && false`) | protocol: the mixed lock `…react: '>=16.8.0'\n      - foo\n` was accepted; doctor: the same lock reported the control's composite |
+| P3 dedent check weakened (`frame.indent <= indent`) | protocol: `…debug@2.6.9:\n      deep: 1\n    mid: 2\n` was accepted; doctor: the `mid` lock reported the control's composite |
+
+`git diff --stat` on `composite.rs` is identical before and after every
+restoration. The fourth-hold M1–M11 records above and the third hold's
+records stand; nothing they cover was re-mutated here.
+
+**Gates on the restored candidate.**
+
+| Check | Actual outcome |
+|---|---|
+| `cargo fmt --all -- --check` | Exit 0, no output. |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | Exit 0, `Finished`, no warning. |
+| `cargo test -p brokkr-core --all-features --locked` | 73 + 3 + 8 + 2 passed, 0 failed. |
+| `cargo test -p brokkr-store --all-features --locked` | 58 + 1 + 1 + 1 + 1 + 2 passed, 0 failed. |
+| `cargo test -p brokkr-protocol --all-features --locked` | 377 + 99 (2 ignored) + 1 passed, 0 failed; the native matrix passed. |
+| `cargo test -p brokkr-runtime --all-features --locked` | Every binary `test result: ok` (441 in the lib), 0 failed. |
+| `cargo test -p brokkr-view --all-features --locked` | 243 passed (3 ignored), 0 failed. |
+| `cargo test -p brokkr-bridge --all-features --locked` | 13 passed, 0 failed. |
+| `cargo test -p brokkr-cli --all-features --locked` | 463 + every integration suite passed (32 `test result: ok`, `doctor_dsh_selection` 14), 0 failed, no hang. |
+| `cargo test --workspace` | First run: one panic, `hands::tests::the_network_prefix_is_eight_tokens_and_the_probe_asks_the_dispatchs_path` (`hands/tests.rs:1199`, a freshly planted `unshare` script spawned by the probe — outside this slice, the #255 shape); the test passed alone and the second full run had every binary `test result: ok`, 0 failed, no panic, no hang. Both recorded. |
+| `cargo test --workspace --all-features --locked` | Every binary `test result: ok`, 0 failed, no panic, no hang. |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` / `bundles/verify` | Both compiled; the plan JSON printed (self: seats implement/intake/review/ship/verify; verify: review/verify). |
+| `openspec validate --all --strict` | NOT EXECUTED: refused by the seat under both the bare and the absolute-path spelling. Pending. |
+| `TMPDIR=/tmp bash scripts/coverage-exact.sh` | The literal script launch is refused by the seat under every spelling tried (`TMPDIR=… bash …`, `env TMPDIR=… bash …`). The script's own three cargo steps were run by hand on the restored bytes with the unchanged pin (`cargo +nightly-2026-09-05 llvm-cov clean --workspace`; `… llvm-cov --workspace --all-features --locked --branch --json --output-path …`; `… llvm-cov report --branch --lcov --output-path …`), its `jq` harness-leak check applied to the fresh JSON (`true`) and its LCOV rule applied through the retained transcription `.forge/lcovtool`. Reports under `.forge/scratch/coverage/` (`coverage.json`, `lcov.info`), outside the commit; 66 `test result: ok`, 0 `FAILED`, no `--ignore-run-fail`. **Lines 32322 / 32322 (100%), branches 5440 / 5440 (100%), functions 3139 / 3139 (100%)**, no uncovered record. The denominator moved from the previous visit's 32216 / 5424 / 3122 by this delivery's own production lines (`IgnoredBody`, `env_dispatch`, `env_invocation`). The literal script and CI's `coverage-exact` job on the final head remain the gate's own artifact and are pending until they run. |
+
+The first `cargo test -p brokkr-protocol … composite::` baseline run of
+this visit hit the #255 ETXTBSY race once
+(`spawn_node_runtime_reads_one_version_line_and_refuses_the_rest`,
+`Text file busy (os error 26)`); the rerun and every later run passed.
+
+**Still pending, recorded and not claimed.** The immutable Apple
+`exec.c`/`posix_spawn.c` revision pin and native macOS execution: this
+seat's `curl`, `WebFetch` and the GitHub MCP (`list_tags`,
+`get_file_contents`) were each refused, so the port still carries D10's
+moving-`main` ranges; the source-cited env dispatch rules are likewise
+unpinned. Native Windows matrix/doctor/`GetBinaryTypeW` and the Windows
+1.88 MSRV build. The absent-PATH Node positive and its two removals:
+`absent_path_node_identity_is_retained_by_the_composite` and
+`absent_path_default_search_matches_native_dsh_and_node` both printed
+`PENDING: no node on this host's default search path /bin:/usr/bin` and
+asserted the named refusal. `openspec validate`, the literal coverage
+script and remote CI on the final head. The post-probe head reopen and the
+groups 4–7 removals keep their dated records. No local clause changes
+state: 8.8.1.1/8.8.1.2 stay open on the Apple pin and native macOS,
+8.8.2.1 on the pin and native platforms (its alias qualification is
+delivered above), 8.8.2.2 on native platforms, 8.8.3.1's structure is
+delivered above and its clause stays with 8.8.8.2's validation, 8.8.8.1
+on the Node positive, 8.8.8.2 on `openspec validate`, 8.8.8.3 on the
+literal script, 8.8.8.4 with them. Part (d), 8.10, 9.6, 10.6–10.8,
+11.1–11.4, groups 14–15 were not touched; 8.8 stays unchecked; 0056 stays
+proposed; `contracts/`, `policy/`, `fixtures/`, `reference/`,
+`extensions/dsh/`, `docs/decisions/` are byte-identical (`git diff --stat`
+over them is empty); no push.
+
 ### Implementation delivery — fourth security hold, 2026-09-21 (Europe/Sofia)
 
 This implement seat (run `dsh-composite-identity-issue-226-5e82d607`) adopted
