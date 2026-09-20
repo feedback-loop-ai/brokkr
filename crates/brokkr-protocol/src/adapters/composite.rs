@@ -746,8 +746,18 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
             // an ignored field that is not read is still a field whose
             // syntax the document must have (security hold 2026-09-20,
             // finding 2). A colon without a following space — a URL —
-            // remains a plain string.
-            if text.contains(['[', ']', '{', '}', ',']) || text.contains(": ") {
+            // remains a plain string. A colon that ENDS the scalar is
+            // the indicator too: what follows it in the document is the
+            // field's own padding, a comma or the closing brace, none
+            // of which a plain scalar's colon may be followed by, so
+            // `tarball: x: }` and `tarball: x:}` are the mapping YAML
+            // would open, not a string spelled `x:` — the trailing
+            // padding the separator consumed does not change what the
+            // colon was followed by (review 2026-09-20, R3).
+            if text.contains(['[', ']', '{', '}', ','])
+                || text.contains(": ")
+                || text.ends_with(':')
+            {
                 return Err(format!(
                     "the resolution field '{key}' carries unsupported flow syntax: '{text}'"
                 ));
@@ -985,9 +995,12 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 .ok_or_else(|| bad("a malformed package key"))?
                 .text();
             // A key that is itself a mapping — `a@1: {}` reaches this
-            // reader as `a@1: {`, and `a@1: b:` as a key ending in `b` —
-            // is a flow-form or nested record, not a package heading.
-            if key.contains(": ") {
+            // reader as `a@1: {`, `a@1: b:` as a key ending in `b`, and
+            // `a@1: :` or `a@1::` as a key ending in `:` once the
+            // heading's own colon and padding are gone — is a flow-form
+            // or nested record, not a package heading (review
+            // 2026-09-20, R3).
+            if key.contains(": ") || key.ends_with(':') {
                 return Err(bad("a package key that is itself a mapping"));
             }
             let (name, version) = pnpm_package(key).map_err(CompositeError::PnpmLock)?;
@@ -1144,6 +1157,13 @@ fn canonical_composite(
 pub struct DshSeams {
     pub executable: String,
     pub home: PathBuf,
+    /// The `node` the executable's `#!/usr/bin/env node` line selected
+    /// under the same search when the executable was selected, retained
+    /// so the composite observes THAT runtime rather than looking `node`
+    /// up again (review 2026-09-20, R5). `None` when the selection
+    /// established no `node` — a native image, another interpreter —
+    /// and the observation then looks `node` up by the same rule.
+    pub node: Option<PathBuf>,
 }
 
 /// A DSH executable the adapter's seam SELECTED: the canonical file the
@@ -1208,7 +1228,7 @@ impl DshSeams {
     pub fn selected() -> Result<DshSelection, DshUnselected> {
         DshSeams::selected_from(
             super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
-            resolve_executable,
+            select,
             crate::transcript::dsh_home(),
         )
     }
@@ -1219,11 +1239,11 @@ impl DshSeams {
     /// installed while the suite runs.
     fn selected_from(
         declared: String,
-        resolve: impl FnOnce(&str) -> Result<PathBuf, CompositeError>,
+        resolve: impl FnOnce(&str) -> Result<Selected, CompositeError>,
         home: Option<PathBuf>,
     ) -> Result<DshSelection, DshUnselected> {
-        let path = match resolve(&declared) {
-            Ok(path) => path,
+        let Selected { path, node } = match resolve(&declared) {
+            Ok(selected) => selected,
             Err(cause) => return Err(DshUnselected { declared, cause }),
         };
         // A path this platform cannot spell as UTF-8 is refused by
@@ -1238,16 +1258,24 @@ impl DshSeams {
                 )),
             });
         };
-        let seams = DshSeams::resolve_with(executable.clone(), home);
+        let seams = DshSeams::resolve_with(executable.clone(), node, home);
         Ok(DshSelection { executable, seams })
     }
 
-    /// `resolve` over an injected executable and home, so the missing-home
-    /// refusal is a plain test.
-    fn resolve_with(executable: String, home: Option<PathBuf>) -> Result<DshSeams, CompositeError> {
+    /// `resolve` over an injected executable, retained Node selection and
+    /// home, so the missing-home refusal is a plain test.
+    fn resolve_with(
+        executable: String,
+        node: Option<PathBuf>,
+        home: Option<PathBuf>,
+    ) -> Result<DshSeams, CompositeError> {
         let home =
             home.ok_or_else(|| CompositeError::Config("no dsh home: set DSH_HOME or HOME".into()))?;
-        Ok(DshSeams { executable, home })
+        Ok(DshSeams {
+            executable,
+            home,
+            node,
+        })
     }
 }
 
@@ -1302,8 +1330,9 @@ impl DshComposite {
     /// A synthetic observation with a chosen canonical digest, for the
     /// planner and doctor suites that must drive a qualifying or
     /// drifting case without an installed pair. Test-only by
-    /// construction: production has no way to reach it.
-    #[cfg(test)]
+    /// construction: production has no way to reach it. Those suites
+    /// are Unix-only, and so is this.
+    #[cfg(all(test, unix))]
     pub(crate) fn synthetic(canonical: &str) -> DshComposite {
         DshComposite {
             canonical: canonical.to_string(),
@@ -1390,6 +1419,24 @@ fn effective_exec_access(path: &Path) -> bool {
     .is_ok()
 }
 
+/// What one lookup SELECTED: the canonical file the platform runs for
+/// the name, and — when that file's `#!` chain reaches the measured
+/// `env node` form — the `node` the same search selected for `env`.
+///
+/// The Node selection is RETAINED, not re-derived. Selection preflighted
+/// `node` under the child's search and then threw the answer away, and
+/// the composite that followed looked `node` up a second time by the
+/// same rule: an `A/node` that answered the DSH version probe and then
+/// removed its own launcher left a readable composite through `B/node`,
+/// with no concurrent writer needed (review 2026-09-20, R5). One
+/// selection, one runtime, carried through the observation as D6 and
+/// D10 require.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Selected {
+    path: PathBuf,
+    node: Option<PathBuf>,
+}
+
 /// What one search entry taught the resolver about its candidate.
 ///
 /// The inherited `is_executable_file` answered a BOOLEAN, and a boolean
@@ -1398,14 +1445,23 @@ fn effective_exec_access(path: &Path) -> bool {
 /// next entry. The child's own search stops at the loop with `ELOOP`,
 /// so a resolver that walked on to `B/dsh` paired B's version with a
 /// selection the child never made (security hold 2026-09-20, finding 2).
+#[cfg(unix)]
 enum Candidate {
-    /// The entry a child would execute, canonical.
-    Admitted(PathBuf),
-    /// Not this entry, for a reason the child's search also walks past:
-    /// absence, an untraversable component, a non-file or a file this
-    /// process may not execute. The reason is kept for an explicit
-    /// override, which has no next entry to walk to.
-    Passed(String),
+    /// The entry a child would execute, canonical, with what its
+    /// loading declarations selected beside it.
+    Admitted(Selected),
+    /// Not this entry, for a reason the child's search also walks past.
+    /// `denied` is whether the reason is the kernel's `EACCES` — a
+    /// component this process may not traverse, a candidate that is not
+    /// a regular file, or one it may not execute — as opposed to plain
+    /// absence (`ENOENT`, or `ENOTDIR` for a path component that is a
+    /// file). `execvp` walks past both, and remembers the difference: a
+    /// search that ends with no admission answers `EACCES` when any
+    /// entry was denied and `ENOENT` otherwise, and a child reports
+    /// PermissionDenied where this resolver said only "not on PATH"
+    /// (review 2026-09-20, R9). The reason is kept for an explicit
+    /// override too, which has no next entry to walk to.
+    Passed { why: String, denied: bool },
     /// The search stops here, by cause: a loop, a failure the resolver
     /// cannot prove the child would walk past, an obstruction the child
     /// would only meet at `exec`, or a path it cannot canonicalize.
@@ -1416,16 +1472,18 @@ enum Candidate {
 /// child's `execve` stops on at a self-referential symlink. Asked by the
 /// platform's own number, because `ErrorKind::FilesystemLoop` is not
 /// stable on the pinned compiler.
+#[cfg(unix)]
 fn is_symlink_loop(error: &std::io::Error) -> bool {
-    #[cfg(unix)]
-    {
-        error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = error;
-        false
-    }
+    error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
+}
+
+/// Whether a lookup failed with `ENOTDIR`: a path component that is a
+/// regular file. `execvp` records it beside `ENOENT` and tries the next
+/// entry — `PATH=<file>:B` runs `B/dsh` natively — where this resolver
+/// stopped on it as an unproved failure (review 2026-09-20, R1).
+#[cfg(unix)]
+fn is_not_a_directory(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(rustix::io::Errno::NOTDIR.raw_os_error())
 }
 
 /// Whether the platform reads `command` as a PATH to a file rather than
@@ -1504,25 +1562,39 @@ impl Search {
     /// Search the entries for `command` as the child would: the first
     /// entry whose candidate is admitted wins, an entry the child walks
     /// past is walked past, and a candidate the resolver cannot prove
-    /// stops the search by cause.
-    fn find(&self, command: &str, chain: &mut Vec<(u64, u64)>) -> Result<PathBuf, CompositeError> {
+    /// stops the search by cause. A search that admits nothing answers
+    /// as `execvp` answers: the first denied entry's cause where one was
+    /// denied (the child's PermissionDenied), and a plain no-match
+    /// otherwise (the child's NotFound).
+    fn find(&self, command: &str, chain: &mut Vec<(u64, u64)>) -> Result<Selected, CompositeError> {
+        let mut denied: Option<(PathBuf, String)> = None;
         for dir in std::env::split_paths(&self.entries) {
             let candidate = match dir.as_os_str().is_empty() {
                 true => PathBuf::from(command),
                 false => dir.join(command),
             };
             match classify_in(&candidate, self, chain) {
-                Candidate::Admitted(path) => return Ok(path),
-                Candidate::Passed(_) => continue,
+                Candidate::Admitted(selected) => return Ok(selected),
+                Candidate::Passed { why, denied: true } => {
+                    denied.get_or_insert((candidate, why));
+                }
+                Candidate::Passed { denied: false, .. } => {}
                 Candidate::Refused(error) => return Err(error),
             }
         }
-        Err(CompositeError::Config(match self.default {
+        let searched = match self.default {
             true => format!(
-                "'{command}' is not on the default search path {} (PATH is absent)",
+                "the default search path {} (PATH is absent)",
                 self.entries.to_string_lossy()
             ),
-            false => format!("'{command}' is not on PATH"),
+            false => "PATH".to_string(),
+        };
+        Err(CompositeError::Config(match denied {
+            Some((candidate, why)) => format!(
+                "'{command}' is not executable by this process on {searched}: {}: {why}",
+                candidate.display()
+            ),
+            None => format!("'{command}' is not on {searched}"),
         }))
     }
 }
@@ -1598,34 +1670,45 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
             candidate.display()
         )))
     };
+    let passed = |why: String, denied: bool| Candidate::Passed { why, denied };
     let metadata = match std::fs::metadata(candidate) {
         Ok(metadata) => metadata,
-        // `execvp` records ENOENT and EACCES and tries the next entry;
-        // every other failure is one it stops on, and so does this.
+        // `execvp` records ENOENT, ENOTDIR and EACCES and tries the next
+        // entry; every other failure is one it stops on, and so does
+        // this.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Candidate::Passed(error.to_string());
+            return passed(error.to_string(), false);
+        }
+        Err(error) if is_not_a_directory(&error) => {
+            return passed(error.to_string(), false);
         }
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            return Candidate::Passed(error.to_string());
+            return passed(error.to_string(), true);
         }
         Err(error) if is_symlink_loop(&error) => {
             return refuse(format!("a symlink loop stops the lookup: {error}"));
         }
         Err(error) => return refuse(format!("the lookup cannot be proved: {error}")),
     };
+    // `execve` answers EACCES for a candidate that is not a regular
+    // file and for one this process may not execute: both are walked
+    // past, and both are the denial the search remembers.
     if !metadata.is_file() {
-        return Candidate::Passed("is not a regular file".to_string());
+        return passed("is not a regular file".to_string(), true);
     }
     if !effective_exec_access(candidate) {
-        return Candidate::Passed("is not executable by this process".to_string());
+        return passed("is not executable by this process".to_string(), true);
     }
-    if let Err(why) = loading_obstruction(candidate, metadata.len(), search, chain) {
-        return refuse(why);
-    }
+    let node = match loading_obstruction(candidate, metadata.len(), search, chain) {
+        Ok(node) => node,
+        Err(why) => return refuse(why),
+    };
     // Admitted as the file it canonically is; a canonicalization the
     // metadata above did not already rule out is refused by the helper's
     // own reason.
-    canonicalize(candidate).map_or_else(Candidate::Refused, Candidate::Admitted)
+    canonicalize(candidate).map_or_else(Candidate::Refused, |path| {
+        Candidate::Admitted(Selected { path, node })
+    })
 }
 
 /// The kernel's own bound on a `#!` line (`BINPRM_BUF_SIZE`): a script
@@ -1655,13 +1738,16 @@ const INTERPRETER_DEPTH: usize = 4;
 /// REFUSED by that cause, because neither a loader emulation nor a trial
 /// execution is on the table (design D10). The refusal is the one
 /// exception to native equality, and it is named as such.
+///
+/// The answer is what the declarations SELECTED: the `node` an `env
+/// node` line reached under the same search, or nothing.
 #[cfg(unix)]
 fn loading_obstruction(
     candidate: &Path,
     len: u64,
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
-) -> Result<(), String> {
+) -> Result<Option<PathBuf>, String> {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
 
@@ -1672,7 +1758,7 @@ fn loading_obstruction(
         open_head(candidate).map_err(|error| format!("cannot be read: {error}"))?;
     let read = head.len();
     let Some(line) = head.strip_prefix(b"#!") else {
-        return native_obstruction(&mut file, len);
+        return native_obstruction(&mut file, len).map(|()| None);
     };
     let line = match line.iter().position(|byte| *byte == b'\n') {
         Some(end) => &line[..end],
@@ -1733,8 +1819,14 @@ fn loading_obstruction(
         ));
     }
     chain.push(identity);
-    let loaded = loading_obstruction(interpreter, metadata.len(), search, chain)
-        .and_then(|()| env_program(interpreter, arguments, search, chain));
+    // The interpreter's own declarations first, then the program an
+    // `env` interpreter selects; what the innermost link selected is the
+    // answer, so a script whose interpreter is `env node` retains that
+    // `node` as its own.
+    let loaded =
+        loading_obstruction(interpreter, metadata.len(), search, chain).and_then(|inner| {
+            env_program(interpreter, arguments, search, chain).map(|env| env.or(inner))
+        });
     chain.pop();
     loaded.map_err(|why| format!("its #! interpreter '{named}' {why}"))
 }
@@ -1754,41 +1846,67 @@ fn open_head(candidate: &Path) -> std::io::Result<(std::fs::File, Vec<u8>)> {
 /// The measured `#!/usr/bin/env node` form: `env` itself loads, and the
 /// program it would search for is selected under the SAME native search,
 /// so a missing `node` is a refusal before any probe rather than a
-/// version probe that exits 127. One word after `env`, naming a program
-/// and not an option, is the form this establishes; an option language
-/// (`-S`, `-i`, `NAME=value`) is not added, and refuses by name.
+/// version probe that exits 127. A program name, and not an option, is
+/// the form this establishes; an option language (`-S`, `-i`,
+/// `NAME=value`) is not added, and refuses by name. The `node` a line
+/// spelled exactly so selects is the answer, retained for the
+/// observation; another program is selected for admission only.
+///
+/// The program is the argument AS THE KERNEL HANDS IT TO `env`. Linux
+/// (`binfmt_script`) passes everything after the interpreter, trailing
+/// spaces and tabs removed, as ONE argument: `#!/usr/bin/env reviewed
+/// extra` makes `env` search for a program named `reviewed extra`, and a
+/// resolver that cut the argument at its first space inspected
+/// `A/reviewed` while the child walked `A/reviewed extra`'s missing
+/// interpreter to `B/reviewed extra` past D10's refusal (review
+/// 2026-09-20, R2). The other Unix kernels split the line into words;
+/// there a one-word argument is the form this establishes, and more
+/// words refuse by name rather than being guessed either way.
 #[cfg(unix)]
 fn env_program(
     interpreter: &Path,
     arguments: &[u8],
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
-) -> Result<(), String> {
+) -> Result<Option<PathBuf>, String> {
     if interpreter.file_name() != Some(std::ffi::OsStr::new("env")) {
-        return Ok(());
+        return Ok(None);
     }
-    let arguments = match arguments
-        .iter()
-        .position(|byte| *byte != b' ' && *byte != b'\t')
-    {
+    let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';
+    let arguments = match arguments.iter().position(|byte| !is_blank(byte)) {
         Some(start) => &arguments[start..],
-        None => return Ok(()),
+        None => return Ok(None),
     };
     let end = arguments
         .iter()
-        .position(|byte| *byte == b' ' || *byte == b'\t')
-        .unwrap_or(arguments.len());
-    let program = &arguments[..end];
+        .rposition(|byte| !is_blank(byte))
+        .map_or(0, |last| last + 1);
+    let argument = &arguments[..end];
+    // The kernel's own argument rule, chosen at compile time: the other
+    // kernels' word split is not a branch a Linux run can take.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let program = argument;
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let program = {
+        if argument.iter().any(is_blank) {
+            return Err(format!(
+                "takes '{}', which this platform splits into more than the one `env <program>` \
+                 word this establishes",
+                String::from_utf8_lossy(argument)
+            ));
+        }
+        argument
+    };
     if program[0] == b'-' || program.contains(&b'=') {
         return Err(format!(
             "takes '{}', which is not the measured `env <program>` form",
-            String::from_utf8_lossy(arguments)
+            String::from_utf8_lossy(argument)
         ));
     }
     let program = std::str::from_utf8(program)
         .map_err(|_| "names a program that is not UTF-8".to_string())?;
     match lookup_in(program, search, chain) {
-        Ok(_) => Ok(()),
+        Ok(selected) => Ok((program == "node").then_some(selected.path)),
         Err(cause) => Err(format!("selects no '{program}': {cause}")),
     }
 }
@@ -1847,27 +1965,35 @@ fn native_obstruction(file: &mut std::fs::File, len: u64) -> Result<(), String> 
     Ok(())
 }
 
-/// Resolve `command` to the canonical file the platform's own lookup
-/// selects for it, under the environment this process would hand a
-/// child: a path is used directly, a name is searched.
+/// Select `command` as the platform's own lookup selects it, under the
+/// environment this process would hand a child: a path is used
+/// directly, a name is searched. The answer carries what the selection
+/// established beside the file.
 #[cfg(unix)]
-fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
-    resolve_executable_in(command, std::env::var_os("PATH"))
+fn select(command: &str) -> Result<Selected, CompositeError> {
+    select_in(command, std::env::var_os("PATH"))
 }
 
-/// `resolve_executable` on Windows: the child's environment is the
-/// parent's, unchanged, so only the parent's `PATH` is searched after the
-/// application, system and Windows directories.
+/// `select` on Windows: an unchanged child environment is resolved
+/// against the application, system and parent-`PATH` directories in that
+/// order, which is the lookup an explicitly removed child `PATH` gets
+/// too — and not the one a child `PATH` equal to the parent's gets,
+/// which would search the parent's entries ahead of the application
+/// directory.
 #[cfg(windows)]
-fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
-    refuse_unspellable(command)?;
-    windows_lookup(command, None, std::env::var_os("PATH"))
+fn select(command: &str) -> Result<Selected, CompositeError> {
+    select_in(command, None)
 }
 
-/// `resolve_executable` over an injected child `PATH`, so an absent
-/// `PATH`, an empty entry, a non-executable candidate, an obstructed
-/// candidate and a miss are plain tests, and so the differential matrix
-/// can hand the resolver exactly the environment its native oracle ran.
+/// Resolve `command` to the canonical file alone.
+fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
+    select(command).map(|selected| selected.path)
+}
+
+/// `select` over an injected child `PATH`, so an absent `PATH`, an
+/// empty entry, a non-executable candidate, an obstructed candidate and
+/// a miss are plain tests, and so the differential matrix can hand the
+/// resolver exactly the environment its native oracle ran.
 ///
 /// The outcome is EQUAL to `std::process::Command::new(command)`'s under
 /// the same cwd and environment: the same file, or a refusal exactly
@@ -1877,13 +2003,21 @@ fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
 /// (design D10). Nothing native lookup would not execute is selected,
 /// and nothing it would execute is silently swapped for another.
 #[cfg(unix)]
+fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
+    refuse_unspellable(command)?;
+    let search = Search::capture(path)?;
+    lookup_in(command, &search, &mut Vec::new())
+}
+
+/// `select_in`, answering the canonical file alone: the differential
+/// matrix and the selection tests compare files, and production's one
+/// injected-`PATH` caller is the selection itself.
+#[cfg(test)]
 fn resolve_executable_in(
     command: &str,
     path: Option<std::ffi::OsString>,
 ) -> Result<PathBuf, CompositeError> {
-    refuse_unspellable(command)?;
-    let search = Search::capture(path)?;
-    lookup_in(command, &search, &mut Vec::new())
+    select_in(command, path).map(|selected| selected.path)
 }
 
 /// One lookup under a captured search: a path is one candidate under the
@@ -1894,28 +2028,33 @@ fn lookup_in(
     command: &str,
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
-) -> Result<PathBuf, CompositeError> {
+) -> Result<Selected, CompositeError> {
     if is_explicit_path(command) {
         return match classify_in(Path::new(command), search, chain) {
-            Candidate::Admitted(path) => Ok(path),
-            Candidate::Passed(why) => Err(CompositeError::Config(format!("{command}: {why}"))),
+            Candidate::Admitted(selected) => Ok(selected),
+            Candidate::Passed { why, .. } => {
+                Err(CompositeError::Config(format!("{command}: {why}")))
+            }
             Candidate::Refused(error) => Err(error),
         };
     }
     search.find(command, chain)
 }
 
-/// `resolve_executable_in` on Windows: `path` is the child's explicit
-/// `PATH` — present, or removed from a changed environment — and the
-/// parent's `PATH` is the process's own, exactly the two inputs
-/// `std::process::Command` resolves a program against there.
+/// `select_in` on Windows: `path` is the child's explicit `PATH` —
+/// present, or removed from a changed environment — and the parent's
+/// `PATH` is the process's own, exactly the two inputs
+/// `std::process::Command` resolves a program against there. The
+/// production selection hands `None`: a child whose environment is
+/// unchanged is resolved against the same application, system and
+/// parent-`PATH` directories as one whose `PATH` was removed, so the
+/// one lookup serves both. No Windows selection establishes a Node
+/// runtime: a PE declares no interpreter to follow.
 #[cfg(windows)]
-fn resolve_executable_in(
-    command: &str,
-    path: Option<std::ffi::OsString>,
-) -> Result<PathBuf, CompositeError> {
+fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
     refuse_unspellable(command)?;
-    windows_lookup(command, Some(path.as_deref()), std::env::var_os("PATH"))
+    windows_lookup(command, path.as_deref(), std::env::var_os("PATH"))
+        .map(|path| Selected { path, node: None })
 }
 
 /// Rust's Windows program resolution (library/std/src/sys/process/
@@ -1932,7 +2071,7 @@ fn resolve_executable_in(
 #[cfg(windows)]
 fn windows_lookup(
     command: &str,
-    child: Option<Option<&std::ffi::OsStr>>,
+    child: Option<&std::ffi::OsStr>,
     parent: Option<std::ffi::OsString>,
 ) -> Result<PathBuf, CompositeError> {
     if command.ends_with(['/', '\\']) {
@@ -1963,7 +2102,7 @@ fn windows_lookup(
         false => format!("{command}.exe").into(),
     };
     let mut directories: Vec<PathBuf> = Vec::new();
-    if let Some(Some(child)) = child {
+    if let Some(child) = child {
         directories.extend(std::env::split_paths(child).filter(|dir| !dir.as_os_str().is_empty()));
     }
     if let Ok(mut application) = std::env::current_exe() {
@@ -2017,9 +2156,13 @@ fn windows_system_directories() -> Vec<PathBuf> {
 }
 
 /// Admit a Windows candidate the search selected: a regular file that is
-/// not a batch script dispatched through `cmd.exe`, and a PE image of
-/// this target's machine and subsystem. A dangling link, a directory, a
-/// malformed image or an image of another format refuses by cause.
+/// not a batch script dispatched through `cmd.exe`, a PE image of this
+/// target's machine, word size and subsystem whose headers and sections
+/// lie inside the file, and one the OS itself reports as a native
+/// binary of this target's word size (`GetBinaryTypeW`, a read-only
+/// query that loads nothing). A dangling link, a directory, a malformed
+/// image, an image of another format or a binary type the OS names
+/// otherwise refuses by cause (review 2026-09-20, R7).
 #[cfg(windows)]
 fn admit_windows(candidate: &Path) -> Result<PathBuf, CompositeError> {
     let refuse = |why: String| CompositeError::Config(format!("{}: {why}", candidate.display()));
@@ -2048,7 +2191,55 @@ fn admit_windows(candidate: &Path) -> Result<PathBuf, CompositeError> {
             image.kind
         )));
     }
+    let binary_type = windows_binary_type(candidate)
+        .map_err(|why| refuse(format!("is not an executable the OS recognizes: {why}")))?;
+    if binary_type != WINDOWS_BINARY_TYPE {
+        return Err(refuse(format!(
+            "is binary type {binary_type} to the OS, which is not this target's {WINDOWS_BINARY_TYPE}"
+        )));
+    }
     canonicalize(candidate)
+}
+
+/// The `GetBinaryTypeW` answer this target executes as itself:
+/// `SCS_64BIT_BINARY` (6) on a 64-bit target, `SCS_32BIT_BINARY` (0) on
+/// a 32-bit one. A DOS, 16-bit Windows, OS/2, POSIX or PIF binary is
+/// another type, and so is a 32-bit image on a 64-bit target, which
+/// `CreateProcessW` would run under WOW64 as a different runtime.
+#[cfg(windows)]
+const WINDOWS_BINARY_TYPE: u32 = if cfg!(target_pointer_width = "64") {
+    6
+} else {
+    0
+};
+
+/// The OS's own classification of an executable file, without loading
+/// it: `GetBinaryTypeW` reads the image headers and answers the binary
+/// type, or fails for a file that is not an executable at all.
+#[cfg(windows)]
+fn windows_binary_type(candidate: &Path) -> Result<u32, String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetBinaryTypeW(application: *const u16, binary_type: *mut u32) -> i32;
+        fn GetLastError() -> u32;
+    }
+    let wide: Vec<u16> = candidate
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut binary_type = 0u32;
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the
+    // call, and `binary_type` is a live `u32` the call writes once.
+    let answered = unsafe { GetBinaryTypeW(wide.as_ptr(), &mut binary_type) };
+    if answered == 0 {
+        // SAFETY: reads the calling thread's last-error value.
+        let error = unsafe { GetLastError() };
+        return Err(format!("GetBinaryTypeW failed with error {error}"));
+    }
+    Ok(binary_type)
 }
 
 /// The selected executable, exactly as the seams carry it: a path the
@@ -2414,9 +2605,20 @@ fn resolve_bundle(
     )))
 }
 
-/// Spawn the first `node` on `PATH` once for its version line.
-fn spawn_node_runtime() -> Result<NodeRuntime, CompositeError> {
-    let path = resolve_executable("node")?;
+/// Spawn the Node runtime once for its version line: the `node` the
+/// executable's selection RETAINED where it established one, and the
+/// first `node` on `PATH` under the same rule only where it did not.
+///
+/// A second lookup here is what R5 (review 2026-09-20) reproduced: an
+/// `A/node` that answered the DSH version probe and then removed its own
+/// launcher, followed by a readable composite through `B/node`. The
+/// retained path is probed as it is; a runtime that is gone since
+/// selection is a refusal, never a different runtime.
+fn spawn_node_runtime(retained: Option<&Path>) -> Result<NodeRuntime, CompositeError> {
+    let path = match retained {
+        Some(node) => node.to_path_buf(),
+        None => resolve_executable("node")?,
+    };
     spawn_node_runtime_at(path)
 }
 
@@ -2611,7 +2813,7 @@ fn dsh_composite_reading(
 /// canonical composite and the component values behind it, over the
 /// adapter's own resolved seams and a real `node --version` probe.
 pub fn dsh_composite(seams: &DshSeams) -> Result<DshComposite, CompositeError> {
-    dsh_composite_resolving(seams, spawn_node_runtime)
+    dsh_composite_resolving(seams, || spawn_node_runtime(seams.node.as_deref()))
 }
 
 /// `dsh_composite` over an injected runtime probe, so the composition is a

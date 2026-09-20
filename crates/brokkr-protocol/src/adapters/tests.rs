@@ -4340,7 +4340,9 @@ fn a_dsh_offer_is_declined_and_its_retained_directory_is_not_a_handle() {
 }
 
 /// A synthetic composite with a chosen canonical digest, so every
-/// qualifying and drifting planner case is a plain unit test.
+/// qualifying and drifting planner case is a plain unit test. Every
+/// planner case that consumes it is Unix-only.
+#[cfg(unix)]
 fn synthetic_dsh_composite(digest: &str) -> DshComposite {
     // The producer's own test-only constructor. This suite cannot
     // assemble an observation field by field: every member is private to

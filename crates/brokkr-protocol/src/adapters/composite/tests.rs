@@ -47,15 +47,13 @@ fn spawn_retrying_etxtbsy(command: &mut std::process::Command) -> std::process::
     panic!("the child test binary stayed busy");
 }
 
+#[cfg(unix)]
 fn stage_executable(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
     let staging = dir.join(format!(".{name}.staging"));
     fs::write(&staging, body).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
     fs::rename(&staging, &path).unwrap();
     path
 }
@@ -1124,6 +1122,7 @@ impl Synthetic {
             seams: DshSeams {
                 executable,
                 home: home.clone(),
+                node: None,
             },
             dir,
         }
@@ -1185,6 +1184,7 @@ fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
     let aliased = DshSeams {
         executable: install.seams.executable.clone(),
         home: alias,
+        node: None,
     };
     let same = dsh_composite_with(&aliased, &install.node(), &[]).unwrap();
     assert_eq!(base.plugin, same.plugin);
@@ -1226,6 +1226,7 @@ fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
     let through_nested_alias = DshSeams {
         executable: install.seams.executable.clone(),
         home: nested_alias,
+        node: None,
     };
     assert_eq!(
         refused(dsh_composite_with(
@@ -1302,6 +1303,7 @@ fn containment_compares_canonical_components_not_string_prefixes() {
     let seams = DshSeams {
         executable: install.seams.executable.clone(),
         home,
+        node: None,
     };
     assert_eq!(
         refused(dsh_composite_with(&seams, &install.node(), &[])),
@@ -1856,11 +1858,28 @@ fn path_resolution_walks_past_a_candidate_a_child_could_not_execute() {
     fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(resolved.unwrap(), real.canonicalize().unwrap());
 
-    // Nothing executable anywhere on the search is the named refusal.
+    // Nothing executable anywhere on the search is the named refusal —
+    // and the name is the child's: a search whose only candidate was
+    // denied ends in EACCES, which the refusal carries rather than
+    // reporting an absence the child did not see (review 2026-09-20,
+    // R9). A search with no candidate at all is the plain no-match.
     assert_eq!(
         refused(resolve_executable_in(
             "dsh",
             Some(OsString::from(first.display().to_string()))
+        )),
+        format!(
+            "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+             is not executable by this process",
+            decoy.display()
+        )
+    );
+    assert_eq!(
+        refused(resolve_executable_in(
+            "dsh",
+            Some(OsString::from(
+                dir.path().join("nowhere").display().to_string()
+            ))
         )),
         "the DSH layout is unreadable: 'dsh' is not on PATH"
     );
@@ -2101,8 +2120,6 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
 /// commissioned environment.
 #[test]
 fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
-    const CASE: &str = "BROKKR_COMPOSITE_SEAMS_CONTROL";
-
     // The selection is the ADAPTER's, resolved once: the file the
     // declared name resolves to, or a failed selection carrying that
     // name and the lookup's cause. Asserting the literal `dsh` here made
@@ -2155,6 +2172,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // keeps a dsh there, both select that very file.
     #[cfg(unix)]
     {
+        const CASE: &str = "BROKKR_COMPOSITE_SEAMS_CONTROL";
         if std::env::var_os(CASE).is_some() {
             assert_eq!(
                 crate::transcript::dsh_home(),
@@ -2221,23 +2239,39 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     }
 
     assert_eq!(
-        refused(DshSeams::resolve_with("dsh".to_string(), None)),
+        refused(DshSeams::resolve_with("dsh".to_string(), None, None)),
         "the DSH layout is unreadable: no dsh home: set DSH_HOME or HOME"
     );
     let dir = tempfile::tempdir().unwrap();
-    let seams = DshSeams::resolve_with("dsh".to_string(), Some(dir.path().to_path_buf())).unwrap();
+    let seams =
+        DshSeams::resolve_with("dsh".to_string(), None, Some(dir.path().to_path_buf())).unwrap();
     assert_eq!(seams.executable, "dsh");
     assert_eq!(seams.home, dir.path());
+    assert_eq!(seams.node, None);
 
     // Each arm of the selection, DRIVEN rather than observed: whichever
     // `dsh` this host has installed decides which arm the real call above
     // takes, and a gate that demands every line cannot rest on that.
     let home = Some(dir.path().to_path_buf());
     let resolved = dir.path().join("resolved-dsh");
-    let selection =
-        DshSeams::selected_from("dsh".to_string(), |_| Ok(resolved.clone()), home.clone()).unwrap();
+    let retained = dir.path().join("retained-node");
+    let selection = DshSeams::selected_from(
+        "dsh".to_string(),
+        |_| {
+            Ok(Selected {
+                path: resolved.clone(),
+                node: Some(retained.clone()),
+            })
+        },
+        home.clone(),
+    )
+    .unwrap();
     assert_eq!(Path::new(&selection.executable), resolved);
-    assert_eq!(selection.seams.unwrap().executable, selection.executable);
+    let seams = selection.seams.unwrap();
+    assert_eq!(seams.executable, selection.executable);
+    // The Node selection made beside the executable is the seams' own:
+    // what the composite will observe, not a spelling to look up again.
+    assert_eq!(seams.node, Some(retained));
     // A name that resolves to nothing is NOT selected. The inherited
     // arm kept the declared spelling as the executable, and doctor
     // probed that spelling: under an absent `PATH` it executed a `dsh`
@@ -2271,8 +2305,17 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     {
         use std::os::unix::ffi::OsStrExt;
         let raw = PathBuf::from(std::ffi::OsStr::from_bytes(b"/tmp/dsh\xff"));
-        let unselected =
-            DshSeams::selected_from("dsh".to_string(), |_| Ok(raw.clone()), home).unwrap_err();
+        let unselected = DshSeams::selected_from(
+            "dsh".to_string(),
+            |_| {
+                Ok(Selected {
+                    path: raw.clone(),
+                    node: None,
+                })
+            },
+            home,
+        )
+        .unwrap_err();
         assert_eq!(unselected.declared, "dsh");
         assert_eq!(
             unselected.cause.to_string(),
@@ -2303,6 +2346,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     let seams = DshSeams {
         executable: "/opt/dsh/lib/bin.js".to_string(),
         home: PathBuf::from("/opt/home"),
+        node: Some(PathBuf::from("/opt/node/bin/node")),
     };
     assert_eq!(
         DshSeams::resolved(Ok(DshSelection {
@@ -2560,15 +2604,28 @@ fn native_executable_resolution_matches_command_matrix() {
     );
     assert!(output.status.success(), "{said}");
     // The child reports its tally; the cells it crossed are asserted
-    // here too, so a matrix that silently shrank cannot pass.
+    // here too, so a matrix that silently shrank cannot pass. The
+    // count is the one constant both sides read: the two ELF-loader
+    // layouts exist only where an ELF fixture does, and a literal
+    // written for Linux demanded 112 cells of a macOS run that could
+    // build 96 (review 2026-09-20, R6).
     assert!(
-        said.contains("matrix: 8 names x 14 layouts = 112 cells"),
+        said.contains(&format!(
+            "matrix: 8 names x {MATRIX_LAYOUTS} layouts = {} cells",
+            8 * MATRIX_LAYOUTS
+        )),
         "{said}"
     );
 }
 
-/// Where a bare or direct spelling places its candidate in a layout.
+/// The layouts the matrix crosses on this target: thirteen on every
+/// Unix, plus the two missing-loader layouts where the ELF fixture can be
+/// built. Asserted by the child on the layouts it built and by the parent
+/// on the tally the child printed.
 #[cfg(unix)]
+const MATRIX_LAYOUTS: usize = if cfg!(target_os = "linux") { 15 } else { 13 };
+
+/// Where a bare or direct spelling places its candidate in a layout.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Slot {
     /// The file the spelling itself denotes: `cwd/<name>` for a bare
@@ -2755,6 +2812,17 @@ fn native_matrix_child() {
                 empty_at: None,
                 expect: Expect::Parity,
             },
+            // The sole candidate is one this process may not execute:
+            // the child's search ends in EACCES, not ENOENT, and the
+            // resolver's refusal names that denial (review 2026-09-20,
+            // R9).
+            Layout {
+                name: "A alone, A not executable",
+                files: vec![(Slot::A, Body::NonExecutable)],
+                path: Some(vec![Slot::A]),
+                empty_at: None,
+                expect: Expect::Parity,
+            },
             Layout {
                 name: "A:B, A a working native image",
                 files: vec![(Slot::A, Body::Native), (Slot::B, Body::Script)],
@@ -2785,6 +2853,7 @@ fn native_matrix_child() {
         layouts
     };
     let layouts = layouts(broken.is_some());
+    assert_eq!(layouts.len(), MATRIX_LAYOUTS);
     if broken.is_none() {
         eprintln!(
             "matrix: the two missing-loader layouts need an ELF fixture and are PENDING on \
@@ -2983,6 +3052,13 @@ fn native_matrix_child() {
                             describe("ELOOP is named")
                         );
                     }
+                    if error.kind() == std::io::ErrorKind::PermissionDenied {
+                        assert!(
+                            reason.contains("is not executable by this process"),
+                            "{}",
+                            describe("EACCES is named as the denial it is")
+                        );
+                    }
                     terminal += 1;
                 }
                 (Expect::Obstruction, native) => {
@@ -3072,6 +3148,430 @@ fn native_matrix_child() {
             "the resolver's absent-PATH selection is the native default-search identity"
         );
     }
+}
+
+/// The Windows sentinel arm: run as a hard-linked copy of this test
+/// binary under another name, with the marker variable set, it prints
+/// the image it runs as, so a matrix cell can tell WHICH copy the
+/// platform ran. Run as an ordinary test it does nothing.
+#[cfg(windows)]
+#[test]
+fn windows_matrix_sentinel_reports_its_own_image() {
+    if std::env::var_os(WINDOWS_SENTINEL).is_some() {
+        println!(
+            "SENTINEL_EXE:{}",
+            std::env::current_exe().unwrap().display()
+        );
+    }
+}
+
+#[cfg(windows)]
+const WINDOWS_SENTINEL: &str = "BROKKR_COMPOSITE_WINDOWS_SENTINEL";
+
+/// The layouts the Windows matrix crosses: the same cwd, PATH-directory,
+/// absent, present-empty and empty-entry layouts as the Unix table, and
+/// the three `A;B` cells Windows lookup has — a non-image at A, a
+/// directory at A and a working image at A — in place of the Unix loader
+/// obstructions, because Windows lookup stops at the first entry that
+/// EXISTS and never walks past one it cannot run.
+#[cfg(windows)]
+const WINDOWS_MATRIX_LAYOUTS: usize = 11;
+
+/// The differential matrix on Windows (design D10, proposal AO; review
+/// 2026-09-20, R8): every commissioned spelling crossed with every
+/// layout, the resolver compared with a real `Command::new(name)` child
+/// under IDENTICAL cwd and environment, and every cell equality — the
+/// same canonical file, or a refusal exactly where the child failed. The
+/// candidates are hard-linked copies of this test binary answering as
+/// the sentinel arm above, so a cell identifies the file the platform
+/// ran. The literal `C:\Tools\dsh.exe` row is asserted as the absent
+/// path it is on a runner and recorded PENDING where an operator keeps
+/// an installation there, which this test never creates or runs.
+///
+/// Windows' rule, as std applies it: a spelling with a separator is a
+/// path, tried with `.exe` appended before the literal unless it already
+/// ends in `.exe`; a file name is searched — the child's `PATH` when its
+/// environment changed (empty entries skipped), the application
+/// directory, the system and Windows directories, the parent's `PATH` —
+/// with `.exe` appended when the name has no extension; the working
+/// directory is never searched; the first entry that exists is the
+/// selection, run or not.
+#[cfg(windows)]
+#[test]
+fn native_executable_resolution_matches_command_matrix_on_windows() {
+    const CASE: &str = "BROKKR_COMPOSITE_NATIVE_MATRIX_WINDOWS";
+    if std::env::var_os(CASE).is_some() {
+        windows_matrix_child();
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("cwd");
+    fs::create_dir_all(&cwd).unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "adapters::composite::tests::native_executable_resolution_matches_command_matrix_on_windows",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .current_dir(&cwd)
+        .env(CASE, "1");
+    let output = child.output().expect("the child test binary runs");
+    let said = String::from_utf8_lossy(&output.stdout).into_owned()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("1 passed") || said.contains("1 failed"),
+        "the child ran the matrix rather than filtering it away: {said}"
+    );
+    assert!(output.status.success(), "{said}");
+    assert!(
+        said.contains(&format!(
+            "matrix: 8 names x {WINDOWS_MATRIX_LAYOUTS} layouts = {} cells",
+            8 * WINDOWS_MATRIX_LAYOUTS
+        )),
+        "{said}"
+    );
+}
+
+/// What a Windows candidate is made of.
+#[cfg(windows)]
+enum WindowsBody {
+    /// A hard-linked copy of this test binary: a working image.
+    Sentinel,
+    /// A text file under the candidate's name: exists, and is no image.
+    Text,
+    /// A directory under the candidate's name: exists, and is no file.
+    Directory,
+}
+
+#[cfg(windows)]
+struct WindowsLayout {
+    name: &'static str,
+    files: Vec<(Slot, WindowsBody)>,
+    path: Option<Vec<Slot>>,
+    empty_at: Option<usize>,
+}
+
+#[cfg(windows)]
+fn windows_matrix_child() {
+    use std::process::{Command, Stdio};
+
+    let cwd = std::env::current_dir().unwrap();
+    let root = cwd.parent().unwrap().to_path_buf();
+    let exe = std::env::current_exe().unwrap();
+    fs::create_dir_all(root.join("abs")).unwrap();
+    let abs = root.join("abs").join("dsh").display().to_string();
+    const OPERATOR_PATH: &str = "C:\\Tools\\dsh.exe";
+    let operator_installation = Path::new(OPERATOR_PATH).exists();
+    let names: [&str; 8] = [
+        "dsh",
+        ".\\dsh",
+        "..\\dsh",
+        &abs,
+        OPERATOR_PATH,
+        "dsh.exe",
+        "my dsh",
+        "dsh\0x",
+    ];
+    let layouts = vec![
+        WindowsLayout {
+            name: "cwd-only, PATH elsewhere",
+            files: vec![(Slot::Target, WindowsBody::Sentinel)],
+            path: Some(vec![Slot::Other]),
+            empty_at: None,
+        },
+        WindowsLayout {
+            name: "PATH directory plus competing cwd file",
+            files: vec![
+                (Slot::PathDir, WindowsBody::Sentinel),
+                (Slot::Target, WindowsBody::Sentinel),
+            ],
+            path: Some(vec![Slot::PathDir]),
+            empty_at: None,
+        },
+        WindowsLayout {
+            name: "PATH absent, cwd file",
+            files: vec![(Slot::Target, WindowsBody::Sentinel)],
+            path: None,
+            empty_at: None,
+        },
+        WindowsLayout {
+            name: "present-empty PATH, cwd file",
+            files: vec![(Slot::Target, WindowsBody::Sentinel)],
+            path: Some(vec![]),
+            empty_at: Some(0),
+        },
+        WindowsLayout {
+            name: "present-empty PATH, no candidate",
+            files: vec![],
+            path: Some(vec![]),
+            empty_at: Some(0),
+        },
+        WindowsLayout {
+            name: "leading empty entry",
+            files: vec![
+                (Slot::Target, WindowsBody::Sentinel),
+                (Slot::PathDir, WindowsBody::Sentinel),
+            ],
+            path: Some(vec![Slot::PathDir]),
+            empty_at: Some(0),
+        },
+        WindowsLayout {
+            name: "interior empty entry",
+            files: vec![
+                (Slot::Target, WindowsBody::Sentinel),
+                (Slot::Other, WindowsBody::Sentinel),
+            ],
+            path: Some(vec![Slot::PathDir, Slot::Other]),
+            empty_at: Some(1),
+        },
+        WindowsLayout {
+            name: "trailing empty entry",
+            files: vec![(Slot::Target, WindowsBody::Sentinel)],
+            path: Some(vec![Slot::PathDir]),
+            empty_at: Some(1),
+        },
+        WindowsLayout {
+            name: "A;B, A is not an image",
+            files: vec![
+                (Slot::A, WindowsBody::Text),
+                (Slot::B, WindowsBody::Sentinel),
+            ],
+            path: Some(vec![Slot::A, Slot::B]),
+            empty_at: None,
+        },
+        WindowsLayout {
+            name: "A;B, A is a directory of the candidate's name",
+            files: vec![
+                (Slot::A, WindowsBody::Directory),
+                (Slot::B, WindowsBody::Sentinel),
+            ],
+            path: Some(vec![Slot::A, Slot::B]),
+            empty_at: None,
+        },
+        WindowsLayout {
+            name: "A;B, A a working image",
+            files: vec![
+                (Slot::A, WindowsBody::Sentinel),
+                (Slot::B, WindowsBody::Sentinel),
+            ],
+            path: Some(vec![Slot::A, Slot::B]),
+            empty_at: None,
+        },
+    ];
+    assert_eq!(layouts.len(), WINDOWS_MATRIX_LAYOUTS);
+
+    // The file a spelling denotes once std's `.exe` rule is applied: a
+    // bare name without an extension gains `.exe`; a path without the
+    // `.exe` suffix is tried with it appended first, which is the form
+    // every placed candidate takes here.
+    let with_exe = |spelled: &str| -> String {
+        let has_exe = spelled
+            .as_bytes()
+            .get(spelled.len().wrapping_sub(4)..)
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(b".exe"));
+        match has_exe {
+            true => spelled.to_string(),
+            false => format!("{spelled}.exe"),
+        }
+    };
+    let mut cell_number = 0usize;
+    let mut equal = 0usize;
+    let mut not_found = 0usize;
+    let mut terminal = 0usize;
+    let mut nul = 0usize;
+    let mut pending = 0usize;
+    for name in names {
+        let direct = name.contains(['\\', '/']);
+        let target: PathBuf = match name {
+            ".\\dsh" => cwd.join("dsh.exe"),
+            "..\\dsh" => root.join("dsh.exe"),
+            OPERATOR_PATH => PathBuf::from(OPERATOR_PATH),
+            _ if direct => PathBuf::from(with_exe(name)),
+            _ => {
+                let file = match name.contains('.') {
+                    true => name.to_string(),
+                    false => format!("{name}.exe"),
+                };
+                cwd.join(file)
+            }
+        };
+        for layout in &layouts {
+            cell_number += 1;
+            if name == OPERATOR_PATH && operator_installation {
+                eprintln!(
+                    "matrix: PENDING, an operator installation sits at {OPERATOR_PATH}; the \
+                     literal drive-path row is not executed on this host ({})",
+                    layout.name
+                );
+                pending += 1;
+                continue;
+            }
+            let cell = root.join(format!("cell-{cell_number}"));
+            let dir_of = |slot: Slot| match slot {
+                Slot::PathDir => cell.join("path"),
+                Slot::A => cell.join("a"),
+                Slot::B => cell.join("b"),
+                Slot::Other => cell.join("other"),
+                Slot::Target => cwd.clone(),
+            };
+            for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
+                fs::create_dir_all(dir_of(slot)).unwrap();
+            }
+            let bare_file = match name.contains('.') {
+                true => name.to_string(),
+                false => format!("{name}.exe"),
+            };
+            let place_at = |slot: Slot| -> PathBuf {
+                match (slot, direct) {
+                    (Slot::Target, _) | (Slot::A, true) => target.clone(),
+                    (slot, true) => dir_of(slot).join("dsh.exe"),
+                    (slot, false) => dir_of(slot).join(&bare_file),
+                }
+            };
+            let mut sentinels: Vec<PathBuf> = Vec::new();
+            let mut placed: Vec<PathBuf> = Vec::new();
+            // The literal drive path is never created: its cells assert
+            // the absent path a runner has. A NUL name places nothing.
+            if !name.contains('\0') && name != OPERATOR_PATH {
+                for (slot, body) in &layout.files {
+                    let at = place_at(*slot);
+                    match body {
+                        WindowsBody::Sentinel => {
+                            if fs::hard_link(&exe, &at).is_err() {
+                                fs::copy(&exe, &at).unwrap();
+                            }
+                            sentinels.push(at.clone());
+                        }
+                        WindowsBody::Text => {
+                            fs::write(&at, b"not an image\r\n").unwrap();
+                        }
+                        WindowsBody::Directory => {
+                            fs::create_dir_all(&at).unwrap();
+                        }
+                    }
+                    placed.push(at);
+                }
+            }
+            let path: Option<OsString> = layout.path.as_ref().map(|slots| {
+                let mut entries: Vec<OsString> = slots
+                    .iter()
+                    .map(|slot| dir_of(*slot).into_os_string())
+                    .collect();
+                if let Some(at) = layout.empty_at {
+                    entries.insert(at, OsString::new());
+                }
+                entries.join(std::ffi::OsStr::new(";"))
+            });
+
+            // The native oracle: the same name, the same cwd (this
+            // process's), the same PATH.
+            let mut command = Command::new(name);
+            command
+                .args([
+                    "adapters::composite::tests::windows_matrix_sentinel_reports_its_own_image",
+                    "--exact",
+                    "--nocapture",
+                ])
+                .env(WINDOWS_SENTINEL, "1")
+                .stdin(Stdio::null());
+            match &path {
+                Some(path) => command.env("PATH", path),
+                None => command.env_remove("PATH"),
+            };
+            let native = command.output().map(|output| {
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                match stdout
+                    .lines()
+                    .find_map(|line| line.strip_prefix("SENTINEL_EXE:"))
+                {
+                    Some(ran) => PathBuf::from(ran),
+                    None => panic!(
+                        "{name:?} in {}: the child ran an unidentified file: {stdout}",
+                        layout.name
+                    ),
+                }
+            });
+            let resolved = resolve_executable_in(name, path.clone());
+            let describe = |what: &str| {
+                format!(
+                    "{what}: name {name:?}, layout {:?}, PATH {path:?}, native {native:?}, \
+                     resolver {resolved:?}",
+                    layout.name
+                )
+            };
+            let refusal = |what: &str| match &resolved {
+                Ok(_) => panic!("{}", describe(what)),
+                Err(error) => error.to_string(),
+            };
+            match &native {
+                Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+                    assert!(name.contains('\0'), "{}", describe("invalid input"));
+                    assert_eq!(
+                        refused(resolved.clone()),
+                        "the DSH layout is unreadable: 'dsh\\0x' carries a NUL",
+                        "{}",
+                        describe("a NUL is refused up front")
+                    );
+                    nul += 1;
+                }
+                Ok(ran) => {
+                    let ran = ran.canonicalize().unwrap();
+                    assert!(
+                        sentinels.iter().any(|at| at.canonicalize().unwrap() == ran),
+                        "{}",
+                        describe("the child ran a placed sentinel")
+                    );
+                    assert_eq!(
+                        resolved.as_ref().ok(),
+                        Some(&ran),
+                        "{}",
+                        describe("the resolver selects exactly the file the child ran")
+                    );
+                    equal += 1;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    refusal("the resolver selected a file where the child found nothing");
+                    not_found += 1;
+                }
+                Err(_) => {
+                    // An entry that exists and cannot run — no image, a
+                    // directory — is the child's selection and its
+                    // failure; the resolver refuses it by cause, and B
+                    // is never selected in its place.
+                    let reason = refusal("the resolver selected a file where the child stopped");
+                    let b = place_at(Slot::B).display().to_string();
+                    assert!(
+                        !reason.contains(&b),
+                        "{}",
+                        describe("an existing entry that cannot run authorizes no later candidate")
+                    );
+                    assert!(
+                        reason.contains("is not a loadable native image")
+                            || reason.contains("is not a regular file"),
+                        "{}",
+                        describe("the refusal names the cause")
+                    );
+                    terminal += 1;
+                }
+            }
+            for at in placed {
+                let _ = fs::remove_file(&at);
+                let _ = fs::remove_dir_all(&at);
+            }
+            let _ = fs::remove_dir_all(&cell);
+        }
+    }
+    eprintln!(
+        "matrix: {} names x {} layouts = {} cells; {equal} equal selections, {not_found} \
+         NotFound parities, {terminal} terminal-error parities, {nul} NUL refusals, {pending} \
+         PENDING operator-installation cells",
+        names.len(),
+        layouts.len(),
+        cell_number
+    );
+    assert!(equal > 0 && not_found > 0 && terminal > 0 && nul > 0);
 }
 
 /// `Command::output`, retrying only the ETXTBSY a freshly staged
@@ -3234,6 +3734,31 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             "{integrity: sha512-X: y}",
             "the resolution field 'integrity' carries unsupported flow syntax: 'sha512-X: y'",
         ),
+        // A colon ENDING a plain flow scalar is the mapping indicator
+        // too, whether the document follows it with padding, the
+        // closing brace or a comma: `x: }` and `x:}` read as the
+        // control before the trailing padding was consumed ahead of
+        // the syntax rule (review 2026-09-20, R3).
+        (
+            "{integrity: sha512-X, tarball: x: }",
+            "the resolution field 'tarball' carries unsupported flow syntax: 'x:'",
+        ),
+        (
+            "{integrity: sha512-X, tarball: x:}",
+            "the resolution field 'tarball' carries unsupported flow syntax: 'x:'",
+        ),
+        (
+            "{integrity: sha512-X:}",
+            "the resolution field 'integrity' carries unsupported flow syntax: 'sha512-X:'",
+        ),
+        (
+            "{integrity: sha512-X: }",
+            "the resolution field 'integrity' carries unsupported flow syntax: 'sha512-X:'",
+        ),
+        (
+            "{integrity: sha512-X:, tarball: y}",
+            "the resolution field 'integrity' carries unsupported flow syntax: 'sha512-X:'",
+        ),
     ] {
         assert_eq!(
             refused_vector(
@@ -3279,6 +3804,18 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
         (
             "lockfileVersion: '9.0'\n\npnpmfileChecksum:sha256-x\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n".to_string(),
             "a top-level key 'pnpmfileChecksum' that lacks ': ' separation",
+        ),
+        // A package heading whose key ends in a colon once its own
+        // colon and padding are gone — `debug@2.6.9: :` and
+        // `debug@2.6.9::` — is a nested mapping, not a heading with a
+        // version spelled `2.6.9:` (review 2026-09-20, R3).
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9: :\n    resolution: {integrity: sha512-X}\n".to_string(),
+            "a package key that is itself a mapping",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9::\n    resolution: {integrity: sha512-X}\n".to_string(),
+            "a package key that is itself a mapping",
         ),
     ] {
         assert_eq!(
@@ -3856,56 +4393,111 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     // hard-linked in, whose loader the reader opens and checks.
     stage_executable(&b, "node", b"#!/bin/sh\necho v0\n");
     let interpreter_script = stage_executable(&b, "interp", b"#!/bin/sh\n");
-    for body in [
-        b"#! \t/bin/sh\t-e  extra\n".to_vec(),
-        b"#!/bin/sh".to_vec(),
-        b"#!/usr/bin/env\n".to_vec(),
-        b"#!/usr/bin/env node\n".to_vec(),
-        b"#!/usr/bin/env node --flag\n".to_vec(),
-        format!("#!{}\n", interpreter_script.display()).into_bytes(),
+    for (body, node) in [
+        (b"#! \t/bin/sh\t-e  extra\n".to_vec(), None),
+        (b"#!/bin/sh".to_vec(), None),
+        (b"#!/usr/bin/env\n".to_vec(), None),
+        (
+            b"#!/usr/bin/env node\n".to_vec(),
+            Some(b.join("node").canonicalize().unwrap()),
+        ),
+        (
+            b"#!/usr/bin/env  \tnode \t\n".to_vec(),
+            Some(b.join("node").canonicalize().unwrap()),
+        ),
+        (
+            format!("#!{}\n", interpreter_script.display()).into_bytes(),
+            None,
+        ),
     ] {
         stage_executable(&a, "dsh", &body);
+        let selected = select_in("dsh", path(&a)).unwrap();
         assert_eq!(
-            resolve_executable_in("dsh", path(&a)).unwrap(),
+            selected.path,
             a.join("dsh").canonicalize().unwrap(),
             "{body:?}"
         );
+        // The `node` an `env node` line selected is retained beside the
+        // file; every other admitted form establishes none.
+        assert_eq!(selected.node, node, "{body:?}");
+    }
+    // A script whose INTERPRETER is the `env node` script retains that
+    // innermost selection as its own.
+    let via = stage_executable(&b, "via-env-node", b"#!/usr/bin/env node\n");
+    stage_executable(&a, "dsh", format!("#!{}\n", via.display()).as_bytes());
+    assert_eq!(
+        select_in("dsh", path(&a)).unwrap().node,
+        Some(b.join("node").canonicalize().unwrap())
+    );
+    // An `env` argument with more than one word: the Linux kernel hands
+    // it to env as one program name, which no search holds; the other
+    // Unix kernels split it, and this resolver refuses the form rather
+    // than guessing which half is the program.
+    stage_executable(&a, "dsh", b"#!/usr/bin/env node --flag\n");
+    let refusal = refused(resolve_executable_in("dsh", path(&a)));
+    match cfg!(any(target_os = "linux", target_os = "android")) {
+        true => assert_eq!(
+            refusal,
+            format!(
+                "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' selects no \
+                 'node --flag': the DSH layout is unreadable: 'node --flag' is not on PATH",
+                a.join("dsh").display()
+            )
+        ),
+        false => assert_eq!(
+            refusal,
+            format!(
+                "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' takes \
+                 'node --flag', which this platform splits into more than the one `env \
+                 <program>` word this establishes",
+                a.join("dsh").display()
+            )
+        ),
     }
     fs::remove_file(a.join("dsh")).unwrap();
     fs::copy(std::env::current_exe().unwrap(), a.join(".dsh.staging")).unwrap();
     fs::rename(a.join(".dsh.staging"), a.join("dsh")).unwrap();
+    let selected = select_in("dsh", path(&a)).unwrap();
     assert_eq!(
-        resolve_executable_in("dsh", path(&a)).unwrap(),
+        selected.path,
         a.join("dsh").canonicalize().unwrap(),
         "a native image whose loader is established is admitted"
     );
+    assert_eq!(selected.node, None, "a native image establishes no node");
 
     // What the head can NOT establish is a refusal by name, never an
     // admission (security hold 2026-09-20, finding 4): a truncated
     // native header, an empty file, another target's image, an `env`
     // form beyond the measured one, an `env node` with no `node` on the
     // search, and an interpreter chain that loops or runs too deep.
-    let macho = {
-        let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
-        bytes.extend_from_slice(&image::tests_cputype().to_le_bytes());
-        bytes.extend_from_slice(&[0; 4]);
-        bytes.extend_from_slice(&2u32.to_le_bytes());
-        bytes.extend_from_slice(&[0; 16]);
-        bytes
-    };
-    let mut pe = b"MZ".to_vec();
-    pe.resize(60, 0);
-    pe.extend_from_slice(&64u32.to_le_bytes());
-    pe.extend_from_slice(b"PE\0\0");
-    pe.extend_from_slice(&image::tests_pe_machine().to_le_bytes());
-    pe.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    pe.extend_from_slice(&240u16.to_le_bytes());
-    pe.extend_from_slice(&0x0022u16.to_le_bytes());
-    let optional_at = pe.len();
-    pe.extend_from_slice(&0x20bu16.to_le_bytes());
-    pe.resize(optional_at + 68, 0);
-    pe.extend_from_slice(&3u16.to_le_bytes());
-    pe.resize(optional_at + 240, 0);
+    // The foreign images are the formats THIS target does not load:
+    // each well-formed, parsed whole, and refused for being another
+    // target's rather than for a shape no run of this target reads.
+    let foreign: Vec<(Vec<u8>, String)> = [
+        (image::tests::synthetic_elf(None), image::Kind::Elf),
+        (
+            {
+                let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
+                bytes.extend_from_slice(&image::tests_cputype().to_le_bytes());
+                bytes.extend_from_slice(&[0; 4]);
+                bytes.extend_from_slice(&2u32.to_le_bytes());
+                bytes.extend_from_slice(&[0; 16]);
+                bytes
+            },
+            image::Kind::MachO,
+        ),
+        (image::tests::synthetic_pe(), image::Kind::Pe),
+    ]
+    .into_iter()
+    .filter(|(_, kind)| *kind != image::NATIVE)
+    .map(|(bytes, kind)| {
+        (
+            bytes,
+            format!("is a {kind} image, which this target does not load"),
+        )
+    })
+    .collect();
+    assert_eq!(foreign.len(), 2, "two of the three formats are foreign");
     let looping = format!("#!{}\n", a.join("dsh").display()).into_bytes();
     let mut deep = Vec::new();
     for depth in 0..5 {
@@ -3924,7 +4516,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         env.exists(),
         "the measured interpreter exists on every supported Unix"
     );
-    for (body, reason) in [
+    let mut vectors = vec![
         (
             b"\x7fELF\x02\x01\x01\0\0\0\0\0\0\0\0\0\x02\0>\0".to_vec(),
             "is not a loadable native image: an ELF header beyond the end of the file".to_string(),
@@ -3937,14 +4529,9 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
             b"not a script and not an image\n".to_vec(),
             "is not a loadable native image: neither a #! script nor a native image".to_string(),
         ),
-        (
-            macho,
-            "is a Mach-O image, which this target does not load".to_string(),
-        ),
-        (
-            pe,
-            "is a PE image, which this target does not load".to_string(),
-        ),
+    ];
+    vectors.extend(foreign);
+    vectors.extend([
         (
             b"#!/usr/bin/env -S node\n".to_vec(),
             "its #! interpreter '/usr/bin/env' takes '-S node', which is not the measured \
@@ -3987,7 +4574,8 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
                 deep[1].display()
             ),
         ),
-    ] {
+    ]);
+    for (body, reason) in vectors {
         stage_executable(&a, "dsh", &body);
         assert_eq!(
             refused(resolve_executable_in("dsh", path(&a))),
@@ -4076,17 +4664,214 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     }
     fs::set_permissions(a.join("dsh"), fs::Permissions::from_mode(0o755)).unwrap();
 
-    // A metadata failure of a kind the child's search does not walk past
-    // is a refusal by cause: a path component that is a FILE gives
-    // ENOTDIR, which `execvp` stops on too.
+    // A PATH entry that is a regular FILE: the candidate's lookup gives
+    // ENOTDIR, which `execvp` records beside ENOENT and walks past, so
+    // `PATH=<file>:B` runs `B/dsh` natively — and this resolver stopped
+    // on it as an unproved failure (review 2026-09-20, R1). The native
+    // child is the oracle; as an explicit path the same cause is the
+    // refusal, because an override has nowhere to walk to.
     let notdir = dir.path().join("file-as-dir");
     fs::write(&notdir, b"x").unwrap();
     let enotdir = fs::metadata(notdir.join("dsh")).unwrap_err();
+    assert!(is_not_a_directory(&enotdir), "{enotdir}");
+    let native = std::process::Command::new("dsh")
+        .env("PATH", path(&notdir).unwrap())
+        .output()
+        .expect("the native child walks past the file-as-directory entry to B");
+    assert!(native.status.success());
     assert_eq!(
-        refused(resolve_executable_in("dsh", path(&notdir))),
+        resolve_executable_in("dsh", path(&notdir)).unwrap(),
+        real.canonicalize().unwrap(),
+        "the resolver walks past ENOTDIR to B as the child did"
+    );
+    assert_eq!(
+        refused(resolve_executable_in(
+            notdir.join("dsh").to_str().unwrap(),
+            None
+        )),
         format!(
-            "the DSH layout is unreadable: {}: the lookup cannot be proved: {enotdir}",
+            "the DSH layout is unreadable: {}: {enotdir}",
             notdir.join("dsh").display()
+        )
+    );
+    // A metadata failure of a kind the child's search does NOT walk past
+    // remains a refusal by cause: a name too long for the kernel.
+    let too_long = "n".repeat(300);
+    let enametoolong = fs::metadata(a.join(&too_long)).unwrap_err();
+    assert_eq!(
+        refused(resolve_executable_in(&too_long, path(&a))),
+        format!(
+            "the DSH layout is unreadable: {}: the lookup cannot be proved: {enametoolong}",
+            a.join(&too_long).display()
+        )
+    );
+
+    // The search remembers a DENIAL as the child's `execvp` does: a
+    // search that admits nothing answers EACCES when any entry was a
+    // candidate this process may not execute, is not a regular file or
+    // sits behind a component it may not traverse, and ENOENT only when
+    // every entry was absent. The resolver named "not on PATH" for both
+    // (review 2026-09-20, R9). A later executable still wins.
+    fs::remove_file(&real).unwrap();
+    fs::write(a.join("dsh"), b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(a.join("dsh"), fs::Permissions::from_mode(0o644)).unwrap();
+    let native = std::process::Command::new("dsh")
+        .env("PATH", path(&a).unwrap())
+        .output()
+        .unwrap_err();
+    assert_eq!(
+        native.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "{native}"
+    );
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path(&a))),
+        format!(
+            "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+             is not executable by this process",
+            a.join("dsh").display()
+        )
+    );
+    fs::remove_file(a.join("dsh")).unwrap();
+    fs::create_dir(a.join("dsh")).unwrap();
+    let native = std::process::Command::new("dsh")
+        .env("PATH", path(&a).unwrap())
+        .output()
+        .unwrap_err();
+    assert_eq!(
+        native.kind(),
+        std::io::ErrorKind::PermissionDenied,
+        "{native}"
+    );
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path(&a))),
+        format!(
+            "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+             is not a regular file",
+            a.join("dsh").display()
+        )
+    );
+    fs::remove_dir(a.join("dsh")).unwrap();
+    // The first denial is the one named when several entries deny.
+    fs::write(a.join("dsh"), b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(a.join("dsh"), fs::Permissions::from_mode(0o644)).unwrap();
+    fs::create_dir(b.join("dsh")).unwrap();
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path(&a))),
+        format!(
+            "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: \
+             is not executable by this process",
+            a.join("dsh").display()
+        )
+    );
+    fs::remove_dir(b.join("dsh")).unwrap();
+    // The later executable wins over the earlier denial, as it does for
+    // the child.
+    let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n");
+    assert!(std::process::Command::new("dsh")
+        .env("PATH", path(&a).unwrap())
+        .output()
+        .unwrap()
+        .status
+        .success());
+    assert_eq!(
+        resolve_executable_in("dsh", path(&a)).unwrap(),
+        real.canonicalize().unwrap()
+    );
+    fs::remove_file(a.join("dsh")).unwrap();
+}
+
+/// The Linux kernel hands `env` everything after the interpreter as ONE
+/// argument, trailing spaces and tabs removed. A resolver that cut the
+/// argument at its first space inspected `A/reviewed` where the child's
+/// `env` searched for `reviewed extra`: with `A/reviewed extra` obstructed
+/// and `B/reviewed extra` runnable, the native child ran B past the
+/// obstruction while doctor admitted A's script on a file the child never
+/// looked at (review 2026-09-20, R2). The program is selected as the
+/// kernel spells it, so the obstruction is a refusal before any probe.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
+    use std::process::{Command, Stdio};
+
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a");
+    let b = dir.path().join("b");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let path = Some(OsString::from(format!("{}:{}", a.display(), b.display())));
+    let missing = dir.path().join("no-such-interpreter");
+    let enoent = fs::metadata(&missing).unwrap_err();
+
+    // The native fact first: `#!/usr/bin/env reviewed extra` makes env
+    // search for a program named `reviewed extra`, and with A's copy
+    // obstructed the child runs B's.
+    stage_executable(&a, "dsh", b"#!/usr/bin/env reviewed extra\n");
+    stage_executable(
+        &a,
+        "reviewed extra",
+        format!("#!{}\n", missing.display()).as_bytes(),
+    );
+    stage_executable(&a, "reviewed", b"#!/bin/sh\nprintf 'MARK:a-reviewed\\n'\n");
+    stage_executable(
+        &b,
+        "reviewed extra",
+        b"#!/bin/sh\nprintf 'MARK:b-reviewed-extra\\n'\n",
+    );
+    let native = spawn_retrying_etxtbsy(
+        Command::new("dsh")
+            .env("PATH", path.as_ref().unwrap())
+            .stdin(Stdio::null()),
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&native.stdout).trim(),
+        "MARK:b-reviewed-extra",
+        "the child's env searched for the whole argument and ran B's copy"
+    );
+    // The resolver selects the same program under the same search, and
+    // refuses at A's obstruction rather than admitting `A/dsh` on the
+    // strength of an `A/reviewed` the child never looked at.
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path.clone())),
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' selects no \
+             'reviewed extra': the DSH layout is unreadable: {}: its #! interpreter '{}' is \
+             missing: {enoent}",
+            a.join("dsh").display(),
+            a.join("reviewed extra").display(),
+            missing.display()
+        )
+    );
+    // With A's copy gone, the argument selects B's copy and the script is
+    // admitted — a program that is not `node` is selected for admission
+    // and not retained as the runtime.
+    fs::remove_file(a.join("reviewed extra")).unwrap();
+    let selected = select_in("dsh", path.clone()).unwrap();
+    assert_eq!(selected.path, a.join("dsh").canonicalize().unwrap());
+    assert_eq!(selected.node, None);
+    // Trailing spaces and tabs are the kernel's to remove, and a `node`
+    // spelled with an option is a program named `node --flag` to env,
+    // which no search holds.
+    stage_executable(&b, "node", b"#!/bin/sh\necho v0\n");
+    stage_executable(&a, "dsh", b"#!/usr/bin/env node \t \n");
+    let selected = select_in("dsh", path.clone()).unwrap();
+    assert_eq!(selected.node, Some(b.join("node").canonicalize().unwrap()));
+    stage_executable(&a, "dsh", b"#!/usr/bin/env node --flag\n");
+    let native = spawn_retrying_etxtbsy(
+        Command::new("dsh")
+            .env("PATH", path.as_ref().unwrap())
+            .stdin(Stdio::null()),
+    );
+    assert!(
+        !native.status.success(),
+        "env finds no program named `node --flag`"
+    );
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path)),
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' selects no \
+             'node --flag': the DSH layout is unreadable: 'node --flag' is not on PATH",
+            a.join("dsh").display()
         )
     );
 }
@@ -4096,7 +4881,10 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
 /// named refusal or an admission — never a guess. The candidates are
 /// synthetic ELF images of this target's machine, planted as explicit
 /// paths; nothing here is executed (security hold 2026-09-20, finding 4).
-#[cfg(unix)]
+/// ELF targets only: a synthetic ELF is another target's image on macOS,
+/// whose loader is the Mach-O `dyld` this test does not construct
+/// (review 2026-09-20, R6).
+#[cfg(all(unix, not(target_vendor = "apple")))]
 #[test]
 fn a_native_images_loader_is_read_as_the_kernel_reads_it() {
     use std::os::unix::ffi::OsStrExt;
@@ -4238,20 +5026,7 @@ fn a_native_images_loader_is_read_as_the_kernel_reads_it() {
             )
         )
     );
-    let mut pe = b"MZ".to_vec();
-    pe.resize(60, 0);
-    pe.extend_from_slice(&64u32.to_le_bytes());
-    pe.extend_from_slice(b"PE\0\0");
-    pe.extend_from_slice(&image::tests_pe_machine().to_le_bytes());
-    pe.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    pe.extend_from_slice(&240u16.to_le_bytes());
-    pe.extend_from_slice(&0x0022u16.to_le_bytes());
-    let optional_at = pe.len();
-    pe.extend_from_slice(&0x20bu16.to_le_bytes());
-    pe.resize(optional_at + 68, 0);
-    pe.extend_from_slice(&3u16.to_le_bytes());
-    pe.resize(optional_at + 240, 0);
-    let foreign = stage_executable(dir.path(), "pe-loader", &pe);
+    let foreign = stage_executable(dir.path(), "pe-loader", &image::tests::synthetic_pe());
     let foreign_loader = plant("foreign", Some(&foreign));
     assert_eq!(
         refused(resolve(&foreign_loader)),
@@ -4271,10 +5046,121 @@ fn dsh_composite_composes_over_the_real_and_injected_runtime_probes() {
     let injected = dsh_composite_resolving(&install.seams, || Ok(install.node())).unwrap();
     assert_eq!(injected.node, "v22.23.2");
     assert_eq!(injected.canonical.len(), 64);
-    // The real probe runs `node --version` from `PATH`; the delegation is
-    // exercised even when a host lacks node.
+    // The real probe runs `node --version` from `PATH` when the selection
+    // retained none; the delegation is exercised even when a host lacks
+    // node. A RETAINED runtime is probed as it is: one that is gone since
+    // selection is a refusal naming the probe, never a lookup of another.
     let _ = dsh_composite(&install.seams);
-    let _ = spawn_node_runtime();
+    let _ = spawn_node_runtime(None);
+    let gone = install.dir.path().join("gone-node");
+    let enoent = fs::metadata(&gone).unwrap_err();
+    assert_eq!(
+        refused(spawn_node_runtime(Some(&gone))),
+        format!("the DSH layout is unreadable: node --version: {enoent}")
+    );
+}
+
+/// The Node selection made when the executable was selected is the one
+/// the composite observes. Under `PATH=A:B`, selecting a `#!/usr/bin/env
+/// node` executable selects `A/node`; the composite then probes THAT
+/// file, so an `A/node` gone since selection is a refusal, where a second
+/// lookup would have found `B/node` and produced a readable composite for
+/// a runtime the selection never chose (review 2026-09-20, R5). Restoring
+/// the second lookup — `node: None` on the seams — makes the composite
+/// readable through B, which is the removal control recorded in the
+/// delivery account.
+#[cfg(unix)]
+#[test]
+fn the_composite_observes_the_node_the_selection_retained() {
+    let install = Synthetic::new();
+    let a = install.dir.path().join("a");
+    let b = install.dir.path().join("b");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    stage_executable(&a, "node", b"#!/bin/sh\necho v22.23.2\n");
+    stage_executable(&b, "node", b"#!/bin/sh\necho v22.23.2\n");
+    let path = Some(OsString::from(format!("{}:{}", a.display(), b.display())));
+    let selected = select_in(&install.seams.executable, path).unwrap();
+    assert_eq!(
+        selected.path,
+        Path::new(&install.seams.executable).canonicalize().unwrap()
+    );
+    assert_eq!(selected.node, Some(a.join("node").canonicalize().unwrap()));
+    let seams = DshSeams {
+        executable: install.seams.executable.clone(),
+        home: install.seams.home.clone(),
+        node: selected.node.clone(),
+    };
+    // With A's runtime in place the composite reads through it.
+    assert_eq!(dsh_composite(&seams).unwrap().node, "v22.23.2");
+    // A's runtime gone since selection: the probe of the retained file
+    // fails by name, and B is never consulted.
+    fs::remove_file(a.join("node")).unwrap();
+    let enoent = fs::metadata(a.join("node")).unwrap_err();
+    assert_eq!(
+        refused(dsh_composite(&seams)),
+        format!("the DSH layout is unreadable: node --version: {enoent}")
+    );
+    // The seams without a retained runtime — a selection that established
+    // none — look `node` up under this process's own `PATH`, as before.
+    let unretained = DshSeams {
+        node: None,
+        ..seams.clone()
+    };
+    assert_eq!(
+        dsh_composite(&unretained).map(|composite| composite.node),
+        spawn_node_runtime(None).map(|node| node.version)
+    );
+}
+
+/// A 40-byte Mach-O whose one load command is `LC_LOAD_DYLINKER` with
+/// `cmdsize` 8 made the reader panic on the offset field it had not
+/// bounded, and doctor with it (review 2026-09-20, R4). Through public
+/// selection it is a refusal by name, as an explicit path and on a
+/// search alike; the built-doctor regression is in
+/// `crates/brokkr-cli/tests/doctor_dsh_selection.rs`.
+#[cfg(unix)]
+#[test]
+fn a_truncated_macho_dylinker_command_is_refused_rather_than_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
+    bytes.extend_from_slice(&image::tests_cputype().to_le_bytes());
+    bytes.extend_from_slice(&[0; 4]);
+    bytes.extend_from_slice(&2u32.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&8u32.to_le_bytes());
+    bytes.extend_from_slice(&[0; 8]);
+    bytes.extend_from_slice(&0xeu32.to_le_bytes());
+    bytes.extend_from_slice(&8u32.to_le_bytes());
+    assert_eq!(bytes.len(), 40);
+    let planted = stage_executable(dir.path(), "dsh", &bytes);
+    let reason = format!(
+        "the DSH layout is unreadable: {}: is not a loadable native image: a malformed Mach-O \
+         dynamic linker command",
+        planted.display()
+    );
+    assert_eq!(
+        refused(resolve_executable_in(planted.to_str().unwrap(), None)),
+        reason
+    );
+    assert_eq!(
+        refused(resolve_executable_in(
+            "dsh",
+            Some(dir.path().as_os_str().to_os_string())
+        )),
+        reason
+    );
+    assert_eq!(
+        DshSeams::selected_from(
+            "dsh".to_string(),
+            |name| select_in(name, Some(dir.path().into())),
+            None
+        )
+        .unwrap_err()
+        .cause
+        .to_string(),
+        reason
+    );
 }
 
 #[cfg(unix)]
@@ -5614,7 +6500,11 @@ impl Measured {
         // No home-level patch: the measured home has none.
         let executable = pkg.join("lib/bin.js").to_string_lossy().into_owned();
         Measured {
-            seams: DshSeams { executable, home },
+            seams: DshSeams {
+                executable,
+                home,
+                node: None,
+            },
             dir,
         }
     }

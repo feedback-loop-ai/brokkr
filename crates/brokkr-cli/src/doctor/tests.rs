@@ -2118,6 +2118,7 @@ fn seams_at(executable: &str, home: &Path) -> Result<DshSelection, DshUnselected
         seams: Ok(DshSeams {
             executable: executable.to_string(),
             home: home.to_path_buf(),
+            node: None,
         }),
     })
 }
@@ -2407,6 +2408,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             let refusal = dsh_composite(&DshSeams {
                 executable: chosen.clone(),
                 home: home.clone(),
+                node: None,
             })
             .map(|_| unreachable!("the fixture install is broken on purpose"))
             .unwrap_err()
@@ -2471,6 +2473,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             let seams = DshSeams {
                 executable: executable.to_string(),
                 home: home.clone(),
+                node: None,
             };
             let composite = dsh_composite(&seams).expect("the fixture install composes");
             // `composite_identity`'s own mapping, over a real

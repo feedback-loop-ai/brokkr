@@ -762,6 +762,229 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
     }
 }
 
+/// R2 (review 2026-09-20). The Linux kernel hands `env` everything after
+/// the interpreter as ONE argument: `#!/usr/bin/env reviewed extra`
+/// makes `env` search for a program named `reviewed extra`. Doctor
+/// inspected `A/reviewed` — a file the child never looked at — and
+/// admitted A's script, while the native child walked `A/reviewed
+/// extra`'s missing interpreter to `B/reviewed extra`, past D10's
+/// refusal. Doctor now selects the program as the kernel spells it and
+/// refuses at A's obstruction before any probe.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let a = cwd.join("a");
+    let b = cwd.join("b");
+    let path = format!("{}:{}", a.display(), b.display());
+    let missing = cwd.join("no-such-interpreter");
+    stage_executable(&a, "dsh", "#!/usr/bin/env reviewed extra\n");
+    stage_executable(&a, "reviewed extra", &format!("#!{}\n", missing.display()));
+    version_script(&a, "reviewed", "DSH_A_REVIEWED_DECOY_0.0.1");
+    version_script(&b, "reviewed extra", "DSH_B_REVIEWED_EXTRA_0.0.2");
+    let doctor_marks = marks(cwd, "doctor");
+
+    // The native fact: the child's env searched for `reviewed extra`,
+    // found A's obstructed copy, and walked on to B's.
+    let native = native_dsh(cwd, Some(&path)).unwrap();
+    let ran = String::from_utf8_lossy(&native.stdout);
+    assert!(
+        ran.contains("DSH_B_REVIEWED_EXTRA_0.0.2"),
+        "the native child ran B's `reviewed extra`: {ran}"
+    );
+    assert_eq!(
+        executed(&marks(cwd, "oracle")),
+        vec!["DSH_B_REVIEWED_EXTRA_0.0.2".to_string()]
+    );
+
+    // Doctor refuses at A's obstruction, naming the program as the
+    // kernel spells it, and probes nothing: not A's script, not the
+    // decoy `reviewed`, not B.
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env("PATH", &path)
+            .env("BROKKR_MARKS", &doctor_marks),
+    );
+    assert_eq!(
+        executed(&doctor_marks),
+        Vec::<String>::new(),
+        "doctor probed nothing:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("DSH_B_REVIEWED_EXTRA") && !stdout.contains("DSH_A_REVIEWED_DECOY"),
+        "{stdout}"
+    );
+    let line = dsh_line(&stdout);
+    let enoent = std::fs::metadata(&missing).unwrap_err();
+    let expected = format!(
+        "{}: its #! interpreter '/usr/bin/env' selects no 'reviewed extra': the DSH layout is \
+         unreadable: {}: its #! interpreter '{}' is missing: {enoent}",
+        a.join("dsh").display(),
+        a.join("reviewed extra").display(),
+        missing.display()
+    );
+    assert!(line.contains(&expected), "{line}");
+    assert!(
+        line.starts_with("warn     dsh: binary 'dsh' not found: "),
+        "{line}"
+    );
+}
+
+/// R4 (review 2026-09-20). A 40-byte Mach-O whose one load command is
+/// `LC_LOAD_DYLINKER` with `cmdsize` 8 made the image reader panic on
+/// the offset field it had not bounded, and the built doctor exited 101
+/// with it. Doctor now reports the malformed command by name, exits as
+/// a report does, and probes nothing.
+#[test]
+fn a_truncated_macho_on_path_is_refused_by_name_without_a_panic() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let on_path = cwd.join("on-path");
+    let mut bytes = vec![0xcf, 0xfa, 0xed, 0xfe];
+    bytes.extend_from_slice(&[0; 4]);
+    bytes.extend_from_slice(&[0; 4]);
+    bytes.extend_from_slice(&2u32.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&8u32.to_le_bytes());
+    bytes.extend_from_slice(&[0; 8]);
+    bytes.extend_from_slice(&0xeu32.to_le_bytes());
+    bytes.extend_from_slice(&8u32.to_le_bytes());
+    assert_eq!(bytes.len(), 40);
+    // The CPU type is this target's own Mach-O type, so the reader
+    // reaches the load command rather than refusing the CPU type first:
+    // on Linux the image is then parsed whole and refused for the
+    // command, and the kernel refuses it as no image at all either way.
+    let cputype: u32 = if cfg!(target_arch = "aarch64") {
+        0x0100_000c
+    } else {
+        0x0100_0007
+    };
+    bytes[4..8].copy_from_slice(&cputype.to_le_bytes());
+    std::fs::create_dir_all(&on_path).unwrap();
+    let staging = on_path.join(".dsh.staging");
+    std::fs::write(&staging, &bytes).unwrap();
+    std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::rename(&staging, on_path.join("dsh")).unwrap();
+    let doctor_marks = marks(cwd, "doctor");
+
+    // The native control: the kernel does not run a truncated image.
+    // glibc's `execvp` retries an ENOEXEC file through `/bin/sh` when
+    // the child's environment was changed, so the native answer is
+    // either the exec-format error or a shell that exits nonzero.
+    match native_dsh(cwd, on_path.to_str()) {
+        Err(error) => assert_eq!(error.raw_os_error(), Some(8), "ENOEXEC: {error}"),
+        Ok(output) => assert!(!output.status.success(), "{output:?}"),
+    }
+
+    let output = spawn(
+        doctor(cwd)
+            .env("PATH", &on_path)
+            .env("BROKKR_MARKS", &doctor_marks),
+    )
+    .expect("the built doctor runs");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert_ne!(
+        output.status.code(),
+        Some(101),
+        "doctor panicked:\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert_eq!(executed(&doctor_marks), Vec::<String>::new());
+    let line = dsh_line(&stdout);
+    let expected = format!(
+        "{}: is not a loadable native image: a malformed Mach-O dynamic linker command",
+        on_path.join("dsh").display()
+    );
+    assert!(line.contains(&expected), "{line}");
+    assert!(
+        line.starts_with("warn     dsh: binary 'dsh' not found: "),
+        "{line}"
+    );
+}
+
+/// R5 (review 2026-09-20). The `node` selected beside the executable is
+/// the one the composite observes. Under `PATH=A:B` the selection of a
+/// `#!/usr/bin/env node` core selects `A/node`; the version probe runs
+/// it, and here `A/node` removes its own launcher after answering. The
+/// composite then probes the retained `A/node` and refuses by name,
+/// where a second lookup found `B/node` and produced a readable composite
+/// for a runtime the selection never chose. B is never executed.
+#[test]
+fn the_composite_probes_the_node_the_selection_retained() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let (bin, home) = install_dsh(&cwd.join("install"));
+    let a = cwd.join("a");
+    let b = cwd.join("b");
+    let doctor_marks = marks(cwd, "doctor");
+    let oracle_marks = marks(cwd, "oracle");
+    // `/bin/rm` by path: the child's `PATH` is A:B and nothing else.
+    let self_removing =
+        "#!/bin/sh\nif [ -n \"$BROKKR_MARKS\" ]; then : > \"$BROKKR_MARKS/NODE_A_RAN\"; \
+                         fi\necho v22.23.2\n/bin/rm -f \"$0\"\n";
+    stage_executable(&a, "node", self_removing);
+    version_script(&b, "node", "NODE_B_SENTINEL");
+    let path = format!("{}:{}", a.display(), b.display());
+
+    // The native fact first: the version probe doctor makes, run as a
+    // plain child, reaches A's node through `env`, and A's node answers
+    // and removes itself.
+    let native = spawn(
+        Command::new(&bin)
+            .arg("--version")
+            .current_dir(cwd)
+            .env("PATH", &path)
+            .env("BROKKR_MARKS", &oracle_marks),
+    )
+    .unwrap();
+    assert!(
+        native.status.success(),
+        "the native probe ran A's node: {}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    assert!(String::from_utf8_lossy(&native.stdout).contains("v22.23.2"));
+    assert!(
+        !a.join("node").exists(),
+        "A's node removed its own launcher"
+    );
+    assert_eq!(executed(&oracle_marks), vec!["NODE_A_RAN".to_string()]);
+    stage_executable(&a, "node", self_removing);
+
+    let line = dsh_line(&stdout_of(
+        doctor(cwd)
+            .env("PATH", &path)
+            .env("BROKKR_DSH_BIN", &bin)
+            .env("DSH_HOME", &home)
+            .env("BROKKR_MARKS", &doctor_marks),
+    ));
+    assert!(
+        !a.join("node").exists(),
+        "A's runtime removed its own launcher while answering the version probe: {line}"
+    );
+    assert_eq!(
+        executed(&doctor_marks),
+        vec!["NODE_A_RAN".to_string()],
+        "the version probe ran A's node once, and B's never: {line}"
+    );
+    assert!(
+        line.starts_with("ok       dsh: v22.23.2 · serves"),
+        "the version A's node answered: {line}"
+    );
+    let enoent = std::fs::metadata(a.join("node")).unwrap_err();
+    assert!(
+        line.contains(&format!(
+            "composite unreadable: the DSH layout is unreadable: node --version: {enoent}"
+        )),
+        "the retained runtime, gone, is a named refusal rather than B's composite: {line}"
+    );
+    assert!(!line.contains("NODE_B_SENTINEL"), "{line}");
+    // A readable composite renders `composite <digest> plugin <digest>`;
+    // none was produced.
+    assert!(!line.contains(" plugin "), "{line}");
+}
+
 /// The overrides keep their precedence and their no-fallback meaning:
 /// primary `BROKKR_DSH_BIN`, then legacy `FORGE_DSH_BIN`, then `PATH`; a
 /// failed override never falls back to a PATH decoy; an absolute
