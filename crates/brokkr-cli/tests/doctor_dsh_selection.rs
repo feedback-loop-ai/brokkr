@@ -12,8 +12,20 @@
 //! shipped `adapters/` and `agents/` — the unmeasured DSH declaration as
 //! shipped — with the environment changed only on the child.
 //!
+//! The second hold (run `dsh-composite-identity-issue-226-069caa79`)
+//! found the rule behind the instance: a cwd file literally named
+//! `C:\Tools\dsh.exe` executed through doctor, with `PATH` absent and
+//! with `PATH` set, because the resolver read a backslash as a path
+//! separator where the platform reads an ordinary filename byte. The
+//! tests here hold the resolver to the platform's rule against a native
+//! `Command::new(name)` child in the same cwd and environment, and to
+//! D10's one named exception: a candidate whose interpreter or dynamic
+//! loader is missing is refused before any probe, where the native child
+//! walks past it to the next entry.
+//!
 //! Unix only: the fixtures are shell scripts, symlinks, mode bits and
-//! `:`-separated `PATH`s.
+//! `:`-separated `PATH`s. The missing-loader fixtures patch an ELF and
+//! run on Linux; elsewhere they are recorded as pending.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -22,6 +34,15 @@ use std::process::{Command, Output};
 
 /// What the cwd decoy prints, and must never reach doctor's output.
 const SENTINEL: &str = "SECURITY_CWD_SENTINEL_9f3";
+
+/// What the cwd file literally named `C:\Tools\dsh.exe` prints.
+const BACKSLASH_SENTINEL: &str = "SECURITY_BACKSLASH_CWD_SENTINEL_9f3";
+
+/// The literal Unix filename of the second reproduction.
+const BACKSLASH_NAME: &str = "C:\\Tools\\dsh.exe";
+
+/// The loader path the patched ELF names, which must not exist.
+const MISSING_LOADER: &str = "/no-such-ld-9f3";
 
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -68,9 +89,75 @@ fn stage_executable(dir: &Path, name: &str, body: &str) -> PathBuf {
     path
 }
 
-/// A script that answers `--version` with a distinguishable line.
+/// A script that answers `--version` with a distinguishable line, and
+/// records that it RAN in the marker directory `BROKKR_MARKS` names in
+/// its environment — a destination the native oracle and doctor keep
+/// separate, so an oracle's execution cannot pollute doctor's no-probe
+/// assertion and doctor's output alone is not the only witness.
 fn version_script(dir: &Path, name: &str, version: &str) -> PathBuf {
-    stage_executable(dir, name, &format!("#!/bin/sh\necho {version}\n"))
+    stage_executable(
+        dir,
+        name,
+        &format!(
+            "#!/bin/sh\nif [ -n \"$BROKKR_MARKS\" ]; then : > \"$BROKKR_MARKS/{version}\"; fi\n\
+             echo {version}\n"
+        ),
+    )
+}
+
+/// Doctor's own marker directory, created empty; a refusal cell asserts
+/// it stays empty.
+fn marks(cwd: &Path, who: &str) -> PathBuf {
+    let dir = cwd.join(format!("marks-{who}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn executed(marks: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(marks)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Copy the ELF64 image at `working` to `dest` with only the bytes of
+/// its `PT_INTERP` path rewritten to `loader`, NUL-padded to the
+/// segment's size: a well-formed image whose dynamic loader does not
+/// exist, which the kernel refuses with ENOENT at `execve`.
+fn patch_elf_interpreter(working: &Path, dest: &Path, loader: &str) -> PathBuf {
+    let mut bytes = std::fs::read(working).unwrap();
+    assert_eq!(&bytes[..5], b"\x7fELF\x02", "a 64-bit ELF image");
+    let u16_at = |bytes: &[u8], at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+    let u32_at = |bytes: &[u8], at: usize| {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    let u64_at =
+        |bytes: &[u8], at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let phoff = u64_at(&bytes, 32) as usize;
+    let phentsize = usize::from(u16_at(&bytes, 54));
+    let phnum = usize::from(u16_at(&bytes, 56));
+    let mut patched = false;
+    for index in 0..phnum {
+        let at = phoff + index * phentsize;
+        if u32_at(&bytes, at) != 3 {
+            continue;
+        }
+        let offset = u64_at(&bytes, at + 8) as usize;
+        let filesz = u64_at(&bytes, at + 32) as usize;
+        assert!(loader.len() < filesz);
+        bytes[offset..offset + filesz].fill(0);
+        bytes[offset..offset + loader.len()].copy_from_slice(loader.as_bytes());
+        patched = true;
+    }
+    assert!(patched, "the image names a dynamic loader");
+    std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+    let staging = dest.with_file_name(".broken.staging");
+    std::fs::write(&staging, &bytes).unwrap();
+    std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::rename(&staging, dest).unwrap();
+    dest.to_path_buf()
 }
 
 /// Run a prepared command, retrying only the ETXTBSY a freshly staged
@@ -113,11 +200,15 @@ fn dsh_line(stdout: &str) -> String {
         .to_string()
 }
 
-/// A native child's own lookup of `dsh` under the same cwd and `PATH`
+/// A native child's own lookup of `name` under the same cwd and `PATH`
 /// doctor was given: the comparison every claim here is made against.
-fn native_dsh(cwd: &Path, path: Option<&str>) -> std::io::Result<Output> {
-    let mut command = Command::new("dsh");
-    command.arg("--version").current_dir(cwd);
+/// Its markers go to the oracle's own directory.
+fn native_lookup(cwd: &Path, name: &str, path: Option<&str>) -> std::io::Result<Output> {
+    let mut command = Command::new(name);
+    command
+        .arg("--version")
+        .current_dir(cwd)
+        .env("BROKKR_MARKS", marks(cwd, "oracle"));
     match path {
         Some(path) => command.env("PATH", path),
         None => command.env_remove("PATH"),
@@ -125,20 +216,26 @@ fn native_dsh(cwd: &Path, path: Option<&str>) -> std::io::Result<Output> {
     spawn(&mut command)
 }
 
+fn native_dsh(cwd: &Path, path: Option<&str>) -> std::io::Result<Output> {
+    native_lookup(cwd, "dsh", path)
+}
+
 /// S1. With no `PATH` and an executable `dsh` in cwd, doctor REFUSES —
-/// the sentinel is not executed, the refusal names the absent `PATH` —
-/// and a native child in the same state finds nothing.
+/// the sentinel is not executed, the refusal names the unsuccessful
+/// native default search with the absent `PATH` as its context — and a
+/// native child in the same state finds nothing.
 ///
 /// The order of the assertions is the order of the claims: absence of
 /// the sentinel first, because that is the defect; the named reason
 /// second, because a refusal asserted as "some error" proves nothing.
-/// On the adopted pre-fix selection path this test fails at the
+/// With absent-PATH-as-empty-entry restored this test fails at the
 /// no-sentinel assertion (recorded in the delivery account).
 #[test]
 fn absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     version_script(cwd, "dsh", SENTINEL);
+    let doctor_marks = marks(cwd, "doctor");
 
     // The native control: `Command::new("dsh")` under the same cwd with
     // no `PATH` returns NotFound. What doctor must not do is find more
@@ -152,15 +249,25 @@ fn absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel() {
         ),
     }
 
-    let stdout = stdout_of(doctor(cwd).env_remove("PATH"));
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env_remove("PATH")
+            .env("BROKKR_MARKS", &doctor_marks),
+    );
     assert!(
         !stdout.contains(SENTINEL),
         "doctor executed the cwd dsh under an absent PATH:\n{stdout}"
     );
+    assert_eq!(
+        executed(&doctor_marks),
+        Vec::<String>::new(),
+        "nothing doctor ran left a marker"
+    );
     let line = dsh_line(&stdout);
     assert!(
-        line.contains("PATH is absent"),
-        "the refusal names the absent PATH: {line}"
+        line.contains("'dsh' is not on the default search path")
+            && line.contains("(PATH is absent)"),
+        "the refusal names the unsuccessful native default search, PATH absence as context: {line}"
     );
     assert!(
         line.starts_with("warn     dsh: binary 'dsh' not found: "),
@@ -195,10 +302,309 @@ fn absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel() {
     );
 
     // Control: the sentinel removed and PATH still absent. The refusal
-    // is the absent PATH's, not the missing file's.
+    // is the default search's, not the missing file's.
     std::fs::remove_file(cwd.join("dsh")).unwrap();
     let stdout = stdout_of(doctor(cwd).env_remove("PATH"));
-    assert!(dsh_line(&stdout).contains("PATH is absent"), "{stdout}");
+    let line = dsh_line(&stdout);
+    assert!(
+        line.contains("'dsh' is not on the default search path")
+            && line.contains("(PATH is absent)"),
+        "{stdout}"
+    );
+}
+
+/// S1b. A cwd file literally named `C:\Tools\dsh.exe`, with the primary
+/// override spelling exactly that name: native lookup returns NotFound
+/// with `PATH` absent and with `PATH` set, and so does doctor, without
+/// executing the file — a backslash is an ordinary filename byte on
+/// Unix, and only `/` makes a path. A file of that literal name in a
+/// PATH directory is what native lookup runs, and doctor selects it; a
+/// `/`-containing spelling of the cwd file is the direct-path control.
+/// With backslash-as-separator restored this test fails at the
+/// no-execution assertion (recorded in the delivery account).
+#[test]
+fn unix_backslash_names_follow_native_lookup_before_doctor_probe() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    version_script(cwd, BACKSLASH_NAME, BACKSLASH_SENTINEL);
+    let doctor_marks = marks(cwd, "doctor");
+    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = elsewhere.path().to_str().unwrap().to_string();
+
+    for path in [None, Some(elsewhere.as_str())] {
+        let native = native_lookup(cwd, BACKSLASH_NAME, path);
+        match native {
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}"),
+            Ok(output) => panic!(
+                "a native child ran the backslash-named cwd file with PATH {path:?}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            ),
+        }
+        let mut command = doctor(cwd);
+        command
+            .env("BROKKR_DSH_BIN", BACKSLASH_NAME)
+            .env("BROKKR_MARKS", &doctor_marks);
+        match path {
+            Some(path) => command.env("PATH", path),
+            None => command.env_remove("PATH"),
+        };
+        let stdout = stdout_of(&mut command);
+        assert!(
+            !stdout.contains(BACKSLASH_SENTINEL),
+            "doctor executed the cwd C:\\Tools\\dsh.exe with PATH {path:?}:\n{stdout}"
+        );
+        assert_eq!(executed(&doctor_marks), Vec::<String>::new());
+        let line = dsh_line(&stdout);
+        assert!(
+            line.starts_with("warn     dsh: binary 'C:\\Tools\\dsh.exe' not found: "),
+            "{line}"
+        );
+        match path {
+            None => assert!(
+                line.contains("'C:\\Tools\\dsh.exe' is not on the default search path")
+                    && line.contains("(PATH is absent)"),
+                "{line}"
+            ),
+            Some(_) => assert!(
+                line.contains("'C:\\Tools\\dsh.exe' is not on PATH"),
+                "the lookup failed without converting the backslashes to separators: {line}"
+            ),
+        }
+    }
+
+    // A distinct file of that literal name in a PATH directory is what
+    // the native child runs, and the installation doctor describes.
+    let on_path = cwd.join("on-path");
+    version_script(&on_path, BACKSLASH_NAME, "DSH_BACKSLASH_ON_PATH_0.0.4");
+    let native = native_lookup(cwd, BACKSLASH_NAME, on_path.to_str()).unwrap();
+    assert!(String::from_utf8_lossy(&native.stdout).contains("DSH_BACKSLASH_ON_PATH_0.0.4"));
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env("PATH", &on_path)
+            .env("BROKKR_DSH_BIN", BACKSLASH_NAME)
+            .env("BROKKR_MARKS", &doctor_marks),
+    );
+    assert!(!stdout.contains(BACKSLASH_SENTINEL), "{stdout}");
+    let line = dsh_line(&stdout);
+    assert!(
+        line.starts_with("ok       dsh: DSH_BACKSLASH_ON_PATH_0.0.4 · serves"),
+        "{line}"
+    );
+    assert_eq!(
+        executed(&doctor_marks),
+        vec!["DSH_BACKSLASH_ON_PATH_0.0.4".to_string()],
+        "doctor probed the PATH file once and the cwd file never"
+    );
+
+    // The direct-path control: `./C:\Tools\dsh.exe` contains `/`, so
+    // it IS the cwd file, to the native child and to doctor alike.
+    let direct = format!("./{BACKSLASH_NAME}");
+    let native = native_lookup(cwd, &direct, None).unwrap();
+    assert!(String::from_utf8_lossy(&native.stdout).contains(BACKSLASH_SENTINEL));
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env_remove("PATH")
+            .env("BROKKR_DSH_BIN", &direct),
+    );
+    assert!(
+        dsh_line(&stdout).starts_with(&format!("ok       dsh: {BACKSLASH_SENTINEL} · serves")),
+        "{stdout}"
+    );
+
+    // Removing the fixture is a separate negative control: the same
+    // refusal, from a lookup that never had the file to find.
+    std::fs::remove_file(cwd.join(BACKSLASH_NAME)).unwrap();
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env_remove("PATH")
+            .env("BROKKR_DSH_BIN", BACKSLASH_NAME),
+    );
+    assert!(
+        dsh_line(&stdout).contains("'C:\\Tools\\dsh.exe' is not on the default search path"),
+        "{stdout}"
+    );
+}
+
+/// AO. With `PATH` absent, native lookup searches the C library's
+/// default path — `sh` is the observed positive — and doctor selects the
+/// very file that child ran, through the primary override and then the
+/// legacy one, never a same-named cwd decoy. With `PATH` present but
+/// empty the decoy is exactly what both select, and without the decoy
+/// both find nothing. An explicit `PATH` is the independent positive.
+/// Node is asked of the host the same way: a native positive on the
+/// default search is compared by identity; a native miss is asserted as
+/// the resolver's named refusal, and the positive is recorded as pending
+/// on that host. With unconditional absent-PATH refusal restored this
+/// test fails at the selected-identity assertion while the native
+/// positive still executes (recorded in the delivery account).
+#[test]
+fn absent_path_default_search_matches_native_dsh_and_node() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    version_script(cwd, "sh", "SECURITY_CWD_DECOY_SH_9f3");
+    version_script(cwd, "node", "SECURITY_CWD_DECOY_NODE_9f3");
+    let doctor_marks = marks(cwd, "doctor");
+
+    // The native positive: `sh` runs with PATH removed, from the default
+    // search, and says which file it is (through /proc on Linux).
+    let native = spawn(
+        Command::new("sh")
+            .args(["-c", "readlink /proc/$$/exe 2>/dev/null || echo unknown"])
+            .current_dir(cwd)
+            .env_remove("PATH"),
+    )
+    .expect("a native child finds sh with no PATH");
+    assert!(native.status.success());
+    let ran = String::from_utf8_lossy(&native.stdout).trim().to_string();
+    assert!(!ran.contains("DECOY"), "{ran}");
+    // What that file answers `--version` with, if anything: doctor's
+    // line is either its version or the named silence of THAT file.
+    let banner = Command::new(&ran)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        });
+
+    for (primary, legacy) in [(Some("sh"), None), (None, Some("sh"))] {
+        let mut command = doctor(cwd);
+        command
+            .env_remove("PATH")
+            .env("BROKKR_MARKS", &doctor_marks);
+        if let Some(primary) = primary {
+            command.env("BROKKR_DSH_BIN", primary);
+        }
+        if let Some(legacy) = legacy {
+            command.env("FORGE_DSH_BIN", legacy);
+        }
+        let stdout = stdout_of(&mut command);
+        assert!(
+            !stdout.contains("SECURITY_CWD_DECOY"),
+            "doctor executed a cwd decoy under an absent PATH:\n{stdout}"
+        );
+        assert_eq!(executed(&doctor_marks), Vec::<String>::new());
+        let line = dsh_line(&stdout);
+        if cfg!(target_os = "linux") {
+            match &banner {
+                Some(banner) => assert!(
+                    line.starts_with(&format!("ok       dsh: {banner} · serves")),
+                    "the default-search sh's own version: {line}"
+                ),
+                None => assert!(
+                    line.starts_with(&format!("warn     dsh: binary '{ran}' not found — seats")),
+                    "the default-search sh, selected and silent: {line}"
+                ),
+            }
+        } else {
+            assert!(
+                !line.contains("PATH is absent") && !line.contains("is not on PATH"),
+                "a default-search positive is a selection, not a refusal: {line}"
+            );
+        }
+    }
+
+    // Present-empty PATH: the one empty entry is cwd, to both.
+    let native = native_lookup(cwd, "sh", Some("")).unwrap();
+    assert!(String::from_utf8_lossy(&native.stdout).contains("SECURITY_CWD_DECOY_SH_9f3"));
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env("PATH", "")
+            .env("BROKKR_DSH_BIN", "sh")
+            .env("BROKKR_MARKS", &doctor_marks),
+    );
+    assert!(
+        dsh_line(&stdout).starts_with("ok       dsh: SECURITY_CWD_DECOY_SH_9f3 · serves"),
+        "the explicit empty entry selects cwd exactly when the native child does: {stdout}"
+    );
+    // Both probes ran the cwd file the empty entry names: the selected
+    // `sh`, and then the `node` the composite looks up under the same
+    // PATH — which is what `Command::new("node")` runs there too.
+    assert_eq!(
+        executed(&doctor_marks),
+        vec![
+            "SECURITY_CWD_DECOY_NODE_9f3".to_string(),
+            "SECURITY_CWD_DECOY_SH_9f3".to_string()
+        ]
+    );
+    std::fs::remove_file(doctor_marks.join("SECURITY_CWD_DECOY_NODE_9f3")).unwrap();
+    std::fs::remove_file(doctor_marks.join("SECURITY_CWD_DECOY_SH_9f3")).unwrap();
+    // And without the decoy, an empty PATH finds nothing for either.
+    std::fs::remove_file(cwd.join("sh")).unwrap();
+    let native = native_lookup(cwd, "sh", Some("")).unwrap_err();
+    assert_eq!(native.kind(), std::io::ErrorKind::NotFound);
+    let stdout = stdout_of(doctor(cwd).env("PATH", "").env("BROKKR_DSH_BIN", "sh"));
+    assert!(
+        dsh_line(&stdout).contains("'sh' is not on PATH"),
+        "no fallback to the default search under a present, empty PATH: {stdout}"
+    );
+
+    // Explicit PATH: the independent positive identity.
+    let explicit = cwd.join("explicit");
+    version_script(&explicit, "sh", "DSH_EXPLICIT_SH_0.0.5");
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env("PATH", &explicit)
+            .env("BROKKR_DSH_BIN", "sh"),
+    );
+    assert!(
+        dsh_line(&stdout).starts_with("ok       dsh: DSH_EXPLICIT_SH_0.0.5 · serves"),
+        "{stdout}"
+    );
+
+    // Node, with DSH safely selected by an explicit path: the measured
+    // `#!/usr/bin/env node` core is admitted only when `node` is on the
+    // same native search, and the cwd decoy is never it. A host without
+    // node on its default search asserts the named refusal; the
+    // positive remains pending there, never a passing skip.
+    let (bin, home) = install_dsh(&cwd.join("install"));
+    let native = spawn(
+        Command::new("node")
+            .args(["-p", "process.execPath"])
+            .current_dir(cwd)
+            .env_remove("PATH"),
+    );
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env_remove("PATH")
+            .env("BROKKR_DSH_BIN", &bin)
+            .env("DSH_HOME", &home)
+            .env("BROKKR_MARKS", &doctor_marks),
+    );
+    assert!(
+        !stdout.contains("SECURITY_CWD_DECOY_NODE_9f3"),
+        "doctor executed the cwd node decoy:\n{stdout}"
+    );
+    let line = dsh_line(&stdout);
+    match native {
+        Err(error) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+            assert!(
+                line.contains(
+                    "its #! interpreter '/usr/bin/env' selects no 'node': the DSH layout is \
+                     unreadable: 'node' is not on the default search path"
+                ) && line.contains("(PATH is absent)"),
+                "the DSH probe is refused before it can discover the missing node: {line}"
+            );
+            eprintln!(
+                "PENDING: no node on this host's default search path; the absent-PATH Node \
+                 positive was not established here"
+            );
+        }
+        Ok(output) => {
+            let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            assert!(
+                line.starts_with("ok       dsh:"),
+                "DSH selected with node {ran} on the default search: {line}"
+            );
+        }
+    }
 }
 
 /// Finding 2. `PATH=A:B` with a working `B/dsh`: an `A/dsh` naming a
@@ -281,6 +687,79 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
         line.contains("composite unreadable:") && line.contains("(no declared wrapper_digest)"),
         "{line}"
     );
+
+    // Finding 4 of the second hold: a NATIVE image at A whose dynamic
+    // loader is missing, and a script whose interpreter is that image.
+    // The kernel refuses both at `execve` with ENOENT, the native child
+    // walks on to B, and doctor refuses at A naming the loader — without
+    // probing A, its interpreter or B. Metadata admitted both before.
+    // The fixture patches only the `PT_INTERP` bytes of a copy of the
+    // built binary, which is an ELF on Linux; elsewhere the cells are
+    // pending, not passed.
+    std::fs::remove_file(a.join("dsh")).unwrap();
+    if !cfg!(target_os = "linux") {
+        eprintln!("PENDING: the missing-loader cells need an ELF fixture; not established here");
+        return;
+    }
+    assert!(!Path::new(MISSING_LOADER).exists());
+    let broken = patch_elf_interpreter(
+        Path::new(env!("CARGO_BIN_EXE_brokkr")),
+        &cwd.join("native").join("broken"),
+        MISSING_LOADER,
+    );
+    let doctor_marks = marks(cwd, "doctor");
+    for (what, install) in [
+        ("a native image with a missing loader", None),
+        (
+            "a script whose interpreter has a missing loader",
+            Some(format!("#!{}\n", broken.display())),
+        ),
+    ] {
+        let _ = std::fs::remove_file(a.join("dsh"));
+        match &install {
+            None => std::fs::hard_link(&broken, a.join("dsh")).unwrap(),
+            Some(body) => {
+                stage_executable(&a, "dsh", body);
+            }
+        }
+        let native = native_dsh(cwd, Some(&path)).unwrap();
+        assert!(
+            String::from_utf8_lossy(&native.stdout).contains(B_VERSION),
+            "{what}: the native child walked past A to B"
+        );
+        let stdout = stdout_of(
+            doctor(cwd)
+                .env("PATH", &path)
+                .env("BROKKR_MARKS", &doctor_marks),
+        );
+        assert!(
+            !stdout.contains(B_VERSION),
+            "{what}: doctor did not probe B in place of the obstructed A:\n{stdout}"
+        );
+        assert_eq!(
+            executed(&doctor_marks),
+            Vec::<String>::new(),
+            "{what}: doctor probed nothing"
+        );
+        let line = dsh_line(&stdout);
+        let expected = match &install {
+            None => format!(
+                "{}: needs the ELF loader '{MISSING_LOADER}', which is missing:",
+                a.join("dsh").display()
+            ),
+            Some(_) => format!(
+                "{}: its #! interpreter '{}' needs the ELF loader '{MISSING_LOADER}', which is \
+                 missing:",
+                a.join("dsh").display(),
+                broken.display()
+            ),
+        };
+        assert!(line.contains(&expected), "{what}: {line}");
+        assert!(
+            line.starts_with("warn     dsh: binary 'dsh' not found: "),
+            "{what}: {line}"
+        );
+    }
 }
 
 /// The overrides keep their precedence and their no-fallback meaning:

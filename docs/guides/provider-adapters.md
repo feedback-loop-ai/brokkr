@@ -45,15 +45,33 @@ failed `$DSH_HOME` is the other way round: it is a named composite
 failure that leaves the version visible, never evidence that the binary
 is missing.
 
-Resolving the seam once means resolving it the way the child would. A
-bare name is searched along `PATH` under the spawning rules: an entry
-that is empty names the working directory, and a candidate that is
-present but not executable is walked past rather than taken — so a
-non-executable `A/dsh` sitting ahead of a real `B/dsh` cannot pair B's
-version with A's digest. The line then names the FILE the search chose,
-not the word that was looked up; a name that resolves to nothing keeps
-its declared spelling, so a missing provider still reports what was
-looked for.
+Resolving the seam once means resolving it the way the child would —
+the platform's rule and nothing else. On Unix a program is a path if and
+only if it contains `/`; a backslash, a drive-like spelling, an extension
+or a space is an ordinary filename byte, so an override spelled
+`C:\Tools\dsh.exe` is a NAME searched on `PATH`, never a file in the
+working directory. A bare name is searched along `PATH` under the
+spawning rules: an entry that is empty names the working directory, and a
+candidate that is present but not executable is walked past rather than
+taken — so a non-executable `A/dsh` sitting ahead of a real `B/dsh`
+cannot pair B's version with A's digest. With no `PATH` in the
+environment at all, the C library's own default search path is consulted,
+exactly as `execvp` does: a name that sits there is selected, a name that
+does not is reported as missing from that default search, and the
+working directory is never searched. On Windows the search is the one
+the standard library's `Command` runs. The line then names the FILE the
+search chose, not the word that was looked up; a name that resolves to
+nothing keeps its declared spelling, so a missing provider still reports
+what was looked for.
+
+One thing is refused rather than guessed: a candidate whose loading
+prerequisite cannot be established without executing it. A script naming
+an interpreter that is missing, an interpreter whose own dynamic loader is
+missing, or a native image whose loader is missing is walked past by the
+kernel at `exec`, so a spawning child would run the next entry; doctor
+does not run either. It refuses at that candidate, names the missing
+interpreter or loader, and probes nothing, because a version probe that
+discovered the obstruction first would already have executed a guess.
 
 Where the composite cannot be read, the line says which component
 refused and keeps the declaration context without inventing a comparison:

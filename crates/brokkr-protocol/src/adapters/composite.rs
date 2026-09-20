@@ -391,6 +391,43 @@ fn pnpm_indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
 }
 
+/// Whether a line is blank in THIS grammar: nothing but ASCII spaces.
+/// `str::trim` read a line of U+00A0 as blank and skipped it, so a byte
+/// this reader never admitted disappeared before any rule saw it.
+fn pnpm_blank(line: &str) -> bool {
+    line.trim_matches(' ').is_empty()
+}
+
+/// The value half of a `key: value` line, with only the grammar's own
+/// ASCII padding consumed: the space YAML requires after the colon, and
+/// trailing spaces. What remains is the scalar EXACTLY as spelled — a
+/// U+00A0 at either edge stays in it for the scalar rule to refuse, and
+/// a value whose colon is followed by anything but a space or the end of
+/// the line is not a separated mapping at all.
+///
+/// `str::trim` here erased Unicode whitespace from both edges before the
+/// scalar rule could reject it, and a missing separator was repaired
+/// into a separated field: `lockfileVersion:9.0` and
+/// `resolution:{integrity: sha512-X}` read as the well-formed control
+/// (security hold 2026-09-20, findings 2 and 3).
+enum Separated<'a> {
+    /// `key:` with nothing after it: the key opens a block, or is null.
+    Block,
+    /// `key: value`, the value unchanged.
+    Inline(&'a str),
+}
+
+fn pnpm_separated(rest: &str) -> Result<Separated<'_>, &'static str> {
+    let rest = rest.trim_end_matches(' ');
+    if rest.is_empty() {
+        return Ok(Separated::Block);
+    }
+    match rest.strip_prefix(' ') {
+        Some(value) => Ok(Separated::Inline(value.trim_start_matches(' '))),
+        None => Err("lacks ': ' separation"),
+    }
+}
+
 /// The byte offset of the `@` that separates a pnpm package key's name
 /// from its version: the first `@` after the key's first CHARACTER, so a
 /// scoped `@scope/name@1.0.0` skips its leading one. Walked by character
@@ -675,17 +712,24 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
         let Some((key, rest)) = field.split_once(':') else {
             return Err("a malformed resolution flow map".to_string());
         };
-        let key = key.trim();
+        // The flow map's own padding — spaces after `{`, around commas
+        // and before `}` — is ASCII, and that is all that is consumed.
+        let key = key.trim_matches(' ');
         if !PNPM_RESOLUTION_KEYS.contains(&key) {
             return Err("a malformed resolution flow map".to_string());
         }
-        if !rest.starts_with(' ') {
-            return Err(format!(
-                "the resolution field '{key}' lacks ': ' separation: '{}'",
-                field.trim()
-            ));
-        }
-        let value = rest.trim();
+        let value = match pnpm_separated(rest) {
+            Ok(Separated::Inline(value)) => value,
+            // `integrity: ` with nothing after the space is an empty
+            // scalar, refused below by the malformed-map reason.
+            Ok(Separated::Block) => "",
+            Err(_) => {
+                return Err(format!(
+                    "the resolution field '{key}' lacks ': ' separation: '{}'",
+                    field.trim_matches(' ')
+                ))
+            }
+        };
         let Some(scalar) = pnpm_scalar(value) else {
             return Err("a malformed resolution flow map".to_string());
         };
@@ -694,11 +738,16 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
         }
         if let Scalar::Plain(text) = scalar {
             // A plain scalar inside a flow collection may not carry the
-            // collection's own punctuation: `sha512-X[one]` is not a
-            // string with brackets in it, it is syntax this grammar does
-            // not read, and the inherited check looked only at the first
-            // character.
-            if text.contains(['[', ']', '{', '}', ',']) {
+            // collection's own punctuation, nor the `: ` that would open
+            // a mapping inside it: `sha512-X[one]` is not a string with
+            // brackets in it and `x: y` is not a string with a colon in
+            // it, they are syntax this grammar does not read. Every field
+            // meets this rule, the ignored `tarball` included, because
+            // an ignored field that is not read is still a field whose
+            // syntax the document must have (security hold 2026-09-20,
+            // finding 2). A colon without a following space — a URL —
+            // remains a plain string.
+            if text.contains(['[', ']', '{', '}', ',']) || text.contains(": ") {
                 return Err(format!(
                     "the resolution field '{key}' carries unsupported flow syntax: '{text}'"
                 ));
@@ -786,13 +835,21 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     // The first non-blank line is the lockfile version.
     let mut version_seen = false;
     for line in lines.by_ref() {
-        if line.trim().is_empty() {
+        if pnpm_blank(line) {
             continue;
         }
-        let version = line
+        let rest = line
             .strip_prefix("lockfileVersion:")
-            .map(str::trim)
             .ok_or_else(|| bad("no lockfileVersion header"))?;
+        // The header is an inline value and needs the admitted space
+        // after its colon: `lockfileVersion:9.0` is one plain scalar in
+        // YAML, not a header, and the inherited `trim` repaired it into
+        // one (security hold 2026-09-20, finding 2).
+        let version = match pnpm_separated(rest) {
+            Ok(Separated::Inline(version)) => version,
+            Ok(Separated::Block) => return Err(bad("a malformed lockfileVersion")),
+            Err(why) => return Err(bad(&format!("a lockfileVersion header that {why}"))),
+        };
         // The header keeps its own rule: the plain `9.0` and the quoted
         // `'9.0'` are both the admitted version, so the typed-scalar
         // refusal an identity string makes does not apply here.
@@ -856,10 +913,10 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
         };
 
     for line in lines {
-        if line.trim().is_empty() {
+        if pnpm_blank(line) {
             continue;
         }
-        let trimmed = line.trim_start();
+        let trimmed = line.trim_start_matches(' ');
         if trimmed.starts_with('#') || trimmed.starts_with("---") || trimmed.starts_with("...") {
             return Err(bad("a comment or document marker"));
         }
@@ -870,8 +927,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
         if indent == 0 {
             flush(entry.take(), &mut triples)?;
             block = false;
-            let body = line.trim_end();
-            let (name, value) = body
+            let (name, rest) = line
                 .split_once(':')
                 .ok_or_else(|| bad("a top-level line that is not a mapping key"))?;
             if !PNPM_SECTIONS.contains(&name) {
@@ -880,16 +936,23 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             if !seen.insert(name) {
                 return Err(bad(&format!("a repeated top-level key '{name}'")));
             }
-            let value = value.trim();
+            let value = match pnpm_separated(rest) {
+                Ok(value) => value,
+                Err(why) => {
+                    return Err(bad(&format!("a top-level key '{name}' that {why}")));
+                }
+            };
             // The form is required of the KEY, not read off the line.
             if PNPM_SCALAR_SECTIONS.contains(&name) {
                 // Recognized and not read, but still parsed: a checksum
                 // that opens a block, or one whose quote never closes,
                 // is a document shape this grammar has not measured.
-                if pnpm_scalar(value)
-                    .filter(|scalar| !scalar.text().is_empty())
-                    .is_none()
-                {
+                let Separated::Inline(value) = value else {
+                    return Err(bad(&format!(
+                        "a malformed scalar for top-level key '{name}'"
+                    )));
+                };
+                if pnpm_scalar(value).is_none() {
                     return Err(bad(&format!(
                         "a malformed scalar for top-level key '{name}'"
                     )));
@@ -897,7 +960,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 section = None;
                 continue;
             }
-            if !value.is_empty() {
+            if let Separated::Inline(_) = value {
                 return Err(bad(&format!(
                     "an inline value on top-level section '{name}'"
                 )));
@@ -915,10 +978,10 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             flush(entry.take(), &mut triples)?;
             block = false;
             let key = line
-                .trim_end()
+                .trim_end_matches(' ')
                 .strip_suffix(':')
                 .ok_or_else(|| bad("a package key is not colon-terminated"))?;
-            let key = pnpm_scalar(key.trim())
+            let key = pnpm_scalar(key.trim_matches(' '))
                 .ok_or_else(|| bad("a malformed package key"))?
                 .text();
             // A key that is itself a mapping — `a@1: {}` reaches this
@@ -952,22 +1015,34 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             let Some(open) = entry.as_mut() else {
                 return Err(bad("a package child outside any record"));
             };
-            let (name, value) = trimmed
-                .trim_end()
+            let (name, rest) = trimmed
                 .split_once(':')
                 .ok_or_else(|| bad("a package child that is not a mapping key"))?;
             if !PNPM_PACKAGE_CHILDREN.contains(&name) {
                 return Err(bad(&format!("an unrecognized package child '{name}'")));
             }
-            let value = value.trim();
+            // Every child, read or ignored, is a separated mapping:
+            // `resolution:{integrity: sha512-X}` is one plain scalar in
+            // YAML, and the inherited `trim` repaired it into the outer
+            // mapping this reader admits (security hold 2026-09-20,
+            // finding 2).
+            let value = match pnpm_separated(rest) {
+                Ok(value) => value,
+                Err(why) => {
+                    return Err(bad(&format!("a package child '{name}' that {why}")));
+                }
+            };
             if name != "resolution" {
                 // Recognized and not read. A child with no inline scalar
                 // opens a block whose own lines are skipped below.
-                if value.is_empty() {
+                if let Separated::Block = value {
                     block = true;
                 }
                 continue;
             }
+            let Separated::Inline(value) = value else {
+                return Err(bad("a block-form or malformed resolution"));
+            };
             let inner = value
                 .strip_prefix('{')
                 .and_then(|text| text.strip_suffix('}'))
@@ -1353,10 +1428,170 @@ fn is_symlink_loop(error: &std::io::Error) -> bool {
     }
 }
 
+/// Whether the platform reads `command` as a PATH to a file rather than
+/// a NAME to search for. This is the platform's rule and nothing else:
+/// `std::process::Command` on Unix treats a program as a path if and
+/// only if it contains `/`, and a backslash is an ordinary filename
+/// byte; on Windows either separator makes a path. The inherited
+/// classifier read a backslash as a separator on Unix, so an override
+/// spelled `C:\Tools\dsh.exe` was taken as a path, and a cwd file
+/// literally named that executed where `Command::new` of the same name
+/// finds nothing (security hold 2026-09-20, S1b; controller
+/// reproduction). Resolution is not a property of a string's characters
+/// beyond this one predicate.
+#[cfg(unix)]
+fn is_explicit_path(command: &str) -> bool {
+    command.contains('/')
+}
+
+#[cfg(windows)]
+fn is_explicit_path(command: &str) -> bool {
+    command.contains(['/', '\\'])
+}
+
+/// The two spellings no lookup may begin on, refused BEFORE any
+/// filesystem, home or search work: a name carrying a NUL, which
+/// `Command::new` refuses as invalid input without executing anything,
+/// and an empty name, which `execvp` refuses with ENOENT.
+fn refuse_unspellable(command: &str) -> Result<(), CompositeError> {
+    if command.contains('\0') {
+        return Err(CompositeError::Config(format!(
+            "'{}' carries a NUL",
+            command.replace('\0', "\\0")
+        )));
+    }
+    if command.is_empty() {
+        return Err(CompositeError::Config("'' names no program".to_string()));
+    }
+    Ok(())
+}
+
+/// The search a child's `execvp` runs, captured ONCE from the environment
+/// the child would inherit (design D10).
+///
+/// A present `PATH` is searched as spelled, ordered empty entries
+/// included, because an empty entry names the working directory to the
+/// child too. An ABSENT `PATH` is not an empty search and not a refusal:
+/// the C library searches its own default path in that case — glibc's
+/// `execvp` reads `CS_PATH` when `getenv("PATH")` is null — so a bare name
+/// that sits there runs, and one that does not is a native no-match. The
+/// inherited reader first turned absence into one empty entry, which
+/// selected a cwd `dsh` (S1), and then into an unconditional refusal,
+/// which the commission withdrew: neither is what the platform does.
+#[cfg(unix)]
+struct Search {
+    entries: std::ffi::OsString,
+    /// Whether `entries` is the C library's default rather than the
+    /// environment's own `PATH`, so a no-match names which was searched.
+    default: bool,
+}
+
+#[cfg(unix)]
+impl Search {
+    fn capture(path: Option<std::ffi::OsString>) -> Result<Search, CompositeError> {
+        match path {
+            Some(entries) => Ok(Search {
+                entries,
+                default: false,
+            }),
+            None => Ok(Search {
+                entries: default_search_path()?,
+                default: true,
+            }),
+        }
+    }
+
+    /// Search the entries for `command` as the child would: the first
+    /// entry whose candidate is admitted wins, an entry the child walks
+    /// past is walked past, and a candidate the resolver cannot prove
+    /// stops the search by cause.
+    fn find(&self, command: &str, chain: &mut Vec<(u64, u64)>) -> Result<PathBuf, CompositeError> {
+        for dir in std::env::split_paths(&self.entries) {
+            let candidate = match dir.as_os_str().is_empty() {
+                true => PathBuf::from(command),
+                false => dir.join(command),
+            };
+            match classify_in(&candidate, self, chain) {
+                Candidate::Admitted(path) => return Ok(path),
+                Candidate::Passed(_) => continue,
+                Candidate::Refused(error) => return Err(error),
+            }
+        }
+        Err(CompositeError::Config(match self.default {
+            true => format!(
+                "'{command}' is not on the default search path {} (PATH is absent)",
+                self.entries.to_string_lossy()
+            ),
+            false => format!("'{command}' is not on PATH"),
+        }))
+    }
+}
+
+/// The C library's default search path: what `execvp` consults when the
+/// environment has no `PATH`. Read from the library through
+/// `confstr(_CS_PATH)` — glibc and the Apple libc both report there the
+/// value their `execvp` uses — never hardcoded from one host's answer,
+/// and never obtained by launching `getconf`, a shell or `which`.
+#[cfg(all(unix, not(target_env = "musl")))]
+fn default_search_path() -> Result<std::ffi::OsString, CompositeError> {
+    extern "C" {
+        fn confstr(name: std::os::raw::c_int, buf: *mut std::os::raw::c_char, len: usize) -> usize;
+    }
+    // `_CS_PATH` is 0 in glibc's and Android's <unistd.h> and 1 in the
+    // BSD-derived ones, Apple's included.
+    const CS_PATH: std::os::raw::c_int = if cfg!(any(target_os = "linux", target_os = "android")) {
+        0
+    } else {
+        1
+    };
+    default_search_path_from(|buf| {
+        // SAFETY: `buf` is a live, writable slice of exactly the length
+        // passed; `confstr` writes at most that many bytes into it and
+        // reads nothing else.
+        unsafe { confstr(CS_PATH, buf.as_mut_ptr().cast(), buf.len()) }
+    })
+}
+
+/// musl's `execvp` does not consult `confstr`: it searches this literal
+/// when `PATH` is absent (src/process/execvp.c), and its `confstr`
+/// reports a different string, so the library's own rule is the literal.
+#[cfg(target_env = "musl")]
+fn default_search_path() -> Result<std::ffi::OsString, CompositeError> {
+    Ok(std::ffi::OsString::from("/usr/local/bin:/bin:/usr/bin"))
+}
+
+/// `default_search_path` over an injected `confstr`, so the two answers
+/// the library can give besides a path — no such variable, and a value
+/// longer than the buffer — are plain tests. `query` writes into the
+/// buffer and answers the length the value needs, NUL included, or zero.
+#[cfg(unix)]
+fn default_search_path_from(
+    query: impl Fn(&mut [u8]) -> usize,
+) -> Result<std::ffi::OsString, CompositeError> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut buf = vec![0u8; 4096];
+    let mut needed = query(&mut buf);
+    if needed > buf.len() {
+        buf = vec![0u8; needed];
+        needed = query(&mut buf);
+    }
+    if needed == 0 || needed > buf.len() {
+        return Err(CompositeError::Config(
+            "the C library reports no default search path for an absent PATH".to_string(),
+        ));
+    }
+    let end = buf.iter().position(|byte| *byte == 0).unwrap_or(buf.len());
+    buf.truncate(end);
+    Ok(std::ffi::OsString::from_vec(buf))
+}
+
 /// Classify one candidate as the child's search would, stopping where
 /// the child stops and refusing where this resolver cannot prove what
-/// the child would do.
-fn classify_candidate(candidate: &Path) -> Candidate {
+/// the child would do. `chain` is the scripts whose interpreters are
+/// being followed to reach this candidate, so a loop is a named refusal.
+#[cfg(unix)]
+fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -> Candidate {
     let refuse = |why: String| {
         Candidate::Refused(CompositeError::Config(format!(
             "{}: {why}",
@@ -1381,12 +1616,10 @@ fn classify_candidate(candidate: &Path) -> Candidate {
     if !metadata.is_file() {
         return Candidate::Passed("is not a regular file".to_string());
     }
-    #[cfg(unix)]
     if !effective_exec_access(candidate) {
         return Candidate::Passed("is not executable by this process".to_string());
     }
-    #[cfg(unix)]
-    if let Err(why) = interpreter_obstruction(candidate) {
+    if let Err(why) = loading_obstruction(candidate, metadata.len(), search, chain) {
         return refuse(why);
     }
     // Admitted as the file it canonically is; a canonicalization the
@@ -1401,31 +1634,45 @@ fn classify_candidate(candidate: &Path) -> Candidate {
 #[cfg(unix)]
 const SHEBANG_BOUND: usize = 256;
 
-/// Whether a script candidate's interpreter would stop the child at
-/// `exec`, asked of the file's first bytes and nothing more.
-///
-/// A candidate the metadata and access checks admit can still be one a
-/// child cannot run: `A/dsh` naming a nonexistent interpreter passes both
-/// checks, the child's `execve` fails with ENOENT and its search walks
-/// on to `B/dsh`. Metadata cannot see that, so the resolver reads the
-/// bounded head. A missing or unspellable interpreter is a REFUSAL by
-/// cause rather than a continuation, because neither a loader emulation
-/// nor a trial execution is on the table (design D10). A file whose head
-/// is not a `#!` line is a native image, admitted as it is: nothing here
-/// decodes it.
+/// How many nested `#!` interpreters are followed. The kernel stops a
+/// deeper chain with ELOOP; a chain this resolver will not follow is a
+/// named refusal, never an admission.
 #[cfg(unix)]
-fn interpreter_obstruction(candidate: &Path) -> Result<(), String> {
-    use std::os::unix::ffi::OsStrExt;
+const INTERPRETER_DEPTH: usize = 4;
 
-    // At most the bound is read, whatever the file's length: the head
-    // is the only part of the candidate this resolver has any use for.
-    let mut head = Vec::with_capacity(SHEBANG_BOUND);
-    std::fs::File::open(candidate)
-        .and_then(|file| file.take(SHEBANG_BOUND as u64).read_to_end(&mut head))
-        .map_err(|error| format!("cannot be read: {error}"))?;
+/// What would stop the child at `exec` for this candidate, established
+/// from the file's LOADING DECLARATIONS and nothing more.
+///
+/// A candidate the metadata and access checks admit can still be one the
+/// kernel refuses to load: `A/dsh` naming a nonexistent interpreter, or a
+/// native image whose dynamic loader is missing, passes both checks, the
+/// child's `execve` fails with ENOENT and its search walks on to `B/dsh`.
+/// Metadata cannot see that (security hold 2026-09-20, finding 4). So
+/// the head is read for a `#!` line and the interpreter it names is
+/// inspected in turn; a native image is read for its loader, and the
+/// loader is read as an image too. Where a prerequisite is missing,
+/// malformed or beyond what the reader establishes, the candidate is
+/// REFUSED by that cause, because neither a loader emulation nor a trial
+/// execution is on the table (design D10). The refusal is the one
+/// exception to native equality, and it is named as such.
+#[cfg(unix)]
+fn loading_obstruction(
+    candidate: &Path,
+    len: u64,
+    search: &Search,
+    chain: &mut Vec<(u64, u64)>,
+) -> Result<(), String> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+
+    // At most the bound is read for the head, whatever the file's
+    // length: a native image is then read at the offsets its header
+    // names, and nowhere else.
+    let (mut file, head) =
+        open_head(candidate).map_err(|error| format!("cannot be read: {error}"))?;
     let read = head.len();
     let Some(line) = head.strip_prefix(b"#!") else {
-        return Ok(());
+        return native_obstruction(&mut file, len);
     };
     let line = match line.iter().position(|byte| *byte == b'\n') {
         Some(end) => &line[..end],
@@ -1450,7 +1697,7 @@ fn interpreter_obstruction(candidate: &Path) -> Result<(), String> {
         .iter()
         .position(|byte| *byte == b' ' || *byte == b'\t')
         .unwrap_or(line.len());
-    let interpreter = &line[..end];
+    let (interpreter, arguments) = line.split_at(end);
     if interpreter.is_empty() {
         return Err("its #! line names no interpreter".to_string());
     }
@@ -1461,73 +1708,347 @@ fn interpreter_obstruction(candidate: &Path) -> Result<(), String> {
         ));
     }
     let interpreter = Path::new(std::ffi::OsStr::from_bytes(interpreter));
-    match std::fs::metadata(interpreter) {
-        Ok(metadata) if metadata.is_file() && effective_exec_access(interpreter) => Ok(()),
-        Ok(_) => Err(format!(
-            "its #! interpreter '{}' is not an executable file",
-            interpreter.display()
-        )),
-        Err(error) => Err(format!(
-            "its #! interpreter '{}' is missing: {error}",
-            interpreter.display()
-        )),
+    let named = interpreter.display();
+    let metadata = match std::fs::metadata(interpreter) {
+        Ok(metadata) if metadata.is_file() && effective_exec_access(interpreter) => metadata,
+        Ok(_) => {
+            return Err(format!(
+                "its #! interpreter '{named}' is not an executable file"
+            ))
+        }
+        Err(error) => return Err(format!("its #! interpreter '{named}' is missing: {error}")),
+    };
+    // The interpreter is a candidate in its own right: a script whose
+    // interpreter is a script is followed, a loop is a refusal, and a
+    // chain deeper than the kernel follows is not followed either. The
+    // identity followed is the file's own — device and inode — so two
+    // spellings of one file are one link of the chain.
+    let identity = (metadata.dev(), metadata.ino());
+    if chain.contains(&identity) {
+        return Err(format!("its #! interpreter chain loops at '{named}'"));
+    }
+    if chain.len() >= INTERPRETER_DEPTH {
+        return Err(format!(
+            "its #! interpreter chain runs deeper than {INTERPRETER_DEPTH}"
+        ));
+    }
+    chain.push(identity);
+    let loaded = loading_obstruction(interpreter, metadata.len(), search, chain)
+        .and_then(|()| env_program(interpreter, arguments, search, chain));
+    chain.pop();
+    loaded.map_err(|why| format!("its #! interpreter '{named}' {why}"))
+}
+
+/// Open a candidate and read its bounded head: one fallible operation,
+/// so the caller names one cause for a file it may execute but not read.
+#[cfg(unix)]
+fn open_head(candidate: &Path) -> std::io::Result<(std::fs::File, Vec<u8>)> {
+    let mut file = std::fs::File::open(candidate)?;
+    let mut head = Vec::with_capacity(SHEBANG_BOUND);
+    (&mut file)
+        .take(SHEBANG_BOUND as u64)
+        .read_to_end(&mut head)?;
+    Ok((file, head))
+}
+
+/// The measured `#!/usr/bin/env node` form: `env` itself loads, and the
+/// program it would search for is selected under the SAME native search,
+/// so a missing `node` is a refusal before any probe rather than a
+/// version probe that exits 127. One word after `env`, naming a program
+/// and not an option, is the form this establishes; an option language
+/// (`-S`, `-i`, `NAME=value`) is not added, and refuses by name.
+#[cfg(unix)]
+fn env_program(
+    interpreter: &Path,
+    arguments: &[u8],
+    search: &Search,
+    chain: &mut Vec<(u64, u64)>,
+) -> Result<(), String> {
+    if interpreter.file_name() != Some(std::ffi::OsStr::new("env")) {
+        return Ok(());
+    }
+    let arguments = match arguments
+        .iter()
+        .position(|byte| *byte != b' ' && *byte != b'\t')
+    {
+        Some(start) => &arguments[start..],
+        None => return Ok(()),
+    };
+    let end = arguments
+        .iter()
+        .position(|byte| *byte == b' ' || *byte == b'\t')
+        .unwrap_or(arguments.len());
+    let program = &arguments[..end];
+    if program[0] == b'-' || program.contains(&b'=') {
+        return Err(format!(
+            "takes '{}', which is not the measured `env <program>` form",
+            String::from_utf8_lossy(arguments)
+        ));
+    }
+    let program = std::str::from_utf8(program)
+        .map_err(|_| "names a program that is not UTF-8".to_string())?;
+    match lookup_in(program, search, chain) {
+        Ok(_) => Ok(()),
+        Err(cause) => Err(format!("selects no '{program}': {cause}")),
     }
 }
 
-/// Resolve `command` to a canonical path: a command carrying a separator
-/// is used directly, otherwise the first executable on `PATH` wins.
+/// The loading prerequisite of a native image, read as the kernel reads
+/// it: the image parsed by the bounded reader, its format this target's,
+/// and its declared loader an existing executable that parses as a loader
+/// of the same format. A static image has no prerequisite.
+#[cfg(unix)]
+fn native_obstruction(file: &mut std::fs::File, len: u64) -> Result<(), String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let image = image::inspect(file, len)
+        .map_err(|why| format!("is not a loadable native image: {why}"))?;
+    if image.kind != image::NATIVE {
+        return Err(format!(
+            "is a {} image, which this target does not load",
+            image.kind
+        ));
+    }
+    let Some(loader) = image.loader else {
+        return Ok(());
+    };
+    let kind = image.kind;
+    let loader = Path::new(std::ffi::OsStr::from_bytes(&loader));
+    let named = loader.display();
+    if !loader.is_absolute() {
+        return Err(format!(
+            "needs the {kind} loader '{named}', which is not an absolute path"
+        ));
+    }
+    let loader_len = match std::fs::metadata(loader) {
+        Ok(metadata) if metadata.is_file() && effective_exec_access(loader) => metadata.len(),
+        Ok(_) => {
+            return Err(format!(
+                "needs the {kind} loader '{named}', which is not an executable file"
+            ))
+        }
+        Err(error) => {
+            return Err(format!(
+                "needs the {kind} loader '{named}', which is missing: {error}"
+            ))
+        }
+    };
+    let mut loader_file = std::fs::File::open(loader).map_err(|error| {
+        format!("needs the {kind} loader '{named}', which cannot be read: {error}")
+    })?;
+    let loaded = image::inspect(&mut loader_file, loader_len).map_err(|why| {
+        format!("needs the {kind} loader '{named}', which is not a loadable image: {why}")
+    })?;
+    if !loaded.is_loader_for(kind) {
+        return Err(format!(
+            "needs the {kind} loader '{named}', which does not load as a {kind} loader"
+        ));
+    }
+    Ok(())
+}
+
+/// Resolve `command` to the canonical file the platform's own lookup
+/// selects for it, under the environment this process would hand a
+/// child: a path is used directly, a name is searched.
+#[cfg(unix)]
 fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
     resolve_executable_in(command, std::env::var_os("PATH"))
 }
 
-/// `resolve_executable` over an injected `PATH`, so an absent `PATH`, an
-/// empty entry, a non-executable candidate, a present-but-absent
-/// candidate and a miss are plain tests.
+/// `resolve_executable` on Windows: the child's environment is the
+/// parent's, unchanged, so only the parent's `PATH` is searched after the
+/// application, system and Windows directories.
+#[cfg(windows)]
+fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
+    refuse_unspellable(command)?;
+    windows_lookup(command, None, std::env::var_os("PATH"))
+}
+
+/// `resolve_executable` over an injected child `PATH`, so an absent
+/// `PATH`, an empty entry, a non-executable candidate, an obstructed
+/// candidate and a miss are plain tests, and so the differential matrix
+/// can hand the resolver exactly the environment its native oracle ran.
 ///
-/// The search is the child's own where the resolver can prove it: an
-/// EMPTY entry names the current directory rather than being skipped,
-/// and an entry the child walks past is walked past here. Where it
-/// cannot prove it, the search stops by cause (`classify_candidate`).
-///
-/// An ABSENT `PATH` is a refusal, not an empty search. The inherited
-/// `unwrap_or_default()` turned `None` into one empty entry, and that
-/// entry named the working directory: doctor, run with no `PATH` beside
-/// an executable `dsh` in its cwd, selected that file and executed it,
-/// where `Command::new("dsh")` in the same environment finds nothing
-/// (security hold 2026-09-20, S1; controller reproduction).
+/// The outcome is EQUAL to `std::process::Command::new(command)`'s under
+/// the same cwd and environment: the same file, or a refusal exactly
+/// where the child gets NotFound — with the one named exception of a
+/// candidate whose loading prerequisite the resolver cannot establish
+/// without executing it, which is refused by cause rather than guessed
+/// (design D10). Nothing native lookup would not execute is selected,
+/// and nothing it would execute is silently swapped for another.
+#[cfg(unix)]
 fn resolve_executable_in(
     command: &str,
     path: Option<std::ffi::OsString>,
 ) -> Result<PathBuf, CompositeError> {
-    if command.contains('/') || command.contains('\\') {
-        // An explicit path is one candidate under the same checks, with
-        // no next entry to walk to: what a search would pass over is,
-        // for an override, the refusal itself.
-        return match classify_candidate(Path::new(command)) {
+    refuse_unspellable(command)?;
+    let search = Search::capture(path)?;
+    lookup_in(command, &search, &mut Vec::new())
+}
+
+/// One lookup under a captured search: a path is one candidate under the
+/// same checks, with no next entry to walk to — what a search would pass
+/// over is, for an explicit path, the refusal itself; a name is searched.
+#[cfg(unix)]
+fn lookup_in(
+    command: &str,
+    search: &Search,
+    chain: &mut Vec<(u64, u64)>,
+) -> Result<PathBuf, CompositeError> {
+    if is_explicit_path(command) {
+        return match classify_in(Path::new(command), search, chain) {
             Candidate::Admitted(path) => Ok(path),
             Candidate::Passed(why) => Err(CompositeError::Config(format!("{command}: {why}"))),
             Candidate::Refused(error) => Err(error),
         };
     }
-    let Some(path) = path else {
+    search.find(command, chain)
+}
+
+/// `resolve_executable_in` on Windows: `path` is the child's explicit
+/// `PATH` — present, or removed from a changed environment — and the
+/// parent's `PATH` is the process's own, exactly the two inputs
+/// `std::process::Command` resolves a program against there.
+#[cfg(windows)]
+fn resolve_executable_in(
+    command: &str,
+    path: Option<std::ffi::OsString>,
+) -> Result<PathBuf, CompositeError> {
+    refuse_unspellable(command)?;
+    windows_lookup(command, Some(path.as_deref()), std::env::var_os("PATH"))
+}
+
+/// Rust's Windows program resolution (library/std/src/sys/process/
+/// windows.rs, `resolve_exe`), reimplemented rather than borrowed from
+/// the Unix loop: a program with a separator is a path, tried with an
+/// appended `.exe` before the literal spelling unless it already ends in
+/// `.exe`; a file name is searched — child `PATH` if the child's
+/// environment was changed, the application directory, the system
+/// directory, the Windows directory, then the parent's `PATH`, skipping
+/// empty entries — with `.exe` appended when the name has no extension.
+/// The first entry that EXISTS is the selection; `CreateProcessW` then
+/// either runs it or fails, and never tries a later entry, so an
+/// existing candidate that cannot load is a refusal here too.
+#[cfg(windows)]
+fn windows_lookup(
+    command: &str,
+    child: Option<Option<&std::ffi::OsStr>>,
+    parent: Option<std::ffi::OsString>,
+) -> Result<PathBuf, CompositeError> {
+    if command.ends_with(['/', '\\']) {
         return Err(CompositeError::Config(format!(
-            "'{command}': PATH is absent"
+            "'{command}' has no file name"
         )));
-    };
-    for dir in std::env::split_paths(&path) {
-        let candidate = match dir.as_os_str().is_empty() {
-            true => PathBuf::from(command),
-            false => dir.join(command),
+    }
+    let has_exe_suffix = command
+        .as_bytes()
+        .get(command.len().wrapping_sub(4)..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(b".exe"));
+    if is_explicit_path(command) {
+        let candidate = if has_exe_suffix {
+            PathBuf::from(command)
+        } else {
+            let mut with_suffix = std::ffi::OsString::from(command);
+            with_suffix.push(".exe");
+            let with_suffix = PathBuf::from(with_suffix);
+            match std::fs::symlink_metadata(&with_suffix).is_ok() {
+                true => with_suffix,
+                false => PathBuf::from(command),
+            }
         };
-        match classify_candidate(&candidate) {
-            Candidate::Admitted(path) => return Ok(path),
-            Candidate::Passed(_) => continue,
-            Candidate::Refused(error) => return Err(error),
+        return admit_windows(&candidate);
+    }
+    let file: std::ffi::OsString = match command.contains('.') {
+        true => command.into(),
+        false => format!("{command}.exe").into(),
+    };
+    let mut directories: Vec<PathBuf> = Vec::new();
+    if let Some(Some(child)) = child {
+        directories.extend(std::env::split_paths(child).filter(|dir| !dir.as_os_str().is_empty()));
+    }
+    if let Ok(mut application) = std::env::current_exe() {
+        application.pop();
+        directories.push(application);
+    }
+    directories.extend(windows_system_directories());
+    if let Some(parent) = parent {
+        directories
+            .extend(std::env::split_paths(&parent).filter(|dir| !dir.as_os_str().is_empty()));
+    }
+    for dir in directories {
+        let candidate = dir.join(&file);
+        if std::fs::symlink_metadata(&candidate).is_ok() {
+            return admit_windows(&candidate);
         }
     }
     Err(CompositeError::Config(format!(
-        "'{command}' is not on PATH"
+        "'{command}' is not on the Windows search path"
     )))
+}
+
+/// The system and Windows directories, as `GetSystemDirectoryW` and
+/// `GetWindowsDirectoryW` report them: the two fixed entries of the
+/// search `CreateProcessW`'s callers in std consult.
+#[cfg(windows)]
+fn windows_system_directories() -> Vec<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+        fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+    let mut directories = Vec::new();
+    for query in [GetSystemDirectoryW, GetWindowsDirectoryW] {
+        let mut buffer = vec![0u16; 1024];
+        // SAFETY: `buffer` is a live, writable region of exactly the
+        // length passed, in UTF-16 units; the call writes at most that
+        // many units and answers the length written, or the length
+        // needed when the buffer is too small, or zero on failure.
+        let written = unsafe { query(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+        if written == 0 || written >= buffer.len() {
+            continue;
+        }
+        directories.push(PathBuf::from(std::ffi::OsString::from_wide(
+            &buffer[..written],
+        )));
+    }
+    directories
+}
+
+/// Admit a Windows candidate the search selected: a regular file that is
+/// not a batch script dispatched through `cmd.exe`, and a PE image of
+/// this target's machine and subsystem. A dangling link, a directory, a
+/// malformed image or an image of another format refuses by cause.
+#[cfg(windows)]
+fn admit_windows(candidate: &Path) -> Result<PathBuf, CompositeError> {
+    let refuse = |why: String| CompositeError::Config(format!("{}: {why}", candidate.display()));
+    let metadata = std::fs::metadata(candidate)
+        .map_err(|error| refuse(format!("cannot be inspected: {error}")))?;
+    if !metadata.is_file() {
+        return Err(refuse("is not a regular file".to_string()));
+    }
+    let extension = candidate
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .map(str::to_ascii_lowercase);
+    if matches!(extension.as_deref(), Some("bat" | "cmd")) {
+        return Err(refuse(
+            "is a batch script, whose cmd.exe dispatch this resolver does not establish"
+                .to_string(),
+        ));
+    }
+    let mut file = std::fs::File::open(candidate)
+        .map_err(|error| refuse(format!("cannot be read: {error}")))?;
+    let image = image::inspect(&mut file, metadata.len())
+        .map_err(|why| refuse(format!("is not a loadable native image: {why}")))?;
+    if image.kind != image::NATIVE {
+        return Err(refuse(format!(
+            "is a {} image, which this target does not load",
+            image.kind
+        )));
+    }
+    canonicalize(candidate)
 }
 
 /// The selected executable, exactly as the seams carry it: a path the
@@ -1537,14 +2058,32 @@ fn resolve_executable_in(
 /// producer the file it chose. Searching `PATH` a second time here could
 /// choose a different file — the environment is the same, but the
 /// filesystem under it need not be — so a bare name is a refusal rather
-/// than a second lookup (design D10).
+/// than a second lookup, and the path form is decided by the same
+/// platform predicate selection used (design D10). The selection's own
+/// loader evidence was taken at selection; the producer consumes that
+/// established selection, checking only that the file is still there
+/// and canonicalizing it once more to the same identity.
 fn selected_executable(executable: &str) -> Result<PathBuf, CompositeError> {
-    if !executable.contains('/') && !executable.contains('\\') {
+    if !is_explicit_path(executable) {
         return Err(CompositeError::Config(format!(
             "'{executable}' is not a path: the selected executable is resolved once, at selection"
         )));
     }
-    resolve_executable_in(executable, None)
+    let path = Path::new(executable);
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| CompositeError::Config(format!("{executable}: {error}")))?;
+    if !metadata.is_file() {
+        return Err(CompositeError::Config(format!(
+            "{executable}: is not a regular file"
+        )));
+    }
+    #[cfg(unix)]
+    if !effective_exec_access(path) {
+        return Err(CompositeError::Config(format!(
+            "{executable}: is not executable by this process"
+        )));
+    }
+    canonicalize(path)
 }
 
 struct CorePackage {
@@ -2085,6 +2624,8 @@ fn dsh_composite_resolving(
     let globals = global_folders(&node);
     dsh_composite_with(seams, &node, &globals)
 }
+
+mod image;
 
 #[cfg(test)]
 mod tests;
