@@ -2,11 +2,12 @@
 
 Current commission: **DSH COMPOSITE IDENTITY — fourth security hold**, run
 `dsh-composite-identity-issue-226-5e82d607`. Adopt every branch commit through
-`d9297641`, including `314ed02b`, proposal AR/AS1 and the fourth-hold D10
-reconciliation. This design return repairs the affected dependent clauses
-under the dialect's return instruction, after authoring `design.md`; it does
-not create a new task plan or claim implementation delivery. No `returned_from`
-finding was supplied; the commissioned chief R1 and adopted R2–R11 govern.
+`6b3c66b4`, including `314ed02b`, proposal AR/AS1 at `d9297641` and the
+fourth-hold D10 reconciliation. This tasks seat adopts the design return's
+fourteen local clauses, checks them against the current implementation and
+specification, and repairs execution order, requirement coverage and evidence
+ownership before implementation resumes. No `returned_from` finding was
+supplied; the commissioned chief R1 and adopted R2–R11 govern.
 The glibc-cwd controller record reconciles empty entries with absent-PATH
 native equality. Earlier dated task/delivery accounts below remain history,
 not current acceptance authority.
@@ -16,8 +17,10 @@ in order: lookup and doctor, interpreter/full matrix, syntax, preservation,
 then retained observations and full validation. Keep all fourteen addresses
 and their current **5 complete / 9 pending** states; all 101 change-wide
 identifiers retain **84 complete / 17 pending**. **8.8 stays unchecked**.
-This return changes no checkbox state. Historical checks do not certify the
-new loop, cwd, separator, structure or outstanding independent proofs.
+This tasks visit changes no checkbox state. The complete file has **115
+checkboxes: 89 complete / 26 pending**, comprising those fourteen local and
+101 change-wide identifiers. Historical checks do not certify the new loop,
+cwd, separator, structure or outstanding independent proofs.
 
 Each local checkbox serves **safety / AS1 — Resume support is measured per
 adapter and execution shape**, in [the safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
@@ -71,6 +74,68 @@ revision, nonzero executed count and failed assertion. A compile/setup error,
 bare `is_err()`, unrelated failure or passing zero-test filter is not proof.
 Fixture-component removal is a separate positive control with its own native
 oracle. Notes describe outcomes; they never instruct or waive a gate.
+
+### Execution order and requirement coverage
+
+The following handoffs refine the existing task addresses; they add no tasks
+or completion claims. **AS1** in every row names **Resume support is measured
+per adapter and execution shape** in the safety delta linked above. D10 owns
+the chosen implementation, and D10 §6's removal table supplies the
+independent mutations. Each owner below must record its own required proofs;
+the final evidence consolidation does not execute an earlier missing proof by
+implication.
+
+| Order / task | Prerequisite and result handed to the next task | Requirement and discriminating AS1 scenario coverage |
+|---|---|---|
+| 1 — 8.8.1.1 | Start from the adopted implementation. Extend protocol oracle fixtures while porting candidate bytes/cursors, cause carriage and cwd refusal. Establish private target/operation context for later env work. | AS1 — native candidate construction, all six length boundaries and cwd variants, overlong program names, exhausted-search causes and platform defaults. |
+| 2 — 8.8.1.2 | Use the repaired lookup in the built doctor. Assert both Command forms and no-execution markers; complete the paired loop/cwd/cause/slash removals against both mandated regressions. | AS1 — absent-PATH cwd sentinel, Unix backslashes, explicit empty entries/overrides, all length/cwd cells and same-fixture removals. |
+| 3 — 8.8.2.1 | Use 8.8.1.1's target/operation context to admit supported file-identified env invocations. Retain pre-probe launcher head/Node through composition. | AS1 — interpreter aliases cannot bypass the Node obstruction refusal; composition retains the launcher head inspected before the probe. |
+| 4 — 8.8.2.2 | With lookup and interpreter behavior established, finish every name/layout/form comparison, independent inventory and native platform proof. | AS1 — program lookup is proved against the platform by a complete differential matrix; Apple lookup is established on Apple rather than inferred from glibc. |
+| 5 — 8.8.3.1 | After executable admission is repaired, extend ignored pnpm structure through producer and doctor and prove each changed or still-unproved guard independently. | AS1 — ignored pnpm syntax, malformed flow members, scalar-parent/mixed-collection structure, field separation, scalar types and Unicode identity bytes. |
+| 6 — 8.8.4.1 | Adopt the completed decoded-key guard; preserve it through the parser edit and final regression run. | AS1 — duplicate decoded pnpm package keys refuse before triple normalization. |
+| 7 — 8.8.5.1 | Adopt the completed sole-producer literal and its recorded provenance. | AS1 — plugin expectations are recorded from the sole producer. |
+| 8 — 8.8.5.2 | Preserve 8.8.5.1's source-conformance protection and the independent restoration proof. | AS1 — plugin expectations are recorded from the sole producer. |
+| 9 — 8.8.6.1 | Preserve safe rendering of the repaired lookup's path and reason at the existing doctor boundary. | AS1 — a nonexistent override cannot inject terminal control bytes through doctor. |
+| 10 — 8.8.7.1 | Preserve the completed manifest-context refusal and lawful later-hit control through producer/doctor integration. | AS1 — removing only the plugin manifest names the drifted file. |
+| 11 — 8.8.8.1 | Use the admitted env chain and retained observations to execute the real absent-PATH Node/composite positive, its two separate removals, and independent home outcomes; consolidate earlier proof records. | AS1 — absent PATH preserves a native default-search success for DSH and Node; executable selection and home availability are independent requirements. |
+| 12 — 8.8.8.2 | All implementation and compiling mutations restored; run every local gate and record native evidence under its owning task. | AS1 — delivery evidence distinguishes executed positives from pending platforms. |
+| 13 — 8.8.8.3 | Validate the same restored candidate with the unchanged clean exact-coverage script on a capable host; retain all three fresh integer pairs. | AS1 — fresh exact coverage cannot be replaced by retained perfect reports. |
+| 14 — 8.8.8.4 | Only complete after all preceding acceptance, then reconcile ticks, review the staged scope and commit the validated delivery. | AS1 — digest acceptance is proved by removal without completing the planner; delivery evidence distinguishes executed positives from pending platforms. |
+
+The first task owns the protocol half of loop removals; the second repeats
+the enforcing edits against the completed doctor fixture and records both
+named regressions. Completing the full inventory in 8.8.2.2 must not postpone
+the protocol comparisons needed to prove 8.8.1.1. Node-positive/composite proof
+belongs to 8.8.8.1 after env admission, not to the earlier DSH default-search
+control. Preserve the five inherited completed clauses; changed enforcement
+needs fresh proof under its open owner. Missing native prerequisites leave the
+owner pending and cannot be replaced by a passing negative or source table.
+
+For the required GNU bare `dsh` subset, the declared minimum is **18 base
+comparisons per named regression** (three lengths × three cwd states × two
+Command forms), plus **18 same-fixture component-removal comparisons**. The
+four explicit-empty layouts add **24 comparisons per named regression**
+(four layouts × three cwd states × two forms), before earlier-success and
+separator controls. These are prospective inventory obligations, not counts
+executed by this tasks seat or substitutes for the full eight-name matrix.
+Each form records canonical executed-file identity or error kind/raw errno,
+then the specific permitted selection or refusal. Shared version text alone
+cannot identify a candidate. Native markers and doctor markers remain separate.
+
+Use these exact focused commands for the two existing GNU regressions and
+for each of their independent compiling mutations, retaining nonzero executed
+test counts and each cell's independent inventory:
+
+```sh
+cargo test -p brokkr-protocol --all-features --locked --lib adapters::composite::tests::native_matrix::native_executable_resolution_matches_command_matrix -- --exact --nocapture
+cargo test -p brokkr-cli --all-features --locked --test doctor_dsh_selection terminal_path_lengths_refuse_before_doctor_probe -- --exact --nocapture
+```
+
+The exact names are established by the adopted module/test declarations.
+These focused runs complement the full suites in 8.8.8.2. Keep one mutation
+at a time, record the intended assertion, restore it byte-for-byte, and rerun
+the same focused command green before the next mutation. A missing platform
+binary, failed setup, compiler error or zero-test filter leaves the proof open.
 
 ## 8.8.1. Port native walks, cwd refusal, causes and defaults — fourth-hold R1/R2/R4–R7
 
@@ -159,10 +224,12 @@ oracle. Notes describe outcomes; they never instruct or waive a gate.
 Coverage: AS1's **Absent PATH refuses before doctor can execute a cwd sentinel**,
 **Unix backslashes never confer direct-path authority**, **Explicit empty PATH
 entries and explicit overrides retain their meaning**, **Bare-name lookup
-preserves native continuation and terminal errors**, all six named length
-scenarios, **Continuation causes and permission accumulation follow the native
-target**, **Apple lookup is established on Apple rather than inferred from
-glibc**, and paired doctor selection. Group 2 completes the inventory.
+preserves native continuation and terminal errors**, all six length boundaries
+and their distinct cwd scenarios, **Native candidate construction preserves
+the extra trailing separator**, **Exhausted search preserves the last cause
+and denial precedence**, **Continuation causes and permission accumulation
+follow the native target**, **Apple lookup is established on Apple rather than
+inferred from glibc**, and paired doctor selection. Group 2 completes the inventory.
 
 ## 8.8.2. Complete interpreter invocation and differential proof — fourth-hold R6–R8
 
@@ -219,8 +286,9 @@ glibc**, and paired doctor selection. Group 2 completes the inventory.
   logging or counting its invocation is insufficient. On Apple account for
   Rust's spawn/exec choice and env's separate nested exec lookup;
   do not force a favorable path with `pre_exec` or a shell wrapper. Cross every
-  existing name/layout in the inventory below, replacing the lone 5000-byte
-  layout with all six individually named lengths crossed with the same names;
+  existing name/layout in the inventory below. Adopt the six individually
+  named length layouts already added by `314ed02b`; extend their cwd states
+  and per-form assertions while retaining the same eight-name cross-product;
   add file/nonexistent components and overlong bare-program controls under
   missing, file and existing-directory prefixes, plus explicit-path controls.
   Include group 1's nine cwd/length cells, empty layouts, one-slash controls,
@@ -487,7 +555,7 @@ completing the planner**. Groups 1–7 and this group's ordered proof/gates are
 prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
-### Fourth-hold current disposition — design return, 2026-09-20
+### Historical fourth-hold disposition — design return, 2026-09-20
 
 This account supersedes conflicting completion descriptions in the dated
 records below without rewriting those records. It describes the design seat's
@@ -541,6 +609,54 @@ the commit. These are blocked local gate attempts, not candidate passes.
 Production repair/proof and fresh capable-host coverage remain outstanding;
 (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded.
 0056 stays proposed; 8.8 stays unchecked. No archive, push or remote result.
+
+### Tasks-phase reconciliation and validation — fourth hold, 2026-09-21 (Europe/Sofia)
+
+This tasks seat adopted `slice-dsh-composite-b` at `6b3c66b4`, including all
+branch history and `314ed02b`. It read the rendered tasks/return dialect,
+README, decisions 0004/0005/0009 and proposed 0056, both controller lookup
+records, fourth-hold intake, the full R1–R11 chief finding, proposal AR/AS1,
+D10 and the current production/test surfaces. The active dated change was
+already open. No supplied `returned_from` added another finding, and no
+upstream specification or design gap was found.
+
+Delivered in this phase: an explicit ordered handoff for all fourteen local
+tasks, requirement/scenario coverage, independent proof ownership, prospective
+per-form cwd-cell inventory and exact focused commands for the two mandatory
+regressions. The stale instruction to introduce six length layouts was
+corrected: those layouts already exist in adopted `314ed02b` and need their
+cwd and per-form comparisons extended. No new implementation, native oracle
+execution, compiling mutation or task completion is claimed.
+
+Fresh validation on adopted `6b3c66b4` plus this `tasks.md` edit, Linux x86_64 /
+glibc 2.42:
+
+| Check actually attempted | Observed result |
+|---|---|
+| `openspec validate 2026-09-09-226-session-resumption --strict` | Exit 0; valid. Existing informational notices concern the absent living safety/progress archive targets; this active partial slice performs no archive. |
+| `openspec validate --all --strict` | Exit 0; **15 passed / 0 failed**. |
+| `cargo fmt --all -- --check`; locked workspace/all-target/all-feature clippy with `-D warnings` | Each exited 127: `cargo: command not found`. |
+| All seven crate-scoped all-feature locked suites; `cargo test --workspace`; all-feature locked workspace suite | Each exited 127 because Cargo is unavailable; **zero Rust tests executed**. |
+| Locked self and verify bundle compilation | Each exited 127 because Cargo is unavailable; no bundle compiled. |
+| Unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` | Exit 127 at line 33's clean command because Cargo is unavailable; no fresh instrumentation or report. |
+| Fresh covered/total source lines; branches; functions | **Unavailable / unavailable; unavailable / unavailable; unavailable / unavailable** (`null` on all three axes), not zero or retained historical counts. |
+| Task/requirement/history/scope audit and diff whitespace | Passed: 20 requirements / 219 scenarios; 14 local states unchanged (5 complete / 9 pending), 101 change-wide states unchanged (84 complete / 17 pending). Every local checkbox names safety / AS1. All third-hold and older delivery records remain byte-identical. |
+
+Exact commands, statuses and output logs are recorded in
+`.forge/tasks-fourth-hold-ce31d14f/validation.json` and adjacent files, outside
+the commit. Cargo, rustc and rustup are unavailable through this seat's
+workspace hands; no compiler/native target result is inferred. CI, release
+admission and the unchanged exact-coverage script all still consume
+`rust-nightly-version.txt`, whose value is `nightly-2026-09-05`.
+
+Only `tasks.md` changed. No frozen contract, policy/schema, fixture, reference,
+extension, decision, production or test byte moved. 0056 remains proposed and
+8.8 remains unchecked. The breakdown is drafted; the security hold remains
+open for loop/byte/cause, supported-env and pnpm-structure repair, paired native
+and independent removal proofs, retained-Node evidence and the actual Rust
+and fresh literal coverage gates. Native macOS/Windows/MSRV and final-head
+remote CI remain pending. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and
+groups 14–15 remain outside this visit; no archive or push occurred.
 
 ### Historical implementation delivery — third security hold, 2026-09-20
 
