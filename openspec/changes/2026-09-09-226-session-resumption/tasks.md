@@ -557,6 +557,220 @@ completing the planner**. Groups 1–7 and this group's ordered proof/gates are
 prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
+### Implementation delivery — fourth security hold, 2026-09-21 (Europe/Sofia)
+
+This implement seat (run `dsh-composite-identity-issue-226-5e82d607`) adopted
+`slice-dsh-composite-b` at `afc3ddd0`, every commit kept, in worktree
+`brokkr-wt-dsh88b`: Linux x86_64, target `x86_64-unknown-linux-gnu`, glibc
+2.42 as the design seat measured it (this seat's `ldd`/`rustc` invocations
+were refused; `cargo 1.98.0 (797e8a9bc 2026-08-05)` is the stable toolchain
+that ran every gate), `nightly-2026-09-05` for coverage. The account
+separates what ran from what remains pending; it describes outcomes and
+directs no gate. It delivers 8.8(a)–(c)'s fourth-hold obligations for the
+lookup (groups 8.8.1 and the lookup half of 8.8.2) and records the rest.
+
+**Network in this seat.** `curl`, `WebFetch`, `gh api` and the GitHub MCP
+were each refused, so `glibc-2.42/posix/execvpe.c`, Apple `gen/FreeBSD/exec.c`
+and `sys/posix_spawn.c` could not be opened here. The glibc port cites the
+line ranges design D10 §1 inspected (86–106, 107–119, 121–126, 134–158,
+160–168) beside each corresponding block; the Apple port carries D10's
+moving-`main` ranges (178–218, 262–297; 97–143, 170–195) and its immutable
+revision pin is PENDING. Where the port's reading of the source could be
+tested, the native oracle decided it (below).
+
+**R1 — the loop is ported, not modelled.** `Search::find` no longer walks
+`std::env::split_paths` with a per-component classification. It hands the
+exact `PATH` bytes and the program bytes to `walk_search`, which dispatches
+by library and operation to three literal ports: `glibc_walk` (the `p`/`subp`
+cursor pair, `path_len = strnlen(path, PATH_MAX − 1) + 1`, `subp - p >=
+path_len` with the final-component `break` and the early `continue` that
+leaves `p` ON the colon so the next iteration constructs the bare name —
+`Origin::AfterOversizedSkip` — and the `*subp++ == '\0'` increment at the
+end of a completed iteration; the extra `/` for any nonempty entry, a
+trailing `/` included), `musl_walk` (whose oversize branch is `if (!*z++)
+break; continue;` — past the colon, no implicit cwd iteration), and
+`apple_walk` (the `strsep` token walk, an empty token spelled `.`, the
+`lp + ln + 2 > PATH_MAX` bound: `execvP` warns and continues, `posix_spawnp`
+stops with ENAMETOOLONG). Every candidate carries its provenance
+(`Origin::Entry`, `EmptyEntry { index }`, `AfterOversizedSkip { skipped }`).
+`Construction`, `construction` and `glibc_path_len` are retired.
+
+**R1 — the reconciled rule, in the code's words.** `Search::find` states it
+verbatim: equality with native is necessary — nothing is selected that
+native would not execute — and not sufficient: a candidate in the working
+directory (an empty PATH entry, or the implicit cwd iteration glibc produces
+after an oversized skip) is NEVER selected and NEVER skipped past. Never
+cwd, otherwise native. `refuse_working_directory` reads the cwd candidate's
+metadata only — no head, loader or interpreter inspection — and preserves a
+native STOP there (glibc ELOOP on a cwd self-symlink, the kernel's
+ENAMETOOLONG on a bare overlong name); every other outcome — a runnable
+file, a missing one, a directory, a denial, Apple's continuable ELOOP —
+refuses with `<name>: the platform's search would fall into the working
+directory: PATH entry N is empty` or `…: glibc skips the N-byte component
+and its next iteration is the empty entry it leaves the cursor on
+(posix/execvpe.c 118–124, 168)`. Absent `PATH` stays native default-search
+equality (`sh` positive preserved; `/bin:/usr/bin` on this host).
+
+**R4 — the invented NAME_MAX refusal is gone for glibc.** The native oracle
+decided the source reading this seat could not re-open: with `PATH` naming
+only a MISSING directory, a 300-byte name is ENOENT to the native child (the
+name was searched, not refused); under a file spelled as a directory it is
+ENOTDIR; under an existing directory the kernel answers ENAMETOOLONG and
+glibc stops; at the working directory (`PATH=""`) the kernel's ENAMETOOLONG
+on the bare name is preserved as native's stop; with only an oversized
+component nothing is constructed and the child reports whatever errno its
+thread already had — proved by PLANTING ENOENT and then ENOTDIR with a
+failing `metadata` call before each spawn and reading exactly the planted
+value back, in both Command forms. `admit_program_name` keeps musl's
+`k > NAME_MAX` refusal and refuses nothing by length on glibc.
+
+**R5 — exhaustion keeps the last cause.** `Exhausted { denied, last,
+attempted }`: the first remembered denial is reported as EACCES; otherwise
+`'<name>' is not on PATH (the search ended at <candidate>: <cause>)` names
+the last candidate and its own errno — ENOTDIR/20 after `nowhere:file`,
+ENOENT/2 after `file:nowhere` — and a search that constructed nothing says
+`(the search attempted no candidate: every component was skipped as longer
+than the buffer the platform builds one in)`.
+
+**R6 — the operation is carried.** `Operation::{Spawn, Exec}` on `Search`:
+production's `select` is `Spawn` (Rust 1.88 `unix.rs` 417–423 takes
+`posix_spawnp` for an unchanged environment), the explicit-`PATH` form and
+`resolve_executable_in` are `Exec`, and `env_program` searches with
+`search.for_env()` — always `Exec`, whatever the outer form. On glibc and
+musl the operation changes nothing; on Apple it selects between the two
+walks. `select_in` is now test-only; production has one entry, `select_as`.
+
+**Native evidence, this host (glibc).**
+`native_executable_resolution_matches_command_matrix`: 8 names × 52
+layouts = 416 cells in both forms, plus 14 removal-control layouts in both
+forms and 13 named controls — **997 oracles**, each counted against the
+declared inventory; tally 334 equal selections, 126 NotFound parities, 250
+terminal-error parities, 104 NUL refusals, 42 D10 loader exceptions and
+**128 working-directory refusals**, the last recorded as their own kind and
+never as equality. New layouts: 4095/4096/5000 × cwd runnable / self-symlink
+/ absent (with the existing six no-cwd lengths kept); `A::B`, `A:`, `:B`,
+`PATH=""` × the three cwd states; a 4096 skip followed by an explicit empty
+entry; `A::B`/`A:` with a runnable A (earlier success wins); A padded with
+slashes to 4092 and 4093 bytes with A/dsh present and absent (native
+ENAMETOOLONG/36 at 4,096 bytes; the one-slash removal selects A when present,
+B otherwise); a final 5000-byte component alone with cwd/dsh runnable
+(nothing attempted). Per-cell glibc assertions: 255 → B; 256/300/4095 →
+errno 36 both ways with the terminal-cause text and neither B nor cwd
+named; 4096/5000 → native cwd marker / ELOOP 40 / B, resolver cwd reason /
+`a symlink loop stops the lookup … (os error 40)` / cwd reason. Both forms
+are compared on their own on every platform and additionally asserted
+equal on glibc. Controls: overlong under existing / missing / file prefixes,
+missing-then-existing, at cwd, no-candidate (planted ENOENT, then ENOTDIR),
+explicit path, the 256-byte boundary, the 255-byte positive, the two
+ordered exhaustion causes, the `sh` default-search positive.
+`terminal_path_lengths_refuse_before_doctor_probe`: **43 cells** on the
+built binary — 255/256/300; 4095/4096/5000 × three cwd states; the four
+empty spellings × three cwd states; two earlier-A controls; three padded
+spellings; and 14 same-fixture removals — each with an explicit-form oracle,
+an inherited-form oracle (the test binary re-entered with the staged
+environment, `Command::new("dsh")` unchanged) and a doctor run whose marker
+directory is asserted EMPTY before its prose in every refused cell.
+`absent_path_default_search_matches_native_dsh_and_node`: the present-empty
+cell now asserts the cwd refusal and no marker with a cwd `dsh` decoy (the
+`sh` decoy is removed for that cell — see the residual below).
+`an_empty_path_entry_is_the_working_directory_and_is_refused` (renamed from
+`…_is_the_current_directory`): every empty entry refused at its position,
+`.` still selected as a nonempty component, absent `PATH` still the default
+search. `the_lookup_rule_is_each_librarys_own_switch_arm_by_arm`: the
+candidate SEQUENCE table for glibc, musl and both Apple operations (empty
+entries, the extra slash, the implicit iteration, the final-oversize break,
+Apple's skip-versus-stop), and the whole search under Apple `Spawn`/`Exec`
+and musl. The classifier test's 4096/5000 cells now assert the cwd refusal
+where native walks on to B, and the overlong name is asserted under all
+three prefixes.
+
+**Removal proofs** (each a compiling mutation of the enforcing line, the
+focused commands from this file's preamble, the failed assertion quoted,
+exact restoration, `cargo fmt --check` and the composite module green
+again — 99 passed — before the next):
+
+| Removal | Named regression → failed assertion |
+|---|---|
+| M1 direct advance to B after an oversized skip (`glibc_walk`, `p = subp + 1`) | matrix `n0-l12/inherited` `the resolver selected a file where the search reached cwd … native ran l12n0s1 [cwd/dsh], resolver Ok(…/b/dsh)`; doctor `4096-byte component, then B; cwd Runnable [cell]: doctor executed something where it must refuse` — markers `["DSH_B_LENGTH_SENTINEL_0.0.6"]`, native ran the cwd sentinel |
+| M2 cwd barrier removed (`find`, `&& false`) | matrix `n0-l12/inherited` `… resolver Ok(…/cwd/dsh)`; doctor same cell — markers `["DSH_CWD_LENGTH_SENTINEL_0.0.7"]` |
+| M3 pre-buffer skip removed (`glibc_walk`, `&& false`) | matrix `n0-l10/inherited` final-oversize cell: invented `metadata answers File name too long (os error 36)` where nothing is attempted; doctor `4096-byte component, then B; cwd Runnable [cell]: doctor names the cause: … would fall into the working directory` — replaced by ENAMETOOLONG |
+| M4 ENAMETOOLONG made continuable (`step`, glibc) | matrix `n0-l9/inherited` `ENAMETOOLONG is named as the stop it is` (denial-then-terminal: the remembered EACCES was reported); doctor `256-byte component, then B [cell]: doctor executed something where it must refuse` — markers `["DSH_B_LENGTH_SENTINEL_0.0.6"]` |
+| M5 ELOOP made continuable (`step`, glibc) | matrix `n0-l4/inherited` `the resolver selected a file where the child stopped … errno 40, resolver Ok(…/b/dsh)`; doctor `4096-byte component, then B; cwd Loop [cell]: doctor names the cause: dsh: a symlink loop stops the lookup` — cwd reason reported instead |
+| M6 extra slash normalized (`glibc_walk`) | matrix `n0-l39/inherited` padded-A `the resolver selected a file where the child stopped … errno 36, resolver Ok(…/a/dsh)`; doctor `A padded to 4092 bytes … [cell]: doctor executed something where it must refuse` — markers `["DSH_A_EARLIER_SENTINEL_0.0.8"]` |
+| M7 final non-denial cause erased (`find`) | matrix control `overlong-under-missing-prefix`: `'x…' is not on PATH` ≠ `… (the search ended at …/controls-nowhere/x…: No such file or directory (os error 2))`; doctor regression GREEN under this mutation (no exhaustion cell), recorded as such |
+| M8 remembered EACCES erased (`find`) | matrix `n0-l8/inherited` `EACCES is named as the denial it is` (denial-then-miss reported the miss); classifier `'dsh' is not on PATH (the search ended at …/b/dsh …)` ≠ `'dsh' is not executable by this process on PATH: …/a/dsh …`; doctor GREEN (no denial cell) |
+| M9 terminal precedence weakened (`find`, refused walked past after a denial) | matrix `n0-l9/inherited` `ENAMETOOLONG is named as the stop it is`; doctor GREEN (no such cell) |
+| M10 Apple operations conflated (`apple_walk`, `Spawn` continues) | `the_lookup_rule_is_each_librarys_own_switch_arm_by_arm`: `[("B/dsh", Entry)]` ≠ `[("STOP x…/dsh", Entry)]` — table evidence only; native macOS pending |
+| M11 invented glibc NAME_MAX refusal restored (`admit_program_name`) | matrix control `overlong-bare-name`: `'x…' is 300 bytes long, more than the 255 bytes NAME_MAX …` ≠ `…/controls/x…: metadata answers File name too long (os error 36) …`; classifier the same under `a/`; doctor GREEN (no overlong cell) |
+
+After M1–M11 the by-hand coverage pass (below) named four lines and two
+branches in the new resolver code that no test could reach — an exhaustion
+arm no walk can produce, an `unreachable!` origin arm, and a redundant
+pattern test inside the cwd refusal — and they were removed by refactor
+(`stop_cause` shared by the ordinary and cwd candidates; the caller
+computes how the search reached cwd; `(None, None)` exhaustion means no
+candidate), not by exclusion. M2 and M7, whose enforcing lines that
+refactor touched, were re-mutated and re-proved on the FINAL bytes with
+the same failed assertions as above (matrix `n0-l12/inherited … resolver
+Ok(…/cwd/dsh)` and doctor markers `["DSH_CWD_LENGTH_SENTINEL_0.0.7"]`;
+matrix control `overlong-under-missing-prefix` and the classifier's
+`'node --flag' is not on PATH (the search attempted no candidate …)` ≠
+`… (the search ended at …/b/node --flag …)`), then restored, `cargo fmt
+--check` clean and the composite module green (99 passed). M1, M3–M6 and
+M8–M11 mutate lines the refactor did not touch.
+
+Fixture-component removal is the separate positive control (`removed-inherited`
+and `removed-explicit` cells, 14 layouts; the doctor's 14 `[removed]`
+cells), each with a fresh native oracle running the same B — or A through
+the fitting padded spelling. Not re-mutated here: the third hold's access,
+Apple-default, FreeBSD, backslash, absent-as-empty, unconditional
+absent-PATH, env-alias, pnpm and head/Node removals keep their dated
+records; the Node positive's two removals stay pending with the positive.
+
+**Gates on the restored candidate** (`git diff` after the last restoration
+shows only the repair, four files):
+
+| Check | Actual outcome |
+|---|---|
+| `cargo fmt --all -- --check` | Exit 0, no output. |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | Exit 0, `Finished`, no warning (one `type_complexity` in the new doctor test was fixed by a struct before the final run). |
+| `cargo test -p brokkr-core --all-features --locked` | 73 + 3 + 8 + 2 passed, 0 failed. |
+| `cargo test -p brokkr-store --all-features --locked` | 58 + 1 + 1 + 1 + 1 + 2 passed, 0 failed. |
+| `cargo test -p brokkr-protocol --all-features --locked` | 377 + 99 (2 ignored) + 1 passed, 0 failed. |
+| `cargo test -p brokkr-runtime --all-features --locked` | 441 + 6 + 1 + 6 + 2 + 3 + 6 + 5 + 2 + 3 + 7 + 3 + 3 + 2 + 3 + 13 + 2 + 7 + 6 + 3 passed, 0 failed. |
+| `cargo test -p brokkr-view --all-features --locked` | 243 passed (3 ignored), 0 failed. |
+| `cargo test -p brokkr-bridge --all-features --locked` | 13 passed, 0 failed. |
+| `cargo test -p brokkr-cli --all-features --locked` (25-minute timeout) | 463 + every integration suite passed (`doctor_dsh_selection` 14), 0 failed, no hang. |
+| `cargo test --workspace` (25-minute timeout) | First run: 16 `adapters::tests::*` failures in `brokkr-protocol`, all `could not invoke the agent CLI: Text file busy (os error 26)` — the #255 ETXTBSY race in adapter launch fixtures, outside this slice; second run: every binary `test result: ok`, 0 failed, no hang. Both recorded. |
+| `cargo test --workspace --all-features --locked` (25-minute timeout) | Every binary `test result: ok`, 0 failed, no hang. |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` / `bundles/verify` | Both compiled; the plan JSON printed. |
+| `openspec validate --all --strict` | NOT EXECUTED: the seat refuses the `openspec` and `npx` commands (approval denied). Pending. |
+| `TMPDIR=/tmp bash scripts/coverage-exact.sh` | The literal script launch is refused by the seat (script files), as in the third hold. The script's own three cargo steps were run by hand on the restored bytes with the unchanged pin (`cargo +nightly-2026-09-05 llvm-cov clean --workspace`; `… llvm-cov --workspace --all-features --locked --branch --json`; `… llvm-cov report --branch --lcov`) and its LCOV rule applied through the retained transcription `.forge/lcovtool`, with the script's `jq` harness-leak check (`true`). Reports under `.forge/scratch/coverage/` (`coverage.json`, `lcov.info`, the three step logs), outside the commit. **Lines 32216 / 32216 (100%), branches 5424 / 5424 (100%), functions 3122 / 3122 (100%)** on the final committed bytes; 68 `test result: ok`, 0 `FAILED`, no `--ignore-run-fail`. The first pass on the pre-refactor bytes measured 32213 / 32217, 5430 / 5432, 3119 / 3119 — four dead lines and two dead branches in the new resolver, removed by the refactor named in the removal section, not by exclusion. The denominator moved from the third hold's 32069 / 5396 / 3108 by this delivery's own production lines. The literal script and CI's `coverage-exact` job on the final head remain the gate's own artifact and are pending until they run. |
+
+**Residual, for the controller — not in this slice's scope.** Doctor's
+OTHER provider probes are bare `Command::new(<declared binary>)` calls
+(`tool_version`, `probe_providers`): under `PATH=""` the exec adapter's `sh`
+probe executes a `sh` sitting in the working directory exactly as a native
+child does. The reconciled cwd rule is applied to DSH and Node selection
+only; the `absent_path_default_search…` present-empty cell removes its `sh`
+decoy for that reason and proves the DSH selection with a `dsh` decoy.
+
+**Pending, recorded and not claimed.** Native macOS execution and the
+immutable Apple `exec.c`/`posix_spawn.c` revision pin (no network in this
+seat); native Windows matrix/doctor/`GetBinaryTypeW` and the Windows 1.88
+MSRV build; the absent-PATH Node positive and its two removals (no `node` on
+this host's `/bin:/usr/bin`); `openspec validate`; the literal coverage
+script; remote CI on the final head; 8.8.2.1's env-alias qualification and
+8.8.3.1's pnpm container structure, which this visit did not touch. No local
+clause changes state: 8.8.1.1 and 8.8.1.2 stay open on the Apple pin and
+native macOS, 8.8.2.1/8.8.2.2 on their carry-overs and native platforms,
+8.8.3.1 untouched, 8.8.8.1 on the Node positive, 8.8.8.2 on `openspec
+validate`, 8.8.8.3 on the literal script, 8.8.8.4 with them. Part (d),
+8.10, 9.6, 10.6–10.8, 11.1–11.4, groups 14–15 were not touched; 8.8 stays
+unchecked; 0056 stays proposed; `contracts/`, `policy/`, `fixtures/`,
+`reference/`, `extensions/dsh/`, `docs/decisions/` are byte-identical
+(`git diff --stat` over them is empty); no push.
+
 ### Analyze-return repair — A1, 2026-09-21 (Europe/Sofia)
 
 This return adopts `af0065a7` and all its branch ancestry, including

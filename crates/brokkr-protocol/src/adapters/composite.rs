@@ -1792,32 +1792,26 @@ enum Candidate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Library {
     /// glibc 2.42 `posix/execvpe.c`, `__execvpe_common`, which both
-    /// `execvp` and `posix_spawnp` (through `__execvpex`) run. Lines
-    /// 92–106 size the buffer, 112–119 skip a component that would not
-    /// fit it, 126 attempts `execve`, 136–158 continue only on `EACCES`
+    /// `execvp` and `posix_spawnp` (through `__execvpex`) run: the walk
+    /// is `glibc_walk`, line for line; 134–158 continue only on `EACCES`
     /// (remembered), `ENOENT`, `ESTALE`, `ENOTDIR`, `ENODEV` and
-    /// `ETIMEDOUT`, and 165–168 report the remembered `EACCES` when
+    /// `ETIMEDOUT`, and 160–168 report the remembered `EACCES` when
     /// nothing ran. Every other errno returns at once (design D10,
     /// inspected revision `glibc-2.42`).
     Glibc,
-    /// musl `src/process/execvp.c`, `__execvpe`: the same buffer skip
-    /// (`z - p >= l` over `l = strnlen(path, PATH_MAX - 1) + 1`), the
-    /// same `NAME_MAX` refusal of the name, and a switch that continues
-    /// only on `EACCES` (remembered), `ENOENT` and `ENOTDIR`. Read from
-    /// musl 1.2 source; not executed natively by this suite.
+    /// musl `src/process/execvp.c`, `__execvpe`: `musl_walk`, with its
+    /// `NAME_MAX` refusal of the name and a switch that continues only
+    /// on `EACCES` (remembered), `ENOENT` and `ENOTDIR`. Read from musl
+    /// 1.2 source; not executed natively by this suite.
     Musl,
-    /// Apple libc `sys/posix_spawn.c`, `posix_spawnp` — the search the
-    /// production child runs, because `std::process::Command` with an
-    /// unchanged `PATH` takes `posix_spawnp` there (Rust 1.88
-    /// `library/std/src/sys/process/unix/unix.rs` 417–423 disables that
-    /// path only for a changed `PATH` and a bare program). Design D10
-    /// pinned lines 125–127: a candidate whose directory, `/`, name and
-    /// NUL exceed `PATH_MAX` (1024) returns `ENAMETOOLONG` at
-    /// construction, where `gen/FreeBSD/exec.c` 206–212 (`execvP`) warns
-    /// and continues. Both continue past `ELOOP`, `ENAMETOOLONG`,
-    /// `ENOENT` and `ENOTDIR` after the attempt and remember `EACCES`.
-    /// The rest of that switch is NOT pinned by this seat, and an errno
-    /// outside those arms refuses as unestablished rather than guessing.
+    /// Apple libc: `apple_walk`, which is `sys/posix_spawn.c`'s
+    /// `posix_spawnp` for production's own `Command` form and
+    /// `gen/FreeBSD/exec.c`'s `execvP` for an explicit child `PATH` and
+    /// for `env`'s nested search (`Operation`). Both continue past
+    /// `ELOOP`, `ENAMETOOLONG`, `ENOENT` and `ENOTDIR` after the attempt
+    /// and remember `EACCES`. The rest of that switch is NOT pinned by
+    /// this seat, and an errno outside those arms refuses as
+    /// unestablished rather than guessing.
     Apple,
     /// A target whose lookup this resolver has not read from source:
     /// FreeBSD's `execvPe` switch, bionic, the other BSDs. An
@@ -1847,25 +1841,34 @@ const LINUX_NAME_MAX: usize = 255;
 #[cfg(unix)]
 const LINUX_PATH_MAX: usize = 4096;
 
-/// `PATH_MAX` on Darwin, the size of the buffer `posix_spawnp` builds
-/// each candidate in (`sys/posix_spawn.c`).
+/// `PATH_MAX` on Darwin, the size of the buffer `posix_spawnp` and
+/// `execvP` each build a candidate in (`sys/posix_spawn.c`,
+/// `gen/FreeBSD/exec.c`).
 #[cfg(unix)]
 const DARWIN_PATH_MAX: usize = 1024;
 
 /// What a library does with a program NAME before it searches at all.
 ///
-/// glibc: `file_len = __strnlen(file, NAME_MAX) + 1`, and a name longer
-/// than `NAME_MAX` returns `ENAMETOOLONG` with no `execve` attempted
-/// (`posix/execvpe.c` 92–106; the `__libc_alloca_cutoff` check beside it
-/// bounds `path_len + file_len + 1`, at most 4,353 bytes, which no
-/// thread stack this resolver runs on refuses). musl makes the same
-/// `NAME_MAX` refusal. Apple's `posix_spawnp` has no such check: a long
-/// name meets the per-entry construction bound instead. An unestablished
-/// library refuses every search by name.
+/// glibc bounds the name it copies — `file_len = __strnlen (file,
+/// NAME_MAX) + 1` (`posix/execvpe.c` 86–106, revision `glibc-2.42`) —
+/// and refuses nothing by that length: the `file_len - 1 > NAME_MAX`
+/// test beside it cannot be true of a length `__strnlen` already capped
+/// at `NAME_MAX`, and `__libc_alloca_cutoff (path_len + file_len + 1)`
+/// bounds at most 4,353 bytes, which no thread stack this resolver runs
+/// on refuses. A long name therefore MEETS THE KERNEL under each entry,
+/// and the kernel's answer is decided by the entry: `ENOENT` under a
+/// missing directory, `ENOTDIR` under a file, `ENAMETOOLONG` under a
+/// directory that exists — each through the switch, none invented here
+/// (fourth hold, R4; the inherited unconditional `NAME_MAX` refusal was
+/// not that source's translation). musl refuses the name itself:
+/// `k = strnlen(file, NAME_MAX+1); if (k > NAME_MAX) { errno =
+/// ENAMETOOLONG; return -1; }` (`src/process/execvp.c`, `__execvpe`).
+/// Apple has no name check: a long name meets its per-candidate
+/// construction bound. An unestablished library refuses every search.
 #[cfg(unix)]
 fn admit_program_name(library: Library, name: &str) -> Result<(), String> {
     match library {
-        Library::Glibc | Library::Musl if name.len() > LINUX_NAME_MAX => Err(format!(
+        Library::Musl if name.len() > LINUX_NAME_MAX => Err(format!(
             "is {} bytes long, more than the {LINUX_NAME_MAX} bytes NAME_MAX allows a searched \
              name, which the platform's lookup refuses with ENAMETOOLONG before searching",
             name.len()
@@ -1878,69 +1881,290 @@ fn admit_program_name(library: Library, name: &str) -> Result<(), String> {
     }
 }
 
-/// What a library does with one `PATH` component BEFORE it asks the
-/// kernel about the candidate under it.
+/// Which of the platform's lookup operations the CHILD runs — the one
+/// fact about the caller's `Command` form the search must carry, because
+/// Apple's libc has two walks and Rust selects between them by form.
+///
+/// `std::process::Command` (Rust 1.88, `library/std/src/sys/process/unix/
+/// unix.rs` 417–423) takes `posix_spawnp` for an unchanged environment
+/// and falls back to `fork` + `execvp` when the child's `PATH` was set or
+/// removed on the `Command` and the program is a bare name. On glibc and
+/// musl both operations run ONE loop (`posix_spawnp` reaches
+/// `__execvpe_common` through `__execvpex`; musl's reaches `__execvpe`),
+/// so the distinction changes nothing there. On Apple `posix_spawnp` is
+/// `sys/posix_spawn.c`'s walk and `execvp` is `gen/FreeBSD/exec.c`'s
+/// `execvP`, and they answer a candidate that overflows their buffer
+/// differently. The nested search `env` runs for its program is always
+/// `execvp`, whatever the outer form (design D10 §3, fourth hold).
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Construction {
-    /// The candidate is built and attempted.
-    Try,
-    /// The component is skipped, with no errno and no attempt: glibc's
-    /// and musl's answer to a component that would not fit the buffer
-    /// they sized for the whole variable.
-    Skip,
-    /// The search stops here, before any attempt: Apple's
-    /// `posix_spawnp` answer to a candidate longer than its buffer.
-    Stop,
+enum Operation {
+    /// `posix_spawnp`: production's own probe, `Command::new(name)` with
+    /// the environment it inherited.
+    Spawn,
+    /// `execvp`: a `Command` whose `PATH` was supplied explicitly, and
+    /// `env`'s search for the program its `#!` line names.
+    Exec,
 }
 
-/// glibc's buffer sizing: `path_len = __strnlen(path, PATH_MAX - 1) + 1`
-/// (`posix/execvpe.c` 92–106), over the whole `PATH` in bytes.
+/// Where one candidate the walk constructed CAME FROM. Provenance
+/// survives construction because the bytes alone cannot say it: the
+/// bare name glibc builds for an empty entry and the one it builds after
+/// an oversized skip are the same bytes, and canonical equality with the
+/// working directory is not a property this resolver reads back from a
+/// path (design D10 §2).
 #[cfg(unix)]
-fn glibc_path_len(whole_path: usize) -> usize {
-    whole_path.min(LINUX_PATH_MAX - 1) + 1
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// `<entry>/<name>` under a nonempty `PATH` entry.
+    Entry,
+    /// An EMPTY `PATH` entry, spelled: entry `index` of the variable,
+    /// counting from zero. glibc and musl build the bare name, Apple
+    /// builds `./<name>`; all three mean the working directory.
+    EmptyEntry { index: usize },
+    /// glibc's IMPLICIT working-directory iteration: after a component
+    /// of `skipped` bytes was skipped mid-`PATH`, `p` is left on the
+    /// colon and the next iteration constructs the bare name (fourth
+    /// hold, R1; `posix/execvpe.c` 112–125 and 160–168).
+    AfterOversizedSkip { skipped: usize },
 }
 
-/// The construction decision for one component, by the library's own
-/// arithmetic and never by a `NAME_MAX` rule, a joined-length rule or a
-/// metadata errno standing in for it.
-///
-/// glibc (`posix/execvpe.c` 112–119) and musl skip a component whose
-/// byte length reaches `path_len`: `if (subp - p >= path_len) continue;`
-/// — so with a `PATH` of 4,095 bytes or more a component of 4,096 bytes
-/// is never attempted and the search walks on, while one of 4,095 bytes
-/// IS attempted and the kernel answers `ENAMETOOLONG`, on which the
-/// switch below returns. That is the difference between the 4096/5000
-/// cells that run B and the 256/300/4095 cells that stop (chief's
-/// oracle, 2026-09-20).
-///
-/// Apple's `posix_spawnp` (`sys/posix_spawn.c`, D10 lines 125–127) sizes
-/// each candidate as `lp + ln + 2` — the directory (an empty entry is
-/// `.`, one byte), the name, `/` and NUL — and returns `ENAMETOOLONG` at
-/// once when that exceeds its `PATH_MAX` buffer.
+/// One step of a platform's walk, handed to the caller in the order the
+/// platform takes them.
 #[cfg(unix)]
-fn construction(
-    library: Library,
-    whole_path: usize,
-    component: usize,
-    name: usize,
-) -> Construction {
-    match library {
-        Library::Glibc | Library::Musl => match component >= glibc_path_len(whole_path) {
-            true => Construction::Skip,
-            false => Construction::Try,
-        },
-        Library::Apple => {
-            let directory = match component {
-                0 => 1,
-                bytes => bytes,
-            };
-            match directory + name + 2 > DARWIN_PATH_MAX {
-                true => Construction::Stop,
-                false => Construction::Try,
+enum Try {
+    /// A candidate the platform would hand to `execve`, in its exact
+    /// bytes, with where it came from.
+    Candidate { bytes: Vec<u8>, origin: Origin },
+    /// The platform stops BEFORE any attempt: Apple's `posix_spawnp`
+    /// answer to a candidate longer than its buffer, with the bytes it
+    /// would have built.
+    ConstructionStop { bytes: Vec<u8> },
+}
+
+/// glibc 2.42 `posix/execvpe.c`, `__execvpe_common`, ported as the loop
+/// it is: the same cursor pair over the same bytes, the empty-component
+/// candidate where the source constructs one, the oversized check where
+/// the source places it, its early `continue` and the colon increment
+/// the `continue` bypasses. `std::env::split_paths` is not this loop —
+/// it advances from a skipped component straight to the next nonempty
+/// one, which is how the fourth hold's cwd iteration was lost (run
+/// `efb3360b`, R1). Line numbers are the revision's, one-based, as
+/// design D10 §1 inspected them: 86–106 defaults and bounds, 107–119
+/// cursor and oversize control, 121–126 candidate construction, 134–158
+/// errno handling (the caller's switch), 160–168 delimiter advancement
+/// and exhaustion.
+///
+/// `file` is spelled whole. The source copies `file_len` bytes, which for
+/// a name over `NAME_MAX` is a 256-byte unterminated prefix; the kernel
+/// decides every such candidate before its 256th byte — a missing or
+/// non-directory entry answers `ENOENT`/`ENOTDIR` first, and a final
+/// component of 256 bytes or more is `ENAMETOOLONG` whatever follows it
+/// — so the whole name spells the same answer and no truncated stand-in
+/// is constructed (design D10 §3).
+///
+/// The answer is the caller's first `Break`, or `None` when the loop
+/// exhausted its entries or broke on a final oversized component.
+#[cfg(unix)]
+fn glibc_walk<T>(
+    path: &[u8],
+    file: &[u8],
+    mut attempt: impl FnMut(Try) -> std::ops::ControlFlow<T>,
+) -> Option<T> {
+    // 96: `size_t path_len = __strnlen (path, PATH_MAX - 1) + 1;`
+    let path_len = path.len().min(LINUX_PATH_MAX - 1) + 1;
+    // 107–119: `const char *subp;` … `for (const char *p = path; ; p =
+    // subp)` — `subp` is set inside the body, and the update `p = subp`
+    // runs on `continue` as well as at the end of a completed iteration.
+    let mut p = 0usize;
+    // Whether the previous iteration `continue`d from the oversize check,
+    // leaving `p` on the colon: the bare name the next iteration builds
+    // is then the implicit working-directory candidate.
+    let mut skipped: Option<usize> = None;
+    let mut index = 0usize;
+    loop {
+        // `subp = __strchrnul (p, ':');`
+        let subp = path[p..]
+            .iter()
+            .position(|byte| *byte == b':')
+            .map_or(path.len(), |at| p + at);
+        // `if (subp - p >= path_len)`
+        if subp - p >= path_len {
+            // `if (*subp == '\0') break;` — a final oversized component
+            // ends the search with nothing attempted.
+            if subp == path.len() {
+                break;
+            }
+            // `continue;` — with `p = subp`, the COLON, from the loop
+            // header; no `subp++` runs on this path, so no entry ordinal
+            // is passed either.
+            skipped = Some(subp - p);
+            p = subp;
+            continue;
+        }
+        // 121–126: `char *pend = mempcpy (buffer, p, subp - p); *pend =
+        // '/'; memcpy (pend + (p < subp), file, file_len);` — the entry's
+        // bytes as they are (a trailing `/` included), one more `/` for a
+        // nonempty entry, then the name. An empty entry yields the bare
+        // name: the `/` written at `pend` is overwritten by the name.
+        let mut bytes = Vec::with_capacity(subp - p + 1 + file.len());
+        bytes.extend_from_slice(&path[p..subp]);
+        if p < subp {
+            bytes.push(b'/');
+        }
+        bytes.extend_from_slice(file);
+        let origin = match (subp - p, skipped.take()) {
+            (0, Some(skipped)) => Origin::AfterOversizedSkip { skipped },
+            (0, None) => Origin::EmptyEntry { index },
+            _ => Origin::Entry,
+        };
+        // `__execve (buffer, argv, envp);` and the 134–158 switch: the
+        // caller's, which breaks where the switch returns.
+        if let std::ops::ControlFlow::Break(answer) = attempt(Try::Candidate { bytes, origin }) {
+            return Some(answer);
+        }
+        // 160–168: `if (*subp++ == '\0') break;` — past the colon, and
+        // the loop header sets `p = subp`.
+        if subp == path.len() {
+            break;
+        }
+        p = subp + 1;
+        index += 1;
+    }
+    None
+}
+
+/// musl `src/process/execvp.c`, `__execvpe`, ported as ITS loop, which
+/// is not glibc's at the one place the fourth hold turns on: musl's
+/// oversize branch is `if (!*z++) break; continue;` — the cursor is
+/// advanced PAST the colon before the `continue`, so the next iteration
+/// constructs the following component and no implicit working-directory
+/// candidate exists. Read from musl 1.2 source; not executed natively by
+/// this suite.
+#[cfg(unix)]
+fn musl_walk<T>(
+    path: &[u8],
+    file: &[u8],
+    mut attempt: impl FnMut(Try) -> std::ops::ControlFlow<T>,
+) -> Option<T> {
+    // `l = strnlen(path, PATH_MAX-1)+1;`
+    let l = path.len().min(LINUX_PATH_MAX - 1) + 1;
+    // `for(p=path; ; p=z)`
+    let mut p = 0usize;
+    let mut index = 0usize;
+    loop {
+        // `z = __strchrnul(p, ':');`
+        let z = path[p..]
+            .iter()
+            .position(|byte| *byte == b':')
+            .map_or(path.len(), |at| p + at);
+        // `if (z-p >= l) { if (!*z++) break; continue; }`
+        if z - p >= l {
+            if z == path.len() {
+                break;
+            }
+            p = z + 1;
+            index += 1;
+            continue;
+        }
+        // `memcpy(b, p, z-p); b[z-p] = '/'; memcpy(b+(z-p)+(z>p), file,
+        // k+1);`
+        let mut bytes = Vec::with_capacity(z - p + 1 + file.len());
+        bytes.extend_from_slice(&path[p..z]);
+        if z > p {
+            bytes.push(b'/');
+        }
+        bytes.extend_from_slice(file);
+        let origin = match z - p {
+            0 => Origin::EmptyEntry { index },
+            _ => Origin::Entry,
+        };
+        if let std::ops::ControlFlow::Break(answer) = attempt(Try::Candidate { bytes, origin }) {
+            return Some(answer);
+        }
+        // `if (!*z++) break;`
+        if z == path.len() {
+            break;
+        }
+        p = z + 1;
+        index += 1;
+    }
+    None
+}
+
+/// Apple libc's two walks, ported with the same `strsep` shape and
+/// separated at the one branch where they differ. Both cut `PATH` on
+/// `:` with `strsep`, so a leading, trailing or doubled colon is an
+/// empty token; an empty token becomes `.` (`lp = 1`); the candidate is
+/// `<token>/<name>` sized as `lp + ln + 2` against `PATH_MAX` (1,024).
+/// `execvP` (`gen/FreeBSD/exec.c`, design D10 lines 178–218 and
+/// 262–297) writes `execvP: <token>: path too long` to stderr and
+/// `continue`s to the next token; `posix_spawnp` (`sys/posix_spawn.c`,
+/// D10 lines 97–143 and 170–195) returns `ENAMETOOLONG` at once. The
+/// errno switch that follows each attempt is the caller's (`step`).
+///
+/// This port carries the moving `main` references design D10 inspected;
+/// the immutable revision pin and the native macOS execution of these
+/// cells are recorded as pending in the delivery account, because this
+/// seat could reach neither the source nor a Darwin host.
+#[cfg(unix)]
+fn apple_walk<T>(
+    operation: Operation,
+    path: &[u8],
+    file: &[u8],
+    mut attempt: impl FnMut(Try) -> std::ops::ControlFlow<T>,
+) -> Option<T> {
+    // `while ((p = strsep(&cur, ":")) != NULL)`
+    for (index, token) in path.split(|byte| *byte == b':').enumerate() {
+        // `if (*p == '\0') { p = "."; lp = 1; } else lp = strlen(p);`
+        let (directory, origin): (&[u8], Origin) = match token.is_empty() {
+            true => (b".", Origin::EmptyEntry { index }),
+            false => (token, Origin::Entry),
+        };
+        // `bcopy(p, buf, lp); buf[lp] = '/'; bcopy(name, buf + lp + 1,
+        // ln); buf[lp + ln + 1] = '\0';`
+        let mut bytes = Vec::with_capacity(directory.len() + 1 + file.len());
+        bytes.extend_from_slice(directory);
+        bytes.push(b'/');
+        bytes.extend_from_slice(file);
+        // `if (lp + ln + 2 > sizeof(buf))`
+        if directory.len() + file.len() + 2 > DARWIN_PATH_MAX {
+            match operation {
+                // `execvP`: warn and `continue`.
+                Operation::Exec => continue,
+                // `posix_spawnp`: `err = ENAMETOOLONG; goto done;`
+                Operation::Spawn => {
+                    return match attempt(Try::ConstructionStop { bytes }) {
+                        std::ops::ControlFlow::Break(answer) => Some(answer),
+                        std::ops::ControlFlow::Continue(()) => None,
+                    }
+                }
             }
         }
-        Library::Unestablished => Construction::Stop,
+        if let std::ops::ControlFlow::Break(answer) = attempt(Try::Candidate { bytes, origin }) {
+            return Some(answer);
+        }
+    }
+    None
+}
+
+/// The running library's walk, by library and operation — the candidate
+/// SEQUENCE the platform tries, over the exact `PATH` bytes. An
+/// unestablished library constructs nothing: `admit_program_name` has
+/// already refused its search by name.
+#[cfg(unix)]
+fn walk_search<T>(
+    library: Library,
+    operation: Operation,
+    path: &[u8],
+    file: &[u8],
+    attempt: impl FnMut(Try) -> std::ops::ControlFlow<T>,
+) -> Option<T> {
+    match library {
+        Library::Glibc => glibc_walk(path, file, attempt),
+        Library::Musl => musl_walk(path, file, attempt),
+        Library::Apple => apple_walk(operation, path, file, attempt),
+        Library::Unestablished => None,
     }
 }
 
@@ -2037,14 +2261,24 @@ fn lookup_failure(
             },
             denied,
         },
-        Ok(Step::Stop) if errno == rustix::io::Errno::LOOP => {
-            refuse(format!("a symlink loop stops the lookup: {error}"))
-        }
-        Ok(Step::Stop) => refuse(format!(
-            "{operation} answers {error}, on which the platform's lookup stops"
-        )),
+        Ok(Step::Stop) => Candidate::Refused(stop_cause(candidate, operation, errno)),
         Err(limitation) => refuse(format!("{operation} answers {error}, and {limitation}")),
     }
+}
+
+/// The refusal a STOP is: the library's switch returned this errno at
+/// once, and the candidate it stopped on names it — a loop by name, any
+/// other cause by the operation that met it. Shared by the ordinary
+/// candidate and the working-directory candidate, whose native stop is
+/// the one thing the cwd rule preserves.
+#[cfg(unix)]
+fn stop_cause(candidate: &Path, operation: &str, errno: rustix::io::Errno) -> CompositeError {
+    let error = std::io::Error::from_raw_os_error(errno.raw_os_error());
+    let why = match errno == rustix::io::Errno::LOOP {
+        true => format!("a symlink loop stops the lookup: {error}"),
+        false => format!("{operation} answers {error}, on which the platform's lookup stops"),
+    };
+    CompositeError::Config(format!("{}: {why}", candidate.display()))
 }
 
 /// Whether the platform reads `command` as a PATH to a file rather than
@@ -2090,14 +2324,17 @@ fn refuse_unspellable(command: &str) -> Result<(), CompositeError> {
 ///
 /// A present `PATH` is searched as spelled, ordered empty entries
 /// included, because an empty entry names the working directory to the
-/// child too. An ABSENT `PATH` is not an empty search and not a refusal:
-/// the C library searches its own default path in that case — glibc's
-/// `execvp` reads `CS_PATH` when `getenv("PATH")` is null — so a bare name
-/// that sits there runs, and one that does not is a native no-match. The
-/// inherited reader first turned absence into one empty entry, which
-/// selected a cwd `dsh` (S1), and then into an unconditional refusal,
-/// which the commission withdrew: neither is what the platform does.
+/// child too — and the working directory is where this resolver never
+/// goes (`refuse_working_directory`). An ABSENT `PATH` is not an empty
+/// search and not a refusal: the C library searches its own default path
+/// in that case — glibc's `execvp` reads `CS_PATH` when `getenv("PATH")`
+/// is null — so a bare name that sits there runs, and one that does not
+/// is a native no-match. The inherited reader first turned absence into
+/// one empty entry, which selected a cwd `dsh` (S1), and then into an
+/// unconditional refusal, which the commission withdrew: neither is what
+/// the platform does.
 #[cfg(unix)]
+#[derive(Clone)]
 struct Search {
     entries: std::ffi::OsString,
     /// Whether `entries` is the C library's default rather than the
@@ -2108,14 +2345,39 @@ struct Search {
     /// every arm of every rule is a plain test on whichever platform the
     /// suite runs.
     library: Library,
+    /// Which of the library's lookup operations the child runs for this
+    /// search: production's `posix_spawnp`, or the `execvp` an explicit
+    /// child `PATH` and `env`'s nested search take.
+    operation: Operation,
     /// The platform's `env` utility every `#!` interpreter is compared
     /// against; `ENV_REFERENCE` in production.
     env_reference: PathBuf,
 }
 
+/// What the walk was left with when it admitted nothing: the searched
+/// entries' last non-denial answer and the first denial, kept apart
+/// because the platform reports them apart (design D10 §3).
+#[cfg(unix)]
+#[derive(Default)]
+struct Exhausted {
+    /// The first candidate the search remembered as denied — glibc's
+    /// `got_eacces`, reported as `EACCES` over any later cause.
+    denied: Option<(PathBuf, String)>,
+    /// The LAST candidate the search walked past for a non-denial cause
+    /// and that cause, which is the errno native exhaustion reports when
+    /// nothing was denied: `ENOTDIR` after `nowhere:file`, `ENOENT`
+    /// after `file:nowhere`. Neither field set means the walk constructed
+    /// no candidate at all — every component skipped as oversized — which
+    /// native reports with whatever errno its thread already had.
+    last: Option<(PathBuf, String)>,
+}
+
 #[cfg(unix)]
 impl Search {
-    fn capture(path: Option<std::ffi::OsString>) -> Result<Search, CompositeError> {
+    fn capture(
+        path: Option<std::ffi::OsString>,
+        operation: Operation,
+    ) -> Result<Search, CompositeError> {
         let (entries, default) = match path {
             Some(entries) => (entries, false),
             None => (default_search_path()?, true),
@@ -2124,60 +2386,90 @@ impl Search {
             entries,
             default,
             library: LIBRARY,
+            operation,
             env_reference: PathBuf::from(ENV_REFERENCE),
         })
     }
 
-    /// Search the entries for `command` as the child would: the first
-    /// entry whose candidate is admitted wins, an entry the child walks
-    /// past is walked past, and a candidate the resolver cannot prove
-    /// stops the search by cause. A search that admits nothing answers
-    /// as `execvp` answers: the first denied entry's cause where one was
-    /// denied (the child's PermissionDenied), and a plain no-match
-    /// otherwise (the child's NotFound).
+    /// The same search as `env` runs it for the program a `#!` line
+    /// names: `env` calls `execvp`, whatever form the outer `Command`
+    /// took.
+    fn for_env(&self) -> Search {
+        Search {
+            operation: Operation::Exec,
+            ..self.clone()
+        }
+    }
+
+    /// Search the entries for `command` as the child would, over the
+    /// EXACT candidate sequence the platform's own loop constructs
+    /// (`walk`): the first candidate admitted wins, a candidate the child
+    /// walks past is walked past, and a candidate the resolver cannot
+    /// prove stops the search by cause. A search that admits nothing
+    /// answers as the platform answers: the first denied entry's cause
+    /// where one was denied (the child's PermissionDenied), and otherwise
+    /// the last candidate's own cause (the child's NotFound after a
+    /// missing entry, NotADirectory after a file spelled as one).
     ///
-    /// The search has the library's own STAGES, in its order: the name
-    /// is admitted before any entry is read; each component is sized as
-    /// the library sizes it and skipped or stopped on BEFORE a candidate
-    /// is joined or inspected; only a constructed candidate reaches the
-    /// kernel, and only the kernel's errno reaches the switch. A
-    /// metadata `ENAMETOOLONG` is therefore what the switch says it is —
-    /// terminal on glibc — and never a stand-in for the buffer skip that
-    /// happens earlier and carries no errno at all (run `09ec8d81`, R1).
+    /// On top of that identical sequence, ONE rule (fourth hold,
+    /// controller reconciliation 2026-09-20): equality with native is
+    /// necessary — nothing is selected that native would not execute —
+    /// and not sufficient: a candidate in the working directory (an
+    /// empty PATH entry, or the implicit cwd iteration glibc produces
+    /// after an oversized skip) is NEVER selected and NEVER skipped past.
+    /// Never cwd, otherwise native.
     fn find(&self, command: &str, chain: &mut Vec<(u64, u64)>) -> Result<Selected, CompositeError> {
+        use std::ops::ControlFlow;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
         admit_program_name(self.library, command)
             .map_err(|why| CompositeError::Config(format!("'{command}' {why}")))?;
-        let whole_path = self.entries.len();
-        let mut denied: Option<(PathBuf, String)> = None;
-        for dir in std::env::split_paths(&self.entries) {
-            let candidate = match dir.as_os_str().is_empty() {
-                true => PathBuf::from(command),
-                false => dir.join(command),
-            };
-            match construction(
-                self.library,
-                whole_path,
-                dir.as_os_str().len(),
-                command.len(),
-            ) {
-                Construction::Try => {}
-                Construction::Skip => continue,
-                Construction::Stop => {
-                    return Err(CompositeError::Config(format!(
-                        "{}: the platform's lookup stops before attempting a candidate longer \
-                         than the {DARWIN_PATH_MAX} bytes it builds one in (ENAMETOOLONG)",
-                        candidate.display()
-                    )))
+        let mut exhausted = Exhausted::default();
+        let outcome = walk_search(
+            self.library,
+            self.operation,
+            self.entries.as_bytes(),
+            command.as_bytes(),
+            |step| {
+                let (bytes, origin) = match step {
+                    Try::Candidate { bytes, origin } => (bytes, origin),
+                    Try::ConstructionStop { bytes } => {
+                        return ControlFlow::Break(Err(CompositeError::Config(format!(
+                            "{}: the platform's lookup stops before attempting a candidate \
+                             longer than the {DARWIN_PATH_MAX} bytes it builds one in \
+                             (ENAMETOOLONG)",
+                            PathBuf::from(std::ffi::OsString::from_vec(bytes)).display()
+                        ))))
+                    }
+                };
+                let candidate = PathBuf::from(std::ffi::OsString::from_vec(bytes));
+                let working_directory = match origin {
+                    Origin::Entry => None,
+                    Origin::EmptyEntry { index } => Some(format!("PATH entry {index} is empty")),
+                    Origin::AfterOversizedSkip { skipped } => Some(format!(
+                        "glibc skips the {skipped}-byte component and its next iteration is \
+                         the empty entry it leaves the cursor on (posix/execvpe.c 118–124, 168)"
+                    )),
+                };
+                if let Some(how) = working_directory {
+                    return ControlFlow::Break(Err(self.refuse_working_directory(&candidate, how)));
                 }
-            }
-            match classify_in(&candidate, self, chain) {
-                Candidate::Admitted(selected) => return Ok(selected),
-                Candidate::Passed { why, denied: true } => {
-                    denied.get_or_insert((candidate, why));
+                match classify_in(&candidate, self, chain) {
+                    Candidate::Admitted(selected) => ControlFlow::Break(Ok(selected)),
+                    Candidate::Passed { why, denied: true } => {
+                        exhausted.denied.get_or_insert((candidate, why));
+                        ControlFlow::Continue(())
+                    }
+                    Candidate::Passed { why, denied: false } => {
+                        exhausted.last = Some((candidate, why));
+                        ControlFlow::Continue(())
+                    }
+                    Candidate::Refused(error) => ControlFlow::Break(Err(error)),
                 }
-                Candidate::Passed { denied: false, .. } => {}
-                Candidate::Refused(error) => return Err(error),
-            }
+            },
+        );
+        if let Some(outcome) = outcome {
+            return outcome;
         }
         let searched = match self.default {
             true => format!(
@@ -2186,13 +2478,51 @@ impl Search {
             ),
             false => "PATH".to_string(),
         };
-        Err(CompositeError::Config(match denied {
-            Some((candidate, why)) => format!(
-                "'{command}' is not executable by this process on {searched}: {}: {why}",
-                candidate.display()
-            ),
-            None => format!("'{command}' is not on {searched}"),
-        }))
+        // Every constructed candidate was admitted, refused, denied or
+        // passed for a cause; so a search with neither a denial nor a
+        // last cause constructed nothing at all.
+        Err(CompositeError::Config(
+            match (exhausted.denied, exhausted.last) {
+                (Some((candidate, why)), _) => format!(
+                    "'{command}' is not executable by this process on {searched}: {}: {why}",
+                    candidate.display()
+                ),
+                (None, Some((candidate, why))) => format!(
+                    "'{command}' is not on {searched} (the search ended at {}: {why})",
+                    candidate.display()
+                ),
+                (None, None) => format!(
+                    "'{command}' is not on {searched} (the search attempted no candidate: every \
+                     component was skipped as longer than the buffer the platform builds one in)"
+                ),
+            },
+        ))
+    }
+
+    /// The reconciled rule at the candidate it governs. What native does
+    /// AT this candidate is read from metadata alone — never from its
+    /// head, loader or interpreters, which would inspect a file this
+    /// resolver will not select in order to reject it (design D10 §2):
+    /// where native would STOP here, that cause is preserved (glibc's
+    /// `ELOOP` on a cwd self-symlink, the kernel's `ENAMETOOLONG` on a
+    /// bare overlong name); where native would run it or walk past it —
+    /// a runnable file, a missing one, a directory, a denial — the
+    /// refusal is the named one, with `how` the search reached the
+    /// working directory. A missing cwd candidate is no permission to
+    /// advance: native's continuation to B does not waive it, because B
+    /// is not what a search that reached cwd is allowed to answer.
+    fn refuse_working_directory(&self, candidate: &Path, how: String) -> CompositeError {
+        let stops = std::fs::metadata(candidate)
+            .err()
+            .and_then(|error| errno_of(&error))
+            .filter(|errno| step(self.library, *errno) == Ok(Step::Stop));
+        if let Some(errno) = stops {
+            return stop_cause(candidate, "metadata", errno);
+        }
+        CompositeError::Config(format!(
+            "{}: the platform's search would fall into the working directory: {how}",
+            candidate.display()
+        ))
     }
 }
 
@@ -2712,7 +3042,9 @@ fn env_program(
     }
     let program = std::str::from_utf8(program)
         .map_err(|_| "names a program that is not UTF-8".to_string())?;
-    match lookup_in(program, search, chain) {
+    // `env` searches with `execvp`, whatever the outer form: on Apple
+    // that is the `execvP` walk, not the outer `posix_spawnp`'s.
+    match lookup_in(program, &search.for_env(), chain) {
         Ok(selected) => Ok((program == "node").then_some(selected.path)),
         Err(cause) => Err(format!("selects no '{program}': {cause}")),
     }
@@ -2780,7 +3112,9 @@ fn native_obstruction(file: &mut std::fs::File, len: u64) -> Result<(), String> 
 /// established beside the file.
 #[cfg(unix)]
 fn select(command: &str) -> Result<Selected, CompositeError> {
-    select_in(command, std::env::var_os("PATH"))
+    // Production's `Command::new(name)` changes nothing in the child's
+    // environment, which is the `posix_spawnp` form (`Operation`).
+    select_as(command, std::env::var_os("PATH"), Operation::Spawn)
 }
 
 /// `select` on Windows: an unchanged child environment is resolved
@@ -2802,19 +3136,37 @@ fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
 /// `select` over an injected child `PATH`, so an absent `PATH`, an
 /// empty entry, a non-executable candidate, an obstructed candidate and
 /// a miss are plain tests, and so the differential matrix can hand the
-/// resolver exactly the environment its native oracle ran.
+/// resolver exactly the environment its native oracle ran. A `Command`
+/// whose `PATH` was set or removed explicitly is the `execvp` form, and
+/// that is the operation this entry searches with.
 ///
 /// The outcome is EQUAL to `std::process::Command::new(command)`'s under
 /// the same cwd and environment: the same file, or a refusal exactly
-/// where the child gets NotFound — with the one named exception of a
-/// candidate whose loading prerequisite the resolver cannot establish
-/// without executing it, which is refused by cause rather than guessed
-/// (design D10). Nothing native lookup would not execute is selected,
-/// and nothing it would execute is silently swapped for another.
-#[cfg(unix)]
+/// where the child gets NotFound — with two named exceptions, both
+/// stricter than native and neither a substitution: a candidate whose
+/// loading prerequisite the resolver cannot establish without executing
+/// it is refused by cause rather than guessed (design D10), and a
+/// candidate in the working directory is refused where native would run
+/// it or walk past it (`Search::find`, fourth hold). Nothing native
+/// lookup would not execute is selected, and nothing it would execute is
+/// silently swapped for another. Production has no explicit-`PATH`
+/// caller: the selection is `select`, and this entry serves the suites.
+#[cfg(all(unix, test))]
 fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
+    select_as(command, path, Operation::Exec)
+}
+
+/// `select_in` under a named operation: the one place a search is
+/// captured, so production's form and the explicit form differ in
+/// exactly the operation they hand the walk.
+#[cfg(unix)]
+fn select_as(
+    command: &str,
+    path: Option<std::ffi::OsString>,
+    operation: Operation,
+) -> Result<Selected, CompositeError> {
     refuse_unspellable(command)?;
-    let search = Search::capture(path)?;
+    let search = Search::capture(path, operation)?;
     lookup_in(command, &search, &mut Vec::new())
 }
 

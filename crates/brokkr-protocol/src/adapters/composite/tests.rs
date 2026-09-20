@@ -1758,9 +1758,16 @@ fn executable_resolution_walks_path_entries_and_refuses_a_miss() {
     let path = Some(dir.path().as_os_str().to_os_string());
     let found = resolve_executable_in("mytool", path.clone()).unwrap();
     assert_eq!(found, tool.canonicalize().unwrap());
+    // An exhausted search names the last candidate and the cause the
+    // platform reports for it — here the child's NotFound.
+    let enoent = std::fs::metadata(dir.path().join("not-here")).unwrap_err();
     assert_eq!(
         refused(resolve_executable_in("not-here", path.clone())),
-        "the DSH layout is unreadable: 'not-here' is not on PATH"
+        format!(
+            "the DSH layout is unreadable: 'not-here' is not on PATH (the search ended at {}: \
+             {enoent})",
+            dir.path().join("not-here").display()
+        )
     );
     // A command carrying `/` is canonicalized, not searched. The refusal
     // names the path and the platform's own reason for it, never "is
@@ -1779,7 +1786,11 @@ fn executable_resolution_walks_path_entries_and_refuses_a_miss() {
     // differential matrix and the built-doctor suite.
     assert_eq!(
         refused(resolve_executable_in("a\\b", path.clone())),
-        "the DSH layout is unreadable: 'a\\b' is not on PATH"
+        format!(
+            "the DSH layout is unreadable: 'a\\b' is not on PATH (the search ended at {}: \
+             {enoent})",
+            dir.path().join("a\\b").display()
+        )
     );
     let named = stage_executable(dir.path(), "a\\b", b"#!/bin/sh\ntrue\n");
     assert_eq!(
@@ -2000,14 +2011,17 @@ fn path_resolution_walks_past_a_candidate_a_child_could_not_execute() {
             decoy.display()
         )
     );
+    let nowhere = dir.path().join("nowhere");
+    let enoent = fs::metadata(nowhere.join("dsh")).unwrap_err();
     assert_eq!(
         refused(resolve_executable_in(
             "dsh",
-            Some(OsString::from(
-                dir.path().join("nowhere").display().to_string()
-            ))
+            Some(OsString::from(nowhere.display().to_string()))
         )),
-        "the DSH layout is unreadable: 'dsh' is not on PATH"
+        format!(
+            "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at {}: {enoent})",
+            nowhere.join("dsh").display()
+        )
     );
 
     // The PERMISSION CLASS a mode-bit test cannot see. Mode 0641 carries
@@ -2074,57 +2088,87 @@ fn path_resolution_walks_past_a_candidate_a_child_could_not_execute() {
 /// The working directory is process-wide state, so the positive case runs
 /// in a CHILD of this test binary whose working directory is the fixture.
 /// Changing it in-process would reach every other test in the run.
+/// An empty `PATH` entry IS the working directory to the child, at its
+/// position in the search — and the working directory is where this
+/// resolver never goes: when the search reaches an empty entry it
+/// refuses by name, whether or not a candidate sits there, and it never
+/// walks past the entry to a later one (fourth hold, reconciled rule).
+/// A `.` entry is a nonempty relative component, which keeps its native
+/// meaning: this change adds no containment policy for aliases of cwd.
 #[cfg(unix)]
 #[test]
-fn an_empty_path_entry_is_the_current_directory() {
+fn an_empty_path_entry_is_the_working_directory_and_is_refused() {
     const CASE: &str = "BROKKR_COMPOSITE_EMPTY_PATH_ENTRY";
 
     if std::env::var_os(CASE).is_some() {
         // In the child: `mytool` exists only in the working directory the
-        // parent chose, and only the empty entry can reach it.
-        let found = resolve_executable_in("mytool", Some(OsString::from(":/nonexistent"))).unwrap();
+        // parent chose, and only the empty entry can reach it — so the
+        // empty entry is refused, by its position.
+        let cwd_reason = |index: usize| {
+            format!(
+                "the DSH layout is unreadable: mytool: the platform's search would fall into the \
+                 working directory: PATH entry {index} is empty"
+            )
+        };
         assert_eq!(
-            found,
-            std::env::current_dir()
-                .unwrap()
-                .canonicalize()
-                .unwrap()
-                .join("mytool"),
-            "the empty entry resolved to the current directory"
+            refused(resolve_executable_in(
+                "mytool",
+                Some(OsString::from(":/nonexistent"))
+            )),
+            cwd_reason(0),
+            "the leading empty entry is cwd, and cwd is refused"
         );
+        let enoent = std::fs::metadata("/nonexistent/mytool").unwrap_err();
         assert_eq!(
             refused(resolve_executable_in(
                 "mytool",
                 Some(OsString::from("/nonexistent"))
             )),
-            "the DSH layout is unreadable: 'mytool' is not on PATH",
+            format!(
+                "the DSH layout is unreadable: 'mytool' is not on PATH (the search ended at \
+                 /nonexistent/mytool: {enoent})"
+            ),
             "and nothing else on that search could have found it"
         );
         // A PRESENT, EMPTY `PATH` is one empty entry — cwd — which is a
         // different answer from an absent `PATH`, and so are a leading
-        // empty entry, a trailing one, one between two directories and
-        // an explicit `.` (security hold 2026-09-20, S1 and finding 2).
+        // empty entry, a trailing one and one between two directories
+        // (security hold 2026-09-20, S1 and finding 2): each is reached
+        // at its position and refused there, and a later `/other` is
+        // never searched.
+        for (path, index) in [("", 0), ("/nonexistent:", 1), ("/nonexistent::/other", 1)] {
+            assert_eq!(
+                refused(resolve_executable_in("mytool", Some(OsString::from(path)))),
+                cwd_reason(index),
+                "PATH={path:?} reaches the working directory and is refused there"
+            );
+        }
+        // An explicit `.` is a nonempty component the child searches as
+        // spelled, and so does the resolver.
         let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
-        for path in [
-            "",
-            "/nonexistent:",
-            "/nonexistent::/other",
-            ".",
-            "/nonexistent:.",
-        ] {
+        for path in [".", "/nonexistent:."] {
             assert_eq!(
                 resolve_executable_in("mytool", Some(OsString::from(path))).unwrap(),
                 cwd.join("mytool"),
-                "PATH={path:?} reaches the working directory"
+                "PATH={path:?} names the working directory as a component"
             );
         }
         // An ABSENT `PATH` is the C library's default search, which
-        // holds no `mytool` and never reaches the working directory.
+        // holds no `mytool` and never reaches the working directory: the
+        // search ends at the default path's last entry.
+        let default = default_search_path().unwrap();
+        let last = std::env::split_paths(&default)
+            .last()
+            .unwrap()
+            .join("mytool");
         assert_eq!(
             refused(resolve_executable_in("mytool", None)),
             format!(
-                "the DSH layout is unreadable: 'mytool' is not on the default search path {} (PATH is absent)",
-                default_search_path().unwrap().to_string_lossy()
+                "the DSH layout is unreadable: 'mytool' is not on the default search path {} \
+                 (PATH is absent) (the search ended at {}: {})",
+                default.to_string_lossy(),
+                last.display(),
+                std::fs::metadata(&last).unwrap_err()
             ),
             "an absent PATH never reaches the working directory"
         );
@@ -2136,7 +2180,7 @@ fn an_empty_path_entry_is_the_current_directory() {
     let mut child = std::process::Command::new(std::env::current_exe().unwrap());
     child
         .args([
-            "adapters::composite::tests::an_empty_path_entry_is_the_current_directory",
+            "adapters::composite::tests::an_empty_path_entry_is_the_working_directory_and_is_refused",
             "--exact",
             "--nocapture",
             "--test-threads=1",
@@ -2325,13 +2369,17 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
                     assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
                     let unselected = DshSeams::selected().unwrap_err();
                     assert_eq!(unselected.declared, "dsh");
-                    assert_eq!(
-                        unselected.cause.to_string(),
-                        "the DSH layout is unreadable: 'dsh' is not on PATH"
+                    // The search ended at the last entry's candidate,
+                    // `/bin/dsh`, with the child's own NotFound.
+                    let enoent = fs::metadata("/bin/dsh").unwrap_err();
+                    let cause = format!(
+                        "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at \
+                         /bin/dsh: {enoent})"
                     );
+                    assert_eq!(unselected.cause.to_string(), cause);
                     assert_eq!(
                         refused(DshSeams::resolve()),
-                        "the DSH layout is unreadable: 'dsh' is not on PATH",
+                        cause,
                         "a present home does not make a resolution"
                     );
                 }
@@ -2601,13 +2649,18 @@ fn the_producer_refuses_a_bare_executable_spelling() {
 #[cfg(unix)]
 #[test]
 fn an_absent_path_is_a_named_refusal_and_never_the_working_directory() {
+    let last_dir = std::env::split_paths(&default_search_path().unwrap())
+        .last()
+        .unwrap();
     let default = default_search_path().unwrap();
     let default = default.to_string_lossy().into_owned();
     // The names the default search does not hold refuse by naming what
-    // WAS searched: a `node` looked up for its version meets the same
-    // rule as `dsh`. Whether a host keeps either on its default path is
-    // asked of the host rather than assumed.
+    // WAS searched, and where the search ended: a `node` looked up for
+    // its version meets the same rule as `dsh`. Whether a host keeps
+    // either on its default path is asked of the host rather than
+    // assumed.
     for name in ["dsh", "node"] {
+        let last = last_dir.join(name);
         let native = std::process::Command::new(name)
             .arg("--version")
             .env_remove("PATH")
@@ -2624,7 +2677,10 @@ fn an_absent_path_is_a_named_refusal_and_never_the_working_directory() {
                 assert_eq!(
                     refused(resolve_executable_in(name, None)),
                     format!(
-                        "the DSH layout is unreadable: '{name}' is not on the default search path {default} (PATH is absent)"
+                        "the DSH layout is unreadable: '{name}' is not on the default search \
+                         path {default} (PATH is absent) (the search ended at {}: {})",
+                        last.display(),
+                        fs::metadata(&last).unwrap_err()
                     )
                 );
             }
@@ -2688,14 +2744,17 @@ fn an_absent_path_is_a_named_refusal_and_never_the_working_directory() {
     );
     // A PRESENT but empty `PATH` is one empty entry, which is cwd — a
     // different answer from absence, asserted in the child case of
-    // `an_empty_path_entry_is_the_current_directory`, and an empty
-    // PATH holding no cwd candidate is NotFound to both.
+    // `an_empty_path_entry_is_the_working_directory_and_is_refused`.
+    // With no cwd candidate the child gets NotFound; the resolver still
+    // refuses at the cwd entry, never past it, and never falls back to
+    // the absent-PATH default search (fourth hold).
     assert_eq!(
         refused(resolve_executable_in(
             "definitely-not-in-cwd",
             Some(OsString::new())
         )),
-        "the DSH layout is unreadable: 'definitely-not-in-cwd' is not on PATH"
+        "the DSH layout is unreadable: definitely-not-in-cwd: the platform's search would fall \
+         into the working directory: PATH entry 0 is empty"
     );
 }
 
@@ -2724,6 +2783,14 @@ enum Slot {
     /// A component that does not exist: the candidate under it answers
     /// ENOENT.
     Nowhere,
+    /// An EMPTY `PATH` entry, spelled as nothing between two separators
+    /// (or as the whole variable): the working directory to the child.
+    Empty,
+    /// `A`'s own directory spelling padded with trailing `/` bytes to
+    /// exactly this many bytes, so the candidate native constructs under
+    /// it — one more `/` and the name — lands on a byte boundary the
+    /// kernel measures (fourth hold, R2).
+    PaddedA(usize),
 }
 
 /// The overlong `PATH` component's spelling, as the commission first
@@ -2760,12 +2827,19 @@ fn absent_path_node_identity_is_retained_by_the_composite() {
     match native {
         Err(error) => {
             assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+            let last = std::env::split_paths(&default_search_path().unwrap())
+                .last()
+                .unwrap()
+                .join("node");
             assert_eq!(
                 refused(select_in(&executable, None)),
                 format!(
                     "the DSH layout is unreadable: {executable}: its #! interpreter \
                      '/usr/bin/env' selects no 'node': the DSH layout is unreadable: 'node' is \
-                     not on the default search path {default} (PATH is absent)"
+                     not on the default search path {default} (PATH is absent) (the search \
+                     ended at {}: {})",
+                    last.display(),
+                    fs::metadata(&last).unwrap_err()
                 ),
                 "the selection refuses before any probe where native lookup finds no node"
             );
@@ -3100,6 +3174,10 @@ fn windows_matrix_child() {
                 Slot::File => cell.join("file-as-dir"),
                 Slot::Nowhere => cell.join("nowhere"),
                 Slot::Target => cwd.clone(),
+                // The Unix matrix's own spellings; no Windows layout
+                // places them.
+                Slot::Empty => PathBuf::new(),
+                Slot::PaddedA(_) => cell.join("a"),
             };
             for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
                 fs::create_dir_all(dir_of(slot)).unwrap();
@@ -4499,13 +4577,16 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     // than guessing which half is the program.
     stage_executable(&a, "dsh", b"#!/usr/bin/env node --flag\n");
     let refusal = refused(resolve_executable_in("dsh", path(&a)));
+    let enoent_flag = fs::metadata(b.join("node --flag")).unwrap_err();
     match cfg!(any(target_os = "linux", target_os = "android")) {
         true => assert_eq!(
             refusal,
             format!(
                 "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' selects no \
-                 'node --flag': the DSH layout is unreadable: 'node --flag' is not on PATH",
-                a.join("dsh").display()
+                 'node --flag': the DSH layout is unreadable: 'node --flag' is not on PATH (the \
+                 search ended at {}: {enoent_flag})",
+                a.join("dsh").display(),
+                b.join("node --flag").display()
             )
         ),
         false => assert_eq!(
@@ -4614,9 +4695,13 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         ),
         (
             b"#!/usr/bin/env definitely-no-such-program\n".to_vec(),
-            "its #! interpreter '/usr/bin/env' selects no 'definitely-no-such-program': the \
-             DSH layout is unreadable: 'definitely-no-such-program' is not on PATH"
-                .to_string(),
+            format!(
+                "its #! interpreter '/usr/bin/env' selects no 'definitely-no-such-program': the \
+                 DSH layout is unreadable: 'definitely-no-such-program' is not on PATH (the \
+                 search ended at {}: {})",
+                b.join("definitely-no-such-program").display(),
+                fs::metadata(b.join("definitely-no-such-program")).unwrap_err()
+            ),
         ),
         // A script naming itself is followed once — the candidate is not
         // yet a link of its own chain — and refused at the second sight.
@@ -4666,8 +4751,11 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         )),
         format!(
             "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' selects no \
-             'node': the DSH layout is unreadable: 'node' is not on PATH",
-            a.join("dsh").display()
+             'node': the DSH layout is unreadable: 'node' is not on PATH (the search ended at \
+             {}: {})",
+            a.join("dsh").display(),
+            a.join("node").display(),
+            fs::metadata(a.join("node")).unwrap_err()
         )
     );
 
@@ -4763,16 +4851,23 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         )
     );
     // A `PATH` component too long for any candidate under it. What the
-    // search does is the library's own arithmetic, not a metadata
-    // errno: glibc skips a component of `path_len` bytes or more
-    // BEFORE `execve` (`posix/execvpe.c` 112–119), so 4096 and 5000
-    // walk on to B; a shorter one is attempted, the kernel answers
-    // ENAMETOOLONG, and that errno is not in the switch that continues
-    // (136–158), so 256, 300 and 4095 STOP — where this resolver walked
-    // past every ENAMETOOLONG and authorized an execution native lookup
-    // rejects (run `09ec8d81`, R1, HIGH). The native child is the oracle
-    // at every one of the six boundaries; the built-doctor regression is
-    // `terminal_path_lengths_refuse_before_doctor_probe`.
+    // search does is the library's own loop, not a metadata errno: glibc
+    // skips a component of `path_len` bytes or more BEFORE `execve`
+    // (`posix/execvpe.c` 107–119) and — because that `continue` bypasses
+    // the colon increment — its NEXT iteration constructs the bare name,
+    // the working directory (fourth hold, R1). So 4096 and 5000 reach
+    // cwd, where the native child runs whatever sits there or walks on
+    // to B, and this resolver refuses by name either way; a shorter
+    // component is attempted, the kernel answers ENAMETOOLONG, and that
+    // errno is not in the switch that continues (134–158), so 256, 300
+    // and 4095 STOP — where the earlier resolver walked past every
+    // ENAMETOOLONG and authorized an execution native lookup rejects
+    // (run `09ec8d81`, R1, HIGH). The native child is the oracle at
+    // every one of the six boundaries; this process's cwd holds no
+    // `dsh`, so the native child runs B at 4096/5000, and the
+    // cwd-bearing cells are the matrix's and the built-doctor
+    // regression `terminal_path_lengths_refuse_before_doctor_probe`.
+    assert!(!Path::new("dsh").exists(), "this suite's cwd holds no dsh");
     let b_only = OsString::from(b.display().to_string());
     for bytes in [255usize, 256, 300, 4095, 4096, 5000] {
         let component = "x".repeat(bytes);
@@ -4798,7 +4893,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         );
         match LIBRARY {
             Library::Glibc => match bytes {
-                255 | 4096 | 5000 => {
+                255 => {
                     assert!(
                         native.unwrap().success(),
                         "{bytes}: the native child walks on to B"
@@ -4807,6 +4902,22 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
                         resolved.unwrap(),
                         real.canonicalize().unwrap(),
                         "{bytes}: the resolver selects B as the child did"
+                    );
+                }
+                4096 | 5000 => {
+                    assert!(
+                        native.unwrap().success(),
+                        "{bytes}: the native child reaches cwd, finds nothing, and walks on to B"
+                    );
+                    assert_eq!(
+                        refused(resolved),
+                        format!(
+                            "the DSH layout is unreadable: dsh: the platform's search would fall \
+                             into the working directory: glibc skips the {bytes}-byte component \
+                             and its next iteration is the empty entry it leaves the cursor on \
+                             (posix/execvpe.c 118–124, 168)"
+                        ),
+                        "{bytes}: the resolver refuses at the cwd iteration and never advances to B"
                     );
                 }
                 _ => {
@@ -4838,40 +4949,79 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
             ),
         }
     }
-    // The skip is a SKIP and not a stop: iteration continues past a
-    // 4096-byte component to a later entry, and the whole-PATH sizing
-    // is glibc's `strnlen(path, PATH_MAX - 1) + 1`.
-    assert_eq!(glibc_path_len(10), 11);
-    assert_eq!(glibc_path_len(4095), 4096);
-    assert_eq!(glibc_path_len(4096), 4096);
-    assert_eq!(glibc_path_len(50_000), 4096);
-    // A NAME longer than NAME_MAX is refused by glibc with ENAMETOOLONG
-    // BEFORE any entry is searched (`posix/execvpe.c` 92–106): the
-    // native oracle answers errno 36 with nothing executed, and the
-    // resolver refuses by that cause — never the ordinary no-match the
-    // inherited assertion expected (run `09ec8d81`, R1).
+    // A NAME longer than NAME_MAX is not refused by glibc before the
+    // search: `__strnlen (file, NAME_MAX)` caps the length it tests, so
+    // the name MEETS THE KERNEL under each entry, and the entry decides
+    // the answer (fourth hold, R4; the inherited unconditional NAME_MAX
+    // refusal was an invention). Under a directory that exists the
+    // kernel answers ENAMETOOLONG, on which the switch stops; under a
+    // missing directory it answers ENOENT and under a file ENOTDIR, both
+    // walked past, so a search of only those entries is exhausted with
+    // that final cause and never ENAMETOOLONG. Each prefix has its own
+    // native oracle.
     let overlong = "x".repeat(300);
+    let spelled = a.join(&overlong);
     let native = std::process::Command::new(&overlong)
         .env("PATH", path(&a).unwrap())
         .status();
     let resolved = resolve_executable_in(&overlong, path(&a));
+    let nowhere = dir.path().join("nowhere");
+    let native_missing = std::process::Command::new(&overlong)
+        .env("PATH", &nowhere)
+        .status();
+    let resolved_missing = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
+    let native_file = std::process::Command::new(&overlong)
+        .env("PATH", &notdir)
+        .status();
+    let resolved_file = resolve_executable_in(&overlong, Some(notdir.clone().into_os_string()));
     // As an explicit path the kernel's own ENAMETOOLONG is the cause,
     // because an override has nowhere to walk to.
-    let spelled = a.join(&overlong);
     let native_spelled = std::process::Command::new(&spelled).status();
     let resolved_spelled = resolve_executable_in(spelled.to_str().unwrap(), None);
     match LIBRARY {
         Library::Glibc => {
             assert_eq!(
                 errno_of(&native.unwrap_err()),
-                Some(rustix::io::Errno::NAMETOOLONG)
+                Some(rustix::io::Errno::NAMETOOLONG),
+                "under an existing directory the kernel answers ENAMETOOLONG"
             );
             assert_eq!(
                 refused(resolved),
                 format!(
-                    "the DSH layout is unreadable: '{overlong}' is 300 bytes long, more than \
-                     the 255 bytes NAME_MAX allows a searched name, which the platform's lookup \
-                     refuses with ENAMETOOLONG before searching"
+                    "the DSH layout is unreadable: {}: metadata answers {}, on which the \
+                     platform's lookup stops",
+                    spelled.display(),
+                    fs::metadata(&spelled).unwrap_err()
+                )
+            );
+            let missing = native_missing.unwrap_err();
+            assert_eq!(
+                errno_of(&missing),
+                Some(rustix::io::Errno::NOENT),
+                "under a missing directory the name is never measured: {missing}"
+            );
+            assert_eq!(
+                refused(resolved_missing),
+                format!(
+                    "the DSH layout is unreadable: '{overlong}' is not on PATH (the search ended \
+                     at {}: {})",
+                    nowhere.join(&overlong).display(),
+                    fs::metadata(nowhere.join(&overlong)).unwrap_err()
+                )
+            );
+            let file = native_file.unwrap_err();
+            assert_eq!(
+                errno_of(&file),
+                Some(rustix::io::Errno::NOTDIR),
+                "under a file spelled as a directory the answer is ENOTDIR: {file}"
+            );
+            assert_eq!(
+                refused(resolved_file),
+                format!(
+                    "the DSH layout is unreadable: '{overlong}' is not on PATH (the search ended \
+                     at {}: {})",
+                    notdir.join(&overlong).display(),
+                    fs::metadata(notdir.join(&overlong)).unwrap_err()
                 )
             );
             assert_eq!(
@@ -4889,8 +5039,9 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
             );
         }
         _ => eprintln!(
-            "overlong name on {}: native {native:?} / {native_spelled:?}, resolver {resolved:?} \
-             / {resolved_spelled:?}",
+            "overlong name on {}: native {native:?} / {native_missing:?} / {native_file:?} / \
+             {native_spelled:?}, resolver {resolved:?} / {resolved_missing:?} / \
+             {resolved_file:?} / {resolved_spelled:?}",
             std::env::consts::OS
         ),
     }
@@ -5093,12 +5244,15 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         !native.status.success(),
         "env finds no program named `node --flag`"
     );
+    let enoent_flag = fs::metadata(b.join("node --flag")).unwrap_err();
     assert_eq!(
         refused(resolve_executable_in("dsh", path)),
         format!(
             "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' selects no \
-             'node --flag': the DSH layout is unreadable: 'node --flag' is not on PATH",
-            a.join("dsh").display()
+             'node --flag': the DSH layout is unreadable: 'node --flag' is not on PATH (the \
+             search ended at {}: {enoent_flag})",
+            a.join("dsh").display(),
+            b.join("node --flag").display()
         )
     );
 
@@ -5426,6 +5580,7 @@ fn env_identity_is_the_file_and_never_a_name() {
         entries: OsString::from(a.display().to_string()),
         default: false,
         library: LIBRARY,
+        operation: Operation::Exec,
         env_reference: absent.clone(),
     };
     let enoent = fs::metadata(&absent).unwrap_err();
@@ -5524,59 +5679,160 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         Err("this target's native program lookup rule is not established")
     );
 
-    // Construction, BEFORE any attempt: glibc and musl skip a component
-    // of `path_len` bytes or more (`posix/execvpe.c` 112–119), sized
-    // from the whole PATH; Apple stops when directory + name + 2 exceed
-    // its 1024-byte buffer, an empty entry counting as `.`; an
-    // unestablished library never constructs.
-    for library in [Library::Glibc, Library::Musl] {
-        assert_eq!(construction(library, 5010, 5000, 3), Construction::Skip);
-        assert_eq!(construction(library, 4100, 4096, 3), Construction::Skip);
-        assert_eq!(construction(library, 4100, 4095, 3), Construction::Try);
-        assert_eq!(construction(library, 4100, 300, 3), Construction::Try);
-        // A whole PATH shorter than PATH_MAX is never skipped from.
-        assert_eq!(construction(library, 100, 100, 3), Construction::Try);
-        assert_eq!(construction(library, 100, 0, 3), Construction::Try);
+    // The candidate SEQUENCE each walk constructs over the exact PATH
+    // bytes, before any attempt — the fourth hold's whole subject: the
+    // sequence, not a per-component classification. Every candidate is
+    // recorded with its bytes and provenance; a construction stop is
+    // recorded as such.
+    let sequence = |library: Library, operation: Operation, path: &str, file: &str| {
+        let mut seen: Vec<(String, Origin)> = Vec::new();
+        let ended: Option<()> = walk_search(
+            library,
+            operation,
+            path.as_bytes(),
+            file.as_bytes(),
+            |step| {
+                match step {
+                    Try::Candidate { bytes, origin } => {
+                        seen.push((String::from_utf8(bytes).unwrap(), origin));
+                    }
+                    Try::ConstructionStop { bytes } => seen.push((
+                        format!("STOP {}", String::from_utf8(bytes).unwrap()),
+                        Origin::Entry,
+                    )),
+                }
+                std::ops::ControlFlow::Continue(())
+            },
+        );
+        assert!(
+            ended.is_none(),
+            "a walk that is never broken ends on its own"
+        );
+        seen
+    };
+    let entry = |bytes: &str| (bytes.to_string(), Origin::Entry);
+    let empty = |bytes: &str, index: usize| (bytes.to_string(), Origin::EmptyEntry { index });
+    let implicit = |skipped: usize| ("dsh".to_string(), Origin::AfterOversizedSkip { skipped });
+    let x = |bytes: usize| "x".repeat(bytes);
+    for operation in [Operation::Spawn, Operation::Exec] {
+        // glibc (`posix/execvpe.c` 107–126, 160–168): ordinary entries;
+        // every empty entry as the bare name at its position; the extra
+        // slash after an entry that already ends in one; a component of
+        // `path_len` bytes or more skipped with the cursor left on the
+        // colon, so the NEXT candidate is the bare name — the implicit
+        // working-directory iteration; and a final oversized component
+        // breaking with nothing constructed.
+        let glibc = |path: &str| sequence(Library::Glibc, operation, path, "dsh");
+        assert_eq!(glibc("A:B"), vec![entry("A/dsh"), entry("B/dsh")]);
+        assert_eq!(
+            glibc("A::B"),
+            vec![entry("A/dsh"), empty("dsh", 1), entry("B/dsh")]
+        );
+        assert_eq!(glibc("A:"), vec![entry("A/dsh"), empty("dsh", 1)]);
+        assert_eq!(glibc(":B"), vec![empty("dsh", 0), entry("B/dsh")]);
+        assert_eq!(glibc(""), vec![empty("dsh", 0)]);
+        assert_eq!(glibc("A/"), vec![entry("A//dsh")]);
+        assert_eq!(
+            glibc(&format!("{}:B", x(4095))),
+            vec![entry(&format!("{}/dsh", x(4095))), entry("B/dsh")]
+        );
+        assert_eq!(
+            glibc(&format!("{}:B", x(4096))),
+            vec![implicit(4096), entry("B/dsh")]
+        );
+        assert_eq!(
+            glibc(&format!("{}:B", x(5000))),
+            vec![implicit(5000), entry("B/dsh")]
+        );
+        assert_eq!(glibc(&x(4096)), vec![]);
+        assert_eq!(glibc(&format!("A:{}", x(4096))), vec![entry("A/dsh")]);
+        assert_eq!(
+            glibc(&format!("A:{}:B", x(5000))),
+            vec![entry("A/dsh"), implicit(5000), entry("B/dsh")]
+        );
+        // The implicit candidate and an explicit empty entry after it
+        // are two candidates, each with its own provenance.
+        assert_eq!(
+            glibc(&format!("{}::B", x(4096))),
+            vec![implicit(4096), empty("dsh", 1), entry("B/dsh")]
+        );
+        // A short PATH is never skipped from: `path_len` is the whole
+        // variable's length plus one, so no component can reach it.
+        assert_eq!(
+            glibc(&format!("{}:B", x(100))),
+            vec![entry(&format!("{}/dsh", x(100))), entry("B/dsh")]
+        );
+
+        // musl (`src/process/execvp.c`): the same empty-entry meaning,
+        // and a skipped component whose `continue` has already stepped
+        // past the colon — no implicit iteration, straight to B.
+        let musl = |path: &str| sequence(Library::Musl, operation, path, "dsh");
+        assert_eq!(
+            musl("A::B"),
+            vec![entry("A/dsh"), empty("dsh", 1), entry("B/dsh")]
+        );
+        assert_eq!(musl(""), vec![empty("dsh", 0)]);
+        assert_eq!(musl(&format!("{}:B", x(4096))), vec![entry("B/dsh")]);
+        assert_eq!(musl(&x(4096)), vec![]);
+        assert_eq!(musl("A/"), vec![entry("A//dsh")]);
     }
+    // Apple: `strsep` tokens, an empty token spelled `.`, the same extra
+    // slash — and the one branch the two operations take apart: a
+    // candidate longer than the 1,024-byte buffer is skipped by
+    // `execvP` and stops `posix_spawnp`.
+    let exec = |path: &str, file: &str| sequence(Library::Apple, Operation::Exec, path, file);
+    let spawn = |path: &str, file: &str| sequence(Library::Apple, Operation::Spawn, path, file);
+    for operation in [Operation::Exec, Operation::Spawn] {
+        let apple = |path: &str, file: &str| sequence(Library::Apple, operation, path, file);
+        assert_eq!(
+            apple("A::B", "dsh"),
+            vec![entry("A/dsh"), empty("./dsh", 1), entry("B/dsh")]
+        );
+        assert_eq!(apple("", "dsh"), vec![empty("./dsh", 0)]);
+        assert_eq!(apple(":B", "dsh"), vec![empty("./dsh", 0), entry("B/dsh")]);
+        assert_eq!(apple("A:", "dsh"), vec![entry("A/dsh"), empty("./dsh", 1)]);
+        assert_eq!(apple("A/", "dsh"), vec![entry("A//dsh")]);
+        // `lp + ln + 2 > 1024`: a directory of 1,019 bytes with a 3-byte
+        // name fills the buffer exactly and is attempted.
+        assert_eq!(
+            apple(&x(1019), "dsh"),
+            vec![entry(&format!("{}/dsh", x(1019)))]
+        );
+        assert_eq!(
+            apple("", &"n".repeat(1021)),
+            vec![empty(&format!("./{}", "n".repeat(1021)), 0)]
+        );
+    }
+    assert_eq!(exec(&format!("{}:B", x(1100)), "dsh"), vec![entry("B/dsh")]);
+    assert_eq!(exec(&format!("{}:B", x(1020)), "dsh"), vec![entry("B/dsh")]);
+    assert_eq!(exec("", &"n".repeat(1022)), vec![]);
     assert_eq!(
-        construction(Library::Apple, 5010, 5000, 3),
-        Construction::Stop
+        spawn(&format!("{}:B", x(1100)), "dsh"),
+        vec![(format!("STOP {}/dsh", x(1100)), Origin::Entry)]
     );
-    // `lp + ln + 2 > 1024`: a directory of 1,019 bytes with a 3-byte
-    // name fills the buffer exactly and is attempted; one byte more is
-    // not.
     assert_eq!(
-        construction(Library::Apple, 1030, 1020, 3),
-        Construction::Stop
+        spawn("", &"n".repeat(1022)),
+        vec![(format!("STOP ./{}", "n".repeat(1022)), Origin::Entry)]
     );
+    // An unestablished library constructs nothing.
     assert_eq!(
-        construction(Library::Apple, 1030, 1019, 3),
-        Construction::Try
-    );
-    assert_eq!(
-        construction(Library::Apple, 1030, 0, 1021),
-        Construction::Try
-    );
-    assert_eq!(
-        construction(Library::Apple, 1030, 0, 1022),
-        Construction::Stop
-    );
-    assert_eq!(
-        construction(Library::Unestablished, 10, 3, 3),
-        Construction::Stop
+        sequence(Library::Unestablished, Operation::Spawn, "A:B", "dsh"),
+        vec![]
     );
 
-    // The name, before any search: glibc and musl refuse more than
-    // NAME_MAX with ENAMETOOLONG (`posix/execvpe.c` 92–106); Apple has
-    // no such check; an unestablished library searches for nothing.
+    // The name, before any search: musl refuses more than NAME_MAX
+    // with ENAMETOOLONG (`src/process/execvp.c`); glibc does NOT — its
+    // `__strnlen (file, NAME_MAX)` caps what its own check measures, so
+    // the name meets the kernel under each entry (fourth hold, R4);
+    // Apple has no such check; an unestablished library searches for
+    // nothing.
     let long = "n".repeat(256);
     let refusal = "is 256 bytes long, more than the 255 bytes NAME_MAX allows a searched name, \
                    which the platform's lookup refuses with ENAMETOOLONG before searching"
         .to_string();
-    for library in [Library::Glibc, Library::Musl] {
-        assert_eq!(admit_program_name(library, &long), Err(refusal.clone()));
-        assert_eq!(admit_program_name(library, &"n".repeat(255)), Ok(()));
-    }
+    assert_eq!(admit_program_name(Library::Musl, &long), Err(refusal));
+    assert_eq!(admit_program_name(Library::Musl, &"n".repeat(255)), Ok(()));
+    assert_eq!(admit_program_name(Library::Glibc, &long), Ok(()));
     assert_eq!(admit_program_name(Library::Apple, &long), Ok(()));
     assert_eq!(
         admit_program_name(Library::Unestablished, "dsh"),
@@ -5675,25 +5931,28 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     );
 
     // The whole search under another library's rule, driven on this
-    // host: Apple's construction stop, Apple's continuation past a
-    // metadata ENAMETOOLONG the kernel answers for a 600-byte
-    // component, musl's NAME_MAX refusal, and the unestablished
-    // library's refusal of every search.
+    // host: Apple's construction stop under `posix_spawnp` and its
+    // skip under `execvP` for the same 1,100-byte component, Apple's
+    // continuation past a metadata ENAMETOOLONG the kernel answers for
+    // a 600-byte component, musl's NAME_MAX refusal and its straight
+    // advance past a skipped component, and the unestablished library's
+    // refusal of every search.
     let dir = tempfile::tempdir().unwrap();
     let b = dir.path().join("b");
     fs::create_dir_all(&b).unwrap();
     let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n");
-    let under = |library: Library, first: &str| Search {
+    let under = |library: Library, operation: Operation, first: &str| Search {
         entries: OsString::from(format!("{first}:{}", b.display())),
         default: false,
         library,
+        operation,
         env_reference: PathBuf::from(ENV_REFERENCE),
     };
     let stopped = "x".repeat(1100);
     assert_eq!(
         refused(lookup_in(
             "dsh",
-            &under(Library::Apple, &stopped),
+            &under(Library::Apple, Operation::Spawn, &stopped),
             &mut Vec::new()
         )),
         format!(
@@ -5702,18 +5961,44 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             Path::new(&stopped).join("dsh").display()
         )
     );
+    assert_eq!(
+        lookup_in(
+            "dsh",
+            &under(Library::Apple, Operation::Exec, &stopped),
+            &mut Vec::new()
+        )
+        .unwrap()
+        .path,
+        real.canonicalize().unwrap(),
+        "execvP warns about the overlong component and continues to B"
+    );
     let walked = "x".repeat(600);
     assert_eq!(
-        lookup_in("dsh", &under(Library::Apple, &walked), &mut Vec::new())
-            .unwrap()
-            .path,
+        lookup_in(
+            "dsh",
+            &under(Library::Apple, Operation::Spawn, &walked),
+            &mut Vec::new()
+        )
+        .unwrap()
+        .path,
         real.canonicalize().unwrap(),
         "Apple's switch continues past the kernel's ENAMETOOLONG"
     );
     assert_eq!(
+        lookup_in(
+            "dsh",
+            &under(Library::Musl, Operation::Exec, &"x".repeat(4096)),
+            &mut Vec::new()
+        )
+        .unwrap()
+        .path,
+        real.canonicalize().unwrap(),
+        "musl's skip steps past the colon and reaches B with no cwd iteration"
+    );
+    assert_eq!(
         refused(lookup_in(
             &"m".repeat(300),
-            &under(Library::Musl, &walked),
+            &under(Library::Musl, Operation::Exec, &walked),
             &mut Vec::new()
         )),
         format!(
@@ -5726,19 +6011,24 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     assert_eq!(
         refused(lookup_in(
             "dsh",
-            &under(Library::Unestablished, "/nowhere"),
+            &under(Library::Unestablished, Operation::Spawn, "/nowhere"),
             &mut Vec::new()
         )),
         "the DSH layout is unreadable: 'dsh' cannot be searched for: this target's native \
          program lookup rule is not established"
     );
-    // And the running target's own rule is the compiled one.
-    assert_eq!(
-        Search::capture(Some(OsString::from(b.display().to_string())))
-            .unwrap()
-            .library,
-        LIBRARY
-    );
+    // And the running target's own rule is the compiled one, under the
+    // operation the caller named; `env`'s nested search is always the
+    // exec form.
+    let captured = Search::capture(
+        Some(OsString::from(b.display().to_string())),
+        Operation::Spawn,
+    )
+    .unwrap();
+    assert_eq!(captured.library, LIBRARY);
+    assert_eq!(captured.operation, Operation::Spawn);
+    assert_eq!(captured.for_env().operation, Operation::Exec);
+    assert_eq!(captured.for_env().entries, captured.entries);
 }
 
 /// A native image's loader is read as the kernel reads it, from the

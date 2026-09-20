@@ -429,8 +429,10 @@ fn unix_backslash_names_follow_native_lookup_before_doctor_probe() {
 /// default path — `sh` is the observed positive — and doctor selects the
 /// very file that child ran, through the primary override and then the
 /// legacy one, never a same-named cwd decoy. With `PATH` present but
-/// empty the decoy is exactly what both select, and without the decoy
-/// both find nothing. An explicit `PATH` is the independent positive.
+/// empty the native child runs the decoy and doctor refuses at that
+/// entry (the fourth hold's rule), executing nothing; without the decoy
+/// the child finds nothing and doctor still refuses there. An explicit
+/// `PATH` is the independent positive.
 /// Node is asked of the host the same way: a native positive on the
 /// default search is compared by identity; a native miss is asserted as
 /// the resolver's named refusal, and the positive is recorded as pending
@@ -510,39 +512,68 @@ fn absent_path_default_search_matches_native_dsh_and_node() {
         }
     }
 
-    // Present-empty PATH: the one empty entry is cwd, to both.
-    let native = native_lookup(cwd, "sh", Some("")).unwrap();
-    assert!(String::from_utf8_lossy(&native.stdout).contains("SECURITY_CWD_DECOY_SH_9f3"));
+    // Present-empty PATH: the one empty entry is cwd to the native
+    // child, which runs the decoy. Doctor refuses AT that entry — the
+    // working directory is never selected and never skipped past
+    // (fourth hold) — executes nothing, and does not fall back to the
+    // absent-PATH default search. The marker directory is checked
+    // before the report's prose, so no later refusal can hide a probe.
+    //
+    // The DSH override here names `dsh`, with a cwd `dsh` decoy, and
+    // the cwd `sh` decoy is removed first: doctor's exec-adapter probe
+    // of `sh` is a bare native `Command::new("sh")`, which an empty
+    // `PATH` sends to the working directory exactly as it sends the
+    // native child — a separate surface this slice's DSH selection does
+    // not govern, recorded in the delivery account — and this cell
+    // proves the DSH selection alone.
+    std::fs::remove_file(cwd.join("sh")).unwrap();
+    version_script(cwd, "dsh", "SECURITY_CWD_DECOY_DSH_9f3");
+    let native = native_lookup(cwd, "dsh", Some("")).unwrap();
+    assert!(String::from_utf8_lossy(&native.stdout).contains("SECURITY_CWD_DECOY_DSH_9f3"));
     let stdout = stdout_of(
         doctor(cwd)
             .env("PATH", "")
-            .env("BROKKR_DSH_BIN", "sh")
+            .env("BROKKR_DSH_BIN", "dsh")
             .env("BROKKR_MARKS", &doctor_marks),
     );
-    assert!(
-        dsh_line(&stdout).starts_with("ok       dsh: SECURITY_CWD_DECOY_SH_9f3 · serves"),
-        "the explicit empty entry selects cwd exactly when the native child does: {stdout}"
-    );
-    // Both probes ran the cwd file the empty entry names: the selected
-    // `sh`, and then the `node` the composite looks up under the same
-    // PATH — which is what `Command::new("node")` runs there too.
     assert_eq!(
         executed(&doctor_marks),
-        vec![
-            "SECURITY_CWD_DECOY_NODE_9f3".to_string(),
-            "SECURITY_CWD_DECOY_SH_9f3".to_string()
-        ]
+        Vec::<String>::new(),
+        "doctor executed a cwd decoy through the empty PATH entry:\n{stdout}"
     );
-    std::fs::remove_file(doctor_marks.join("SECURITY_CWD_DECOY_NODE_9f3")).unwrap();
-    std::fs::remove_file(doctor_marks.join("SECURITY_CWD_DECOY_SH_9f3")).unwrap();
-    // And without the decoy, an empty PATH finds nothing for either.
-    std::fs::remove_file(cwd.join("sh")).unwrap();
-    let native = native_lookup(cwd, "sh", Some("")).unwrap_err();
-    assert_eq!(native.kind(), std::io::ErrorKind::NotFound);
-    let stdout = stdout_of(doctor(cwd).env("PATH", "").env("BROKKR_DSH_BIN", "sh"));
+    assert!(!stdout.contains("SECURITY_CWD_DECOY"), "{stdout}");
+    let line = dsh_line(&stdout);
     assert!(
-        dsh_line(&stdout).contains("'sh' is not on PATH"),
-        "no fallback to the default search under a present, empty PATH: {stdout}"
+        line.contains(
+            "dsh: the platform's search would fall into the working directory: PATH entry 0 is \
+             empty"
+        ),
+        "the explicit empty entry is refused where the native child ran the decoy: {line}"
+    );
+    assert!(
+        line.starts_with("warn     dsh: binary 'dsh' not found: "),
+        "{line}"
+    );
+    // And without the decoy the native child finds nothing, and doctor
+    // still refuses at the cwd entry rather than reporting a miss or
+    // searching the default path.
+    std::fs::remove_file(cwd.join("dsh")).unwrap();
+    let native = native_lookup(cwd, "dsh", Some("")).unwrap_err();
+    assert_eq!(native.kind(), std::io::ErrorKind::NotFound);
+    let stdout = stdout_of(
+        doctor(cwd)
+            .env("PATH", "")
+            .env("BROKKR_DSH_BIN", "dsh")
+            .env("BROKKR_MARKS", &doctor_marks),
+    );
+    assert_eq!(executed(&doctor_marks), Vec::<String>::new());
+    let line = dsh_line(&stdout);
+    assert!(
+        line.contains("the platform's search would fall into the working directory")
+            && !line.contains("PATH is absent")
+            && !line.contains("is not on PATH"),
+        "a missing cwd candidate is no permission to advance, and no fallback to the default \
+         search under a present, empty PATH: {line}"
     );
 
     // Explicit PATH: the independent positive identity.
@@ -1129,101 +1160,494 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
 /// account).
 #[test]
 fn terminal_path_lengths_refuse_before_doctor_probe() {
+    // The re-entered oracle child: `Command::new("dsh")` with the
+    // environment the parent staged, unchanged — production's own form.
+    if let Some(name) = std::env::var_os(INHERITED_ORACLE) {
+        inherited_oracle_child(name.to_str().unwrap());
+        return;
+    }
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let b = cwd.join("b");
+    let a = cwd.join("a");
+    let a_empty = cwd.join("a-empty");
     const B_VERSION: &str = "DSH_B_LENGTH_SENTINEL_0.0.6";
+    const A_VERSION: &str = "DSH_A_EARLIER_SENTINEL_0.0.8";
+    const CWD_VERSION: &str = "DSH_CWD_LENGTH_SENTINEL_0.0.7";
     version_script(&b, "dsh", B_VERSION);
+    std::fs::create_dir_all(&a_empty).unwrap();
     let glibc = cfg!(all(target_os = "linux", target_env = "gnu"));
-    let dsh_under = |path: &str, marks_dir: &Path| {
-        let mut command = Command::new("dsh");
-        command
-            .arg("--version")
-            .current_dir(cwd)
-            .env("PATH", path)
-            .env("BROKKR_MARKS", marks_dir);
-        spawn(&mut command)
+
+    /// What the working directory holds under `dsh` for a cell.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Cwd {
+        Runnable,
+        Loop,
+        Absent,
+    }
+    /// The glibc expectation of a cell, for both oracle forms and doctor.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    enum Expect {
+        /// Native runs B; doctor probes exactly B.
+        RunsB,
+        /// Native runs A; doctor probes exactly A.
+        RunsA,
+        /// Native stops with ENAMETOOLONG at the named candidate; doctor
+        /// probes nothing and names that cause.
+        Terminal36(String),
+        /// Native runs the cwd file; doctor probes nothing and refuses
+        /// by the cwd reason with this suffix.
+        CwdRuns(String),
+        /// Native stops with ELOOP on the cwd self-symlink; doctor
+        /// probes nothing and preserves that cause.
+        CwdLoop,
+        /// Native walks past the empty cwd to B; doctor probes nothing —
+        /// not B — and refuses by the cwd reason with this suffix.
+        CwdAbsentB(String),
+        /// Native walks past the empty cwd and finds nothing; doctor
+        /// probes nothing and refuses by the cwd reason with this suffix.
+        CwdAbsentNotFound(String),
+    }
+    let skip = |bytes: usize| {
+        format!("glibc skips the {bytes}-byte component and its next iteration is the empty entry")
     };
-    for bytes in [255usize, 256, 300, 4095, 4096, 5000] {
+    let entry = |index: usize| format!("PATH entry {index} is empty");
+    let cwd_expect = |cwd: Cwd, suffix: String, absent_b: bool| match (cwd, absent_b) {
+        (Cwd::Runnable, _) => Expect::CwdRuns(suffix),
+        (Cwd::Loop, _) => Expect::CwdLoop,
+        (Cwd::Absent, true) => Expect::CwdAbsentB(suffix),
+        (Cwd::Absent, false) => Expect::CwdAbsentNotFound(suffix),
+    };
+    let terminal_at = |component: &str| {
+        Expect::Terminal36(Path::new(component).join("dsh").display().to_string())
+    };
+    // A's spelling padded with `/` to exactly `bytes` bytes.
+    let padded = |bytes: usize| {
+        let spelled = a.display().to_string();
+        format!("{spelled}{}", "/".repeat(bytes - spelled.len()))
+    };
+
+    /// One cell: its `PATH`, the working directory's state, whether
+    /// `A/dsh` is placed, the expectation, and the same-fixture removal
+    /// control's `PATH` and expectation where it has one.
+    struct LengthCell {
+        label: String,
+        path: String,
+        cwd: Cwd,
+        a_present: bool,
+        expect: Expect,
+        removal: Option<(String, Expect)>,
+    }
+    let mut cells: Vec<LengthCell> = Vec::new();
+    let b_only = b.display().to_string();
+    for bytes in [255usize, 256, 300] {
         let component = "x".repeat(bytes);
-        let path = format!("{component}:{}", b.display());
-        let oracle_marks = marks(cwd, &format!("oracle-{bytes}"));
-        let doctor_marks = marks(cwd, &format!("doctor-{bytes}"));
-        let native = dsh_under(&path, &oracle_marks);
-        let stdout = stdout_of(
-            doctor(cwd)
-                .env("PATH", &path)
-                .env("BROKKR_MARKS", &doctor_marks),
-        );
-        let line = dsh_line(&stdout);
-        match (glibc, bytes) {
-            (true, 255 | 4096 | 5000) => {
-                let native = native.unwrap();
-                assert!(native.status.success(), "{bytes}: the native child ran B");
-                assert_eq!(executed(&oracle_marks), vec![B_VERSION.to_string()]);
-                assert_eq!(
-                    executed(&doctor_marks),
-                    vec![B_VERSION.to_string()],
-                    "{bytes}: doctor probed exactly B:\n{stdout}"
-                );
-                assert!(
-                    line.starts_with(&format!("ok       dsh: {B_VERSION} · serves")),
-                    "{bytes}: doctor selects the B the native child ran: {line}"
-                );
-            }
-            (true, _) => {
-                let error = native.unwrap_err();
-                assert_eq!(
-                    error.raw_os_error(),
-                    Some(36),
-                    "{bytes}: the native search stops with ENAMETOOLONG: {error}"
-                );
-                assert_eq!(executed(&oracle_marks), Vec::<String>::new());
-                assert_eq!(
-                    executed(&doctor_marks),
-                    Vec::<String>::new(),
-                    "{bytes}: doctor executed B where native lookup stopped:\n{stdout}"
-                );
-                assert!(!stdout.contains(B_VERSION), "{bytes}: {stdout}");
-                let expected = format!(
-                    "{}: metadata answers File name too long (os error 36), on which the \
-                     platform's lookup stops",
-                    Path::new(&component).join("dsh").display()
-                );
-                assert!(line.contains(&expected), "{bytes}: {line}");
-                assert!(
-                    line.starts_with("warn     dsh: binary 'dsh' not found: "),
-                    "{bytes}: {line}"
-                );
-            }
-            (false, _) => eprintln!(
-                "PENDING on {}: {bytes}-byte component, native {:?}, doctor markers {:?}, line \
-                 {line}",
-                std::env::consts::OS,
-                native.map(|output| output.status),
-                executed(&doctor_marks)
-            ),
+        let expect = match bytes {
+            255 => Expect::RunsB,
+            _ => terminal_at(&component),
+        };
+        cells.push(LengthCell {
+            label: format!("{bytes}-byte component, then B"),
+            path: format!("{component}:{b_only}"),
+            cwd: Cwd::Absent,
+            a_present: false,
+            expect,
+            removal: Some((b_only.clone(), Expect::RunsB)),
+        });
+    }
+    for cwd_state in [Cwd::Runnable, Cwd::Loop, Cwd::Absent] {
+        for bytes in [4095usize, 4096, 5000] {
+            let component = "x".repeat(bytes);
+            let expect = match bytes {
+                4095 => terminal_at(&component),
+                _ => cwd_expect(cwd_state, skip(bytes), true),
+            };
+            cells.push(LengthCell {
+                label: format!("{bytes}-byte component, then B; cwd {cwd_state:?}"),
+                path: format!("{component}:{b_only}"),
+                cwd: cwd_state,
+                a_present: false,
+                expect,
+                removal: Some((b_only.clone(), Expect::RunsB)),
+            });
         }
-        // Removing ONLY the component: a fresh native control and a
-        // fresh doctor run, both executing the same B.
-        let removed_oracle = marks(cwd, &format!("oracle-removed-{bytes}"));
-        let removed_doctor = marks(cwd, &format!("doctor-removed-{bytes}"));
-        let native = dsh_under(b.to_str().unwrap(), &removed_oracle).unwrap();
-        assert!(
-            native.status.success(),
-            "{bytes}: removed-component control"
+        let a_empty = a_empty.display().to_string();
+        for (spelling, path, index, has_b) in [
+            ("A::B", format!("{a_empty}::{b_only}"), 1, true),
+            ("A:", format!("{a_empty}:"), 1, false),
+            (":B", format!(":{b_only}"), 0, true),
+            ("PATH=\"\"", String::new(), 0, false),
+        ] {
+            cells.push(LengthCell {
+                label: format!("{spelling}; cwd {cwd_state:?}"),
+                path,
+                cwd: cwd_state,
+                a_present: false,
+                expect: cwd_expect(cwd_state, entry(index), has_b),
+                removal: None,
+            });
+        }
+    }
+    // Earlier success ends the search before the empty entry.
+    for (spelling, path) in [
+        ("A::B", format!("{}::{b_only}", a.display())),
+        ("A:", format!("{}:", a.display())),
+    ] {
+        cells.push(LengthCell {
+            label: format!("{spelling}, A/dsh runnable; cwd Runnable"),
+            path,
+            cwd: Cwd::Runnable,
+            a_present: true,
+            expect: Expect::RunsA,
+            removal: None,
+        });
+    }
+    // The extra slash: A padded to 4092 bytes is a 4,096-byte candidate
+    // with native's own `/`, one over what the kernel takes; one slash
+    // fewer fits and selects A when present, B otherwise; one more still
+    // refuses.
+    for present in [true, false] {
+        cells.push(LengthCell {
+            label: format!(
+                "A padded to 4092 bytes, then B; A/dsh {}",
+                if present { "present" } else { "absent" }
+            ),
+            path: format!("{}:{b_only}", padded(4092)),
+            cwd: Cwd::Absent,
+            a_present: present,
+            expect: Expect::Terminal36(format!("{}/dsh", padded(4092))),
+            removal: Some((
+                format!("{}:{b_only}", padded(4091)),
+                if present {
+                    Expect::RunsA
+                } else {
+                    Expect::RunsB
+                },
+            )),
+        });
+    }
+    cells.push(LengthCell {
+        label: "A padded to 4093 bytes, then B; A/dsh present".to_string(),
+        path: format!("{}:{b_only}", padded(4093)),
+        cwd: Cwd::Absent,
+        a_present: true,
+        expect: Expect::Terminal36(format!("{}/dsh", padded(4093))),
+        removal: None,
+    });
+
+    let mut executed_cells = 0usize;
+    for (
+        index,
+        LengthCell {
+            label,
+            path,
+            cwd: cwd_state,
+            a_present,
+            expect,
+            removal,
+        },
+    ) in cells.into_iter().enumerate()
+    {
+        // The fixtures of this cell: the cwd file, and A's.
+        let _ = std::fs::remove_file(cwd.join("dsh"));
+        match cwd_state {
+            Cwd::Runnable => {
+                version_script(cwd, "dsh", CWD_VERSION);
+            }
+            Cwd::Loop => std::os::unix::fs::symlink("dsh", cwd.join("dsh")).unwrap(),
+            Cwd::Absent => {}
+        }
+        let _ = std::fs::remove_file(a.join("dsh"));
+        if a_present {
+            version_script(&a, "dsh", A_VERSION);
+        }
+        for (form_label, staged_path, expect) in
+            [("cell", path.clone(), expect.clone())].into_iter().chain(
+                removal
+                    .into_iter()
+                    .map(|(path, expect)| ("removed", path, expect)),
+            )
+        {
+            let who = format!("{index}-{form_label}");
+            let explicit_marks = marks(cwd, &format!("oracle-explicit-{who}"));
+            let inherited_marks = marks(cwd, &format!("oracle-inherited-{who}"));
+            let doctor_marks = marks(cwd, &format!("doctor-{who}"));
+            let explicit = explicit_oracle(cwd, "dsh", Some(&staged_path), &explicit_marks);
+            let inherited = inherited_oracle(cwd, "dsh", Some(&staged_path), &inherited_marks);
+            let stdout = stdout_of(
+                doctor(cwd)
+                    .env("PATH", &staged_path)
+                    .env("BROKKR_MARKS", &doctor_marks),
+            );
+            let line = dsh_line(&stdout);
+            let describe = |what: &str| {
+                format!(
+                    "{label} [{form_label}]: {what}; explicit {explicit:?}, inherited \
+                     {inherited:?}, doctor markers {:?}, line {line}",
+                    executed(&doctor_marks)
+                )
+            };
+            if !glibc {
+                eprintln!(
+                    "PENDING on {}: {}",
+                    std::env::consts::OS,
+                    describe("recorded")
+                );
+                continue;
+            }
+            executed_cells += 1;
+            // Both forms are asserted on their own, then doctor: its
+            // markers first, so a later refusal cannot hide a probe.
+            let forms = [
+                ("explicit", &explicit, &explicit_marks),
+                ("inherited", &inherited, &inherited_marks),
+            ];
+            match &expect {
+                Expect::RunsB | Expect::RunsA => {
+                    let version = match expect {
+                        Expect::RunsA => A_VERSION,
+                        _ => B_VERSION,
+                    };
+                    for (form, native, oracle_marks) in forms {
+                        assert_eq!(
+                            native,
+                            &Native::Ran(version.to_string()),
+                            "{}",
+                            describe(&format!("the {form} native child ran {version}"))
+                        );
+                        assert_eq!(executed(oracle_marks), vec![version.to_string()]);
+                    }
+                    assert_eq!(
+                        executed(&doctor_marks),
+                        vec![version.to_string()],
+                        "{}",
+                        describe("doctor probed exactly the file native ran")
+                    );
+                    assert!(
+                        line.starts_with(&format!("ok       dsh: {version} · serves")),
+                        "{}",
+                        describe("doctor selects the file the native child ran")
+                    );
+                }
+                refused => {
+                    for (form, native, oracle_marks) in forms {
+                        match refused {
+                            Expect::Terminal36(_) => {
+                                assert_eq!(
+                                    native,
+                                    &Native::Failed(36),
+                                    "{}",
+                                    describe(&format!(
+                                        "the {form} native search stops with ENAMETOOLONG"
+                                    ))
+                                );
+                                assert_eq!(executed(oracle_marks), Vec::<String>::new());
+                            }
+                            Expect::CwdLoop => {
+                                assert_eq!(
+                                    native,
+                                    &Native::Failed(40),
+                                    "{}",
+                                    describe(&format!(
+                                        "the {form} native search stops with ELOOP at cwd"
+                                    ))
+                                );
+                                assert_eq!(executed(oracle_marks), Vec::<String>::new());
+                            }
+                            Expect::CwdRuns(_) => {
+                                assert_eq!(
+                                    native,
+                                    &Native::Ran(CWD_VERSION.to_string()),
+                                    "{}",
+                                    describe(&format!("the {form} native child ran the cwd file"))
+                                );
+                                assert_eq!(executed(oracle_marks), vec![CWD_VERSION.to_string()]);
+                            }
+                            Expect::CwdAbsentB(_) => {
+                                assert_eq!(
+                                    native,
+                                    &Native::Ran(B_VERSION.to_string()),
+                                    "{}",
+                                    describe(&format!(
+                                        "the {form} native child walked past the empty cwd to B"
+                                    ))
+                                );
+                                assert_eq!(executed(oracle_marks), vec![B_VERSION.to_string()]);
+                            }
+                            Expect::CwdAbsentNotFound(_) => {
+                                assert_eq!(
+                                    native,
+                                    &Native::Failed(2),
+                                    "{}",
+                                    describe(&format!(
+                                        "the {form} native child found nothing past the empty cwd"
+                                    ))
+                                );
+                                assert_eq!(executed(oracle_marks), Vec::<String>::new());
+                            }
+                            Expect::RunsA | Expect::RunsB => unreachable!(),
+                        }
+                    }
+                    // Doctor: NO marker of any kind — not cwd, not B,
+                    // not A, not Node — checked before the prose.
+                    assert_eq!(
+                        executed(&doctor_marks),
+                        Vec::<String>::new(),
+                        "{}",
+                        describe("doctor executed something where it must refuse")
+                    );
+                    for sentinel in [B_VERSION, A_VERSION, CWD_VERSION] {
+                        assert!(
+                            !stdout.contains(sentinel),
+                            "{}",
+                            describe("a sentinel reached the report")
+                        );
+                    }
+                    assert!(
+                        line.starts_with("warn     dsh: binary 'dsh' not found: "),
+                        "{}",
+                        describe("a refusal, with no selected file")
+                    );
+                    let expected = match refused {
+                        Expect::Terminal36(candidate) => format!(
+                            "{candidate}: metadata answers File name too long (os error 36), on \
+                             which the platform's lookup stops"
+                        ),
+                        Expect::CwdLoop => {
+                            "dsh: a symlink loop stops the lookup: Too many levels of symbolic \
+                             links (os error 40)"
+                                .to_string()
+                        }
+                        Expect::CwdRuns(suffix)
+                        | Expect::CwdAbsentB(suffix)
+                        | Expect::CwdAbsentNotFound(suffix) => format!(
+                            "dsh: the platform's search would fall into the working directory: \
+                             {suffix}"
+                        ),
+                        Expect::RunsA | Expect::RunsB => unreachable!(),
+                    };
+                    assert!(
+                        line.contains(&expected),
+                        "{}",
+                        describe(&format!("doctor names the cause: {expected}"))
+                    );
+                }
+            }
+        }
+    }
+    if glibc {
+        // 29 cells — three short lengths, three lengths × three cwd
+        // states, four empty spellings × three cwd states, two
+        // earlier-success controls, three padded spellings — and the
+        // 14 same-fixture removal controls, each in both forms.
+        assert_eq!(
+            executed_cells, 43,
+            "every cell and removal control ran on glibc"
         );
-        assert_eq!(executed(&removed_oracle), vec![B_VERSION.to_string()]);
-        let stdout = stdout_of(
-            doctor(cwd)
-                .env("PATH", &b)
-                .env("BROKKR_MARKS", &removed_doctor),
-        );
-        assert!(
-            dsh_line(&stdout).starts_with(&format!("ok       dsh: {B_VERSION} · serves")),
-            "{bytes}: {stdout}"
-        );
-        assert_eq!(executed(&removed_doctor), vec![B_VERSION.to_string()]);
+    }
+}
+
+/// The variable under which this test binary re-enters as an
+/// inherited-form oracle: `Command::new(<name>)` with the environment
+/// the parent staged, unchanged — the `posix_spawnp` form production's
+/// probe takes.
+const INHERITED_ORACLE: &str = "BROKKR_DOCTOR_INHERITED_ORACLE";
+
+/// A completed native outcome of an oracle: the first line the sentinel
+/// printed, or the spawn error's errno.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Native {
+    Ran(String),
+    Failed(i32),
+}
+
+/// The re-entered child's half: run the name as production runs it and
+/// print one parseable line.
+fn inherited_oracle_child(name: &str) {
+    match Command::new(name).arg("--version").output() {
+        Ok(output) => {
+            assert!(
+                output.status.success(),
+                "the sentinel exited {:?}",
+                output.status
+            );
+            println!(
+                "\nORACLE ran {}",
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+            );
+        }
+        Err(error) => println!("\nORACLE failed {}", error.raw_os_error().unwrap_or(-1)),
+    }
+}
+
+/// The explicit form: `PATH` set on the `Command` itself, which Rust
+/// turns into `fork` and `execvp`.
+fn explicit_oracle(cwd: &Path, name: &str, path: Option<&str>, marks: &Path) -> Native {
+    let mut command = Command::new(name);
+    command
+        .arg("--version")
+        .current_dir(cwd)
+        .env("BROKKR_MARKS", marks);
+    match path {
+        Some(path) => command.env("PATH", path),
+        None => command.env_remove("PATH"),
+    };
+    match spawn(&mut command) {
+        Ok(output) => {
+            assert!(
+                output.status.success(),
+                "the sentinel exited {:?}",
+                output.status
+            );
+            Native::Ran(
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        }
+        Err(error) => Native::Failed(error.raw_os_error().unwrap_or(-1)),
+    }
+}
+
+/// The inherited form: this test binary re-entered as a child whose
+/// environment carries the staged `PATH` and marker directory, running
+/// `Command::new(name)` with no environment change of its own.
+fn inherited_oracle(cwd: &Path, name: &str, path: Option<&str>, marks: &Path) -> Native {
+    let mut child = Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "terminal_path_lengths_refuse_before_doctor_probe",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .current_dir(cwd)
+        .env(INHERITED_ORACLE, name)
+        .env("BROKKR_MARKS", marks);
+    match path {
+        Some(path) => child.env("PATH", path),
+        None => child.env_remove("PATH"),
+    };
+    let output = spawn(&mut child).unwrap();
+    let said = String::from_utf8_lossy(&output.stdout).into_owned()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("1 passed") && output.status.success(),
+        "the re-entered oracle ran its one case: {said}"
+    );
+    let line = said
+        .lines()
+        .find_map(|line| line.strip_prefix("ORACLE "))
+        .expect("the oracle printed its outcome");
+    match line.split_once(' ') {
+        Some(("ran", first)) => Native::Ran(first.to_string()),
+        Some(("failed", errno)) => Native::Failed(errno.parse().unwrap()),
+        _ => panic!("an unparseable oracle line: {line}"),
     }
 }
 

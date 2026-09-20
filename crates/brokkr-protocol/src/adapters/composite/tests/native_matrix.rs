@@ -1,10 +1,11 @@
-//! The differential matrix (design D10, proposal AO, third hold): every
-//! commissioned program spelling crossed with every layout, the resolver
-//! compared with a real `std::process::Command::new(name)` child under
-//! IDENTICAL cwd and environment. Each candidate is a sentinel with its
-//! own identity — a script printing a unique marker, or a native image
-//! (this test binary, hard-linked in, answering `--list`) — so a cell
-//! asserts which FILE the platform ran, never that something ran.
+//! The differential matrix (design D10, proposal AO, third and fourth
+//! holds): every commissioned program spelling crossed with every
+//! layout, the resolver compared with a real `std::process::Command::new
+//! (name)` child under IDENTICAL cwd and environment. Each candidate is a
+//! sentinel with its own identity — a script printing a unique marker,
+//! or a native image (this test binary, hard-linked in, answering
+//! `--list`) — so a cell asserts which FILE the platform ran, never that
+//! something ran.
 //!
 //! Every cell has its own oracle, and the parent asserts that it was
 //! invoked: the child prints one `matrix-oracle:` line per completed
@@ -18,46 +19,68 @@
 //! canonical file the child executed, or refuses exactly where the child
 //! got NotFound; a terminal native error (ENAMETOOLONG, ELOOP on glibc,
 //! EACCES on a direct path) is a refusal by cause, and B is never
-//! selected in its place. The obstruction cells are the one named
-//! exception: native lookup walks past an `A/dsh` whose interpreter or
-//! dynamic loader is missing and runs B, and the resolver refuses at A
-//! naming the prerequisite, recorded separately as D10's exception and
-//! never counted as an equality pass. A NUL-bearing name is refused
-//! before any lookup where the child reports invalid input.
+//! selected in its place. Two kinds of cell are STRICTER than native, and
+//! each is asserted as its own kind, never counted as equality:
+//!
+//! - the obstruction cells (D10's exception): native lookup walks past an
+//!   `A/dsh` whose interpreter or dynamic loader is missing and runs B,
+//!   and the resolver refuses at A naming the prerequisite;
+//! - the working-directory cells (the fourth hold's reconciled rule):
+//!   where the platform's own candidate sequence reaches the working
+//!   directory — an explicit empty entry, or the implicit iteration
+//!   glibc produces after skipping an oversized component — native runs
+//!   whatever sits there, stops on it, or walks past it to B, and the
+//!   resolver refuses by the named cwd reason, or by native's own
+//!   terminal cause where native stops there (ELOOP on a cwd
+//!   self-symlink). Never cwd, otherwise native.
+//!
+//! A NUL-bearing name is refused before any lookup where the child
+//! reports invalid input.
 //!
 //! The six component lengths are each their own layout — 255, 256, 300,
 //! 4095, 4096 and 5000 ASCII `x` bytes ahead of a runnable B — because
-//! one 5,000-byte cell proved a continuation glibc makes BEFORE
-//! `execve` and said nothing about the `ENAMETOOLONG` glibc returns
-//! AFTER it: 256, 300 and 4095 stop the native search with errno 36,
-//! and the resolver that walked past them authorized an execution
-//! native lookup rejects (run `09ec8d81`, R1). On glibc each of the six
-//! is asserted by its own expected outcome beside the generic parity.
+//! one 5,000-byte cell proved a continuation glibc makes BEFORE `execve`
+//! and said nothing about the `ENAMETOOLONG` glibc returns AFTER it: 256,
+//! 300 and 4095 stop the native search with errno 36 (run `09ec8d81`,
+//! R1). The two that are skipped, 4096 and 5000, are each crossed with
+//! the working directory holding a runnable candidate, a self-symlink,
+//! or nothing (run `efb3360b`, R1): the chief reproduced native running
+//! `cwd/dsh` and native stopping ELOOP/40 where the resolver had
+//! authorized B. So are `A::B`, `A:`, `:B` and `PATH=""`.
 //!
-//! Two invocation forms are run for every cell. The INHERITED form is
-//! production's: the layout's `PATH` is staged in this test binary's own
-//! environment by the parent, and the child calls `Command::new(name)`
-//! with no environment change beside `resolve_executable`, which reads
-//! the same environment — the `posix_spawnp` path Rust takes for an
-//! unchanged `PATH`. The EXPLICIT form sets the child's `PATH` on the
-//! `Command`, which Rust 1.88 (`unix.rs` 417–423) turns into `fork` and
-//! `execvp`; on glibc both run `__execvpe_common` and are asserted
-//! equal, and on other targets the explicit control is recorded beside
-//! the inherited assertion rather than assumed equal, because Apple's
-//! `execvP` and `posix_spawnp` size their buffers differently.
+//! Two invocation forms are run for every cell, and each is compared on
+//! its own. The INHERITED form is production's: the layout's `PATH` is
+//! staged in this test binary's own environment by the parent, and the
+//! child calls `Command::new(name)` with no environment change beside
+//! `resolve_executable`, which reads the same environment — the
+//! `posix_spawnp` path Rust takes for an unchanged `PATH`. The EXPLICIT
+//! form sets the child's `PATH` on the `Command`, which Rust 1.88
+//! (`unix.rs` 417–423) turns into `fork` and `execvp`, compared with
+//! `resolve_executable_in`, the resolver's `execvp` operation. On glibc
+//! both run `__execvpe_common` and are additionally asserted equal; on
+//! other targets each form's own comparison stands and no equality is
+//! assumed, because Apple's `execvP` and `posix_spawnp` size their
+//! buffers differently.
 //!
 //! The working directory is process-wide state, so each layout runs in
-//! a CHILD of this test binary whose cwd is the fixture.
+//! a CHILD of this test binary whose cwd is the fixture; a layout's
+//! same-fixture removal control runs in a second child whose staged
+//! `PATH` lacks only the removed component (or one slash), with the cwd
+//! and every placed file unchanged.
 //!
-//! Removal controls recorded in the delivery account: restoring blanket
-//! `ENAMETOOLONG` continuation fails the 256/300/4095 cells' terminal
-//! cause; removing the pre-execution buffer skip fails the 4096/5000
-//! cells' B identity; restoring backslash-as-separator fails the
-//! `C:\Tools\dsh.exe` cwd-only cell; restoring absent-PATH-as-empty-
-//! entry fails the `dsh` absent-PATH cell; restoring unconditional
-//! absent-PATH refusal fails the `sh` default-search control; restoring
-//! unconditional native-image or one-level interpreter admission fails
-//! the loader cells; omitting one oracle fails the inventory assertion.
+//! Removal controls recorded in the delivery account: restoring the
+//! direct advance to B after an oversized skip fails the competing-cwd
+//! and looping-cwd 4096/5000 cells; removing the cwd refusal fails every
+//! explicit-empty and implicit-cwd cell; removing the pre-execution
+//! buffer skip fails those cells' cwd reason with an invented
+//! ENAMETOOLONG; restoring blanket `ENAMETOOLONG` continuation fails the
+//! 256/300/4095 cells' terminal cause; normalizing the extra slash fails
+//! the padded-A cells; restoring backslash-as-separator fails the
+//! `C:\Tools\dsh.exe` cwd-only cell; restoring absent-PATH-as-empty-entry
+//! fails the `dsh` absent-PATH cell; restoring unconditional absent-PATH
+//! refusal fails the `sh` default-search control; restoring unconditional
+//! native-image or one-level interpreter admission fails the loader
+//! cells; omitting one oracle fails the inventory assertion.
 
 use super::super::*;
 use super::*;
@@ -66,7 +89,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 
 /// The variable that makes this test binary a matrix child: the layout
-/// index it runs, or `controls` for the cells outside the cross-product.
+/// index it runs (with a `:removed` suffix for the same-fixture removal
+/// control), or `controls` for the cells outside the cross-product.
 const CASE: &str = "BROKKR_COMPOSITE_NATIVE_MATRIX";
 
 /// The loader path the patched ELF names, which must not exist.
@@ -75,15 +99,30 @@ const MISSING_LOADER: &str = "/no-such-ld-9f3";
 /// The commissioned component lengths, each its own layout.
 const LENGTHS: [usize; 6] = [255, 256, 300, 4095, 4096, 5000];
 
+/// The two lengths glibc skips before `execve`, crossed with the working
+/// directory's three states; 4095 is attempted and stops, and is crossed
+/// with the same three states to prove the stop comes first.
+const CWD_LENGTHS: [usize; 3] = [4095, 4096, 5000];
+
 /// The cells outside the name × layout cross-product, each with its own
-/// oracle: the overlong bare name, its explicit-path spelling, the
-/// `NAME_MAX` boundary, the valid-length positive and the default-search
-/// positive.
-const CONTROLS: [&str; 5] = [
+/// oracle: the overlong bare name under an existing, a missing and a
+/// file prefix, then missing-then-existing, at the working directory
+/// and with no candidate at all; its explicit-path spelling; the
+/// `NAME_MAX` boundary; the valid-length positive; the two ordered
+/// exhaustion causes; and the default-search positive.
+const CONTROLS: [&str; 13] = [
     "overlong-bare-name",
+    "overlong-under-missing-prefix",
+    "overlong-under-file-prefix",
+    "overlong-missing-then-existing",
+    "overlong-at-cwd",
+    "overlong-no-candidate",
+    "overlong-no-candidate-notdir",
     "overlong-explicit-path",
     "name-max-boundary",
     "valid-length-name",
+    "exhaustion-missing-then-file",
+    "exhaustion-file-then-missing",
     "default-search-sh",
 ];
 
@@ -105,6 +144,36 @@ enum Body {
     SelfSymlink,
 }
 
+/// What the working directory holds under the searched name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cwd {
+    /// A runnable script with its own marker.
+    Runnable,
+    /// A symlink to itself: ELOOP to whoever looks.
+    Loop,
+    /// Nothing.
+    Absent,
+}
+
+impl Cwd {
+    fn label(self) -> &'static str {
+        match self {
+            Cwd::Runnable => "cwd/dsh runnable",
+            Cwd::Loop => "cwd/dsh a self-symlink",
+            Cwd::Absent => "no cwd/dsh",
+        }
+    }
+
+    fn file(self) -> Option<(Slot, Body)> {
+        match self {
+            Cwd::Runnable => Some((Slot::Target, Body::Script)),
+            Cwd::Loop => Some((Slot::Target, Body::SelfSymlink)),
+            Cwd::Absent => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Expect {
     /// Resolver equals the native child: same file, or NotFound and a
     /// refusal, or a terminal error and a refusal by cause.
@@ -112,22 +181,35 @@ enum Expect {
     /// D10's exception: native runs B, the resolver refuses naming A
     /// and its prerequisite.
     Obstruction,
+    /// The fourth hold's rule: the platform's sequence reaches the
+    /// working directory; native runs it, stops on it or walks past it,
+    /// and the resolver refuses there — by the named cwd reason, or by
+    /// native's own terminal cause.
+    WorkingDirectory,
+}
+
+/// The same-fixture control a layout carries.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Removal {
+    None,
+    /// Remove ONLY the first component and its delimiter: a fresh oracle
+    /// must run the same B, and the resolver select it.
+    Component,
+    /// Remove exactly one of the padding slashes: the candidate fits,
+    /// and a fresh oracle runs A when A holds it, B otherwise.
+    OneSlash,
 }
 
 struct Layout {
-    name: &'static str,
+    name: String,
     /// `(slot, body)` per candidate placed; `Target` and `A` coincide
     /// for a direct spelling, so a layout never places both.
     files: Vec<(Slot, Body)>,
-    /// The child's `PATH`, spelled with the slot directories, or absent.
+    /// The child's `PATH`, spelled with the slot directories — an
+    /// `Empty` slot is an empty entry — or absent.
     path: Option<Vec<Slot>>,
-    /// Whether `path`'s spelling carries an empty entry at the front,
-    /// between, or at the end, or is the single empty entry.
-    empty_at: Option<usize>,
     expect: Expect,
-    /// Whether removing ONLY the first component is a control of its
-    /// own, with a fresh oracle that must run the same B.
-    removal: bool,
+    removal: Removal,
 }
 
 impl Layout {
@@ -140,92 +222,88 @@ impl Layout {
             })
         })
     }
+
+    /// The padded-A byte count, when this layout pads A.
+    fn padded(&self) -> Option<usize> {
+        self.path.as_ref().and_then(|slots| {
+            slots.iter().find_map(|slot| match slot {
+                Slot::PaddedA(bytes) => Some(*bytes),
+                _ => None,
+            })
+        })
+    }
+
+    /// What the working directory holds in this layout.
+    fn cwd(&self) -> Cwd {
+        self.files
+            .iter()
+            .find_map(|(slot, body)| match (slot, body) {
+                (Slot::Target, Body::Script) => Some(Cwd::Runnable),
+                (Slot::Target, Body::SelfSymlink) => Some(Cwd::Loop),
+                _ => None,
+            })
+            .unwrap_or(Cwd::Absent)
+    }
+
+    /// The `PATH` slots of this layout's removal control.
+    fn removed(&self) -> Vec<Slot> {
+        let slots = self.path.as_ref().expect("a removal layout spells a PATH");
+        match self.removal {
+            Removal::None => panic!("{}: no removal control", self.name),
+            Removal::Component => slots[1..].to_vec(),
+            Removal::OneSlash => slots
+                .iter()
+                .map(|slot| match slot {
+                    Slot::PaddedA(bytes) => Slot::PaddedA(bytes - 1),
+                    other => *other,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// The layouts the matrix crosses on this target: the commissioned
-/// cwd, `PATH`, absent, empty-entry, denial, native-image and loop
-/// layouts; the six lengths; the regular-file and nonexistent
+/// cwd, `PATH`, absent, denial, native-image and loop layouts; the six
+/// lengths, with 4095/4096/5000 each crossed with the working
+/// directory's three states; `A::B`, `A:`, `:B` and `PATH=""` crossed
+/// the same way, with their earlier-valid-A controls; the implicit and
+/// explicit empty entries after a skip; the padded-A byte boundary; the
+/// final oversized component; the regular-file and nonexistent
 /// components; the ordered denial-then-miss and denial-then-terminal
-/// controls; a skip followed by an empty entry; and, where the ELF
-/// fixture can be built, the two missing-loader layouts.
+/// controls; and, where the ELF fixture can be built, the two
+/// missing-loader layouts.
 fn layouts(loader_fixture: bool) -> Vec<Layout> {
-    let parity = |name: &'static str, files: Vec<(Slot, Body)>, path: Vec<Slot>| Layout {
-        name,
+    let parity = |name: &str, files: Vec<(Slot, Body)>, path: Vec<Slot>| Layout {
+        name: name.to_string(),
         files,
         path: Some(path),
-        empty_at: None,
         expect: Expect::Parity,
-        removal: false,
+        removal: Removal::None,
     };
     let mut layouts = vec![
-        Layout {
-            name: "cwd-only, PATH elsewhere",
-            files: vec![(Slot::Target, Body::Script)],
-            path: Some(vec![Slot::Other]),
-            empty_at: None,
-            expect: Expect::Parity,
-            removal: false,
-        },
+        parity(
+            "cwd-only, PATH elsewhere",
+            vec![(Slot::Target, Body::Script)],
+            vec![Slot::Other],
+        ),
         parity(
             "PATH directory plus competing cwd file",
             vec![(Slot::PathDir, Body::Script), (Slot::Target, Body::Script)],
             vec![Slot::PathDir],
         ),
         Layout {
-            name: "PATH absent, cwd file",
+            name: "PATH absent, cwd file".to_string(),
             files: vec![(Slot::Target, Body::Script)],
             path: None,
-            empty_at: None,
             expect: Expect::Parity,
-            removal: false,
+            removal: Removal::None,
         },
         Layout {
-            name: "present-empty PATH, cwd file",
-            files: vec![(Slot::Target, Body::Script)],
-            path: Some(vec![]),
-            empty_at: Some(0),
-            expect: Expect::Parity,
-            removal: false,
-        },
-        Layout {
-            name: "present-empty PATH, no candidate",
-            files: vec![],
-            path: Some(vec![]),
-            empty_at: Some(0),
-            expect: Expect::Parity,
-            removal: false,
-        },
-        Layout {
-            name: "leading empty entry",
-            files: vec![(Slot::Target, Body::Script), (Slot::PathDir, Body::Script)],
-            path: Some(vec![Slot::PathDir]),
-            empty_at: Some(0),
-            expect: Expect::Parity,
-            removal: false,
-        },
-        Layout {
-            name: "interior empty entry",
-            files: vec![(Slot::Target, Body::Script), (Slot::Other, Body::Script)],
-            path: Some(vec![Slot::PathDir, Slot::Other]),
-            empty_at: Some(1),
-            expect: Expect::Parity,
-            removal: false,
-        },
-        Layout {
-            name: "trailing empty entry",
-            files: vec![(Slot::Target, Body::Script)],
-            path: Some(vec![Slot::PathDir]),
-            empty_at: Some(1),
-            expect: Expect::Parity,
-            removal: false,
-        },
-        Layout {
-            name: "A:B, A has a missing interpreter",
+            name: "A:B, A has a missing interpreter".to_string(),
             files: vec![(Slot::A, Body::MissingInterpreter), (Slot::B, Body::Script)],
             path: Some(vec![Slot::A, Slot::B]),
-            empty_at: None,
             expect: Expect::Obstruction,
-            removal: false,
+            removal: Removal::None,
         },
         // What the search does with a loop is each C library's own:
         // glibc stops with ELOOP, Apple continues to B. `Parity`
@@ -269,17 +347,112 @@ fn layouts(loader_fixture: bool) -> Vec<Layout> {
             vec![(Slot::A, Body::NonExecutable)],
             vec![Slot::A, Slot::Long(300)],
         ),
-        // The native construction skip is a skip, not a stop: iteration
-        // goes on to the empty entry, and the cwd file runs.
-        Layout {
-            name: "4096-byte component, then an empty entry, cwd file",
-            files: vec![(Slot::Target, Body::Script)],
-            path: Some(vec![Slot::Long(4096)]),
-            empty_at: Some(1),
-            expect: Expect::Parity,
-            removal: false,
-        },
+        // A final oversized component: glibc breaks with nothing
+        // constructed, so neither the cwd file nor anything else runs.
+        parity(
+            "5000-byte component alone, cwd/dsh runnable",
+            vec![(Slot::Target, Body::Script)],
+            vec![Slot::Long(5000)],
+        ),
     ];
+    // The working directory reached through the platform's OWN sequence,
+    // in each of its three states.
+    for cwd in [Cwd::Runnable, Cwd::Loop, Cwd::Absent] {
+        let with_cwd = |mut files: Vec<(Slot, Body)>| {
+            files.extend(cwd.file());
+            files
+        };
+        // The native construction skip is a skip, not a stop, and its
+        // next iteration is the working directory — implicitly on glibc
+        // after 4096 and 5000; 4095 is attempted and stops first.
+        for bytes in CWD_LENGTHS {
+            layouts.push(Layout {
+                name: format!("{bytes}-byte component, then B; {}", cwd.label()),
+                files: with_cwd(vec![(Slot::B, Body::Script)]),
+                path: Some(vec![Slot::Long(bytes), Slot::B]),
+                expect: match bytes {
+                    4095 => Expect::Parity,
+                    _ => Expect::WorkingDirectory,
+                },
+                removal: Removal::Component,
+            });
+        }
+        // The explicit empty entries, each at its position, with A an
+        // existing directory holding no candidate.
+        for (spelling, path, b) in [
+            ("A::B", vec![Slot::Other, Slot::Empty, Slot::B], true),
+            ("A:", vec![Slot::Other, Slot::Empty], false),
+            (":B", vec![Slot::Empty, Slot::B], true),
+            ("PATH=\"\"", vec![Slot::Empty], false),
+        ] {
+            let mut files = Vec::new();
+            if b {
+                files.push((Slot::B, Body::Script));
+            }
+            layouts.push(Layout {
+                name: format!("{spelling}; {}", cwd.label()),
+                files: with_cwd(files),
+                path: Some(path),
+                expect: Expect::WorkingDirectory,
+                removal: Removal::None,
+            });
+        }
+        // An explicit empty entry after a skipped component: the
+        // implicit iteration comes first, and is the one refused.
+        layouts.push(Layout {
+            name: format!(
+                "4096-byte component, then an empty entry, then B; {}",
+                cwd.label()
+            ),
+            files: with_cwd(vec![(Slot::B, Body::Script)]),
+            path: Some(vec![Slot::Long(4096), Slot::Empty, Slot::B]),
+            expect: Expect::WorkingDirectory,
+            removal: Removal::None,
+        });
+    }
+    // Earlier success ends the search before the empty entry: a
+    // runnable A is what both select, whatever the working directory
+    // holds — and a blanket refusal of any PATH with an empty entry
+    // would fail these.
+    for cwd in [Cwd::Runnable, Cwd::Loop] {
+        for (spelling, path) in [
+            ("A::B", vec![Slot::A, Slot::Empty, Slot::B]),
+            ("A:", vec![Slot::A, Slot::Empty]),
+        ] {
+            let mut files = vec![(Slot::A, Body::Script), (Slot::B, Body::Script)];
+            files.extend(cwd.file());
+            layouts.push(Layout {
+                name: format!("{spelling}, A/dsh runnable; {}", cwd.label()),
+                files,
+                path: Some(path),
+                expect: Expect::Parity,
+                removal: Removal::None,
+            });
+        }
+    }
+    // The extra slash native construction appends to an entry that
+    // already ends in one: A's spelling padded with `/` to 4,092 bytes
+    // is a 4,096-byte `dsh` candidate, one over what the kernel takes,
+    // whether or not A holds the file; one slash fewer fits (the
+    // removal control), one more still does not.
+    for (present, label) in [(true, "A/dsh present"), (false, "A/dsh absent")] {
+        let mut files = vec![(Slot::B, Body::Script)];
+        if present {
+            files.insert(0, (Slot::A, Body::Script));
+        }
+        layouts.push(Layout {
+            name: format!("A padded with slashes to 4092 bytes, then B; {label}"),
+            files,
+            path: Some(vec![Slot::PaddedA(4092), Slot::B]),
+            expect: Expect::Parity,
+            removal: Removal::OneSlash,
+        });
+    }
+    layouts.push(parity(
+        "A padded with slashes to 4093 bytes, then B; A/dsh present",
+        vec![(Slot::A, Body::Script), (Slot::B, Body::Script)],
+        vec![Slot::PaddedA(4093), Slot::B],
+    ));
     // The causes glibc's switch walks past, each ahead of a runnable B
     // and each with a removed-component control.
     for (name, slot) in [
@@ -287,51 +460,45 @@ fn layouts(loader_fixture: bool) -> Vec<Layout> {
         ("nonexistent component, then B", Slot::Nowhere),
     ] {
         layouts.push(Layout {
-            name,
+            name: name.to_string(),
             files: vec![(Slot::B, Body::Script)],
             path: Some(vec![slot, Slot::B]),
-            empty_at: None,
             expect: Expect::Parity,
-            removal: true,
+            removal: Removal::Component,
         });
     }
-    // The six lengths, individually visible.
+    // The six lengths, individually visible, with nothing in the working
+    // directory: the two skipped ones reach the empty cwd and are
+    // refused there while native walks on to B.
     for bytes in LENGTHS {
         layouts.push(Layout {
-            name: match bytes {
-                255 => "255-byte component, then B",
-                256 => "256-byte component, then B",
-                300 => "300-byte component, then B",
-                4095 => "4095-byte component, then B",
-                4096 => "4096-byte component, then B",
-                _ => "5000-byte component, then B",
-            },
+            name: format!("{bytes}-byte component, then B"),
             files: vec![(Slot::B, Body::Script)],
             path: Some(vec![Slot::Long(bytes), Slot::B]),
-            empty_at: None,
-            expect: Expect::Parity,
-            removal: true,
+            expect: match bytes {
+                4096 | 5000 => Expect::WorkingDirectory,
+                _ => Expect::Parity,
+            },
+            removal: Removal::Component,
         });
     }
     if loader_fixture {
         layouts.push(Layout {
-            name: "A:B, A's interpreter has a missing loader",
+            name: "A:B, A's interpreter has a missing loader".to_string(),
             files: vec![
                 (Slot::A, Body::InterpreterMissingLoader),
                 (Slot::B, Body::Script),
             ],
             path: Some(vec![Slot::A, Slot::B]),
-            empty_at: None,
             expect: Expect::Obstruction,
-            removal: false,
+            removal: Removal::None,
         });
         layouts.push(Layout {
-            name: "A:B, A a native image with a missing loader",
+            name: "A:B, A a native image with a missing loader".to_string(),
             files: vec![(Slot::A, Body::Broken), (Slot::B, Body::Script)],
             path: Some(vec![Slot::A, Slot::B]),
-            empty_at: None,
             expect: Expect::Obstruction,
-            removal: false,
+            removal: Removal::None,
         });
     }
     layouts
@@ -372,21 +539,34 @@ fn dir_of(root: &Path, cwd: &Path, index: usize, slot: Slot) -> PathBuf {
         Slot::File => layout.join("file-as-dir"),
         Slot::Nowhere => layout.join("nowhere"),
         Slot::Target => cwd.to_path_buf(),
+        Slot::Empty => PathBuf::new(),
+        // A's own spelling, padded with slashes to the byte count.
+        Slot::PaddedA(bytes) => {
+            let mut spelled = layout.join("a").into_os_string();
+            let padding = bytes
+                .checked_sub(spelled.len())
+                .expect("the fixture root is shorter than the padded spelling");
+            spelled.push("/".repeat(padding));
+            PathBuf::from(spelled)
+        }
     }
+}
+
+/// The child's `PATH` for the given slots.
+fn spell(root: &Path, cwd: &Path, index: usize, slots: &[Slot]) -> OsString {
+    let entries: Vec<OsString> = slots
+        .iter()
+        .map(|slot| dir_of(root, cwd, index, *slot).into_os_string())
+        .collect();
+    entries.join(std::ffi::OsStr::new(":"))
 }
 
 /// The child's `PATH` for one layout, or `None` for an absent one.
 fn path_of(root: &Path, cwd: &Path, index: usize, layout: &Layout) -> Option<OsString> {
-    layout.path.as_ref().map(|slots| {
-        let mut entries: Vec<OsString> = slots
-            .iter()
-            .map(|slot| dir_of(root, cwd, index, *slot).into_os_string())
-            .collect();
-        if let Some(at) = layout.empty_at {
-            entries.insert(at, OsString::new());
-        }
-        entries.join(std::ffi::OsStr::new(":"))
-    })
+    layout
+        .path
+        .as_ref()
+        .map(|slots| spell(root, cwd, index, slots))
 }
 
 /// One cell's identifier: name index, layout index and invocation form.
@@ -450,7 +630,12 @@ enum Kind {
     Terminal,
     Nul,
     Exception,
+    /// The fourth hold's policy refusal at the working directory,
+    /// recorded apart from equality (AS1).
+    WorkingDirectory,
 }
+
+const KINDS: usize = 6;
 
 /// What one cell knows about its fixtures.
 struct Cell<'a> {
@@ -462,6 +647,10 @@ struct Cell<'a> {
     obstructed: Option<&'a Path>,
     b: PathBuf,
 }
+
+/// The reconciled rule's own words, which every working-directory
+/// refusal carries.
+const CWD_REASON: &str = "the platform's search would fall into the working directory";
 
 /// Compare one completed native outcome with one resolution, by the
 /// layout's expectation, and answer how the cell was classified. Every
@@ -488,8 +677,22 @@ fn compare(
             .find(|(known, _)| known == id)
             .map(|(_, at)| at.canonicalize().unwrap())
     };
-    match (&cell.layout.expect, native) {
-        (_, Outcome::Failed(error)) if error.kind() == std::io::ErrorKind::InvalidInput => {
+    // A direct spelling is the spelled file to native and resolver
+    // alike, whatever the search would have reached: the cwd rule
+    // governs the search's iteration, not a deliberate path.
+    let expect = match (cell.layout.expect, cell.direct) {
+        (Expect::WorkingDirectory, true) => Expect::Parity,
+        (expect, _) => expect,
+    };
+    match (expect, native) {
+        // A NUL name is refused by `Command` itself, before any spawn:
+        // InvalidInput with no errno. (A search glibc breaks out of with
+        // nothing attempted also surfaces as InvalidInput — the stale
+        // errno 22 the child reports — and that one HAS an errno.)
+        (_, Outcome::Failed(error))
+            if error.kind() == std::io::ErrorKind::InvalidInput
+                && error.raw_os_error().is_none() =>
+        {
             assert!(cell.name.contains('\0'), "{}", describe("invalid input"));
             assert_eq!(
                 refusal("a NUL name was selected"),
@@ -523,12 +726,18 @@ fn compare(
                 "{}",
                 describe("the resolver refused where the child found nothing")
             );
+            assert!(
+                !reason.contains(CWD_REASON),
+                "{}",
+                describe("a NotFound parity cell reached no working-directory candidate")
+            );
             Kind::NotFound
         }
         (Expect::Parity, Outcome::Failed(error)) => {
             // ENAMETOOLONG on a long component, ELOOP on the symlink,
             // EACCES on a direct non-executable file or an exhausted
-            // search: a terminal native error is a refusal by cause,
+            // search, ENOTDIR at exhaustion after a file spelled as a
+            // directory: a terminal native error is a refusal by cause,
             // and B is never selected in its place.
             let reason = refusal("the resolver selected a file where the child stopped");
             let b = cell.b.display().to_string();
@@ -553,6 +762,13 @@ fn compare(
                     describe("ENAMETOOLONG is named as the stop it is")
                 );
             }
+            if errno == Some(rustix::io::Errno::NOTDIR) {
+                assert!(
+                    reason.contains("(os error 20)"),
+                    "{}",
+                    describe("ENOTDIR is the retained final cause")
+                );
+            }
             if error.kind() == std::io::ErrorKind::PermissionDenied {
                 assert!(
                     reason.contains("is not executable by this process"),
@@ -561,6 +777,65 @@ fn compare(
                 );
             }
             Kind::Terminal
+        }
+        (Expect::WorkingDirectory, native) => {
+            // The platform's sequence reached the working directory.
+            // Native ran what sat there (the cwd marker), walked past an
+            // empty cwd to B or to NotFound, or stopped on the loop; the
+            // resolver refused by the named reason in every case but
+            // the stop, whose cause it preserves — and it never names B.
+            let reason = refusal("the resolver selected a file where the search reached cwd");
+            assert!(
+                !reason.contains(&cell.b.display().to_string()),
+                "{}",
+                describe("a working-directory candidate authorizes no later candidate")
+            );
+            match native {
+                Outcome::Ran(id) => {
+                    let ran =
+                        placed(id).unwrap_or_else(|| panic!("{}", describe("an unplaced marker")));
+                    let cwd_file = std::env::current_dir()
+                        .unwrap()
+                        .canonicalize()
+                        .unwrap()
+                        .join(cell.name);
+                    let b = cell.b.canonicalize().ok();
+                    assert!(
+                        ran == cwd_file || Some(ran.clone()) == b,
+                        "{}",
+                        describe("native ran the cwd candidate or walked past an empty cwd to B")
+                    );
+                    assert!(
+                        reason.contains(CWD_REASON),
+                        "{}",
+                        describe("the cwd reason")
+                    );
+                    Kind::WorkingDirectory
+                }
+                Outcome::Failed(error) if errno_of(error) == Some(rustix::io::Errno::LOOP) => {
+                    assert_eq!(
+                        cell.layout.cwd(),
+                        Cwd::Loop,
+                        "{}",
+                        describe("only the looping cwd stops native")
+                    );
+                    assert!(
+                        reason.contains("a symlink loop stops the lookup"),
+                        "{}",
+                        describe("native's own terminal cause is preserved at cwd")
+                    );
+                    Kind::Terminal
+                }
+                Outcome::Failed(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    assert!(
+                        reason.contains(CWD_REASON),
+                        "{}",
+                        describe("the cwd reason")
+                    );
+                    Kind::WorkingDirectory
+                }
+                Outcome::Failed(_) => panic!("{}", describe("an unexpected native outcome")),
+            }
         }
         (Expect::Obstruction, native) => {
             // Native lookup walks past A to B (a bare name) or fails at
@@ -613,8 +888,10 @@ fn compare(
 }
 
 /// The glibc expectation of one length cell for a searched name, beside
-/// the generic parity: the chief's six measured outcomes, each asserted
-/// on its own so no cell can hide behind another.
+/// the generic comparison: the chief's measured outcomes, each asserted
+/// on its own so no cell can hide behind another — the six lengths, and
+/// the two skipped ones crossed with the working directory's states
+/// (run `efb3360b`, R1).
 fn assert_glibc_length(
     cell: &Cell<'_>,
     bytes: usize,
@@ -622,25 +899,38 @@ fn assert_glibc_length(
     resolved: &Result<PathBuf, CompositeError>,
 ) {
     let b = cell.b.canonicalize().unwrap();
+    let cwd = cell.layout.cwd();
     let describe = |what: &str| {
         format!(
-            "{what}: {bytes}-byte component, name {:?}, native {native:?}, resolver {resolved:?}",
+            "{what}: {bytes}-byte component, {}, name {:?}, native {native:?}, resolver {resolved:?}",
+            cwd.label(),
             cell.name
         )
     };
-    match bytes {
-        // Before `execve`: 4096 and 5000 reach glibc's buffer skip and
-        // the search walks on to B; 255 is attempted, answers ENOENT,
-        // and the switch walks on to B.
-        255 | 4096 | 5000 => {
+    let ran_file = |id: &str| {
+        cell.ids
+            .iter()
+            .find(|(known, _)| known == id)
+            .map(|(_, at)| at.canonicalize().unwrap())
+    };
+    let cwd_file = std::env::current_dir()
+        .unwrap()
+        .canonicalize()
+        .unwrap()
+        .join(cell.name);
+    let reason = |what: &str| match resolved {
+        Ok(_) => panic!("{}", describe(what)),
+        Err(error) => error.to_string(),
+    };
+    match (bytes, cwd) {
+        // 255 is attempted, answers ENOENT, and the switch walks on to
+        // B; nothing in cwd is consulted.
+        (255, _) => {
             let Outcome::Ran(id) = native else {
                 panic!("{}", describe("native lookup runs B"));
             };
             assert_eq!(
-                cell.ids
-                    .iter()
-                    .find(|(known, _)| known == id)
-                    .map(|(_, at)| at.canonicalize().unwrap()),
+                ran_file(id),
                 Some(b.clone()),
                 "{}",
                 describe("the native child ran B")
@@ -652,9 +942,10 @@ fn assert_glibc_length(
                 describe("the resolver selects B")
             );
         }
-        // After `execve`: 256, 300 and 4095 are attempted and the kernel
-        // answers ENAMETOOLONG, which is not in glibc's continue-set.
-        _ => {
+        // 256, 300 and 4095 are attempted and the kernel answers
+        // ENAMETOOLONG, which is not in glibc's continue-set: the search
+        // stops before any cwd candidate, whatever cwd holds.
+        (256 | 300 | 4095, _) => {
             let Outcome::Failed(error) = native else {
                 panic!("{}", describe("native lookup stops with ENAMETOOLONG"));
             };
@@ -664,17 +955,88 @@ fn assert_glibc_length(
                 "{}",
                 describe("the native error is ENAMETOOLONG")
             );
-            let reason = match resolved {
-                Ok(_) => panic!(
-                    "{}",
-                    describe("the resolver selected B where the child stopped")
-                ),
-                Err(error) => error.to_string(),
-            };
+            let reason = reason("the resolver selected a file where the child stopped");
             assert!(
                 reason.contains("metadata answers File name too long (os error 36), on which the platform's lookup stops"),
                 "{}",
                 describe("the resolver refuses by the terminal cause")
+            );
+            assert!(
+                !reason.contains(&b.display().to_string()) && !reason.contains(CWD_REASON),
+                "{}",
+                describe("neither B nor cwd is reached")
+            );
+        }
+        // 4096 and 5000 are skipped before `execve` and the next
+        // iteration is the working directory: native runs the cwd file.
+        (_, Cwd::Runnable) => {
+            let Outcome::Ran(id) = native else {
+                panic!("{}", describe("native lookup runs the cwd candidate"));
+            };
+            assert_eq!(
+                ran_file(id),
+                Some(cwd_file),
+                "{}",
+                describe("the native child ran cwd/dsh, not B")
+            );
+            let reason = reason("the resolver selected a file at the cwd iteration");
+            assert!(
+                reason.contains(&format!(
+                    "{CWD_REASON}: glibc skips the {bytes}-byte component and its next iteration is the empty entry"
+                )),
+                "{}",
+                describe("the resolver refuses by the named cwd reason")
+            );
+        }
+        // …stops on the cwd self-symlink with ELOOP…
+        (_, Cwd::Loop) => {
+            let Outcome::Failed(error) = native else {
+                panic!(
+                    "{}",
+                    describe("native lookup stops with ELOOP at the cwd loop")
+                );
+            };
+            assert_eq!(
+                errno_of(error),
+                Some(rustix::io::Errno::LOOP),
+                "{}",
+                describe("the native error is ELOOP")
+            );
+            let reason = reason("the resolver selected a file where the child stopped");
+            assert!(
+                reason.contains("a symlink loop stops the lookup")
+                    && reason.contains("(os error 40)"),
+                "{}",
+                describe("the resolver preserves native's ELOOP at cwd")
+            );
+            assert!(
+                !reason.contains(&b.display().to_string()),
+                "{}",
+                describe("B is never named")
+            );
+        }
+        // …or walks past an empty cwd to B, which the resolver still
+        // does not follow.
+        (_, Cwd::Absent) => {
+            let Outcome::Ran(id) = native else {
+                panic!(
+                    "{}",
+                    describe("native lookup walks past the empty cwd to B")
+                );
+            };
+            assert_eq!(
+                ran_file(id),
+                Some(b.clone()),
+                "{}",
+                describe("the native child ran B")
+            );
+            let reason = reason("the resolver selected B past the cwd iteration");
+            assert!(
+                reason.contains(&format!(
+                    "{CWD_REASON}: glibc skips the {bytes}-byte component and its next iteration is the empty entry"
+                )),
+                "{}",
+                describe("the resolver refuses at cwd even with no cwd candidate")
             );
             assert!(
                 !reason.contains(&b.display().to_string()),
@@ -685,9 +1047,92 @@ fn assert_glibc_length(
     }
 }
 
+/// The glibc expectation of the padded-A cells for `dsh`: the 4,092-byte
+/// spelling plus native's own `/` and the name is 4,096 bytes, which the
+/// kernel refuses; the one-slash removal fits and selects A when A holds
+/// the file, B otherwise.
+fn assert_glibc_padded(
+    cell: &Cell<'_>,
+    bytes: usize,
+    removed: bool,
+    native: &Outcome,
+    resolved: &Result<PathBuf, CompositeError>,
+) {
+    let describe = |what: &str| {
+        format!(
+            "{what}: A padded to {bytes} bytes{}, layout {:?}, native {native:?}, resolver {resolved:?}",
+            if removed { " minus one slash" } else { "" },
+            cell.layout.name
+        )
+    };
+    let a_present = cell.layout.files.iter().any(|(slot, _)| *slot == Slot::A);
+    match (bytes, removed) {
+        (4092, true) => {
+            let Outcome::Ran(id) = native else {
+                panic!("{}", describe("the candidate fits and native runs it"));
+            };
+            let expected = match a_present {
+                true => cell
+                    .ids
+                    .iter()
+                    .find(|(_, at)| {
+                        at.starts_with(at.parent().unwrap()) && at.parent().unwrap().ends_with("a")
+                    })
+                    .map(|(_, at)| at.canonicalize().unwrap())
+                    .expect("A's marker is placed"),
+                false => cell.b.canonicalize().unwrap(),
+            };
+            let ran = cell
+                .ids
+                .iter()
+                .find(|(known, _)| known == id)
+                .map(|(_, at)| at.canonicalize().unwrap());
+            assert_eq!(
+                ran,
+                Some(expected.clone()),
+                "{}",
+                describe("native ran A when present, else B")
+            );
+            assert_eq!(
+                resolved.as_ref().ok(),
+                Some(&expected),
+                "{}",
+                describe("the resolver selects the same file through the padded spelling")
+            );
+        }
+        _ => {
+            let Outcome::Failed(error) = native else {
+                panic!(
+                    "{}",
+                    describe("native construction is one byte over PATH_MAX")
+                );
+            };
+            assert_eq!(
+                errno_of(error),
+                Some(rustix::io::Errno::NAMETOOLONG),
+                "{}",
+                describe("the native error is ENAMETOOLONG")
+            );
+            let reason = match resolved {
+                Ok(_) => panic!(
+                    "{}",
+                    describe("the resolver selected a file where the child stopped")
+                ),
+                Err(error) => error.to_string(),
+            };
+            assert!(
+                reason.contains("metadata answers File name too long (os error 36), on which the platform's lookup stops"),
+                "{}",
+                describe("the resolver keeps native's extra slash and its terminal cause")
+            );
+        }
+    }
+}
+
 /// The parent: declares the inventory, stages each layout's `PATH` in a
-/// child's environment, collects every oracle the children report and
-/// asserts the two sets are one.
+/// child's environment (and its removal control's in a second child),
+/// collects every oracle the children report and asserts the two sets
+/// are one.
 fn parent() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
@@ -703,8 +1148,9 @@ fn parent() {
         for (n, name) in names.iter().enumerate() {
             declared.insert(cell_id(n, l, "inherited"));
             declared.insert(cell_id(n, l, "explicit"));
-            if layout.removal && !name.contains(['/', '\0']) {
-                declared.insert(cell_id(n, l, "removed"));
+            if layout.removal != Removal::None && !name.contains(['/', '\0']) {
+                declared.insert(cell_id(n, l, "removed-inherited"));
+                declared.insert(cell_id(n, l, "removed-explicit"));
             }
         }
     }
@@ -713,7 +1159,7 @@ fn parent() {
     }
 
     let mut executed: BTreeSet<String> = BTreeSet::new();
-    let mut tally = [0usize; 5];
+    let mut tally = [0usize; KINDS];
     let mut run = |case: &str, path: Option<OsString>| {
         let mut child = Command::new(std::env::current_exe().unwrap());
         child
@@ -753,6 +1199,12 @@ fn parent() {
     };
     for (index, layout) in layouts.iter().enumerate() {
         run(&index.to_string(), path_of(root, &cwd, index, layout));
+        if layout.removal != Removal::None {
+            run(
+                &format!("{index}:removed"),
+                Some(spell(root, &cwd, index, &layout.removed())),
+            );
+        }
     }
     run("controls", Some(root.join("controls").into_os_string()));
 
@@ -762,18 +1214,18 @@ fn parent() {
         missing.is_empty() && undeclared.is_empty(),
         "every declared cell invoked its oracle and no other did; missing {missing:?}, undeclared {undeclared:?}"
     );
-    let [equal, not_found, terminal, nul, exceptions] = tally;
+    let [equal, not_found, terminal, nul, exceptions, working_directory] = tally;
     eprintln!(
         "matrix: {} names x {} layouts = {} cells in two invocation forms, plus removed-component \
          and named controls, {} oracles; {equal} equal selections, {not_found} NotFound parities, \
          {terminal} terminal-error parities, {nul} NUL refusals, {exceptions} D10 loader \
-         exceptions recorded separately",
+         exceptions and {working_directory} working-directory refusals recorded separately",
         names.len(),
         layouts.len(),
         names.len() * layouts.len(),
         executed.len()
     );
-    assert!(equal > 0 && not_found > 0 && terminal > 0 && nul > 0);
+    assert!(equal > 0 && not_found > 0 && terminal > 0 && nul > 0 && working_directory > 0);
     match loader_fixture() {
         true => assert!(exceptions > 0),
         false => eprintln!(
@@ -783,14 +1235,18 @@ fn parent() {
     }
 }
 
-/// One layout, in a child whose cwd and `PATH` the parent staged.
-fn child_layout(index: usize) {
+/// One layout, in a child whose cwd and `PATH` the parent staged —
+/// either the layout's own `PATH`, or its removal control's.
+fn child_layout(index: usize, removed: bool) {
     let cwd = std::env::current_dir().unwrap();
     let root = cwd.parent().unwrap().to_path_buf();
     let layouts = layouts(loader_fixture());
     let layout = &layouts[index];
     let names = names(&root);
-    let path = path_of(&root, &cwd, index, layout);
+    let path = match removed {
+        true => Some(spell(&root, &cwd, index, &layout.removed())),
+        false => path_of(&root, &cwd, index, layout),
+    };
     assert_eq!(
         std::env::var_os("PATH"),
         path,
@@ -842,7 +1298,7 @@ fn child_layout(index: usize) {
     }
     let missing_interpreter = root.join("no-such-interpreter");
 
-    let mut tally = [0usize; 5];
+    let mut tally = [0usize; KINDS];
     let mut count = |kind: Kind| {
         tally[match kind {
             Kind::Equal => 0,
@@ -850,11 +1306,32 @@ fn child_layout(index: usize) {
             Kind::Terminal => 2,
             Kind::Nul => 3,
             Kind::Exception => 4,
+            Kind::WorkingDirectory => 5,
         }] += 1;
+    };
+    let form = |base: &str| match removed {
+        true => format!("removed-{base}"),
+        false => base.to_string(),
+    };
+    // A removal control compares as a parity cell of the same fixtures:
+    // the platform's search, with the offending component gone, and
+    // the resolver, agreeing on the exact file.
+    let removed_layout = Layout {
+        name: format!("{} [removed]", layout.name),
+        files: Vec::new(),
+        path: None,
+        expect: Expect::Parity,
+        removal: Removal::None,
     };
     for (n, name) in names.iter().enumerate() {
         let name = name.as_str();
         let direct = name.contains('/');
+        let bare = !direct && !name.contains('\0');
+        // A removal control is a bare-name cell: a direct spelling
+        // searches nothing to remove from.
+        if removed && !bare {
+            continue;
+        }
         // The spelled file of a direct name, relative to the cwd the
         // child holds; a bare name's target is the cwd file of that name.
         let target: PathBuf = match name {
@@ -874,8 +1351,15 @@ fn child_layout(index: usize) {
         let mut ids: Vec<(String, PathBuf)> = Vec::new();
         let mut placed: Vec<PathBuf> = Vec::new();
         let mut obstructed: Option<PathBuf> = None;
+        let places_a = layout.files.iter().any(|(slot, _)| *slot == Slot::A);
         if !name.contains('\0') {
             for (slot_index, (slot, body)) in layout.files.iter().enumerate() {
+                // `Target` and `A` coincide for a direct spelling: a
+                // layout placing both keeps A there, and the cwd body is
+                // a bare-name concern.
+                if direct && places_a && *slot == Slot::Target {
+                    continue;
+                }
                 let at = place_at(*slot);
                 let id = format!("l{index}n{n}s{slot_index}");
                 match body {
@@ -930,74 +1414,121 @@ fn child_layout(index: usize) {
             obstructed: obstructed.as_deref(),
             b: place_at(Slot::B),
         };
-        let bare = !direct && !name.contains('\0');
+        let glibc_bare = bare && LIBRARY == Library::Glibc;
 
+        // A search that attempts nothing leaves the child's errno as this
+        // thread had it: plant ENOENT so the final-oversize layout can
+        // assert exactly that.
+        let plant = |_: &str| {
+            let planted = fs::metadata(root.join("nowhere-errno-plant")).unwrap_err();
+            assert_eq!(errno_of(&planted), Some(rustix::io::Errno::NOENT));
+        };
         // The INHERITED form: production's invocation and production's
         // resolver, both reading this process's own environment.
-        let id = cell_id(n, index, "inherited");
+        let id = cell_id(n, index, &form("inherited"));
+        plant(&id);
         let native = oracle(Command::new(name).arg("--list").stdin(Stdio::null()), &id);
         let resolved = resolve_executable(name);
-        count(compare(&cell, &id, &native, &resolved));
-        if let (Some(bytes), true, true, Library::Glibc) =
-            (layout.length(), layout.removal, bare, LIBRARY)
-        {
-            assert_glibc_length(&cell, bytes, &native, &resolved);
-        }
-
         // The EXPLICIT form: the same `PATH` set on the `Command`, and the
-        // resolver handed the same value. Equal on glibc, where both
-        // forms run one loop; recorded elsewhere.
-        let id = cell_id(n, index, "explicit");
+        // resolver handed the same value under its `execvp` operation.
+        let id_explicit = cell_id(n, index, &form("explicit"));
         let mut command = Command::new(name);
         command.arg("--list").stdin(Stdio::null());
         match &path {
             Some(path) => command.env("PATH", path),
             None => command.env_remove("PATH"),
         };
-        let explicit = oracle(&mut command, &id);
+        plant(&id_explicit);
+        let explicit = oracle(&mut command, &id_explicit);
         let resolved_explicit = resolve_executable_in(name, path.clone());
-        match LIBRARY {
-            Library::Glibc => {
-                compare(&cell, &id, &explicit, &resolved_explicit);
-                assert_eq!(
-                    resolved_explicit.as_ref().ok(),
-                    resolved.as_ref().ok(),
-                    "{id}: both forms select alike on glibc"
-                );
-            }
-            _ => eprintln!(
-                "matrix: {id} recorded on {}: explicit-PATH native {explicit:?}, resolver \
-                 {resolved_explicit:?}",
-                std::env::consts::OS
-            ),
-        }
 
-        // Removing ONLY the first component: a fresh oracle that must
-        // run the same B, and a resolver that selects it.
-        if layout.removal && bare {
-            let id = cell_id(n, index, "removed");
-            let without: OsString = dir_of(&root, &cwd, index, Slot::B).into_os_string();
-            let mut command = Command::new(name);
-            command
-                .arg("--list")
-                .stdin(Stdio::null())
-                .env("PATH", &without);
-            let native = oracle(&mut command, &id);
-            let b = cell.b.canonicalize().unwrap();
-            let Outcome::Ran(marker) = &native else {
-                panic!("{id}: with the component removed the native child runs B: {native:?}");
-            };
+        for (label, native, resolved) in [
+            (&id, &native, &resolved),
+            (&id_explicit, &explicit, &resolved_explicit),
+        ] {
+            match removed {
+                // A same-fixture removal control is a parity cell: a
+                // fresh oracle runs the same B (or A through the fitting
+                // padded spelling), and the resolver selects it.
+                true => {
+                    let removed_cell = Cell {
+                        layout: &removed_layout,
+                        ..cell_view(&cell)
+                    };
+                    count(compare(&removed_cell, label, native, resolved));
+                    if layout.removal == Removal::Component {
+                        let Outcome::Ran(marker) = native else {
+                            panic!("{label}: with the component removed the native child runs B: {native:?}");
+                        };
+                        let b = cell.b.canonicalize().unwrap();
+                        assert_eq!(
+                            ids.iter()
+                                .find(|(known, _)| known == marker)
+                                .map(|(_, at)| at.canonicalize().unwrap()),
+                            Some(b.clone()),
+                            "{label}: the native child ran B"
+                        );
+                        assert_eq!(
+                            resolved.as_ref().ok(),
+                            Some(&b),
+                            "{label}: the resolver selects the same B"
+                        );
+                    }
+                    if let (Some(bytes), true, Removal::OneSlash) =
+                        (layout.padded(), glibc_bare && name == "dsh", layout.removal)
+                    {
+                        assert_glibc_padded(&cell, bytes, true, native, resolved);
+                    }
+                }
+                false => {
+                    count(compare(&cell, label, native, resolved));
+                    if let (Some(bytes), true) = (layout.length(), glibc_bare) {
+                        if layout
+                            .path
+                            .as_ref()
+                            .is_some_and(|slots| slots.len() == 2 && slots[1] == Slot::B)
+                        {
+                            assert_glibc_length(&cell, bytes, native, resolved);
+                        }
+                    }
+                    if let (Some(bytes), true) = (layout.padded(), glibc_bare && name == "dsh") {
+                        assert_glibc_padded(&cell, bytes, false, native, resolved);
+                    }
+                    // The final oversized component: glibc constructs
+                    // nothing, native runs nothing, and the resolver
+                    // says so — the cwd file is never reached.
+                    if glibc_bare && layout.path.as_deref() == Some(&[Slot::Long(5000)]) {
+                        // Nothing was attempted, so native's errno is
+                        // whatever this thread had set before the fork
+                        // (the planted ENOENT below), never the cwd
+                        // marker and never a measured ENAMETOOLONG.
+                        let Outcome::Failed(error) = native else {
+                            panic!(
+                                "{label}: a final oversized component attempts nothing: {native:?}"
+                            );
+                        };
+                        assert_eq!(
+                            errno_of(error),
+                            Some(rustix::io::Errno::NOENT),
+                            "{label}: nothing was constructed, so the planted errno stands: {error}"
+                        );
+                        let reason = match resolved {
+                            Ok(selected) => panic!("{label}: selected {}", selected.display()),
+                            Err(error) => error.to_string(),
+                        };
+                        assert!(
+                            reason.contains("the search attempted no candidate"),
+                            "{label}: {reason}"
+                        );
+                    }
+                }
+            }
+        }
+        if LIBRARY == Library::Glibc {
             assert_eq!(
-                ids.iter()
-                    .find(|(known, _)| known == marker)
-                    .map(|(_, at)| at.canonicalize().unwrap()),
-                Some(b.clone()),
-                "{id}: the native child ran B"
-            );
-            assert_eq!(
-                resolve_executable_in(name, Some(without)).unwrap(),
-                b,
-                "{id}: the resolver selects the same B"
+                resolved_explicit.as_ref().ok(),
+                resolved.as_ref().ok(),
+                "{id}: both forms select alike on glibc"
             );
         }
 
@@ -1006,9 +1537,26 @@ fn child_layout(index: usize) {
         }
     }
     println!(
-        "\nmatrix-tally: {} {} {} {} {}",
-        tally[0], tally[1], tally[2], tally[3], tally[4]
+        "\nmatrix-tally: {}",
+        tally
+            .iter()
+            .map(|count| count.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
     );
+}
+
+/// A shallow copy of a cell's fixture view, for the removal control's
+/// parity comparison under a parity layout of the same fixtures.
+fn cell_view<'a>(cell: &Cell<'a>) -> Cell<'a> {
+    Cell {
+        name: cell.name,
+        direct: cell.direct,
+        layout: cell.layout,
+        ids: cell.ids,
+        obstructed: cell.obstructed,
+        b: cell.b.clone(),
+    }
 }
 
 /// The cells outside the cross-product, each with its own oracle, in a
@@ -1028,10 +1576,29 @@ fn child_controls() {
             std::env::consts::OS
         );
     };
+    let nowhere = root.join("controls-nowhere");
+    assert!(!nowhere.exists());
+    let file = root.join("controls-file");
+    fs::write(&file, b"a file, not a directory\n").unwrap();
+    let terminal = |candidate: &Path| {
+        format!(
+            "the DSH layout is unreadable: {}: metadata answers File name too long (os error 36), \
+             on which the platform's lookup stops",
+            candidate.display()
+        )
+    };
+    let exhausted = |name: &str, candidate: &Path| {
+        format!(
+            "the DSH layout is unreadable: '{name}' is not on PATH (the search ended at {}: {})",
+            candidate.display(),
+            fs::metadata(candidate).unwrap_err()
+        )
+    };
 
-    // An overlong bare program name: glibc refuses it with ENAMETOOLONG
-    // before searching (`posix/execvpe.c` 92–106), and the resolver
-    // refuses by that cause, never as an ordinary miss.
+    // An overlong bare program name is NOT refused before the search
+    // (fourth hold, R4): it meets the kernel under each entry, and the
+    // entry decides. Under the existing controls directory the kernel
+    // answers ENAMETOOLONG, on which glibc stops.
     let overlong = "x".repeat(300);
     let native = oracle(
         Command::new(&overlong).arg("--list").stdin(Stdio::null()),
@@ -1048,16 +1615,165 @@ fn child_controls() {
                 Some(rustix::io::Errno::NAMETOOLONG),
                 "{error}"
             );
-            assert_eq!(
-                refused(resolved),
-                format!(
-                    "the DSH layout is unreadable: '{overlong}' is 300 bytes long, more than the \
-                     255 bytes NAME_MAX allows a searched name, which the platform's lookup \
-                     refuses with ENAMETOOLONG before searching"
-                )
-            );
+            assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
         }
         _ => record("overlong-bare-name", &native, &resolved),
+    }
+
+    // Under a missing directory the name is never measured: ENOENT,
+    // walked past, and the search is exhausted as NotFound.
+    let native = oracle(
+        Command::new(&overlong)
+            .arg("--list")
+            .stdin(Stdio::null())
+            .env("PATH", &nowhere),
+        "control:overlong-under-missing-prefix",
+    );
+    let resolved = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
+    match LIBRARY {
+        Library::Glibc => {
+            let Outcome::Failed(error) = &native else {
+                panic!("the native child ran a 300-byte name under a missing prefix: {native:?}");
+            };
+            assert_eq!(errno_of(error), Some(rustix::io::Errno::NOENT), "{error}");
+            assert_eq!(
+                refused(resolved),
+                exhausted(&overlong, &nowhere.join(&overlong))
+            );
+        }
+        _ => record("overlong-under-missing-prefix", &native, &resolved),
+    }
+
+    // Under a file spelled as a directory: ENOTDIR, walked past, and the
+    // exhaustion keeps THAT cause.
+    let native = oracle(
+        Command::new(&overlong)
+            .arg("--list")
+            .stdin(Stdio::null())
+            .env("PATH", &file),
+        "control:overlong-under-file-prefix",
+    );
+    let resolved = resolve_executable_in(&overlong, Some(file.clone().into_os_string()));
+    match LIBRARY {
+        Library::Glibc => {
+            let Outcome::Failed(error) = &native else {
+                panic!("the native child ran a 300-byte name under a file prefix: {native:?}");
+            };
+            assert_eq!(errno_of(error), Some(rustix::io::Errno::NOTDIR), "{error}");
+            assert_eq!(
+                refused(resolved),
+                exhausted(&overlong, &file.join(&overlong))
+            );
+        }
+        _ => record("overlong-under-file-prefix", &native, &resolved),
+    }
+
+    // Missing, then existing: the miss is walked past and the existing
+    // directory's ENAMETOOLONG stops the search.
+    let missing_then_existing =
+        OsString::from(format!("{}:{}", nowhere.display(), controls.display()));
+    let native = oracle(
+        Command::new(&overlong)
+            .arg("--list")
+            .stdin(Stdio::null())
+            .env("PATH", &missing_then_existing),
+        "control:overlong-missing-then-existing",
+    );
+    let resolved = resolve_executable_in(&overlong, Some(missing_then_existing));
+    match LIBRARY {
+        Library::Glibc => {
+            let Outcome::Failed(error) = &native else {
+                panic!("the native child ran a 300-byte name: {native:?}");
+            };
+            assert_eq!(
+                errno_of(error),
+                Some(rustix::io::Errno::NAMETOOLONG),
+                "{error}"
+            );
+            assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
+        }
+        _ => record("overlong-missing-then-existing", &native, &resolved),
+    }
+
+    // At the working directory (`PATH=""`): the bare 300-byte name is
+    // ENAMETOOLONG to the kernel, on which native stops — and a native
+    // stop at the cwd candidate is preserved as that cause, not renamed
+    // to the cwd reason.
+    let native = oracle(
+        Command::new(&overlong)
+            .arg("--list")
+            .stdin(Stdio::null())
+            .env("PATH", ""),
+        "control:overlong-at-cwd",
+    );
+    let resolved = resolve_executable_in(&overlong, Some(OsString::new()));
+    match LIBRARY {
+        Library::Glibc => {
+            let Outcome::Failed(error) = &native else {
+                panic!("the native child ran a 300-byte name from cwd: {native:?}");
+            };
+            assert_eq!(
+                errno_of(error),
+                Some(rustix::io::Errno::NAMETOOLONG),
+                "{error}"
+            );
+            assert_eq!(refused(resolved), terminal(Path::new(&overlong)));
+        }
+        _ => record("overlong-at-cwd", &native, &resolved),
+    }
+
+    // With only an oversized component there is no candidate at all,
+    // so nothing is measured: glibc breaks out of its loop with errno
+    // UNTOUCHED (`posix/execvpe.c` 121–122, 160–168), and the errno the
+    // child reports is whatever this thread had set before the fork.
+    // That is proved rather than described: the errno is planted by a
+    // failing `metadata` call — ENOENT, then ENOTDIR — and the child
+    // reports exactly the planted value each time, which no attempted
+    // `execve` would have left standing.
+    let skipped = OsString::from("x".repeat(5000));
+    for (what, plant, planted) in [
+        (
+            "overlong-no-candidate",
+            nowhere.join("plant"),
+            rustix::io::Errno::NOENT,
+        ),
+        (
+            "overlong-no-candidate-notdir",
+            file.join("plant"),
+            rustix::io::Errno::NOTDIR,
+        ),
+    ] {
+        let expected = fs::metadata(&plant).unwrap_err();
+        assert_eq!(errno_of(&expected), Some(planted));
+        let native = oracle(
+            Command::new(&overlong)
+                .arg("--list")
+                .stdin(Stdio::null())
+                .env("PATH", &skipped),
+            &format!("control:{what}"),
+        );
+        let resolved = resolve_executable_in(&overlong, Some(skipped.clone()));
+        match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("{what}: the native child ran a 300-byte name with no candidate: {native:?}");
+                };
+                assert_eq!(
+                    errno_of(error),
+                    Some(planted),
+                    "{what}: nothing was attempted, so the planted errno stands: {error}"
+                );
+                assert_eq!(
+                    refused(resolved),
+                    format!(
+                        "the DSH layout is unreadable: '{overlong}' is not on PATH (the search \
+                         attempted no candidate: every component was skipped as longer than the \
+                         buffer the platform builds one in)"
+                    )
+                );
+            }
+            _ => record(what, &native, &resolved),
+        }
     }
 
     // The same name as an explicit path: `execve` itself answers
@@ -1078,21 +1794,15 @@ fn child_controls() {
                 Some(rustix::io::Errno::NAMETOOLONG),
                 "{error}"
             );
-            assert_eq!(
-                refused(resolved),
-                format!(
-                    "the DSH layout is unreadable: {}: metadata answers File name too long (os \
-                     error 36), on which the platform's lookup stops",
-                    spelled.display()
-                )
-            );
+            assert_eq!(refused(resolved), terminal(&spelled));
         }
         _ => record("overlong-explicit-path", &native, &resolved),
     }
 
-    // The NAME_MAX boundary itself: 256 bytes is one more than glibc
-    // searches for, and it is refused before any entry is read even
-    // though the search directory holds nothing of that name.
+    // The NAME_MAX boundary itself: 256 bytes is one more than the
+    // kernel takes for a component, refused by the kernel under the
+    // existing controls directory even though nothing of that name is
+    // there — and never by a length rule of the resolver's own.
     let boundary = "y".repeat(256);
     let native = oracle(
         Command::new(&boundary).arg("--list").stdin(Stdio::null()),
@@ -1109,10 +1819,7 @@ fn child_controls() {
                 Some(rustix::io::Errno::NAMETOOLONG),
                 "{error}"
             );
-            assert!(
-                refused(resolved).contains("is 256 bytes long, more than the 255 bytes NAME_MAX"),
-                "the boundary is the library's own"
-            );
+            assert_eq!(refused(resolved), terminal(&controls.join(&boundary)));
         }
         _ => record("name-max-boundary", &native, &resolved),
     }
@@ -1140,6 +1847,39 @@ fn child_controls() {
         "the resolver selects the 255-byte name the child ran"
     );
 
+    // Exhaustion keeps the LAST candidate's cause, not a relabelled
+    // NotFound: missing then file ends in ENOTDIR, file then missing in
+    // ENOENT (design D10 §3).
+    for (what, first, second) in [
+        ("exhaustion-missing-then-file", &nowhere, &file),
+        ("exhaustion-file-then-missing", &file, &nowhere),
+    ] {
+        let path = OsString::from(format!("{}:{}", first.display(), second.display()));
+        let native = oracle(
+            Command::new("dsh")
+                .arg("--list")
+                .stdin(Stdio::null())
+                .env("PATH", &path),
+            &format!("control:{what}"),
+        );
+        let resolved = resolve_executable_in("dsh", Some(path));
+        match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("{what}: the native child ran a dsh: {native:?}");
+                };
+                let expected = fs::metadata(second.join("dsh")).unwrap_err();
+                assert_eq!(
+                    error.raw_os_error(),
+                    expected.raw_os_error(),
+                    "{what}: native reports the last candidate's cause: {error}"
+                );
+                assert_eq!(refused(resolved), exhausted("dsh", &second.join("dsh")));
+            }
+            _ => record(what, &native, &resolved),
+        }
+    }
+
     // The default-search positive AO requires beside the all-negative
     // absent-PATH cells: `sh` runs with PATH removed, and the resolver
     // selects the very file it ran, with a same-name cwd decoy present.
@@ -1162,14 +1902,17 @@ fn child_controls() {
             "the resolver's absent-PATH selection is the native default-search identity"
         );
     }
-    println!("\nmatrix-tally: 0 0 0 0 0");
+    println!("\nmatrix-tally: 0 0 0 0 0 0");
 }
 
 #[test]
 fn native_executable_resolution_matches_command_matrix() {
     match std::env::var(CASE) {
         Ok(case) if case == "controls" => child_controls(),
-        Ok(case) => child_layout(case.parse().unwrap()),
+        Ok(case) => match case.strip_suffix(":removed") {
+            Some(index) => child_layout(index.parse().unwrap(), true),
+            None => child_layout(case.parse().unwrap(), false),
+        },
         Err(_) => parent(),
     }
 }
