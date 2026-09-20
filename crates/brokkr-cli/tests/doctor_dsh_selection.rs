@@ -627,6 +627,19 @@ fn absent_path_default_search_matches_native_dsh_and_node() {
                 std::fs::canonicalize(&ran).unwrap(),
                 "the observed and native runtimes are one canonical file"
             );
+            // The launcher's own output proves only what the launcher
+            // ran; the COMPOSITE proves what the observation consumed.
+            // A readable composite here means the retained `node` was
+            // probed for the `node` line and the whole installation
+            // read; the private retained field itself is asserted by
+            // the protocol companion
+            // `absent_path_node_identity_is_retained_by_the_composite`
+            // (run `09ec8d81`, R5).
+            assert!(
+                line.contains("· composite ") && line.ends_with("(no declared wrapper_digest)"),
+                "the observation consumed the retained runtime into a readable composite: {line}"
+            );
+            assert!(!line.contains("composite unreadable"), "{line}");
         }
     }
 }
@@ -875,26 +888,51 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         "{line}"
     );
 
-    // F4 (review 2026-09-20), SECURITY. The same `env`, under another
-    // name. `env-alias` and `env` are two spellings of ONE binary;
-    // doctor recognized the measured form by the spelled basename, so
-    // the alias carried a launcher whose `node` was missing past D10's
-    // refusal and doctor EXECUTED it — the marker it left is the proof.
-    // The refusal must precede the probe under either spelling.
+    // F4 (review 2026-09-20) and R3 (run `09ec8d81`), SECURITY. The
+    // `env` an interpreter IS, asked of the FILE and never of a name.
+    // Doctor recognized the measured form by the spelled basename, so
+    // `env-alias` carried a launcher whose `node` was missing past
+    // D10's refusal and doctor EXECUTED it; recognition by the canonical
+    // basename was still recognition by name, and a COPY of `env`
+    // hard-linked as `tools/uu_env` — the same bytes, no `env` name
+    // anywhere — walked past it too. The spellings, each with its own
+    // native control and its own marker directory:
+    //
+    // - `/usr/bin/env`, a symlink NAMED `env` elsewhere, and a
+    //   byte-for-byte copy named `env`: the platform's env under the
+    //   name `env`, the established invocation — doctor names A's
+    //   obstruction and probes nothing;
+    // - the `env-alias` symlink and the `uu_env` hard link of the copy:
+    //   the same file under another NAME, a dispatch doctor cannot
+    //   establish without executing it — refused by that cause and
+    //   probes nothing;
+    // - an impostor named `env`: refused as such and probes nothing.
     let tools = cwd.join("tools");
     std::fs::create_dir_all(&tools).unwrap();
-    let env_binary = ["/usr/bin/env", "/bin/env"]
-        .into_iter()
-        .map(PathBuf::from)
-        .find(|candidate| candidate.is_file())
-        .expect("this host has an env binary");
+    let env_binary = PathBuf::from("/usr/bin/env");
+    assert!(env_binary.is_file(), "this host has /usr/bin/env");
     let alias = tools.join("env-alias");
     std::os::unix::fs::symlink(&env_binary, &alias).unwrap();
-    assert_eq!(
-        alias.canonicalize().unwrap(),
-        env_binary.canonicalize().unwrap(),
-        "the alias and `env` are one file under two names"
-    );
+    let linked = cwd.join("linked");
+    std::fs::create_dir_all(&linked).unwrap();
+    let linked_env = linked.join("env");
+    std::os::unix::fs::symlink(&env_binary, &linked_env).unwrap();
+    let copied_env = tools.join("env");
+    std::fs::copy(&env_binary, &copied_env).unwrap();
+    std::fs::set_permissions(&copied_env, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let uu_env = tools.join("uu_env");
+    std::fs::hard_link(&copied_env, &uu_env).unwrap();
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (copy, link, system) = (
+            std::fs::metadata(&copied_env).unwrap(),
+            std::fs::metadata(&uu_env).unwrap(),
+            std::fs::metadata(&env_binary).unwrap(),
+        );
+        assert_eq!((copy.dev(), copy.ino()), (link.dev(), link.ino()));
+        assert_ne!((copy.dev(), copy.ino()), (system.dev(), system.ino()));
+    }
+    let impostor = stage_executable(&cwd.join("impostor"), "env", "#!/bin/sh\nexec \"$@\"\n");
     let nodes_a = cwd.join("node-a");
     let nodes_b = cwd.join("node-b");
     stage_executable(&nodes_a, "node", &format!("#!{}\n", missing.display()));
@@ -906,34 +944,89 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         nodes_a.display(),
         nodes_b.display()
     );
-    let oracle_marks = marks(cwd, "oracle");
-    for interpreter in [&alias, &env_binary] {
+    let obstruction = |interpreter: &Path| {
+        format!(
+            "{}: its #! interpreter '{}' selects no 'node': the DSH layout is unreadable: {}: \
+             its #! interpreter '{}' is missing: {enoent}",
+            launchers.join("dsh").display(),
+            interpreter.display(),
+            nodes_a.join("node").display(),
+            missing.display()
+        )
+    };
+    let unsupported = |interpreter: &Path| {
+        format!(
+            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
+             '{}', a dispatch this resolver does not establish without executing it",
+            launchers.join("dsh").display(),
+            interpreter.display(),
+            interpreter.file_name().unwrap().to_str().unwrap()
+        )
+    };
+    let impostor_refusal = format!(
+        "{}: its #! interpreter '{}' is named env but is not the platform's env utility \
+         '/usr/bin/env'",
+        launchers.join("dsh").display(),
+        impostor.display()
+    );
+    // The independent native control for one spelling: reaching a
+    // program at all proves that native lookup SELECTED the launcher
+    // and the kernel loaded it through this spelling — nothing was
+    // walked past at the launcher — and where the platform's own `env`
+    // went on to run a program it ran B's node, never A's obstructed
+    // copy. An `env` that declines to answer to another name stops
+    // there; that is this host's fact, recorded rather than asserted
+    // away, and it does not weaken doctor's refusal beside it.
+    let native_control = |interpreter: &Path, what: &str| -> String {
+        let oracle_marks = marks(
+            cwd,
+            &format!(
+                "oracle-{}-{}",
+                interpreter.file_name().unwrap().to_str().unwrap(),
+                what.replace(' ', "-")
+            ),
+        );
+        let mut command = Command::new("dsh");
+        command
+            .arg("--version")
+            .current_dir(cwd)
+            .env("PATH", &node_path)
+            .env("BROKKR_MARKS", &oracle_marks);
+        let native = spawn(&mut command).unwrap();
+        let ran = String::from_utf8_lossy(&native.stdout).into_owned();
+        assert!(
+            !ran.contains("DSH_A_") && !executed(&oracle_marks).iter().any(|m| m.contains("_A_")),
+            "{what}: the native child ran nothing of A's: {ran}"
+        );
+        eprintln!(
+            "R3 native control under {:?} ({what}): status {:?}, stdout {:?}, markers {:?}",
+            interpreter.file_name().unwrap(),
+            native.status,
+            ran.trim(),
+            executed(&oracle_marks)
+        );
+        ran
+    };
+    // The chief's copied-and-hard-linked spelling first: it is the one
+    // name recognition of either kind admits, and the marker assertion
+    // that fails under that removal names it.
+    for (interpreter, expected) in [
+        (&uu_env, unsupported(&uu_env)),
+        (&alias, unsupported(&alias)),
+        (&env_binary, obstruction(&env_binary)),
+        (&linked_env, obstruction(&linked_env)),
+        (&copied_env, obstruction(&copied_env)),
+        (&impostor, impostor_refusal.clone()),
+    ] {
         stage_executable(
             &launchers,
             "dsh",
             &format!("#!{} node\n", interpreter.display()),
         );
-        // The independent native control: the child SELECTED the
-        // launcher and the kernel loaded it through this spelling —
-        // nothing was walked past at the launcher — and where the
-        // platform's own `env` went on to run a program it ran B's
-        // node, never A's obstructed copy. An `env` that declines to
-        // answer to another name stops there; that is this host's
-        // fact, recorded rather than asserted away.
-        let native = native_dsh(cwd, Some(&node_path)).unwrap();
-        let ran = String::from_utf8_lossy(&native.stdout).into_owned();
-        assert!(
-            !ran.contains("DSH_A_"),
-            "the native child ran nothing of A's: {ran}"
-        );
-        eprintln!(
-            "F4 native control under {:?}: status {:?}, stdout {:?}",
-            interpreter.file_name().unwrap(),
-            native.status,
-            ran.trim()
-        );
-        // Doctor names the obstruction BEFORE probing anything, and
-        // leaves no execution marker under either spelling.
+        native_control(interpreter, "obstructed A node");
+        // Doctor refuses BEFORE probing anything, and leaves no
+        // execution marker under any spelling: markers first, because
+        // execution is the defect.
         let stdout = stdout_of(
             doctor(cwd)
                 .env("PATH", &node_path)
@@ -946,67 +1039,240 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         );
         assert!(!stdout.contains("DSH_B_NODE_0.0.3"), "{stdout}");
         let line = dsh_line(&stdout);
-        let expected = format!(
-            "{}: its #! interpreter '{}' selects no 'node': the DSH layout is unreadable: {}: \
-             its #! interpreter '{}' is missing: {enoent}",
-            launchers.join("dsh").display(),
-            interpreter.display(),
-            nodes_a.join("node").display(),
-            missing.display()
+        assert!(
+            line.contains(&expected),
+            "{}: {line}",
+            interpreter.display()
         );
-        assert!(line.contains(&expected), "{line}");
+        assert!(
+            line.starts_with("warn     dsh: binary 'dsh' not found: "),
+            "{line}"
+        );
     }
-    // The valid-chain positive: with A's `node` gone, the launcher is
-    // SELECTED under either spelling rather than refused, and where the
-    // platform's own `env` runs the program, doctor reports B's version
-    // from exactly one probe.
+    // The valid-chain positives: with A's `node` gone, every
+    // established spelling SELECTS the launcher, the native child runs
+    // B's node through it, and doctor reports B's version from exactly
+    // one probe. The unestablished spellings and the impostor are still
+    // refused with zero markers — a whole chain establishes no dispatch
+    // — and their native outcome is recorded beside the refusal.
     std::fs::remove_file(nodes_a.join("node")).unwrap();
-    let _ = std::fs::remove_dir_all(&oracle_marks);
-    for (round, interpreter) in [&env_binary, &alias].into_iter().enumerate() {
+    for (round, interpreter) in [&env_binary, &linked_env, &copied_env]
+        .into_iter()
+        .enumerate()
+    {
         stage_executable(
             &launchers,
             "dsh",
             &format!("#!{} node\n", interpreter.display()),
         );
+        let ran = native_control(interpreter, "valid chain");
+        assert!(
+            ran.contains("DSH_B_NODE_0.0.3"),
+            "{}: the native child ran B's node through env: {ran}",
+            interpreter.display()
+        );
         let chain_marks = marks(cwd, &format!("chain-{round}"));
-        let native = native_dsh(cwd, Some(&node_path)).unwrap();
-        let ran = String::from_utf8_lossy(&native.stdout).into_owned();
         let stdout = stdout_of(
             doctor(cwd)
                 .env("PATH", &node_path)
                 .env("BROKKR_MARKS", &chain_marks),
         );
         let line = dsh_line(&stdout);
-        match ran.contains("DSH_B_NODE_0.0.3") {
-            true => {
-                assert!(
-                    line.starts_with("ok       dsh: DSH_B_NODE_0.0.3 · serves"),
-                    "the launcher runs through B's node once the chain is whole: {line}"
-                );
-                assert_eq!(executed(&chain_marks), vec!["DSH_B_NODE_0.0.3".to_string()]);
-            }
-            // This host's `env` declines to answer to another name, so
-            // neither child reaches a program. Doctor still SELECTED
-            // the launcher — its line names the selected file and takes
-            // no pre-probe refusal — and the version half is recorded
-            // as pending under that spelling rather than passed.
-            false => {
-                assert!(
-                    line.starts_with(&format!(
-                        "warn     dsh: binary '{}' not found",
-                        launchers.join("dsh").display()
-                    )) && !line.contains("selects no 'node'"),
-                    "{line}"
-                );
-                eprintln!(
-                    "PENDING: this host's `env` refuses the spelling {:?} ({}), so the \
-                     valid-chain version half was not established under it",
-                    interpreter.file_name().unwrap(),
-                    String::from_utf8_lossy(&native.stderr).trim()
-                );
-            }
-        }
+        assert!(
+            line.starts_with("ok       dsh: DSH_B_NODE_0.0.3 · serves"),
+            "{}: the launcher runs through B's node once the chain is whole: {line}",
+            interpreter.display()
+        );
+        assert_eq!(executed(&chain_marks), vec!["DSH_B_NODE_0.0.3".to_string()]);
     }
+    for (interpreter, expected) in [
+        (&alias, unsupported(&alias)),
+        (&uu_env, unsupported(&uu_env)),
+        (&impostor, impostor_refusal.clone()),
+    ] {
+        stage_executable(
+            &launchers,
+            "dsh",
+            &format!("#!{} node\n", interpreter.display()),
+        );
+        native_control(interpreter, "valid chain, unestablished invocation");
+        let stdout = stdout_of(
+            doctor(cwd)
+                .env("PATH", &node_path)
+                .env("BROKKR_MARKS", &doctor_marks),
+        );
+        assert_eq!(
+            executed(&doctor_marks),
+            Vec::<String>::new(),
+            "doctor probed nothing under {interpreter:?}:\n{stdout}"
+        );
+        assert!(
+            dsh_line(&stdout).contains(&expected),
+            "{}: {stdout}",
+            interpreter.display()
+        );
+    }
+}
+
+/// R1 (run `09ec8d81`, HIGH, security). Six `PATH` component lengths
+/// ahead of a runnable B, each its own cell with its own native oracle
+/// and its own doctor marker directory. On glibc, 255, 4096 and 5000
+/// run B natively and doctor selects that exact B; 256, 300 and 4095
+/// stop the native search with errno 36 and doctor leaves NO B marker —
+/// where doctor walked past every `ENAMETOOLONG` and executed B before
+/// the composite's refusal hid it. Markers are checked before the line,
+/// because execution is the defect. Removing only the component is a
+/// separately invoked native control and doctor run, both executing the
+/// same B. Another libc's boundaries are recorded, not asserted from
+/// glibc's numbers. Restoring blanket `ENAMETOOLONG` continuation fails
+/// the 256/300/4095 no-marker assertion (recorded in the delivery
+/// account).
+#[test]
+fn terminal_path_lengths_refuse_before_doctor_probe() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let b = cwd.join("b");
+    const B_VERSION: &str = "DSH_B_LENGTH_SENTINEL_0.0.6";
+    version_script(&b, "dsh", B_VERSION);
+    let glibc = cfg!(all(target_os = "linux", target_env = "gnu"));
+    let dsh_under = |path: &str, marks_dir: &Path| {
+        let mut command = Command::new("dsh");
+        command
+            .arg("--version")
+            .current_dir(cwd)
+            .env("PATH", path)
+            .env("BROKKR_MARKS", marks_dir);
+        spawn(&mut command)
+    };
+    for bytes in [255usize, 256, 300, 4095, 4096, 5000] {
+        let component = "x".repeat(bytes);
+        let path = format!("{component}:{}", b.display());
+        let oracle_marks = marks(cwd, &format!("oracle-{bytes}"));
+        let doctor_marks = marks(cwd, &format!("doctor-{bytes}"));
+        let native = dsh_under(&path, &oracle_marks);
+        let stdout = stdout_of(
+            doctor(cwd)
+                .env("PATH", &path)
+                .env("BROKKR_MARKS", &doctor_marks),
+        );
+        let line = dsh_line(&stdout);
+        match (glibc, bytes) {
+            (true, 255 | 4096 | 5000) => {
+                let native = native.unwrap();
+                assert!(native.status.success(), "{bytes}: the native child ran B");
+                assert_eq!(executed(&oracle_marks), vec![B_VERSION.to_string()]);
+                assert_eq!(
+                    executed(&doctor_marks),
+                    vec![B_VERSION.to_string()],
+                    "{bytes}: doctor probed exactly B:\n{stdout}"
+                );
+                assert!(
+                    line.starts_with(&format!("ok       dsh: {B_VERSION} · serves")),
+                    "{bytes}: doctor selects the B the native child ran: {line}"
+                );
+            }
+            (true, _) => {
+                let error = native.unwrap_err();
+                assert_eq!(
+                    error.raw_os_error(),
+                    Some(36),
+                    "{bytes}: the native search stops with ENAMETOOLONG: {error}"
+                );
+                assert_eq!(executed(&oracle_marks), Vec::<String>::new());
+                assert_eq!(
+                    executed(&doctor_marks),
+                    Vec::<String>::new(),
+                    "{bytes}: doctor executed B where native lookup stopped:\n{stdout}"
+                );
+                assert!(!stdout.contains(B_VERSION), "{bytes}: {stdout}");
+                let expected = format!(
+                    "{}: metadata answers File name too long (os error 36), on which the \
+                     platform's lookup stops",
+                    Path::new(&component).join("dsh").display()
+                );
+                assert!(line.contains(&expected), "{bytes}: {line}");
+                assert!(
+                    line.starts_with("warn     dsh: binary 'dsh' not found: "),
+                    "{bytes}: {line}"
+                );
+            }
+            (false, _) => eprintln!(
+                "PENDING on {}: {bytes}-byte component, native {:?}, doctor markers {:?}, line \
+                 {line}",
+                std::env::consts::OS,
+                native.map(|output| output.status),
+                executed(&doctor_marks)
+            ),
+        }
+        // Removing ONLY the component: a fresh native control and a
+        // fresh doctor run, both executing the same B.
+        let removed_oracle = marks(cwd, &format!("oracle-removed-{bytes}"));
+        let removed_doctor = marks(cwd, &format!("doctor-removed-{bytes}"));
+        let native = dsh_under(b.to_str().unwrap(), &removed_oracle).unwrap();
+        assert!(
+            native.status.success(),
+            "{bytes}: removed-component control"
+        );
+        assert_eq!(executed(&removed_oracle), vec![B_VERSION.to_string()]);
+        let stdout = stdout_of(
+            doctor(cwd)
+                .env("PATH", &b)
+                .env("BROKKR_MARKS", &removed_doctor),
+        );
+        assert!(
+            dsh_line(&stdout).starts_with(&format!("ok       dsh: {B_VERSION} · serves")),
+            "{bytes}: {stdout}"
+        );
+        assert_eq!(executed(&removed_doctor), vec![B_VERSION.to_string()]);
+    }
+}
+
+/// R2 (run `09ec8d81`). Apple's absent-`PATH` search is `_PATH_DEFPATH`,
+/// `/usr/bin:/bin`, and NOT the `confstr(_CS_PATH)` answer
+/// `/usr/bin:/bin:/usr/sbin:/sbin`: a harmless system executable that
+/// lives only in `/usr/sbin` is NotFound to a native child with no
+/// `PATH`, and doctor refuses it naming the default search it walked;
+/// with the wider value as an explicit `PATH` both find it. A `sh` that
+/// both searches hold cannot make this distinction. Native macOS only;
+/// on a host without the fixture the cell is recorded pending.
+#[cfg(target_os = "macos")]
+#[test]
+fn apple_default_search_excludes_confstr_only_directories() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    const NAME: &str = "sysctl";
+    let candidate = Path::new("/usr/sbin").join(NAME);
+    if !candidate.is_file() {
+        eprintln!(
+            "PENDING: no {} on this host; the discriminating cell did not run",
+            candidate.display()
+        );
+        return;
+    }
+    for default_dir in ["/usr/bin", "/bin"] {
+        assert!(
+            !Path::new(default_dir).join(NAME).exists(),
+            "the fixture lives outside Apple's default search"
+        );
+    }
+    let native = native_lookup(cwd, NAME, None).unwrap_err();
+    assert_eq!(native.kind(), std::io::ErrorKind::NotFound, "{native}");
+    let stdout = stdout_of(doctor(cwd).env_remove("PATH").env("BROKKR_DSH_BIN", NAME));
+    let line = dsh_line(&stdout);
+    assert!(
+        line.contains(&format!(
+            "'{NAME}' is not on the default search path /usr/bin:/bin (PATH is absent)"
+        )),
+        "doctor refuses by Apple's own default search: {line}"
+    );
+    let confstr = "/usr/bin:/bin:/usr/sbin:/sbin";
+    native_lookup(cwd, NAME, Some(confstr)).expect("the wider search finds the fixture");
+    let stdout = stdout_of(doctor(cwd).env("PATH", confstr).env("BROKKR_DSH_BIN", NAME));
+    let line = dsh_line(&stdout);
+    assert!(
+        line.contains(&candidate.display().to_string()) && !line.contains("is not on"),
+        "the explicit wider search selects the fixture: {line}"
+    );
 }
 
 /// R4 (review 2026-09-20). A 40-byte Mach-O whose one load command is
@@ -1556,6 +1822,52 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: >=1\n"),
             "a package child 'engines' carrying the unterminated flow collection '{node: >=1'",
         ),
+        // R4 (run `09ec8d81`): a MISSING member — leading, interior,
+        // comma-only — and the bodies of ignored children and sections,
+        // which were dropped or skipped before they could be refused.
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    cpu: [,x64]\n"),
+            "a package child 'cpu' carrying the flow collection '[,x64]' with a missing member \
+             at position 1",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    cpu: [x64,,arm64]\n"),
+            "a package child 'cpu' carrying the flow collection '[x64,,arm64]' with a missing \
+             member at position 2",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{,node: 22}}\n"),
+            "a package child 'engines' carrying the flow collection '{,node: 22}' with a missing \
+             member at position 1",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: 18,,npm: 9}}\n"
+            ),
+            "a package child 'engines' carrying the flow collection '{node: 18,,npm: 9}' with a \
+             missing member at position 2",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{,}}\n"),
+            "a package child 'engines' carrying the flow collection '{,}' with a missing member \
+             at position 1",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 '@scope/peer': '>=1\n"
+            ),
+            "a line under the package child 'peerDependencies' carrying the entry '@scope/peer' \
+             carrying the malformed quoted scalar ''>=1'",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n\nsnapshots:\n\n  debug@2.6.9:\n    \
+                 dependencies:\n      ms: '2.0.0\n"
+            ),
+            "a line in section 'snapshots' carrying the entry 'ms' carrying the malformed quoted \
+             scalar ''2.0.0'",
+        ),
     ] {
         let line = run(&body);
         assert!(
@@ -1575,8 +1887,12 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
     for child in [
         "engines: {node: '>=18.12', npm: \"9\"}",
         "cpu: [x64, arm64]",
+        "cpu: [x64,]",
+        "engines: {}",
         "deprecated: Don't use this, use [debug] instead",
         "hasBin: true",
+        "peerDependencies:\n      '@scope/peer': '>=1'\n      react: '>=16.8.0 || ^17'\n    \
+         peerDependenciesMeta:\n      react:\n        optional: true",
     ] {
         let body = format!("{package}    resolution: {{integrity: sha512-D}}\n    {child}\n");
         assert!(

@@ -4,6 +4,11 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+/// The differential matrix against `std::process::Command`, in its own
+/// file: every name crossed with every layout, each cell its own oracle.
+#[cfg(unix)]
+mod native_matrix;
+
 fn write(dir: &Path, relative: &str, bytes: &[u8]) {
     let path = dir.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -51,7 +56,9 @@ fn spawn_retrying_etxtbsy(command: &mut std::process::Command) -> std::process::
 fn stage_executable(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    let staging = dir.join(format!(".{name}.staging"));
+    // The staging name is bounded so a 255-byte candidate name — the
+    // NAME_MAX control — can still be staged beside its destination.
+    let staging = dir.join(format!(".{}.staging", name.get(..64).unwrap_or(name)));
     fs::write(&staging, body).unwrap();
     fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
     fs::rename(&staging, &path).unwrap();
@@ -1853,7 +1860,7 @@ fn the_default_search_path_is_the_c_librarys_own_answer() {
 #[test]
 fn each_platforms_absent_path_search_is_its_own_loaders_rule() {
     // Apple: the loader's literal, and never the library query.
-    for apple in ["macos", "ios", "tvos", "watchos"] {
+    for apple in ["macos", "ios", "tvos", "watchos", "visionos"] {
         assert_eq!(
             default_search_of(apple, ""),
             DefaultSearch::Literal("/usr/bin:/bin"),
@@ -1873,20 +1880,48 @@ fn each_platforms_absent_path_search_is_its_own_loaders_rule() {
             "{added} is on Apple's confstr answer and not on its execvp search"
         );
     }
-    // glibc and Android: their own `execvp` reads `confstr(_CS_PATH)`,
-    // so the library's answer IS the child's search.
-    for gnu in ["linux", "android"] {
-        assert_eq!(default_search_of(gnu, ""), DefaultSearch::Library, "{gnu}");
-    }
+    // glibc: its own `execvp` reads `confstr(_CS_PATH)`, so the
+    // library's answer IS the child's search.
+    assert_eq!(default_search_of("linux", "gnu"), DefaultSearch::Library);
     // musl: a literal its own `confstr` does not report.
     assert_eq!(
         default_search_of("linux", "musl"),
         DefaultSearch::Literal("/usr/local/bin:/bin:/usr/bin")
     );
-    // The BSDs share Apple's `_PATH_DEFPATH`.
+    // FreeBSD's `_PATH_DEFPATH` is its own (`include/paths.h` 36–40),
+    // in its own order, and NOT Apple's: the constant read from one
+    // BSD's header was assigned to every BSD (run `09ec8d81`, R2).
     assert_eq!(
         default_search_of("freebsd", ""),
-        DefaultSearch::Literal("/usr/bin:/bin")
+        DefaultSearch::Literal("/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin")
+    );
+    assert_ne!(
+        default_search_of("freebsd", ""),
+        default_search_of("macos", "")
+    );
+    // A target whose source this resolver has not read gets no other
+    // target's literal: Android's bionic, the other BSDs, illumos, and
+    // a Linux C library that is neither glibc nor musl are each an
+    // explicit limitation the refusal names.
+    for (os, env) in [
+        ("android", ""),
+        ("openbsd", ""),
+        ("netbsd", ""),
+        ("dragonfly", ""),
+        ("illumos", ""),
+        ("linux", ""),
+        ("linux", "uclibc"),
+    ] {
+        assert_eq!(
+            default_search_of(os, env),
+            DefaultSearch::Unestablished,
+            "{os}/{env}"
+        );
+    }
+    assert_eq!(
+        refused(default_search_path_for(DefaultSearch::Unestablished)),
+        "the DSH layout is unreadable: PATH is absent, and this target's native default search \
+         is not established"
     );
     // And production takes the RUNNING target's row, not a fixed one.
     assert_eq!(
@@ -2017,9 +2052,19 @@ fn path_resolution_walks_past_a_candidate_a_child_could_not_execute() {
     // regular file is executable to nobody and a mode-0755 one to
     // everybody, on a privileged run and an unprivileged one alike,
     // while mode 0641 is exactly the case the two runs part on.
-    assert!(!effective_exec_access(&decoy));
-    assert!(effective_exec_access(&real));
-    assert_eq!(effective_exec_access(&owner_denied), privileged);
+    // The answer is the kernel's own errno: EACCES, the denial a search
+    // remembers, and not a boolean that would fold every other failure
+    // into it.
+    assert_eq!(
+        effective_exec_access(&decoy),
+        Err(rustix::io::Errno::ACCESS)
+    );
+    assert_eq!(effective_exec_access(&real), Ok(()));
+    assert_eq!(effective_exec_access(&owner_denied).is_ok(), privileged);
+    assert_eq!(
+        effective_exec_access(&dir.path().join("absent")),
+        Err(rustix::io::Errno::NOENT)
+    );
 }
 
 /// An EMPTY `PATH` entry names the current directory — POSIX's rule, and
@@ -2654,86 +2699,8 @@ fn an_absent_path_is_a_named_refusal_and_never_the_working_directory() {
     );
 }
 
-/// The differential matrix (design D10, proposal AO): every commissioned
-/// program spelling crossed with every layout, the resolver compared
-/// with a real `Command::new(name)` child under IDENTICAL cwd and
-/// environment. Each candidate is a sentinel with its own identity — a
-/// script printing a unique marker, or a native image (this test
-/// binary, hard-linked in, answering `--list`) — so a cell asserts which
-/// FILE the platform ran, never that something ran.
-///
-/// Every ordinary cell is equality: the resolver selects exactly the
-/// canonical file the child executed, or refuses exactly where the child
-/// got NotFound; a terminal native error (ELOOP, EACCES on a direct
-/// path) is a refusal by cause. The obstruction cells are the one named
-/// exception: native lookup walks past an `A/dsh` whose interpreter or
-/// dynamic loader is missing and runs B, and the resolver refuses at A
-/// naming the prerequisite, recorded separately as D10's exception and
-/// never counted as an equality pass. A NUL-bearing name is refused
-/// before any lookup where the child reports invalid input.
-///
-/// The working directory is process-wide state, so the matrix runs in a
-/// CHILD of this test binary whose cwd is the fixture (as
-/// `an_empty_path_entry_is_the_current_directory` does).
-///
-/// Removal controls recorded in the delivery account: restoring
-/// backslash-as-separator fails the `C:\Tools\dsh.exe` cwd-only cell,
-/// restoring absent-PATH-as-empty-entry fails the `dsh` absent-PATH
-/// cell, restoring unconditional absent-PATH refusal fails the `sh`
-/// default-search positive, and restoring unconditional native-image
-/// or one-level interpreter admission fails the loader cells.
-#[cfg(unix)]
-#[test]
-fn native_executable_resolution_matches_command_matrix() {
-    const CASE: &str = "BROKKR_COMPOSITE_NATIVE_MATRIX";
-    if std::env::var_os(CASE).is_some() {
-        native_matrix_child();
-        return;
-    }
-    let root = tempfile::tempdir().unwrap();
-    let cwd = root.path().join("cwd");
-    fs::create_dir_all(&cwd).unwrap();
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-    child
-        .args([
-            "adapters::composite::tests::native_executable_resolution_matches_command_matrix",
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .current_dir(&cwd)
-        .env(CASE, "1");
-    let output = spawn_retrying_etxtbsy(&mut child);
-    let said = String::from_utf8_lossy(&output.stdout).into_owned()
-        + &String::from_utf8_lossy(&output.stderr);
-    assert!(
-        said.contains("1 passed") || said.contains("1 failed"),
-        "the child ran the matrix rather than filtering it away: {said}"
-    );
-    assert!(output.status.success(), "{said}");
-    // The child reports its tally; the cells it crossed are asserted
-    // here too, so a matrix that silently shrank cannot pass. The
-    // count is the one constant both sides read: the two ELF-loader
-    // layouts exist only where an ELF fixture does, and a literal
-    // written for Linux demanded 112 cells of a macOS run that could
-    // build 96 (review 2026-09-20, R6).
-    assert!(
-        said.contains(&format!(
-            "matrix: 8 names x {MATRIX_LAYOUTS} layouts = {} cells",
-            8 * MATRIX_LAYOUTS
-        )),
-        "{said}"
-    );
-}
-
-/// The layouts the matrix crosses on this target: fourteen on every
-/// Unix, plus the two missing-loader layouts where the ELF fixture can be
-/// built. Asserted by the child on the layouts it built and by the parent
-/// on the tally the child printed.
-#[cfg(unix)]
-const MATRIX_LAYOUTS: usize = if cfg!(target_os = "linux") { 16 } else { 14 };
-
-/// Where a bare or direct spelling places its candidate in a layout.
+/// Where a bare or direct spelling places its candidate in a layout,
+/// shared by the Unix matrix (`native_matrix.rs`) and the Windows one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Slot {
     /// The file the spelling itself denotes: `cwd/<name>` for a bare
@@ -2747,540 +2714,117 @@ enum Slot {
     B,
     /// A directory on `PATH` holding no candidate, or a later one.
     Other,
-    /// A `PATH` component too long for any candidate under it: 5,000
-    /// ASCII `x` bytes, which no layout places a file in and both C
-    /// libraries' searches walk past (review 2026-09-20, F1).
-    Overlong,
+    /// A `PATH` component of exactly this many ASCII `x` bytes, which
+    /// no layout places a file in: the commissioned lengths 255, 256,
+    /// 300, 4095, 4096 and 5000, each its own cell (run `09ec8d81`, R1).
+    Long(usize),
+    /// A regular FILE spelled as a `PATH` component: the candidate under
+    /// it answers ENOTDIR.
+    File,
+    /// A component that does not exist: the candidate under it answers
+    /// ENOENT.
+    Nowhere,
 }
 
-/// The overlong `PATH` component's spelling, as the commission
-/// reproduced it.
+/// The overlong `PATH` component's spelling, as the commission first
+/// reproduced it; the Windows matrix keeps it as its one long cell.
+#[cfg(windows)]
 const OVERLONG_COMPONENT: usize = 5000;
-
-/// What a candidate is made of.
+/// R5 (run `09ec8d81`). With `PATH` absent and DSH safely selected by an
+/// explicit path, the `node` the selection RETAINS is exactly the
+/// runtime a native `Command::new("node")` runs from the platform's
+/// default search, and the composite consumes THAT field: the `node`
+/// line is what the retained file answers `--version`, and a distinct
+/// runtime retained in its place moves the composite. The private field
+/// is read here through the module's own seams; the built-doctor half is
+/// `absent_path_default_search_matches_native_dsh_and_node`. A host with
+/// no `node` on its default search supplies only the refusal, and the
+/// positive with its two removal controls is recorded PENDING, never a
+/// passing skip. Restoring unconditional absent-PATH refusal fails the
+/// positive while the native child still succeeds; retaining a distinct
+/// wrong Node fails the retained identity (recorded in the delivery
+/// account).
 #[cfg(unix)]
-enum Body {
-    /// A script printing its marker.
-    Script,
-    /// A mode-0644 script no child executes.
-    NonExecutable,
-    /// A script naming an interpreter that does not exist.
-    MissingInterpreter,
-    /// A script whose interpreter is the native image with no loader.
-    InterpreterMissingLoader,
-    /// This test binary, hard-linked: a working native image.
-    Native,
-    /// The native image whose `PT_INTERP` names a missing loader.
-    Broken,
-    /// A symlink to itself.
-    SelfSymlink,
-}
+#[test]
+fn absent_path_node_identity_is_retained_by_the_composite() {
+    use std::process::Command;
 
-#[cfg(unix)]
-enum Expect {
-    /// Resolver equals the native child: same file, or NotFound and a
-    /// refusal, or a terminal error and a refusal by cause.
-    Parity,
-    /// D10's exception: native runs B, the resolver refuses naming A
-    /// and its prerequisite.
-    Obstruction,
-}
-
-#[cfg(unix)]
-struct Layout {
-    name: &'static str,
-    /// `(slot, body)` per candidate placed; `Target` and `A` coincide
-    /// for a direct spelling, so a layout never places both.
-    files: Vec<(Slot, Body)>,
-    /// The child's `PATH`, spelled with the slot directories, or absent.
-    path: Option<Vec<Slot>>,
-    /// Whether `path`'s spelling carries an empty entry at the front,
-    /// between, or at the end, or is the single empty entry.
-    empty_at: Option<usize>,
-    expect: Expect,
-}
-
-#[cfg(unix)]
-fn native_matrix_child() {
-    use std::os::unix::fs::PermissionsExt;
-    use std::process::{Command, Stdio};
-
-    let cwd = std::env::current_dir().unwrap();
-    let root = cwd.parent().unwrap().to_path_buf();
-    let exe = std::env::current_exe().unwrap();
-    let native = root.join("native");
-    fs::create_dir_all(&native).unwrap();
-    fs::create_dir_all(root.join("abs")).unwrap();
-    let working = native.join("working");
-    fs::copy(&exe, native.join(".working.staging")).unwrap();
-    fs::rename(native.join(".working.staging"), &working).unwrap();
-    // The image whose loader is missing: the working copy with only its
-    // `PT_INTERP` bytes rewritten to a path that does not exist. The
-    // ELF layout is otherwise untouched, which is what makes the native
-    // child's ENOENT the loader's and not a malformed header's.
-    const MISSING_LOADER: &str = "/no-such-ld-9f3";
-    assert!(!Path::new(MISSING_LOADER).exists());
-    let broken = match cfg!(target_os = "linux") {
-        true => Some(patch_elf_interpreter(
-            &working,
-            &native.join("broken"),
-            MISSING_LOADER,
-        )),
-        false => None,
-    };
-    if let Some(broken) = &broken {
-        let error = Command::new(broken).arg("--list").output().unwrap_err();
-        assert_eq!(
-            error.kind(),
-            std::io::ErrorKind::NotFound,
-            "the patched image fails natively for its missing loader: {error}"
-        );
-    }
-    let missing_interpreter = root.join("no-such-interpreter");
-
-    let abs = root.join("abs").join("dsh").display().to_string();
-    let names: [&str; 8] = [
-        "dsh",
-        "./dsh",
-        "../dsh",
-        &abs,
-        "C:\\Tools\\dsh.exe",
-        "dsh.exe",
-        "my dsh",
-        "dsh\0x",
-    ];
-    let layouts = |broken: bool| -> Vec<Layout> {
-        let mut layouts = vec![
-            Layout {
-                name: "cwd-only, PATH elsewhere",
-                files: vec![(Slot::Target, Body::Script)],
-                path: Some(vec![Slot::Other]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "PATH directory plus competing cwd file",
-                files: vec![(Slot::PathDir, Body::Script), (Slot::Target, Body::Script)],
-                path: Some(vec![Slot::PathDir]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "PATH absent, cwd file",
-                files: vec![(Slot::Target, Body::Script)],
-                path: None,
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "present-empty PATH, cwd file",
-                files: vec![(Slot::Target, Body::Script)],
-                path: Some(vec![]),
-                empty_at: Some(0),
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "present-empty PATH, no candidate",
-                files: vec![],
-                path: Some(vec![]),
-                empty_at: Some(0),
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "leading empty entry",
-                files: vec![(Slot::Target, Body::Script), (Slot::PathDir, Body::Script)],
-                path: Some(vec![Slot::PathDir]),
-                empty_at: Some(0),
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "interior empty entry",
-                files: vec![(Slot::Target, Body::Script), (Slot::Other, Body::Script)],
-                path: Some(vec![Slot::PathDir, Slot::Other]),
-                empty_at: Some(1),
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "trailing empty entry",
-                files: vec![(Slot::Target, Body::Script)],
-                path: Some(vec![Slot::PathDir]),
-                empty_at: Some(1),
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "A:B, A has a missing interpreter",
-                files: vec![(Slot::A, Body::MissingInterpreter), (Slot::B, Body::Script)],
-                path: Some(vec![Slot::A, Slot::B]),
-                empty_at: None,
-                expect: Expect::Obstruction,
-            },
-            // What the search does with a loop is each C library's own:
-            // glibc stops with ELOOP, Apple continues to B. `Parity`
-            // asserts the RUNNING platform's native control either way,
-            // which is what the corrected AS1 cell requires and what a
-            // fixed "Unix" outcome could not express (F3).
-            Layout {
-                name: "A:B, A is a self-symlink (ELOOP)",
-                files: vec![(Slot::A, Body::SelfSymlink), (Slot::B, Body::Script)],
-                path: Some(vec![Slot::A, Slot::B]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            // An overlong PATH component ahead of a runnable B: both
-            // searches walk past it and run B, where this resolver
-            // refused the ordinary positive with ENAMETOOLONG (F1).
-            Layout {
-                name: "overlong PATH component, then B",
-                files: vec![(Slot::B, Body::Script)],
-                path: Some(vec![Slot::Overlong, Slot::B]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "A:B, A not executable",
-                files: vec![(Slot::A, Body::NonExecutable), (Slot::B, Body::Script)],
-                path: Some(vec![Slot::A, Slot::B]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            // The sole candidate is one this process may not execute:
-            // the child's search ends in EACCES, not ENOENT, and the
-            // resolver's refusal names that denial (review 2026-09-20,
-            // R9).
-            Layout {
-                name: "A alone, A not executable",
-                files: vec![(Slot::A, Body::NonExecutable)],
-                path: Some(vec![Slot::A]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-            Layout {
-                name: "A:B, A a working native image",
-                files: vec![(Slot::A, Body::Native), (Slot::B, Body::Script)],
-                path: Some(vec![Slot::A, Slot::B]),
-                empty_at: None,
-                expect: Expect::Parity,
-            },
-        ];
-        if broken {
-            layouts.push(Layout {
-                name: "A:B, A's interpreter has a missing loader",
-                files: vec![
-                    (Slot::A, Body::InterpreterMissingLoader),
-                    (Slot::B, Body::Script),
-                ],
-                path: Some(vec![Slot::A, Slot::B]),
-                empty_at: None,
-                expect: Expect::Obstruction,
-            });
-            layouts.push(Layout {
-                name: "A:B, A a native image with a missing loader",
-                files: vec![(Slot::A, Body::Broken), (Slot::B, Body::Script)],
-                path: Some(vec![Slot::A, Slot::B]),
-                empty_at: None,
-                expect: Expect::Obstruction,
-            });
-        }
-        layouts
-    };
-    let layouts = layouts(broken.is_some());
-    assert_eq!(layouts.len(), MATRIX_LAYOUTS);
-    if broken.is_none() {
-        eprintln!(
-            "matrix: the two missing-loader layouts need an ELF fixture and are PENDING on \
-             this target"
-        );
-    }
-
-    let mut cell_number = 0usize;
-    let mut equal = 0usize;
-    let mut not_found = 0usize;
-    let mut terminal = 0usize;
-    let mut exceptions = 0usize;
-    let mut nul = 0usize;
-    for name in names {
-        let direct = name.contains('/');
-        // The spelled file of a direct name, relative to the cwd the
-        // child holds; a bare name's target is the cwd file of that name.
-        let target: PathBuf = match name {
-            "./dsh" => cwd.join("dsh"),
-            "../dsh" => root.join("dsh"),
-            _ if direct => PathBuf::from(name),
-            _ => cwd.join(name),
-        };
-        for layout in &layouts {
-            cell_number += 1;
-            let cell = root.join(format!("cell-{cell_number}"));
-            let dir_of = |slot: Slot| match slot {
-                Slot::PathDir => cell.join("path"),
-                Slot::A => cell.join("a"),
-                Slot::B => cell.join("b"),
-                Slot::Other => cell.join("other"),
-                // Never created, and never a candidate's home: the
-                // component exists in the PATH spelling alone.
-                Slot::Overlong => PathBuf::from("x".repeat(OVERLONG_COMPONENT)),
-                Slot::Target => cwd.clone(),
-            };
-            for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
-                fs::create_dir_all(dir_of(slot)).unwrap();
-            }
-            // Where a candidate for this name goes in `slot`.
-            let place_at = |slot: Slot| -> PathBuf {
-                match (slot, direct) {
-                    (Slot::Target, _) | (Slot::A, true) => target.clone(),
-                    (slot, true) => dir_of(slot).join("dsh"),
-                    (slot, false) => dir_of(slot).join(name),
-                }
-            };
-            let mut ids: Vec<(String, PathBuf)> = Vec::new();
-            let mut placed: Vec<PathBuf> = Vec::new();
-            let mut obstructed: Option<PathBuf> = None;
-            if !name.contains('\0') {
-                for (index, (slot, body)) in layout.files.iter().enumerate() {
-                    let at = place_at(*slot);
-                    let id = format!("c{cell_number}s{index}");
-                    match body {
-                        Body::Script => {
-                            stage_executable(
-                                at.parent().unwrap(),
-                                at.file_name().unwrap().to_str().unwrap(),
-                                format!("#!/bin/sh\nprintf 'MARK:{id}\\n'\n").as_bytes(),
-                            );
-                            ids.push((id, at.clone()));
-                        }
-                        Body::NonExecutable => {
-                            fs::write(&at, b"#!/bin/sh\nprintf 'MARK:never\\n'\n").unwrap();
-                            fs::set_permissions(&at, fs::Permissions::from_mode(0o644)).unwrap();
-                        }
-                        Body::MissingInterpreter => {
-                            stage_executable(
-                                at.parent().unwrap(),
-                                at.file_name().unwrap().to_str().unwrap(),
-                                format!("#!{}\n", missing_interpreter.display()).as_bytes(),
-                            );
-                            obstructed = Some(at.clone());
-                        }
-                        Body::InterpreterMissingLoader => {
-                            stage_executable(
-                                at.parent().unwrap(),
-                                at.file_name().unwrap().to_str().unwrap(),
-                                format!("#!{}\n", broken.as_ref().unwrap().display()).as_bytes(),
-                            );
-                            obstructed = Some(at.clone());
-                        }
-                        Body::Native => {
-                            fs::hard_link(&working, &at).unwrap();
-                            ids.push(("native".to_string(), at.clone()));
-                        }
-                        Body::Broken => {
-                            fs::hard_link(broken.as_ref().unwrap(), &at).unwrap();
-                            obstructed = Some(at.clone());
-                        }
-                        Body::SelfSymlink => {
-                            std::os::unix::fs::symlink(at.file_name().unwrap(), &at).unwrap();
-                        }
-                    }
-                    placed.push(at);
-                }
-            }
-            let path: Option<OsString> = layout.path.as_ref().map(|slots| {
-                let mut entries: Vec<OsString> = slots
-                    .iter()
-                    .map(|slot| dir_of(*slot).into_os_string())
-                    .collect();
-                if let Some(at) = layout.empty_at {
-                    entries.insert(at, OsString::new());
-                }
-                entries.join(std::ffi::OsStr::new(":"))
-            });
-
-            // The native oracle: the same name, the same cwd (this
-            // process's), the same PATH.
-            let mut command = Command::new(name);
-            command.arg("--list").stdin(Stdio::null());
-            match &path {
-                Some(path) => command.env("PATH", path),
-                None => command.env_remove("PATH"),
-            };
-            let native = matrix_spawn(&mut command).map(|output| {
-                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-                match stdout.lines().find_map(|line| line.strip_prefix("MARK:")) {
-                    Some(id) => id.to_string(),
-                    None if stdout
-                        .contains("native_executable_resolution_matches_command_matrix") =>
-                    {
-                        "native".to_string()
-                    }
-                    None => panic!(
-                        "{name:?} in {}: the child ran an unidentified file: {stdout}",
-                        layout.name
-                    ),
-                }
-            });
-            let resolved = resolve_executable_in(name, path.clone());
-            let describe = |what: &str| {
-                format!(
-                    "{what}: name {name:?}, layout {:?}, PATH {path:?}, native {native:?}, \
-                     resolver {resolved:?}",
-                    layout.name
-                )
-            };
-            // The resolver's refusal, or a panic that names the cell in
-            // which it selected instead.
-            let refusal = |what: &str| match &resolved {
-                Ok(_) => panic!("{}", describe(what)),
-                Err(error) => error.to_string(),
-            };
-            match (&layout.expect, &native) {
-                (_, Err(error)) if error.kind() == std::io::ErrorKind::InvalidInput => {
-                    assert!(name.contains('\0'), "{}", describe("invalid input"));
-                    assert_eq!(
-                        refused(resolved.clone()),
-                        "the DSH layout is unreadable: 'dsh\\0x' carries a NUL",
-                        "{}",
-                        describe("a NUL is refused up front")
-                    );
-                    nul += 1;
-                }
-                (Expect::Parity, Ok(id)) => {
-                    let expected = ids
-                        .iter()
-                        .find(|(known, _)| known == id)
-                        .map(|(_, at)| at.canonicalize().unwrap())
-                        .unwrap_or_else(|| panic!("{}", describe("an unplaced marker")));
-                    assert_eq!(
-                        resolved.as_ref().ok(),
-                        Some(&expected),
-                        "{}",
-                        describe("the resolver selects exactly the file the child ran")
-                    );
-                    equal += 1;
-                }
-                (Expect::Parity, Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                    let reason =
-                        refusal("the resolver selected a file where the child found nothing");
-                    assert!(
-                        !ids.iter()
-                            .any(|(_, at)| reason.contains(&at.display().to_string())
-                                && !reason.contains("is not on")),
-                        "{}",
-                        describe("the resolver refused where the child found nothing")
-                    );
-                    not_found += 1;
-                }
-                (Expect::Parity, Err(error)) => {
-                    // ELOOP on the symlink, EACCES on a direct non-executable
-                    // file: a terminal native error is a refusal by cause,
-                    // and B is never selected in its place.
-                    let reason = refusal("the resolver selected a file where the child stopped");
-                    let b = place_at(Slot::B).display().to_string();
-                    assert!(
-                        !reason.contains(&b) && !resolved.is_ok(),
-                        "{}",
-                        describe("a terminal error authorizes no later candidate")
-                    );
-                    if error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) {
-                        assert!(
-                            reason.contains("a symlink loop stops the lookup"),
-                            "{}",
-                            describe("ELOOP is named")
-                        );
-                    }
-                    if error.kind() == std::io::ErrorKind::PermissionDenied {
-                        assert!(
-                            reason.contains("is not executable by this process"),
-                            "{}",
-                            describe("EACCES is named as the denial it is")
-                        );
-                    }
-                    terminal += 1;
-                }
-                (Expect::Obstruction, native) => {
-                    // Native lookup walks past A to B (a bare name) or
-                    // fails at the spelled file (a direct one); the
-                    // resolver refuses at A by the prerequisite it could
-                    // not establish, and never selects B.
-                    let a = obstructed.clone().unwrap();
-                    match native {
-                        Ok(id) => {
-                            let b = place_at(Slot::B).canonicalize().unwrap();
-                            assert_eq!(
-                                ids.iter()
-                                    .find(|(known, _)| known == id)
-                                    .map(|(_, at)| at.canonicalize().unwrap()),
-                                Some(b),
-                                "{}",
-                                describe("the native child walked past A and ran B")
-                            );
-                        }
-                        Err(error) => {
-                            assert!(direct, "{}", describe("only a direct spelling fails"));
-                            assert_eq!(
-                                error.kind(),
-                                std::io::ErrorKind::NotFound,
-                                "{}",
-                                describe("the missing prerequisite is ENOENT to the child")
-                            );
-                        }
-                    }
-                    // The refusal names the candidate as it was looked
-                    // up: the spelled path for a direct name, `A/<name>`
-                    // for a searched one.
-                    let named = match direct {
-                        true => name.to_string(),
-                        false => a.display().to_string(),
-                    };
-                    let reason = refusal("the resolver admitted the obstructed A");
-                    assert!(
-                        reason.starts_with(&format!("the DSH layout is unreadable: {named}: ")),
-                        "{}",
-                        describe("the refusal names A")
-                    );
-                    assert!(
-                        reason.contains("is missing:")
-                            && (reason.contains("its #! interpreter")
-                                || reason.contains("needs the ELF loader")),
-                        "{}",
-                        describe("the refusal names the prerequisite")
-                    );
-                    exceptions += 1;
-                }
-            }
-            for at in placed {
-                let _ = fs::remove_file(&at);
-            }
-            fs::remove_dir_all(&cell).unwrap();
-        }
-    }
-    eprintln!(
-        "matrix: {} names x {} layouts = {} cells; {equal} equal selections, {not_found} \
-         NotFound parities, {terminal} terminal-error parities, {nul} NUL refusals, \
-         {exceptions} D10 loader exceptions recorded separately",
-        names.len(),
-        layouts.len(),
-        cell_number
-    );
-    assert!(equal > 0 && not_found > 0 && terminal > 0 && nul > 0 && exceptions > 0);
-
-    // The default-search positive AO requires beside the all-negative
-    // absent-PATH cells: `sh` runs with PATH removed, and the resolver
-    // selects the very file it ran, with a same-name cwd decoy present.
-    stage_executable(&cwd, "sh", b"#!/bin/sh\nprintf 'MARK:decoy\\n'\n");
-    let output = Command::new("sh")
-        .args(["-c", "readlink /proc/$$/exe 2>/dev/null || echo unknown"])
+    let install = Synthetic::new();
+    let executable = install.seams.executable.clone();
+    let default = default_search_path().unwrap();
+    let default = default.to_string_lossy().into_owned();
+    let native = Command::new("node")
+        .args(["-p", "process.execPath"])
         .env_remove("PATH")
-        .output()
-        .expect("a native child finds sh with no PATH");
-    let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(output.status.success() && !ran.contains("decoy"));
-    let selected = resolve_executable_in("sh", None).unwrap();
-    assert_ne!(selected, cwd.join("sh").canonicalize().unwrap());
-    if cfg!(target_os = "linux") {
-        assert_eq!(
-            selected,
-            PathBuf::from(&ran),
-            "the resolver's absent-PATH selection is the native default-search identity"
-        );
+        .output();
+    match native {
+        Err(error) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+            assert_eq!(
+                refused(select_in(&executable, None)),
+                format!(
+                    "the DSH layout is unreadable: {executable}: its #! interpreter \
+                     '/usr/bin/env' selects no 'node': the DSH layout is unreadable: 'node' is \
+                     not on the default search path {default} (PATH is absent)"
+                ),
+                "the selection refuses before any probe where native lookup finds no node"
+            );
+            eprintln!(
+                "PENDING: no node on this host's default search path {default}; the absent-PATH \
+                 retained-Node positive and its two removal controls were not established here"
+            );
+        }
+        Ok(output) => {
+            assert!(
+                output.status.success(),
+                "the native default-search node exited {:?}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let ran = Path::new(&ran).canonicalize().unwrap();
+            let selected = select_in(&executable, None).unwrap();
+            assert_eq!(
+                selected.node,
+                Some(ran.clone()),
+                "the retained node is the runtime the native default search ran"
+            );
+            // The composite consumes the retained field and nothing
+            // else: its `node` line is what THAT file answers.
+            let seams = DshSeams {
+                executable: executable.clone(),
+                home: install.seams.home.clone(),
+                node: selected.node.clone(),
+                head: selected.head.clone(),
+            };
+            let composite = dsh_composite(&seams).unwrap();
+            let version = Command::new(&ran).arg("--version").output().unwrap();
+            assert_eq!(
+                composite.node,
+                String::from_utf8_lossy(&version.stdout).trim(),
+                "the composite's node line is the retained runtime's own version"
+            );
+            // A distinct runtime retained in its place is what the
+            // composite then observes: the field is consumed, not
+            // re-derived by a second search.
+            let wrong = stage_executable(
+                install.dir.path(),
+                "wrong-node",
+                b"#!/bin/sh\necho v0.0.0-wrong\n",
+            );
+            let retained_wrong = DshSeams {
+                node: Some(wrong),
+                ..seams.clone()
+            };
+            let observed = dsh_composite(&retained_wrong).unwrap();
+            assert_eq!(observed.node, "v0.0.0-wrong");
+            assert_ne!(observed.canonical, composite.canonical);
+            eprintln!(
+                "absent-PATH retained-Node positive established: {} ({})",
+                ran.display(),
+                composite.node
+            );
+        }
     }
 }
 
@@ -3549,8 +3093,12 @@ fn windows_matrix_child() {
                 Slot::B => cell.join("b"),
                 Slot::Other => cell.join("other"),
                 // Never created, and never a candidate's home: the
-                // component exists in the PATH spelling alone.
-                Slot::Overlong => PathBuf::from("x".repeat(OVERLONG_COMPONENT)),
+                // component exists in the PATH spelling alone. The
+                // Windows table places no candidate under the Unix
+                // matrix's length, file or nonexistent components.
+                Slot::Long(_) => PathBuf::from("x".repeat(OVERLONG_COMPONENT)),
+                Slot::File => cell.join("file-as-dir"),
+                Slot::Nowhere => cell.join("nowhere"),
                 Slot::Target => cwd.clone(),
             };
             for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
@@ -3954,6 +3502,30 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9::\n    resolution: {integrity: sha512-X}\n".to_string(),
             "a package key that is itself a mapping",
         ),
+        // The bodies of the sections this reader does not READ are
+        // still sections the document must have spelled: an
+        // unterminated quote under `snapshots` or `importers` read as
+        // the control before (run `09ec8d81`, R4).
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n\nsnapshots:\n\n  debug@2.6.9:\n    dependencies:\n      ms: '2.0.0\n".to_string(),
+            "a line in section 'snapshots' carrying the entry 'ms' carrying the malformed quoted \
+             scalar ''2.0.0'",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      debug:\n        specifier: \"^2\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n".to_string(),
+            "a line in section 'importers' carrying the entry 'specifier' carrying the malformed \
+             quoted scalar '\"^2'",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n\nsnapshots:\n\n  debug@2.6.9:\n    transitivePeerDependencies:\n      -x\n".to_string(),
+            "a line in section 'snapshots' carrying the line '-x', which is neither a mapping \
+             entry nor a sequence item",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: [true,,false]\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n".to_string(),
+            "a line in section 'settings' carrying the entry 'autoInstallPeers' carrying the \
+             flow collection '[true,,false]' with a missing member at position 2",
+        ),
     ] {
         assert_eq!(
             refused_vector(composite_over_pnpm(&install, &lock), &lock),
@@ -3961,6 +3533,15 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             "{lock:?}"
         );
     }
+    // The bodies a real lock carries — importer specifiers with a
+    // `link:` or `npm:` colon, quoted keys, a sequence of transitive
+    // peers, a nested `peerDependenciesMeta` — are admitted as syntax
+    // and still ignored: the control's own digest.
+    let bodies = "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      debug:\n        specifier: ^2.6.9\n        version: 2.6.9\n      local:\n        specifier: link:../local\n        version: link:../local\n      '@scope/renamed':\n        specifier: npm:debug@^2\n        version: debug@2.6.9\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      '@scope/peer': '>=1'\n      react: '>=16.8.0 || ^17'\n    peerDependenciesMeta:\n      react:\n        optional: true\n\nsnapshots:\n\n  debug@2.6.9:\n    dependencies:\n      ms: 2.0.0\n    transitivePeerDependencies:\n      - supports-color\n      - '@scope/peer'\n";
+    assert_eq!(
+        composite_over_pnpm(&install, bodies).unwrap().canonical,
+        control.canonical
+    );
     // The separated spellings of each, plain and quoted, and a
     // colon-without-space URL value remain readable and reach the
     // control's identity where their identity bytes are the control's.
@@ -4101,20 +3682,155 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
         ),
         (
             "engines: {node:'>=1'}",
-            "a package child 'engines' carrying the malformed flow member 'node:'>=1''",
+            "a package child 'engines' carrying the flow map '{node:'>=1'}' with the member \
+             'node:'>=1'', which is not a `key: value` entry",
         ),
         (
             "engines: {node: }",
-            "a package child 'engines' carrying the malformed flow member 'node:'",
+            "a package child 'engines' carrying the flow map '{node: }' with the member \
+             'node:', which is not a `key: value` entry",
         ),
         (
             "engines: {node: a: b}",
             "a package child 'engines' carrying the malformed flow member 'node: a: b'",
         ),
-        // The KEY half of a flow member is a scalar in its own right.
+        // The KEY half of a flow member is a scalar in its own right: an
+        // unterminated quote swallows the separator, so no entry remains.
         (
             "engines: {'oops: 1}",
-            "a package child 'engines' carrying the malformed flow member ''oops: 1'",
+            "a package child 'engines' carrying the flow map '{'oops: 1}' with the member \
+             ''oops: 1', which is not a `key: value` entry",
+        ),
+        // A MISSING member is a member the document did not spell:
+        // leading, interior, and a comma-only body each refuse by
+        // position, where every empty field was dropped before (run
+        // `09ec8d81`, R4). `[]`, `{}` and one trailing comma remain the
+        // forms YAML admits, asserted among the readable controls.
+        (
+            "cpu: [,x64]",
+            "a package child 'cpu' carrying the flow collection '[,x64]' with a missing member \
+             at position 1",
+        ),
+        (
+            "cpu: [x64,,arm64]",
+            "a package child 'cpu' carrying the flow collection '[x64,,arm64]' with a missing \
+             member at position 2",
+        ),
+        (
+            "cpu: [x64,,]",
+            "a package child 'cpu' carrying the flow collection '[x64,,]' with a missing member \
+             at position 2",
+        ),
+        (
+            "engines: {,node: 22}",
+            "a package child 'engines' carrying the flow collection '{,node: 22}' with a missing \
+             member at position 1",
+        ),
+        (
+            "engines: {node: 18,,npm: 9}",
+            "a package child 'engines' carrying the flow collection '{node: 18,,npm: 9}' with a \
+             missing member at position 2",
+        ),
+        (
+            "engines: {,}",
+            "a package child 'engines' carrying the flow collection '{,}' with a missing member \
+             at position 1",
+        ),
+        // A mapping's member is `key: value` and a sequence's is a
+        // scalar; the other way round is a structure this grammar does
+        // not read.
+        (
+            "engines: {node}",
+            "a package child 'engines' carrying the flow map '{node}' with the member 'node', \
+             which is not a `key: value` entry",
+        ),
+        (
+            "cpu: [a: b]",
+            "a package child 'cpu' carrying the flow sequence '[a: b]' with the member 'a: b', \
+             which is a mapping and not a scalar",
+        ),
+        // The lines UNDER a block-form child were skipped whole, so an
+        // unterminated quote in a `peerDependencies` body read as the
+        // control. Each line is a mapping entry or a sequence item, its
+        // key a scalar and its value admitted as every ignored value is.
+        (
+            "peerDependencies:\n      '@scope/peer': '>=1",
+            "a line under the package child 'peerDependencies' carrying the entry '@scope/peer' \
+             carrying the malformed quoted scalar ''>=1'",
+        ),
+        (
+            "peerDependencies:\n      'oops: '>=1'",
+            "a line under the package child 'peerDependencies' carrying the line ''oops: '>=1'', \
+             which is not a mapping entry",
+        ),
+        (
+            "peerDependencies:\n      - '@scope/peer",
+            "a line under the package child 'peerDependencies' carrying the sequence item \
+             carrying the malformed quoted scalar ''@scope/peer'",
+        ),
+        (
+            "peerDependencies:\n      -",
+            "a line under the package child 'peerDependencies' carrying the sequence item '-' \
+             with no value",
+        ),
+        (
+            "peerDependencies:\n      -   ",
+            "a line under the package child 'peerDependencies' carrying the sequence item '-' \
+             with no value",
+        ),
+        (
+            "peerDependencies:\n      -x",
+            "a line under the package child 'peerDependencies' carrying the line '-x', which is \
+             neither a mapping entry nor a sequence item",
+        ),
+        (
+            "peerDependencies:\n      bare",
+            "a line under the package child 'peerDependencies' carrying the line 'bare', which \
+             is not a mapping entry",
+        ),
+        (
+            "peerDependencies:\n      'a' b: c",
+            "a line under the package child 'peerDependencies' carrying the line ''a' b: c', \
+             which is not a mapping entry",
+        ),
+        // `react:16` is one plain scalar in YAML, not an entry; a quoted
+        // key ends where its quote ends, so `'react':16` is an entry
+        // whose separator is missing.
+        (
+            "peerDependencies:\n      react:16",
+            "a line under the package child 'peerDependencies' carrying the line 'react:16', \
+             which is not a mapping entry",
+        ),
+        (
+            "peerDependencies:\n      'react':16",
+            "a line under the package child 'peerDependencies' carrying the entry 'react' lacks \
+             ': ' separation",
+        ),
+        (
+            "peerDependencies:\n      : x",
+            "a line under the package child 'peerDependencies' carrying the malformed key ''",
+        ),
+        // A quoted key that never closes is read as the plain line it
+        // is, and its key half is the unterminated quote.
+        (
+            "peerDependencies:\n      'oops: 1",
+            "a line under the package child 'peerDependencies' carrying the malformed key ''oops'",
+        ),
+        // A flow map entry whose KEY is malformed after a closed quote.
+        (
+            "engines: {'a'b: 1}",
+            "a package child 'engines' carrying the malformed flow member ''a'b: 1'",
+        ),
+        (
+            "peerDependencies:\n      '@a': *ref",
+            "a line under the package child 'peerDependencies' carrying the entry '@a' carrying \
+             the value '*ref', which opens YAML syntax this grammar does not read",
+        ),
+        (
+            "peerDependenciesMeta:\n      react:\n        optional: {a: [b]}",
+            "a line under the package child 'peerDependenciesMeta' carrying the entry \
+             'optional' carrying the nested flow collection '{a: [b]}', which this grammar does \
+             not read",
         ),
         (
             "deprecated: *anchor",
@@ -4150,8 +3866,13 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
     for child in [
         "engines: {node: '>=18.12', npm: \"9\"}",
         "engines: {}",
+        "engines: {'k: x': v}",
         "cpu: [x64, arm64]",
+        "cpu: [x64,]",
+        "cpu: [x64, ]",
         "os: [darwin]",
+        "os: ['a: b']",
+        "os: [\"a: b\"]",
         "libc: []",
         "hasBin: true",
         "bundledDependencies: false",
@@ -4624,8 +4345,8 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     // outcome — AS1's corrected cell (2026-09-20 spec defect, F3).
     std::os::unix::fs::symlink("dsh", a.join("dsh")).unwrap();
     let eloop = fs::metadata(a.join("dsh")).unwrap_err();
-    assert!(is_symlink_loop(&eloop), "{eloop}");
-    let loop_stops = cfg!(any(target_os = "linux", target_os = "android"));
+    assert_eq!(errno_of(&eloop), Some(rustix::io::Errno::LOOP), "{eloop}");
+    let loop_stops = matches!(LIBRARY, Library::Glibc | Library::Musl);
     match loop_stops {
         true => assert_eq!(
             refused(resolve_executable_in("dsh", path(&a))),
@@ -5016,7 +4737,11 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     let notdir = dir.path().join("file-as-dir");
     fs::write(&notdir, b"x").unwrap();
     let enotdir = fs::metadata(notdir.join("dsh")).unwrap_err();
-    assert!(is_not_a_directory(&enotdir), "{enotdir}");
+    assert_eq!(
+        errno_of(&enotdir),
+        Some(rustix::io::Errno::NOTDIR),
+        "{enotdir}"
+    );
     let native = std::process::Command::new("dsh")
         .env("PATH", path(&notdir).unwrap())
         .output()
@@ -5037,51 +4762,152 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
             notdir.join("dsh").display()
         )
     );
-    // A candidate whose path is TOO LONG is walked past too, by both
-    // searches: glibc skips a `PATH` component longer than the buffer it
-    // sized for the whole variable, before any `execve`, and Apple's
-    // `execvP` warns on the oversized candidate and continues. The
-    // commissioned reproduction is 5,000 ASCII `x` bytes ahead of a
-    // runnable B, where this resolver refused an ordinary positive
-    // (review 2026-09-20, F1). The native child is the oracle.
-    let overlong = "x".repeat(5000);
-    let enametoolong = fs::metadata(Path::new(&overlong).join("dsh")).unwrap_err();
-    assert!(is_name_too_long(&enametoolong), "{enametoolong}");
-    let overlong_first = OsString::from(format!("{overlong}:{}", b.display()));
-    let native = std::process::Command::new("dsh")
-        .env("PATH", &overlong_first)
-        .output()
-        .expect("the native child walks past the overlong component to B");
-    assert!(native.status.success(), "{native:?}");
-    assert_eq!(
-        resolve_executable_in("dsh", Some(overlong_first)).unwrap(),
-        real.canonicalize().unwrap(),
-        "the resolver walks past ENAMETOOLONG to B as the child did"
-    );
-    // Removing ONLY the overlong component is the positive control: the
-    // same B, from a search with nothing to walk past.
-    assert_eq!(
-        resolve_executable_in("dsh", Some(OsString::from(b.display().to_string()))).unwrap(),
-        real.canonicalize().unwrap()
-    );
-    // A NAME so long that every candidate is overlong is a native
-    // no-match, not a stop: the search walks past every entry and
-    // answers as `execvp` answers with nothing admitted.
-    assert_eq!(
-        refused(resolve_executable_in(&overlong, path(&a))),
-        format!("the DSH layout is unreadable: '{overlong}' is not on PATH")
-    );
-    // As an explicit path the same cause IS the refusal, because an
-    // override has nowhere to walk to.
+    // A `PATH` component too long for any candidate under it. What the
+    // search does is the library's own arithmetic, not a metadata
+    // errno: glibc skips a component of `path_len` bytes or more
+    // BEFORE `execve` (`posix/execvpe.c` 112–119), so 4096 and 5000
+    // walk on to B; a shorter one is attempted, the kernel answers
+    // ENAMETOOLONG, and that errno is not in the switch that continues
+    // (136–158), so 256, 300 and 4095 STOP — where this resolver walked
+    // past every ENAMETOOLONG and authorized an execution native lookup
+    // rejects (run `09ec8d81`, R1, HIGH). The native child is the oracle
+    // at every one of the six boundaries; the built-doctor regression is
+    // `terminal_path_lengths_refuse_before_doctor_probe`.
+    let b_only = OsString::from(b.display().to_string());
+    for bytes in [255usize, 256, 300, 4095, 4096, 5000] {
+        let component = "x".repeat(bytes);
+        let first = OsString::from(format!("{component}:{}", b.display()));
+        let native = std::process::Command::new("dsh")
+            .env("PATH", &first)
+            .stdout(std::process::Stdio::null())
+            .status();
+        let resolved = resolve_executable_in("dsh", Some(first));
+        // Removing ONLY the component is the positive control, with its
+        // own native oracle: the same B, from a search with nothing
+        // ahead of it.
+        assert!(std::process::Command::new("dsh")
+            .env("PATH", &b_only)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+        assert_eq!(
+            resolve_executable_in("dsh", Some(b_only.clone())).unwrap(),
+            real.canonicalize().unwrap(),
+            "{bytes}: the removed-component control selects B"
+        );
+        match LIBRARY {
+            Library::Glibc => match bytes {
+                255 | 4096 | 5000 => {
+                    assert!(
+                        native.unwrap().success(),
+                        "{bytes}: the native child walks on to B"
+                    );
+                    assert_eq!(
+                        resolved.unwrap(),
+                        real.canonicalize().unwrap(),
+                        "{bytes}: the resolver selects B as the child did"
+                    );
+                }
+                _ => {
+                    let error = native.unwrap_err();
+                    assert_eq!(
+                        errno_of(&error),
+                        Some(rustix::io::Errno::NAMETOOLONG),
+                        "{bytes}: the native search stops with ENAMETOOLONG: {error}"
+                    );
+                    let enametoolong = fs::metadata(Path::new(&component).join("dsh")).unwrap_err();
+                    assert_eq!(
+                        refused(resolved),
+                        format!(
+                            "the DSH layout is unreadable: {}: metadata answers {enametoolong}, \
+                             on which the platform's lookup stops",
+                            Path::new(&component).join("dsh").display()
+                        ),
+                        "{bytes}: the resolver stops by the same cause and never selects B"
+                    );
+                }
+            },
+            // Another library's boundaries are its own; the matrix
+            // asserts them against that platform's native child, and
+            // this table is recorded here rather than asserted from
+            // glibc's numbers.
+            _ => eprintln!(
+                "{bytes}-byte component on {}: native {native:?}, resolver {resolved:?}",
+                std::env::consts::OS
+            ),
+        }
+    }
+    // The skip is a SKIP and not a stop: iteration continues past a
+    // 4096-byte component to a later entry, and the whole-PATH sizing
+    // is glibc's `strnlen(path, PATH_MAX - 1) + 1`.
+    assert_eq!(glibc_path_len(10), 11);
+    assert_eq!(glibc_path_len(4095), 4096);
+    assert_eq!(glibc_path_len(4096), 4096);
+    assert_eq!(glibc_path_len(50_000), 4096);
+    // A NAME longer than NAME_MAX is refused by glibc with ENAMETOOLONG
+    // BEFORE any entry is searched (`posix/execvpe.c` 92–106): the
+    // native oracle answers errno 36 with nothing executed, and the
+    // resolver refuses by that cause — never the ordinary no-match the
+    // inherited assertion expected (run `09ec8d81`, R1).
+    let overlong = "x".repeat(300);
+    let native = std::process::Command::new(&overlong)
+        .env("PATH", path(&a).unwrap())
+        .status();
+    let resolved = resolve_executable_in(&overlong, path(&a));
+    // As an explicit path the kernel's own ENAMETOOLONG is the cause,
+    // because an override has nowhere to walk to.
     let spelled = a.join(&overlong);
+    let native_spelled = std::process::Command::new(&spelled).status();
+    let resolved_spelled = resolve_executable_in(spelled.to_str().unwrap(), None);
+    match LIBRARY {
+        Library::Glibc => {
+            assert_eq!(
+                errno_of(&native.unwrap_err()),
+                Some(rustix::io::Errno::NAMETOOLONG)
+            );
+            assert_eq!(
+                refused(resolved),
+                format!(
+                    "the DSH layout is unreadable: '{overlong}' is 300 bytes long, more than \
+                     the 255 bytes NAME_MAX allows a searched name, which the platform's lookup \
+                     refuses with ENAMETOOLONG before searching"
+                )
+            );
+            assert_eq!(
+                errno_of(&native_spelled.unwrap_err()),
+                Some(rustix::io::Errno::NAMETOOLONG)
+            );
+            assert_eq!(
+                refused(resolved_spelled),
+                format!(
+                    "the DSH layout is unreadable: {}: metadata answers {}, on which the \
+                     platform's lookup stops",
+                    spelled.display(),
+                    fs::metadata(&spelled).unwrap_err()
+                )
+            );
+        }
+        _ => eprintln!(
+            "overlong name on {}: native {native:?} / {native_spelled:?}, resolver {resolved:?} \
+             / {resolved_spelled:?}",
+            std::env::consts::OS
+        ),
+    }
+    // The valid-length control: a 255-byte name that exists runs
+    // natively and is selected.
+    let valid = "v".repeat(255);
+    let planted = stage_executable(&a, &valid, b"#!/bin/sh\ntrue\n");
+    assert!(std::process::Command::new(&valid)
+        .env("PATH", path(&a).unwrap())
+        .status()
+        .unwrap()
+        .success());
     assert_eq!(
-        refused(resolve_executable_in(spelled.to_str().unwrap(), None)),
-        format!(
-            "the DSH layout is unreadable: {}: {}",
-            spelled.display(),
-            fs::metadata(&spelled).unwrap_err()
-        )
+        resolve_executable_in(&valid, path(&a)).unwrap(),
+        planted.canonicalize().unwrap()
     );
+    fs::remove_file(&planted).unwrap();
 
     // A lookup failure the resolver cannot prove a child would walk past
     // is still a refusal by cause. A `PATH` entry carrying a NUL is one:
@@ -5192,6 +5018,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
 #[cfg(target_os = "linux")]
 #[test]
 fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
+    use std::os::unix::fs::PermissionsExt;
     use std::process::{Command, Stdio};
 
     let dir = tempfile::tempdir().unwrap();
@@ -5275,60 +5102,64 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         )
     );
 
-    // The `env` an interpreter IS, under another name (review
-    // 2026-09-20, F4, security). `env-alias` and `env` are two spellings
-    // of ONE binary; recognition by the spelled basename let the alias
-    // carry the measured form past D10's refusal, so a launcher whose
-    // `node` was missing was admitted and the doctor that followed ran
-    // it. Spelling is not the evidence; the file is.
+    // The `env` an interpreter IS, asked of the FILE and never of a name
+    // (review 2026-09-20, F4; run `09ec8d81`, R3, security). Recognition
+    // by the spelled basename let `env-alias` carry the measured form
+    // past D10's refusal; recognition by the canonical basename was
+    // still recognition by name, and a COPY of `env` hard-linked as
+    // `tools/uu_env` — the same bytes, no `env` name anywhere — walked
+    // past it too. The spellings, each with its own native control:
+    //
+    // - `/usr/bin/env` itself, a symlink NAMED `env` elsewhere and a
+    //   byte-for-byte copy named `env`: the platform's env, invoked
+    //   under the name `env` — the established invocation, followed
+    //   into the `node` chain;
+    // - the `env-alias` symlink and the `uu_env` hard link of the copy:
+    //   the same file under another NAME, whose dispatch the resolver
+    //   cannot establish without executing it — refused, never admitted;
+    // - an impostor named `env`: another file under the utility's
+    //   name — refused, never admitted.
     let tools = dir.path().join("tools");
     fs::create_dir_all(&tools).unwrap();
-    let env_binary = ["/usr/bin/env", "/bin/env"]
-        .into_iter()
-        .map(PathBuf::from)
-        .find(|candidate| candidate.is_file())
-        .expect("this host has an env binary");
+    let env_binary = PathBuf::from(ENV_REFERENCE);
+    assert!(env_binary.is_file(), "this host has {ENV_REFERENCE}");
     let alias = tools.join("env-alias");
     std::os::unix::fs::symlink(&env_binary, &alias).unwrap();
-    assert_eq!(
-        alias.canonicalize().unwrap(),
-        env_binary.canonicalize().unwrap(),
-        "the alias and `env` are one file under two names"
-    );
+    let linked = dir.path().join("linked");
+    fs::create_dir_all(&linked).unwrap();
+    let linked_env = linked.join("env");
+    std::os::unix::fs::symlink(&env_binary, &linked_env).unwrap();
+    let copied_env = tools.join("env");
+    fs::copy(&env_binary, &copied_env).unwrap();
+    fs::set_permissions(&copied_env, fs::Permissions::from_mode(0o755)).unwrap();
+    let uu_env = tools.join("uu_env");
+    fs::hard_link(&copied_env, &uu_env).unwrap();
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (copy, link, system) = (
+            fs::metadata(&copied_env).unwrap(),
+            fs::metadata(&uu_env).unwrap(),
+            fs::metadata(&env_binary).unwrap(),
+        );
+        assert_eq!(
+            (copy.dev(), copy.ino()),
+            (link.dev(), link.ino()),
+            "the copy and its hard link are one file"
+        );
+        assert_ne!(
+            (copy.dev(), copy.ino()),
+            (system.dev(), system.ino()),
+            "the copy is not the system file: only its bytes say what it is"
+        );
+        assert_eq!(copy.len(), system.len());
+    }
+    let impostor_dir = dir.path().join("impostor");
+    fs::create_dir_all(&impostor_dir).unwrap();
+    let impostor = stage_executable(&impostor_dir, "env", b"#!/bin/sh\nexec \"$@\"\n");
     stage_executable(&a, "node", format!("#!{}\n", missing.display()).as_bytes());
     stage_executable(&b, "node", b"#!/bin/sh\nprintf 'MARK:b-node\\n'\n");
-    stage_executable(
-        &a,
-        "dsh",
-        format!("#!{} node\n", alias.display()).as_bytes(),
-    );
     let path = Some(OsString::from(format!("{}:{}", a.display(), b.display())));
-    // The independent native control: reaching this line at all is the
-    // proof that native lookup SELECTED `A/dsh` and the kernel loaded it
-    // through the alias — nothing was walked past — and where the
-    // platform's own `env` went on to run a program it ran B's, never
-    // A's obstructed copy. An `env` that declines to answer to another
-    // name stops there instead; that is the platform's fact, recorded
-    // rather than asserted away, and it does not weaken the refusal
-    // below.
-    let native = spawn_retrying_etxtbsy(
-        Command::new("dsh")
-            .env("PATH", path.as_ref().unwrap())
-            .stdin(Stdio::null()),
-    );
-    let said = String::from_utf8_lossy(&native.stdout).trim().to_string();
-    assert!(
-        said.is_empty() || said == "MARK:b-node",
-        "the native child ran nothing of A's: {said:?}"
-    );
-    eprintln!(
-        "F4 native control under `env-alias`: status {:?}, stdout {said:?}, stderr {:?}",
-        native.status,
-        String::from_utf8_lossy(&native.stderr).trim()
-    );
-    // The resolver refuses at A's obstructed `node` under BOTH
-    // spellings, by the same cause, before anything is probed.
-    let refusal = |interpreter: &Path| {
+    let obstruction = |interpreter: &Path| {
         format!(
             "the DSH layout is unreadable: {}: its #! interpreter '{}' selects no 'node': the \
              DSH layout is unreadable: {}: its #! interpreter '{}' is missing: {enoent}",
@@ -5338,29 +5169,105 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             missing.display()
         )
     };
-    assert_eq!(
-        refused(resolve_executable_in("dsh", path.clone())),
-        refusal(&alias),
-        "the alias spelling does not bypass D10"
-    );
-    stage_executable(
-        &a,
-        "dsh",
-        format!("#!{} node\n", env_binary.display()).as_bytes(),
-    );
-    assert_eq!(
-        refused(resolve_executable_in("dsh", path.clone())),
-        refusal(&env_binary)
-    );
-    // The valid-chain positive: with A's `node` gone, either spelling
-    // selects B's and RETAINS it as the runtime.
-    fs::remove_file(a.join("node")).unwrap();
-    for interpreter in [&alias, &env_binary] {
+    let unsupported = |interpreter: &Path| {
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '{}' is the platform's env \
+             utility invoked under the name '{}', a dispatch this resolver does not establish \
+             without executing it",
+            a.join("dsh").display(),
+            interpreter.display(),
+            interpreter.file_name().unwrap().to_str().unwrap()
+        )
+    };
+    // The independent native control for every spelling: reaching a
+    // program at all is the proof that native lookup SELECTED `A/dsh`
+    // and the kernel loaded it through that spelling — nothing was
+    // walked past — and where the platform's own `env` went on to run a
+    // program it ran B's, never A's obstructed copy. An `env` that
+    // declines to answer to another name stops there instead; that is
+    // the platform's fact, recorded rather than asserted away, and it
+    // does not weaken the refusal beside it.
+    let native_control = |interpreter: &Path, what: &str| -> String {
+        let native = spawn_retrying_etxtbsy(
+            Command::new("dsh")
+                .env("PATH", path.as_ref().unwrap())
+                .stdin(Stdio::null()),
+        );
+        let said = String::from_utf8_lossy(&native.stdout).trim().to_string();
+        assert!(
+            said.is_empty() || said == "MARK:b-node",
+            "{what}: the native child ran nothing of A's: {said:?}"
+        );
+        eprintln!(
+            "R3 native control under {:?} ({what}): status {:?}, stdout {said:?}, stderr {:?}",
+            interpreter.file_name().unwrap(),
+            native.status,
+            String::from_utf8_lossy(&native.stderr).trim()
+        );
+        said
+    };
+    // The chief's copied-and-hard-linked spelling first: it is the one
+    // name recognition of either kind admits, and the assertion that
+    // fails under that removal names it.
+    for (interpreter, established) in [
+        (&uu_env, false),
+        (&alias, false),
+        (&env_binary, true),
+        (&linked_env, true),
+        (&copied_env, true),
+    ] {
         stage_executable(
             &a,
             "dsh",
             format!("#!{} node\n", interpreter.display()).as_bytes(),
         );
+        native_control(interpreter, "obstructed A/node");
+        // The resolver refuses BEFORE anything is probed, under every
+        // spelling: at A's obstructed `node` where the invocation is
+        // established, and at the invocation itself where it is not.
+        let expected = match established {
+            true => obstruction(interpreter),
+            false => unsupported(interpreter),
+        };
+        assert_eq!(
+            refused(resolve_executable_in("dsh", path.clone())),
+            expected,
+            "{}: no spelling bypasses D10",
+            interpreter.display()
+        );
+    }
+    // The impostor: a file named `env` that is not the platform's env is
+    // refused as such, whatever it would go on to do.
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", impostor.display()).as_bytes(),
+    );
+    native_control(&impostor, "impostor, obstructed A/node");
+    let impostor_refusal = format!(
+        "the DSH layout is unreadable: {}: its #! interpreter '{}' is named env but is not the \
+         platform's env utility '{ENV_REFERENCE}'",
+        a.join("dsh").display(),
+        impostor.display()
+    );
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path.clone())),
+        impostor_refusal
+    );
+    // The valid-chain positives: with A's `node` gone, every established
+    // spelling selects B's `node` and RETAINS it as the runtime, with a
+    // fresh native control each. An unestablished spelling and the
+    // impostor are still refused — the chain being whole does not
+    // establish a dispatch — and their native outcome is recorded.
+    fs::remove_file(a.join("node")).unwrap();
+    for interpreter in [&env_binary, &linked_env, &copied_env] {
+        stage_executable(
+            &a,
+            "dsh",
+            format!("#!{} node\n", interpreter.display()).as_bytes(),
+        );
+        let said = native_control(interpreter, "valid chain");
+        assert_eq!(said, "MARK:b-node", "{}", interpreter.display());
         let selected = select_in("dsh", path.clone()).unwrap();
         assert_eq!(selected.path, a.join("dsh").canonicalize().unwrap());
         assert_eq!(
@@ -5370,9 +5277,30 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             interpreter.display()
         );
     }
-    // And a file that is no `env` under any name is not one: the
-    // recognition is the utility's own name on the file, not any
-    // interpreter that happens to take an argument.
+    for interpreter in [&alias, &uu_env] {
+        stage_executable(
+            &a,
+            "dsh",
+            format!("#!{} node\n", interpreter.display()).as_bytes(),
+        );
+        native_control(interpreter, "valid chain, unestablished invocation");
+        assert_eq!(
+            refused(resolve_executable_in("dsh", path.clone())),
+            unsupported(interpreter)
+        );
+    }
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", impostor.display()).as_bytes(),
+    );
+    native_control(&impostor, "impostor, valid chain");
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path.clone())),
+        impostor_refusal
+    );
+    // And a file that is no `env` under any name, and is not named
+    // `env`, is an ordinary interpreter: admitted, establishing no node.
     let other = stage_executable(&tools, "runner", b"#!/bin/sh\nexec \"$@\"\n");
     stage_executable(
         &a,
@@ -5380,6 +5308,437 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         format!("#!{} node\n", other.display()).as_bytes(),
     );
     assert_eq!(select_in("dsh", path).unwrap().node, None);
+}
+
+/// `env` identity is a fact about FILES: device and inode against the
+/// reference, or equal length and equal bytes for a copy, compared on
+/// the file that is open and checked to be the file that was inspected.
+/// Every arm is a plain test with an injected reference (design D10,
+/// third hold, R3).
+#[cfg(unix)]
+#[test]
+fn env_identity_is_the_file_and_never_a_name() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let reference = dir.path().join("reference-env");
+    fs::write(&reference, b"#!/bin/sh\necho reference\n").unwrap();
+    let inspected = |path: &Path| fs::metadata(path).unwrap();
+
+    // The reference itself, and a symlink to it: one device and inode.
+    assert_eq!(
+        is_env(&reference, &inspected(&reference), &reference),
+        Ok(true)
+    );
+    let symlink = dir.path().join("env");
+    std::os::unix::fs::symlink(&reference, &symlink).unwrap();
+    assert_eq!(is_env(&symlink, &inspected(&symlink), &reference), Ok(true));
+    // A copy: another inode, the same length, the same bytes.
+    let copy = dir.path().join("copy");
+    fs::copy(&reference, &copy).unwrap();
+    assert_eq!(is_env(&copy, &inspected(&copy), &reference), Ok(true));
+    // Another length is another file, with no bytes read.
+    let shorter = dir.path().join("shorter");
+    fs::write(&shorter, b"#!/bin/sh\n").unwrap();
+    assert_eq!(
+        is_env(&shorter, &inspected(&shorter), &reference),
+        Ok(false)
+    );
+    // The same length and different bytes is another file.
+    let same_length = dir.path().join("same-length");
+    fs::write(&same_length, b"#!/bin/sh\necho REFERENCE\n").unwrap();
+    assert_eq!(
+        is_env(&same_length, &inspected(&same_length), &reference),
+        Ok(false)
+    );
+    // A reference that cannot be inspected establishes nothing.
+    let absent = dir.path().join("absent-env");
+    let enoent = fs::metadata(&absent).unwrap_err();
+    assert_eq!(
+        is_env(&copy, &inspected(&copy), &absent),
+        Err(format!(
+            "cannot be compared with the platform's env '{}', which cannot be inspected: {enoent}",
+            absent.display()
+        ))
+    );
+    // A candidate that cannot be opened for comparison is a refusal,
+    // not a guess: the metadata is a same-length file's, the path is
+    // nothing.
+    let gone = dir.path().join("gone");
+    let enoent = fs::File::open(&gone).unwrap_err();
+    assert_eq!(
+        is_env(&gone, &inspected(&copy), &reference),
+        Err(format!("cannot be read: {enoent}"))
+    );
+    // The file that is open must be the file that was inspected.
+    assert_eq!(
+        is_env(&same_length, &inspected(&copy), &reference),
+        Err("changed between its inspection and its reading".to_string())
+    );
+    // A reference that can be inspected but not read, where this
+    // process is not privileged.
+    let sealed = dir.path().join("sealed-env");
+    fs::copy(&reference, &sealed).unwrap();
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = is_env(&copy, &inspected(&copy), &sealed);
+    match fs::File::open(&sealed) {
+        Ok(_) => assert_eq!(result, Ok(true), "a privileged process reads anything"),
+        Err(eacces) => assert_eq!(
+            result,
+            Err(format!(
+                "cannot be compared with the platform's env '{}', which cannot be read: {eacces}",
+                sealed.display()
+            ))
+        ),
+    }
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o644)).unwrap();
+
+    // The comparison itself: equal, unequal, and each side ending early.
+    let bytes = vec![7u8; 20_000];
+    let mut other = bytes.clone();
+    other[19_999] = 8;
+    assert_eq!(
+        same_bytes(&mut &bytes[..], &mut &bytes[..], 20_000),
+        Ok(true)
+    );
+    assert_eq!(
+        same_bytes(&mut &bytes[..], &mut &other[..], 20_000),
+        Ok(false)
+    );
+    assert_eq!(same_bytes(&mut &bytes[..], &mut &bytes[..], 0), Ok(true));
+    let short: &[u8] = &bytes[..100];
+    assert_eq!(
+        same_bytes(&mut &short[..], &mut &bytes[..], 20_000),
+        Err("cannot be read whole: failed to fill whole buffer".to_string())
+    );
+    assert_eq!(
+        same_bytes(&mut &bytes[..], &mut &short[..], 20_000),
+        Err("cannot be compared whole: failed to fill whole buffer".to_string())
+    );
+
+    // Through the search: a reference the search cannot inspect makes
+    // every `env` interpreter a refusal by that cause, before any
+    // probe, rather than an `Ok(None)` admission.
+    let a = dir.path().join("a");
+    fs::create_dir_all(&a).unwrap();
+    stage_executable(&a, "dsh", b"#!/usr/bin/env node\n");
+    let search = Search {
+        entries: OsString::from(a.display().to_string()),
+        default: false,
+        library: LIBRARY,
+        env_reference: absent.clone(),
+    };
+    let enoent = fs::metadata(&absent).unwrap_err();
+    assert_eq!(
+        refused(lookup_in("dsh", &search, &mut Vec::new())),
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' cannot be \
+             compared with the platform's env '{}', which cannot be inspected: {enoent}",
+            a.join("dsh").display(),
+            absent.display()
+        )
+    );
+}
+
+/// The lookup rule is each library's own switch, arm by arm, with its
+/// source cited on the arm — and never one library's switch applied to
+/// another (run `09ec8d81`, R1/R2). These are table checks of the
+/// translated source, supplemental to the native matrix and not native
+/// evidence for any platform this suite does not run on.
+#[cfg(unix)]
+#[test]
+fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
+    use rustix::io::Errno;
+
+    // glibc `posix/execvpe.c` 136–158: the literal continue-set, EACCES
+    // remembered, and everything else terminal — ENAMETOOLONG, ELOOP,
+    // EIO, EINVAL, ENOEXEC, ETXTBSY, EPERM included.
+    assert_eq!(
+        step(Library::Glibc, Errno::ACCESS),
+        Ok(Step::Continue { denied: true })
+    );
+    for errno in [
+        Errno::NOENT,
+        Errno::STALE,
+        Errno::NOTDIR,
+        Errno::NODEV,
+        Errno::TIMEDOUT,
+    ] {
+        assert_eq!(
+            step(Library::Glibc, errno),
+            Ok(Step::Continue { denied: false }),
+            "{errno}"
+        );
+    }
+    for errno in [
+        Errno::NAMETOOLONG,
+        Errno::LOOP,
+        Errno::IO,
+        Errno::INVAL,
+        Errno::NOEXEC,
+        Errno::TXTBSY,
+        Errno::PERM,
+        Errno::NOMEM,
+    ] {
+        assert_eq!(step(Library::Glibc, errno), Ok(Step::Stop), "{errno}");
+    }
+    // musl `src/process/execvp.c`: EACCES remembered, ENOENT and
+    // ENOTDIR continue, and nothing else — not even ESTALE.
+    assert_eq!(
+        step(Library::Musl, Errno::ACCESS),
+        Ok(Step::Continue { denied: true })
+    );
+    for errno in [Errno::NOENT, Errno::NOTDIR] {
+        assert_eq!(
+            step(Library::Musl, errno),
+            Ok(Step::Continue { denied: false }),
+            "{errno}"
+        );
+    }
+    for errno in [Errno::STALE, Errno::NAMETOOLONG, Errno::LOOP, Errno::IO] {
+        assert_eq!(step(Library::Musl, errno), Ok(Step::Stop), "{errno}");
+    }
+    // Apple `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
+    // continue, EACCES is remembered, and an arm this seat did not pin
+    // is a limitation rather than either guess.
+    assert_eq!(
+        step(Library::Apple, Errno::ACCESS),
+        Ok(Step::Continue { denied: true })
+    );
+    for errno in [Errno::LOOP, Errno::NAMETOOLONG, Errno::NOENT, Errno::NOTDIR] {
+        assert_eq!(
+            step(Library::Apple, errno),
+            Ok(Step::Continue { denied: false }),
+            "{errno}"
+        );
+    }
+    for errno in [Errno::IO, Errno::INVAL, Errno::STALE] {
+        assert_eq!(
+            step(Library::Apple, errno),
+            Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
+            "{errno}"
+        );
+    }
+    assert_eq!(
+        step(Library::Unestablished, Errno::NOENT),
+        Err("this target's native program lookup rule is not established")
+    );
+
+    // Construction, BEFORE any attempt: glibc and musl skip a component
+    // of `path_len` bytes or more (`posix/execvpe.c` 112–119), sized
+    // from the whole PATH; Apple stops when directory + name + 2 exceed
+    // its 1024-byte buffer, an empty entry counting as `.`; an
+    // unestablished library never constructs.
+    for library in [Library::Glibc, Library::Musl] {
+        assert_eq!(construction(library, 5010, 5000, 3), Construction::Skip);
+        assert_eq!(construction(library, 4100, 4096, 3), Construction::Skip);
+        assert_eq!(construction(library, 4100, 4095, 3), Construction::Try);
+        assert_eq!(construction(library, 4100, 300, 3), Construction::Try);
+        // A whole PATH shorter than PATH_MAX is never skipped from.
+        assert_eq!(construction(library, 100, 100, 3), Construction::Try);
+        assert_eq!(construction(library, 100, 0, 3), Construction::Try);
+    }
+    assert_eq!(
+        construction(Library::Apple, 5010, 5000, 3),
+        Construction::Stop
+    );
+    // `lp + ln + 2 > 1024`: a directory of 1,019 bytes with a 3-byte
+    // name fills the buffer exactly and is attempted; one byte more is
+    // not.
+    assert_eq!(
+        construction(Library::Apple, 1030, 1020, 3),
+        Construction::Stop
+    );
+    assert_eq!(
+        construction(Library::Apple, 1030, 1019, 3),
+        Construction::Try
+    );
+    assert_eq!(
+        construction(Library::Apple, 1030, 0, 1021),
+        Construction::Try
+    );
+    assert_eq!(
+        construction(Library::Apple, 1030, 0, 1022),
+        Construction::Stop
+    );
+    assert_eq!(
+        construction(Library::Unestablished, 10, 3, 3),
+        Construction::Stop
+    );
+
+    // The name, before any search: glibc and musl refuse more than
+    // NAME_MAX with ENAMETOOLONG (`posix/execvpe.c` 92–106); Apple has
+    // no such check; an unestablished library searches for nothing.
+    let long = "n".repeat(256);
+    let refusal = "is 256 bytes long, more than the 255 bytes NAME_MAX allows a searched name, \
+                   which the platform's lookup refuses with ENAMETOOLONG before searching"
+        .to_string();
+    for library in [Library::Glibc, Library::Musl] {
+        assert_eq!(admit_program_name(library, &long), Err(refusal.clone()));
+        assert_eq!(admit_program_name(library, &"n".repeat(255)), Ok(()));
+    }
+    assert_eq!(admit_program_name(Library::Apple, &long), Ok(()));
+    assert_eq!(
+        admit_program_name(Library::Unestablished, "dsh"),
+        Err(
+            "cannot be searched for: this target's native program lookup rule is not \
+             established"
+                .to_string()
+        )
+    );
+
+    // One lookup failure through the switch, by operation: the
+    // continuation keeps the operation's own words, the stop names the
+    // operation and the cause, and a limitation names itself.
+    let candidate = Path::new("/nowhere/dsh");
+    let describe = |candidate: Candidate| match candidate {
+        Candidate::Admitted(_) => "admitted".to_string(),
+        Candidate::Passed { why, denied } => format!("passed ({denied}): {why}"),
+        Candidate::Refused(error) => format!("refused: {error}"),
+    };
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "metadata",
+            Errno::NOENT
+        )),
+        "passed (false): No such file or directory (os error 2)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "access",
+            Errno::ACCESS
+        )),
+        "passed (true): is not executable by this process"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "metadata",
+            Errno::ACCESS
+        )),
+        "passed (true): Permission denied (os error 13)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "metadata",
+            Errno::LOOP
+        )),
+        "refused: the DSH layout is unreadable: /nowhere/dsh: a symlink loop stops the lookup: \
+         Too many levels of symbolic links (os error 40)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "access",
+            Errno::IO
+        )),
+        "refused: the DSH layout is unreadable: /nowhere/dsh: access answers Input/output error \
+         (os error 5), on which the platform's lookup stops"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "metadata",
+            Errno::LOOP
+        )),
+        "passed (false): Too many levels of symbolic links (os error 40)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "metadata",
+            Errno::IO
+        )),
+        "refused: the DSH layout is unreadable: /nowhere/dsh: metadata answers Input/output \
+         error (os error 5), and that arm of Apple's posix_spawnp switch is not pinned by this \
+         resolver"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Unestablished,
+            "metadata",
+            Errno::NOENT
+        )),
+        "refused: the DSH layout is unreadable: /nowhere/dsh: metadata answers No such file or \
+         directory (os error 2), and this target's native program lookup rule is not established"
+    );
+
+    // The whole search under another library's rule, driven on this
+    // host: Apple's construction stop, Apple's continuation past a
+    // metadata ENAMETOOLONG the kernel answers for a 600-byte
+    // component, musl's NAME_MAX refusal, and the unestablished
+    // library's refusal of every search.
+    let dir = tempfile::tempdir().unwrap();
+    let b = dir.path().join("b");
+    fs::create_dir_all(&b).unwrap();
+    let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n");
+    let under = |library: Library, first: &str| Search {
+        entries: OsString::from(format!("{first}:{}", b.display())),
+        default: false,
+        library,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let stopped = "x".repeat(1100);
+    assert_eq!(
+        refused(lookup_in(
+            "dsh",
+            &under(Library::Apple, &stopped),
+            &mut Vec::new()
+        )),
+        format!(
+            "the DSH layout is unreadable: {}: the platform's lookup stops before attempting a \
+             candidate longer than the 1024 bytes it builds one in (ENAMETOOLONG)",
+            Path::new(&stopped).join("dsh").display()
+        )
+    );
+    let walked = "x".repeat(600);
+    assert_eq!(
+        lookup_in("dsh", &under(Library::Apple, &walked), &mut Vec::new())
+            .unwrap()
+            .path,
+        real.canonicalize().unwrap(),
+        "Apple's switch continues past the kernel's ENAMETOOLONG"
+    );
+    assert_eq!(
+        refused(lookup_in(
+            &"m".repeat(300),
+            &under(Library::Musl, &walked),
+            &mut Vec::new()
+        )),
+        format!(
+            "the DSH layout is unreadable: '{}' is 300 bytes long, more than the 255 bytes \
+             NAME_MAX allows a searched name, which the platform's lookup refuses with \
+             ENAMETOOLONG before searching",
+            "m".repeat(300)
+        )
+    );
+    assert_eq!(
+        refused(lookup_in(
+            "dsh",
+            &under(Library::Unestablished, "/nowhere"),
+            &mut Vec::new()
+        )),
+        "the DSH layout is unreadable: 'dsh' cannot be searched for: this target's native \
+         program lookup rule is not established"
+    );
+    // And the running target's own rule is the compiled one.
+    assert_eq!(
+        Search::capture(Some(OsString::from(b.display().to_string())))
+            .unwrap()
+            .library,
+        LIBRARY
+    );
 }
 
 /// A native image's loader is read as the kernel reads it, from the

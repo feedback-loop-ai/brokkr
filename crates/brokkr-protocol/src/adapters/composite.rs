@@ -760,23 +760,55 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
                     "the nested flow collection '{value}', which this grammar does not read"
                 ));
             }
-            for field in split_flow_fields(inner) {
+            let fields = split_flow_fields(inner);
+            for (index, field) in fields.iter().enumerate() {
                 let field = field.trim_matches(' ');
-                // `{}` and `[]` are the empty collections, and so is the
-                // padding a collection's own separators leave behind.
+                // `{}` and `[]` are the empty collections, and `[a,]`
+                // carries the one trailing comma YAML admits. A member
+                // missing anywhere else — `[,x64]`, `[x64,,arm64]`,
+                // `{,}` — is a member the document did not spell, and a
+                // reader that dropped every empty field read a document
+                // YAML refuses as the valid control (run `09ec8d81`,
+                // R4; YAML 1.2.2 §7.4).
                 if field.is_empty() {
-                    continue;
+                    let empty_collection = fields.len() == 1;
+                    let trailing_comma = index > 0 && index + 1 == fields.len();
+                    if empty_collection || trailing_comma {
+                        continue;
+                    }
+                    return Err(format!(
+                        "the flow collection '{value}' with a missing member at position {}",
+                        index + 1
+                    ));
                 }
-                // A mapping's member is `key: value` and a sequence's is
-                // the scalar itself. Both halves are scalars; which of
-                // them a reader would call the key is a question only a
-                // field this grammar READ would need answered.
-                let (key, member) = match field.split_once(": ") {
-                    Some((key, member)) => (Some(key.trim_end_matches(' ')), member),
-                    None => (None, field),
+                // A mapping's member is `key: value` and nothing else; a
+                // sequence's is a scalar and never an entry. Both halves
+                // are scalars; which of them a reader would call the key
+                // is a question only a field this grammar READ would
+                // need answered.
+                let entry = split_flow_entry(field);
+                let member = match (open, entry) {
+                    ('{', Some((key, member))) => {
+                        if flow_scalar(key.trim_end_matches(' ')).is_err() {
+                            return Err(format!("the malformed flow member '{field}'"));
+                        }
+                        member
+                    }
+                    ('{', None) => {
+                        return Err(format!(
+                            "the flow map '{value}' with the member '{field}', which is not a \
+                             `key: value` entry"
+                        ))
+                    }
+                    (_, Some(_)) => {
+                        return Err(format!(
+                            "the flow sequence '{value}' with the member '{field}', which is a \
+                             mapping and not a scalar"
+                        ))
+                    }
+                    (_, None) => field,
                 };
-                if key.is_some_and(|key| flow_scalar(key).is_err()) || flow_scalar(member).is_err()
-                {
+                if flow_scalar(member).is_err() {
                     return Err(format!("the malformed flow member '{field}'"));
                 }
             }
@@ -802,6 +834,93 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
             false => Ok(()),
         },
     }
+}
+
+/// Split one flow member at the `: ` that separates a key from its
+/// value, leaving a `: ` inside a quoted scalar to the scalar: `'a: b'`
+/// is one string member of a sequence, and `'k: x': v` is an entry
+/// whose key is a quoted string.
+fn split_flow_entry(field: &str) -> Option<(&str, &str)> {
+    let mut quote: Option<char> = None;
+    for (index, c) in field.char_indices() {
+        match quote {
+            Some(open) if c == open => quote = None,
+            Some(_) => {}
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c == ':' && field[index + 1..].starts_with(' ') => {
+                return Some((&field[..index], &field[index + 2..]));
+            }
+            None => {}
+        }
+    }
+    None
+}
+
+/// Admit the SYNTAX of one line inside a body this grammar does not
+/// read: the members of `importers`, `snapshots` and the other
+/// recognized sections, and the lines under a block-form package child
+/// such as `peerDependencies`. The line is a mapping entry — a scalar
+/// key, `:`, then nothing or a separated value — or a sequence item,
+/// and its value meets the same rule as every ignored inline value.
+///
+/// These lines were skipped whole, so an unterminated quote inside a
+/// `peerDependencies` or `snapshots` body left a document that is not
+/// YAML reading as the valid control's composite (run `09ec8d81`, R4).
+/// Nothing here reads the value: the body stays ignored, and only what
+/// YAML itself refuses is refused.
+fn pnpm_ignored_line(text: &str) -> Result<(), String> {
+    if let Some(item) = text.strip_prefix('-') {
+        return match item.strip_prefix(' ') {
+            Some(item) => match item.trim_matches(' ') {
+                "" => Err("the sequence item '-' with no value".to_string()),
+                value => {
+                    pnpm_ignored(value).map_err(|why| format!("the sequence item carrying {why}"))
+                }
+            },
+            None if item.is_empty() => Err("the sequence item '-' with no value".to_string()),
+            None => Err(format!(
+                "the line '{text}', which is neither a mapping entry nor a sequence item"
+            )),
+        };
+    }
+    let (key, rest) = split_mapping_key(text)
+        .ok_or_else(|| format!("the line '{text}', which is not a mapping entry"))?;
+    let key_text = pnpm_scalar(key)
+        .map(Scalar::text)
+        .filter(|key| !key.is_empty())
+        .ok_or_else(|| format!("the malformed key '{key}'"))?;
+    match pnpm_separated(rest) {
+        Ok(Separated::Block) => Ok(()),
+        Ok(Separated::Inline(value)) => {
+            pnpm_ignored(value).map_err(|why| format!("the entry '{key_text}' carrying {why}"))
+        }
+        Err(why) => Err(format!("the entry '{key_text}' {why}")),
+    }
+}
+
+/// Split a mapping line at the colon that ends its KEY: for a quoted key
+/// the colon right after the closing quote, for a plain key the first
+/// colon followed by a space or the end of the line, so `link:../x` and
+/// `npm:foo@1` stay inside the scalar they belong to.
+fn split_mapping_key(text: &str) -> Option<(&str, &str)> {
+    if let Some(quote @ ('\'' | '"')) = text.chars().next() {
+        if let Some(close) = text[1..].find(quote) {
+            let end = close + 2;
+            return text[end..]
+                .strip_prefix(':')
+                .map(|rest| (&text[..end], rest));
+        }
+    }
+    let mut from = 0;
+    while let Some(at) = text[from..].find(':') {
+        let at = from + at;
+        let rest = &text[at + 1..];
+        if rest.is_empty() || rest.starts_with(' ') {
+            return Some((&text[..at], rest));
+        }
+        from = at + 1;
+    }
+    None
 }
 
 /// Split a flow map's body at the commas that SEPARATE fields, leaving
@@ -1018,14 +1137,15 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     // have different answers on the same document.
     let mut seen_packages: BTreeSet<String> = BTreeSet::new();
     let mut entry: Option<PnpmEntry> = None;
-    // Whether a block-form child is open, whose own lines this reader
-    // skips: they belong to `peerDependencies` and its kin, and none of
-    // them enters identity. A flag rather than the open child's
+    // The block-form child that is open, whose own lines this reader
+    // does not READ: they belong to `peerDependencies` and its kin, and
+    // none of them enters identity — but each is admitted as syntax
+    // below, named by this child. The name rather than the open child's
     // indentation, because a child opens only at four spaces and only a
     // line at six or more consults this — so a depth comparison would be
     // a guard no input could falsify, which is a claim the code cannot
     // keep.
-    let mut block = false;
+    let mut block: Option<&str> = None;
 
     let flush =
         |entry: Option<PnpmEntry>, triples: &mut BTreeSet<String>| -> Result<(), CompositeError> {
@@ -1067,7 +1187,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
         }
         if indent == 0 {
             flush(entry.take(), &mut triples)?;
-            block = false;
+            block = None;
             let (name, rest) = line
                 .split_once(':')
                 .ok_or_else(|| bad("a top-level line that is not a mapping key"))?;
@@ -1123,11 +1243,19 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             return Err(bad("a child line outside every section"));
         };
         if open_section != "packages" {
+            // A section this reader does not READ is still a section
+            // the document must have spelled: every line under it is
+            // admitted as syntax before it is passed over.
+            pnpm_ignored_line(trimmed).map_err(|why| {
+                bad(&format!(
+                    "a line in section '{open_section}' carrying {why}"
+                ))
+            })?;
             continue;
         }
         if indent == 2 {
             flush(entry.take(), &mut triples)?;
-            block = false;
+            block = None;
             let key = line
                 .trim_end_matches(' ')
                 .strip_suffix(':')
@@ -1165,7 +1293,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             continue;
         }
         if indent == 4 {
-            block = false;
+            block = None;
             let Some(open) = entry.as_mut() else {
                 return Err(bad("a package child outside any record"));
             };
@@ -1191,7 +1319,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 // syntax. A child with no inline scalar opens a block
                 // whose own lines are skipped below.
                 match value {
-                    Separated::Block => block = true,
+                    Separated::Block => block = Some(name),
                     Separated::Inline(value) => pnpm_ignored(value)
                         .map_err(|why| bad(&format!("a package child '{name}' carrying {why}")))?,
                 }
@@ -1227,10 +1355,14 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             continue;
         }
         // Six spaces or deeper: the children of an open block-form child,
-        // and nothing else.
+        // and nothing else — each admitted as syntax, never read.
         match block {
-            true => continue,
-            false => return Err(bad("a package line at an unrecognized indentation")),
+            Some(child) => pnpm_ignored_line(trimmed).map_err(|why| {
+                bad(&format!(
+                    "a line under the package child '{child}' carrying {why}"
+                ))
+            })?,
+            None => return Err(bad("a package line at an unrecognized indentation")),
         }
     }
     flush(entry.take(), &mut triples)?;
@@ -1569,15 +1701,20 @@ fn first_line(path: &Path, head: &[u8]) -> Result<String, CompositeError> {
 /// child that followed got `EACCES` and walked on to a later entry —
 /// which is exactly the two-installs disagreement 8.8(c) exists to close
 /// (council return 2026-09-19).
+///
+/// The answer is the kernel's own errno, not a boolean: `EACCES` is the
+/// denial a search remembers, and every other failure is a lookup cause
+/// the platform's switch decides on its own number (design D10, third
+/// hold). A boolean folded them all into "denied", which fabricated a
+/// continuation the child never made.
 #[cfg(unix)]
-fn effective_exec_access(path: &Path) -> bool {
+fn effective_exec_access(path: &Path) -> Result<(), rustix::io::Errno> {
     rustix::fs::accessat(
         rustix::fs::CWD,
         path,
         rustix::fs::Access::EXEC_OK,
         rustix::fs::AtFlags::EACCESS,
     )
-    .is_ok()
 }
 
 /// What one lookup SELECTED: the canonical file the platform runs for
@@ -1639,74 +1776,275 @@ enum Candidate {
     Refused(CompositeError),
 }
 
-/// Whether a lookup failed with the kernel's `ELOOP`: the error a
-/// child's `execve` answers at a self-referential symlink. Asked by the
-/// platform's own number, because `ErrorKind::FilesystemLoop` is not
-/// stable on the pinned compiler.
+/// The C library whose program lookup a CHILD of this process runs, and
+/// therefore the ONE rule this resolver translates. The rule is read from
+/// that library's source and nothing else.
+///
+/// Three security holds had one cause: an errno policy chosen by hand —
+/// cwd on an absent `PATH`, a backslash read as a separator, and every
+/// `ENAMETOOLONG` treated as a continuation — each found to differ from
+/// the platform's at a boundary nobody had tested (run `09ec8d81`, R1).
+/// From this repair on the oracle is the specification: the continue-set
+/// is the library's literal switch, the pre-execution skip is the
+/// library's own buffer arithmetic, and an errno is added to neither
+/// because it seems harmless but only because the cited line says so.
 #[cfg(unix)]
-fn is_symlink_loop(error: &std::io::Error) -> bool {
-    error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Library {
+    /// glibc 2.42 `posix/execvpe.c`, `__execvpe_common`, which both
+    /// `execvp` and `posix_spawnp` (through `__execvpex`) run. Lines
+    /// 92–106 size the buffer, 112–119 skip a component that would not
+    /// fit it, 126 attempts `execve`, 136–158 continue only on `EACCES`
+    /// (remembered), `ENOENT`, `ESTALE`, `ENOTDIR`, `ENODEV` and
+    /// `ETIMEDOUT`, and 165–168 report the remembered `EACCES` when
+    /// nothing ran. Every other errno returns at once (design D10,
+    /// inspected revision `glibc-2.42`).
+    Glibc,
+    /// musl `src/process/execvp.c`, `__execvpe`: the same buffer skip
+    /// (`z - p >= l` over `l = strnlen(path, PATH_MAX - 1) + 1`), the
+    /// same `NAME_MAX` refusal of the name, and a switch that continues
+    /// only on `EACCES` (remembered), `ENOENT` and `ENOTDIR`. Read from
+    /// musl 1.2 source; not executed natively by this suite.
+    Musl,
+    /// Apple libc `sys/posix_spawn.c`, `posix_spawnp` — the search the
+    /// production child runs, because `std::process::Command` with an
+    /// unchanged `PATH` takes `posix_spawnp` there (Rust 1.88
+    /// `library/std/src/sys/process/unix/unix.rs` 417–423 disables that
+    /// path only for a changed `PATH` and a bare program). Design D10
+    /// pinned lines 125–127: a candidate whose directory, `/`, name and
+    /// NUL exceed `PATH_MAX` (1024) returns `ENAMETOOLONG` at
+    /// construction, where `gen/FreeBSD/exec.c` 206–212 (`execvP`) warns
+    /// and continues. Both continue past `ELOOP`, `ENAMETOOLONG`,
+    /// `ENOENT` and `ENOTDIR` after the attempt and remember `EACCES`.
+    /// The rest of that switch is NOT pinned by this seat, and an errno
+    /// outside those arms refuses as unestablished rather than guessing.
+    Apple,
+    /// A target whose lookup this resolver has not read from source:
+    /// FreeBSD's `execvPe` switch, bionic, the other BSDs. An
+    /// unestablished rule is an explicit limitation, never a permissive
+    /// fallback to another library's switch (AS1).
+    Unestablished,
 }
 
-/// What a symlink loop at a candidate does to the SEARCH, which is a
-/// question each C library answers for itself.
-///
-/// glibc's `execvp` stops: `ELOOP` is not one of the errors its loop
-/// walks past, and the search ends there — measured 2026-09-20 on this
-/// host, `PATH=A:B` with a self-symlink at `A/x` and a runnable `B/x`
-/// never runs B. Apple's `execvP` lists `ELOOP` beside `ENOENT` among
-/// the causes it continues on, and `posix_spawnp` does the same, so the
-/// same layout runs B there (`gen/FreeBSD/exec.c`, `sys/posix_spawn.c`).
-///
-/// AS1 required the terminal outcome of "the Unix native control", which
-/// asserted glibc's rule of Apple's loader; the controller corrected the
-/// cell on 2026-09-20 and this is the corrected rule, chosen at compile
-/// time so no run carries the other platform's branch. The differential
-/// matrix asserts the RUNNING platform's own native control.
-#[cfg(all(unix, any(target_os = "linux", target_os = "android")))]
-fn symlink_loop_candidate(candidate: &Path, error: &std::io::Error) -> Candidate {
-    Candidate::Refused(CompositeError::Config(format!(
-        "{}: a symlink loop stops the lookup: {error}",
-        candidate.display()
-    )))
-}
+/// The library the compiled target's children run, chosen at compile
+/// time so no run carries another platform's switch.
+#[cfg(unix)]
+const LIBRARY: Library = if cfg!(target_env = "musl") {
+    Library::Musl
+} else if cfg!(all(target_os = "linux", target_env = "gnu")) {
+    Library::Glibc
+} else if cfg!(target_vendor = "apple") {
+    Library::Apple
+} else {
+    Library::Unestablished
+};
 
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-fn symlink_loop_candidate(_candidate: &Path, error: &std::io::Error) -> Candidate {
-    // Apple's search remembers only `EACCES` as a denial, so a loop
-    // leaves the final no-match a plain NotFound, exactly as the child
-    // reports it.
-    Candidate::Passed {
-        why: error.to_string(),
-        denied: false,
+/// `NAME_MAX` as glibc and musl bound a searched program name
+/// (`<limits.h>` on Linux), and `PATH_MAX` as they bound the whole
+/// `PATH` they size a buffer for.
+#[cfg(unix)]
+const LINUX_NAME_MAX: usize = 255;
+#[cfg(unix)]
+const LINUX_PATH_MAX: usize = 4096;
+
+/// `PATH_MAX` on Darwin, the size of the buffer `posix_spawnp` builds
+/// each candidate in (`sys/posix_spawn.c`).
+#[cfg(unix)]
+const DARWIN_PATH_MAX: usize = 1024;
+
+/// What a library does with a program NAME before it searches at all.
+///
+/// glibc: `file_len = __strnlen(file, NAME_MAX) + 1`, and a name longer
+/// than `NAME_MAX` returns `ENAMETOOLONG` with no `execve` attempted
+/// (`posix/execvpe.c` 92–106; the `__libc_alloca_cutoff` check beside it
+/// bounds `path_len + file_len + 1`, at most 4,353 bytes, which no
+/// thread stack this resolver runs on refuses). musl makes the same
+/// `NAME_MAX` refusal. Apple's `posix_spawnp` has no such check: a long
+/// name meets the per-entry construction bound instead. An unestablished
+/// library refuses every search by name.
+#[cfg(unix)]
+fn admit_program_name(library: Library, name: &str) -> Result<(), String> {
+    match library {
+        Library::Glibc | Library::Musl if name.len() > LINUX_NAME_MAX => Err(format!(
+            "is {} bytes long, more than the {LINUX_NAME_MAX} bytes NAME_MAX allows a searched \
+             name, which the platform's lookup refuses with ENAMETOOLONG before searching",
+            name.len()
+        )),
+        Library::Glibc | Library::Musl | Library::Apple => Ok(()),
+        Library::Unestablished => Err(
+            "cannot be searched for: this target's native program lookup rule is not established"
+                .to_string(),
+        ),
     }
 }
 
-/// Whether a lookup failed with `ENAMETOOLONG`: a candidate whose path is
-/// longer than the platform will build one.
-///
-/// Both searches walk past it. glibc's `execvp` skips a `PATH` component
-/// longer than the buffer it sized for the whole variable, before it ever
-/// calls `execve`; Apple's `execvP` warns on the oversized candidate and
-/// continues. Measured 2026-09-20: with `PATH` spelled as 5,000 `x` bytes
-/// followed by a runnable `B`, `Command::new("dsh")` runs `B/dsh`, where
-/// this resolver stopped at the first entry as a failure it could not
-/// prove and refused an ordinary positive (review 2026-09-20, F1). The
-/// entry establishes nothing about a candidate, so it is not D10's
-/// loading obstruction and not a denial either — the search simply moves
-/// on, and a search that then admits nothing answers NotFound.
+/// What a library does with one `PATH` component BEFORE it asks the
+/// kernel about the candidate under it.
 #[cfg(unix)]
-fn is_name_too_long(error: &std::io::Error) -> bool {
-    error.raw_os_error() == Some(rustix::io::Errno::NAMETOOLONG.raw_os_error())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Construction {
+    /// The candidate is built and attempted.
+    Try,
+    /// The component is skipped, with no errno and no attempt: glibc's
+    /// and musl's answer to a component that would not fit the buffer
+    /// they sized for the whole variable.
+    Skip,
+    /// The search stops here, before any attempt: Apple's
+    /// `posix_spawnp` answer to a candidate longer than its buffer.
+    Stop,
 }
 
-/// Whether a lookup failed with `ENOTDIR`: a path component that is a
-/// regular file. `execvp` records it beside `ENOENT` and tries the next
-/// entry — `PATH=<file>:B` runs `B/dsh` natively — where this resolver
-/// stopped on it as an unproved failure (review 2026-09-20, R1).
+/// glibc's buffer sizing: `path_len = __strnlen(path, PATH_MAX - 1) + 1`
+/// (`posix/execvpe.c` 92–106), over the whole `PATH` in bytes.
 #[cfg(unix)]
-fn is_not_a_directory(error: &std::io::Error) -> bool {
-    error.raw_os_error() == Some(rustix::io::Errno::NOTDIR.raw_os_error())
+fn glibc_path_len(whole_path: usize) -> usize {
+    whole_path.min(LINUX_PATH_MAX - 1) + 1
+}
+
+/// The construction decision for one component, by the library's own
+/// arithmetic and never by a `NAME_MAX` rule, a joined-length rule or a
+/// metadata errno standing in for it.
+///
+/// glibc (`posix/execvpe.c` 112–119) and musl skip a component whose
+/// byte length reaches `path_len`: `if (subp - p >= path_len) continue;`
+/// — so with a `PATH` of 4,095 bytes or more a component of 4,096 bytes
+/// is never attempted and the search walks on, while one of 4,095 bytes
+/// IS attempted and the kernel answers `ENAMETOOLONG`, on which the
+/// switch below returns. That is the difference between the 4096/5000
+/// cells that run B and the 256/300/4095 cells that stop (chief's
+/// oracle, 2026-09-20).
+///
+/// Apple's `posix_spawnp` (`sys/posix_spawn.c`, D10 lines 125–127) sizes
+/// each candidate as `lp + ln + 2` — the directory (an empty entry is
+/// `.`, one byte), the name, `/` and NUL — and returns `ENAMETOOLONG` at
+/// once when that exceeds its `PATH_MAX` buffer.
+#[cfg(unix)]
+fn construction(
+    library: Library,
+    whole_path: usize,
+    component: usize,
+    name: usize,
+) -> Construction {
+    match library {
+        Library::Glibc | Library::Musl => match component >= glibc_path_len(whole_path) {
+            true => Construction::Skip,
+            false => Construction::Try,
+        },
+        Library::Apple => {
+            let directory = match component {
+                0 => 1,
+                bytes => bytes,
+            };
+            match directory + name + 2 > DARWIN_PATH_MAX {
+                true => Construction::Stop,
+                false => Construction::Try,
+            }
+        }
+        Library::Unestablished => Construction::Stop,
+    }
+}
+
+/// What one lookup errno does to the SEARCH, by the library's switch.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// The next entry is tried; `denied` is whether this one is
+    /// remembered as the `EACCES` a search that admits nothing reports.
+    Continue { denied: bool },
+    /// The search returns this errno at once.
+    Stop,
+}
+
+/// The library's switch on an errno, arm by arm, each cited. An errno
+/// no pinned arm names is neither continued on nor stopped on by guess:
+/// it is a limitation the caller reports.
+#[cfg(unix)]
+fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str> {
+    use rustix::io::Errno;
+    match library {
+        // `posix/execvpe.c` 136–158: `case EACCES: got_eacces = true;`
+        // then falls through with ENOENT, ESTALE, ENOTDIR, ENODEV and
+        // ETIMEDOUT to `break`; `default: return -1`.
+        Library::Glibc => Ok(match errno {
+            Errno::ACCESS => Step::Continue { denied: true },
+            Errno::NOENT | Errno::STALE | Errno::NOTDIR | Errno::NODEV | Errno::TIMEDOUT => {
+                Step::Continue { denied: false }
+            }
+            _ => Step::Stop,
+        }),
+        // `src/process/execvp.c`: `case EACCES: seen_eacces = 1; case
+        // ENOENT: case ENOTDIR: break; default: return -1;`.
+        Library::Musl => Ok(match errno {
+            Errno::ACCESS => Step::Continue { denied: true },
+            Errno::NOENT | Errno::NOTDIR => Step::Continue { denied: false },
+            _ => Step::Stop,
+        }),
+        // `sys/posix_spawn.c`: ELOOP, ENAMETOOLONG, ENOENT and ENOTDIR
+        // `break` to the next entry, and EACCES is the remembered
+        // denial (D10, 2026-09-20). The remaining arms of that switch
+        // are not pinned here.
+        Library::Apple => match errno {
+            Errno::ACCESS => Ok(Step::Continue { denied: true }),
+            Errno::LOOP | Errno::NAMETOOLONG | Errno::NOENT | Errno::NOTDIR => {
+                Ok(Step::Continue { denied: false })
+            }
+            _ => Err("that arm of Apple's posix_spawnp switch is not pinned by this resolver"),
+        },
+        Library::Unestablished => {
+            Err("this target's native program lookup rule is not established")
+        }
+    }
+}
+
+/// The errno an I/O error carries, or none for a failure the platform
+/// answered before it asked the kernel (a NUL in a path).
+#[cfg(unix)]
+fn errno_of(error: &std::io::Error) -> Option<rustix::io::Errno> {
+    error
+        .raw_os_error()
+        .map(rustix::io::Errno::from_raw_os_error)
+}
+
+/// One lookup OPERATION's failure at a candidate, decided by the
+/// library's switch on that errno. `operation` names which question was
+/// asked — metadata, or execute access — because the integer alone does
+/// not say what failed, and a refusal that names the operation can be
+/// checked against the platform's own answer.
+///
+/// A continuation is the candidate walked past, remembered as a denial
+/// where the switch remembers it. A stop is a refusal by cause, and so
+/// is an errno the library's pinned arms do not name: nothing is walked
+/// past on a guess (design D10, third hold).
+#[cfg(unix)]
+fn lookup_failure(
+    candidate: &Path,
+    library: Library,
+    operation: &str,
+    errno: rustix::io::Errno,
+) -> Candidate {
+    let error = std::io::Error::from_raw_os_error(errno.raw_os_error());
+    let refuse = |why: String| {
+        Candidate::Refused(CompositeError::Config(format!(
+            "{}: {why}",
+            candidate.display()
+        )))
+    };
+    match step(library, errno) {
+        Ok(Step::Continue { denied }) => Candidate::Passed {
+            why: match (operation, denied) {
+                ("access", true) => "is not executable by this process".to_string(),
+                _ => error.to_string(),
+            },
+            denied,
+        },
+        Ok(Step::Stop) if errno == rustix::io::Errno::LOOP => {
+            refuse(format!("a symlink loop stops the lookup: {error}"))
+        }
+        Ok(Step::Stop) => refuse(format!(
+            "{operation} answers {error}, on which the platform's lookup stops"
+        )),
+        Err(limitation) => refuse(format!("{operation} answers {error}, and {limitation}")),
+    }
 }
 
 /// Whether the platform reads `command` as a PATH to a file rather than
@@ -1765,21 +2103,29 @@ struct Search {
     /// Whether `entries` is the C library's default rather than the
     /// environment's own `PATH`, so a no-match names which was searched.
     default: bool,
+    /// The library whose lookup rule the search translates: the running
+    /// target's in production, and any row of the table in a test, so
+    /// every arm of every rule is a plain test on whichever platform the
+    /// suite runs.
+    library: Library,
+    /// The platform's `env` utility every `#!` interpreter is compared
+    /// against; `ENV_REFERENCE` in production.
+    env_reference: PathBuf,
 }
 
 #[cfg(unix)]
 impl Search {
     fn capture(path: Option<std::ffi::OsString>) -> Result<Search, CompositeError> {
-        match path {
-            Some(entries) => Ok(Search {
-                entries,
-                default: false,
-            }),
-            None => Ok(Search {
-                entries: default_search_path()?,
-                default: true,
-            }),
-        }
+        let (entries, default) = match path {
+            Some(entries) => (entries, false),
+            None => (default_search_path()?, true),
+        };
+        Ok(Search {
+            entries,
+            default,
+            library: LIBRARY,
+            env_reference: PathBuf::from(ENV_REFERENCE),
+        })
     }
 
     /// Search the entries for `command` as the child would: the first
@@ -1789,13 +2135,41 @@ impl Search {
     /// as `execvp` answers: the first denied entry's cause where one was
     /// denied (the child's PermissionDenied), and a plain no-match
     /// otherwise (the child's NotFound).
+    ///
+    /// The search has the library's own STAGES, in its order: the name
+    /// is admitted before any entry is read; each component is sized as
+    /// the library sizes it and skipped or stopped on BEFORE a candidate
+    /// is joined or inspected; only a constructed candidate reaches the
+    /// kernel, and only the kernel's errno reaches the switch. A
+    /// metadata `ENAMETOOLONG` is therefore what the switch says it is —
+    /// terminal on glibc — and never a stand-in for the buffer skip that
+    /// happens earlier and carries no errno at all (run `09ec8d81`, R1).
     fn find(&self, command: &str, chain: &mut Vec<(u64, u64)>) -> Result<Selected, CompositeError> {
+        admit_program_name(self.library, command)
+            .map_err(|why| CompositeError::Config(format!("'{command}' {why}")))?;
+        let whole_path = self.entries.len();
         let mut denied: Option<(PathBuf, String)> = None;
         for dir in std::env::split_paths(&self.entries) {
             let candidate = match dir.as_os_str().is_empty() {
                 true => PathBuf::from(command),
                 false => dir.join(command),
             };
+            match construction(
+                self.library,
+                whole_path,
+                dir.as_os_str().len(),
+                command.len(),
+            ) {
+                Construction::Try => {}
+                Construction::Skip => continue,
+                Construction::Stop => {
+                    return Err(CompositeError::Config(format!(
+                        "{}: the platform's lookup stops before attempting a candidate longer \
+                         than the {DARWIN_PATH_MAX} bytes it builds one in (ENAMETOOLONG)",
+                        candidate.display()
+                    )))
+                }
+            }
             match classify_in(&candidate, self, chain) {
                 Candidate::Admitted(selected) => return Ok(selected),
                 Candidate::Passed { why, denied: true } => {
@@ -1834,6 +2208,10 @@ enum DefaultSearch {
     Library,
     /// The library's own literal, which its `confstr` does not report.
     Literal(&'static str),
+    /// A target whose default search this resolver has not read from
+    /// its source. The answer is an explicit limitation: no other
+    /// target's literal is applied to it (AS1, third hold).
+    Unestablished,
 }
 
 /// musl's `execvp` searches this literal when `PATH` is absent
@@ -1842,37 +2220,52 @@ enum DefaultSearch {
 #[cfg(unix)]
 const MUSL_DEFAULT_PATH: &str = "/usr/local/bin:/bin:/usr/bin";
 
-/// `_PATH_DEFPATH`, the path the BSD-derived libraries' own search uses:
-/// Apple's `execvP` starts from `_PATH_DEFPATH` when `PATH` is unset
-/// (`gen/FreeBSD/exec.c`), and `posix_spawnp` searches the same
-/// (`sys/posix_spawn.c`). Apple's `confstr(_CS_PATH)` answers
-/// `/usr/bin:/bin:/usr/sbin:/sbin` — the two system `sbin` directories
-/// its loader never searches — so a resolver that asked `confstr` there
-/// could select or probe a system executable native lookup would not
-/// select (review 2026-09-20, F2). `gen/FreeBSD/sysctl.c` supplies that
-/// wider `USER_CS_PATH` value; `include/paths.h` supplies this one.
+/// `_PATH_DEFPATH`, the path Apple's own search uses: `execvP` starts
+/// from `_PATH_DEFPATH` when `PATH` is unset (`gen/FreeBSD/exec.c`), and
+/// `posix_spawnp` searches the same (`sys/posix_spawn.c`). Apple's
+/// `confstr(_CS_PATH)` answers `/usr/bin:/bin:/usr/sbin:/sbin` — the two
+/// system `sbin` directories its loader never searches — so a resolver
+/// that asked `confstr` there could select or probe a system executable
+/// native lookup would not select (review 2026-09-20, F2).
+/// `gen/FreeBSD/sysctl.c` supplies that wider `USER_CS_PATH` value;
+/// Apple `include/paths.h` line 63 supplies this one (design D10).
 #[cfg(unix)]
-const BSD_DEFAULT_PATH: &str = "/usr/bin:/bin";
+const APPLE_DEFAULT_PATH: &str = "/usr/bin:/bin";
+
+/// FreeBSD's own `_PATH_DEFPATH` (`include/paths.h` lines 36–40, design
+/// D10), which is NOT Apple's: a constant read from one BSD's header was
+/// assigned to every BSD, and that assignment was the defect (run
+/// `09ec8d81`, R2). FreeBSD's continuation switch is not pinned here, so
+/// this literal establishes the default search alone.
+#[cfg(unix)]
+const FREEBSD_DEFAULT_PATH: &str = "/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin";
 
 /// The default search the named target runs, as a table this suite can
 /// read for EVERY platform rather than only for the one it runs on.
 /// `target_os` and `target_env` are the compiled target's own, so the
-/// answer production takes is the running platform's.
+/// answer production takes is the running platform's. Every row is one
+/// target's own source; a target with no row is unestablished.
 #[cfg(unix)]
 fn default_search_of(target_os: &str, target_env: &str) -> DefaultSearch {
     match (target_os, target_env) {
         (_, "musl") => DefaultSearch::Literal(MUSL_DEFAULT_PATH),
-        ("linux" | "android", _) => DefaultSearch::Library,
-        _ => DefaultSearch::Literal(BSD_DEFAULT_PATH),
+        ("linux", "gnu") => DefaultSearch::Library,
+        ("macos" | "ios" | "tvos" | "watchos" | "visionos", _) => {
+            DefaultSearch::Literal(APPLE_DEFAULT_PATH)
+        }
+        ("freebsd", _) => DefaultSearch::Literal(FREEBSD_DEFAULT_PATH),
+        _ => DefaultSearch::Unestablished,
     }
 }
 
 /// The compiled target's C library, as `default_search_of` names it.
 /// Rust exposes `target_os` as a constant and the environment only as a
-/// `cfg`, so the one `cfg` this resolver distinguishes is spelled here.
+/// `cfg`, so the two `cfg`s this resolver distinguishes are spelled here.
 #[cfg(unix)]
 const TARGET_ENV: &str = if cfg!(target_env = "musl") {
     "musl"
+} else if cfg!(target_env = "gnu") {
+    "gnu"
 } else {
     ""
 };
@@ -1893,6 +2286,10 @@ fn default_search_path() -> Result<std::ffi::OsString, CompositeError> {
 fn default_search_path_for(search: DefaultSearch) -> Result<std::ffi::OsString, CompositeError> {
     match search {
         DefaultSearch::Literal(entries) => Ok(std::ffi::OsString::from(entries)),
+        DefaultSearch::Unestablished => Err(CompositeError::Config(
+            "PATH is absent, and this target's native default search is not established"
+                .to_string(),
+        )),
         DefaultSearch::Library => {
             extern "C" {
                 fn confstr(
@@ -1953,38 +2350,30 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
         )))
     };
     let passed = |why: String, denied: bool| Candidate::Passed { why, denied };
+    // The kernel's answer to the candidate's path, decided by the
+    // library's own switch on that errno and nothing else: ENOENT and
+    // ENOTDIR walk on, EACCES walks on and is remembered, ENAMETOOLONG
+    // and ELOOP stop glibc's search — and a failure with no errno at
+    // all (a NUL in the path) is one no switch decides, so it refuses.
     let metadata = match std::fs::metadata(candidate) {
         Ok(metadata) => metadata,
-        // `execvp` records ENOENT, ENOTDIR, ENAMETOOLONG and EACCES and
-        // tries the next entry; every other failure is one it stops on,
-        // and so does this. A symlink loop is the cell the two libraries
-        // disagree on, and `symlink_loop_candidate` carries each
-        // platform's own answer.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return passed(error.to_string(), false);
+        Err(error) => {
+            return match errno_of(&error) {
+                Some(errno) => lookup_failure(candidate, search.library, "metadata", errno),
+                None => refuse(format!("the lookup cannot be proved: {error}")),
+            }
         }
-        Err(error) if is_not_a_directory(&error) => {
-            return passed(error.to_string(), false);
-        }
-        Err(error) if is_name_too_long(&error) => {
-            return passed(error.to_string(), false);
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            return passed(error.to_string(), true);
-        }
-        Err(error) if is_symlink_loop(&error) => {
-            return symlink_loop_candidate(candidate, &error);
-        }
-        Err(error) => return refuse(format!("the lookup cannot be proved: {error}")),
     };
     // `execve` answers EACCES for a candidate that is not a regular
     // file and for one this process may not execute: both are walked
-    // past, and both are the denial the search remembers.
+    // past, and both are the denial the search remembers. The access
+    // question is asked with its own errno kept, because an answer
+    // other than EACCES is a different cause and takes its own arm.
     if !metadata.is_file() {
         return passed("is not a regular file".to_string(), true);
     }
-    if !effective_exec_access(candidate) {
-        return passed("is not executable by this process".to_string(), true);
+    if let Err(errno) = effective_exec_access(candidate) {
+        return lookup_failure(candidate, search.library, "access", errno);
     }
     let (node, head) = match loading_obstruction(candidate, metadata.len(), search, chain) {
         Ok(loading) => loading,
@@ -2096,7 +2485,9 @@ fn loading_obstruction(
     let interpreter = Path::new(std::ffi::OsStr::from_bytes(interpreter));
     let named = interpreter.display();
     let metadata = match std::fs::metadata(interpreter) {
-        Ok(metadata) if metadata.is_file() && effective_exec_access(interpreter) => metadata,
+        Ok(metadata) if metadata.is_file() && effective_exec_access(interpreter).is_ok() => {
+            metadata
+        }
         Ok(_) => {
             return Err(format!(
                 "its #! interpreter '{named}' is not an executable file"
@@ -2125,7 +2516,7 @@ fn loading_obstruction(
     // `node` as its own.
     let loaded =
         loading_obstruction(interpreter, metadata.len(), search, chain).and_then(|(inner, _)| {
-            env_program(interpreter, arguments, search, chain).map(|env| env.or(inner))
+            env_program(interpreter, &metadata, arguments, search, chain).map(|env| env.or(inner))
         });
     chain.pop();
     loaded
@@ -2163,36 +2554,130 @@ fn open_head(candidate: &Path) -> std::io::Result<(std::fs::File, Vec<u8>)> {
 /// 2026-09-20, R2). The other Unix kernels split the line into words;
 /// there a one-word argument is the form this establishes, and more
 /// words refuse by name rather than being guessed either way.
-/// Whether a `#!` interpreter is the `env` utility, asked of the FILE
-/// and not only of the spelling.
-///
-/// Recognition by the spelled basename alone was a bypass of D10's
-/// refusal: an `env-alias` symlinked to the very same `env` binary
-/// carried the measured `env <program>` form past the check, so a
-/// launcher whose `node` was missing was ADMITTED, and the doctor that
-/// followed executed it — the marker it left is the proof (review
-/// 2026-09-20, F4, security). The name the file canonically has is the
-/// name the utility ships under, so every spelling that reaches one
-/// `env` answers alike. A copy or hard link installed under another name
-/// is a different file with no `env` name anywhere, and this
-/// establishes nothing about it; the spelling remains the measured
-/// form's own evidence.
+/// The interpreter the measured `#!/usr/bin/env node` form names: the
+/// platform's `env` utility, the one file every recognition below is
+/// compared against.
 #[cfg(unix)]
-fn is_env(interpreter: &Path) -> bool {
-    let named_env = |path: &Path| path.file_name() == Some(std::ffi::OsStr::new("env"));
-    named_env(interpreter)
-        || std::fs::canonicalize(interpreter).is_ok_and(|canonical| named_env(&canonical))
+const ENV_REFERENCE: &str = "/usr/bin/env";
+
+/// Whether a `#!` interpreter — already inspected as `metadata` — IS the
+/// platform's `env` utility, asked of the FILE and never of a name.
+///
+/// Recognition by the spelled basename was a bypass of D10's refusal: an
+/// `env-alias` symlinked to the very same `env` binary carried the
+/// measured `env <program>` form past the check, so a launcher whose
+/// `node` was missing was ADMITTED and the doctor that followed executed
+/// it (review 2026-09-20, F4, security). Recognition by the CANONICAL
+/// basename was still recognition by name: a copy of `env` hard-linked
+/// as `tools/uu_env` has no `env` name anywhere and is the same bytes
+/// (chief's finding, run `09ec8d81`, R3). So the file is identified as a
+/// file: the same device and inode as the reference, or — for a copy —
+/// the same length and the same bytes, compared in fixed buffers on the
+/// file that is open NOW, checked to be the file that was inspected.
+/// `reference` is injectable so each arm is a plain test; production
+/// passes `ENV_REFERENCE`.
+#[cfg(unix)]
+fn is_env(
+    interpreter: &Path,
+    metadata: &std::fs::Metadata,
+    reference: &Path,
+) -> Result<bool, String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let named = reference.display();
+    let target = std::fs::metadata(reference).map_err(|error| {
+        format!("cannot be compared with the platform's env '{named}', which cannot be inspected: {error}")
+    })?;
+    if (metadata.dev(), metadata.ino()) == (target.dev(), target.ino()) {
+        return Ok(true);
+    }
+    if metadata.len() != target.len() {
+        return Ok(false);
+    }
+    let mut opened =
+        std::fs::File::open(interpreter).map_err(|error| format!("cannot be read: {error}"))?;
+    // The file that is open is the file that was inspected, or the
+    // comparison is about nothing: an `fstat` that fails and one that
+    // answers another device, inode or length are one refusal.
+    let same_file = opened.metadata().ok().filter(|now| {
+        (now.dev(), now.ino(), now.len()) == (metadata.dev(), metadata.ino(), metadata.len())
+    });
+    if same_file.is_none() {
+        return Err("changed between its inspection and its reading".to_string());
+    }
+    let mut against = std::fs::File::open(reference).map_err(|error| {
+        format!(
+            "cannot be compared with the platform's env '{named}', which cannot be read: {error}"
+        )
+    })?;
+    same_bytes(&mut opened, &mut against, metadata.len())
 }
 
+/// Whether two readers of `len` bytes carry the same bytes, compared in
+/// fixed buffers so a comparison never allocates the file's size, and
+/// refused as a failed read when either ends early.
+#[cfg(unix)]
+fn same_bytes(left: &mut impl Read, right: &mut impl Read, len: u64) -> Result<bool, String> {
+    const BUFFER: usize = 8192;
+    let mut ours = [0u8; BUFFER];
+    let mut theirs = [0u8; BUFFER];
+    let mut remaining = len;
+    while remaining > 0 {
+        let want = remaining.min(BUFFER as u64) as usize;
+        left.read_exact(&mut ours[..want])
+            .map_err(|error| format!("cannot be read whole: {error}"))?;
+        right
+            .read_exact(&mut theirs[..want])
+            .map_err(|error| format!("cannot be compared whole: {error}"))?;
+        if ours[..want] != theirs[..want] {
+            return Ok(false);
+        }
+        remaining -= want as u64;
+    }
+    Ok(true)
+}
+
+/// The `env` INVOCATION this resolver establishes: the platform's `env`
+/// file, invoked under the name `env`.
+///
+/// File identity alone does not establish argv0-insensitive behaviour.
+/// The kernel hands the utility the interpreter path exactly as the `#!`
+/// line spells it as `argv[0]` (`fs/binfmt_script.c`); GNU coreutils'
+/// `src/env.c` dispatches nothing on it, while a multicall `env` —
+/// uutils' `coreutils`, busybox — dispatches on its basename, and under
+/// the name `env` all three run `env`. Under any other name the answer
+/// depends on which implementation the platform ships, which nothing
+/// short of executing it establishes; so the same file under another
+/// name is refused as an unestablished invocation, and a different file
+/// under the name `env` is refused as an impostor. Neither is `Ok(None)`
+/// admission (design D10, third hold).
 #[cfg(unix)]
 fn env_program(
     interpreter: &Path,
+    metadata: &std::fs::Metadata,
     arguments: &[u8],
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
 ) -> Result<Option<PathBuf>, String> {
-    if !is_env(interpreter) {
-        return Ok(None);
+    let is_env = is_env(interpreter, metadata, &search.env_reference)?;
+    let spelled = interpreter
+        .file_name()
+        .map_or(String::new(), |name| name.to_string_lossy().into_owned());
+    match (is_env, spelled == "env") {
+        (false, false) => return Ok(None),
+        (false, true) => {
+            return Err(format!(
+                "is named env but is not the platform's env utility '{}'",
+                search.env_reference.display()
+            ))
+        }
+        (true, false) => {
+            return Err(format!(
+                "is the platform's env utility invoked under the name '{spelled}', a dispatch \
+                 this resolver does not establish without executing it"
+            ))
+        }
+        (true, true) => {}
     }
     let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';
     let arguments = match arguments.iter().position(|byte| !is_blank(byte)) {
@@ -2261,7 +2746,9 @@ fn native_obstruction(file: &mut std::fs::File, len: u64) -> Result<(), String> 
         ));
     }
     let loader_len = match std::fs::metadata(loader) {
-        Ok(metadata) if metadata.is_file() && effective_exec_access(loader) => metadata.len(),
+        Ok(metadata) if metadata.is_file() && effective_exec_access(loader).is_ok() => {
+            metadata.len()
+        }
         Ok(_) => {
             return Err(format!(
                 "needs the {kind} loader '{named}', which is not an executable file"
@@ -2601,7 +3088,7 @@ fn selected_executable(executable: &str) -> Result<PathBuf, CompositeError> {
         )));
     }
     #[cfg(unix)]
-    if !effective_exec_access(path) {
+    if effective_exec_access(path).is_err() {
         return Err(CompositeError::Config(format!(
             "{executable}: is not executable by this process"
         )));

@@ -475,6 +475,189 @@ completing the planner**. Groups 1–7 and this group's ordered proof/gates are
 prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
+### Implementation delivery — third security hold, 2026-09-20
+
+This implement seat executed the breakdown above on `slice-dsh-composite-b`
+(adopted through `6e8dd5b5`, every commit kept) in worktree `brokkr-wt-dsh88b`,
+Linux x86_64, target `x86_64-unknown-linux-gnu` (glibc), stable cargo 1.98.0
+for the gates and `nightly-2026-09-05` for coverage. The account separates
+what ran from what remains pending; it describes outcomes and directs no
+gate. Removal transcripts are in `.forge/third-hold-removals.md` and the gate
+logs under `.forge/gate-*.log`.
+
+**R1 — the oracle is the specification.** `Search::find` now has the
+library's own stages in the library's order: the name is admitted before any
+entry is read (`admit_program_name`: glibc/musl refuse more than `NAME_MAX`
+with ENAMETOOLONG, `posix/execvpe.c` 92–106); each component is sized as the
+library sizes it before a candidate is joined (`construction`: glibc/musl
+skip a component of `path_len = strnlen(path, PATH_MAX − 1) + 1` bytes or
+more, lines 112–119, with no errno; Apple's `posix_spawnp` stops when
+directory + name + 2 exceed its 1024-byte buffer, D10's `sys/posix_spawn.c`
+125–127); only a constructed candidate reaches the kernel, and only the
+kernel's errno reaches the switch (`step`: glibc continues on EACCES
+remembered, ENOENT, ESTALE, ENOTDIR, ENODEV, ETIMEDOUT, lines 136–158 and
+165–168, and stops on everything else — ENAMETOOLONG, ELOOP, EIO, EINVAL
+included; musl on EACCES, ENOENT, ENOTDIR; Apple on ELOOP, ENAMETOOLONG,
+ENOENT, ENOTDIR with EACCES remembered, and any arm this seat could not pin
+is a named limitation rather than a guess). `effective_exec_access` answers
+the kernel's errno instead of a boolean; `lookup_failure` decides each
+operation — metadata, access — on its own errno and names the operation in
+the refusal. A terminal cause wins over an earlier denial (the refusal
+returns at once); exhaustion reports the remembered EACCES. The compiled
+target selects the library (`LIBRARY`); every rule is a pure table a Linux
+run tests arm by arm, and `Search` carries the library so the whole search
+under another library's rule is a plain test too. Metadata ENAMETOOLONG is
+what the switch says it is — terminal on glibc — and never a stand-in for
+the buffer skip.
+
+**R2 — target rules are separate.** `default_search_of` keeps Apple's
+`/usr/bin:/bin` (Apple `include/paths.h` 63), adds FreeBSD's own
+`/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin` (FreeBSD
+`include/paths.h` 36–40), keeps glibc's `confstr` and musl's literal, and
+answers `Unestablished` — an explicit refusal, no other target's literal —
+for Android's bionic, the other BSDs, illumos and a Linux libc that is
+neither glibc nor musl. The ELOOP rule follows the same table: glibc stops,
+Apple continues, an unestablished library refuses. Apple's complete
+`posix_spawnp` switch beyond the arms D10 pinned is NOT pinned by this seat
+(no network in the seat; `exec.c`/`posix_spawn.c` could not be fetched), and
+that limitation is spelled in the code as a refusal, not a fallback.
+
+**R3 — env identity is the file.** `is_env(interpreter, metadata, reference)`
+compares device and inode with `/usr/bin/env`, and for a copy compares equal
+lengths and streaming bytes in 8 KiB buffers on the file that is open,
+checked to be the file that was inspected. `env_program` admits only the
+established invocation — the platform's env file under the name `env` — and
+refuses, before any probe, a copy or link under another name (the dispatch a
+multicall `env` makes on argv0 cannot be established without executing it)
+and an impostor named `env`; neither is `Ok(None)` admission.
+
+**R4 — ignored pnpm syntax is complete.** `pnpm_ignored` tracks member
+position and quote state: `{}`, `[]` and one trailing comma remain valid,
+leading/interior missing members and comma-only bodies refuse by position, a
+flow map's members must be `key: value` entries and a flow sequence's must be
+scalars (`split_flow_entry` keeps a `: ` inside a quoted scalar to the
+scalar). `pnpm_ignored_line` admits every line under an ignored section and
+under a block-form package child as a mapping entry or sequence item with a
+scalar key and an admitted value, naming the section or child in the refusal;
+the raw identity bytes, single read and 8,388,608-byte bound are unchanged.
+
+**F6/R5 — retained head and Node.** The retained-head repair stands (renewed
+by removal R9). The protocol companion
+`absent_path_node_identity_is_retained_by_the_composite` compares native
+`node -p process.execPath` with the private `Selected.node` and asserts the
+composite consumes that field (a distinct retained runtime moves the `node`
+line and the digest); the doctor Node arm additionally asserts a readable
+composite. This host has no `node` on its default search (`/bin:/usr/bin`),
+so both record the refusal arm and the POSITIVE with its two removals is
+PENDING, not passed.
+
+**R6 — every cell has its oracle.** The matrix moved to
+`composite/tests/native_matrix.rs`: 8 names × 26 layouts on Linux (24
+elsewhere) = 208 cells, each run in the INHERITED form (the parent stages the
+layout's `PATH` in a child test binary's environment; `Command::new(name)` and
+`resolve_executable` read the same environment, the `posix_spawnp` path) and
+the EXPLICIT form (`PATH` set on the `Command`, `fork`/`execvp` per Rust 1.88
+`unix.rs` 417–423; asserted equal on glibc, recorded elsewhere), plus a
+removed-component oracle for the eight length/file/nonexistent layouts and
+five named controls (overlong bare name, overlong explicit path, the NAME_MAX
+boundary, a 255-byte positive, the `sh` default-search positive): 453 oracles
+on this host. The child prints one `matrix-oracle:` line per completed native
+outcome and the parent asserts that set equals the declared inventory;
+unidentified output or an unsuccessful sentinel exit is a panic. The six
+lengths are individual layouts, each asserted on glibc by its own expected
+outcome (255/4096/5000 → B identity; 256/300/4095 → errno 36 and the
+`metadata answers File name too long (os error 36), on which the platform's
+lookup stops` refusal). Tally on this host: 79 equal selections, 39 NotFound
+parities, 43 terminal-error parities, 26 NUL refusals, 21 D10 loader
+exceptions recorded separately.
+
+**Tests added or strengthened.** Protocol: `native_matrix::native_executable_resolution_matches_command_matrix`,
+`the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`
+(six length cells with native oracles and removed-component controls, the
+overlong bare/explicit names with their oracles, the 255-byte positive),
+`the_lookup_rule_is_each_librarys_own_switch_arm_by_arm` (every arm of every
+library, construction arithmetic, name admission, `lookup_failure` by
+operation, the whole search under Apple/musl/unestablished rules),
+`env_identity_is_the_file_and_never_a_name`, the rewritten
+`an_env_argument_is_selected_as_the_kernel_hands_it_to_env` (system env,
+symlink named `env`, byte copy named `env`, `env-alias`, `uu_env` hard link,
+impostor; obstructed and valid chains; native control each),
+`each_platforms_absent_path_search_is_its_own_loaders_rule` (FreeBSD,
+unestablished rows), `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+(the five commissioned member vectors, mapping/sequence structure, body
+lines under `peerDependencies`, `snapshots`, `importers`, `settings`, and the
+readable body controls), `absent_path_node_identity_is_retained_by_the_composite`.
+Built doctor (`doctor_dsh_selection.rs`): `terminal_path_lengths_refuse_before_doctor_probe`
+(six lengths, per-length oracle and doctor marker directories, removed-component
+control each), `apple_default_search_excludes_confstr_only_directories`
+(macOS only; not run here), the rewritten env regression (six spellings,
+markers checked before lines), the strengthened Node arm, the R4 vectors in
+`ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`.
+
+**Removal proofs** (each a compiling mutation of the enforcing line, the
+named regression, the failed assertion, exact restoration, green rerun;
+transcripts in `.forge/third-hold-removals.md`):
+
+| Removal | Named regression → failed assertion |
+|---|---|
+| R1 blanket ENAMETOOLONG continuation (`step`, glibc arm) | table test `step(Glibc, NAMETOOLONG)` `Continue` ≠ `Stop`; classifier `expected a refusal` at the 256-byte cell; matrix `n0-l14/inherited` `ENAMETOOLONG is named as the stop it is`; doctor `256: doctor executed B where native lookup stopped` — marker `["DSH_B_LENGTH_SENTINEL_0.0.6"]` |
+| R2 pre-buffer skip removed (`construction`) | table `construction(Glibc, 5010, 5000, 3)` `Try` ≠ `Skip`; classifier 4096 cell refused where native ran B; matrix `n0-l15/inherited` `the resolver selects exactly the file the child ran` (cwd file after a 4096-byte skip); doctor `4096: doctor probed exactly B` — `[]` |
+| R3 access errors erased (`effective_exec_access`) | `path_resolution_walks_past…` `Err(EACCES)` ≠ `Err(ENOENT)` |
+| R4 terminal precedence erased (`find`, refused walked past) | classifier `expected a refusal`; matrix `n0-l8/inherited` `the resolver admitted the obstructed A`; doctor obstruction `doctor did not probe B in place of the obstructed A` and lengths `256: doctor executed B` |
+| R5a FreeBSD default = Apple's | table `Literal("/usr/bin:/bin")` ≠ FreeBSD literal |
+| R5b Apple ELOOP on glibc | table `step(Glibc, LOOP)` `Continue` ≠ `Stop`; classifier `expected a refusal`; matrix `n0-l9/inherited` `selected a file where the child stopped` (errno 40); doctor ELOOP arm probed B |
+| R5c Apple default = confstr | table `macos` `Library` ≠ `Literal("/usr/bin:/bin")` |
+| R6 absent PATH as empty entry (S1) | matrix `n0-l2/inherited` selected `cwd/dsh` where native found nothing; doctor `doctor executed the cwd dsh under an absent PATH` |
+| R6b backslash separator (S1b) | matrix `n4-l0/inherited` selected `cwd/C:\Tools\dsh.exe`; doctor `doctor executed the cwd C:\Tools\dsh.exe with PATH None` |
+| R7 basename env admission (spelled or canonical, alias followed) | protocol `expected a refusal` at `tools/uu_env` (launcher admitted); doctor `doctor probed nothing under "…/tools/uu_env"` — marker `["DSH_B_NODE_0.0.3"]` |
+| R8a empty-member elision | protocol `[true,,false]` lock `was accepted`; doctor `cpu: [,x64]` reported the control's composite |
+| R8b ignored-body bypass | protocol `snapshots … ms: '2.0.0` `was accepted`; doctor `peerDependencies` body reported the control's composite |
+| R8c control-byte guard bypassed (renewed) | protocol NUL tarball `was accepted`; doctor NUL vector reported the control's composite |
+| R9 post-probe reread (renewed) | protocol `expected a refusal` for the self-rewriting launcher; doctor `the observation reads the first line selection inspected` |
+| R10 unconditional absent-PATH refusal | matrix `n1-l2/inherited` `Err("PATH is absent")` where native ran; `an_absent_path_is_a_named_refusal…` and the Node companion's refusal arm; doctor `the default-search sh, selected and silent` (the sh positive). Node positive half PENDING |
+| R11 executable/home flattened | seams test `expected a refusal` at `resolve_with("dsh", None, [], None)` |
+| R12 harness: one name's oracles omitted | matrix `every declared cell invoked its oracle and no other did; missing ["n3-l0/explicit", …]` |
+| R13a unconditional native-image admission (renewed) | matrix `n0-l24/inherited` `admitted the obstructed A`; doctor `a native image with a missing loader:` A selected and probed |
+| R13b one-level interpreter admission (renewed) | classifier retained node `None` ≠ `Some(…/b/node)`; matrix `n0-l24/inherited` admitted A; doctor `a script whose interpreter has a missing loader:` A probed |
+
+Not re-mutated here: the second hold's scalar guards (quote closing,
+indicator refusal, typed plain scalar, header/outer separation, NBSP
+preservation) keep their dated records; the wrong-Node retention and the
+absent-PATH refusal against the Node POSITIVE are pending with the positive.
+
+**Gates on the restored candidate** (`git diff` after every removal shows
+only the repair; the tree at the gate runs is the tree committed):
+
+| Check | Actual outcome |
+|---|---|
+| `cargo fmt --all -- --check` | Exit 0, no output. |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | Exit 0, `Finished`, no warning. |
+| `cargo test -p brokkr-core --all-features --locked` | 73 + 3 + 8 + 2 passed, 0 failed. |
+| `cargo test -p brokkr-store --all-features --locked` | 58 + 1 + 1 + 1 + 1 + 2 passed, 0 failed. |
+| `cargo test -p brokkr-protocol --all-features --locked` | 377 + 99 (2 ignored) + 1 passed, 0 failed. |
+| `cargo test -p brokkr-runtime --all-features --locked` | 441 + 6 + 1 + 6 + 2 + 3 + 6 + 5 + 2 + 3 passed, 0 failed. |
+| `cargo test -p brokkr-view --all-features --locked` | 243 passed (3 ignored), 0 failed. |
+| `cargo test -p brokkr-bridge --all-features --locked` | 13 passed, 0 failed. |
+| `cargo test -p brokkr-cli --all-features --locked` | 463 + integration suites (`doctor_dsh_selection` 14) passed, 0 failed. |
+| `cargo test --workspace --all-features --locked` (15-minute timeout) | 75 `test result: ok` lines, 0 `FAILED`, no hang. |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` / `bundles/verify` | Both compiled; the plan JSON printed. |
+| `openspec validate --all --strict` | NOT EXECUTED: the seat refuses the `openspec` and `npx` commands (approval denied). Pending. |
+| `TMPDIR=/tmp bash scripts/coverage-exact.sh` | The literal script launch is refused by the seat (script files), and `/tmp` is a 31 GB tmpfs with 5.9 GB free, so the script's own steps were run by hand on the final bytes, unchanged pin and unchanged rule: `cargo +nightly-2026-09-05 llvm-cov clean --workspace`, then `cargo +nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch --json --output-path .forge/coverage-tmp/coverage.json` (fresh instrumentation in the default `target/llvm-cov-target` after the clean; 68 `test result: ok`, 0 `FAILED`, no `--ignore-run-fail`), then `cargo +nightly-2026-09-05 llvm-cov report --branch --lcov --output-path target/coverage/lcov.info`, the script's `jq` harness-leak check (`true`), and the script's LCOV rule — every `DA` and `BRDA` hit, every logical function by file + `FN` start line — transcribed in `.forge/lcovtool/src/main.rs` because the seat refuses `awk -f`. Reports preserved at `target/coverage/coverage-exact.json`, `target/coverage/lcov.info`, `target/coverage/coverage-summary.json`. **Lines 32069 / 32069 (100%), branches 5396 / 5396 (100%), functions 3108 / 3108 (100%)**, exit 0, on the candidate bytes committed below (working tree of `6e8dd5b5` plus this delivery). A first run on the pre-final bytes measured 32067/32069, 5393/5396, 3108/3108 — three pnpm branches in `pnpm_ignored`, `split_flow_entry` and `split_mapping_key` — closed by three vectors (`engines: {'a'b: 1}`, `os: ["a: b"]`, an unterminated quoted key in a `peerDependencies` body), not by exclusion. The denominator grew from the chief's 31848 lines / 5366 branches / 3088 functions by this delivery's own production lines; nothing was excluded. The literal script and CI's `coverage-exact` job on the final head remain the gate's own artifact and are pending until they run. |
+
+**Pending, recorded and not claimed.** Native macOS execution (the six
+lengths, ELOOP continuation, `apple_default_search_excludes_confstr_only_directories`,
+the Mach-O loader), native Windows matrix/doctor/`GetBinaryTypeW` and the
+Windows 1.88 MSRV build, the absent-PATH Node positive and its two removals,
+Apple's complete `posix_spawnp` switch pinning, `openspec validate`, and
+remote CI on the final head. No local clause changes state: 8.8.1.1 stays
+open on the Apple pin, 8.8.1.2/8.8.2.2 on native macOS/Windows, 8.8.2.1 on
+the same, 8.8.3.1 on the scalar-guard re-mutations, 8.8.8.1 on the Node
+positive, 8.8.8.2 on `openspec validate`, 8.8.8.3 on the literal script,
+8.8.8.4 with them. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4, groups 14–15
+were not touched; 8.8 stays unchecked; 0056 stays proposed; `contracts/`,
+`policy/`, `fixtures/`, `reference/`, `extensions/dsh/`, `docs/decisions/`
+are byte-identical; no push.
+
 ### Third-hold reconciliation of the prior delivery account — 2026-09-20
 
 This is the current account, superseding conflicting claims in the dated
