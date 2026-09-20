@@ -1,29 +1,24 @@
 ## Context
 
-Current commission: **DSH COMPOSITE IDENTITY — fourth security hold**, run
-`dsh-composite-identity-issue-226-5e82d607`. Adopt change
+Current commission: **DSH COMPOSITE IDENTITY — verify the delivered port**,
+run `dsh-composite-identity-issue-226-124cca78`. Adopt change
 `2026-09-09-226-session-resumption` and every commit on
-`slice-dsh-composite-b` through `d9297641`, including `314ed02b`.
-See proposal AR and AS1 for motivation and acceptance. No `returned_from`
-finding was supplied; clarification returned `clear`. The commissioned R1
-from chief run `efb3360b` is the finding answered here, together with AR's
-adopted R2–R11. Specification clearance does not clear the implementation hold.
+`slice-dsh-composite-b` through `3dfb3c5c5624179b00f946a5b98e1f200ba5e928`.
+See proposal answer AS and AS1 for motivation and acceptance. The delivered
+commits are `417354ec` (literal platform lookup and cwd refusal) and
+`25b40967` (file-established env invocations and ignored-pnpm structure).
+The only subsequent tracked change before this visit is proposal adoption.
+No `returned_from` finding is supplied; clarification returned `clear`.
 
-The controller's glibc-cwd record and chief's complete review show that the
-component iterator loses an implicit cwd attempt and normalized construction
-loses a separator byte. Inspection confirms `Search::find` still uses
-`split_paths`, `Construction::Skip` and `PathBuf::join`. `314ed02b` already
-supplies file-based env comparison, ignored-syntax guards and retained
-head/Node observations. Preserve that work; the remaining alias, block
-structure, cause and native-proof gaps have explicit decisions below. Native
-reproductions from other seats are attributed evidence, not this seat's runs.
-
-The complete robustness and simplicity positions were read and reconciled
-under D10. The source walk determines the next candidate before authorization
-is applied. Reaching cwd refuses even when native would continue past a
-missing cwd file. Absent PATH retains native defaults and its positive cases;
-explicit direct paths retain their separate commissioned meaning. Existing
-cause-bearing loader refusals remain. No production trial execution is added.
+The port is present. `glibc_walk` preserves the cursor on the delimiter after
+an oversized non-final component, and `Search::find` refuses the resulting cwd
+candidate before classification or a doctor probe. File identity and invocation
+qualification remain separate env checks. `IgnoredBody` retains parent,
+container and indentation state for ignored pnpm values. Loader/carriage,
+D6's sole producer and retained launcher/Node observations remain adopted.
+The previous fourth-hold design below is dated rationale and proof obligations;
+its statements that these delivered mechanisms still need implementation are
+superseded by this adoption, not instructions to redo them.
 
 The retained rc.2 inputs and D6 serialization remain unchanged:
 
@@ -38,22 +33,31 @@ The core remains `@deepseek-ai/dsh` 0.1.5-rc.2 with the recorded integrity,
 files. Builds/tests do not read `.forge/` identity inputs. This phase changes
 no identity, declaration, provider qualification or installed bytes.
 
-The dialect's own files and rendered design instructions were read through
-workspace hands, without invoking a workflow runner. `design.md` is the
-primary artifact. The return instruction also requires coherent dependent
-artifacts: amend the affected current `tasks.md` clauses after this design,
-using their existing addresses. This is the minimal dependency repair needed
-because the old task matrix still promises B after oversized components.
-Proposal AR and AS1 already answer the ambiguities as scenarios; no upstream
-specification fault or new scenario is needed. Preserve dated execution
-accounts, update current dispositions, and commit exactly these two OpenSpec
-artifacts. Run-local evidence and the mandatory result are not committed.
+Both complete design positions and both commissioned controller JSON records
+were read. D10 reconciles every position claim against the delivered code and
+recorded proofs. Neither position establishes a new production defect. Their
+agreement supports this design adoption; independent verify and the full review
+council have not returned verdicts in this run. The design chief supplies no
+substitute verdict and invokes no workflow runner.
 
-Only 8.8(a)–(c) are commissioned. This checkpoint delivers design and dependent
-planning corrections. Production loop/parser repairs, native and removal
-proofs, full green Rust gates and fresh literal exact coverage remain owed.
-8.8 stays unchecked and 0056 proposed. Frozen paths, extensions and decision
-files remain unchanged. No provider probe, archive, push or release follows.
+The dialect's repository instructions (`dialects/openspec.json`,
+`dialects/openspec/design.md`, `dialects/openspec/return.md`) and rendered
+`openspec instructions design --change 2026-09-09-226-session-resumption --json`
+were read through workspace hands. This phase's declared tracked artifact is
+**design.md only**. Proposal AS already supersedes visit-relative pre-delivery
+accounts. Existing AS1 scenarios, task predicates, recorded removals and pending
+checkboxes remain coherent without a behavioral or task-state amendment.
+No earlier-artifact fault or newly answered behavioral ambiguity was found.
+
+Only 8.8(a)–(c) are adopted as delivered: the closed optional declaration and
+private carriage, sole composite producer, and doctor observation of the selected
+installation. This checkpoint reconciles their design and evidence. Fresh Rust
+gates could not execute because Cargo is absent from these workspace hands;
+strict OpenSpec validation did execute. The validation account below distinguishes
+controller results, retained reports and fresh attempts. **8.8 stays unchecked**;
+part **(d)**, **8.10**, **9.6** and native **macOS/Windows** evidence remain pending.
+Decision **0056 stays proposed**, and all frozen/extension/decision bytes remain
+unchanged. No archive, enablement, push or release follows from this checkpoint.
 
 Earlier CODEX ENABLEMENT commission, retained as dated history:
 
@@ -427,12 +431,12 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
-**Current goals:** Preserve the native candidate byte sequence through private
-literal platform walks, then refuse the reached cwd candidate with cause
-precedence. Carry invocation and lookup evidence through DSH/Node selection;
-complete supported env-alias and ignored pnpm structure admission; prove the
-retained observations consumed by composition. Reuse the existing producer,
-seams and oracle suites with independent identity, cause and marker assertions.
+**Current goals:** Adopt and verify the delivered private platform walks,
+ordered cwd refusal, file-established env invocation, ignored-pnpm structure
+and one selected observation through doctor and composition. Reconcile both
+positions and preserve discriminating proofs, exact causes and evidence
+provenance. A concrete verification/council finding warrants its scoped repair
+and removal proof; absent such a finding, preserve the delivered implementation.
 
 **Current non-goals:** No public resolver framework, candidate-event stream,
 loader emulator, production trial execution, YAML implementation, new crate,
@@ -882,16 +886,18 @@ and measured confirmation/accounting rules.
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
 | DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay, folding the bound route overlay ahead of those rows where the bundle carries one (below); use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
 
-**Current fourth-hold correction (2026-09-20).** AR/AS1 and D10's fourth-hold
-sitting govern the candidate byte walk, reached-cwd refusal and remaining
-R2–R11 obligations. Adopt `314ed02b`'s mechanisms and fixed inputs. Complete
+**Current delivered-port adoption (2026-09-21).** Proposal AS and D10's
+current sitting adopt `417354ec` and `25b40967` over the preserved `314ed02b`
+mechanisms and fixed inputs. Candidate bytes/order, reached-cwd refusal,
 cause/invocation retention, supported env aliases and ignored-body structure
-without rebuilding the producer or observation carriers. The following are
-final-behavior obligations, not claims of implemented closure.
+are delivered. Preserve the producer and observation carriers. The following
+(a)–(c) rules describe the adopted implementation contract, not a commission
+to repeat completed work; D10 records outstanding evidence and review.
 
 **Retained digest-only correction (2026-09-19).** N1 has now exercised the
 version escape in the DSH row: the selected core is `@deepseek-ai/dsh`
-0.1.5-rc.2 with the registry integrity recorded in Context. The controller
+0.1.5-rc.2 with the registry integrity recorded in the AS1 delta
+and the adopted qualification account. The controller
 verified the replacement accessor on that exact release and re-qualified the
 adapted pair on the canonical local-tarball install. The rules below supersede
 the older rc.1 examples only as current inputs; those examples remain dated
@@ -2263,7 +2269,82 @@ tracked artifact to its exact subject head.
 
 ### D10 — Proposed 0056 and explicit council reconciliation
 
-#### Fourth security-hold reconciliation — 2026-09-20, adopted `d9297641`
+#### Delivered-port adoption — 2026-09-21, adopted `3dfb3c5c`
+
+Adopt proposal AS, all existing AS1 scenarios, and both delivered commits.
+Read the complete current positions, pinned here because their run-local paths
+are reused between sittings:
+
+- Robustness, `.forge/design/positions/robustness.md`, SHA-256
+  `781934848f2d8e590eb1067d42cd4778fa4afc6fd514be9c05fe5556c3d45afa`.
+- Simplicity, `.forge/design/positions/simplicity.md`, SHA-256
+  `fbe67e44b891fac266327356ee246f84dfca0ddef5c81750e82ce779ad9d523a`.
+
+Their present claims agree on preserving the port, but each claim is adopted
+for the evidence below. Neither position's pass is a delivery-gate or review
+verdict. Earlier positions' claims about missing loop/env/parser implementation
+are historical and do not describe these committed bytes.
+
+| Position claims | Disposition, evidence and alternative rejected |
+|---|---|
+| Robustness R1 and simplicity §1: preserve literal walks, candidate origin, cwd refusal and terminal-cause precedence. | Adopt. `glibc_walk` preserves `p = subp` at the oversized continue and constructs the extra slash; `Search::find` consumes `Origin` before candidate classification. `refuse_working_directory` retains an established terminal metadata cause. The native matrix has independent declared/executed inventories and the delivered doctor regression checks execution markers. Reject split/filter/join, global PATH prevalidation, skipping cwd to B, or broadening this commission into canonical-alias policing. Earlier success, absent-PATH defaults and explicit paths keep their adopted semantics. |
+| Robustness R2 and simplicity §1: retain target/operation distinctions without a public resolver framework. | Combine. Existing `Library`, `Operation`, `Try` and the private walks distinguish GNU cursor behavior, musl advancement and Apple's exec/spawn forms; `Search::for_env` preserves nested exec semantics. Removing these distinctions loses an observed outcome; a configurable continuation registry adds unsupported policy. Native macOS/Windows results and immutable source pins remain evidence debts, not Linux-derived support claims. |
+| Robustness R3 and simplicity §3: file identity is necessary and invocation semantics must also be established. | Adopt both. `is_env`, `env_dispatch`, `env_invocation` and `env_program` are delivered. Tasks records E1–E4 failing the intended protocol and built-doctor assertions, then restored green: successful `uu_env`, impostor, own-name and prefix controls distinguish blanket alias refusal from guessed admission. Reject name-only recognition, blanket same-bytes authority, utility trial execution and new env syntax. Preserve named limitations for unestablished dispatch. |
+| Robustness R4 and simplicity §4: retain ignored-body structure within the closed pnpm dialect. | Combine. `Member`, `Frame` and `IgnoredBody::admit` separately enforce scalar parents, collection kind and valid dedents. P1–P3 independently fail their intended producer/doctor assertions; valid nested controls remain. Reject a line-only skip, blanket ignored-body refusal, a YAML dependency/AST, or new arbitrary limits. Keep the inclusive 8,388,608-byte bound and existing identity bytes. |
+| Robustness R5 and simplicity §2: one selected observation survives the diagnostic probe. | Adopt. Doctor matches `DshSelection` before probing, and carries `DshSeams` into composition. The delivered `Selected { path, node, head }` preserves launcher and Node observations; failed executable selection supplies diagnosis only, while a home failure leaves valid executable/version evidence intact. Reject doctor-specific lookup, reopening the launcher, banner-based Node equality, persistent observation records and lifetime-integrity claims. The real absent-PATH Node positive and its two removals remain pending. |
+| Robustness R6 and simplicity §2: preserve the closed declaration and sole identity producer. | Adopt. `resume_identity` admits only the measured or unknown form and exact lowercase 64-hex optional digest. The private composite and D6 locators/serialization remain unchanged, including complete-triple deduplication, declared bundle order, containment and conditional bytes. Reject a second producer, canonical lookup-anchor substitution or lock fallback. Fixed rc.2 inputs and their recorded outputs remain test constants, with no runtime `.forge/` dependency. |
+| Robustness R7 and simplicity's evidence/cuts: keep discriminating proof and adopt completed removals. | Adopt. The matrix compares actual identity/cause outcomes; doctor checks forbidden execution before report prose. The task account records E1–E4/P1–P3 and earlier loop/cwd/cause controls. These executions are inherited, not rerun by this seat. Reject a replacement harness, replaying all unchanged mutations, or treating branch execution/PENDING output as a native positive. A new finding requires its own compiling removal, named assertion, exact restoration and green rerun. |
+| Both positions' remaining cuts, risks and migration claims: preserve scope and evidence ownership. | Adopt. No new crate, public API, candidate journal, cache, snapshot, descriptor-based launch, installation flow, digest format or provider qualification is needed. Platform-specific duplication is justified by differing native walks. Retained reads do not make the filesystem atomic. Update the current design account while preserving dated evidence; no wholesale history rewrite or extra tracked evidence document is warranted. |
+
+**Answers and reasoned refusals.** The commissioned rule remains **never cwd,
+otherwise native**, with AS1's existing cause-bearing loading limitations.
+A reached search-derived cwd candidate refuses even when no cwd file exists;
+it is neither selected nor skipped. Earlier success still wins. This sitting
+answers no new behavioral ambiguity, so it adds no duplicate scenario or
+acceptance rule. The existing cwd, alias, structure and observation scenarios
+already govern what was delivered.
+
+Accept the controller's explicit disposition of the prior boxed #255 ETXTBSY
+failure: its green rerun is green, and the unboxed controller ran all seven
+crate suites at `25b40967`. Reject using that historical flake to reopen the
+port or call this candidate broken. Fresh confirmation is still distinct from
+adoption. This chief's attempted gates stopped because Cargo is absent; no
+test ran or demonstrated a committed-code defect. That is not an upstream
+specification fault and does not waive any evidence obligation.
+
+The current commission prohibits boxed workspace tests. Its sequential
+crate-scoped checks govern this visit, superseding historical workspace commands
+below. The unchanged exact script's workspace test invocation belongs on a
+capable host; by-hand boxed collection must retain its isolation, pinned
+compiler, source-exclusion and exact nonzero integer checks while running
+crates individually. This seat stopped at the unavailable Cargo prerequisite.
+No wrapper, exclusion, denominator, pin or threshold change is justified.
+
+**Dependency and review disposition.** AS adopts the delivered behavior without
+changing any of the 20 requirements / 219 scenarios. Tasks already contains the
+two delivery accounts and seven completed removals; its pending predicates
+retain the named native/source-pin/retained-Node/validation debts. Preserve its
+IDs and ticks. Its dated fourth-hold work ordering is provenance, not a new
+commission to repeat completed implementation. This design amendment changes
+no dependent acceptance predicate, so only the declared design artifact is
+committed. No earlier artifact is found faulty; `upstream` would require such
+a finding, not an unavailable tool.
+
+Independent verify and the full review council remain outstanding. This chief
+neither runs the workflow nor converts the two design positions into that full
+review. A returned concrete finding belongs to its owning artifact and exact
+repair, followed by removal proof and another verification/review; an earlier
+specification fault must be returned `upstream`. With no returned findings,
+this sitting supplies no production edit or repeated implementation campaign.
+
+**Scope remains explicit:** 8.8(a)–(c) are adopted as delivered, while **8.8
+stays unchecked**. Part **(d)**, **8.10**, **9.6**, native macOS/Windows evidence
+(including Windows MSRV), immutable Apple/env source pins and the retained-Node
+positive/removals remain pending. Capable-host exact coverage and final-head
+remote CI remain pending. No broader #226 work, frozen surface, extension or
+decision is changed; 0056 remains proposed.
+
+#### Historical fourth security-hold reconciliation — 2026-09-20, adopted `d9297641`
 
 Adopt AR/AS1 and every branch commit, including `314ed02b`; the third-hold
 implementation is retained work, not proof of this hold's closure. Read the
@@ -4719,7 +4800,38 @@ the supplied record even after this assertion subset passes.
 
 ### D11 — Verify transitions and trace every requirement
 
-For the current **fourth** DSH security hold, AR/AQ, AS1 and D10 bind R1–R11
+For this **delivered-port verification** commission, proposal AS and the
+current D10 sitting adopt the existing proofs and require fresh evidence to
+remain distinct from inherited results. The commission's boxed-workspace
+prohibition supersedes the historical workspace-test commands below. On the
+actual committed candidate, the current checks are:
+
+- `cargo fmt --all -- --check`.
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`.
+- `cargo test -p <crate> --all-features --locked`, one crate at a time in order:
+  core, store, protocol, runtime, view, bridge, CLI (each prefixed `brokkr-`).
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  the corresponding `bundles/verify` compilation.
+- `openspec validate --all --strict`.
+- Exact coverage using the unchanged `rust-nightly-version.txt` pin, fresh
+  isolated target/profiles, all-feature instrumentation, JSON/LCOV reports,
+  harness/source-exclusion checks and nonzero integer equality on all three
+  axes. Any by-hand boxed collection runs crates sequentially and records its
+  differences from the script; it does not claim a literal-script pass.
+  The unchanged script and namespace-dependent validation run only on a
+  capable host/CI outside the box, with that result pending until observed.
+
+Record every command's revision and actual outcome. For the commissioned #255
+Text-file-busy flake, retain the failed observation and rerun the affected
+crate: a green rerun is green. No such test ran in this chief's Cargo-less
+hands. Current coverage counts remain unavailable when collection cannot start;
+a retained report recount is attributed separately, never substituted.
+Independent verify/full review and final-head remote CI retain their own
+results. This checklist changes neither acceptance nor the coverage gate.
+
+Earlier fourth-hold verification scope, retained as history:
+
+For that **fourth** DSH security hold, AR/AQ, AS1 and D10 bind R1–R11
 and preserved earlier repairs to existing protocol/doctor suites and the named
 native/removal proofs. Source coverage cannot prove the matrix complete: the
 same branch can be covered while its cursor update omits a native cwd attempt.
@@ -4942,7 +5054,8 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 ## Risks / Trade-offs
 
-Current fourth-hold DSH risks and dispositions:
+Current delivered-port risks and dispositions (the existing mitigations are
+adopted; their presence does not replace independent verification):
 
 - [A component abstraction loses a native iteration or separator] → port
   cursor and bytes together, cite source blocks, and assert both Command forms
@@ -4961,9 +5074,10 @@ Current fourth-hold DSH risks and dispositions:
   input never becomes the valid control's composite.
 - [A matching Node banner hides wrong retained identity] → compare actual
   seams.node and require a readable composite from that same observation.
-- [Historical green evidence conceals a missing run] → record candidate-bound
-  commands, oracle inventory and literal integers; native/coverage gaps stay
-  pending, and failed gates remain failed.
+- [Historical green evidence conceals a missing run] → distinguish controller
+  measurements, retained report checks and fresh attempts. Cargo is unavailable
+  in this seat; native/coverage gaps stay pending. A named ETXTBSY failure with
+  a green rerun is recorded as such, without treating it as a production defect.
 
 Preserved DSH risks and dispositions:
 
@@ -5303,36 +5417,30 @@ Earlier whole-change and Pass B risks remain recorded below:
 
 ## Migration Plan
 
-For the fourth DSH security hold, adopt every commit through `d9297641`,
-including `314ed02b`, and AR/AS1. No persisted format, journal, installation or
-declaration migration is needed. Revise design first, then affected current
-task clauses, preserving their IDs/states and historical execution accounts.
-Implementation follows the existing ordered ownership:
+For this delivered-port adoption, preserve every commit through `3dfb3c5c`,
+including `417354ec` and `25b40967`, under proposal AS and AS1. No persisted
+state, journal schema, installation, declaration or composite-format migration
+is needed. DSH remains unmeasured and disabled for resume admission.
 
-1. Port literal native walks, preserving cursor, candidate bytes and exact
-   causes; apply the reached-cwd barrier. Extend both mandatory regressions
-   together, including both forms and component/slash removal controls.
-2. Complete supported env file/invocation identity and Apple nested-operation
-   qualification; preserve bounded loading and retained Node/head carriers.
-3. Complete ignored pnpm parent/container structure and its valid controls,
-   retaining scalar/separator/Unicode/key guards and canonical serialization.
-4. Execute the actual retained-Node/readable-composite positive and both
-   mutations; preserve launcher-head and independent executable/home proof.
-5. Run independent compiling removals, restore exact bytes, then run D11's
-   full candidate gates and record only actual outcomes and fresh counts.
+1. Reconcile this design to the delivered code and both complete positions.
+   Preserve existing requirement/scenario/task identities and recorded proofs.
+2. Record the actual candidate checks and their provenance. Independent verify
+   and the full review council assess the unchanged port; missing local tooling
+   and absent native results remain evidence limitations.
+3. If a concrete finding returns, repair exactly its owner, prove it by removal,
+   restore green and revalidate the resulting committed bytes. If an earlier
+   artifact is wrong, return that fault upstream before downstream repair.
+4. Completion/shipping evidence remains the owning phases' result. This design
+   checkpoint neither clears review nor closes 8.8 or the whole change.
 
-Valid measured identity bytes stay unchanged. Reached empty search entries
-now refuse even when native would continue to B; absent-PATH default positives
-and earlier non-cwd successes remain admissible. No re-pin or provider
-remeasurement follows. A rollback of enforcement reopens its finding and must
-withdraw its completion claim; it cannot present unsafe fallback as accepted.
-DSH remains unmeasured and disabled for resume admission.
+The delivered search refusal preserves native order and accepted identity
+bytes. A rollback that removes enforcement reopens its finding and withdraws
+its completion claim; it cannot describe a restored unsafe fallback as accepted.
+Part (d), 8.10, 9.6 and native macOS/Windows evidence remain pending. No release,
+archive, provider enablement or frozen/extension/decision edit accompanies this
+adoption. Decision 0056 remains proposed.
 
-This checkpoint delivers design and dependency corrections only. Production
-repairs, removal/native executions and fresh literal coverage remain owed.
-8.8 stays unchecked, 0056 proposed, and (d), 8.10, 9.6, 10.6–10.8,
-11.1–11.4 and groups 14–15 stay excluded. Frozen surfaces, extensions and
-decision files retain their bytes. No release, archive or remote pass follows.
+Earlier CODEX ENABLEMENT migration account, retained as history:
 
 For CODEX ENABLEMENT, adopt AC at `d0b4f639`, item 1 at `85cf6d55` and
 completed 10.5 at `9da5ff92`. This chief commits exactly `design.md` unsigned.
@@ -5543,21 +5651,19 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No build-affecting fourth-hold choice is deferred. AR/AS1 settle the behavior;
-D10 chooses private byte/cursor ports, ordered cwd refusal, structured cause
-retention, invocation-specific Apple handling, supported file-based env
-admission and pnpm parent/container checks. No earlier specification fault
-has been established.
+No new policy or design choice is deferred by this delivered-port adoption.
+AS/AS1 and the delivered private structure settle the approach; the current
+D10 sitting records both positions' answers and rejected alternatives.
 
-Native target/compiler results, immutable source-revision capture, supported
-utility-invocation qualification, real default-search Node, removal outcomes
-and fresh coverage counts are outstanding evidence, not policy questions.
-Exact private helper factoring may be settled during implementation without
-changing the required candidate sequence or proof. If nonexecuting inspection
-cannot establish a required positive, report the concrete limitation in the
-owning artifacts; do not blanket-refuse positives, choose a favorable native
-API or invent an outcome. A demonstrated earlier-contract fault returns
-`upstream`; missing implementation evidence does not weaken that contract.
+Outstanding questions concern evidence: native macOS/Windows and Windows MSRV,
+immutable Apple/env source pins, the default-search retained-Node positive and
+its two removals, fresh Rust validation in capable hands, capable-host exact
+coverage, and independent verification/full review. Those results cannot be
+inferred from Linux code inspection, historical passes or a retained report.
+Their absence authorizes neither guessed behavior nor weaker acceptance.
+Cargo's absence here is not a specification ambiguity or upstream fault.
+
+Earlier CODEX ENABLEMENT questions, retained as history:
 
 No design choice is deferred for CODEX ENABLEMENT. D10 answers all four
 robustness questions and rejects the unsupported handle-repair trace. The
@@ -7102,3 +7208,42 @@ gates and a fresh literal coverage pass on a capable host. Native platforms,
 MSRV and final-head remote CI stay pending until observed. The design result
 is `drafted`, not security-hold clearance. No task tick, proposed 0056 change,
 provider enablement, archive, release or push follows.
+
+## Council design validation — delivered port, 2026-09-21
+
+Run `dsh-composite-identity-issue-226-124cca78`; adopted entry HEAD
+`3dfb3c5c5624179b00f946a5b98e1f200ba5e928`, clean before this design edit.
+Both delivered commits are ancestors. Comparison with `25b40967` shows only
+the proposal adoption before this visit; implementation, tests, Cargo files,
+bundles, coverage rules, compiler pin and frozen surfaces are unchanged.
+Read README, decisions 0004/0005/0009, proposed 0056 status, dialect instructions,
+proposal AS, AS1/D6/D10, task delivery/removal records, both full positions and
+both commissioned controller records. Inspected the delivered lookup, env,
+pnpm, loader, doctor and native/doctor proof surfaces.
+
+| Check | Actual evidence and limit |
+|---|---|
+| Sequential crate-scoped suites, this chief at entry HEAD | Seven separate `cargo test -p <crate> --all-features --locked` attempts, one at a time: core, store, protocol, runtime, view, bridge, CLI. Every command exited **127**, `cargo: command not found`. No tests executed; no fresh Rust pass or test failure is claimed. |
+| Controller's unboxed suites at `25b40967` | core 86, store 64, protocol 477, runtime 534, view 243, bridge 13, CLI 775: **2,192 passed, 0 failed**. Adopted from `controller-branch-gates-2026-09-21.json`, not measured by this chief. |
+| Format and clippy | Exact commissioned format and locked all-target/all-feature clippy commands exited **127** here. Controller reports both clean at `25b40967`; fresh execution is unavailable. |
+| Self and verify bundles | Both commissioned `cargo run --locked -p brokkr-cli -- compile --bundle ...` attempts exited **127** here. Adopted delivery account records both compiled; no fresh build is claimed. |
+| Strict OpenSpec | `openspec validate --all --strict`: **exit 0, 15 passed, 0 failed** before and after the design amendment. Existing informational archive-readiness notices remain whole-change debt. |
+| Fresh exact-coverage preparation | Selected unique run-local target storage and `nightly-2026-09-05`; `cargo +nightly-2026-09-05 llvm-cov clean --workspace` exited **127** before instrumentation. Fresh collection/reporting and all three fresh integer pairs are **unavailable**. No workspace test invocation or literal-script run occurred. |
+| Retained coverage report, separately checked | Applying the unchanged script's own AWK counting program to `.forge/scratch/coverage/lcov.info` reproduces **32322/32322 lines, 5440/5440 branches, 3139/3139 functions**, all nonzero and equal. Its retained JSON has zero harness-source leaks. These match the controller-attributed delivery report and are **not a fresh measurement or literal-script pass**. |
+| Source exclusions and toolchain agreement | Current tracked Rust has no `coverage(off)` exclusion. CI, release and coverage consume the same unchanged `rust-nightly-version.txt` pin. This source inspection does not execute coverage. |
+| Scope and whitespace | `git diff --check` clean; only this design artifact changes. Production/test/frozen/extension/decision paths, proposal/specs/tasks and task checkboxes remain unchanged. |
+
+Run-local attempt logs and the retained-report check are under
+`.forge/design/validation-124cca78/`; they and the required engine result are
+untracked run artifacts, not committed design files. The retained coverage
+reports were read, not replaced. No toolchain was installed or boundary bypassed.
+No new production defect was established, so no implementation or removal
+campaign was started. Existing E1–E4/P1–P3 and earlier proofs remain adopted.
+
+The result is **drafted**, with `inputs.change` set to
+`2026-09-09-226-session-resumption`. It records design reconciliation only.
+Independent verify/full review, capable-host exact coverage and final-head
+remote CI remain pending. **8.8 stays unchecked**; **(d), 8.10, 9.6 and native
+macOS/Windows evidence remain pending**, alongside the named source-pin and
+retained-Node debts. **0056 remains proposed**. No shipping or whole-issue
+completion is claimed, and nothing is pushed.
