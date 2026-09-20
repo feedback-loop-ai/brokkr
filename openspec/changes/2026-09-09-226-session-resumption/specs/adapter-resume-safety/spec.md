@@ -892,8 +892,8 @@ read as history, not as a current claim.
 - **AND** the existing task addresses and excluded work remain unchanged and 8.8 remains unchecked
 
 #### Scenario: Fresh exact coverage cannot be replaced by retained perfect reports
-- **GIVEN** historical complete coverage and the chief's failed literal run with 31672/31848 lines, 5352/5366 branches and 3078/3088 functions at the adopted head
-- **WHEN** `TMPDIR=/tmp bash scripts/coverage-exact.sh` runs on the actual candidate with its pinned compiler and fresh unique instrumentation build
+- **GIVEN** historical complete coverage and a failed exact-coverage run precede the current candidate
+- **WHEN** the exact-coverage gate prescribed by the current change's planning artifacts runs on the actual candidate with its pinned compiler and fresh unique instrumentation build
 - **THEN** the record states that run's actual covered/total source-line, branch and function integers, revision, command and exit status, with the fresh reports retained
 - **AND** only nonzero literal 100% equality on all three axes satisfies coverage; retained profiles, a hand-transcribed equivalent, reduced denominators, ignored failures or rounded percentages cannot replace the unchanged gate
 - **AND** inability to obtain a report is recorded with unavailable counts, and a namespace-blocked or failed run remains pending/failed until capable-host or CI evidence exists; no unavailable result is invented
@@ -960,7 +960,7 @@ read as history, not as a current claim.
 - **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
 - **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
 - **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence
-- **AND** delivery additionally requires format, all-target/all-feature clippy with warnings denied, all seven crate-scoped all-feature locked suites green, workspace tests, self and verify bundle compilation, strict OpenSpec validation, and the fresh literal exact-coverage scenario above; retained instrumentation and historical runtime failures supply no current exemption
+- **AND** delivery additionally requires every validation obligation prescribed by the current change's planning artifacts and applicable house rules, including the fresh literal exact-coverage requirement above; concrete commands and the candidate checklist remain in the proposal and task breakdown under PM4, and retained instrumentation or historical failures supply no current exemption
 - **AND** those proofs deliver task 8.8(a)–(c) only; `dsh_launch`/`dsh_launch_with`, planner production behavior, 8.10's remaining cases and the 8.8 checkbox remain pending
 
 #### Scenario: npm nested and scoped keys produce reproducible dependency values

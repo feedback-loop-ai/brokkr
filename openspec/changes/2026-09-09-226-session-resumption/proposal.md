@@ -1,5 +1,23 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify return adopts `2026-09-09-226-session-resumption` and every
+commit through `b30c69ff54e08aa63e36f8678b3255443ba23f57` on
+`slice-dsh-composite-b`, for run `dsh-composite-identity-issue-226-efb3360b`.
+Answer AQ accepts `returned_from` analyze's A1: two AS1 scenarios promoted
+this commission's concrete validation commands into standing requirements,
+contradicting PM4 and answer C. The proposal is amended first, then those
+owning scenarios. AS1 retains fresh literal coverage, truthful evidence and
+named removal proofs; AP and tasks 8.8.8.2–8.8.8.3 retain the commissioned
+commands and checklist. No delivery obligation is waived.
+
+This return repairs the specification's ownership conflict. It does not
+establish implementation, native-oracle/removal, platform or coverage results,
+or clear the third security hold. Only 8.8(a)–(c) is commissioned, 8.8 stays
+unchecked and 0056 stays proposed. Design and tasks already carry compatible
+candidate-validation obligations and need no amendment for A1.
+
+Earlier third-hold specify adoption, retained as dated history:
+
 This specify visit adopts `2026-09-09-226-session-resumption` and every
 commit through `8668aebc71cd3371a6c1f16a96cad12532e78108` on
 `slice-dsh-composite-b`, for run `dsh-composite-identity-issue-226-efb3360b`.
@@ -334,6 +352,10 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
 
 ## What Changes
 
+- Answer analyze A1 by keeping AS1's evidence requirements independent of
+  this commission's command spelling and delivery checklist. AP and the
+  existing task breakdown retain those particulars under PM4 and answer C;
+  the fresh exact gate, native oracle and removal obligations are unchanged.
 - For the **third security hold**, separate the native pre-execution buffer
   skip from terminal ENAMETOOLONG. Keep glibc's exact continuation set and
   source citations; qualify Apple and other targets independently. Require
@@ -349,8 +371,9 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   bundle compilation and exact coverage remain delivery obligations; missing
   executions stay pending and historical numbers do not certify this candidate.
 
-The following bullets retain earlier commissions and completed work. AP and
-AS1 control this visit; earlier AN/AO remain adopted where compatible with AP.
+The following bullets retain earlier commissions and completed work. AQ
+reconciles validation ownership; AP and AS1 retain the third-hold acceptance,
+and earlier AN/AO remain adopted where compatible with AP.
 
 - For the 2026-09-20 security-hold repair, adopt the existing loader,
   producer, measured fixture and doctor seam, then address the seven findings
@@ -3289,6 +3312,45 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   remote CI remain delivery evidence, not claims made by this amendment.
 
 
+- **AQ — Analyze return A1, 2026-09-20: keep delivery particulars in planning.**
+  Accept the MEDIUM inconsistency finding at adopted `b30c69ff`. The AS1
+  scenarios “Fresh exact coverage cannot be replaced by retained perfect
+  reports” and “Digest acceptance is proved by removal without completing
+  the planner” embedded a concrete coverage invocation and this commission's
+  validation checklist. A normal capability fold would promote both. PM4 and
+  answer C instead reserve such particulars for the proposal and tasks so a
+  later commission can choose different settings without changing the
+  standing capability. The earlier AS1 amendment introduced this conflict;
+  native-equality semantics and the commissioned gates are not at fault.
+
+  The coverage scenario now describes the current change's prescribed exact
+  gate, fresh candidate instrumentation, actual three integer pairs and
+  literal nonzero equality. Historical counts are planning evidence, not
+  scenario preconditions. The digest-acceptance scenario requires all checks
+  prescribed by the current change and applicable house rules, alongside its
+  removal proofs and the fresh coverage requirement, without restating the
+  concrete checklist. These scenarios encode the ownership answer while
+  preserving failed/unavailable evidence, no inherited exemptions and the
+  scope boundary around planner work.
+
+  AP, design D11 and tasks 8.8.8.2–8.8.8.3 already retain this commission's
+  exact commands, compiler/clean-build settings, coverage counts to compare
+  and candidate evidence obligations. They remain coherent with the revised
+  AS1 and need no edits for this finding. PM4 and the other four deltas remain
+  unchanged. Reject weakening PM4 to keep the duplicated commands: it would
+  entrench the one-way-fold defect. Reject interpreting this correction as a
+  waiver or a passing gate: missing implementation, oracle/removal, native
+  platform/MSRV/Node-positive, coverage and final-head CI evidence remains
+  pending exactly where already owned.
+
+  This is the owning specify return, so no earlier immutable contract or
+  missing authority requires `upstream`. The checkpoint is `drafted` with
+  the adopted change identifier. Only proposal and AS1 are authored and
+  committed; no task checkbox, frozen byte, extension or decision changes.
+  Decision 0056 stays proposed and 8.8 stays unchecked. Parts (d), 8.10,
+  9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain outside this slice.
+
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -5130,3 +5192,43 @@ no historical failure is waived. Result: `drafted`, with
 `inputs.change: 2026-09-09-226-session-resumption`. The third security hold
 remains open; excluded tasks, provider enablement and release actions remain
 outside this office.
+
+## Specify return validation — analyze A1, 2026-09-20
+
+Adopted every commit through `b30c69ff54e08aa63e36f8678b3255443ba23f57`
+on `slice-dsh-composite-b`. Read the dialect's own specify/return files and
+rendered proposal/specs instructions through workspace hands; no workflow
+runner was invoked. AQ accepts the returned A1 ownership conflict and the
+two owning AS1 scenarios encode the correction. The proposal was amended
+before the delta. AP, PM4, design D11 and tasks 8.8.8.2–8.8.8.3 remain
+coherent; their delivery obligations are preserved without dependent edits.
+
+Strict active-change validation, `openspec validate --all --strict` (**15
+passed, 0 failed**), artifact-status inspection and `git diff --check` passed.
+The inherited informational archive-readiness notices retain their previous
+disposition; this return performs no archive or delta-operation change.
+The structural/byte audit preserves all **20 requirements / 207 scenarios**,
+AS2–AS5, the other four deltas and all **115 task checkboxes (89 checked /
+26 unchecked)**. Only proposal and AS1 changed; the other **740 tracked
+files** retain their entry bytes. Protected paths also have no changes since
+`8668aebc`. Decision 0056 stays proposed and 8.8 remains unchecked.
+
+Fresh attempts at format, locked all-target/all-feature clippy, each of the
+seven crate-scoped locked all-feature suites, workspace tests and self/verify
+bundle compilation exited **127** because Cargo is unavailable. The literal
+`TMPDIR=/tmp bash scripts/coverage-exact.sh` exited **127 at line 33** before
+its clean instrumentation build for the same reason. Current covered/total
+counts are **lines: unavailable; branches: unavailable; functions: unavailable**
+(null counts, N/A percentages). No prior report stands in for this execution;
+no compiler pin, gate, exclusion or denominator changed. Attempt logs and the
+entry/structural audits are local evidence under
+`.forge/specify-a1-d1e12f11/`, outside the committed artifacts.
+
+Delivered: the A1 specification correction and its reasoned ownership answer.
+Pending: the commissioned production repairs, actual native-oracle and named
+removal proofs, green Rust checks, native platform/MSRV/Node-positive evidence,
+fresh capable-host exact coverage and final-head remote CI. The third security
+hold remains open. Result: `drafted`, with
+`inputs.change: 2026-09-09-226-session-resumption`. Parts (d), 8.10, 9.6,
+10.6–10.8, 11.1–11.4 and groups 14–15 remain outside this slice; no task
+completion, provider enablement, push or release is claimed.
