@@ -1,36 +1,29 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current commission: **DSH COMPOSITE IDENTITY — third security hold**, run
-`dsh-composite-identity-issue-226-efb3360b`, phase **tasks**. Adopt every commit
-on `slice-dsh-composite-b` through
-`76daef9d3a55c6194efa26513152387039639dda`, including tasks `b30c69ff`,
-proposal AQ/AS1 at `72c1d958` and the clarified D10 return at `76daef9d`.
-The controller's `controller-enametoolong-2026-09-20.json`, prior councils
-and task records remain evidence inputs. `returned_from` is design's
-**drafted** result: strict change validation passed, with informational
-archive refusals for the absent living `adapter-resume-safety` and
-`sdd-progress-markers` targets. These remain whole-change archive debt;
-they neither block this non-archiving breakdown nor certify archive readiness.
-The same dated change is active, so no archive reopen is needed.
+Current commission: **DSH COMPOSITE IDENTITY — fourth security hold**, run
+`dsh-composite-identity-issue-226-5e82d607`. Adopt every branch commit through
+`d9297641`, including `314ed02b`, proposal AR/AS1 and the fourth-hold D10
+reconciliation. This design return repairs the affected dependent clauses
+under the dialect's return instruction, after authoring `design.md`; it does
+not create a new task plan or claim implementation delivery. No `returned_from`
+finding was supplied; the commissioned chief R1 and adopted R2–R11 govern.
+The glibc-cwd controller record reconciles empty entries with absent-PATH
+native equality. Earlier dated task/delivery accounts below remain history,
+not current acceptance authority.
 
-Only **8.8(a)–(c)** are commissioned. Execute the eight numbered local groups
-below in order, completing each repair's focused tests and independent
-removals with it. Lookup/defaults precede interpreter admission and the full
-matrix; syntax follows; retained-Node integration and full validation finish
-the slice. Groups 4–7 preserve completed work. The prior tasks visit reopened
-**8.8.1.1, 8.8.3.1 and 8.8.8.1**; strengthened acceptance is not certified by
-their historical ticks. This return changes no checkbox state or identifier.
-All fourteen local addresses remain: **5 complete / 9 pending**. All 101
-change-wide identifiers retain **84 complete / 17 pending**; **8.8 stays
-unchecked**. No production repair or delivery acceptance is claimed here.
+Only **8.8(a)–(c)** are commissioned. Execute the eight existing local groups
+in order: lookup and doctor, interpreter/full matrix, syntax, preservation,
+then retained observations and full validation. Keep all fourteen addresses
+and their current **5 complete / 9 pending** states; all 101 change-wide
+identifiers retain **84 complete / 17 pending**. **8.8 stays unchecked**.
+This return changes no checkbox state. Historical checks do not certify the
+new loop, cwd, separator, structure or outstanding independent proofs.
 
-Every local checkbox names **safety / AS1 — Resume support is measured per
-adapter and execution shape**, in
-[the safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
-The five deltas contain **20 requirements / 207 scenarios**. Design's Open
-Questions defers no build-affecting choice; AP/AQ/AS1/D10 support this breakdown
-without an earlier artifact amendment. Existing whole-change requirements and
-task states remain intact.
+Each local checkbox serves **safety / AS1 — Resume support is measured per
+adapter and execution shape**, in [the safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
+The five deltas now contain **20 requirements / 219 scenarios**. AR/AS1
+already encode the answered ambiguities; D10 resolves the implementation
+choices. No earlier-artifact amendment or new identifier is required.
 
 Preserve D6's sole producer, fixed rc.2 inputs, canonical serialization,
 one-read observations, closed declaration/private assessment carriage,
@@ -50,38 +43,26 @@ partial slice stays active and performs no archive, enablement or qualification.
 
 ## Decisions
 
-Adopt AP/AQ and the clarified D10 third-hold choices, with their owning AS1
-scenarios. AQ resolves analyze A1: commands and candidate checklists belong
-in planning, while AS1 owns behavior and evidence semantics. Preserve the
-exact validation/removal obligations below; do not put their command checklist
-back into the capability delta. The returned archive notices concern a later
-fold outside this slice; resolving them now would exceed its scope. No new
-ambiguity or earlier-artifact change is needed to order this work honestly.
-**Nothing is ever selected that native lookup would not have executed, and
-nothing native lookup would have executed is silently replaced by a later
-candidate.** D10's named unprovable interpreter/loader refusal is the sole
-exception to ordinary positive equality; it authorizes neither probing nor a
-later substitute. PATH absence is not an exception. Retain S1/S1b, Unix
-slash-only direct paths, empty-entry order, override precedence/no-fallback,
-platform-qualified ELOOP and independent executable/home outcomes.
+Adopt AR/AQ and the fourth-hold D10 choices. AQ leaves concrete gates in
+planning; AS1 owns behavior and evidence semantics. The archive/fold remains
+outside this slice. Existing task addresses own the amendments below.
 
-Separate native construction eligibility from errors: the glibc pre-buffer
-skip cannot become blanket ENAMETOOLONG continuation. Use the inspected
-source algorithm and literal continuation set, then prove every boundary
-against the running platform's Command. Apple's invocation-dependent paths
-and other targets retain distinct rules. Source tables, synthetic errno
-controls and cross-compilation never certify native execution. Refuse a
-six-length special case, a guessed errno policy, a favorable test-only spawn
-API, unconditional absent-PATH refusal or a silently omitted oracle cell;
-each contradicts an existing AS1 scenario, so no new scenario is authored here.
+equality with native is necessary — nothing is selected that native would not execute — and not sufficient: a candidate in the working directory (an empty PATH entry, or the implicit cwd iteration glibc produces after an oversized skip) is NEVER selected and NEVER skipped past.
 
-Retain the existing fourteen clause addresses as D10 requires. Their current
-wording below supersedes prior task instructions for this slice. Historical
-implementation, mutation and coverage records keep their dated bytes, but the
-reconciliation table explicitly withdraws their disproved completion claims.
-The earlier broad BSD default, basename-based env identity, overlong-name
-no-match, banner-as-retained-Node and equivalent-coverage claims cannot govern
-this candidate. Preserve sound head/Node carriers and parser repairs.
+At the reached cwd candidate preserve an established native terminal cause;
+otherwise refuse with `the platform's search would fall into the working directory`,
+even when no cwd executable exists. Earlier success wins; absent PATH retains
+native default-search positives. Explicit direct paths retain their separate
+meaning. Named loading refusals remain and no failed selection permits a probe.
+
+Port each qualified platform walk and its bytes literally; reject split-entry
+classification, normalized joins, guessed long-name refusal, global PATH
+prevalidation and assumed Apple operation equivalence. Native source tables,
+cross-compilation and logged or skipped cells supply no execution credit.
+Adopt file-based env comparison, syntax guards and head/Node carriers from
+`314ed02b`, while completing supported aliases, structural admission and proof.
+The current dispositions supersede incompatible oversized-to-B, cwd-admission,
+sole-loader-exception and hand-transcribed-coverage claims in dated accounts.
 
 A removal is an independent compiling mutation of its enforcing rule, followed
 by a named regression reaching the intended identity/cause/no-execution
@@ -91,50 +72,49 @@ bare `is_err()`, unrelated failure or passing zero-test filter is not proof.
 Fixture-component removal is a separate positive control with its own native
 oracle. Notes describe outcomes; they never instruct or waive a gate.
 
-## 8.8.1. Repair native construction, error handling and target defaults — R1/R2
+## 8.8.1. Port native walks, cwd refusal, causes and defaults — fourth-hold R1/R2/R4–R7
 
-- [ ] 8.8.1.1 Repair `Search`, `lookup_in`, `classify_in`,
-  `effective_exec_access` and the existing selection callers in
-  `crates/brokkr-protocol/src/adapters/composite.rs`, retaining
-  `Candidate::{Admitted,Passed,Refused}` and outer fallible selection.
-  Before joining/inspecting a searched candidate, translate glibc's bounded
-  whole-PATH/program sizing, component iteration, separator/terminator
-  accounting and pre-buffer skip; preserve iteration after a skip and keep
-  direct paths separate. Cite the implemented source revision and exact
-  lines: D10 inspected glibc 2.42 `posix/execvpe.c` 92–106, 112–119,
-  126, 136–158 and 165–168. After attempted lookup, its continuation set is
-  exactly EACCES (remembered), ENOENT, ESTALE, ENOTDIR, ENODEV and ETIMEDOUT;
-  every other errno is terminal, including ENAMETOOLONG, Linux ELOOP, EIO and
-  EINVAL. Retain operation/raw cause/candidate/denial privately; preserve
-  access errors instead of reducing them to Boolean denial. Terminal cause
-  wins over earlier denial; exhaustion preserves remembered EACCES. Inspection
-  failure or an existing candidate's unprovable loader is a named D10 refusal,
-  never an invented lookup continuation. Establish the target lookup cause
-  for each operation; metadata/access/open errors are not interchangeable
-  with an exec error merely because the integer matches. Implement separate
-  source-qualified target/invocation rules: Apple's `/usr/bin:/bin`, FreeBSD's
-  `/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin`, established
-  GNU/musl rules, and no catch-all Apple default or ELOOP rule for other Unix.
-  Pin Apple `exec.c`/`posix_spawn.c` revisions/lines for their distinct length
-  paths and complete error handling; preserve Windows' separate Rust lookup.
-  An unestablished target rule is an explicit limitation, not a permissive
-  fallback. NUL refuses before filesystem/home work or probes; OS path bytes
-  and independent home errors survive, and no failed override falls back.
-  Establish the shared completed-oracle comparison and independent cell-ID
-  inventory in the existing matrix/classifier harness here, before changing
-  lookup. Add the six individually named length cells, overlong bare-name and
-  explicit-path cells, and fresh removed-component oracles needed for this
-  repair's acceptance; 8.8.2.2 later completes their cross-product and platform
-  inventory, rather than supplying a prerequisite after this task is ticked.
-  Verify the existing candidate classifier and
-  `each_platforms_absent_path_search_is_its_own_loaders_rule`. Supplement with
-  rare-errno/operation/denial-precedence unit controls,
-  explicitly not native evidence. Independently restore blanket ENAMETOOLONG
-  continuation, remove the genuine pre-buffer skip, erase access errors, erase
-  terminal/exhaustion precedence, and restore wrong-target defaults/ELOOP.
-  Require the corresponding exact cause or native B identity to fail and
-  restored tests to pass; native Apple discrimination belongs to 8.8.1.2
-  — safety / AS1.
+- [ ] 8.8.1.1 Repair private `Search`, `lookup_in`, candidate inspection and
+  selection in `crates/brokkr-protocol/src/adapters/composite.rs`, preserving
+  outer fallibility, overrides/no-fallback and independent home outcomes.
+  Port glibc 2.42 with safe byte offsets corresponding to `p`/`subp`: preserve
+  bounded sizing, empty entries, oversize check, final-component break, early
+  continue and later colon increment at their source positions. No `split_paths`,
+  normalized join or component skip classifier controls the walk. Preserve the
+  extra slash in candidate bytes and direct-path bypass; reject NUL before
+  filesystem/home/probe work. Cite source lines 86–106, 107–119, 121–126,
+  134–158 and 160–168 beside the Rust. Replace invented universal NAME_MAX
+  refusal with the actual bounded operations. Preserve empty-entry provenance,
+  including implicit GNU cwd after oversize. At reached cwd preserve native
+  terminal lookup cause (GNU ELOOP); otherwise refuse with
+  `the platform's search would fall into the working directory`, even if cwd
+  is missing. Earlier success wins. State D10's reconciled rule verbatim in
+  code. Apply it to Node lookup too, without recursively admitting interpreters
+  just to reject cwd or exposing a fallback probe target.
+  Carry operation/raw errno/original candidate, final non-denial cause and
+  remembered EACCES separately. GNU continues only EACCES, ENOENT, ESTALE,
+  ENOTDIR, ENODEV and ETIMEDOUT; terminal errors win over remembered denial.
+  At exhaustion missing-then-file preserves ENOTDIR/20 and file-then-missing
+  ENOENT/2. Construction skips invent no errno. Establish what metadata,
+  access and open prove before applying any exec rule; unprovable loading
+  remains a named refusal. Preserve access errors instead of Boolean denial.
+  Port Apple exec and actual outer spawn walks separately with immutable
+  source revisions/lines and private invocation context; env's nested exec
+  cannot inherit outer spawn policy. Preserve the successful-stat denial rule,
+  Apple's `/usr/bin:/bin`, separately sourced FreeBSD default, established
+  musl/Windows rules and named limitations on unestablished targets.
+  Extend the existing matrix/classifier oracle and independent cell inventory
+  alongside the repair, including group 1.2's length/cwd/separator controls,
+  final oversize, long names under missing/file/existing-directory prefixes
+  and explicit paths. `each_platforms_absent_path_search_is_its_own_loaders_rule`
+  and rare-errno checks remain supplemental to native outcomes.
+  Independently restore direct advance after oversize, remove cwd refusal,
+  remove the actual buffer skip, normalize the extra slash, weaken terminal
+  ENAMETOOLONG/ELOOP separately, erase access/final-cause/remembered-EACCES/
+  terminal-precedence handling separately, and restore wrong-target defaults
+  or Apple operation selection. D10 names each intended cause/identity/no-marker
+  failure. Restore exact bytes and rerun green; native target proof remains
+  separately required — safety / AS1.
 
 - [ ] 8.8.1.2 After 8.8.1.1, strengthen the existing isolated real-child
   doctor suite in `crates/brokkr-cli/tests/doctor_dsh_selection.rs`.
@@ -145,11 +125,24 @@ oracle. Notes describe outcomes; they never instruct or waive a gate.
   Cover literal `C:\Tools\dsh.exe` under absent and populated PATH, a
   distinct same-named PATH candidate, primary/legacy override positives,
   failed-override no-fallback, empty PATH and each ordered empty entry.
-  Add `terminal_path_lengths_refuse_before_doctor_probe`, giving each of
-  255/256/300/4095/4096/5000 its own native oracle and independent doctor
-  marker. On GNU, 256/300/4095 preserve errno 36 and no B execution; the
-  other three and every removed-component control select that exact B.
-  Check markers before later composite refusal can hide execution. Add
+  Extend `terminal_path_lengths_refuse_before_doctor_probe` and the protocol
+  `native_executable_resolution_matches_command_matrix` together. Each cell
+  runs both inherited and explicit child-environment Command forms with
+  separate oracle/doctor markers. Keep 255 → B and terminal 256/300 controls.
+  Cross 4095/4096/5000 before B with runnable, self-symlink and absent cwd/dsh:
+  4095 preserves ENAMETOOLONG/36; 4096/5000 native outcomes are exact cwd,
+  ELOOP/40 or exact B respectively, while resolution refuses by cwd reason,
+  ELOOP or cwd reason respectively. Add separate `A::B`, `A:`, `:B`, PATH=""
+  cells with all three cwd states and distinct earlier-valid-A controls.
+  In every refused cell check NO doctor A/cwd/B/Node marker before report text.
+  Remove only each oversized component and delimiter from the same fixture,
+  keeping cwd and the same B; fresh oracles and doctor select exact B.
+  Separately pad an existing A directory to 4092 bytes with trailing slashes,
+  A/dsh present and absent, before B. Assert native ENAMETOOLONG/36 and no
+  doctor marker. Remove exactly one slash: fresh oracles/doctor select A when
+  present, B otherwise; adding one to the original retains refusal. Bind the
+  independent advance/cwd/buffer-skip/separator/terminal-cause mutations to both
+  named regressions, keeping fixture removal separate. Add
   `apple_default_search_excludes_confstr_only_directories` with a harmless
   existing system-directory candidate outside Apple's default; do not change
   global installations. Run it natively on macOS with the actual production
@@ -171,13 +164,13 @@ scenarios, **Continuation causes and permission accumulation follow the native
 target**, **Apple lookup is established on Apple rather than inferred from
 glibc**, and paired doctor selection. Group 2 completes the inventory.
 
-## 8.8.2. Establish interpreter identity and the complete differential proof — R3/R6
+## 8.8.2. Complete interpreter invocation and differential proof — fourth-hold R6–R8
 
-- [ ] 8.8.2.1 After lookup repair, replace spelled/canonical-basename `is_env`
-  with D10's private fallible admission of the actual opened interpreter.
+- [ ] 8.8.2.1 After lookup repair, preserve file-based `is_env` from `314ed02b`
+  and complete D10's supported invocation admission of the actual interpreter.
   Compare device/inode against the fixed platform env reference; for a copy,
   compare checked equal lengths and streaming bytes in fixed buffers, checking
-  opened-file metadata and inconsistent/failed reads. Retain that result in
+  opened-file metadata on both sides and inconsistent/failed reads. Retain that result in
   this observation. Establish the utility's supported argv0/invocation form
   from target source and kernel argument handling; file equality alone cannot
   establish multicall dispatch. Unknown identity, an impostor named env or an
@@ -193,7 +186,10 @@ glibc**, and paired doctor selection. Group 2 completes the inventory.
   oracle/doctor markers, obstructed A/node, runnable B/node, removed-A oracle
   and valid-chain control. Where native runs B, doctor names A's missing
   prerequisite and probes neither; a utility's alias refusal is recorded but
-  cannot discharge the successful-alias positive. In those same named
+  cannot discharge the successful-alias positive. Establish a native-success
+  same-file `uu_env` invocation, require its specific A obstruction and admit
+  its removed-A control; blanket alias refusal fails. Independently restore
+  that blanket refusal as well as name recognition. In those same named
   protocol/doctor regressions, separately exercise an impostor named env and
   an unsupported invocation: record each actual native outcome and assert its
   specific identity/invocation refusal with zero production markers. Preserve
@@ -219,12 +215,16 @@ glibc**, and paired doctor selection. Group 2 completes the inventory.
   output, unsuccessful sentinel exit and fixture retries cannot create a pass.
   Stage cwd/PATH in an isolated outer child; the inner oracle uses the same
   stdio/environment/invocation form as production, with separately labeled
-  explicit-child-PATH controls. On Apple account for Rust's spawn/exec choice;
+  explicit-child-PATH controls. Assert each form's own identity or exact cause;
+  logging or counting its invocation is insufficient. On Apple account for
+  Rust's spawn/exec choice and env's separate nested exec lookup;
   do not force a favorable path with `pre_exec` or a shell wrapper. Cross every
   existing name/layout in the inventory below, replacing the lone 5000-byte
   layout with all six individually named lengths crossed with the same names;
-  add file/nonexistent components and overlong bare-program/explicit-path
-  controls. Compare exact canonical identity or specific native error before
+  add file/nonexistent components and overlong bare-program controls under
+  missing, file and existing-directory prefixes, plus explicit-path controls.
+  Include group 1's nine cwd/length cells, empty layouts, one-slash controls,
+  consecutive delimiters, oversized-final and earlier-success controls. Compare exact canonical identity or specific native error before
   probing, not banners or success booleans. Remove each obstructing/long
   component alone and invoke a fresh native B control. Vary whole PATH,
   program bytes, component positions and empty/final entries with a distinct
@@ -234,7 +234,9 @@ glibc**, and paired doctor selection. Group 2 completes the inventory.
   patch only PT_INTERP bytes in an owned native sentinel on Linux, record
   native B separately, and assert A/prerequisite plus zero doctor markers.
   Never count this D10 exception as an equality success or native miss.
-  Run native macOS lengths/ELOOP/default/loading controls and native Windows
+  Run native macOS lengths/ELOOP/default/loading, nested-env oversized search
+  and inaccessible-parent exhaustion controls, asserting the native successful-
+  stat denial rule. Preserve independent form-specific mutations. Run native Windows
   matrix/doctor/GetBinaryTypeW with an owned application-directory helper,
   parent versus child PATH, suffix/drive/UNC and obstruction semantics. Record
   target, compiler, revision, executed cells, exceptions and pending fixtures
@@ -250,7 +252,8 @@ glibc**, and paired doctor selection. Group 2 completes the inventory.
 |---|---|
 | Existing names, crossed with existing layouts | Bare `dsh`, `./dsh`, `../dsh`, an absolute owned path, literal `C:\Tools\dsh.exe`, `dsh.exe`, a space-bearing name and a NUL-bearing name; Unix only `/` grants direct-path authority. |
 | Existing layouts | Cwd-only with PATH elsewhere; PATH A/cwd competition; absent PATH/cwd candidate; present-empty PATH with and without a cwd candidate; leading/interior/trailing empty entries; non-executable A/runnable B and non-executable A alone; valid native A; self-symlink A; each D10 loader obstruction before B. |
-| Lengths before `:B` | 255 → B; 256 → terminal; 300 → terminal; 4095 → terminal; 4096 → B; 5000 → B on the commissioned GNU layout. Each cell and its component-removal control invokes Command anew; qualify other targets by their own native result. |
+| Lengths before `:B` | 255 → B; 256/300 → terminal on GNU. Cross each 4095/4096/5000 with runnable/looping/missing cwd in both forms: 4095 → ENAMETOOLONG; 4096/5000 → native cwd/ELOOP/B and resolver cwd-reason/ELOOP/cwd-reason. Same-fixture component removal selects exact B. Other targets use their qualified native outcomes. |
+| Empty entries and byte construction | `A::B`, `A:`, `:B`, PATH="" with runnable/looping/missing cwd; earlier valid A still wins. Padded 4092-byte A directory with trailing slash, A/dsh present/absent, one-slash removal, final oversize and consecutive delimiters; both forms asserted independently. |
 | Additional causes/names | Regular file component, nonexistent component, denial then miss, denial then terminal, permission exhaustion, overlong program name and explicit long-path control plus valid-name control; all with fresh native outcomes. Rare synthetic errno tests are supplemental. |
 | Platform/installation identity | Native macOS invocation and ELOOP continuation; Windows application/system/Windows directories and parent/child PATH, native suffix/drive/UNC; primary/legacy overrides and no failed-override fallback; actual default-search DSH positives; 8.8.8.1 adds the retained-Node/composite proof after env admission. |
 
@@ -261,12 +264,14 @@ bypass the Node obstruction refusal**, **Composition retains the launcher
 head inspected before the probe**, and platform/error/paired-observation
 scenarios. Every newly added cell is part of the independent inventory.
 
-## 8.8.3. Admit ignored pnpm members and bodies before discarding semantics — R4
+## 8.8.3. Complete ignored pnpm parent/container admission — fourth-hold R3/R11
 
 - [ ] 8.8.3.1 After groups 1–2, repair `pnpm_ignored`, quote-aware field
   splitting and `pnpm_dependencies` section/block state in `composite.rs`.
-  Carry field/body context and indentation through syntax admission of ignored
-  package children, peerDependencies and snapshots. Track member position and
+  Preserve adopted line/scalar guards; carry field/body context and a private
+  indentation/container stack through ignored package children, peerDependencies
+  and snapshots. Reject children below scalars, mixed mapping/sequence siblings
+  and dedents without an admitted parent. Track member position and
   quotes: `{}`/`[]` and one legal trailing comma remain valid; leading/interior
   empty members and comma-only bodies refuse. Validate admitted mapping key/
   value structure; unsupported bodies refuse explicitly. Do not filter empty
@@ -279,7 +284,12 @@ scenarios. Every newly added cell is part of the independent inventory.
   complete installed locators. Separately assert `cpu: [,x64]`,
   `cpu: [x64,,arm64]`, `engines: {,node: 22}`,
   `engines: {node: 18,,npm: 9}`, `engines: {,}`, and unterminated quotes inside
-  peerDependencies/snapshots bodies. Retain plain tarball NUL/BEL, quoted
+  peerDependencies/snapshots bodies. Add nested mapping below scalar
+  peerDependencies.react, mixed mapping/sequence siblings, and snapshots
+  scalar foo with nested bar. Assert the owning body and scalar-parent or
+  mixed-collection cause. Preserve valid nested peerDependenciesMeta/snapshots
+  controls. Independently remove parent-type and collection-kind checks.
+  Retain plain tarball NUL/BEL, quoted
   tarball NUL, checksum colon-space/NUL, deprecated quote and engines-closure
   vectors; every refusal names pnpm, field/body and cause and yields no valid
   composite. Preserve header/outer/inner separation, typed versus quoted
@@ -297,6 +307,7 @@ scenarios. Every newly added cell is part of the independent inventory.
 
 Coverage: AS1 **Ignored pnpm syntax is admitted through the producer and built
 doctor**, **Ignored collections and bodies cannot erase malformed members**,
+**Ignored pnpm blocks cannot discard parent and collection structure**,
 **Missing pnpm field separation and unsupported flow syntax refuse by reason**,
 **Plain and quoted integrity retain their Unicode whitespace bytes**, **Pnpm
 identity strings preserve the distinction from typed scalars**, and the
@@ -375,11 +386,11 @@ through doctor**. Dependency: 8.8.1's unavailable-diagnostic cause carriage.
 Coverage: AS1 **Removing only the plugin manifest names the drifted file**.
 Adopted complete; frozen extension bytes are never a removal target.
 
-## 8.8.8. Prove retained observations, run full gates and record delivery — R5–R7
+## 8.8.8. Prove retained observations, run full gates and record delivery — fourth-hold R9–R11
 
 - [ ] 8.8.8.1 After groups 1–7, strengthen
-  `absent_path_default_search_matches_native_dsh_and_node` and add protocol
-  companion `absent_path_node_identity_is_retained_by_the_composite`. In an
+  `absent_path_default_search_matches_native_dsh_and_node` and preserve/execute
+  its existing protocol companion `absent_path_node_identity_is_retained_by_the_composite`. In an
   isolated child with PATH absent and DSH safely selected by explicit path,
   require native `node -p process.execPath` to exit successfully and compare
   that canonical file to the actual private `seams.node` consumed by a readable
@@ -413,11 +424,12 @@ Adopted complete; frozen extension bytes are never a removal target.
   Run `cargo test -p <crate> --all-features --locked` separately for
   `brokkr-core`, `brokkr-store`, `brokkr-protocol`, `brokkr-runtime`,
   `brokkr-view`, `brokkr-bridge` and `brokkr-cli`; every crate must pass.
-  Also run `cargo test --workspace --all-features --locked`,
+  Also run `cargo test --workspace`,
+  `cargo test --workspace --all-features --locked`,
   `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`,
   `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`
   and `openspec validate --all --strict`. Record candidate revision/source
-  state, target/compiler, exact command, exit status, executed count and
+  state, target/libc/compiler, exact command, exit status, executed count and
   failed test names or hangs. Investigate failures without an inherited
   exemption for `gpt_flash_shape`, `roster` or `witness_digests`; no unrelated
   roster/witness edit or skip is authorized. Keep native macOS, native Windows
@@ -450,7 +462,7 @@ Adopted complete; frozen extension bytes are never a removal target.
   separately pending until its result exists — safety / AS1.
 
 - [ ] 8.8.8.4 After the preceding acceptance is met, record delivered
-  8.8(a)–(c) repairs, each R1–R7/prior-F1–F9 disposition, named test/removal
+  8.8(a)–(c) repairs, each fourth-hold R1–R11/prior-F1–F9 disposition, named test/removal
   results and actual gate counts separately from excluded work and pending
   remote evidence. Reconcile every local tick against its complete acceptance,
   preserve all change-wide states and unchecked 8.8, and keep 0056 proposed.
@@ -475,7 +487,62 @@ completing the planner**. Groups 1–7 and this group's ordered proof/gates are
 prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
-### Implementation delivery — third security hold, 2026-09-20
+### Fourth-hold current disposition — design return, 2026-09-20
+
+This account supersedes conflicting completion descriptions in the dated
+records below without rewriting those records. It describes the design seat's
+work and evidence; implementation gates remain owned by the numbered clauses.
+
+| Chief finding / retained work | Current disposition and owner |
+|---|---|
+| R1 HIGH / implicit cwd | Open in production. Design now specifies literal cursor control and ordered refusal; 8.8.1.1–1.2/8.8.2.2 own both forms, all nine cells, explicit-empty controls and independent advance/cwd removals. |
+| R2 HIGH / extra slash | Open. Byte assembly, padded-directory cases and same-fixture one-slash controls bind both named regressions under 8.8.1.1–1.2/8.8.2.2. |
+| R3 / ignored parent/container structure | Open. Existing line/scalar guards are adopted; 8.8.3.1 owns scalar-parent/mixed-kind refusals, lawful nested positives and separate structural removals. |
+| R4 / invented long-name refusal | Open. 8.8.1.1/8.8.2.2 preserve native causes under missing, file and existing-directory prefixes plus direct-path control. |
+| R5 / exhaustion cause | Open. 8.8.1.1/8.8.2.2 retain final cause/candidate separately from denial, with independent exact-cause and precedence removals. |
+| R6 / Apple operation | Open; source evidence only. 8.8.1.1/8.8.2.1–2.2 distinguish outer forms, nested env exec and successful-stat denial. Native macOS remains pending. |
+| R7 / unasserted oracle cells | Open. Both forms need completed identity/cause assertions and no markers; 8.8.1.2/8.8.2.2 retain an independent inventory. Logged/PENDING cells are not passes. |
+| R8 / supported env alias | File comparison adopted; blanket non-env rejection is insufficient. 8.8.2.1 owns actual successful alias qualification, specific A obstruction and same-file removed-A positive. |
+| R9 / F9 literal coverage | Pending. The chief's literal run exited 101 before reports. Its counts were unavailable; retained 31893/32069 lines, 5382/5396 branches, 3098/3108 functions and hand-transcribed perfect reports remain historical. 8.8.8.3 still lacks a fresh literal pass. |
+| R10 / native and Node-positive evidence | Pending under 8.8.1.2/8.8.2.2/8.8.8.1. Native macOS/Windows/MSRV and actual retained-Node positive plus two removals are unproved here; final-head remote CI is separately pending. |
+| R11 / independent removals | Open under 8.8.1.1/8.8.3.1/8.8.8.1: remembered EACCES, separate scalar/separation/Unicode guards and home-only premise each retain their own intended failing assertion. |
+| Launcher head and groups 4–7 | Adopted implementation/evidence. Preserve both rewriting regressions and the retained observation; no completed group is reimplemented or newly certified by this return. |
+
+Delivered here: revised design, explicit reconciliation of both council
+positions and dependency corrections to the existing task clauses. No Rust
+source, native sentinel or enforcement mutation changed or ran. No task tick
+changed, and the security hold remains open for implementation and proof.
+
+Fresh design-seat validation on Linux x86_64 / glibc 2.42, adopted source
+`d9297641` plus these two documentation edits:
+
+- Strict change validation and `openspec validate --all --strict` exited 0;
+  all-item validation reports **15 passed / 0 failed**. Informational archive
+  refusals for absent living `adapter-resume-safety` and `sdd-progress-markers`
+  remain whole-change fold debt; this non-archiving return does not resolve it.
+- Format, locked all-target/all-feature clippy, all seven crate-scoped suites,
+  both workspace test forms and self/verify compilation were each attempted;
+  every command exited **127**, `cargo: command not found`. No Rust test ran,
+  and no compiler version or compiled target was available to record.
+- The unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` was attempted
+  directly. It exited **127** at its clean step, line 33, because Cargo is
+  missing, before any fresh instrumented build or report. Fresh source lines:
+  **unavailable**; branches: **unavailable**; functions: **unavailable**.
+  No existing target report supplies these counts. The coverage script, CI
+  and release workflow all still consume `rust-nightly-version.txt`.
+- `git diff --check`, required-design-section checks, the derived
+  **20 requirements / 219 scenarios** inventory and exact task-ID/state
+  comparison passed. Dated task execution bytes below remain unchanged;
+  no frozen/excluded file differs from the adopted head.
+
+Exact commands and outputs are in
+`.forge/design-fourth-hold-345a3e7e/validation.json` and adjacent logs, outside
+the commit. These are blocked local gate attempts, not candidate passes.
+Production repair/proof and fresh capable-host coverage remain outstanding;
+(d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded.
+0056 stays proposed; 8.8 stays unchecked. No archive, push or remote result.
+
+### Historical implementation delivery — third security hold, 2026-09-20
 
 This implement seat executed the breakdown above on `slice-dsh-composite-b`
 (adopted through `6e8dd5b5`, every commit kept) in worktree `brokkr-wt-dsh88b`,
