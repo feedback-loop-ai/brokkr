@@ -9,7 +9,9 @@ use std::process::Command;
 use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::{dsh_composite, CompositeError, DshComposite, DshSeams};
+use brokkr_protocol::adapters::{
+    dsh_composite, DshComposite, DshSeams, DshSelection, DshUnselected,
+};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
@@ -179,6 +181,12 @@ struct Observed {
     version: Option<String>,
     warning: bool,
     suffix: String,
+    /// Why no executable was selected, when selection itself failed:
+    /// the cause rides beside the declared spelling into the
+    /// unavailable line, so an absent `PATH` is reported as an absent
+    /// `PATH` rather than as a binary nobody looked for (security hold
+    /// 2026-09-20, S1). `None` for every probe that had an executable.
+    cause: Option<String>,
 }
 
 /// How doctor reads the DSH provider line: one seam resolution, the
@@ -205,7 +213,11 @@ fn composite_identity(composite: DshComposite) -> (String, String) {
 /// PATH while the composite followed the adapter's seam, so a
 /// `BROKKR_DSH_BIN` override produced a version from the PATH install
 /// beside a digest from the overridden one (measured both ways,
-/// 2026-09-19). Both halves now come from one `DshSeams::selected`.
+/// 2026-09-19). Both halves now come from one `DshSeams::selected`, and
+/// nothing is probed unless that selection SUCCEEDED: the first routing
+/// through the seam probed the declared spelling after a failed lookup,
+/// which under an absent `PATH` executed a `dsh` sitting in the working
+/// directory (security hold 2026-09-20, S1).
 fn dsh_provider_line(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Observed {
     dsh_provider_line_with(adapter, probe, DshSeams::selected, |seams| {
         dsh_composite(seams)
@@ -221,7 +233,7 @@ fn dsh_provider_line(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Ob
 fn dsh_provider_line_with(
     adapter: &Adapter,
     probe: impl Fn(&str) -> Option<String>,
-    selected: impl FnOnce() -> (String, Result<DshSeams, CompositeError>),
+    selected: impl FnOnce() -> Result<DshSelection, DshUnselected>,
     composite: impl FnOnce(&DshSeams) -> Result<(String, String), String>,
 ) -> Observed {
     // The DSH work shape's name, one spelling in Rust so the guide
@@ -233,10 +245,26 @@ fn dsh_provider_line_with(
         ResumeIdentity::Unknown { .. } => None,
     });
     let supported = shape.is_some_and(|shape| shape.status == ResumeStatus::Supported);
-    // One resolution of both seams, then the version of the executable
-    // it selected. A failed home leaves that selection intact: it is a
-    // named composite failure, not evidence that the binary is missing.
-    let (binary, seams) = selected();
+    // One resolution of both seams, matched BEFORE anything is probed.
+    // A failed selection has no executable: the declared spelling and
+    // the cause go to the report, and neither DSH nor Node is spawned.
+    // A failed home leaves a successful selection intact: it is a named
+    // composite failure, not evidence that the binary is missing.
+    let DshSelection {
+        executable: binary,
+        seams,
+    } = match selected() {
+        Ok(selection) => selection,
+        Err(DshUnselected { declared, cause }) => {
+            return Observed {
+                binary: declared,
+                version: None,
+                warning: false,
+                suffix: String::new(),
+                cause: Some(cause.to_string()),
+            };
+        }
+    };
     let version = probe(&binary);
     if version.is_none() {
         // The executable doctor selected did not answer. Nothing the
@@ -247,6 +275,7 @@ fn dsh_provider_line_with(
             version,
             warning: false,
             suffix: String::new(),
+            cause: None,
         };
     }
     let identity = seams
@@ -263,6 +292,7 @@ fn dsh_provider_line_with(
         version,
         warning,
         suffix,
+        cause: None,
     }
 }
 
@@ -350,6 +380,7 @@ fn probe_providers(
                 version: probe(&adapter.binary),
                 warning: false,
                 suffix: String::new(),
+                cause: None,
             },
         };
         let Observed {
@@ -357,6 +388,7 @@ fn probe_providers(
             version,
             warning,
             suffix,
+            cause,
         } = observed;
         match version {
             Some(version) => {
@@ -380,11 +412,23 @@ fn probe_providers(
                     Some(hint) => format!(" ({hint})"),
                     None => String::new(),
                 };
+                // The binary is an operator's override or a seam's
+                // selection and the cause came from a filesystem lookup:
+                // neither is output doctor authored, so both go through
+                // `Safe` at this, their only interpolation. Rendered raw,
+                // a nonexistent override carrying a newline and a
+                // clear-screen sequence reached the terminal verbatim
+                // (security hold 2026-09-20, S2).
+                let binary = Safe::new(&binary).as_str().to_string();
+                let cause = match cause {
+                    Some(cause) => format!(": {}", Safe::new(&cause).as_str()),
+                    None => String::new(),
+                };
                 report.warn(
                     &adapter.provider,
                     format!(
-                        "binary '{binary}' not found — seats resolving to this provider \
-                         will fail to spawn{hint} · {serves}"
+                        "binary '{binary}' not found{cause} — seats resolving to this \
+                         provider will fail to spawn{hint} · {serves}"
                     ),
                 );
             }
@@ -814,6 +858,7 @@ fn no_composite(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Observe
         version: probe(&adapter.binary),
         warning: false,
         suffix: String::new(),
+        cause: None,
     }
 }
 

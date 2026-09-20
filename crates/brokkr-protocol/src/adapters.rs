@@ -26,7 +26,9 @@ mod route_overlay;
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
 // caller can supply an already-computed component or composite value.
-pub use composite::{dsh_composite, CompositeError, DshComposite, DshSeams};
+pub use composite::{
+    dsh_composite, CompositeError, DshComposite, DshSeams, DshSelection, DshUnselected,
+};
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;

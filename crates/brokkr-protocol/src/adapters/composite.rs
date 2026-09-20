@@ -521,6 +521,26 @@ const YAML_INDICATORS: [char; 19] = [
     '-', '?', ':', ',', '[', ']', '{', '}', '#', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`',
 ];
 
+/// A YAML scalar with its PROVENANCE kept: whether the document quoted
+/// it. The bytes alone cannot say what a value is — a plain `null` is
+/// the YAML null and a quoted `'null'` is a four-letter string — and a
+/// reader that dropped the quote before the field's rule ran hashed the
+/// two as one identity (security hold 2026-09-20, finding 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scalar<'a> {
+    Plain(&'a str),
+    Quoted(&'a str),
+}
+
+impl<'a> Scalar<'a> {
+    /// The decoded text, with the quote's meaning already applied.
+    fn text(self) -> &'a str {
+        match self {
+            Scalar::Plain(text) | Scalar::Quoted(text) => text,
+        }
+    }
+}
+
 /// Unwrap a YAML scalar EXACTLY, over the three forms this grammar
 /// admits and no others.
 ///
@@ -536,16 +556,16 @@ const YAML_INDICATORS: [char; 19] = [
 /// The inherited `trim_matches` repaired `'sha512-X` into `sha512-X`, so
 /// an unterminated scalar entered identity bytes as though it had been
 /// written correctly. Nothing is repaired here; `None` is the refusal.
-fn pnpm_scalar(text: &str) -> Option<&str> {
+fn pnpm_scalar(text: &str) -> Option<Scalar<'_>> {
     if let Some(rest) = text.strip_prefix('\'') {
         // A lone quote leaves an empty remainder, which strips to
         // `None`: an opening quote with no partner is never closed.
         let inner = rest.strip_suffix('\'')?;
-        return (!inner.contains('\'')).then_some(inner);
+        return (!inner.contains('\'')).then_some(Scalar::Quoted(inner));
     }
     if let Some(rest) = text.strip_prefix('"') {
         let inner = rest.strip_suffix('"')?;
-        return (!inner.contains('"') && !inner.contains('\\')).then_some(inner);
+        return (!inner.contains('"') && !inner.contains('\\')).then_some(Scalar::Quoted(inner));
     }
     if text.contains('\'') || text.contains('"') || text.contains('#') {
         return None;
@@ -554,35 +574,147 @@ fn pnpm_scalar(text: &str) -> Option<&str> {
         Some(first) if YAML_INDICATORS.contains(&first) => None,
         // An empty plain scalar is the YAML null, which is not a value
         // any caller here may hash; each of them refuses it by name.
-        _ => Some(text),
+        _ => Some(Scalar::Plain(text)),
     }
 }
 
-/// A `resolution:` flow map's fields, each an exactly-named key and an
-/// exactly-unquoted value.
-///
-/// The inherited reader looked for the SUBSTRING `integrity:`, so a
-/// `xintegrity:` or `fakeintegrity:` field answered for the real one and
-/// a changed actual integrity left identity unmoved. Every field is
-/// parsed and its key matched whole.
-fn pnpm_flow_map(inner: &str) -> Option<Vec<(&str, &str)>> {
+/// The plain spellings the YAML core schema reads as something other
+/// than a string: the null, the two booleans and every number, in the
+/// case variants and numeric forms the schema admits. A plain scalar
+/// that spells one of these is NOT a string, and an identity-bearing
+/// string field refuses it by name rather than hashing the spelling
+/// (design D10, 2026-09-20). This is a closed lexical rule over plain
+/// scalars only; a quoted `'null'` never reaches it.
+fn typed_plain_scalar(text: &str) -> Option<&'static str> {
+    match text {
+        "null" | "Null" | "NULL" | "~" => return Some("a null"),
+        "true" | "True" | "TRUE" | "false" | "False" | "FALSE" => return Some("a boolean"),
+        _ => {}
+    }
+    looks_numeric(text).then_some("a number")
+}
+
+/// Whether a plain scalar spells a YAML core-schema number: an optional
+/// sign, then a base-prefixed integer, a decimal with optional fraction
+/// and exponent, or the special `.inf`/`.nan` forms.
+fn looks_numeric(text: &str) -> bool {
+    let unsigned = text
+        .strip_prefix('-')
+        .or_else(|| text.strip_prefix('+'))
+        .unwrap_or(text);
+    if matches!(
+        unsigned,
+        ".inf" | ".Inf" | ".INF" | ".nan" | ".NaN" | ".NAN"
+    ) {
+        return true;
+    }
+    for (prefix, radix) in [("0x", 16), ("0o", 8), ("0b", 2)] {
+        if let Some(digits) = unsigned.strip_prefix(prefix) {
+            return !digits.is_empty() && digits.chars().all(|c| c.is_digit(radix));
+        }
+    }
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+        None => (unsigned, None),
+    };
+    let (whole, fraction) = match mantissa.split_once('.') {
+        Some((whole, fraction)) => (whole, Some(fraction)),
+        None => (mantissa, None),
+    };
+    let digits = |part: &str| part.chars().all(|c| c.is_ascii_digit());
+    let whole_ok = digits(whole);
+    let fraction_ok = fraction.is_none_or(digits);
+    let some_digit = !whole.is_empty() || fraction.is_some_and(|f| !f.is_empty());
+    let exponent_ok = exponent.is_none_or(|exponent| {
+        let unsigned = exponent
+            .strip_prefix('-')
+            .or_else(|| exponent.strip_prefix('+'))
+            .unwrap_or(exponent);
+        !unsigned.is_empty() && digits(unsigned)
+    });
+    whole_ok && fraction_ok && some_digit && exponent_ok
+}
+
+/// Split a flow map's body at the commas that SEPARATE fields, leaving
+/// a comma inside a quoted scalar to the scalar. The inherited split
+/// broke `'a,b'` in two and refused a legal string for the wrong reason.
+fn split_flow_fields(inner: &str) -> Vec<&str> {
+    let mut fields = Vec::new();
+    let mut quote: Option<char> = None;
+    let mut start = 0;
+    for (index, c) in inner.char_indices() {
+        match quote {
+            Some(open) if c == open => quote = None,
+            Some(_) => {}
+            None if c == '\'' || c == '"' => quote = Some(c),
+            None if c == ',' => {
+                fields.push(&inner[start..index]);
+                start = index + 1;
+            }
+            None => {}
+        }
+    }
+    fields.push(&inner[start..]);
+    fields
+}
+
+/// Why a `resolution:` flow map cannot be read, in the reader's own
+/// words: the reason names the field and the cause, so a refusal can
+/// tell missing separation from unsupported syntax from a scalar of the
+/// wrong kind (security hold 2026-09-20, finding 3).
+fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
     if inner.contains('{') || inner.contains('}') {
-        return None;
+        return Err("a malformed resolution flow map".to_string());
     }
     let mut fields = Vec::new();
-    for field in inner.split(',') {
-        let (key, value) = field.split_once(':')?;
+    for field in split_flow_fields(inner) {
+        // The key ends at the first `:` and the separator is the `: `
+        // YAML requires of a flow mapping. `integrity:sha512-X` has no
+        // separator: in YAML it is one plain scalar, and the inherited
+        // `split_once(':')` repaired it into a separated field.
+        let Some((key, rest)) = field.split_once(':') else {
+            return Err("a malformed resolution flow map".to_string());
+        };
         let key = key.trim();
         if !PNPM_RESOLUTION_KEYS.contains(&key) {
-            return None;
+            return Err("a malformed resolution flow map".to_string());
         }
-        let value = pnpm_scalar(value.trim())?;
-        if value.is_empty() {
-            return None;
+        if !rest.starts_with(' ') {
+            return Err(format!(
+                "the resolution field '{key}' lacks ': ' separation: '{}'",
+                field.trim()
+            ));
         }
-        fields.push((key, value));
+        let value = rest.trim();
+        let Some(scalar) = pnpm_scalar(value) else {
+            return Err("a malformed resolution flow map".to_string());
+        };
+        if scalar.text().is_empty() {
+            return Err("a malformed resolution flow map".to_string());
+        }
+        if let Scalar::Plain(text) = scalar {
+            // A plain scalar inside a flow collection may not carry the
+            // collection's own punctuation: `sha512-X[one]` is not a
+            // string with brackets in it, it is syntax this grammar does
+            // not read, and the inherited check looked only at the first
+            // character.
+            if text.contains(['[', ']', '{', '}', ',']) {
+                return Err(format!(
+                    "the resolution field '{key}' carries unsupported flow syntax: '{text}'"
+                ));
+            }
+            if key == "integrity" {
+                if let Some(kind) = typed_plain_scalar(text) {
+                    return Err(format!(
+                        "the resolution field '{key}' is the plain scalar '{text}', \
+                         which is {kind} and not a string"
+                    ));
+                }
+            }
+        }
+        fields.push((key, scalar.text()));
     }
-    Some(fields)
+    Ok(fields)
 }
 
 /// A `packages:` key, split into the package name and the version it
@@ -661,8 +793,11 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             .strip_prefix("lockfileVersion:")
             .map(str::trim)
             .ok_or_else(|| bad("no lockfileVersion header"))?;
+        // The header keeps its own rule: the plain `9.0` and the quoted
+        // `'9.0'` are both the admitted version, so the typed-scalar
+        // refusal an identity string makes does not apply here.
         let version = pnpm_scalar(version).ok_or_else(|| bad("a malformed lockfileVersion"))?;
-        if version != "9.0" {
+        if version.text() != "9.0" {
             return Err(bad("lockfileVersion is not 9.0"));
         }
         version_seen = true;
@@ -679,6 +814,11 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     // one package set; `lockfileVersion` is seeded because the header
     // loop above already consumed the document's one spelling of it.
     let mut seen: BTreeSet<&str> = BTreeSet::from(["lockfileVersion"]);
+    // Every decoded `packages:` heading this document has spelled, kept
+    // apart from the triple set: one answers "was this key repeated",
+    // the other "are these complete values equal", and the two questions
+    // have different answers on the same document.
+    let mut seen_packages: BTreeSet<String> = BTreeSet::new();
     let mut entry: Option<PnpmEntry> = None;
     // Whether a block-form child is open, whose own lines this reader
     // skips: they belong to `peerDependencies` and its kin, and none of
@@ -746,7 +886,10 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 // Recognized and not read, but still parsed: a checksum
                 // that opens a block, or one whose quote never closes,
                 // is a document shape this grammar has not measured.
-                if pnpm_scalar(value).filter(|text| !text.is_empty()).is_none() {
+                if pnpm_scalar(value)
+                    .filter(|scalar| !scalar.text().is_empty())
+                    .is_none()
+                {
                     return Err(bad(&format!(
                         "a malformed scalar for top-level key '{name}'"
                     )));
@@ -775,7 +918,9 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 .trim_end()
                 .strip_suffix(':')
                 .ok_or_else(|| bad("a package key is not colon-terminated"))?;
-            let key = pnpm_scalar(key.trim()).ok_or_else(|| bad("a malformed package key"))?;
+            let key = pnpm_scalar(key.trim())
+                .ok_or_else(|| bad("a malformed package key"))?
+                .text();
             // A key that is itself a mapping — `a@1: {}` reaches this
             // reader as `a@1: {`, and `a@1: b:` as a key ending in `b` —
             // is a flow-form or nested record, not a package heading.
@@ -783,6 +928,17 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 return Err(bad("a package key that is itself a mapping"));
             }
             let (name, version) = pnpm_package(key).map_err(CompositeError::PnpmLock)?;
+            // A mapping key is a SINGLETON, checked on the DECODED key
+            // before this record is excluded or its triple normalized.
+            // The triple set below deduplicates equal complete values
+            // from distinct records, which is legitimate; it cannot
+            // tell a repeated heading from that, so an identical
+            // repeat vanished into it and a conflicting repeat merged
+            // into an order-independent digest for a document with no
+            // single meaning (security hold 2026-09-20, finding 4).
+            if !seen_packages.insert(key.to_string()) {
+                return Err(bad(&format!("a repeated package key '{key}'")));
+            }
             entry = Some(PnpmEntry {
                 key: key.to_string(),
                 name: name.to_string(),
@@ -816,8 +972,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 .strip_prefix('{')
                 .and_then(|text| text.strip_suffix('}'))
                 .ok_or_else(|| bad("a block-form or malformed resolution"))?;
-            let fields =
-                pnpm_flow_map(inner).ok_or_else(|| bad("a malformed resolution flow map"))?;
+            let fields = pnpm_flow_map(inner).map_err(|why| bad(&why))?;
             let mut integrity = None;
             let mut seen_fields = BTreeSet::new();
             for (key, value) in fields {
@@ -916,33 +1071,56 @@ pub struct DshSeams {
     pub home: PathBuf,
 }
 
+/// A DSH executable the adapter's seam SELECTED: the canonical file the
+/// declared name resolved to, and the home result beside it. The home
+/// can fail on its own — a caller that must keep observing the chosen
+/// installation after a home failure (doctor, whose version probe is
+/// independent of the composite) reads the executable here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshSelection {
+    pub executable: String,
+    pub seams: Result<DshSeams, CompositeError>,
+}
+
+/// A selection that did not happen: the spelling that was looked for and
+/// the cause it was not selected by. Both are for diagnosis only. There
+/// is no executable here to probe, and the inherited arrangement that
+/// handed a caller the declared spelling in its place is the one that
+/// executed a cwd `dsh` under an absent `PATH` (security hold 2026-09-20,
+/// S1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshUnselected {
+    pub declared: String,
+    pub cause: CompositeError,
+}
+
 impl DshSeams {
     pub fn resolve() -> Result<DshSeams, CompositeError> {
-        DshSeams::selected().1
+        match DshSeams::selected() {
+            Ok(selection) => selection.seams,
+            Err(unselected) => Err(unselected.cause),
+        }
     }
 
     /// Both seams from ONE environment resolution: the executable the
     /// adapter selected, resolved ONCE to the file it names, and the home
     /// beside it.
     ///
-    /// The returned string is the PATH lookup's answer, not the bare name
+    /// The returned executable is the lookup's answer, not the bare name
     /// the seam spells, and it is the same string the seams carry. A
-    /// caller that probes the returned name and then asks the producer
-    /// for a composite is therefore asking about one file: two lookups of
-    /// `dsh` can disagree — a non-executable `A/dsh` ahead of an
-    /// executable `B/dsh` is skipped by a spawning child and was taken by
-    /// this crate's own resolver — and a version from one install beside
-    /// a digest from another is the defect 8.8(c) exists to close
-    /// (council return 2026-09-19).
+    /// caller that probes it and then asks the producer for a composite
+    /// is therefore asking about one file: two lookups of `dsh` can
+    /// disagree — a non-executable `A/dsh` ahead of an executable
+    /// `B/dsh` is skipped by a spawning child and was taken by this
+    /// crate's own resolver — and a version from one install beside a
+    /// digest from another is the defect 8.8(c) exists to close (council
+    /// return 2026-09-19).
     ///
-    /// A name that resolves to nothing keeps its declared spelling, so
-    /// the report that follows names what was looked for. Only the home
-    /// can fail the seams outright; a caller that must keep observing the
-    /// chosen installation after a home failure — doctor, whose version
-    /// probe is independent of the composite (design D10's doctor state
-    /// decision) — reads it here rather than resolving the environment a
-    /// second time and possibly selecting a different install.
-    pub fn selected() -> (String, Result<DshSeams, CompositeError>) {
+    /// Selection is FALLIBLE, and a failed selection carries no
+    /// executable at all. The inherited tuple kept the declared spelling
+    /// beside a discarded lookup error, so a caller probed that spelling
+    /// as though it had been selected (design D10, 2026-09-20).
+    pub fn selected() -> Result<DshSelection, DshUnselected> {
         DshSeams::selected_from(
             super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
             resolve_executable,
@@ -958,17 +1136,25 @@ impl DshSeams {
         declared: String,
         resolve: impl FnOnce(&str) -> Result<PathBuf, CompositeError>,
         home: Option<PathBuf>,
-    ) -> (String, Result<DshSeams, CompositeError>) {
-        let executable = match resolve(&declared) {
-            // A path this platform cannot spell as UTF-8 keeps the
-            // declared name rather than a lossy rendering of itself: the
-            // producer resolves the same name again and reaches the same
-            // file, where a mangled path would reach none.
-            Ok(path) => path.to_str().map(str::to_string).unwrap_or(declared),
-            Err(_) => declared,
+    ) -> Result<DshSelection, DshUnselected> {
+        let path = match resolve(&declared) {
+            Ok(path) => path,
+            Err(cause) => return Err(DshUnselected { declared, cause }),
+        };
+        // A path this platform cannot spell as UTF-8 is refused by
+        // cause: neither a lossy rendering of it nor a retry of the
+        // declaration names the file that was selected.
+        let Some(executable) = path.to_str().map(str::to_string) else {
+            return Err(DshUnselected {
+                declared,
+                cause: CompositeError::Config(format!(
+                    "{}: the selected path is not UTF-8",
+                    path.display()
+                )),
+            });
         };
         let seams = DshSeams::resolve_with(executable.clone(), home);
-        (executable, seams)
+        Ok(DshSelection { executable, seams })
     }
 
     /// `resolve` over an injected executable and home, so the missing-home
@@ -1119,27 +1305,166 @@ fn effective_exec_access(path: &Path) -> bool {
     .is_ok()
 }
 
-/// Whether a PATH candidate is a file a child could actually execute.
+/// What one search entry taught the resolver about its candidate.
 ///
-/// A candidate that is not a regular file, that this process's effective
-/// identity may not execute, or whose metadata cannot be read at all is
-/// NOT a hit: `execvp` walks past each of those to the next entry, so a
-/// resolver that stops at the first readable name pairs one install's
-/// path with another install's version (council return 2026-09-19).
-fn is_executable_file(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
+/// The inherited `is_executable_file` answered a BOOLEAN, and a boolean
+/// cannot say why: a symlink loop, a metadata failure of unknown cause
+/// and a plain absence all read `false`, and `false` authorized the
+/// next entry. The child's own search stops at the loop with `ELOOP`,
+/// so a resolver that walked on to `B/dsh` paired B's version with a
+/// selection the child never made (security hold 2026-09-20, finding 2).
+enum Candidate {
+    /// The entry a child would execute, canonical.
+    Admitted(PathBuf),
+    /// Not this entry, for a reason the child's search also walks past:
+    /// absence, an untraversable component, a non-file or a file this
+    /// process may not execute. The reason is kept for an explicit
+    /// override, which has no next entry to walk to.
+    Passed(String),
+    /// The search stops here, by cause: a loop, a failure the resolver
+    /// cannot prove the child would walk past, an obstruction the child
+    /// would only meet at `exec`, or a path it cannot canonicalize.
+    Refused(CompositeError),
+}
+
+/// Whether a lookup failed with the kernel's `ELOOP`: the error the
+/// child's `execve` stops on at a self-referential symlink. Asked by the
+/// platform's own number, because `ErrorKind::FilesystemLoop` is not
+/// stable on the pinned compiler.
+fn is_symlink_loop(error: &std::io::Error) -> bool {
     #[cfg(unix)]
     {
-        effective_exec_access(path)
+        error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
     }
     #[cfg(not(unix))]
     {
-        true
+        let _ = error;
+        false
+    }
+}
+
+/// Classify one candidate as the child's search would, stopping where
+/// the child stops and refusing where this resolver cannot prove what
+/// the child would do.
+fn classify_candidate(candidate: &Path) -> Candidate {
+    let refuse = |why: String| {
+        Candidate::Refused(CompositeError::Config(format!(
+            "{}: {why}",
+            candidate.display()
+        )))
+    };
+    let metadata = match std::fs::metadata(candidate) {
+        Ok(metadata) => metadata,
+        // `execvp` records ENOENT and EACCES and tries the next entry;
+        // every other failure is one it stops on, and so does this.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Candidate::Passed(error.to_string());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            return Candidate::Passed(error.to_string());
+        }
+        Err(error) if is_symlink_loop(&error) => {
+            return refuse(format!("a symlink loop stops the lookup: {error}"));
+        }
+        Err(error) => return refuse(format!("the lookup cannot be proved: {error}")),
+    };
+    if !metadata.is_file() {
+        return Candidate::Passed("is not a regular file".to_string());
+    }
+    #[cfg(unix)]
+    if !effective_exec_access(candidate) {
+        return Candidate::Passed("is not executable by this process".to_string());
+    }
+    #[cfg(unix)]
+    if let Err(why) = interpreter_obstruction(candidate) {
+        return refuse(why);
+    }
+    match canonicalize(candidate) {
+        Ok(path) => Candidate::Admitted(path),
+        Err(error) => Candidate::Refused(error),
+    }
+}
+
+/// The kernel's own bound on a `#!` line (`BINPRM_BUF_SIZE`): a script
+/// whose line runs past it without a terminator is one Linux refuses to
+/// load, and one this resolver does not guess at.
+#[cfg(unix)]
+const SHEBANG_BOUND: usize = 256;
+
+/// Whether a script candidate's interpreter would stop the child at
+/// `exec`, asked of the file's first bytes and nothing more.
+///
+/// A candidate the metadata and access checks admit can still be one a
+/// child cannot run: `A/dsh` naming a nonexistent interpreter passes both
+/// checks, the child's `execve` fails with ENOENT and its search walks
+/// on to `B/dsh`. Metadata cannot see that, so the resolver reads the
+/// bounded head. A missing or unspellable interpreter is a REFUSAL by
+/// cause rather than a continuation, because neither a loader emulation
+/// nor a trial execution is on the table (design D10). A file whose head
+/// is not a `#!` line is a native image, admitted as it is: nothing here
+/// decodes it.
+#[cfg(unix)]
+fn interpreter_obstruction(candidate: &Path) -> Result<(), String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut head = [0u8; SHEBANG_BOUND];
+    let mut file =
+        std::fs::File::open(candidate).map_err(|error| format!("cannot be read: {error}"))?;
+    let mut read = 0;
+    while read < SHEBANG_BOUND {
+        match file.read(&mut head[read..]) {
+            Ok(0) => break,
+            Ok(count) => read += count,
+            Err(error) => return Err(format!("cannot be read: {error}")),
+        }
+    }
+    let Some(line) = head[..read].strip_prefix(b"#!") else {
+        return Ok(());
+    };
+    let line = match line.iter().position(|byte| *byte == b'\n') {
+        Some(end) => &line[..end],
+        // The whole file is shorter than the bound, so the line is the
+        // rest of it; a full buffer with no terminator is the truncated
+        // line the kernel refuses.
+        None if read < SHEBANG_BOUND => line,
+        None => {
+            return Err(format!(
+                "its #! line is not terminated within {SHEBANG_BOUND} bytes"
+            ))
+        }
+    };
+    if line.contains(&0) {
+        return Err("its #! line carries a NUL".to_string());
+    }
+    let line = match line.iter().position(|byte| *byte != b' ' && *byte != b'\t') {
+        Some(start) => &line[start..],
+        None => &[],
+    };
+    let end = line
+        .iter()
+        .position(|byte| *byte == b' ' || *byte == b'\t')
+        .unwrap_or(line.len());
+    let interpreter = &line[..end];
+    if interpreter.is_empty() {
+        return Err("its #! line names no interpreter".to_string());
+    }
+    if interpreter[0] != b'/' {
+        return Err(format!(
+            "its #! interpreter '{}' is not an absolute path",
+            String::from_utf8_lossy(interpreter)
+        ));
+    }
+    let interpreter = Path::new(std::ffi::OsStr::from_bytes(interpreter));
+    match std::fs::metadata(interpreter) {
+        Ok(metadata) if metadata.is_file() && effective_exec_access(interpreter) => Ok(()),
+        Ok(_) => Err(format!(
+            "its #! interpreter '{}' is not an executable file",
+            interpreter.display()
+        )),
+        Err(error) => Err(format!(
+            "its #! interpreter '{}' is missing: {error}",
+            interpreter.display()
+        )),
     }
 }
 
@@ -1149,33 +1474,71 @@ fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
     resolve_executable_in(command, std::env::var_os("PATH"))
 }
 
-/// `resolve_executable` over an injected `PATH`, so an empty entry, a
-/// non-executable candidate, a present-but-absent candidate and a miss
-/// are plain tests.
+/// `resolve_executable` over an injected `PATH`, so an absent `PATH`, an
+/// empty entry, a non-executable candidate, a present-but-absent
+/// candidate and a miss are plain tests.
 ///
-/// The search is the child's own: an EMPTY entry names the current
-/// directory rather than being skipped, and only an executable regular
-/// file ends it.
+/// The search is the child's own where the resolver can prove it: an
+/// EMPTY entry names the current directory rather than being skipped,
+/// and an entry the child walks past is walked past here. Where it
+/// cannot prove it, the search stops by cause (`classify_candidate`).
+///
+/// An ABSENT `PATH` is a refusal, not an empty search. The inherited
+/// `unwrap_or_default()` turned `None` into one empty entry, and that
+/// entry named the working directory: doctor, run with no `PATH` beside
+/// an executable `dsh` in its cwd, selected that file and executed it,
+/// where `Command::new("dsh")` in the same environment finds nothing
+/// (security hold 2026-09-20, S1; controller reproduction).
 fn resolve_executable_in(
     command: &str,
     path: Option<std::ffi::OsString>,
 ) -> Result<PathBuf, CompositeError> {
     if command.contains('/') || command.contains('\\') {
-        return canonicalize(Path::new(command));
+        // An explicit path is one candidate under the same checks, with
+        // no next entry to walk to: what a search would pass over is,
+        // for an override, the refusal itself.
+        return match classify_candidate(Path::new(command)) {
+            Candidate::Admitted(path) => Ok(path),
+            Candidate::Passed(why) => Err(CompositeError::Config(format!("{command}: {why}"))),
+            Candidate::Refused(error) => Err(error),
+        };
     }
-    let path = path.unwrap_or_default();
+    let Some(path) = path else {
+        return Err(CompositeError::Config(format!(
+            "'{command}': PATH is absent"
+        )));
+    };
     for dir in std::env::split_paths(&path) {
         let candidate = match dir.as_os_str().is_empty() {
             true => PathBuf::from(command),
             false => dir.join(command),
         };
-        if is_executable_file(&candidate) {
-            return canonicalize(&candidate);
+        match classify_candidate(&candidate) {
+            Candidate::Admitted(path) => return Ok(path),
+            Candidate::Passed(_) => continue,
+            Candidate::Refused(error) => return Err(error),
         }
     }
     Err(CompositeError::Config(format!(
         "'{command}' is not on PATH"
     )))
+}
+
+/// The selected executable, exactly as the seams carry it: a path the
+/// selection already resolved, never a bare spelling to look up again.
+///
+/// Selection resolves the declared name ONCE, and the seams hand the
+/// producer the file it chose. Searching `PATH` a second time here could
+/// choose a different file — the environment is the same, but the
+/// filesystem under it need not be — so a bare name is a refusal rather
+/// than a second lookup (design D10).
+fn selected_executable(executable: &str) -> Result<PathBuf, CompositeError> {
+    if !executable.contains('/') && !executable.contains('\\') {
+        return Err(CompositeError::Config(format!(
+            "'{executable}' is not a path: the selected executable is resolved once, at selection"
+        )));
+    }
+    resolve_executable_in(executable, None)
 }
 
 struct CorePackage {
@@ -1213,7 +1576,7 @@ fn resolve_core_reading(
     executable: &str,
     read_json: &dyn Fn(&Path) -> Result<Value, String>,
 ) -> Result<CorePackage, CompositeError> {
-    let canonical = resolve_executable(executable)?;
+    let canonical = selected_executable(executable)?;
     let mut package = None;
     for ancestor in canonical.ancestors().skip(1) {
         let path = ancestor.join("package.json");
@@ -1497,8 +1860,12 @@ fn resolve_bundle(
             canonical.display()
         )));
     }
+    // The search ran out of candidates, and the file it ran out of is
+    // named: an operator holding an otherwise complete install whose
+    // plugin `package.json` is gone was told only that the bundle "does
+    // not resolve" (security hold 2026-09-20, finding 7).
     Err(CompositeError::Config(format!(
-        "bundle '{name}' does not resolve"
+        "bundle '{name}' does not resolve: no package.json found"
     )))
 }
 

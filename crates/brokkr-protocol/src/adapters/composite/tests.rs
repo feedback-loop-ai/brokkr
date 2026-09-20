@@ -10,6 +10,18 @@ fn write(dir: &Path, relative: &str, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
 }
 
+/// `write` for a file the selection must admit as an EXECUTABLE: the
+/// resolver classifies a core `lib/bin.js` as a child's search would,
+/// and a child does not execute a mode-0644 script.
+fn write_executable(dir: &Path, relative: &str, bytes: &[u8]) {
+    write(dir, relative, bytes);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir.join(relative), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 /// Write an executable file, STAGED beside its destination and renamed
 /// in: the destination never carries a write descriptor, so a child
 /// forked mid-write cannot make `exec` refuse it with ETXTBSY (#255).
@@ -649,14 +661,37 @@ fn the_plugin_component_is_bytewise_path_order_and_fails_closed() {
         write(dir.path(), file, file.as_bytes());
     }
     let component = component_of(dir.path(), &PLUGIN_FILES).unwrap();
-    let mut lines = String::new();
+    // The expectation is a LITERAL recorded from the sole producer, not a
+    // second serialization of the same stream. The inherited assertion
+    // assembled `<path>\0<digest>\n` lines and hashed them here, which
+    // made this test a competing producer of the component (security
+    // hold 2026-09-20, finding 5; `no_test_reassembles_the_component_stream`
+    // keeps that block from returning).
+    //
+    // Provenance: `component_digest` over `plugin_file_digests` at
+    // `slice-dsh-composite-b` `ab2d8e1d`, on the synthetic set above —
+    // the six `PLUGIN_FILES` paths, each file holding its own relative
+    // path's bytes with no trailing newline. The per-file input hashes
+    // beside it are independent, and permitted.
+    assert_eq!(
+        component, "8894f23eef97b42abfda88b6dd42c4b44b17ac4cb7e6df14c6bda687ae534c99",
+        "the producer's recorded output over the synthetic six-file set"
+    );
+    let inputs =
+        plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES, &read_dir_entries).unwrap();
     for file in PLUGIN_FILES {
-        lines.push_str(file);
-        lines.push('\0');
-        lines.push_str(&digest_of(file.as_bytes()));
-        lines.push('\n');
+        assert_eq!(inputs[file], digest_of(file.as_bytes()), "{file}");
     }
-    assert_eq!(component, digest_of(lines.as_bytes()));
+    // A changed byte in any one input moves the component.
+    let changed = tempfile::tempdir().unwrap();
+    for file in PLUGIN_FILES {
+        write(changed.path(), file, file.as_bytes());
+    }
+    write(changed.path(), "lib/index.js", b"lib/index.js!");
+    assert_ne!(
+        component_of(changed.path(), &PLUGIN_FILES).unwrap(),
+        component
+    );
     assert_eq!(component.len(), 64);
     assert!(component
         .chars()
@@ -1049,7 +1084,7 @@ impl Synthetic {
             "package.json",
             br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
         );
-        write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+        write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
         write(
             &core,
             "node_modules/.package-lock.json",
@@ -1208,7 +1243,8 @@ fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
     // The same install reached directly never sees that candidate.
     assert_eq!(
         refused(dsh_composite_with(&install.seams, &install.node(), &[])),
-        "the DSH layout is unreadable: bundle '@deepseek-ai/dsh-base' does not resolve"
+        "the DSH layout is unreadable: bundle '@deepseek-ai/dsh-base' does not resolve: \
+         no package.json found"
     );
 }
 
@@ -1378,7 +1414,7 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
 
     // A core package whose shebang is not `env node` is refused.
     let install = Synthetic::new();
-    write(
+    write_executable(
         std::path::Path::new(&install.seams.executable)
             .parent()
             .unwrap(),
@@ -1422,12 +1458,10 @@ fn the_dsh_composite_composes_the_conditional_extension_only_when_listed() {
         "package.json",
         br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session","brokkr-dsh-resume-policy"],"patchReload":"startup"}}}"#,
     );
-    let error = dsh_composite_with(&install.seams, &install.node(), &[]).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("bundle 'brokkr-dsh-resume-policy' does not resolve"),
-        "{error}"
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "the DSH layout is unreadable: bundle 'brokkr-dsh-resume-policy' does not resolve: \
+         no package.json found"
     );
 
     // Once it resolves inside the profile it joins the composite.
@@ -1537,8 +1571,8 @@ fn the_core_executable_must_be_lib_bin_js_with_the_exact_shebang() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/other.js"}}"#,
     );
-    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
-    write(&pkg, "lib/other.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/other.js", b"#!/usr/bin/env node\n");
     write(root, "node_modules/.package-lock.json", CORE_LOCK);
     let other = pkg.join("lib/other.js");
     let error = refused(resolve_core(other.to_str().unwrap()));
@@ -1567,7 +1601,7 @@ fn the_core_executable_must_be_lib_bin_js_with_the_exact_shebang() {
     // A CRLF shebang. The kernel would read `env node\r`, which is not a
     // program; the inherited reader stripped the CR and called it the
     // measured first line.
-    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\r\nrest\n");
+    write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\r\nrest\n");
     assert_eq!(
         refused(resolve_core(bin.to_str().unwrap())),
         format!(
@@ -1585,7 +1619,7 @@ fn the_core_executable_must_be_lib_bin_js_with_the_exact_shebang() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/other.js"}}"#,
     );
-    write(&pkg, "lib/other.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/other.js", b"#!/usr/bin/env node\n");
     write(bare.path(), "node_modules/.package-lock.json", CORE_LOCK);
     let error = refused(resolve_core(pkg.join("lib/other.js").to_str().unwrap()));
     assert!(
@@ -1677,7 +1711,7 @@ const CORE_LOCK: &[u8] =
 fn core_package(root: &Path, manifest: &[u8], lock: &[u8]) -> PathBuf {
     let pkg = root.join("node_modules").join("@deepseek-ai").join("dsh");
     write(&pkg, "package.json", manifest);
-    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
     write(root, "node_modules/.package-lock.json", lock);
     pkg.join("lib/bin.js")
 }
@@ -1849,6 +1883,29 @@ fn an_empty_path_entry_is_the_current_directory() {
             "the DSH layout is unreadable: 'mytool' is not on PATH",
             "and nothing else on that search could have found it"
         );
+        // A PRESENT, EMPTY `PATH` is one empty entry — cwd — which is a
+        // different answer from an absent `PATH`, and so are a leading
+        // empty entry, a trailing one, one between two directories and
+        // an explicit `.` (security hold 2026-09-20, S1 and finding 2).
+        let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        for path in [
+            "",
+            "/nonexistent:",
+            "/nonexistent::/other",
+            ".",
+            "/nonexistent:.",
+        ] {
+            assert_eq!(
+                resolve_executable_in("mytool", Some(OsString::from(path))).unwrap(),
+                cwd.join("mytool"),
+                "PATH={path:?} reaches the working directory"
+            );
+        }
+        assert_eq!(
+            refused(resolve_executable_in("mytool", None)),
+            "the DSH layout is unreadable: 'mytool': PATH is absent",
+            "an absent PATH never reaches the working directory"
+        );
         return;
     }
 
@@ -1983,20 +2040,27 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // under any configured `BROKKR_DSH_BIN` — an environment an operator
     // running the suite may well have, and one this seat reproduced
     // (council return 2026-09-19, F11).
-    let (executable, seams) = DshSeams::selected();
     let declared = super::super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh");
-    match resolve_executable(&declared) {
-        Ok(path) => assert_eq!(Path::new(&executable), path),
-        Err(_) => assert_eq!(executable, declared),
-    }
-    assert_eq!(
-        seams.as_ref().ok().is_some(),
-        crate::transcript::dsh_home().is_some()
-    );
-    // The probe target and the producer's input are ONE string, so a
-    // version and a composite cannot describe two installs.
-    if let Ok(seams) = &seams {
-        assert_eq!(seams.executable, executable);
+    match (DshSeams::selected(), resolve_executable(&declared)) {
+        (Ok(selection), Ok(path)) => {
+            assert_eq!(Path::new(&selection.executable), path);
+            assert_eq!(
+                selection.seams.as_ref().ok().is_some(),
+                crate::transcript::dsh_home().is_some()
+            );
+            // The probe target and the producer's input are ONE string,
+            // so a version and a composite cannot describe two installs.
+            if let Ok(seams) = &selection.seams {
+                assert_eq!(seams.executable, selection.executable);
+            }
+        }
+        // A failed lookup is a failed SELECTION: the declared spelling
+        // and the lookup's cause, and no executable at all.
+        (Err(unselected), Err(cause)) => {
+            assert_eq!(unselected.declared, declared);
+            assert_eq!(unselected.cause, cause);
+        }
+        (selection, lookup) => panic!("selection {selection:?} disagrees with lookup {lookup:?}"),
     }
 
     assert_eq!(
@@ -2013,28 +2077,773 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // takes, and a gate that demands every line cannot rest on that.
     let home = Some(dir.path().to_path_buf());
     let resolved = dir.path().join("resolved-dsh");
-    let (executable, seams) =
-        DshSeams::selected_from("dsh".to_string(), |_| Ok(resolved.clone()), home.clone());
-    assert_eq!(Path::new(&executable), resolved);
-    assert_eq!(seams.unwrap().executable, executable);
-    // A name that resolves to nothing keeps its declared spelling, so
-    // the report that follows names what was looked for.
-    let (executable, seams) = DshSeams::selected_from(
+    let selection =
+        DshSeams::selected_from("dsh".to_string(), |_| Ok(resolved.clone()), home.clone()).unwrap();
+    assert_eq!(Path::new(&selection.executable), resolved);
+    assert_eq!(selection.seams.unwrap().executable, selection.executable);
+    // A name that resolves to nothing is NOT selected. The inherited
+    // arm kept the declared spelling as the executable, and doctor
+    // probed that spelling: under an absent `PATH` it executed a `dsh`
+    // in its working directory (security hold 2026-09-20, S1).
+    let unselected = DshSeams::selected_from(
+        "dsh".to_string(),
+        |name| Err(CompositeError::Config(format!("'{name}': PATH is absent"))),
+        home.clone(),
+    )
+    .unwrap_err();
+    assert_eq!(unselected.declared, "dsh");
+    assert_eq!(
+        unselected.cause.to_string(),
+        "the DSH layout is unreadable: 'dsh': PATH is absent"
+    );
+    // The home is not consulted for a selection that failed: the
+    // producer has no executable to observe.
+    let unselected = DshSeams::selected_from(
         "dsh".to_string(),
         |name| Err(CompositeError::Config(format!("'{name}' is not on PATH"))),
-        home.clone(),
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        unselected.cause.to_string(),
+        "the DSH layout is unreadable: 'dsh' is not on PATH"
     );
-    assert_eq!(executable, "dsh");
-    assert_eq!(seams.unwrap().executable, "dsh");
-    // And a resolved path this platform cannot spell as UTF-8 keeps the
-    // declared name rather than a lossy rendering of itself.
+    // And a resolved path this platform cannot spell as UTF-8 is refused
+    // by cause, neither rendered lossily nor replaced by the declaration.
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
         let raw = PathBuf::from(std::ffi::OsStr::from_bytes(b"/tmp/dsh\xff"));
-        let (executable, _) = DshSeams::selected_from("dsh".to_string(), |_| Ok(raw), home);
-        assert_eq!(executable, "dsh");
+        let unselected =
+            DshSeams::selected_from("dsh".to_string(), |_| Ok(raw.clone()), home).unwrap_err();
+        assert_eq!(unselected.declared, "dsh");
+        assert_eq!(
+            unselected.cause.to_string(),
+            format!(
+                "the DSH layout is unreadable: {}: the selected path is not UTF-8",
+                raw.display()
+            )
+        );
     }
+    // `resolve` is the selection's seams, or the selection's cause.
+    assert_eq!(
+        DshSeams::resolve().map_err(|error| error.to_string()),
+        DshSeams::selected()
+            .map_err(|unselected| unselected.cause.to_string())
+            .and_then(|selection| selection.seams.map_err(|error| error.to_string()))
+    );
+}
+
+/// The producer receives the SELECTED executable, a path the selection
+/// already resolved, and never searches for a bare spelling a second
+/// time: a second lookup could choose a different file than the one
+/// doctor probed (design D10).
+#[test]
+fn the_producer_refuses_a_bare_executable_spelling() {
+    assert_eq!(
+        refused(selected_executable("dsh")),
+        "the DSH layout is unreadable: 'dsh' is not a path: the selected executable is \
+         resolved once, at selection"
+    );
+    let install = Synthetic::new();
+    assert_eq!(
+        selected_executable(&install.seams.executable).unwrap(),
+        Path::new(&install.seams.executable).canonicalize().unwrap()
+    );
+    assert_eq!(
+        refused(resolve_core("dsh")),
+        "the DSH layout is unreadable: 'dsh' is not a path: the selected executable is \
+         resolved once, at selection"
+    );
+}
+
+/// An ABSENT `PATH` is a refusal, never an empty search. The inherited
+/// `unwrap_or_default()` read `None` as one empty entry, and an empty
+/// entry is the working directory: with no `PATH` and an executable
+/// `dsh` in cwd, the lookup selected that file where `Command::new("dsh")`
+/// finds nothing (security hold 2026-09-20, S1; controller reproduction).
+/// The real doctor regression, sentinel and all, is
+/// `crates/brokkr-cli/tests/doctor_dsh_selection.rs`; this is the
+/// resolver's own arm, and the explicit-path arm beside it.
+#[test]
+fn an_absent_path_is_a_named_refusal_and_never_the_working_directory() {
+    assert_eq!(
+        refused(resolve_executable_in("dsh", None)),
+        "the DSH layout is unreadable: 'dsh': PATH is absent"
+    );
+    // A `node` looked up for its version meets the same rule.
+    assert_eq!(
+        refused(resolve_executable_in("node", None)),
+        "the DSH layout is unreadable: 'node': PATH is absent"
+    );
+    // An explicit path needs no `PATH` to be selected: an override is a
+    // file, not a search.
+    let dir = tempfile::tempdir().unwrap();
+    let tool = stage_executable(dir.path(), "dsh", b"#!/bin/sh\ntrue\n");
+    assert_eq!(
+        resolve_executable_in(tool.to_str().unwrap(), None).unwrap(),
+        tool.canonicalize().unwrap()
+    );
+    // A PRESENT but empty `PATH` is one empty entry, which is cwd — a
+    // different answer from absence, asserted in the child case of
+    // `an_empty_path_entry_is_the_current_directory`.
+}
+
+/// No test in this file reassembles the component or composite stream:
+/// the sole producer is the ONLY serializer, and an expectation is a
+/// literal recorded from it. A test that rebuilt the NUL-separated
+/// lines and hashed their concatenation passed every runtime assertion
+/// while being a second producer (security hold 2026-09-20, finding 5).
+/// This check reads the test source and fails if that block returns.
+/// It detects that known block — a NUL pushed between path and digest,
+/// or a hash taken of an assembled `lines` buffer — and nothing wider:
+/// hashing one file's bytes on its own is an input hash, and stays
+/// permitted.
+#[test]
+fn no_test_reassembles_the_component_stream() {
+    let source = include_str!("tests.rs");
+    // Spelled in pieces so that this test's own text is not the block
+    // it forbids.
+    let nul_push = format!("push('{}')", "\\0");
+    let hashed_stream = [
+        format!("digest_of({}", "lines"),
+        format!("sha256_text(&{}", "lines"),
+        format!("sha256_hex({}", "lines"),
+    ];
+    for (number, line) in source.lines().enumerate() {
+        let line_number = number + 1;
+        assert!(
+            !line.contains(&nul_push),
+            "tests.rs:{line_number} pushes a NUL separator: a test that serializes the \
+             component stream is a second producer"
+        );
+        for pattern in &hashed_stream {
+            assert!(
+                !line.contains(pattern.as_str()),
+                "tests.rs:{line_number} hashes an assembled stream: a test that computes the \
+                 component or composite is a second producer"
+            );
+        }
+    }
+    // The check reads the file it lives in, which is not empty.
+    assert!(source.contains("fn no_test_reassembles_the_component_stream"));
+}
+
+/// The pnpm reader through the SOLE PRODUCER over an installed lock:
+/// each malformed spelling refuses by the pnpm component and a named
+/// cause, and the well-formed spelling beside it reads (security hold
+/// 2026-09-20, finding 3).
+fn composite_over_pnpm(install: &Synthetic, lock: &str) -> Result<DshComposite, CompositeError> {
+    write(&install.profile(), "pnpm-lock.yaml", lock.as_bytes());
+    dsh_composite_with(&install.seams, &install.node(), &[])
+}
+
+fn pnpm_with_resolution(resolution: &str) -> String {
+    format!("lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {resolution}\n")
+}
+
+#[test]
+fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() {
+    let install = Synthetic::new();
+    // The properly separated control is readable and is the identity
+    // the malformed spellings can no longer converge on.
+    let control =
+        composite_over_pnpm(&install, &pnpm_with_resolution("{integrity: sha512-X}")).unwrap();
+    assert!(control
+        .dependencies
+        .contains(&"debug 2.6.9 sha512-X".to_string()));
+
+    for (resolution, reason) in [
+        // No `: ` between key and value: in YAML this is one plain
+        // scalar, and the inherited `split_once(':')` repaired it into
+        // the separated control above.
+        (
+            "{integrity:sha512-X}",
+            "the resolution field 'integrity' lacks ': ' separation: 'integrity:sha512-X'",
+        ),
+        (
+            "{integrity: sha512-X, tarball:x}",
+            "the resolution field 'tarball' lacks ': ' separation: 'tarball:x'",
+        ),
+        // Collection punctuation inside a plain flow scalar is syntax
+        // this grammar does not read, wherever it sits in the value.
+        (
+            "{integrity: sha512-X[one]}",
+            "the resolution field 'integrity' carries unsupported flow syntax: 'sha512-X[one]'",
+        ),
+        (
+            "{integrity: sha512-]X}",
+            "the resolution field 'integrity' carries unsupported flow syntax: 'sha512-]X'",
+        ),
+        (
+            "{integrity: sha512-X, tarball: a[b]}",
+            "the resolution field 'tarball' carries unsupported flow syntax: 'a[b]'",
+        ),
+    ] {
+        assert_eq!(
+            refused_vector(
+                composite_over_pnpm(&install, &pnpm_with_resolution(resolution)),
+                resolution
+            ),
+            format!("pnpm lock is unreadable: {reason}"),
+            "{resolution}"
+        );
+    }
+
+    // Quote-aware splitting: a comma INSIDE a quoted scalar belongs to
+    // the scalar, so a legal quoted string is read as itself rather than
+    // refused for the wrong reason.
+    let quoted = composite_over_pnpm(
+        &install,
+        &pnpm_with_resolution("{integrity: 'sha512-a,b', tarball: \"x,y\"}"),
+    )
+    .unwrap();
+    assert!(quoted
+        .dependencies
+        .contains(&"debug 2.6.9 sha512-a,b".to_string()));
+    assert_ne!(quoted.canonical, control.canonical);
+}
+
+#[test]
+fn pnpm_identity_strings_preserve_the_distinction_from_typed_scalars() {
+    let install = Synthetic::new();
+    // The readable controls: the QUOTED spellings are strings, and each
+    // is its own identity.
+    let quoted_null =
+        composite_over_pnpm(&install, &pnpm_with_resolution("{integrity: 'null'}")).unwrap();
+    assert!(quoted_null
+        .dependencies
+        .contains(&"debug 2.6.9 null".to_string()));
+    let quoted_number =
+        composite_over_pnpm(&install, &pnpm_with_resolution("{integrity: \"42\"}")).unwrap();
+    assert!(quoted_number
+        .dependencies
+        .contains(&"debug 2.6.9 42".to_string()));
+    assert_ne!(quoted_null.canonical, quoted_number.canonical);
+
+    // Every plain typed spelling refuses by field, spelling and kind;
+    // the plain null therefore has NO identity to share with `'null'`.
+    for (value, kind) in [
+        ("null", "a null"),
+        ("Null", "a null"),
+        ("NULL", "a null"),
+        ("~", "a null"),
+        ("true", "a boolean"),
+        ("True", "a boolean"),
+        ("TRUE", "a boolean"),
+        ("false", "a boolean"),
+        ("False", "a boolean"),
+        ("FALSE", "a boolean"),
+        ("42", "a number"),
+        ("+42", "a number"),
+        ("4.2", "a number"),
+        (".5", "a number"),
+        ("5.", "a number"),
+        ("1e3", "a number"),
+        ("1.5E-3", "a number"),
+        ("+2e+2", "a number"),
+        ("0x1F", "a number"),
+        ("0o17", "a number"),
+        ("0b101", "a number"),
+        (".inf", "a number"),
+        ("+.Inf", "a number"),
+        (".INF", "a number"),
+        (".nan", "a number"),
+        (".NaN", "a number"),
+        (".NAN", "a number"),
+    ] {
+        assert_eq!(
+            refused_vector(
+                composite_over_pnpm(
+                    &install,
+                    &pnpm_with_resolution(&format!("{{integrity: {value}}}"))
+                ),
+                value
+            ),
+            format!(
+                "pnpm lock is unreadable: the resolution field 'integrity' is the plain scalar \
+                 '{value}', which is {kind} and not a string"
+            ),
+            "{value}"
+        );
+    }
+    // A leading `-` is a YAML indicator, refused as malformed syntax
+    // before the kind is asked — the same closed grammar, one arm up.
+    assert_eq!(
+        refused(composite_over_pnpm(
+            &install,
+            &pnpm_with_resolution("{integrity: -1}")
+        )),
+        "pnpm lock is unreadable: a malformed resolution flow map"
+    );
+
+    // Plain spellings that LOOK numeric to a looser rule and are not
+    // numbers remain strings: the rule is the schema's, not "starts
+    // with a digit".
+    for value in [
+        "1abc", "0x", "0xZ", "1e", "1.2.3", "+", "nul", "yes", "no", "on", "off",
+    ] {
+        let readable = composite_over_pnpm(
+            &install,
+            &pnpm_with_resolution(&format!("{{integrity: {value}}}")),
+        )
+        .unwrap_or_else(|error| panic!("{value}: {error}"));
+        assert!(
+            readable
+                .dependencies
+                .contains(&format!("debug 2.6.9 {value}")),
+            "{value}"
+        );
+    }
+    // The `tarball` field is admitted but never read, so its scalar
+    // kind is not asked: a plain number there is not an identity string.
+    composite_over_pnpm(
+        &install,
+        &pnpm_with_resolution("{integrity: sha512-X, tarball: 42}"),
+    )
+    .unwrap();
+
+    // The header keeps its own rule: plain `9.0` and quoted `'9.0'` are
+    // both the admitted version, and neither is a "number" refusal.
+    for header in ["9.0", "'9.0'", "\"9.0\""] {
+        let lock = format!(
+            "lockfileVersion: {header}\n\npackages:\n\n  debug@2.6.9:\n    resolution: {{integrity: sha512-X}}\n"
+        );
+        composite_over_pnpm(&install, &lock).unwrap_or_else(|error| panic!("{header}: {error}"));
+    }
+    assert_eq!(
+        refused(composite_over_pnpm(
+            &install,
+            "lockfileVersion: 9\npackages:\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n"
+        )),
+        "pnpm lock is unreadable: lockfileVersion is not 9.0"
+    );
+}
+
+/// The typed-scalar rule at its own unit, so every arm of the numeric
+/// grammar is a plain assertion rather than a fact about which vectors
+/// the producer test happened to list.
+#[test]
+fn the_plain_scalar_kind_rule_is_the_core_schema_s() {
+    for value in [
+        "0", "7", "42", "-1", "+1", "1.0", ".5", "5.", "1e3", "1E3", "1e-3", "1.5e+3", "0x0",
+        "0xff", "0o7", "0b1", ".inf", "-.inf", "+.INF", ".nan",
+    ] {
+        assert!(looks_numeric(value), "{value}");
+        assert_eq!(typed_plain_scalar(value), Some("a number"), "{value}");
+    }
+    for value in [
+        "",
+        "x",
+        "1x",
+        "1.2.3",
+        "1e",
+        "e3",
+        "1e+",
+        "0x",
+        "0xg",
+        "0o8",
+        "0b2",
+        ".",
+        "+",
+        "-",
+        "inf",
+        "nan",
+        ".infinity",
+        "sha512-X",
+        "1_000",
+        "1:20",
+    ] {
+        assert!(!looks_numeric(value), "{value}");
+        assert_eq!(typed_plain_scalar(value), None, "{value}");
+    }
+    assert_eq!(typed_plain_scalar("~"), Some("a null"));
+    assert_eq!(typed_plain_scalar("FALSE"), Some("a boolean"));
+    assert_eq!(
+        split_flow_fields("a: 'x,y', b: \"p,q\", c: z"),
+        vec!["a: 'x,y'", " b: \"p,q\"", " c: z"]
+    );
+    assert_eq!(split_flow_fields(""), vec![""]);
+    assert_eq!(split_flow_fields("a: 'x"), vec!["a: 'x"]);
+    // A field with no colon at all, and a key the map does not admit,
+    // are the map's own refusals.
+    assert_eq!(
+        pnpm_flow_map("integrity"),
+        Err("a malformed resolution flow map".to_string())
+    );
+    assert_eq!(
+        pnpm_flow_map("rogue: x"),
+        Err("a malformed resolution flow map".to_string())
+    );
+    assert_eq!(
+        pnpm_flow_map("integrity: 'x"),
+        Err("a malformed resolution flow map".to_string())
+    );
+    assert_eq!(
+        pnpm_flow_map("integrity: ''"),
+        Err("a malformed resolution flow map".to_string())
+    );
+    assert_eq!(pnpm_flow_map("integrity: x"), Ok(vec![("integrity", "x")]));
+    assert_eq!(pnpm_scalar("'a'"), Some(Scalar::Quoted("a")));
+    assert_eq!(pnpm_scalar("a"), Some(Scalar::Plain("a")));
+}
+
+/// A repeated decoded `packages:` heading refuses before exclusion or
+/// triple normalization, in every spelling of the repeat; equal
+/// complete triples from DISTINCT valid records still deduplicate
+/// (security hold 2026-09-20, finding 4).
+#[test]
+fn duplicate_decoded_pnpm_package_keys_refuse_before_triple_normalization() {
+    let install = Synthetic::new();
+    let base = install.composite();
+    // The positive control this repair must not lose: the npm lock and
+    // the pnpm lock each carry `debug 2.6.9 sha512-DEBUG`, two distinct
+    // valid records, and the composite carries the triple ONCE.
+    assert_eq!(
+        base.dependencies
+            .iter()
+            .filter(|triple| triple.starts_with("debug "))
+            .count(),
+        1,
+        "{:?}",
+        base.dependencies
+    );
+    // Differing versions or integrities of one name remain distinct.
+    let two = composite_over_pnpm(
+        &install,
+        "lockfileVersion: '9.0'\npackages:\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n  debug@2.7.0:\n    resolution: {integrity: sha512-OTHER}\n",
+    )
+    .unwrap();
+    assert!(two
+        .dependencies
+        .contains(&"debug 2.6.9 sha512-DEBUG".to_string()));
+    assert!(two
+        .dependencies
+        .contains(&"debug 2.7.0 sha512-OTHER".to_string()));
+
+    let record = |key: &str, integrity: &str| {
+        format!("  {key}:\n    resolution: {{integrity: {integrity}}}\n")
+    };
+    for (name, lock) in [
+        // Identical repeat: the triple set hid it as a deduplication.
+        (
+            "identical",
+            format!(
+                "lockfileVersion: '9.0'\npackages:\n{}{}",
+                record("debug@2.6.9", "sha512-DEBUG"),
+                record("debug@2.6.9", "sha512-DEBUG")
+            ),
+        ),
+        // Conflicting repeat, in both orders: two integrities for one
+        // key merged into an order-independent digest.
+        (
+            "conflicting",
+            format!(
+                "lockfileVersion: '9.0'\npackages:\n{}{}",
+                record("debug@2.6.9", "sha512-A"),
+                record("debug@2.6.9", "sha512-B")
+            ),
+        ),
+        (
+            "conflicting-reversed",
+            format!(
+                "lockfileVersion: '9.0'\npackages:\n{}{}",
+                record("debug@2.6.9", "sha512-B"),
+                record("debug@2.6.9", "sha512-A")
+            ),
+        ),
+        // Quoted and unquoted spellings of ONE decoded key.
+        (
+            "quoted",
+            format!(
+                "lockfileVersion: '9.0'\npackages:\n{}{}",
+                record("debug@2.6.9", "sha512-A"),
+                record("'debug@2.6.9'", "sha512-B")
+            ),
+        ),
+        (
+            "double-quoted",
+            format!(
+                "lockfileVersion: '9.0'\npackages:\n{}{}",
+                record("\"debug@2.6.9\"", "sha512-A"),
+                record("debug@2.6.9", "sha512-A")
+            ),
+        ),
+    ] {
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, &lock), name),
+            "pnpm lock is unreadable: a repeated package key 'debug@2.6.9'",
+            "{name}"
+        );
+    }
+    // A repeated LOCAL record: excluded from identity, and still a
+    // repeated mapping key the document cannot mean two things by.
+    let local = format!(
+        "lockfileVersion: '9.0'\npackages:\n{}{}{}",
+        record("debug@2.6.9", "sha512-DEBUG"),
+        record("dsh-plugin-cli-session@file:plugin.tgz", "sha512-L"),
+        record("dsh-plugin-cli-session@file:plugin.tgz", "sha512-L")
+    );
+    assert_eq!(
+        refused(composite_over_pnpm(&install, &local)),
+        "pnpm lock is unreadable: a repeated package key 'dsh-plugin-cli-session@file:plugin.tgz'"
+    );
+    // The same at the reader's own unit, with the reason and with no
+    // partial answer: `Err`, not a vector missing one record.
+    assert_eq!(
+        refused(pnpm_dependencies(&local, &["dsh-plugin-cli-session"])),
+        "pnpm lock is unreadable: a repeated package key 'dsh-plugin-cli-session@file:plugin.tgz'"
+    );
+}
+
+/// An otherwise complete install whose plugin `package.json` alone is
+/// gone: the refusal names the bundle AND the file the search ran out
+/// of, through the whole producer (security hold 2026-09-20, finding 7).
+/// The real doctor line over the same layout is asserted in
+/// `crates/brokkr-cli/tests/doctor_dsh_selection.rs`.
+#[test]
+fn removing_only_the_plugin_manifest_names_the_drifted_file() {
+    let install = Synthetic::new();
+    let base = install.composite();
+    let plugin = install
+        .profile()
+        .join("node_modules")
+        .join("dsh-plugin-cli-session");
+    fs::remove_file(plugin.join("package.json")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        "the DSH layout is unreadable: bundle 'dsh-plugin-cli-session' does not resolve: \
+         no package.json found"
+    );
+    write(&plugin, "package.json", b"package.json");
+
+    // The lookup order is unchanged by the wording: an EARLIER candidate
+    // directory with no manifest is true absence, and the search walks
+    // on to the profile's legitimate later hit.
+    let earlier = install
+        .dir
+        .path()
+        .join("core/node_modules/@deepseek-ai/dsh/node_modules/dsh-plugin-cli-session");
+    fs::create_dir_all(&earlier).unwrap();
+    assert_eq!(install.composite().canonical, base.canonical);
+    // An earlier candidate whose manifest is not a regular file still
+    // stops the search: it is not absence, and it never falls through.
+    fs::create_dir_all(earlier.join("package.json")).unwrap();
+    assert_eq!(
+        refused(dsh_composite_with(&install.seams, &install.node(), &[])),
+        format!(
+            "the DSH layout is unreadable: bundle 'dsh-plugin-cli-session': {} is not a \
+             regular file",
+            earlier.join("package.json").display()
+        )
+    );
+}
+
+/// The resolver classifies a candidate as the child's search would, and
+/// REFUSES where it cannot prove what the child would do (security hold
+/// 2026-09-20, finding 2). Each arm is asserted by its reason.
+#[cfg(unix)]
+#[test]
+fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a");
+    let b = dir.path().join("b");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n");
+    let path = |first: &Path| {
+        Some(OsString::from(format!(
+            "{}:{}",
+            first.display(),
+            b.display()
+        )))
+    };
+
+    // A SELF-SYMLINK at A/dsh: the child's `execve` stops with ELOOP,
+    // and so does this, naming the loop. B is never reached.
+    std::os::unix::fs::symlink("dsh", a.join("dsh")).unwrap();
+    let eloop = fs::metadata(a.join("dsh")).unwrap_err();
+    assert!(is_symlink_loop(&eloop), "{eloop}");
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path(&a))),
+        format!(
+            "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {eloop}",
+            a.join("dsh").display()
+        )
+    );
+    // The same file as an explicit override: the same refusal, because
+    // an override has no next entry either.
+    assert_eq!(
+        refused(resolve_executable_in(a.join("dsh").to_str().unwrap(), None)),
+        format!(
+            "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {eloop}",
+            a.join("dsh").display()
+        )
+    );
+    fs::remove_file(a.join("dsh")).unwrap();
+
+    // A MISSING INTERPRETER at A/dsh: metadata and access both admit
+    // it, the child's `execve` would fail at exec and walk on to B, and
+    // this resolver refuses at A by that cause rather than guessing.
+    let missing = dir.path().join("no-such-interpreter");
+    stage_executable(&a, "dsh", format!("#!{}\n", missing.display()).as_bytes());
+    let enoent = fs::metadata(&missing).unwrap_err();
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path(&a))),
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '{}' is missing: {enoent}",
+            a.join("dsh").display(),
+            missing.display()
+        )
+    );
+
+    // Every other obstruction the head can show, each by its reason.
+    // Trailing spaces and tabs before the interpreter are skipped as the
+    // kernel skips them; a CR is not a terminator.
+    let interpreter_is_dir = format!("#!{}\n", dir.path().display());
+    let not_executable = dir.path().join("plain-interpreter");
+    fs::write(&not_executable, b"#!/bin/sh\n").unwrap();
+    fs::set_permissions(&not_executable, fs::Permissions::from_mode(0o644)).unwrap();
+    let mut unterminated = b"#!/bin/sh".to_vec();
+    unterminated.resize(SHEBANG_BOUND + 10, b' ');
+    for (body, reason) in [
+        (
+            b"#!\n".to_vec(),
+            "its #! line names no interpreter".to_string(),
+        ),
+        (
+            b"#! \t \n".to_vec(),
+            "its #! line names no interpreter".to_string(),
+        ),
+        (
+            b"#!bin/sh\n".to_vec(),
+            "its #! interpreter 'bin/sh' is not an absolute path".to_string(),
+        ),
+        (
+            b"#!/bin/sh\0\n".to_vec(),
+            "its #! line carries a NUL".to_string(),
+        ),
+        (
+            unterminated,
+            format!("its #! line is not terminated within {SHEBANG_BOUND} bytes"),
+        ),
+        (
+            interpreter_is_dir.into_bytes(),
+            format!(
+                "its #! interpreter '{}' is not an executable file",
+                dir.path().display()
+            ),
+        ),
+        (
+            format!("#!{}\n", not_executable.display()).into_bytes(),
+            format!(
+                "its #! interpreter '{}' is not an executable file",
+                not_executable.display()
+            ),
+        ),
+    ] {
+        stage_executable(&a, "dsh", &body);
+        assert_eq!(
+            refused(resolve_executable_in("dsh", path(&a))),
+            format!(
+                "the DSH layout is unreadable: {}: {reason}",
+                a.join("dsh").display()
+            ),
+            "{body:?}"
+        );
+    }
+
+    // The forms the head ADMITS: a shebang with arguments and tabs, one
+    // whose whole file is shorter than the bound and unterminated, a
+    // native image that is not a script at all, and the measured
+    // `env node` form, which keeps its child-PATH meaning here.
+    for body in [
+        &b"#! \t/bin/sh\t-e  extra\n"[..],
+        b"#!/bin/sh",
+        b"\x7fELF\x02\x01\x01\0\0\0\0\0\0\0\0\0\x02\0>\0",
+        b"#!/usr/bin/env node\n",
+        b"",
+    ] {
+        stage_executable(&a, "dsh", body);
+        assert_eq!(
+            resolve_executable_in("dsh", path(&a)).unwrap(),
+            a.join("dsh").canonicalize().unwrap(),
+            "{body:?}"
+        );
+    }
+
+    // What the child WALKS PAST, this walks past to B: an ordinary
+    // non-executable A/dsh, a directory named dsh, and an A this process
+    // may not traverse. An explicit override of each is a refusal that
+    // names why, because an override has nowhere to walk to.
+    fs::write(a.join("dsh"), b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(a.join("dsh"), fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(
+        resolve_executable_in("dsh", path(&a)).unwrap(),
+        real.canonicalize().unwrap()
+    );
+    assert_eq!(
+        refused(resolve_executable_in(a.join("dsh").to_str().unwrap(), None)),
+        format!(
+            "the DSH layout is unreadable: {}: is not executable by this process",
+            a.join("dsh").display()
+        )
+    );
+    fs::remove_file(a.join("dsh")).unwrap();
+    fs::create_dir(a.join("dsh")).unwrap();
+    assert_eq!(
+        resolve_executable_in("dsh", path(&a)).unwrap(),
+        real.canonicalize().unwrap()
+    );
+    assert_eq!(
+        refused(resolve_executable_in(a.join("dsh").to_str().unwrap(), None)),
+        format!(
+            "the DSH layout is unreadable: {}: is not a regular file",
+            a.join("dsh").display()
+        )
+    );
+    fs::remove_dir(a.join("dsh")).unwrap();
+
+    // A candidate this process may execute but not READ: the head cannot
+    // be inspected, which is a refusal, not a guess. A privileged process
+    // reads anything, so the arm is asserted only where it is reachable.
+    let sealed_file = dir.path().join("sealed-file");
+    fs::write(&sealed_file, b"x").unwrap();
+    fs::set_permissions(&sealed_file, fs::Permissions::from_mode(0o000)).unwrap();
+    let privileged = fs::read(&sealed_file).is_ok();
+    stage_executable(&a, "dsh", b"#!/bin/sh\ntrue\n");
+    fs::set_permissions(a.join("dsh"), fs::Permissions::from_mode(0o111)).unwrap();
+    let resolved = resolve_executable_in("dsh", path(&a));
+    match privileged {
+        true => assert_eq!(resolved.unwrap(), a.join("dsh").canonicalize().unwrap()),
+        false => {
+            let eacces = fs::File::open(a.join("dsh")).unwrap_err();
+            assert_eq!(
+                refused(resolved),
+                format!(
+                    "the DSH layout is unreadable: {}: cannot be read: {eacces}",
+                    a.join("dsh").display()
+                )
+            );
+        }
+    }
+    fs::set_permissions(a.join("dsh"), fs::Permissions::from_mode(0o755)).unwrap();
+
+    // A metadata failure of a kind the child's search does not walk past
+    // is a refusal by cause: a path component that is a FILE gives
+    // ENOTDIR, which `execvp` stops on too.
+    let notdir = dir.path().join("file-as-dir");
+    fs::write(&notdir, b"x").unwrap();
+    let enotdir = fs::metadata(notdir.join("dsh")).unwrap_err();
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path(&notdir))),
+        format!(
+            "the DSH layout is unreadable: {}: the lookup cannot be proved: {enotdir}",
+            notdir.join("dsh").display()
+        )
+    );
 }
 
 #[test]
@@ -2707,7 +3516,7 @@ fn an_unreadable_profile_patch_is_not_a_plugin_component_failure() {
 fn resolve_core_refuses_an_executable_with_no_dsh_ancestor() {
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("tool.js");
-    fs::write(&bin, b"#!/usr/bin/env node\n").unwrap();
+    write_executable(dir.path(), "tool.js", b"#!/usr/bin/env node\n");
     // The refusal names the CANONICAL executable and the package it
     // looked for, which is the whole of this arm: no ancestor manifest at
     // all, as distinct from one that names something else.
@@ -2939,7 +3748,7 @@ fn resolve_core_refuses_a_manifest_that_does_not_match_its_binary_or_scope() {
         CORE_LOCK,
     );
     let other = bin.parent().unwrap().join("other.js");
-    fs::write(&other, b"#!/usr/bin/env node\n").unwrap();
+    write_executable(bin.parent().unwrap(), "other.js", b"#!/usr/bin/env node\n");
     // Asserted by its reason and by BOTH paths it names: which file was
     // asked for and which one the manifest declares is the whole of the
     // refusal, and an `is_err()` carried neither.
@@ -2988,7 +3797,7 @@ fn resolve_core_refuses_a_manifest_that_does_not_match_its_binary_or_scope() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
     );
-    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
     assert_eq!(
         refused(resolve_core(&pkg.join("lib/bin.js").to_string_lossy())),
         "the DSH layout is unreadable: core package is not under node_modules/@deepseek-ai"
@@ -3002,7 +3811,7 @@ fn resolve_core_refuses_a_manifest_that_does_not_match_its_binary_or_scope() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
     );
-    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
     assert_eq!(
         refused(resolve_core(&pkg.join("lib/bin.js").to_string_lossy())),
         "the DSH layout is unreadable: core package is not under node_modules"
@@ -3017,7 +3826,7 @@ fn resolve_core_refuses_a_manifest_that_does_not_match_its_binary_or_scope() {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"1.0.0","bin":{"dsh":"lib/bin.js"}}"#,
     );
-    write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+    write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
     assert_eq!(
         refused(resolve_core(&pkg.join("lib/bin.js").to_string_lossy())),
         "the DSH layout is unreadable: core package is not at \
@@ -3345,7 +4154,7 @@ impl Measured {
             br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
         );
         // The measured executable path and its exact first line.
-        write(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
+        write_executable(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
         write(
             &core,
             "node_modules/.package-lock.json",

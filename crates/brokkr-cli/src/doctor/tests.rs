@@ -1,4 +1,5 @@
 use super::*;
+use brokkr_protocol::adapters::CompositeError;
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -1978,6 +1979,7 @@ fn doctor_appends_the_dsh_composite_detail_to_the_provider_line() {
             version: probe(&adapter.binary),
             warning: false,
             suffix: "composite deadbeef plugin feedface (no declared wrapper_digest)".to_string(),
+            cause: None,
         }
     }
     let rendered = doctor_in(
@@ -2013,6 +2015,7 @@ fn doctor_warns_when_the_dsh_composite_differs_from_a_declared_digest() {
             suffix:
                 "composite deadbeef plugin feedface (differs from the declared wrapper_digest feedface)"
                     .to_string(),
+            cause: None,
         }
     }
     let rendered = doctor_in(
@@ -2049,9 +2052,20 @@ fn dsh_provider_line_reads_the_real_adapter_and_its_seams() {
         .find(|adapter| adapter.provider == "dsh")
         .expect("the shipped dsh adapter");
     let observed = dsh_provider_line(adapter, tool_version);
-    assert_eq!(observed.binary, DshSeams::selected().0);
     // A host without DSH reports no version and no composite suffix; a
-    // host with one reports both. Either way the two halves agree.
+    // host with one reports both. Either way the two halves agree, and
+    // the line names what the seam selected or what it looked for.
+    match DshSeams::selected() {
+        Ok(selection) => {
+            assert_eq!(observed.binary, selection.executable);
+            assert_eq!(observed.cause, None);
+        }
+        Err(unselected) => {
+            assert_eq!(observed.binary, unselected.declared);
+            assert_eq!(observed.version, None);
+            assert_eq!(observed.cause, Some(unselected.cause.to_string()));
+        }
+    }
     assert_eq!(observed.version.is_some(), !observed.suffix.is_empty());
 }
 
@@ -2098,14 +2112,14 @@ fn dsh_adapter_declaring(identity: Option<ResumeIdentity>) -> Adapter {
 /// A resolved home under a temporary root, so an injected `selected`
 /// hands the producer a real `DshSeams` without touching the operator's.
 #[cfg(test)]
-fn seams_at(executable: &str, home: &Path) -> (String, Result<DshSeams, CompositeError>) {
-    (
-        executable.to_string(),
-        Ok(DshSeams {
+fn seams_at(executable: &str, home: &Path) -> Result<DshSelection, DshUnselected> {
+    Ok(DshSelection {
+        executable: executable.to_string(),
+        seams: Ok(DshSeams {
             executable: executable.to_string(),
             home: home.to_path_buf(),
         }),
-    )
+    })
 }
 
 /// `dsh_provider_line`'s own arms: an Unknown identity declares no digest
@@ -2635,16 +2649,17 @@ fn a_failed_home_seam_leaves_the_version_visible_beside_the_reason() {
         &adapter,
         |_| Some("0.1.5-rc.2".to_string()),
         || {
-            (
-                "dsh".to_string(),
-                Err(CompositeError::Config(
+            Ok(DshSelection {
+                executable: "/opt/dsh/lib/bin.js".to_string(),
+                seams: Err(CompositeError::Config(
                     "no dsh home: set DSH_HOME or HOME".into(),
                 )),
-            )
+            })
         },
         |_| panic!("no seams, no producer call"),
     );
     assert_eq!(observed.version.as_deref(), Some("0.1.5-rc.2"));
+    assert_eq!(observed.cause, None, "the executable WAS selected");
     assert!(observed.warning, "a supported declaration warns");
     assert_eq!(
         observed.suffix,
@@ -2653,5 +2668,137 @@ fn a_failed_home_seam_leaves_the_version_visible_beside_the_reason() {
              no dsh home: set DSH_HOME or HOME \
              (declared wrapper_digest {digest}; comparison unavailable)"
         )
+    );
+}
+
+/// A FAILED selection is the whole of the line, before anything runs:
+/// the probe is never called, so nothing the declared spelling would
+/// have found in a working directory can execute, and the cause the
+/// lookup gave rides into the report beside that spelling. The
+/// inherited seam handed the declared name to the probe after a failed
+/// lookup, which under an absent `PATH` executed a cwd `dsh` (security
+/// hold 2026-09-20, S1; the real-child regression is
+/// `tests/doctor_dsh_selection.rs`).
+#[test]
+fn a_failed_selection_probes_nothing_and_carries_its_cause() {
+    let adapter = dsh_adapter_declaring(None);
+    let observed = dsh_provider_line_with(
+        &adapter,
+        |binary| panic!("a probe of '{binary}' after a failed selection"),
+        || {
+            Err(DshUnselected {
+                declared: "dsh".to_string(),
+                cause: CompositeError::Config("'dsh': PATH is absent".into()),
+            })
+        },
+        |_| panic!("no selection, no producer call"),
+    );
+    assert_eq!(observed.binary, "dsh", "the spelling that was looked for");
+    assert_eq!(observed.version, None);
+    assert!(!observed.warning);
+    assert_eq!(observed.suffix, "");
+    assert_eq!(
+        observed.cause.as_deref(),
+        Some("the DSH layout is unreadable: 'dsh': PATH is absent"),
+        "the lookup's own cause, not a generic not-found"
+    );
+    // The same over a supported, digest-declaring shape: a selection
+    // failure is an availability fact and never a composite warning.
+    let supported = dsh_adapter_declaring(Some(ResumeIdentity::Measured {
+        version: "0.1.5-rc.2".into(),
+        applies_to: "0.1.5-rc.2".into(),
+        wrapper_digest: Some("a".repeat(64)),
+    }));
+    let observed = dsh_provider_line_with(
+        &supported,
+        |binary| panic!("a probe of '{binary}' after a failed selection"),
+        || {
+            Err(DshUnselected {
+                declared: "/override/dsh".to_string(),
+                cause: CompositeError::Config("/override/dsh: missing".into()),
+            })
+        },
+        |_| panic!("no selection, no producer call"),
+    );
+    assert_eq!(observed.binary, "/override/dsh");
+    assert!(!observed.warning);
+    assert_eq!(
+        observed.cause.as_deref(),
+        Some("the DSH layout is unreadable: /override/dsh: missing")
+    );
+}
+
+/// The unavailable line renders the selected spelling and the retained
+/// cause through `Safe`, at their only interpolation. A nonexistent
+/// override carrying a newline and a clear-screen sequence reached
+/// stdout verbatim before (security hold 2026-09-20, S2); the real
+/// built-binary assertion is in `tests/doctor_dsh_selection.rs`, and
+/// this one drives the renderer's arm directly.
+#[test]
+fn the_unavailable_line_escapes_the_binary_and_the_selection_cause() {
+    let dir = tempfile::tempdir().unwrap();
+    fn injected(adapter: &Adapter, _: fn(&str) -> Option<String>) -> Observed {
+        assert_eq!(adapter.provider, "dsh");
+        Observed {
+            binary: "/tmp/x\n\u{1b}[2Jdsh".to_string(),
+            version: None,
+            warning: false,
+            suffix: String::new(),
+            cause: Some("/tmp/x\n\u{1b}[2Jdsh: No such file\u{1b}[2J".to_string()),
+        }
+    }
+    let rendered = doctor_in(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_present,
+        never_ambient,
+        Boundary::Namespace,
+        None,
+        injected,
+    )
+    .render();
+    let line = rendered
+        .lines()
+        .find(|line| line.starts_with("warn     dsh:"))
+        .unwrap_or_else(|| panic!("a dsh warning line: {rendered}"));
+    assert!(
+        line.contains("binary '/tmp/x[2Jdsh' not found: /tmp/x[2Jdsh: No such file[2J — seats"),
+        "the escaped spelling and cause, in Safe's convention: {line}"
+    );
+    assert!(!rendered.contains('\u{1b}'), "{rendered}");
+    assert!(
+        !rendered.lines().any(|line| line.starts_with("\u{1b}[2J")),
+        "no injected line: {rendered}"
+    );
+    // A provider whose probe failed with an executable in hand renders
+    // no cause: the arm is the same, the suffix is not.
+    fn selected_but_silent(adapter: &Adapter, _: fn(&str) -> Option<String>) -> Observed {
+        Observed {
+            binary: adapter.binary.clone(),
+            version: None,
+            warning: false,
+            suffix: String::new(),
+            cause: None,
+        }
+    }
+    let rendered = doctor_in(
+        None,
+        dir.path(),
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+        &dir.path().join("secrets.env"),
+        always_present,
+        never_ambient,
+        Boundary::Namespace,
+        None,
+        selected_but_silent,
+    )
+    .render();
+    assert!(
+        rendered.contains("warn     dsh: binary 'dsh' not found — seats"),
+        "{rendered}"
     );
 }
