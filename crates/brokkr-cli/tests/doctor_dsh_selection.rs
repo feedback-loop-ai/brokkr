@@ -598,10 +598,34 @@ fn absent_path_default_search_matches_native_dsh_and_node() {
             );
         }
         Ok(output) => {
-            let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // The native child SUCCEEDED, and what it printed is the
+            // canonical identity of the runtime the default search
+            // selected — not a version banner two installations can
+            // share (review 2026-09-20, F7).
             assert!(
-                line.starts_with("ok       dsh:"),
-                "DSH selected with node {ran} on the default search: {line}"
+                output.status.success(),
+                "the native default-search node exited {:?}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            assert!(!ran.is_empty() && !ran.contains("DECOY"), "{ran}");
+            // The installed launcher prints the runtime it runs under,
+            // so doctor's version field IS the `process.execPath` of
+            // the node doctor selected, probed and retained.
+            assert!(
+                line.starts_with(&format!("ok       dsh: {ran} · serves")),
+                "doctor observed the very runtime the native child ran ({ran}): {line}"
+            );
+            let observed = line
+                .trim_start_matches("ok       dsh: ")
+                .split(" · ")
+                .next()
+                .expect("a version field");
+            assert_eq!(
+                std::fs::canonicalize(observed).unwrap(),
+                std::fs::canonicalize(&ran).unwrap(),
+                "the observed and native runtimes are one canonical file"
             );
         }
     }
@@ -648,24 +672,45 @@ fn an_obstructed_path_search_takes_the_explicit_safe_refusal() {
         "{line}"
     );
 
-    // Self-symlink at A.
+    // Self-symlink at A. What the SEARCH does with a loop is each C
+    // library's own: glibc's `execvp` stops with ELOOP and never
+    // reaches B (measured 2026-09-20), Apple's continues to B as it
+    // continues past ENOENT. The running platform's own native control
+    // is the oracle, never a fixed "Unix" outcome — AS1's corrected
+    // cell (2026-09-20 spec defect, F3).
     std::fs::remove_file(a.join("dsh")).unwrap();
     std::os::unix::fs::symlink("dsh", a.join("dsh")).unwrap();
     let eloop = std::fs::metadata(a.join("dsh")).unwrap_err();
-    let native = native_dsh(cwd, Some(&path)).unwrap_err();
-    assert_eq!(
-        native.raw_os_error(),
-        eloop.raw_os_error(),
-        "the native child stopped with ELOOP rather than running B: {native}"
-    );
-    let stdout = stdout_of(doctor(cwd).env("PATH", &path));
-    assert!(!stdout.contains(B_VERSION), "{stdout}");
-    let line = dsh_line(&stdout);
-    let expected = format!(
-        "{}: a symlink loop stops the lookup: {eloop}",
-        a.join("dsh").display()
-    );
-    assert!(line.contains(&expected), "{line}");
+    let native = native_dsh(cwd, Some(&path));
+    match native {
+        Err(native) => {
+            assert_eq!(
+                native.raw_os_error(),
+                eloop.raw_os_error(),
+                "the native child stopped with ELOOP rather than running B: {native}"
+            );
+            let stdout = stdout_of(doctor(cwd).env("PATH", &path));
+            assert!(!stdout.contains(B_VERSION), "{stdout}");
+            let line = dsh_line(&stdout);
+            let expected = format!(
+                "{}: a symlink loop stops the lookup: {eloop}",
+                a.join("dsh").display()
+            );
+            assert!(line.contains(&expected), "{line}");
+        }
+        Ok(native) => {
+            let ran = String::from_utf8_lossy(&native.stdout).into_owned();
+            assert!(
+                ran.contains(B_VERSION),
+                "this platform's search continued past the loop to B: {ran}"
+            );
+            let stdout = stdout_of(doctor(cwd).env("PATH", &path));
+            assert!(
+                dsh_line(&stdout).starts_with(&format!("ok       dsh: {B_VERSION} · serves")),
+                "doctor selects exactly what that native control ran: {stdout}"
+            );
+        }
+    }
 
     // Ordinary non-executable A: both walk on to B, and doctor's line is
     // B's version. B is a shell script, not a DSH core, so its composite
@@ -829,6 +874,139 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         line.starts_with("warn     dsh: binary 'dsh' not found: "),
         "{line}"
     );
+
+    // F4 (review 2026-09-20), SECURITY. The same `env`, under another
+    // name. `env-alias` and `env` are two spellings of ONE binary;
+    // doctor recognized the measured form by the spelled basename, so
+    // the alias carried a launcher whose `node` was missing past D10's
+    // refusal and doctor EXECUTED it — the marker it left is the proof.
+    // The refusal must precede the probe under either spelling.
+    let tools = cwd.join("tools");
+    std::fs::create_dir_all(&tools).unwrap();
+    let env_binary = ["/usr/bin/env", "/bin/env"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+        .expect("this host has an env binary");
+    let alias = tools.join("env-alias");
+    std::os::unix::fs::symlink(&env_binary, &alias).unwrap();
+    assert_eq!(
+        alias.canonicalize().unwrap(),
+        env_binary.canonicalize().unwrap(),
+        "the alias and `env` are one file under two names"
+    );
+    let nodes_a = cwd.join("node-a");
+    let nodes_b = cwd.join("node-b");
+    stage_executable(&nodes_a, "node", &format!("#!{}\n", missing.display()));
+    version_script(&nodes_b, "node", "DSH_B_NODE_0.0.3");
+    let launchers = cwd.join("launchers");
+    let node_path = format!(
+        "{}:{}:{}",
+        launchers.display(),
+        nodes_a.display(),
+        nodes_b.display()
+    );
+    let oracle_marks = marks(cwd, "oracle");
+    for interpreter in [&alias, &env_binary] {
+        stage_executable(
+            &launchers,
+            "dsh",
+            &format!("#!{} node\n", interpreter.display()),
+        );
+        // The independent native control: the child SELECTED the
+        // launcher and the kernel loaded it through this spelling —
+        // nothing was walked past at the launcher — and where the
+        // platform's own `env` went on to run a program it ran B's
+        // node, never A's obstructed copy. An `env` that declines to
+        // answer to another name stops there; that is this host's
+        // fact, recorded rather than asserted away.
+        let native = native_dsh(cwd, Some(&node_path)).unwrap();
+        let ran = String::from_utf8_lossy(&native.stdout).into_owned();
+        assert!(
+            !ran.contains("DSH_A_"),
+            "the native child ran nothing of A's: {ran}"
+        );
+        eprintln!(
+            "F4 native control under {:?}: status {:?}, stdout {:?}",
+            interpreter.file_name().unwrap(),
+            native.status,
+            ran.trim()
+        );
+        // Doctor names the obstruction BEFORE probing anything, and
+        // leaves no execution marker under either spelling.
+        let stdout = stdout_of(
+            doctor(cwd)
+                .env("PATH", &node_path)
+                .env("BROKKR_MARKS", &doctor_marks),
+        );
+        assert_eq!(
+            executed(&doctor_marks),
+            Vec::<String>::new(),
+            "doctor probed nothing under {interpreter:?}:\n{stdout}"
+        );
+        assert!(!stdout.contains("DSH_B_NODE_0.0.3"), "{stdout}");
+        let line = dsh_line(&stdout);
+        let expected = format!(
+            "{}: its #! interpreter '{}' selects no 'node': the DSH layout is unreadable: {}: \
+             its #! interpreter '{}' is missing: {enoent}",
+            launchers.join("dsh").display(),
+            interpreter.display(),
+            nodes_a.join("node").display(),
+            missing.display()
+        );
+        assert!(line.contains(&expected), "{line}");
+    }
+    // The valid-chain positive: with A's `node` gone, the launcher is
+    // SELECTED under either spelling rather than refused, and where the
+    // platform's own `env` runs the program, doctor reports B's version
+    // from exactly one probe.
+    std::fs::remove_file(nodes_a.join("node")).unwrap();
+    let _ = std::fs::remove_dir_all(&oracle_marks);
+    for (round, interpreter) in [&env_binary, &alias].into_iter().enumerate() {
+        stage_executable(
+            &launchers,
+            "dsh",
+            &format!("#!{} node\n", interpreter.display()),
+        );
+        let chain_marks = marks(cwd, &format!("chain-{round}"));
+        let native = native_dsh(cwd, Some(&node_path)).unwrap();
+        let ran = String::from_utf8_lossy(&native.stdout).into_owned();
+        let stdout = stdout_of(
+            doctor(cwd)
+                .env("PATH", &node_path)
+                .env("BROKKR_MARKS", &chain_marks),
+        );
+        let line = dsh_line(&stdout);
+        match ran.contains("DSH_B_NODE_0.0.3") {
+            true => {
+                assert!(
+                    line.starts_with("ok       dsh: DSH_B_NODE_0.0.3 · serves"),
+                    "the launcher runs through B's node once the chain is whole: {line}"
+                );
+                assert_eq!(executed(&chain_marks), vec!["DSH_B_NODE_0.0.3".to_string()]);
+            }
+            // This host's `env` declines to answer to another name, so
+            // neither child reaches a program. Doctor still SELECTED
+            // the launcher — its line names the selected file and takes
+            // no pre-probe refusal — and the version half is recorded
+            // as pending under that spelling rather than passed.
+            false => {
+                assert!(
+                    line.starts_with(&format!(
+                        "warn     dsh: binary '{}' not found",
+                        launchers.join("dsh").display()
+                    )) && !line.contains("selects no 'node'"),
+                    "{line}"
+                );
+                eprintln!(
+                    "PENDING: this host's `env` refuses the spelling {:?} ({}), so the \
+                     valid-chain version half was not established under it",
+                    interpreter.file_name().unwrap(),
+                    String::from_utf8_lossy(&native.stderr).trim()
+                );
+            }
+        }
+    }
 }
 
 /// R4 (review 2026-09-20). A 40-byte Mach-O whose one load command is
@@ -1109,6 +1287,25 @@ fn a_nonexistent_override_cannot_inject_terminal_control_bytes_through_doctor() 
 /// producer to return a real composite: the same fixture the doctor unit
 /// suite uses, rebuilt here for the built binary.
 fn install_dsh(root: &Path) -> (PathBuf, PathBuf) {
+    install_dsh_with(root, CORE_LAUNCHER)
+}
+
+/// What the installed core launcher is: D6's measured
+/// `#!/usr/bin/env node` first line, and a body that prints the runtime
+/// it is running under.
+///
+/// A scripted `node` shim never reads the body and answers its own
+/// version; the REAL node answers with its own `process.execPath`, which
+/// is what lets the absent-`PATH` positive compare the runtime doctor
+/// observed against the one a native child ran, rather than compare
+/// version banners two different installations can share (review
+/// 2026-09-20, F7).
+const CORE_LAUNCHER: &str =
+    "#!/usr/bin/env node\nprocess.stdout.write(process.execPath + \"\\n\");\n";
+
+/// `install_dsh` with a chosen launcher body, so a regression can make
+/// the selected executable behave as a drifted or self-rewriting one.
+fn install_dsh_with(root: &Path, launcher: &str) -> (PathBuf, PathBuf) {
     let put = |dir: &Path, name: &str, bytes: &[u8]| {
         let path = dir.join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -1121,7 +1318,7 @@ fn install_dsh(root: &Path) -> (PathBuf, PathBuf) {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
     );
-    let bin = stage_executable(&pkg.join("lib"), "bin.js", "#!/usr/bin/env node\n");
+    let bin = stage_executable(&pkg.join("lib"), "bin.js", launcher);
     put(
         &core,
         "node_modules/.package-lock.json",
@@ -1196,4 +1393,195 @@ fn removing_only_the_plugin_manifest_names_the_drifted_file() {
         ),
         "the bundle and the file: {drifted}"
     );
+}
+
+/// F6 (review 2026-09-20). The observation reads the bytes SELECTION
+/// inspected, through the BUILT doctor and its real version probe.
+///
+/// A shell launcher that answers `v22.23.2` and rewrites itself to the
+/// `env node` shebang while doing so was refused by the reading that
+/// admitted it and admitted by the reading that followed: composition
+/// reopened the launcher AFTER the probe had run it, so an installation
+/// whose head the resolver never accepted reported a readable composite.
+/// The otherwise identical launcher without the rewrite is the control,
+/// and a valid `env node` launcher still reads. Restoring the post-probe
+/// reread makes the rewriting launcher readable again, which is the
+/// removal control recorded in the delivery account.
+#[test]
+fn the_composite_reuses_the_launcher_head_doctor_selected() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let shims = cwd.join("shims");
+    stage_executable(&shims, "node", "#!/bin/sh\necho v22.23.2\n");
+    let not_measured = |bin: &Path| {
+        format!(
+            "composite unreadable: the DSH layout is unreadable: {}: first line is not the env \
+             node shebang",
+            bin.canonicalize().unwrap().display()
+        )
+    };
+    let run = |bin: &Path, home: &Path| {
+        dsh_line(&stdout_of(
+            doctor(cwd)
+                .env("PATH", &shims)
+                .env("BROKKR_DSH_BIN", bin)
+                .env("DSH_HOME", home),
+        ))
+    };
+
+    // The rewriting launcher. Its new bytes are staged and renamed in,
+    // so the shell reading it keeps the file it started on, and the
+    // mode is restored so the rewrite does not merely break the file.
+    // The two utilities are spelled absolutely: doctor hands the probe
+    // the PATH this test gives it, which holds the `node` shim alone.
+    let utility = |name: &str| {
+        ["/bin", "/usr/bin"]
+            .into_iter()
+            .map(|dir| PathBuf::from(dir).join(name))
+            .find(|candidate| candidate.is_file())
+            .unwrap_or_else(|| panic!("this host has {name}"))
+            .display()
+            .to_string()
+    };
+    let (chmod, mv) = (utility("chmod"), utility("mv"));
+    let rewriting = format!(
+        "#!/bin/sh\nprintf '#!/usr/bin/env node\\n' > \"$0.staging\"\n{chmod} 755 \
+         \"$0.staging\"\n{mv} \"$0.staging\" \"$0\"\necho v22.23.2\n"
+    );
+    let (bin, home) = install_dsh_with(&cwd.join("rewriting"), &rewriting);
+    let line = run(&bin, &home);
+    assert!(
+        line.starts_with("ok       dsh: v22.23.2 · serves"),
+        "the launcher answered the probe: {line}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&bin).unwrap(),
+        "#!/usr/bin/env node\n",
+        "the launcher rewrote itself to the measured shebang while answering the probe"
+    );
+    assert!(
+        line.contains(&not_measured(&bin)),
+        "the observation reads the first line selection inspected: {line}"
+    );
+
+    // The control: the same launcher without the rewrite. The file on
+    // disk and the inspected head agree, and the refusal is the same.
+    let (bin, home) = install_dsh_with(&cwd.join("plain"), "#!/bin/sh\necho v22.23.2\n");
+    let line = run(&bin, &home);
+    assert_eq!(
+        std::fs::read_to_string(&bin).unwrap(),
+        "#!/bin/sh\necho v22.23.2\n"
+    );
+    assert!(line.contains(&not_measured(&bin)), "{line}");
+
+    // And the valid `env node` launcher reads, through the retained
+    // head and nothing else.
+    let (bin, home) = install_dsh(&cwd.join("valid"));
+    let line = run(&bin, &home);
+    assert!(
+        line.starts_with("ok       dsh: v22.23.2 · serves") && line.contains("· composite "),
+        "a readable composite: {line}"
+    );
+}
+
+/// F5 (review 2026-09-20), SECURITY. The pnpm syntax rules through the
+/// BUILT doctor over a complete installation: every malformed spelling
+/// the review reproduced refuses by the pnpm component and a named
+/// cause, and none of them reports the valid control's composite.
+///
+/// The bytes the reader IGNORES are the hole this closes. A NUL or a BEL
+/// in a tarball, a colon-space or a control byte in a checksum, an
+/// unterminated `deprecated` quote and an unterminated `engines` flow map
+/// all reached the control's digest, because an ignored field was not
+/// read and so was never admitted as syntax either.
+#[test]
+fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let shims = cwd.join("shims");
+    stage_executable(&shims, "node", "#!/bin/sh\necho v22.23.2\n");
+    let (bin, home) = install_dsh(&cwd.join("install"));
+    let lock = home.join("profiles/headless/pnpm-lock.yaml");
+    let run = |body: &str| {
+        std::fs::write(&lock, body).unwrap();
+        dsh_line(&stdout_of(
+            doctor(cwd)
+                .env("PATH", &shims)
+                .env("BROKKR_DSH_BIN", &bin)
+                .env("DSH_HOME", &home),
+        ))
+    };
+    let package = "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n";
+    let control = run(&format!(
+        "{package}    resolution: {{integrity: sha512-D}}\n"
+    ));
+    let digest = control
+        .split("composite ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .expect("the control's composite digest")
+        .to_string();
+    assert_eq!(digest.len(), 64, "{control}");
+
+    for (body, reason) in [
+        (
+            format!("{package}    resolution: {{integrity: sha512-D, tarball: http://x\u{0}}}\n"),
+            "the character U+0000, which YAML's character set excludes",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D, tarball: http://x\u{7}}}\n"),
+            "the character U+0007, which YAML's character set excludes",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D, tarball: 'http://x\u{0}'}}\n"),
+            "the character U+0000, which YAML's character set excludes",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npnpmfileChecksum: sha256-a\u{0}\n\npackages:\n\n  \
+             debug@2.6.9:\n    resolution: {integrity: sha512-D}\n"
+                .to_string(),
+            "the character U+0000, which YAML's character set excludes",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npnpmfileChecksum: sha256-a: b\n\npackages:\n\n  \
+             debug@2.6.9:\n    resolution: {integrity: sha512-D}\n"
+                .to_string(),
+            "a malformed scalar for top-level key 'pnpmfileChecksum'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    deprecated: 'oops\n"),
+            "a package child 'deprecated' carrying the malformed quoted scalar ''oops'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: >=1\n"),
+            "a package child 'engines' carrying the unterminated flow collection '{node: >=1'",
+        ),
+    ] {
+        let line = run(&body);
+        assert!(
+            line.contains(&format!(
+                "composite unreadable: pnpm lock is unreadable: {reason}"
+            )),
+            "{reason}: {line}"
+        );
+        assert!(
+            !line.contains(&digest),
+            "the malformed lock never reports the valid control's composite: {line}"
+        );
+    }
+
+    // The valid ignored spellings a real lock carries are still read,
+    // and still ignored: the control's own digest, unchanged.
+    for child in [
+        "engines: {node: '>=18.12', npm: \"9\"}",
+        "cpu: [x64, arm64]",
+        "deprecated: Don't use this, use [debug] instead",
+        "hasBin: true",
+    ] {
+        let body = format!("{package}    resolution: {{integrity: sha512-D}}\n    {child}\n");
+        assert!(
+            run(&body).contains(&format!("composite {digest} ")),
+            "{child:?}"
+        );
+    }
 }

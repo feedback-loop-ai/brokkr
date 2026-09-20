@@ -387,6 +387,21 @@ fn npm_dependencies(lock: &Value, local: &[&str]) -> Result<Vec<String>, Composi
     Ok(triples.into_iter().collect())
 }
 
+/// YAML 1.2's `c-printable`: the characters a YAML stream may carry.
+/// The C0 controls other than tab, line feed and carriage return are
+/// excluded, as are DEL, the C1 controls other than NEL, the surrogates
+/// — which a Rust `char` cannot be — and the two noncharacters at the
+/// end of the basic plane.
+fn yaml_printable(c: char) -> bool {
+    matches!(c,
+        '\u{09}' | '\u{0A}' | '\u{0D}'
+        | '\u{20}'..='\u{7E}'
+        | '\u{85}'
+        | '\u{A0}'..='\u{D7FF}'
+        | '\u{E000}'..='\u{FFFD}'
+        | '\u{10000}'..='\u{10FFFF}')
+}
+
 fn pnpm_indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
 }
@@ -672,6 +687,123 @@ fn looks_numeric(text: &str) -> bool {
     whole_ok && fraction_ok && some_digit && exponent_ok
 }
 
+/// Whether a PLAIN scalar carries the `: ` that separates a mapping key
+/// from its value, or the trailing `:` that opens one.
+///
+/// `x: y` is not a string with a colon in it and `x:` is not a string
+/// ending in one: both are the mapping YAML would open there. A colon
+/// without a following space — a URL — remains a plain string (review
+/// 2026-09-20, R3).
+fn plain_opens_a_mapping(text: &str) -> bool {
+    text.contains(": ") || text.ends_with(':')
+}
+
+/// Whether a PLAIN scalar carries the punctuation a FLOW collection
+/// reads as its own: the collection indicators, and the mapping
+/// separator above. `sha512-X[one]` is not a string with brackets in it.
+fn plain_flow_punctuation(text: &str) -> bool {
+    text.contains(['[', ']', '{', '}', ',']) || plain_opens_a_mapping(text)
+}
+
+/// Why a flow collection's member is not a scalar this grammar reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlowFault {
+    /// Not a scalar at all: a quote with no partner, an escape, an
+    /// indicator opening a plain scalar, or nothing between separators.
+    Malformed,
+    /// A plain scalar carrying the collection's own punctuation, which
+    /// is syntax and not the text it resembles.
+    Punctuation,
+}
+
+/// One non-empty scalar as a FLOW collection spells it. Every member of
+/// a flow collection meets this rule, the ones this grammar ignores
+/// included, because an ignored field that is not read is still a field
+/// whose syntax the document must have (security hold 2026-09-20,
+/// finding 2).
+fn flow_scalar(value: &str) -> Result<Scalar<'_>, FlowFault> {
+    let scalar = pnpm_scalar(value).ok_or(FlowFault::Malformed)?;
+    if scalar.text().is_empty() {
+        return Err(FlowFault::Malformed);
+    }
+    match scalar {
+        Scalar::Plain(text) if plain_flow_punctuation(text) => Err(FlowFault::Punctuation),
+        scalar => Ok(scalar),
+    }
+}
+
+/// Admit the SYNTAX of an inline value this grammar recognizes and does
+/// NOT read.
+///
+/// An ignored field is still a field the document must have spelled.
+/// `deprecated: 'oops` never closes its quote and `engines: {node: >=1`
+/// never closes its flow map; both were skipped whole, so a file that is
+/// not a YAML document at all produced the valid control's composite
+/// (review 2026-09-20, F5, security). Nothing here reads the value — it
+/// refuses only what YAML itself refuses, so the admitted dialect does
+/// not grow: a plain scalar's free text stays free text, apostrophes,
+/// commas and brackets included, exactly as a block-context plain scalar
+/// may carry them.
+fn pnpm_ignored(value: &str) -> Result<(), String> {
+    match value.chars().next() {
+        Some(open @ ('{' | '[')) => {
+            let close = match open {
+                '{' => '}',
+                _ => ']',
+            };
+            let inner = value
+                .strip_prefix(open)
+                .and_then(|text| text.strip_suffix(close))
+                .ok_or_else(|| format!("the unterminated flow collection '{value}'"))?;
+            if inner.contains(['{', '[', '}', ']']) {
+                return Err(format!(
+                    "the nested flow collection '{value}', which this grammar does not read"
+                ));
+            }
+            for field in split_flow_fields(inner) {
+                let field = field.trim_matches(' ');
+                // `{}` and `[]` are the empty collections, and so is the
+                // padding a collection's own separators leave behind.
+                if field.is_empty() {
+                    continue;
+                }
+                // A mapping's member is `key: value` and a sequence's is
+                // the scalar itself. Both halves are scalars; which of
+                // them a reader would call the key is a question only a
+                // field this grammar READ would need answered.
+                let (key, member) = match field.split_once(": ") {
+                    Some((key, member)) => (Some(key.trim_end_matches(' ')), member),
+                    None => (None, field),
+                };
+                if key.is_some_and(|key| flow_scalar(key).is_err()) || flow_scalar(member).is_err()
+                {
+                    return Err(format!("the malformed flow member '{field}'"));
+                }
+            }
+            Ok(())
+        }
+        // A quoted scalar closes its quote on its own line: a flow
+        // scalar folded over several lines is a shape this grammar has
+        // not measured, and an escape is a spelling whose value differs
+        // from its bytes.
+        Some('\'' | '"') => match pnpm_scalar(value) {
+            Some(_) => Ok(()),
+            None => Err(format!("the malformed quoted scalar '{value}'")),
+        },
+        Some(first) if YAML_INDICATORS.contains(&first) => Err(format!(
+            "the value '{value}', which opens YAML syntax this grammar does not read"
+        )),
+        // A plain scalar, refused exactly where YAML refuses one: the
+        // mapping it would open, and the comment it would start.
+        _ => match plain_opens_a_mapping(value) || value.contains(" #") {
+            true => Err(format!(
+                "the plain scalar '{value}', which is a mapping or a comment and not a value"
+            )),
+            false => Ok(()),
+        },
+    }
+}
+
 /// Split a flow map's body at the commas that SEPARATE fields, leaving
 /// a comma inside a quoted scalar to the scalar. The inherited split
 /// broke `'a,b'` in two and refused a legal string for the wrong reason.
@@ -730,38 +862,22 @@ fn pnpm_flow_map(inner: &str) -> Result<Vec<(&str, &str)>, String> {
                 ))
             }
         };
-        let Some(scalar) = pnpm_scalar(value) else {
-            return Err("a malformed resolution flow map".to_string());
-        };
-        if scalar.text().is_empty() {
-            return Err("a malformed resolution flow map".to_string());
-        }
-        if let Scalar::Plain(text) = scalar {
-            // A plain scalar inside a flow collection may not carry the
-            // collection's own punctuation, nor the `: ` that would open
-            // a mapping inside it: `sha512-X[one]` is not a string with
-            // brackets in it and `x: y` is not a string with a colon in
-            // it, they are syntax this grammar does not read. Every field
-            // meets this rule, the ignored `tarball` included, because
-            // an ignored field that is not read is still a field whose
-            // syntax the document must have (security hold 2026-09-20,
-            // finding 2). A colon without a following space — a URL —
-            // remains a plain string. A colon that ENDS the scalar is
-            // the indicator too: what follows it in the document is the
-            // field's own padding, a comma or the closing brace, none
-            // of which a plain scalar's colon may be followed by, so
-            // `tarball: x: }` and `tarball: x:}` are the mapping YAML
-            // would open, not a string spelled `x:` — the trailing
-            // padding the separator consumed does not change what the
-            // colon was followed by (review 2026-09-20, R3).
-            if text.contains(['[', ']', '{', '}', ','])
-                || text.contains(": ")
-                || text.ends_with(':')
-            {
-                return Err(format!(
-                    "the resolution field '{key}' carries unsupported flow syntax: '{text}'"
-                ));
+        // A plain scalar inside a flow collection may not carry the
+        // collection's own punctuation. A colon that ENDS the scalar is
+        // the mapping indicator too: what follows it in the document is
+        // the field's own padding, a comma or the closing brace, none of
+        // which a plain scalar's colon may be followed by, so
+        // `tarball: x: }` and `tarball: x:}` are the mapping YAML would
+        // open, not a string spelled `x:` — the trailing padding the
+        // separator consumed does not change what the colon was followed
+        // by (review 2026-09-20, R3).
+        let scalar = flow_scalar(value).map_err(|fault| match fault {
+            FlowFault::Malformed => "a malformed resolution flow map".to_string(),
+            FlowFault::Punctuation => {
+                format!("the resolution field '{key}' carries unsupported flow syntax: '{value}'")
             }
+        })?;
+        if let Scalar::Plain(text) = scalar {
             if key == "integrity" {
                 if let Some(kind) = typed_plain_scalar(text) {
                     return Err(format!(
@@ -840,6 +956,21 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     // difference from identity.
     if lock.contains('\r') {
         return Err(bad("a carriage return"));
+    }
+    // YAML 1.2's own character set (§5.1 `c-printable`): a stream may
+    // carry tab, line feed, carriage return and the printable
+    // characters, and NOTHING else. A NUL or a BEL is not a value with
+    // an unusual byte in it, it is a document that is not YAML — and
+    // those bytes reached identity through the fields this reader
+    // ignores, where the tarball and checksum scalars carrying them
+    // produced the valid control's composite (review 2026-09-20, F5,
+    // security). Asked of the whole document, because a section this
+    // grammar skips is still a section the document must have spelled.
+    if let Some(control) = lock.chars().find(|c| !yaml_printable(*c)) {
+        return Err(bad(&format!(
+            "the character U+{:04X}, which YAML's character set excludes",
+            control as u32
+        )));
     }
     let mut lines = lock.lines();
     // The first non-blank line is the lockfile version.
@@ -962,7 +1093,17 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                         "a malformed scalar for top-level key '{name}'"
                     )));
                 };
-                if pnpm_scalar(value).is_none() {
+                // A scalar, and a scalar alone: a checksum spelled
+                // `a: b` is the mapping YAML opens there, not a string
+                // with a colon in it, and the reader that admitted it
+                // let the valid control's composite stand (review
+                // 2026-09-20, F5).
+                let admitted = match pnpm_scalar(value) {
+                    Some(Scalar::Plain(text)) => !plain_opens_a_mapping(text),
+                    Some(Scalar::Quoted(_)) => true,
+                    None => false,
+                };
+                if !admitted {
                     return Err(bad(&format!(
                         "a malformed scalar for top-level key '{name}'"
                     )));
@@ -1000,7 +1141,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             // heading's own colon and padding are gone — is a flow-form
             // or nested record, not a package heading (review
             // 2026-09-20, R3).
-            if key.contains(": ") || key.ends_with(':') {
+            if plain_opens_a_mapping(key) {
                 return Err(bad("a package key that is itself a mapping"));
             }
             let (name, version) = pnpm_package(key).map_err(CompositeError::PnpmLock)?;
@@ -1046,10 +1187,13 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
                 }
             };
             if name != "resolution" {
-                // Recognized and not read. A child with no inline scalar
-                // opens a block whose own lines are skipped below.
-                if let Separated::Block = value {
-                    block = true;
+                // Recognized and not read — but still ADMITTED as
+                // syntax. A child with no inline scalar opens a block
+                // whose own lines are skipped below.
+                match value {
+                    Separated::Block => block = true,
+                    Separated::Inline(value) => pnpm_ignored(value)
+                        .map_err(|why| bad(&format!("a package child '{name}' carrying {why}")))?,
                 }
                 continue;
             }
@@ -1164,6 +1308,12 @@ pub struct DshSeams {
     /// established no `node` — a native image, another interpreter —
     /// and the observation then looks `node` up by the same rule.
     pub node: Option<PathBuf>,
+    /// The bounded head of the selected executable, EXACTLY as selection
+    /// read it. The observation's `#!` check reads this and never the
+    /// file again: the version probe runs the selected executable, and a
+    /// launcher that rewrote itself while answering it made composition
+    /// admit a first line selection had refused (review 2026-09-20, F6).
+    pub head: Vec<u8>,
 }
 
 /// A DSH executable the adapter's seam SELECTED: the canonical file the
@@ -1242,7 +1392,7 @@ impl DshSeams {
         resolve: impl FnOnce(&str) -> Result<Selected, CompositeError>,
         home: Option<PathBuf>,
     ) -> Result<DshSelection, DshUnselected> {
-        let Selected { path, node } = match resolve(&declared) {
+        let Selected { path, node, head } = match resolve(&declared) {
             Ok(selected) => selected,
             Err(cause) => return Err(DshUnselected { declared, cause }),
         };
@@ -1258,15 +1408,17 @@ impl DshSeams {
                 )),
             });
         };
-        let seams = DshSeams::resolve_with(executable.clone(), node, home);
+        let seams = DshSeams::resolve_with(executable.clone(), node, head, home);
         Ok(DshSelection { executable, seams })
     }
 
-    /// `resolve` over an injected executable, retained Node selection and
-    /// home, so the missing-home refusal is a plain test.
+    /// `resolve` over an injected executable, retained Node selection,
+    /// retained head and home, so the missing-home refusal is a plain
+    /// test.
     fn resolve_with(
         executable: String,
         node: Option<PathBuf>,
+        head: Vec<u8>,
         home: Option<PathBuf>,
     ) -> Result<DshSeams, CompositeError> {
         let home =
@@ -1275,6 +1427,7 @@ impl DshSeams {
             executable,
             home,
             node,
+            head,
         })
     }
 }
@@ -1380,21 +1533,29 @@ fn required_string<'a>(
         .ok_or_else(|| CompositeError::Config(format!("{where_}: missing string '{key}'")))
 }
 
-/// The executable's first line, EXACTLY as the file spells it.
+/// The executable's first line, EXACTLY as the bytes SELECTION read
+/// spell it.
 ///
 /// No carriage return is removed. A CRLF-written `#!/usr/bin/env node\r`
 /// is a different first line from the one D6 requires — the kernel reads
 /// the CR as part of the interpreter name — and repairing it here let a
 /// file the loader could not execute pass as the qualified one (council
 /// return 2026-09-19).
-fn first_line(path: &Path) -> Result<String, CompositeError> {
-    let bytes = std::fs::read(path)
-        .map_err(|error| CompositeError::Config(format!("{}: {error}", path.display())))?;
-    let end = bytes
+///
+/// The bytes are the RETAINED head and never a second read of the file.
+/// Composition runs after the version probe has executed the selected
+/// executable, and a launcher that rewrote itself while answering that
+/// probe was refused by selection's reading and admitted by
+/// composition's (review 2026-09-20, F6). `path` names the file in a
+/// refusal and is not opened. A head that reached the bound without a
+/// terminator has no first line short enough to be the measured shebang,
+/// and the bounded bytes are what is reported.
+fn first_line(path: &Path, head: &[u8]) -> Result<String, CompositeError> {
+    let end = head
         .iter()
         .position(|byte| *byte == b'\n')
-        .unwrap_or(bytes.len());
-    String::from_utf8(bytes[..end].to_vec())
+        .unwrap_or(head.len());
+    String::from_utf8(head[..end].to_vec())
         .map_err(|_| CompositeError::Config(format!("{}: first line is not UTF-8", path.display())))
 }
 
@@ -1431,10 +1592,20 @@ fn effective_exec_access(path: &Path) -> bool {
 /// with no concurrent writer needed (review 2026-09-20, R5). One
 /// selection, one runtime, carried through the observation as D6 and
 /// D10 require.
+/// The selection also RETAINS the bytes it inspected. Composition asked
+/// the file for its first line again, after the version probe had
+/// already run it: a launcher that printed `v22.23.2` and rewrote itself
+/// to the `env node` shebang was refused by selection's reading and
+/// admitted by composition's, so an installation whose identity-bearing
+/// head the resolver never accepted produced a readable composite
+/// (review 2026-09-20, F6). One read, one head, carried through the
+/// observation — D10's byte-retention requirement, which the retained
+/// Node path alone does not discharge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Selected {
     path: PathBuf,
     node: Option<PathBuf>,
+    head: Vec<u8>,
 }
 
 /// What one search entry taught the resolver about its candidate.
@@ -1468,13 +1639,65 @@ enum Candidate {
     Refused(CompositeError),
 }
 
-/// Whether a lookup failed with the kernel's `ELOOP`: the error the
-/// child's `execve` stops on at a self-referential symlink. Asked by the
+/// Whether a lookup failed with the kernel's `ELOOP`: the error a
+/// child's `execve` answers at a self-referential symlink. Asked by the
 /// platform's own number, because `ErrorKind::FilesystemLoop` is not
 /// stable on the pinned compiler.
 #[cfg(unix)]
 fn is_symlink_loop(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
+}
+
+/// What a symlink loop at a candidate does to the SEARCH, which is a
+/// question each C library answers for itself.
+///
+/// glibc's `execvp` stops: `ELOOP` is not one of the errors its loop
+/// walks past, and the search ends there — measured 2026-09-20 on this
+/// host, `PATH=A:B` with a self-symlink at `A/x` and a runnable `B/x`
+/// never runs B. Apple's `execvP` lists `ELOOP` beside `ENOENT` among
+/// the causes it continues on, and `posix_spawnp` does the same, so the
+/// same layout runs B there (`gen/FreeBSD/exec.c`, `sys/posix_spawn.c`).
+///
+/// AS1 required the terminal outcome of "the Unix native control", which
+/// asserted glibc's rule of Apple's loader; the controller corrected the
+/// cell on 2026-09-20 and this is the corrected rule, chosen at compile
+/// time so no run carries the other platform's branch. The differential
+/// matrix asserts the RUNNING platform's own native control.
+#[cfg(all(unix, any(target_os = "linux", target_os = "android")))]
+fn symlink_loop_candidate(candidate: &Path, error: &std::io::Error) -> Candidate {
+    Candidate::Refused(CompositeError::Config(format!(
+        "{}: a symlink loop stops the lookup: {error}",
+        candidate.display()
+    )))
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn symlink_loop_candidate(_candidate: &Path, error: &std::io::Error) -> Candidate {
+    // Apple's search remembers only `EACCES` as a denial, so a loop
+    // leaves the final no-match a plain NotFound, exactly as the child
+    // reports it.
+    Candidate::Passed {
+        why: error.to_string(),
+        denied: false,
+    }
+}
+
+/// Whether a lookup failed with `ENAMETOOLONG`: a candidate whose path is
+/// longer than the platform will build one.
+///
+/// Both searches walk past it. glibc's `execvp` skips a `PATH` component
+/// longer than the buffer it sized for the whole variable, before it ever
+/// calls `execve`; Apple's `execvP` warns on the oversized candidate and
+/// continues. Measured 2026-09-20: with `PATH` spelled as 5,000 `x` bytes
+/// followed by a runnable `B`, `Command::new("dsh")` runs `B/dsh`, where
+/// this resolver stopped at the first entry as a failure it could not
+/// prove and refused an ordinary positive (review 2026-09-20, F1). The
+/// entry establishes nothing about a candidate, so it is not D10's
+/// loading obstruction and not a denial either — the search simply moves
+/// on, and a search that then admits nothing answers NotFound.
+#[cfg(unix)]
+fn is_name_too_long(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(rustix::io::Errno::NAMETOOLONG.raw_os_error())
 }
 
 /// Whether a lookup failed with `ENOTDIR`: a path component that is a
@@ -1599,37 +1822,96 @@ impl Search {
     }
 }
 
-/// The C library's default search path: what `execvp` consults when the
-/// environment has no `PATH`. Read from the library through
-/// `confstr(_CS_PATH)` — glibc and the Apple libc both report there the
-/// value their `execvp` uses — never hardcoded from one host's answer,
-/// and never obtained by launching `getconf`, a shell or `which`.
-#[cfg(all(unix, not(target_env = "musl")))]
-fn default_search_path() -> Result<std::ffi::OsString, CompositeError> {
-    extern "C" {
-        fn confstr(name: std::os::raw::c_int, buf: *mut std::os::raw::c_char, len: usize) -> usize;
-    }
-    // `_CS_PATH` is 0 in glibc's and Android's <unistd.h> and 1 in the
-    // BSD-derived ones, Apple's included.
-    const CS_PATH: std::os::raw::c_int = if cfg!(any(target_os = "linux", target_os = "android")) {
-        0
-    } else {
-        1
-    };
-    default_search_path_from(|buf| {
-        // SAFETY: `buf` is a live, writable slice of exactly the length
-        // passed; `confstr` writes at most that many bytes into it and
-        // reads nothing else.
-        unsafe { confstr(CS_PATH, buf.as_mut_ptr().cast(), buf.len()) }
-    })
+/// Where a platform's OWN `execvp` looks when the environment has no
+/// `PATH`. The rule is the loader's, per platform, and never a single
+/// library call standing in for all of them.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultSearch {
+    /// Ask the C library: glibc's `execvp` reads `confstr(_CS_PATH)`
+    /// itself when `getenv("PATH")` is null, so the library's answer IS
+    /// what the child searches.
+    Library,
+    /// The library's own literal, which its `confstr` does not report.
+    Literal(&'static str),
 }
 
-/// musl's `execvp` does not consult `confstr`: it searches this literal
-/// when `PATH` is absent (src/process/execvp.c), and its `confstr`
-/// reports a different string, so the library's own rule is the literal.
-#[cfg(target_env = "musl")]
+/// musl's `execvp` searches this literal when `PATH` is absent
+/// (`src/process/execvp.c`); its `confstr` reports a different string,
+/// so the library's rule is the literal and not the query.
+#[cfg(unix)]
+const MUSL_DEFAULT_PATH: &str = "/usr/local/bin:/bin:/usr/bin";
+
+/// `_PATH_DEFPATH`, the path the BSD-derived libraries' own search uses:
+/// Apple's `execvP` starts from `_PATH_DEFPATH` when `PATH` is unset
+/// (`gen/FreeBSD/exec.c`), and `posix_spawnp` searches the same
+/// (`sys/posix_spawn.c`). Apple's `confstr(_CS_PATH)` answers
+/// `/usr/bin:/bin:/usr/sbin:/sbin` — the two system `sbin` directories
+/// its loader never searches — so a resolver that asked `confstr` there
+/// could select or probe a system executable native lookup would not
+/// select (review 2026-09-20, F2). `gen/FreeBSD/sysctl.c` supplies that
+/// wider `USER_CS_PATH` value; `include/paths.h` supplies this one.
+#[cfg(unix)]
+const BSD_DEFAULT_PATH: &str = "/usr/bin:/bin";
+
+/// The default search the named target runs, as a table this suite can
+/// read for EVERY platform rather than only for the one it runs on.
+/// `target_os` and `target_env` are the compiled target's own, so the
+/// answer production takes is the running platform's.
+#[cfg(unix)]
+fn default_search_of(target_os: &str, target_env: &str) -> DefaultSearch {
+    match (target_os, target_env) {
+        (_, "musl") => DefaultSearch::Literal(MUSL_DEFAULT_PATH),
+        ("linux" | "android", _) => DefaultSearch::Library,
+        _ => DefaultSearch::Literal(BSD_DEFAULT_PATH),
+    }
+}
+
+/// The compiled target's C library, as `default_search_of` names it.
+/// Rust exposes `target_os` as a constant and the environment only as a
+/// `cfg`, so the one `cfg` this resolver distinguishes is spelled here.
+#[cfg(unix)]
+const TARGET_ENV: &str = if cfg!(target_env = "musl") {
+    "musl"
+} else {
+    ""
+};
+
+/// The default search path for THIS target, resolved through the table.
+#[cfg(unix)]
 fn default_search_path() -> Result<std::ffi::OsString, CompositeError> {
-    Ok(std::ffi::OsString::from("/usr/local/bin:/bin:/usr/bin"))
+    default_search_path_for(default_search_of(std::env::consts::OS, TARGET_ENV))
+}
+
+/// One `DefaultSearch` as the entries a search reads, so each platform's
+/// answer is a plain test on whichever platform the suite runs.
+///
+/// The library is asked through `confstr(_CS_PATH)` — never hardcoded
+/// from one host's answer, and never obtained by launching `getconf`, a
+/// shell or `which`.
+#[cfg(unix)]
+fn default_search_path_for(search: DefaultSearch) -> Result<std::ffi::OsString, CompositeError> {
+    match search {
+        DefaultSearch::Literal(entries) => Ok(std::ffi::OsString::from(entries)),
+        DefaultSearch::Library => {
+            extern "C" {
+                fn confstr(
+                    name: std::os::raw::c_int,
+                    buf: *mut std::os::raw::c_char,
+                    len: usize,
+                ) -> usize;
+            }
+            // `_CS_PATH` is 0 in glibc's and Android's <unistd.h>, and
+            // those are the only libraries this arm serves.
+            const CS_PATH: std::os::raw::c_int = 0;
+            default_search_path_from(|buf| {
+                // SAFETY: `buf` is a live, writable slice of exactly the
+                // length passed; `confstr` writes at most that many
+                // bytes into it and reads nothing else.
+                unsafe { confstr(CS_PATH, buf.as_mut_ptr().cast(), buf.len()) }
+            })
+        }
+    }
 }
 
 /// `default_search_path` over an injected `confstr`, so the two answers
@@ -1673,20 +1955,25 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
     let passed = |why: String, denied: bool| Candidate::Passed { why, denied };
     let metadata = match std::fs::metadata(candidate) {
         Ok(metadata) => metadata,
-        // `execvp` records ENOENT, ENOTDIR and EACCES and tries the next
-        // entry; every other failure is one it stops on, and so does
-        // this.
+        // `execvp` records ENOENT, ENOTDIR, ENAMETOOLONG and EACCES and
+        // tries the next entry; every other failure is one it stops on,
+        // and so does this. A symlink loop is the cell the two libraries
+        // disagree on, and `symlink_loop_candidate` carries each
+        // platform's own answer.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return passed(error.to_string(), false);
         }
         Err(error) if is_not_a_directory(&error) => {
             return passed(error.to_string(), false);
         }
+        Err(error) if is_name_too_long(&error) => {
+            return passed(error.to_string(), false);
+        }
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
             return passed(error.to_string(), true);
         }
         Err(error) if is_symlink_loop(&error) => {
-            return refuse(format!("a symlink loop stops the lookup: {error}"));
+            return symlink_loop_candidate(candidate, &error);
         }
         Err(error) => return refuse(format!("the lookup cannot be proved: {error}")),
     };
@@ -1699,22 +1986,25 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
     if !effective_exec_access(candidate) {
         return passed("is not executable by this process".to_string(), true);
     }
-    let node = match loading_obstruction(candidate, metadata.len(), search, chain) {
-        Ok(node) => node,
+    let (node, head) = match loading_obstruction(candidate, metadata.len(), search, chain) {
+        Ok(loading) => loading,
         Err(why) => return refuse(why),
     };
-    // Admitted as the file it canonically is; a canonicalization the
+    // Admitted as the file it canonically is, with the bytes this
+    // inspection read retained beside it; a canonicalization the
     // metadata above did not already rule out is refused by the helper's
     // own reason.
     canonicalize(candidate).map_or_else(Candidate::Refused, |path| {
-        Candidate::Admitted(Selected { path, node })
+        Candidate::Admitted(Selected { path, node, head })
     })
 }
 
 /// The kernel's own bound on a `#!` line (`BINPRM_BUF_SIZE`): a script
 /// whose line runs past it without a terminator is one Linux refuses to
-/// load, and one this resolver does not guess at.
-#[cfg(unix)]
+/// load, and one this resolver does not guess at. It bounds the head
+/// every selection retains too, on every platform: a head is evidence
+/// about the file's first line, and a first line longer than the kernel
+/// reads is not the measured shebang under any reading.
 const SHEBANG_BOUND: usize = 256;
 
 /// How many nested `#!` interpreters are followed. The kernel stops a
@@ -1739,15 +2029,21 @@ const INTERPRETER_DEPTH: usize = 4;
 /// execution is on the table (design D10). The refusal is the one
 /// exception to native equality, and it is named as such.
 ///
-/// The answer is what the declarations SELECTED: the `node` an `env
-/// node` line reached under the same search, or nothing.
+/// The answer is what the declarations SELECTED — the `node` an `env
+/// node` line reached under the same search, or nothing — beside the
+/// candidate's OWN head, the bytes this inspection read. The head is
+/// retained because it is the identity-bearing evidence the observation
+/// consumes: reading it again after the version probe reads a file the
+/// probe itself may have rewritten (review 2026-09-20, F6). A nested
+/// interpreter's head is the interpreter's, not this candidate's, and is
+/// dropped where the chain unwinds.
 #[cfg(unix)]
 fn loading_obstruction(
     candidate: &Path,
     len: u64,
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<(Option<PathBuf>, Vec<u8>), String> {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
 
@@ -1757,8 +2053,12 @@ fn loading_obstruction(
     let (mut file, head) =
         open_head(candidate).map_err(|error| format!("cannot be read: {error}"))?;
     let read = head.len();
+    // The answer's own copy, taken before the head is read apart, so the
+    // retained bytes are this candidate's whichever way the inspection
+    // below leaves.
+    let retained = head.clone();
     let Some(line) = head.strip_prefix(b"#!") else {
-        return native_obstruction(&mut file, len).map(|()| None);
+        return native_obstruction(&mut file, len).map(|()| (None, retained));
     };
     let line = match line.iter().position(|byte| *byte == b'\n') {
         Some(end) => &line[..end],
@@ -1824,16 +2124,17 @@ fn loading_obstruction(
     // answer, so a script whose interpreter is `env node` retains that
     // `node` as its own.
     let loaded =
-        loading_obstruction(interpreter, metadata.len(), search, chain).and_then(|inner| {
+        loading_obstruction(interpreter, metadata.len(), search, chain).and_then(|(inner, _)| {
             env_program(interpreter, arguments, search, chain).map(|env| env.or(inner))
         });
     chain.pop();
-    loaded.map_err(|why| format!("its #! interpreter '{named}' {why}"))
+    loaded
+        .map(|node| (node, retained))
+        .map_err(|why| format!("its #! interpreter '{named}' {why}"))
 }
 
 /// Open a candidate and read its bounded head: one fallible operation,
 /// so the caller names one cause for a file it may execute but not read.
-#[cfg(unix)]
 fn open_head(candidate: &Path) -> std::io::Result<(std::fs::File, Vec<u8>)> {
     let mut file = std::fs::File::open(candidate)?;
     let mut head = Vec::with_capacity(SHEBANG_BOUND);
@@ -1862,6 +2163,27 @@ fn open_head(candidate: &Path) -> std::io::Result<(std::fs::File, Vec<u8>)> {
 /// 2026-09-20, R2). The other Unix kernels split the line into words;
 /// there a one-word argument is the form this establishes, and more
 /// words refuse by name rather than being guessed either way.
+/// Whether a `#!` interpreter is the `env` utility, asked of the FILE
+/// and not only of the spelling.
+///
+/// Recognition by the spelled basename alone was a bypass of D10's
+/// refusal: an `env-alias` symlinked to the very same `env` binary
+/// carried the measured `env <program>` form past the check, so a
+/// launcher whose `node` was missing was ADMITTED, and the doctor that
+/// followed executed it — the marker it left is the proof (review
+/// 2026-09-20, F4, security). The name the file canonically has is the
+/// name the utility ships under, so every spelling that reaches one
+/// `env` answers alike. A copy or hard link installed under another name
+/// is a different file with no `env` name anywhere, and this
+/// establishes nothing about it; the spelling remains the measured
+/// form's own evidence.
+#[cfg(unix)]
+fn is_env(interpreter: &Path) -> bool {
+    let named_env = |path: &Path| path.file_name() == Some(std::ffi::OsStr::new("env"));
+    named_env(interpreter)
+        || std::fs::canonicalize(interpreter).is_ok_and(|canonical| named_env(&canonical))
+}
+
 #[cfg(unix)]
 fn env_program(
     interpreter: &Path,
@@ -1869,7 +2191,7 @@ fn env_program(
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
 ) -> Result<Option<PathBuf>, String> {
-    if interpreter.file_name() != Some(std::ffi::OsStr::new("env")) {
+    if !is_env(interpreter) {
         return Ok(None);
     }
     let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';
@@ -2049,12 +2371,13 @@ fn lookup_in(
 /// unchanged is resolved against the same application, system and
 /// parent-`PATH` directories as one whose `PATH` was removed, so the
 /// one lookup serves both. No Windows selection establishes a Node
-/// runtime: a PE declares no interpreter to follow.
+/// runtime: a PE declares no interpreter to follow. The head is retained
+/// all the same, from the same admission that inspected the image, so
+/// the observation reads selection's bytes on every platform.
 #[cfg(windows)]
 fn select_in(command: &str, path: Option<std::ffi::OsString>) -> Result<Selected, CompositeError> {
     refuse_unspellable(command)?;
     windows_lookup(command, path.as_deref(), std::env::var_os("PATH"))
-        .map(|path| Selected { path, node: None })
 }
 
 /// Rust's Windows program resolution (library/std/src/sys/process/
@@ -2073,7 +2396,7 @@ fn windows_lookup(
     command: &str,
     child: Option<&std::ffi::OsStr>,
     parent: Option<std::ffi::OsString>,
-) -> Result<PathBuf, CompositeError> {
+) -> Result<Selected, CompositeError> {
     if command.ends_with(['/', '\\']) {
         return Err(CompositeError::Config(format!(
             "'{command}' has no file name"
@@ -2164,7 +2487,7 @@ fn windows_system_directories() -> Vec<PathBuf> {
 /// image, an image of another format or a binary type the OS names
 /// otherwise refuses by cause (review 2026-09-20, R7).
 #[cfg(windows)]
-fn admit_windows(candidate: &Path) -> Result<PathBuf, CompositeError> {
+fn admit_windows(candidate: &Path) -> Result<Selected, CompositeError> {
     let refuse = |why: String| CompositeError::Config(format!("{}: {why}", candidate.display()));
     let metadata = std::fs::metadata(candidate)
         .map_err(|error| refuse(format!("cannot be inspected: {error}")))?;
@@ -2198,7 +2521,16 @@ fn admit_windows(candidate: &Path) -> Result<PathBuf, CompositeError> {
             "is binary type {binary_type} to the OS, which is not this target's {WINDOWS_BINARY_TYPE}"
         )));
     }
-    canonicalize(candidate)
+    // The head this admission read, retained with the selection: the
+    // observation's first-line check reads these bytes and never reopens
+    // the file after the version probe ran it (review 2026-09-20, F6).
+    let (_, head) =
+        open_head(candidate).map_err(|error| refuse(format!("cannot be read: {error}")))?;
+    canonicalize(candidate).map(|path| Selected {
+        path,
+        node: None,
+        head,
+    })
 }
 
 /// The `GetBinaryTypeW` answer this target executes as itself:
@@ -2299,9 +2631,16 @@ struct CorePackage {
 /// which hands it the JSON reader the whole observation is counted
 /// against; this real-reader wrapper is the suite's entry to discovery
 /// alone.
+/// The head is taken here the way a SELECTION takes it: from the file,
+/// once, before anything runs it. A head that cannot be read belongs to
+/// a file discovery's own checks refuse first, so an empty one is never
+/// the reason a case below fails.
 #[cfg(test)]
 fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
-    resolve_core_reading(executable, &read_json)
+    let head = open_head(Path::new(executable))
+        .map(|(_, head)| head)
+        .unwrap_or_default();
+    resolve_core_reading(executable, &head, &read_json)
 }
 
 /// `resolve_core` over an injected JSON reader, so "each identity-bearing
@@ -2310,6 +2649,7 @@ fn resolve_core(executable: &str) -> Result<CorePackage, CompositeError> {
 /// stays production's.
 fn resolve_core_reading(
     executable: &str,
+    head: &[u8],
     read_json: &dyn Fn(&Path) -> Result<Value, String>,
 ) -> Result<CorePackage, CompositeError> {
     let canonical = selected_executable(executable)?;
@@ -2360,7 +2700,7 @@ fn resolve_core_reading(
             measured_bin.display()
         )));
     }
-    if first_line(&canonical)? != "#!/usr/bin/env node" {
+    if first_line(&canonical, head)? != "#!/usr/bin/env node" {
         return Err(CompositeError::Config(format!(
             "{}: first line is not the env node shebang",
             canonical.display()
@@ -2711,7 +3051,7 @@ fn dsh_composite_reading(
     read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
     read_json: &dyn Fn(&Path) -> Result<Value, String>,
 ) -> Result<DshComposite, CompositeError> {
-    let core = resolve_core_reading(&seams.executable, read_json)?;
+    let core = resolve_core_reading(&seams.executable, &seams.head, read_json)?;
     let profile = read_profile(&seams.home)?;
     let mut resolved: Vec<(String, PathBuf)> = Vec::new();
     for name in &profile.bundles {

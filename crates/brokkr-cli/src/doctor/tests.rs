@@ -2109,6 +2109,15 @@ fn dsh_adapter_declaring(identity: Option<ResumeIdentity>) -> Adapter {
     adapter
 }
 
+/// The head a selection would retain for `executable`: its first bytes,
+/// taken before anything runs it. The observation reads these and never
+/// reopens the file (review 2026-09-20, F6).
+#[cfg(test)]
+fn selected_head(executable: &str) -> Vec<u8> {
+    let bytes = std::fs::read(executable).unwrap_or_default();
+    bytes[..bytes.len().min(256)].to_vec()
+}
+
 /// A resolved home under a temporary root, so an injected `selected`
 /// hands the producer a real `DshSeams` without touching the operator's.
 #[cfg(test)]
@@ -2119,6 +2128,7 @@ fn seams_at(executable: &str, home: &Path) -> Result<DshSelection, DshUnselected
             executable: executable.to_string(),
             home: home.to_path_buf(),
             node: None,
+            head: selected_head(executable),
         }),
     })
 }
@@ -2409,6 +2419,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
                 executable: chosen.clone(),
                 home: home.clone(),
                 node: None,
+                head: selected_head(&chosen),
             })
             .map(|_| unreachable!("the fixture install is broken on purpose"))
             .unwrap_err()
@@ -2474,6 +2485,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
                 executable: executable.to_string(),
                 home: home.clone(),
                 node: None,
+                head: selected_head(executable),
             };
             let composite = dsh_composite(&seams).expect("the fixture install composes");
             // `composite_identity`'s own mapping, over a real

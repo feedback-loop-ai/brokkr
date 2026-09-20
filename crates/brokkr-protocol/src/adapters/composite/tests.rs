@@ -491,11 +491,21 @@ fn two_package_keys_that_serialized_to_one_line_are_both_refused() {
             format!("pnpm lock is unreadable: '{key}': {reason}")
         );
     }
-    // A NUL inside a quoted key never reaches the dependency line.
+    // A NUL inside a quoted key never reaches the dependency line. It is
+    // refused BEFORE the key's grammar now, by YAML's own character set:
+    // a stream carrying a NUL is not a YAML document at all, and the
+    // reader that admitted one through an ignored field produced the
+    // valid control's composite (review 2026-09-20, F5).
     let nul = lock("a\0b@1");
     assert_eq!(
         refused(pnpm_dependencies(&nul, &[])),
-        "pnpm lock is unreadable: 'a\0b@1': the key carries a NUL"
+        "pnpm lock is unreadable: the character U+0000, which YAML's character set excludes"
+    );
+    // The key's own scalar rule still answers for the whitespace a
+    // printable document can spell.
+    assert_eq!(
+        refused(pnpm_dependencies(&lock("a\u{a0}b@1"), &[])),
+        "pnpm lock is unreadable: 'a\u{a0}b@1': the key carries whitespace"
     );
 }
 
@@ -1071,6 +1081,15 @@ struct Synthetic {
     seams: DshSeams,
 }
 
+/// The head a selection would retain for `path`: its first bytes,
+/// through the same bound production reads, taken BEFORE anything runs
+/// the file. A fixture that hands the seams these bytes is a fixture
+/// whose observation reads what selection read (review 2026-09-20, F6).
+fn selected_head(path: &Path) -> Vec<u8> {
+    let bytes = fs::read(path).unwrap();
+    bytes[..bytes.len().min(SHEBANG_BOUND)].to_vec()
+}
+
 impl Synthetic {
     fn new() -> Synthetic {
         let dir = tempfile::tempdir().unwrap();
@@ -1117,12 +1136,15 @@ impl Synthetic {
                 file.as_bytes(),
             );
         }
-        let executable = pkg.join("lib/bin.js").to_string_lossy().into_owned();
+        let bin = pkg.join("lib/bin.js");
+        let head = selected_head(&bin);
+        let executable = bin.to_string_lossy().into_owned();
         Synthetic {
             seams: DshSeams {
                 executable,
                 home: home.clone(),
                 node: None,
+                head,
             },
             dir,
         }
@@ -1185,6 +1207,7 @@ fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
         executable: install.seams.executable.clone(),
         home: alias,
         node: None,
+        head: install.seams.head.clone(),
     };
     let same = dsh_composite_with(&aliased, &install.node(), &[]).unwrap();
     assert_eq!(base.plugin, same.plugin);
@@ -1227,6 +1250,7 @@ fn the_dsh_composite_accepts_a_symlinked_home_ancestor() {
         executable: install.seams.executable.clone(),
         home: nested_alias,
         node: None,
+        head: install.seams.head.clone(),
     };
     assert_eq!(
         refused(dsh_composite_with(
@@ -1304,6 +1328,7 @@ fn containment_compares_canonical_components_not_string_prefixes() {
         executable: install.seams.executable.clone(),
         home,
         node: None,
+        head: install.seams.head.clone(),
     };
     assert_eq!(
         refused(dsh_composite_with(&seams, &install.node(), &[])),
@@ -1414,15 +1439,15 @@ fn the_dsh_composite_refuses_a_layout_outside_the_locators() {
         "{error}"
     );
 
-    // A core package whose shebang is not `env node` is refused.
-    let install = Synthetic::new();
-    write_executable(
-        std::path::Path::new(&install.seams.executable)
-            .parent()
-            .unwrap(),
-        "bin.js",
-        b"#!/bin/sh\n",
-    );
+    // A core package whose shebang is not `env node` is refused — as
+    // SELECTION read it. The head is retaken here because rewriting the
+    // file after a selection moves nothing the observation reads; that
+    // is the retained-head requirement, proved on its own below (review
+    // 2026-09-20, F6).
+    let mut install = Synthetic::new();
+    let bin = std::path::PathBuf::from(&install.seams.executable);
+    write_executable(bin.parent().unwrap(), "bin.js", b"#!/bin/sh\n");
+    install.seams.head = selected_head(&bin);
     let error = dsh_composite_with(&install.seams, &install.node(), &[]).unwrap_err();
     assert!(
         error
@@ -1801,6 +1826,72 @@ fn the_default_search_path_is_the_c_librarys_own_answer() {
     assert_eq!(
         refused(default_search_path_from(|buf| buf.len() + 1)),
         "the DSH layout is unreadable: the C library reports no default search path for an absent PATH"
+    );
+    // A literal answer is the entries themselves, with no query made.
+    assert_eq!(
+        default_search_path_for(DefaultSearch::Literal("/usr/bin:/bin")).unwrap(),
+        OsString::from("/usr/bin:/bin")
+    );
+}
+
+/// The absent-`PATH` search is each platform's OWN `execvp` rule, per
+/// platform, and not one library call standing in for all of them.
+///
+/// Apple's `execvP` and `posix_spawnp` search `_PATH_DEFPATH`,
+/// `/usr/bin:/bin`. Apple's `confstr(_CS_PATH)` answers
+/// `/usr/bin:/bin:/usr/sbin:/sbin` — `USER_CS_PATH` — so asking the
+/// library there would put two system directories on a search the
+/// loader never walks, and the resolver could select or probe a
+/// system executable native lookup would not select (review
+/// 2026-09-20, F2, security-relevant). An `sh` positive cannot tell the
+/// two searches apart: `sh` sits in `/bin` under both.
+///
+/// Restoring the overbroad Apple search — `DefaultSearch::Library` for
+/// Apple, or `_PATH_DEFPATH` widened to the `confstr` value — fails the
+/// assertions below, on whichever platform this suite runs.
+#[cfg(unix)]
+#[test]
+fn each_platforms_absent_path_search_is_its_own_loaders_rule() {
+    // Apple: the loader's literal, and never the library query.
+    for apple in ["macos", "ios", "tvos", "watchos"] {
+        assert_eq!(
+            default_search_of(apple, ""),
+            DefaultSearch::Literal("/usr/bin:/bin"),
+            "{apple}"
+        );
+    }
+    // The distinction the `sh` positive cannot make: the two system
+    // directories Apple's `confstr` adds are not on its loader's search.
+    let DefaultSearch::Literal(apple) = default_search_of("macos", "") else {
+        panic!("Apple's search is a literal, not a library query");
+    };
+    let confstr = "/usr/bin:/bin:/usr/sbin:/sbin";
+    assert_ne!(apple, confstr);
+    for added in ["/usr/sbin", "/sbin"] {
+        assert!(
+            confstr.contains(added) && !apple.contains(added),
+            "{added} is on Apple's confstr answer and not on its execvp search"
+        );
+    }
+    // glibc and Android: their own `execvp` reads `confstr(_CS_PATH)`,
+    // so the library's answer IS the child's search.
+    for gnu in ["linux", "android"] {
+        assert_eq!(default_search_of(gnu, ""), DefaultSearch::Library, "{gnu}");
+    }
+    // musl: a literal its own `confstr` does not report.
+    assert_eq!(
+        default_search_of("linux", "musl"),
+        DefaultSearch::Literal("/usr/local/bin:/bin:/usr/bin")
+    );
+    // The BSDs share Apple's `_PATH_DEFPATH`.
+    assert_eq!(
+        default_search_of("freebsd", ""),
+        DefaultSearch::Literal("/usr/bin:/bin")
+    );
+    // And production takes the RUNNING target's row, not a fixed one.
+    assert_eq!(
+        default_search_path().unwrap(),
+        default_search_path_for(default_search_of(std::env::consts::OS, TARGET_ENV)).unwrap()
     );
 }
 
@@ -2239,15 +2330,26 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     }
 
     assert_eq!(
-        refused(DshSeams::resolve_with("dsh".to_string(), None, None)),
+        refused(DshSeams::resolve_with(
+            "dsh".to_string(),
+            None,
+            Vec::new(),
+            None
+        )),
         "the DSH layout is unreadable: no dsh home: set DSH_HOME or HOME"
     );
     let dir = tempfile::tempdir().unwrap();
-    let seams =
-        DshSeams::resolve_with("dsh".to_string(), None, Some(dir.path().to_path_buf())).unwrap();
+    let seams = DshSeams::resolve_with(
+        "dsh".to_string(),
+        None,
+        b"#!/usr/bin/env node\n".to_vec(),
+        Some(dir.path().to_path_buf()),
+    )
+    .unwrap();
     assert_eq!(seams.executable, "dsh");
     assert_eq!(seams.home, dir.path());
     assert_eq!(seams.node, None);
+    assert_eq!(seams.head, b"#!/usr/bin/env node\n");
 
     // Each arm of the selection, DRIVEN rather than observed: whichever
     // `dsh` this host has installed decides which arm the real call above
@@ -2261,6 +2363,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             Ok(Selected {
                 path: resolved.clone(),
                 node: Some(retained.clone()),
+                head: b"#!/usr/bin/env node\n".to_vec(),
             })
         },
         home.clone(),
@@ -2272,6 +2375,9 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // The Node selection made beside the executable is the seams' own:
     // what the composite will observe, not a spelling to look up again.
     assert_eq!(seams.node, Some(retained));
+    // And so are the bytes the selection inspected: the observation's
+    // first-line check reads these and never the file again.
+    assert_eq!(seams.head, b"#!/usr/bin/env node\n");
     // A name that resolves to nothing is NOT selected. The inherited
     // arm kept the declared spelling as the executable, and doctor
     // probed that spelling: under an absent `PATH` it executed a `dsh`
@@ -2311,6 +2417,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
                 Ok(Selected {
                     path: raw.clone(),
                     node: None,
+                    head: Vec::new(),
                 })
             },
             home,
@@ -2347,6 +2454,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
         executable: "/opt/dsh/lib/bin.js".to_string(),
         home: PathBuf::from("/opt/home"),
         node: Some(PathBuf::from("/opt/node/bin/node")),
+        head: b"#!/usr/bin/env node\n".to_vec(),
     };
     assert_eq!(
         DshSeams::resolved(Ok(DshSelection {
@@ -2618,12 +2726,12 @@ fn native_executable_resolution_matches_command_matrix() {
     );
 }
 
-/// The layouts the matrix crosses on this target: thirteen on every
+/// The layouts the matrix crosses on this target: fourteen on every
 /// Unix, plus the two missing-loader layouts where the ELF fixture can be
 /// built. Asserted by the child on the layouts it built and by the parent
 /// on the tally the child printed.
 #[cfg(unix)]
-const MATRIX_LAYOUTS: usize = if cfg!(target_os = "linux") { 15 } else { 13 };
+const MATRIX_LAYOUTS: usize = if cfg!(target_os = "linux") { 16 } else { 14 };
 
 /// Where a bare or direct spelling places its candidate in a layout.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2639,7 +2747,15 @@ enum Slot {
     B,
     /// A directory on `PATH` holding no candidate, or a later one.
     Other,
+    /// A `PATH` component too long for any candidate under it: 5,000
+    /// ASCII `x` bytes, which no layout places a file in and both C
+    /// libraries' searches walk past (review 2026-09-20, F1).
+    Overlong,
 }
+
+/// The overlong `PATH` component's spelling, as the commission
+/// reproduced it.
+const OVERLONG_COMPONENT: usize = 5000;
 
 /// What a candidate is made of.
 #[cfg(unix)]
@@ -2798,10 +2914,25 @@ fn native_matrix_child() {
                 empty_at: None,
                 expect: Expect::Obstruction,
             },
+            // What the search does with a loop is each C library's own:
+            // glibc stops with ELOOP, Apple continues to B. `Parity`
+            // asserts the RUNNING platform's native control either way,
+            // which is what the corrected AS1 cell requires and what a
+            // fixed "Unix" outcome could not express (F3).
             Layout {
                 name: "A:B, A is a self-symlink (ELOOP)",
                 files: vec![(Slot::A, Body::SelfSymlink), (Slot::B, Body::Script)],
                 path: Some(vec![Slot::A, Slot::B]),
+                empty_at: None,
+                expect: Expect::Parity,
+            },
+            // An overlong PATH component ahead of a runnable B: both
+            // searches walk past it and run B, where this resolver
+            // refused the ordinary positive with ENAMETOOLONG (F1).
+            Layout {
+                name: "overlong PATH component, then B",
+                files: vec![(Slot::B, Body::Script)],
+                path: Some(vec![Slot::Overlong, Slot::B]),
                 empty_at: None,
                 expect: Expect::Parity,
             },
@@ -2885,6 +3016,9 @@ fn native_matrix_child() {
                 Slot::A => cell.join("a"),
                 Slot::B => cell.join("b"),
                 Slot::Other => cell.join("other"),
+                // Never created, and never a candidate's home: the
+                // component exists in the PATH spelling alone.
+                Slot::Overlong => PathBuf::from("x".repeat(OVERLONG_COMPONENT)),
                 Slot::Target => cwd.clone(),
             };
             for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
@@ -3414,6 +3548,9 @@ fn windows_matrix_child() {
                 Slot::A => cell.join("a"),
                 Slot::B => cell.join("b"),
                 Slot::Other => cell.join("other"),
+                // Never created, and never a candidate's home: the
+                // component exists in the PATH spelling alone.
+                Slot::Overlong => PathBuf::from("x".repeat(OVERLONG_COMPONENT)),
                 Slot::Target => cwd.clone(),
             };
             for slot in [Slot::PathDir, Slot::A, Slot::B, Slot::Other] {
@@ -3832,6 +3969,8 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
         "lockfileVersion: \"9.0\"\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
         "lockfileVersion: '9.0'  \n\npackages:  \n\n  debug@2.6.9:  \n    resolution:   {integrity: sha512-X}  \n    version: 1.0\n    engines: {node: '>=1'}\n",
         "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X, tarball: https://example.invalid/debug-2.6.9.tgz}\n",
+        // A recognized top-level scalar, quoted: read, not identity.
+        "lockfileVersion: '9.0'\n\npnpmfileChecksum: 'sha256-a'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
     ] {
         assert_eq!(
             composite_over_pnpm(&install, lock).unwrap().canonical,
@@ -3852,6 +3991,192 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
         .dependencies
         .contains(&"debug 2.6.9 sha512-a,b".to_string()));
     assert_ne!(quoted.canonical, control.canonical);
+
+    // YAML's own CHARACTER SET, asked of the whole document. A NUL or a
+    // BEL is not a value with an unusual byte in it — it is a stream
+    // YAML cannot carry — and the fields this reader IGNORES carried
+    // them straight through to the control's composite (review
+    // 2026-09-20, F5, security). The plain and quoted tarball and the
+    // two recognized checksums are the reproduced vectors.
+    for (lock, control_char) in [
+        (
+            pnpm_with_resolution("{integrity: sha512-X, tarball: http://x\u{0}}"),
+            0u32,
+        ),
+        (
+            pnpm_with_resolution("{integrity: sha512-X, tarball: http://x\u{7}}"),
+            7,
+        ),
+        (
+            pnpm_with_resolution("{integrity: sha512-X, tarball: 'http://x\u{0}'}"),
+            0,
+        ),
+        (pnpm_with_resolution("{integrity: 'sha512-X\u{1b}'}"), 0x1b),
+        (
+            "lockfileVersion: '9.0'\n\npnpmfileChecksum: sha256-x\u{0}\n\npackages:\n\n  \
+             debug@2.6.9:\n    resolution: {integrity: sha512-X}\n"
+                .to_string(),
+            0,
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackageExtensionsChecksum: sha256-x\u{7f}\n\npackages:\n\n  \
+             debug@2.6.9:\n    resolution: {integrity: sha512-X}\n"
+                .to_string(),
+            0x7f,
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: \
+             {integrity: sha512-X}\n    deprecated: use \u{0} instead\n"
+                .to_string(),
+            0,
+        ),
+        // The upper edge of the admitted range: the two noncharacters
+        // that end the basic plane are outside `c-printable` where
+        // U+FFFD, just below them, is inside it.
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: \
+             {integrity: sha512-X}\n    deprecated: \u{fffe}\n"
+                .to_string(),
+            0xfffe,
+        ),
+    ] {
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, &lock), &lock),
+            format!(
+                "pnpm lock is unreadable: the character U+{control_char:04X}, which YAML's \
+                 character set excludes"
+            ),
+            "{lock:?}"
+        );
+    }
+
+    // A recognized top-level scalar is a SCALAR: a checksum spelled
+    // `a: b` is the mapping YAML opens there, and the reader that read
+    // it as a string left the control's composite standing.
+    for lock in [
+        "lockfileVersion: '9.0'\n\npnpmfileChecksum: sha256-a: b\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+        "lockfileVersion: '9.0'\n\npnpmfileChecksum: sha256-a:\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+        "lockfileVersion: '9.0'\n\npackageExtensionsChecksum: 'sha256-a\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n",
+    ] {
+        let name = match lock.contains("pnpmfileChecksum") {
+            true => "pnpmfileChecksum",
+            false => "packageExtensionsChecksum",
+        };
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, lock), lock),
+            format!("pnpm lock is unreadable: a malformed scalar for top-level key '{name}'"),
+            "{lock:?}"
+        );
+    }
+
+    // An IGNORED package child is still a field the document must have
+    // spelled. An unterminated `deprecated` quote and an unterminated
+    // `engines` flow map were skipped whole, so a file that is not a
+    // YAML document at all produced the control's composite.
+    for (child, reason) in [
+        (
+            "deprecated: 'oops",
+            "a package child 'deprecated' carrying the malformed quoted scalar ''oops'",
+        ),
+        (
+            "deprecated: \"oops",
+            "a package child 'deprecated' carrying the malformed quoted scalar '\"oops'",
+        ),
+        (
+            "deprecated: \"a\\tb\"",
+            "a package child 'deprecated' carrying the malformed quoted scalar '\"a\\tb\"'",
+        ),
+        (
+            "engines: {node: >=1",
+            "a package child 'engines' carrying the unterminated flow collection '{node: >=1'",
+        ),
+        (
+            "cpu: [x64",
+            "a package child 'cpu' carrying the unterminated flow collection '[x64'",
+        ),
+        (
+            "engines: {node: {min: 1}}",
+            "a package child 'engines' carrying the nested flow collection '{node: {min: 1}}', \
+             which this grammar does not read",
+        ),
+        (
+            "engines: {node:'>=1'}",
+            "a package child 'engines' carrying the malformed flow member 'node:'>=1''",
+        ),
+        (
+            "engines: {node: }",
+            "a package child 'engines' carrying the malformed flow member 'node:'",
+        ),
+        (
+            "engines: {node: a: b}",
+            "a package child 'engines' carrying the malformed flow member 'node: a: b'",
+        ),
+        // The KEY half of a flow member is a scalar in its own right.
+        (
+            "engines: {'oops: 1}",
+            "a package child 'engines' carrying the malformed flow member ''oops: 1'",
+        ),
+        (
+            "deprecated: *anchor",
+            "a package child 'deprecated' carrying the value '*anchor', which opens YAML syntax \
+             this grammar does not read",
+        ),
+        (
+            "deprecated: a: b",
+            "a package child 'deprecated' carrying the plain scalar 'a: b', which is a mapping \
+             or a comment and not a value",
+        ),
+        (
+            "deprecated: text #comment",
+            "a package child 'deprecated' carrying the plain scalar 'text #comment', which is a \
+             mapping or a comment and not a value",
+        ),
+    ] {
+        let lock = format!(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: \
+             {{integrity: sha512-X}}\n    {child}\n"
+        );
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, &lock), &lock),
+            format!("pnpm lock is unreadable: {reason}"),
+            "{child:?}"
+        );
+    }
+
+    // The valid ignored spellings a real lock carries are still read,
+    // and still ignored: the admitted dialect did not grow. A plain
+    // block scalar's free text — apostrophes, commas, brackets — is
+    // free text, exactly as YAML has it.
+    for child in [
+        "engines: {node: '>=18.12', npm: \"9\"}",
+        "engines: {}",
+        "cpu: [x64, arm64]",
+        "os: [darwin]",
+        "libc: []",
+        "hasBin: true",
+        "bundledDependencies: false",
+        "name: debug",
+        "version: 2.6.9",
+        "deprecated: Don't use this, use [debug] instead",
+        "deprecated: see https://example.invalid/a#b",
+        "deprecated: 'use debug instead'",
+        // The printable characters above the ASCII range YAML admits:
+        // the private-use area, the replacement character and the
+        // supplementary planes are all `c-printable`, and an ignored
+        // free-text value may carry them.
+        "deprecated: \u{e000} \u{fffd} \u{1f600}",
+        "peerDependencies:",
+    ] {
+        let lock = format!(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: \
+             {{integrity: sha512-X}}\n    {child}\n"
+        );
+        assert_eq!(
+            composite_over_pnpm(&install, &lock).unwrap().canonical,
+            control.canonical,
+            "{child:?}"
+        );
+    }
 }
 
 /// Identity bytes are never trimmed. A U+00A0 at either edge of a plain
@@ -4291,26 +4616,44 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         )))
     };
 
-    // A SELF-SYMLINK at A/dsh: the child's `execve` stops with ELOOP,
-    // and so does this, naming the loop. B is never reached.
+    // A SELF-SYMLINK at A/dsh. What the SEARCH does with it is each C
+    // library's own: glibc's `execvp` stops with ELOOP and never reaches
+    // B (measured 2026-09-20), and Apple's `execvP` and `posix_spawnp`
+    // continue past it as they continue past ENOENT. The running
+    // platform's own rule is what is asserted, never a fixed "Unix"
+    // outcome — AS1's corrected cell (2026-09-20 spec defect, F3).
     std::os::unix::fs::symlink("dsh", a.join("dsh")).unwrap();
     let eloop = fs::metadata(a.join("dsh")).unwrap_err();
     assert!(is_symlink_loop(&eloop), "{eloop}");
-    assert_eq!(
-        refused(resolve_executable_in("dsh", path(&a))),
-        format!(
-            "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {eloop}",
+    let loop_stops = cfg!(any(target_os = "linux", target_os = "android"));
+    match loop_stops {
+        true => assert_eq!(
+            refused(resolve_executable_in("dsh", path(&a))),
+            format!(
+                "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {eloop}",
+                a.join("dsh").display()
+            )
+        ),
+        false => assert_eq!(
+            resolve_executable_in("dsh", path(&a)).unwrap(),
+            real.canonicalize().unwrap(),
+            "this platform's search continues past the loop to B"
+        ),
+    }
+    // The same file as an explicit override is a refusal either way,
+    // because an override has no next entry to continue to; what the
+    // search stops on it names as the stop, and what the search walks
+    // past it names as the cause.
+    let loop_cause = match loop_stops {
+        true => format!(
+            "{}: a symlink loop stops the lookup: {eloop}",
             a.join("dsh").display()
-        )
-    );
-    // The same file as an explicit override: the same refusal, because
-    // an override has no next entry either.
+        ),
+        false => format!("{}: {eloop}", a.join("dsh").display()),
+    };
     assert_eq!(
         refused(resolve_executable_in(a.join("dsh").to_str().unwrap(), None)),
-        format!(
-            "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {eloop}",
-            a.join("dsh").display()
-        )
+        format!("the DSH layout is unreadable: {loop_cause}")
     );
     fs::remove_file(a.join("dsh")).unwrap();
 
@@ -4694,15 +5037,72 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
             notdir.join("dsh").display()
         )
     );
-    // A metadata failure of a kind the child's search does NOT walk past
-    // remains a refusal by cause: a name too long for the kernel.
-    let too_long = "n".repeat(300);
-    let enametoolong = fs::metadata(a.join(&too_long)).unwrap_err();
+    // A candidate whose path is TOO LONG is walked past too, by both
+    // searches: glibc skips a `PATH` component longer than the buffer it
+    // sized for the whole variable, before any `execve`, and Apple's
+    // `execvP` warns on the oversized candidate and continues. The
+    // commissioned reproduction is 5,000 ASCII `x` bytes ahead of a
+    // runnable B, where this resolver refused an ordinary positive
+    // (review 2026-09-20, F1). The native child is the oracle.
+    let overlong = "x".repeat(5000);
+    let enametoolong = fs::metadata(Path::new(&overlong).join("dsh")).unwrap_err();
+    assert!(is_name_too_long(&enametoolong), "{enametoolong}");
+    let overlong_first = OsString::from(format!("{overlong}:{}", b.display()));
+    let native = std::process::Command::new("dsh")
+        .env("PATH", &overlong_first)
+        .output()
+        .expect("the native child walks past the overlong component to B");
+    assert!(native.status.success(), "{native:?}");
     assert_eq!(
-        refused(resolve_executable_in(&too_long, path(&a))),
+        resolve_executable_in("dsh", Some(overlong_first)).unwrap(),
+        real.canonicalize().unwrap(),
+        "the resolver walks past ENAMETOOLONG to B as the child did"
+    );
+    // Removing ONLY the overlong component is the positive control: the
+    // same B, from a search with nothing to walk past.
+    assert_eq!(
+        resolve_executable_in("dsh", Some(OsString::from(b.display().to_string()))).unwrap(),
+        real.canonicalize().unwrap()
+    );
+    // A NAME so long that every candidate is overlong is a native
+    // no-match, not a stop: the search walks past every entry and
+    // answers as `execvp` answers with nothing admitted.
+    assert_eq!(
+        refused(resolve_executable_in(&overlong, path(&a))),
+        format!("the DSH layout is unreadable: '{overlong}' is not on PATH")
+    );
+    // As an explicit path the same cause IS the refusal, because an
+    // override has nowhere to walk to.
+    let spelled = a.join(&overlong);
+    assert_eq!(
+        refused(resolve_executable_in(spelled.to_str().unwrap(), None)),
         format!(
-            "the DSH layout is unreadable: {}: the lookup cannot be proved: {enametoolong}",
-            a.join(&too_long).display()
+            "the DSH layout is unreadable: {}: {}",
+            spelled.display(),
+            fs::metadata(&spelled).unwrap_err()
+        )
+    );
+
+    // A lookup failure the resolver cannot prove a child would walk past
+    // is still a refusal by cause. A `PATH` entry carrying a NUL is one:
+    // the platform answers before it ever asks the kernel, with no error
+    // NUMBER to compare against the causes `execvp` steps over, so
+    // stepping over it would be a claim this code cannot keep.
+    let nul_dir = PathBuf::from(format!("{}\0", a.display()));
+    let unprovable = fs::metadata(nul_dir.join("dsh")).unwrap_err();
+    assert_eq!(unprovable.raw_os_error(), None, "{unprovable}");
+    assert_eq!(
+        refused(resolve_executable_in(
+            "dsh",
+            Some(OsString::from(format!(
+                "{}:{}",
+                nul_dir.display(),
+                b.display()
+            )))
+        )),
+        format!(
+            "the DSH layout is unreadable: {}: the lookup cannot be proved: {unprovable}",
+            nul_dir.join("dsh").display()
         )
     );
 
@@ -4874,6 +5274,112 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             a.join("dsh").display()
         )
     );
+
+    // The `env` an interpreter IS, under another name (review
+    // 2026-09-20, F4, security). `env-alias` and `env` are two spellings
+    // of ONE binary; recognition by the spelled basename let the alias
+    // carry the measured form past D10's refusal, so a launcher whose
+    // `node` was missing was admitted and the doctor that followed ran
+    // it. Spelling is not the evidence; the file is.
+    let tools = dir.path().join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    let env_binary = ["/usr/bin/env", "/bin/env"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+        .expect("this host has an env binary");
+    let alias = tools.join("env-alias");
+    std::os::unix::fs::symlink(&env_binary, &alias).unwrap();
+    assert_eq!(
+        alias.canonicalize().unwrap(),
+        env_binary.canonicalize().unwrap(),
+        "the alias and `env` are one file under two names"
+    );
+    stage_executable(&a, "node", format!("#!{}\n", missing.display()).as_bytes());
+    stage_executable(&b, "node", b"#!/bin/sh\nprintf 'MARK:b-node\\n'\n");
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", alias.display()).as_bytes(),
+    );
+    let path = Some(OsString::from(format!("{}:{}", a.display(), b.display())));
+    // The independent native control: reaching this line at all is the
+    // proof that native lookup SELECTED `A/dsh` and the kernel loaded it
+    // through the alias — nothing was walked past — and where the
+    // platform's own `env` went on to run a program it ran B's, never
+    // A's obstructed copy. An `env` that declines to answer to another
+    // name stops there instead; that is the platform's fact, recorded
+    // rather than asserted away, and it does not weaken the refusal
+    // below.
+    let native = spawn_retrying_etxtbsy(
+        Command::new("dsh")
+            .env("PATH", path.as_ref().unwrap())
+            .stdin(Stdio::null()),
+    );
+    let said = String::from_utf8_lossy(&native.stdout).trim().to_string();
+    assert!(
+        said.is_empty() || said == "MARK:b-node",
+        "the native child ran nothing of A's: {said:?}"
+    );
+    eprintln!(
+        "F4 native control under `env-alias`: status {:?}, stdout {said:?}, stderr {:?}",
+        native.status,
+        String::from_utf8_lossy(&native.stderr).trim()
+    );
+    // The resolver refuses at A's obstructed `node` under BOTH
+    // spellings, by the same cause, before anything is probed.
+    let refusal = |interpreter: &Path| {
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '{}' selects no 'node': the \
+             DSH layout is unreadable: {}: its #! interpreter '{}' is missing: {enoent}",
+            a.join("dsh").display(),
+            interpreter.display(),
+            a.join("node").display(),
+            missing.display()
+        )
+    };
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path.clone())),
+        refusal(&alias),
+        "the alias spelling does not bypass D10"
+    );
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", env_binary.display()).as_bytes(),
+    );
+    assert_eq!(
+        refused(resolve_executable_in("dsh", path.clone())),
+        refusal(&env_binary)
+    );
+    // The valid-chain positive: with A's `node` gone, either spelling
+    // selects B's and RETAINS it as the runtime.
+    fs::remove_file(a.join("node")).unwrap();
+    for interpreter in [&alias, &env_binary] {
+        stage_executable(
+            &a,
+            "dsh",
+            format!("#!{} node\n", interpreter.display()).as_bytes(),
+        );
+        let selected = select_in("dsh", path.clone()).unwrap();
+        assert_eq!(selected.path, a.join("dsh").canonicalize().unwrap());
+        assert_eq!(
+            selected.node,
+            Some(b.join("node").canonicalize().unwrap()),
+            "{}",
+            interpreter.display()
+        );
+    }
+    // And a file that is no `env` under any name is not one: the
+    // recognition is the utility's own name on the file, not any
+    // interpreter that happens to take an argument.
+    let other = stage_executable(&tools, "runner", b"#!/bin/sh\nexec \"$@\"\n");
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", other.display()).as_bytes(),
+    );
+    assert_eq!(select_in("dsh", path).unwrap().node, None);
 }
 
 /// A native image's loader is read as the kernel reads it, from the
@@ -5090,6 +5596,7 @@ fn the_composite_observes_the_node_the_selection_retained() {
         executable: install.seams.executable.clone(),
         home: install.seams.home.clone(),
         node: selected.node.clone(),
+        head: selected.head.clone(),
     };
     // With A's runtime in place the composite reads through it.
     assert_eq!(dsh_composite(&seams).unwrap().node, "v22.23.2");
@@ -5110,6 +5617,94 @@ fn the_composite_observes_the_node_the_selection_retained() {
     assert_eq!(
         dsh_composite(&unretained).map(|composite| composite.node),
         spawn_node_runtime(None).map(|node| node.version)
+    );
+}
+
+/// D10's byte-retention requirement: the identity-bearing bytes
+/// SELECTION inspected are the bytes the observation reads.
+///
+/// Composition asked the launcher for its first line again, AFTER the
+/// version probe had run it. A shell launcher that answers `v22.23.2`
+/// and rewrites itself to the `env node` shebang while doing so was
+/// therefore refused by the reading that admitted it and admitted by the
+/// reading that followed: a readable composite for an installation whose
+/// head the resolver never accepted, with no concurrent writer needed
+/// (review 2026-09-20, F6). The otherwise identical launcher that does
+/// not rewrite itself is the control, and a valid `env node` launcher
+/// still reads. Restoring the post-probe reread makes the rewriting
+/// launcher readable, which is the removal control recorded in the
+/// delivery account.
+#[cfg(unix)]
+#[test]
+fn the_composite_reuses_the_launcher_head_selection_inspected() {
+    use std::process::Command;
+
+    let install = Synthetic::new();
+    let bin = PathBuf::from(&install.seams.executable);
+    let lib = bin.parent().unwrap().to_path_buf();
+    let shims = install.dir.path().join("shims");
+    fs::create_dir_all(&shims).unwrap();
+    stage_executable(&shims, "node", b"#!/bin/sh\necho v22.23.2\n");
+    let path = Some(OsString::from(shims.display().to_string()));
+    let canonical = bin.canonicalize().unwrap();
+    let not_measured = format!(
+        "the DSH layout is unreadable: {}: first line is not the env node shebang",
+        canonical.display()
+    );
+    let observe = |head: Vec<u8>| {
+        let seams = DshSeams {
+            executable: install.seams.executable.clone(),
+            home: install.seams.home.clone(),
+            node: None,
+            head,
+        };
+        dsh_composite_with(&seams, &install.node(), &[])
+    };
+
+    // The rewriting launcher. Its new bytes are staged and renamed in,
+    // so the shell reading it keeps the file it started on.
+    stage_executable(
+        &lib,
+        "bin.js",
+        b"#!/bin/sh\nprintf '#!/usr/bin/env node\\n' > \"$0.staging\"\nchmod 755 \"$0.staging\"\nmv \"$0.staging\" \"$0\"\necho v22.23.2\n",
+    );
+    let selected = select_in(&install.seams.executable, path.clone()).unwrap();
+    assert_eq!(first_line(&bin, &selected.head).unwrap(), "#!/bin/sh");
+    // The version probe, as doctor runs it: the selected executable,
+    // answering for itself.
+    let probe = spawn_retrying_etxtbsy(Command::new(&bin).arg("--version"));
+    assert_eq!(String::from_utf8_lossy(&probe.stdout).trim(), "v22.23.2");
+    assert_eq!(
+        fs::read(&bin).unwrap(),
+        b"#!/usr/bin/env node\n",
+        "the launcher rewrote itself to the measured shebang while answering the probe"
+    );
+    assert_eq!(
+        refused(observe(selected.head)),
+        not_measured,
+        "the observation reads the first line selection inspected"
+    );
+
+    // The control: the same launcher without the rewrite. The file on
+    // disk and the retained head agree, and the refusal is the same.
+    stage_executable(&lib, "bin.js", b"#!/bin/sh\necho v22.23.2\n");
+    let selected = select_in(&install.seams.executable, path.clone()).unwrap();
+    let probe = spawn_retrying_etxtbsy(Command::new(&bin).arg("--version"));
+    assert_eq!(String::from_utf8_lossy(&probe.stdout).trim(), "v22.23.2");
+    assert_eq!(fs::read(&bin).unwrap(), b"#!/bin/sh\necho v22.23.2\n");
+    assert_eq!(refused(observe(selected.head)), not_measured);
+
+    // And a valid `env node` launcher still reads, through the retained
+    // head and nothing else.
+    stage_executable(&lib, "bin.js", b"#!/usr/bin/env node\n");
+    let selected = select_in(&install.seams.executable, path).unwrap();
+    assert_eq!(
+        first_line(&bin, &selected.head).unwrap(),
+        "#!/usr/bin/env node"
+    );
+    assert_eq!(
+        observe(selected.head).unwrap().canonical,
+        install.composite().canonical
     );
 }
 
@@ -5715,7 +6310,7 @@ fn a_pnpm_scalar_is_one_of_three_forms_and_never_yaml_syntax() {
 }
 
 #[test]
-fn read_json_and_first_line_report_io_and_encoding_failures() {
+fn read_json_and_the_retained_head_report_io_and_encoding_failures() {
     let absent = Path::new("/definitely/not/a/file");
     // The JSON reader answers with a REASON and no component: the same
     // failure is the layout's for a manifest and the npm lock's for the
@@ -5725,10 +6320,6 @@ fn read_json_and_first_line_report_io_and_encoding_failures() {
     assert!(
         reason.starts_with("/definitely/not/a/file: "),
         "the reason names the file it could not read: {reason}"
-    );
-    assert_eq!(
-        refused(first_line(absent)),
-        format!("the DSH layout is unreadable: {reason}")
     );
     let dir = tempfile::tempdir().unwrap();
     let bad = dir.path().join("bad.json");
@@ -5742,17 +6333,39 @@ fn read_json_and_first_line_report_io_and_encoding_failures() {
     // reads `#!/usr/bin/env node\r` as an interpreter name that does not
     // exist, so removing the CR here reported a file the loader cannot
     // execute as the qualified one (council return 2026-09-19, F5).
+    //
+    // The line is read from the head SELECTION retained, never from the
+    // file: `first_line` opens nothing, so the path it is handed serves
+    // only to name the file in a refusal (review 2026-09-20, F6).
     let crlf = dir.path().join("crlf");
     fs::write(&crlf, b"#!/usr/bin/env node\r\nrest\n").unwrap();
-    assert_eq!(first_line(&crlf).unwrap(), "#!/usr/bin/env node\r");
+    assert_eq!(
+        first_line(&crlf, &selected_head(&crlf)).unwrap(),
+        "#!/usr/bin/env node\r"
+    );
     let raw = dir.path().join("raw");
     fs::write(&raw, b"\xff\n").unwrap();
     assert_eq!(
-        refused(first_line(&raw)),
+        refused(first_line(&raw, &selected_head(&raw))),
         format!(
             "the DSH layout is unreadable: {}: first line is not UTF-8",
             raw.display()
         )
+    );
+    // A head with no terminator in it is the line: the bound reached, or
+    // a file shorter than one line.
+    let unterminated = dir.path().join("unterminated");
+    fs::write(&unterminated, b"#!/usr/bin/env node").unwrap();
+    assert_eq!(
+        first_line(&unterminated, &selected_head(&unterminated)).unwrap(),
+        "#!/usr/bin/env node"
+    );
+    // And the file's own bytes are never consulted: a head handed for a
+    // path that does not exist is still the answer, which is what makes
+    // a post-probe reread impossible rather than merely unlikely.
+    assert_eq!(
+        first_line(absent, b"#!/usr/bin/env node\nrest\n").unwrap(),
+        "#!/usr/bin/env node"
     );
 }
 
@@ -5906,7 +6519,12 @@ fn the_core_manifest_and_hidden_lock_are_read_once_and_retained() {
     };
     let install = Synthetic::new();
     let core = install.dir.path().join("core");
-    resolve_core_reading(&install.seams.executable, &counting).unwrap();
+    resolve_core_reading(
+        &install.seams.executable,
+        &install.seams.head.clone(),
+        &counting,
+    )
+    .unwrap();
     let opened = opened.into_inner();
     assert_eq!(
         opened
@@ -6498,12 +7116,15 @@ impl Measured {
             );
         }
         // No home-level patch: the measured home has none.
-        let executable = pkg.join("lib/bin.js").to_string_lossy().into_owned();
+        let bin = pkg.join("lib/bin.js");
+        let head = selected_head(&bin);
+        let executable = bin.to_string_lossy().into_owned();
         Measured {
             seams: DshSeams {
                 executable,
                 home,
                 node: None,
+                head,
             },
             dir,
         }
