@@ -1,20 +1,25 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
 Current commission: **DSH COMPOSITE IDENTITY — third security hold**, run
-`dsh-composite-identity-issue-226-efb3360b`, phase **tasks**. Adopt every
-commit on `slice-dsh-composite-b` through `aeb92115`, including proposal AP,
-the amended AS1 and D10's third-hold reconciliation. The controller's
-`controller-enametoolong-2026-09-20.json`, prior councils and task records
-are evidence inputs. No separate `returned_from` fact is supplied; the
-commission's R1–R7 and remaining F1–F9 obligations are answered below. The
-same dated change is active, so no archive reopen is needed.
+`dsh-composite-identity-issue-226-efb3360b`, phase **tasks**. Adopt every commit
+on `slice-dsh-composite-b` through
+`76daef9d3a55c6194efa26513152387039639dda`, including tasks `b30c69ff`,
+proposal AQ/AS1 at `72c1d958` and the clarified D10 return at `76daef9d`.
+The controller's `controller-enametoolong-2026-09-20.json`, prior councils
+and task records remain evidence inputs. `returned_from` is design's
+**drafted** result: strict change validation passed, with informational
+archive refusals for the absent living `adapter-resume-safety` and
+`sdd-progress-markers` targets. These remain whole-change archive debt;
+they neither block this non-archiving breakdown nor certify archive readiness.
+The same dated change is active, so no archive reopen is needed.
 
 Only **8.8(a)–(c)** are commissioned. Execute the eight numbered local groups
 below in order, completing each repair's focused tests and independent
 removals with it. Lookup/defaults precede interpreter admission and the full
 matrix; syntax follows; retained-Node integration and full validation finish
-the slice. Groups 4–7 preserve completed work. Reopen **8.8.1.1, 8.8.3.1 and
-8.8.8.1**: strengthened acceptance is not certified by their historical ticks.
+the slice. Groups 4–7 preserve completed work. The prior tasks visit reopened
+**8.8.1.1, 8.8.3.1 and 8.8.8.1**; strengthened acceptance is not certified by
+their historical ticks. This return changes no checkbox state or identifier.
 All fourteen local addresses remain: **5 complete / 9 pending**. All 101
 change-wide identifiers retain **84 complete / 17 pending**; **8.8 stays
 unchecked**. No production repair or delivery acceptance is claimed here.
@@ -23,7 +28,7 @@ Every local checkbox names **safety / AS1 — Resume support is measured per
 adapter and execution shape**, in
 [the safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
 The five deltas contain **20 requirements / 207 scenarios**. Design's Open
-Questions defers no build-affecting choice; AP/AS1/D10 support this breakdown
+Questions defers no build-affecting choice; AP/AQ/AS1/D10 support this breakdown
 without an earlier artifact amendment. Existing whole-change requirements and
 task states remain intact.
 
@@ -45,7 +50,13 @@ partial slice stays active and performs no archive, enablement or qualification.
 
 ## Decisions
 
-Adopt AP and D10's third-hold choices, with their owning AS1 scenarios.
+Adopt AP/AQ and the clarified D10 third-hold choices, with their owning AS1
+scenarios. AQ resolves analyze A1: commands and candidate checklists belong
+in planning, while AS1 owns behavior and evidence semantics. Preserve the
+exact validation/removal obligations below; do not put their command checklist
+back into the capability delta. The returned archive notices concern a later
+fold outside this slice; resolving them now would exceed its scope. No new
+ambiguity or earlier-artifact change is needed to order this work honestly.
 **Nothing is ever selected that native lookup would not have executed, and
 nothing native lookup would have executed is silently replaced by a later
 candidate.** D10's named unprovable interpreter/loader refusal is the sole
@@ -109,9 +120,15 @@ oracle. Notes describe outcomes; they never instruct or waive a gate.
   An unestablished target rule is an explicit limitation, not a permissive
   fallback. NUL refuses before filesystem/home work or probes; OS path bytes
   and independent home errors survive, and no failed override falls back.
-  Verify the existing candidate classifier and `each_platforms_absent_path_search_is_its_own_loaders_rule`, beginning
-  with the six length cells and fresh removed-component oracles defined in
-  8.8.2.2. Supplement with rare-errno/operation/denial-precedence unit controls,
+  Establish the shared completed-oracle comparison and independent cell-ID
+  inventory in the existing matrix/classifier harness here, before changing
+  lookup. Add the six individually named length cells, overlong bare-name and
+  explicit-path cells, and fresh removed-component oracles needed for this
+  repair's acceptance; 8.8.2.2 later completes their cross-product and platform
+  inventory, rather than supplying a prerequisite after this task is ticked.
+  Verify the existing candidate classifier and
+  `each_platforms_absent_path_search_is_its_own_loaders_rule`. Supplement with
+  rare-errno/operation/denial-precedence unit controls,
   explicitly not native evidence. Independently restore blanket ENAMETOOLONG
   continuation, remove the genuine pre-buffer skip, erase access errors, erase
   terminal/exhaustion precedence, and restore wrong-target defaults/ELOOP.
@@ -176,7 +193,11 @@ glibc**, and paired doctor selection. Group 2 completes the inventory.
   oracle/doctor markers, obstructed A/node, runnable B/node, removed-A oracle
   and valid-chain control. Where native runs B, doctor names A's missing
   prerequisite and probes neither; a utility's alias refusal is recorded but
-  cannot discharge the successful-alias positive. Independently restore
+  cannot discharge the successful-alias positive. In those same named
+  protocol/doctor regressions, separately exercise an impostor named env and
+  an unsupported invocation: record each actual native outcome and assert its
+  specific identity/invocation refusal with zero production markers. Preserve
+  established shell/native positives. Independently restore
   spelled/canonical-basename admission, unconditional native-image admission
   and one-level interpreter metadata admission; the named cause/no-probe
   assertions must fail and restored controls pass. Preserve both launcher
@@ -474,7 +495,63 @@ this tasks seat performed no production mutation or native reproduction.
 | R7 / F9 literal coverage | Pending. The chief's literal gate failed at 31672/31848, 5352/5366, 3078/3088. The prior hand-executed/retained perfect report remains historical, not gate completion. 8.8.8.3 requires the fresh unchanged script and actual three integer pairs on a capable host. |
 | S1/S1b, separator/NBSP, executable/home and first-hold preservation | Remain binding. Groups 1–3 and 8.8.8.1 preserve the sound repairs and renew affected proofs; completed groups 4–7 remain byte-for-byte adopted with their dated evidence. No first-hold tick alone certifies a changed rule. |
 
-### Tasks-phase validation — third security hold, 2026-09-20
+### Tasks return validation — clarified third hold, 2026-09-20
+
+This tasks seat adopts every commit through `76daef9d` and answers the
+returned design's `drafted` result and its two informational archive notices.
+The rendered tasks instructions, current Open Questions, AP/AQ, AS1, D10,
+controller ENAMETOOLONG/S1/S1b/absent-PATH/ELOOP records, prior hold notes,
+chief R1–R7 and historical F1–F9 delivery account support the existing scope.
+Source inspection confirms the remaining lookup, env-name, ignored-syntax and
+retained-Node proof gaps; it supplies no new runtime result.
+
+Delivered only this planning return. The fourteen requirement-linked clauses
+retain their identifiers/order and **5 complete / 9 pending** states; all
+101 change-wide tasks retain **84 complete / 17 pending**, including unchecked
+8.8. The lookup clause now establishes its oracle comparison/inventory and
+focused boundary controls before lookup completion; 8.8.2.2 subsequently
+completes the same matrix. Env admission explicitly binds D10's impostor and
+unsupported-invocation controls to the existing named regressions. AQ's
+command-ownership decision is recorded without copying commands back into AS1.
+No new product ambiguity, scenario or earlier-artifact repair is required.
+
+The current artifact audit in `.forge/tasks-return-84e6c869/` checks all
+115 numbered checkbox occurrences (**89 checked / 26 unchecked**), every
+local AS1 citation and ownership of all **31** current selection/security/
+preservation scenarios. The five deltas remain **20 requirements / 207
+scenarios**. It compares every tracked file against adopted `76daef9d`:
+only this task artifact changes; the other **741** files, preservation groups
+8.8.4–8.8.7, whole-change task bodies, groups 14–15 and historical delivery
+accounts retain their bytes. Proposed 0056 and all frozen/excluded surfaces
+remain unchanged.
+
+Fresh validation, on Linux x86_64 with Cargo/rustc unavailable:
+
+| Check | Actual outcome |
+|---|---|
+| `openspec validate --all --strict` | Exit 0; **15 passed / 0 failed**. |
+| Strict active-change validation and artifact status | Exit 0; planning artifacts present. The two archive-target notices remain informational for this phase; archive readiness is not claimed. |
+| `git diff --check` and artifact/state audit | Pass; only the declared task artifact changes and no checkbox state changes. |
+| Format, locked all-target/all-feature clippy, seven separate locked all-feature crate suites, plain and locked all-feature workspace tests, self/verify bundle compiles | Each command attempted; each exits **127**, `cargo: command not found`. Zero Rust tests execute. |
+| Unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` | Fresh invocation exits **127** at line 33 during its Cargo clean step, before instrumentation or new reports. |
+| Fresh source-line / branch / function coverage | **N/A/N/A / N/A/N/A / N/A/N/A**; all structured covered/total values and percentages are null. No old count is relabelled as a current result. |
+| Native macOS, Windows/GetBinaryTypeW/MSRV, actual Node positives, removals and final-head remote CI | Not executed here; pending. |
+
+Exact commands, exits, host/source state and output are retained under
+`.forge/tasks-return-84e6c869/`. The immutable compiler-pin check confirms CI,
+release admission and coverage consume `rust-nightly-version.txt`, still
+`nightly-2026-09-05`. Missing Cargo prevents local Rust validation; the
+namespace-dependent coverage additionally needs its prescribed capable host/CI.
+Neither limitation changes the breakdown or waives delivery acceptance.
+
+The tasks result is `drafted`, not implementation completion or security-hold
+clearance. R1–R7 repairs and proofs, all green candidate suites and fresh
+literal 100% coverage remain owed under the unchanged scope. The missing
+living targets must be reconciled by their owning whole-change work before
+archive, not by this partial return. This seat commits only `tasks.md`,
+leaves the change active and makes no push or out-of-slice task change.
+
+### Historical tasks-phase validation — third security hold, 2026-09-20
 
 Delivered this requirement-linked breakdown and current evidence correction
 only. D10's existing addresses are retained: three affected ticks reopened,
@@ -3973,11 +4050,12 @@ tasks in their stated order. The task truth is now **90 complete / 12 pending**.
 
 ## Progress
 
-Current tasks checkpoint, 2026-09-20, THIRD DSH SECURITY HOLD: AP/AS1 and
-adopted design `aeb92115` are reflected in the ordered local breakdown above.
-All 101 change-wide task states remain **84 complete / 17 pending**; all
-fourteen local addresses remain, now **5 complete / 9 pending** after reopening
-8.8.1.1, 8.8.3.1 and 8.8.8.1. No implementation, native oracle or removal was
+Current tasks return, 2026-09-20, THIRD DSH SECURITY HOLD: AP/AQ/AS1 and
+adopted design `76daef9d` are reflected in the ordered local breakdown above.
+The returned design/archive notices are answered in Decisions and the current
+validation account. All 101 change-wide states remain **84 complete / 17
+pending**; the fourteen local addresses remain **5 complete / 9 pending**.
+This return changes no tick. No implementation, native oracle or removal was
 executed by this tasks seat. Rust gates, native-platform/retained-Node proof,
 fresh literal exact coverage and implementation delivery remain pending.
 8.8 stays unchecked. The current validation account above records this seat's
