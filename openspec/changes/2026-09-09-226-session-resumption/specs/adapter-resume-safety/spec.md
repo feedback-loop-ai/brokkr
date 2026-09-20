@@ -613,7 +613,8 @@ read as history, not as a current claim.
 - **WHEN** the built doctor and a native Rust `Command::new("dsh").arg("--version")` control are invoked with the same cwd and environment
 - **THEN** doctor reports a DSH selection refusal containing `PATH is absent`, its output does not contain the sentinel, and the controlled native child returns `NotFound`
 - **AND** with PATH explicitly `/usr/bin:/bin` and no DSH installed there the sentinel remains unexecuted; removing cwd `dsh` while keeping PATH absent still produces the named absent-PATH refusal
-- **AND** the same doctor regression test fails on the adopted pre-fix execution path because the sentinel runs, then passes with the repair; removing only the fixture is a control, not a substitute for that production regression proof
+- **AND** with the sentinel executable present, the same doctor regression test fails specifically at its no-sentinel assertion on the adopted pre-fix execution path; after exact restoration of the repair it passes both that assertion and the `PATH is absent` reason assertion
+- **AND** removing only the fixture or supplying explicit PATH is a separate control, not a substitute for that production regression proof; failure only at a newly required reason assertion does not prove sentinel execution
 - **AND** environment changes are confined to child processes and no installed provider, global home or frozen fixture supplies this test
 
 #### Scenario: Explicit empty PATH entries and explicit overrides retain their meaning

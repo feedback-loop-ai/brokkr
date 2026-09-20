@@ -1,21 +1,20 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
-This specify visit adopts `2026-09-09-226-session-resumption` and every
-commit through `ab2d8e1d1df7464a94513d6abeea3152fc9ac1be` on
-`slice-dsh-composite-b`, for run
-`dsh-composite-identity-issue-226-4437331e`. Answer AL accepts all seven
-findings from the predecessor's third review and records their ordered
-acceptance in AS1. The security hold remains open. This checkpoint amends the
-proposal first and its owning safety delta second; it neither repeats the
-implementation nor claims repairs, removal proofs or task completion.
+This specify re-entry adopts `2026-09-09-226-session-resumption` and every
+commit through `cbd7b84b`, including the commissioned implementation at
+`ab2d8e1d1df7464a94513d6abeea3152fc9ac1be`, on `slice-dsh-composite-b` for
+run `dsh-composite-identity-issue-226-4437331e`. AL's seven finding dispositions
+and AS1's acceptance scenarios remain adopted. AM answers the recorded
+`SPECIFY-UPSTREAM` result: the exact controller reproduction record is now
+present and was read before amendments. Its sentinel execution and two
+controls confirm S1; the earlier missing-record prerequisite is resolved.
 
-The commission-required controller record
-`.forge/tasks/controller-s1-reproduction-2026-09-20.json` is absent from this
-workspace. The commission's quoted controls and the retained chief/security
-records support the specification, but do not constitute a read of that file.
-AL records that missing intake evidence as an upstream prerequisite, without
-fabricating or substituting a controller record. Decision 0056 stays proposed;
-8.8 stays unchecked, and only parts (a)–(c) remain in this repair's scope.
+The proposal is amended first, followed by a clarification of AS1's sentinel
+removal proof. This specification checkpoint does not clear the security hold
+or claim Rust repairs, executable proofs or task completion. Decision 0056
+stays proposed; 8.8 stays unchecked, and only parts (a)–(c) remain in scope.
+The earlier missing-record accounts below describe the initial visit, not the
+current evidence state.
 
 Earlier retained-input specify adoption, preserved as dated history:
 
@@ -2751,8 +2750,9 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   and omits the missing manifest's filename. All existing commits are adopted.
   None of these observations is a fresh execution or a completed repair.
 
-  **Evidence boundary.** The controller reproduction JSON named by the
-  commission is absent, including from the supplied `.forge` file inventory
+  **Evidence boundary (initial visit; resolved by AM).** The controller
+  reproduction JSON named by the commission was absent, including from the
+  supplied `.forge` file inventory
   and tracked paths. Its supplied observations are attributed to the commission:
   absent PATH plus cwd `dsh` prints `SECURITY_CWD_SENTINEL_9f3`; explicit
   `/usr/bin:/bin`, or removal of that executable, produces not found. The
@@ -2864,6 +2864,56 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   Decision 0056 remains proposed. The specification response does not clear
   the security hold; the absent controller intake record remains an upstream
   evidence prerequisite rather than being concealed in implementation.
+
+
+- **AM — Security-hold specify re-entry, 2026-09-20: the controller record
+  resolves the upstream evidence prerequisite.** The inherited
+  `SPECIFY-UPSTREAM` result and commit `cbd7b84b` are adopted, not repeated.
+  The required `.forge/tasks/controller-s1-reproduction-2026-09-20.json`
+  now exists and was read in full before any amendment. Its SHA-256 is
+  `e855211fb616791a151b99132966e1320c8bbda0cba702487007060dd83efe6c`.
+  The record attributes the reproduction to the controller on `ab2d8e1d`:
+  absent PATH plus executable cwd `dsh` prints
+  `ok dsh: SECURITY_CWD_SENTINEL_9f3` before a Node/composite refusal;
+  explicit PATH `/usr/bin:/bin` with that executable present reports not
+  found, as does its removal with PATH still absent. These are controller
+  observations, not fresh executions by this seat. The retained chief and
+  security records supply the real native-child `NotFound` comparison.
+
+  **Answer and reason.** Recovery of the exact required record closes the
+  only prerequisite behind the previous `upstream` result. The earlier triage
+  and AL absence statements remain dated history; none describes the current
+  file inventory. No commission or earlier specification fault remains on
+  that point, so this specification response is `drafted`, carrying the
+  adopted identifier in `inputs.change`. The supplied context contains no
+  `returned_from` fact; this answer addresses its recorded last decision and
+  the predecessor's named security hold without inventing a phase return.
+
+  **Proof clarification.** S1's required regression failure is sentinel
+  execution itself. AS1 now states that the same real-doctor test with the
+  sentinel present fails specifically at the no-sentinel assertion on the
+  adopted pre-fix path, then passes both that assertion and the named
+  `PATH is absent` refusal assertion after the repair is restored. A failure
+  only at a new reason assertion would not demonstrate the execution defect.
+  Removing the fixture and using explicit PATH remain separate controls;
+  neither substitutes for the production regression proof. The controller
+  record supports this acceptance condition but does not discharge it.
+
+  **Reconciliation and scope.** All four third-sitting positions and the
+  chief's synthesis were reread. AL's ordered adoption of all seven findings,
+  rejection of gate-directed authority, distinction between failed selection
+  and failed home resolution, and four individually named runtime failures
+  remain unchanged. Inspection of the cited code still supports the findings.
+  The recorded runtime outcomes and unchanged roster dependencies still place
+  those four failures outside composite identity (a)–(c); they remain failures,
+  not passing runtime or coverage evidence. The other four capability deltas,
+  D6/D10 and numbered tasks retain their adopted contracts. Their dated
+  implementation claims do not close this hold. No new behavior contract,
+  capability, planner work or decision amendment follows from this evidence
+  correction; proposed 0056, all task ticks and all excluded paths retain
+  their bytes. All seven implementation repairs and removal proofs, exact
+  coverage and final-head validation remain pending. This phase commits only
+  the proposal and owning AS1 delta, in that order.
 
 
 ### F7 — Amend the standing append and dispatch requirement
@@ -4404,3 +4454,43 @@ removal proofs, executable local validation, external namespace coverage and
 final-head remote results remain pending. The security hold stays open.
 Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded,
 and decision 0056 stays proposed. No task tick or provider enablement is claimed.
+
+
+## Specify re-entry validation — controller S1 record recovered, 2026-09-20
+
+Run `dsh-composite-identity-issue-226-4437331e` adopts `cbd7b84b` and all of
+its predecessors. The required controller record was read before amendments;
+AM resolves the previous evidence-only upstream result. The dialect's own
+specify/return files and rendered proposal/specs instructions were read through
+workspace hands without invoking a workflow runner. The proposal was amended
+before AS1's existing sentinel scenario. All seven finding dispositions remain
+adopted, and the security hold remains open pending their Rust repairs and
+executable removal proofs.
+
+Strict all-item OpenSpec validation passes: **15 passed, 0 failed**. The five
+deltas retain **20 requirements / 187 scenarios**, with every requirement and
+scenario heading unchanged. The artifact audit and whitespace check pass:
+only proposal and AS1 change, and the other **736 tracked files** retain their
+entry SHA-256 values. All **119 task checkboxes (100 checked / 19 unchecked)**
+are unchanged, including unchecked 8.8. The controller evidence is unchanged.
+The inherited informational archive refusals remain outside this visit.
+
+Fresh format, all-target/all-feature locked clippy, seven crate-scoped test
+commands and self-bundle compilation cannot launch: **exit 127, Cargo absent**.
+The exact gate was attempted as `bash scripts/coverage-exact.sh`; it also exits
+**127 at line 33**, before instrumentation, because Cargo is absent. Fresh
+line, branch and function covered/total counts and percentages are
+**unmeasured**. The required result is still **100% / 100% / 100%**, with the
+full production denominator and literal nonzero integer equality. No inherited
+report or partial measurement is claimed as this result. AL's four named
+runtime failures remain precisely scoped outside this slice, not resolved or
+converted into a passing suite.
+
+Command logs, gate exits, coverage status and the artifact audit are under
+`.forge/specify-4437331e-reentry-196d3704/`; they are local evidence, not
+committed artifacts. The specification result is **drafted**, with the adopted
+change identifier in `inputs.change`. Only the proposal and AS1 delta form the
+commit. Rust repairs, seven removal proofs, executable validation, external
+namespace coverage and final-head remote results remain pending. Decision
+0056 stays proposed, and the excluded task groups and frozen paths retain
+their bytes. No provider enablement, workflow run or push occurred.
