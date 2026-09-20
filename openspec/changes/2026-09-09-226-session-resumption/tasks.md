@@ -1,22 +1,23 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
 Current commission: **DSH COMPOSITE IDENTITY — second security hold**, run
-`dsh-composite-identity-issue-226-069caa79`, phase **tasks**. Adopt every
-commit on `slice-dsh-composite-b` through `681ca39f`, including the
-predecessor's delivered work and proposal AN/AO, AS1 and design D6/D10/D11.
-Both controller reproductions were read first, followed by the single
-absent-PATH disposition and the current artifacts/code. No `returned_from`
-fact is supplied. The active change needs no archive reopen.
+`dsh-composite-identity-issue-226-069caa79`, phase **implement** (the tasks
+breakdown below was drafted at `681ca39f`; this visit adopts every commit
+through `3e18f2c9` and executes it). Both controller reproductions were
+read first, followed by the single absent-PATH disposition and the current
+artifacts/code. No `returned_from` fact is supplied. The active change
+needs no archive reopen.
 
 Only **8.8(a)–(c)** are commissioned. Execute pending clauses in the eight
 numbered groups below in order: findings **1/4**, then **2**, **3**, **5**,
 then full validation and the committed delivery account. Groups 4–7 retain
 completed first-hold repairs; they are preservation obligations, not new
 implementation work. All fourteen local clause addresses are retained.
-Seven previously ticked clauses reopen because the second hold strengthens
-their acceptance; the local state is now **5 complete / 9 pending**.
-**8.8 stays unchecked**. All 101 change-wide task identifiers and their
-**84 complete / 17 pending** states remain unchanged; no identifier is added.
+Seven previously ticked clauses reopened because the second hold strengthened
+their acceptance; after the implementation delivery recorded below the
+local state is **8 complete / 6 pending**. **8.8 stays unchecked**. All 101
+change-wide task identifiers and their **84 complete / 17 pending** states
+remain unchanged; no identifier is added.
 
 Every local checkbox names **safety / AS1 — Resume support is measured per
 adapter and execution shape**, in
@@ -69,7 +70,7 @@ No archive or provider enablement is justified by completing this partial slice.
 
 ## 8.8.1. Apply the native platform lookup rule — finding 1
 
-- [ ] 8.8.1.1 Repair `resolve_executable_in`, `selected_executable` and
+- [x] 8.8.1.1 Repair `resolve_executable_in`, `selected_executable` and
   their `DshSeams::{selected,selected_from,resolve}` callers in
   `crates/brokkr-protocol/src/adapters/composite.rs`. Preserve the outer
   fallible selection and independent home result. Reject NUL before
@@ -184,7 +185,7 @@ scenarios. Dependency: group 1's context and selection rules.
 
 ## 8.8.3. Preserve raw pnpm syntax and identity bytes — findings 2, then 3
 
-- [ ] 8.8.3.1 Repair the existing `pnpm_dependencies`, `pnpm_flow_map`
+- [x] 8.8.3.1 Repair the existing `pnpm_dependencies`, `pnpm_flow_map`
   and `pnpm_scalar` path in `composite.rs`, preserving plain/quoted
   provenance. First close finding 2: validate raw header, outer mapping and
   every inner field using D10's private ASCII structural-separation helper;
@@ -294,7 +295,7 @@ Adopted complete; frozen extension bytes are never a removal target.
 
 ## 8.8.8. Correct the failing seam premise, verify and record delivery — finding 5
 
-- [ ] 8.8.8.1 Fix
+- [x] 8.8.8.1 Fix
   `dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one` in
   `crates/brokkr-protocol/src/adapters/composite/tests.rs`. Replace the
   home-only success assertion and stale fallback comments with four
@@ -368,6 +369,168 @@ Coverage: AS1 **Executable selection and home availability are independent
 requirements**, **Digest acceptance is proved by removal without completing
 the planner**, and all scenarios named in groups 8.8.1–8.8.7. Dependency:
 findings 1/4, 2 and 3 restored before finding 5, then all final gates.
+
+### Implementation delivery — second security hold, 2026-09-20
+
+This implement seat executed the breakdown above on
+`slice-dsh-composite-b` (adopted through `3e18f2c9`), in D10's order. The
+account below separates what is delivered from what remains pending; it
+describes outcomes and directs no gate.
+
+**Finding 1 — the platform's lookup rule.** `resolve_executable_in` now
+applies `std::process::Command`'s rule and nothing else. A NUL-bearing or
+empty name refuses before any filesystem, home or search work. On Unix the
+only path predicate is a literal `/` (`is_explicit_path`); a backslash,
+drive spelling, extension or space is an ordinary filename byte and goes
+through native search. The search context is captured once (`Search`): a
+present `PATH` is split with its ordered empty entries; an absent `PATH`
+consults the C library's default search path through a local read-only
+`confstr(_CS_PATH)` binding (glibc and Apple libc report there what their
+`execvp` searches; musl's literal is used on musl), never a hardcoded
+host answer and never a subprocess. A no-match names which search failed
+(`'dsh' is not on the default search path /bin:/usr/bin (PATH is absent)`
+versus `'dsh' is not on PATH`). `selected_executable` consumes the
+established selection through the same predicate, checks the file is still
+a regular executable file and canonicalizes it once more; it performs no
+second search. A Windows implementation of Rust's `resolve_exe` (child
+`PATH` when the child environment changed, application directory, system
+and Windows directories, parent `PATH`; `.exe` suffix rules; batch
+dispatch refused; bounded PE admission) is written under `cfg(windows)`
+and is **unexecuted on Windows** in this seat — see pending.
+
+**Finding 4 — loading evidence, not metadata.** A new private module
+`crates/brokkr-protocol/src/adapters/composite/image.rs` reads loading
+declarations with every offset, count and range checked: ELF (class, byte
+order, version, type, machine, bounded program-header table, load-segment
+sizes, at most one well-formed NUL-terminated `PT_INTERP` read as the
+kernel reads the C string), Mach-O (64-bit thin and universal, CPU type,
+executable or `MH_DYLINKER`, bounded load commands, at most one
+`LC_LOAD_DYLINKER`) and PE (signature, machine, executable-not-DLL,
+optional-header magic and console/GUI subsystem). Every format parses on
+every target by its magic — a Mach-O on Linux is a parsed image refused for
+being another target's — so all three readers are live and unit-tested on
+Linux with synthetic images (`composite/image/tests.rs`). `classify_in`
+then establishes a candidate's prerequisite before admission: a `#!`
+interpreter is followed as a candidate in its own right (device/inode
+chain, loop and depth-4 refusals, the measured `env <program>` form
+selecting the program under the same search, option languages refused), a
+native image's loader must exist, be executable and parse as a loader of
+the same format, and a head that is neither a script nor a native image is
+refused by name. The refusal is D10's one named exception to native
+equality; nothing is emulated or trial-executed. The matrix run recorded
+one divergence between the first reader and the kernel — a NUL-padded
+`PT_INTERP` — and the reader was aligned to the kernel's rule.
+
+**Finding 2 — syntax before trimming.** One private helper,
+`pnpm_separated`, decides `key:`/`key: value` separation consuming only the
+grammar's ASCII space padding; the header, every top-level key, every
+package child (read or ignored) and every flow field use it. Plain `: `
+inside a flow scalar refuses as unsupported flow syntax in every field, the
+ignored `tarball` included. `lockfileVersion:9.0`,
+`resolution:{integrity: sha512-X}` and
+`resolution: {integrity: sha512-X, tarball: x: y}` each refuse through the
+sole producer by their own cause; the separated plain/quoted controls and a
+colon-without-space URL still read to the control's composite.
+
+**Finding 3 — identity bytes are never trimmed.** No `str::trim` remains on
+any path feeding a scalar or key; blank-line detection is ASCII-space only.
+U+00A0 (and U+2003) at either edge of a plain, single-quoted or
+double-quoted integrity reaches `'debug@2.6.9': integrity carries
+whitespace` through the sole producer, and a U+00A0 on a blank line, after
+a section, beside a key or inside a flow map is a refusal of its own.
+
+**Finding 5 — the failing premise.** The home-only premise is gone.
+`dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one` asserts the
+real selection against the real lookup, drives the four
+executable/home combinations through `selected_from`/`resolved`, and runs
+a real child with `HOME=/tmp`, `PATH=/usr/bin:/bin` and the three overrides
+unset, where native lookup decides: on this host the child's
+`Command::new("dsh")` is NotFound, selection refuses `'dsh' is not on
+PATH`, and resolution refuses the same with the home present.
+
+**Tests added or extended (all on the final bytes):**
+
+| Surface | Tests |
+|---|---|
+| `composite/tests.rs` | `native_executable_resolution_matches_command_matrix` (child-process; 8 names × 14 layouts = 112 cells: 60 equal selections, 14 NotFound parities, 8 terminal-error parities, 14 NUL refusals, 16 D10 loader exceptions recorded separately, plus the `sh` default-search positive with a cwd decoy); `a_native_images_loader_is_read_as_the_kernel_reads_it`; `the_default_search_path_is_the_c_librarys_own_answer`; `an_absent_path_is_a_named_refusal_and_never_the_working_directory` (rewritten: `sh` positive by `/proc` identity, `dsh`/`node` asked of the host, `node` identity by `process.execPath` when present); `executable_resolution_walks_path_entries_and_refuses_a_miss` (backslash name searched and found); `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable` (loader, env, chain, foreign-image arms); `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` (header/outer/child/top-level/tarball vectors and separated controls); `pnpm_integrity_preserves_unicode_whitespace_for_refusal`; `dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one`; `the_producer_refuses_a_bare_executable_spelling`. |
+| `composite/image/tests.rs` | Every ELF, Mach-O, universal and PE rule by name, the failing-device arms, and this test binary as the native positive. |
+| `brokkr-cli/tests/doctor_dsh_selection.rs` | `absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel` (default-search reason, marker directory); `unix_backslash_names_follow_native_lookup_before_doctor_probe`; `absent_path_default_search_matches_native_dsh_and_node`; `an_obstructed_path_search_takes_the_explicit_safe_refusal` (native missing-loader image and interpreter-with-missing-loader cells, patched `PT_INTERP` on a copy of the built binary, native child runs B, doctor probes nothing). |
+
+**Removal records** — each a compiling mutation applied alone, the named
+test run with `cargo test -p <crate> --all-features --locked <name>`
+(one test selected each time), the intended assertion failing, the exact
+inverse edit, and a green rerun:
+
+| # | Mutation (exact) | Named test and failing assertion | Restored rerun |
+|---|---|---|---|
+| R1 | `Search::capture` `None` arm: `entries: OsString::new()` (absent PATH as one empty entry) | `absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel` panicked at its first assertion, `doctor executed the cwd dsh under an absent PATH`, stdout `ok dsh: SECURITY_CWD_SENTINEL_9f3`; the matrix failed its `dsh`/absent-PATH cell (`expected a refusal`). | both `ok` |
+| R2 | Unix `is_explicit_path`: `command.contains('/') \|\| command.contains('\\')` | `unix_backslash_names_follow_native_lookup_before_doctor_probe` panicked `doctor executed the cwd C:\Tools\dsh.exe with PATH None`, stdout `ok dsh: SECURITY_BACKSLASH_CWD_SENTINEL_9f3`; the matrix: `the resolver selected a file where the child found nothing: name "C:\\Tools\\dsh.exe", layout "cwd-only, PATH elsewhere", native NotFound, resolver Ok(.../cwd/C:\Tools\dsh.exe)`. | all 8 doctor-selection tests and the matrix `ok` |
+| R3 | `resolve_executable_in`: `if path.is_none() && !is_explicit_path(command) { return Err("'{command}': PATH is absent") }` | `absent_path_default_search_matches_native_dsh_and_node` panicked `the default-search sh, selected and silent: warn dsh: binary 'sh' not found: ... 'sh': PATH is absent` while the native `sh` child had run; the matrix failed at `resolve_executable_in("sh", None).unwrap()`. | both `ok` |
+| R4 | `native_obstruction`: `if len > 0 { return Ok(()) }` before inspection (unconditional native-image admission) | `an_obstructed_path_search_takes_the_explicit_safe_refusal` panicked on the missing-loader cell with the generic `warn dsh: binary '/…/a/dsh' not found — seats …`; the matrix: `the resolver admitted the obstructed A: … layout "A:B, A's interpreter has a missing loader", native Ok("c13s1")` (B ran). | both `ok` |
+| R5 | `loading_obstruction`: interpreter recursion replaced by `Ok(())` (one-level metadata admission) | same two assertions as R4, on the interpreter-with-missing-loader cell. | both `ok` |
+| R6 | `classify_in`: ELOOP and unprovable metadata arms collapsed to `Candidate::Passed` | `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable` failed `expected a refusal` at the ELOOP assertion; doctor's obstruction test printed `ok dsh: DSH_B_SENTINEL_0.0.0-b` where the native child stopped with ELOOP; the matrix: `the resolver selected a file where the child stopped: … layout "A:B, A is a self-symlink (ELOOP)", native Err(FilesystemLoop), resolver Ok(…/b/dsh)`. | all three `ok` |
+| R7a | header `Err(_) => rest.trim()` | `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`: `"lockfileVersion:9.0\n…" was accepted` | `ok` |
+| R7b | package child `Err(_) => Separated::Inline(rest.trim())` | same test: `"… resolution:{integrity: sha512-X}\n" was accepted` | `ok` |
+| R7c | flow field check without `\|\| text.contains(": ")` | same test: `"{integrity: sha512-X, tarball: x: y}" was accepted` | `ok` |
+| R8 | flow field `pnpm_scalar(value.trim())` | `pnpm_integrity_preserves_unicode_whitespace_for_refusal`: `"{integrity: \u{a0}sha512-X}" was accepted` | `ok` |
+| R9 | test premise `assert_eq!(DshSeams::resolve().is_ok(), dsh_home().is_some())` restored in the seams child control | `dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one`: `the inherited premise: a home is a resolution — left: false, right: true` under `HOME=/tmp`, `PATH=/usr/bin:/bin` | `ok` |
+
+The production file was scanned for every mutation spelling after the
+last restoration (none present) and the final gates below ran on the
+restored bytes. The first hold's removal records remain dated history.
+
+**Gates on the final candidate (this seat, Linux x86_64, cargo 1.98.0,
+stable toolchain; coverage on the pinned `nightly-2026-09-05` with
+cargo-llvm-cov 0.9.0):**
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean, 0 warnings |
+| `cargo test -p <crate> --all-features --locked`, each of the seven crates separately | all green; `gpt_flash_shape`, roster and witness-digest suites pass (no inherited exemption claimed) |
+| `cargo test --workspace --all-features --locked` | green: 74 test-binary results, 0 failed, no hang |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | compiles |
+| `git diff --check`; frozen surfaces (`contracts/`, `policy/`, `fixtures/`, `reference/`, `extensions/dsh/`, `docs/decisions/`), `Cargo.toml`, `Cargo.lock` | clean; byte-identical |
+| `openspec validate --all --strict` | **not run**: the seat sandbox refuses the `openspec` binary (direct and via `npx`); pending host validation |
+| `bash scripts/coverage-exact.sh` | **the literal script could not be launched** (the seat sandbox refuses script files). The script's own steps were run by hand on the restored bytes with fresh instrumentation: `cargo +nightly-2026-09-05 llvm-cov clean --workspace`, then `cargo +nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch --json`, then `llvm-cov report --branch --lcov`, then the script's exact LCOV accounting (every DA and BRDA hit; source functions by file + start line) reproduced in a run-local tally. |
+
+Fresh coverage integers on the final bytes: **lines 31684 / 31684 (100%),
+branches 5338 / 5338 (100%), functions 3060 / 3060 (100%)**; no test-harness
+source in the report. Against the historical 31166 / 5214 / 3008 the
+denominators grew by 518 lines, 124 branches and 52 functions, all in the new
+`composite/image.rs` reader and the resolver's platform rule, search
+context, interpreter chain and loader evidence in `composite.rs`. An earlier
+measurement on the same production bytes found 14 lines, 5 branches and 2
+functions of `native_obstruction`'s loader arms unreached; the loader-arm
+unit test closed them and the run above is the fresh measurement after it.
+The literal script run on a capable host or CI remains the gate of record
+and is recorded as **pending**.
+
+**Pending, recorded and not claimed:**
+
+- Native Windows execution of the matrix and the Windows lookup, and the
+  Windows OS binary-type query D10 names beside the PE header check.
+- Native macOS execution: the Mach-O reader and its `dyld` prerequisite are
+  proved on synthetic images only; the two missing-loader doctor cells and
+  the two matrix loader layouts print `PENDING` on non-Linux Unix.
+- The absent-PATH native-positive for **Node**: this host keeps `node`
+  under `~/.volta/bin`, not on the default search path, so the Node cell
+  asserted the named refusal (`selects no 'node': … 'node' is not on the
+  default search path … (PATH is absent)`) and printed `PENDING`; the
+  `sh` positive is established by `/proc` identity.
+- The Node selection preflighted for a `#!/usr/bin/env node` candidate is
+  not retained into the later composite observation; the composite selects
+  `node` again by the same rule under the same environment (same-host
+  concurrent mutation remains an observation limit).
+- `openspec validate --all --strict`, the literal coverage script and
+  remote CI on the final head: host/CI evidence.
+
+Clauses 8.8.1.1, 8.8.3.1 and 8.8.8.1 are ticked. 8.8.1.2, 8.8.2.1 and
+8.8.2.2 stay open only for the pending native-platform and Node positives
+above; 8.8.8.2 stays open because `openspec validate` could not run here;
+8.8.8.3 stays open until the literal script result exists; 8.8.8.4 stays
+open with them. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15
+were not touched; 8.8 stays unchecked; 0056 stays proposed; no push.
 
 ### Tasks-phase validation — second security hold, 2026-09-20
 
