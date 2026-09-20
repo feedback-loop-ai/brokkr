@@ -1,5 +1,27 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit adopts `2026-09-09-226-session-resumption` and every
+commit on `slice-dsh-composite-b` through
+`314ed02b06a13b80b3c26ab91c59deff1bc6a999`, for run
+`dsh-composite-identity-issue-226-5e82d607`. Answer AR under **Decisions**
+answers the fourth security hold and reconciles the controller's cwd rule
+with absent-PATH native equality. No `returned_from` was supplied; the
+commission identifies chief run `efb3360b` and R1 as the return evidence.
+
+Adopt the sound work; amend its acceptance before further implementation.
+The literal platform walk preserves candidate bytes and order, then refuses
+at a search-derived cwd candidate without selecting it or advancing beyond
+it. The proposal precedes the owning AS1 delta. AR explicitly supersedes
+conflicting current design/task expectations and names their next amendments;
+their dated executions remain history. This phase's declared tracked artifacts
+are proposal and capability deltas, not Rust, design or task authoring.
+
+Only 8.8(a)–(c) is commissioned. This is a specification checkpoint, not a
+production repair or security-hold clearance. 8.8 stays unchecked, 0056 stays
+proposed and the frozen/extension/decision surfaces stay byte-identical.
+
+Earlier analyze-A1 specify return, retained as dated history:
+
 This specify return adopts `2026-09-09-226-session-resumption` and every
 commit through `b30c69ff54e08aa63e36f8678b3255443ba23f57` on
 `slice-dsh-composite-b`, for run `dsh-composite-identity-issue-226-efb3360b`.
@@ -329,13 +351,11 @@ ownership, provider enforcement and v5/store semantics as engine work.
 
 ## Why
 
-Three security holds exposed one defect class: executable admission guessed
-at native lookup instead of proving its boundaries. At the adopted head,
-blanket ENAMETOOLONG continuation authorizes B/dsh where the native command
-stops; AS1 now makes every native-oracle cell, precise refusal and retained
-identity an explicit acceptance obligation for 8.8(a)–(c). AP also carries the
-remaining interpreter, parser, platform and evidence findings without
-re-authoring the measured rc.2 identity or expanding into planner work.
+Four security holds exposed a recurring mismatch between a model of PATH
+components and the platform's actual candidate sequence. At adopted
+`314ed02b`, an oversized glibc component can make native lookup try cwd while
+the resolver authorizes B; AR and AS1 require the literal platform walk plus
+the reconciled cwd refusal, with actual per-cell oracles proving the boundary.
 
 Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
@@ -352,28 +372,32 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
 
 ## What Changes
 
-- Answer analyze A1 by keeping AS1's evidence requirements independent of
-  this commission's command spelling and delivery checklist. AP and the
-  existing task breakdown retain those particulars under PM4 and answer C;
-  the fresh exact gate, native oracle and removal obligations are unchanged.
-- For the **third security hold**, separate the native pre-execution buffer
-  skip from terminal ENAMETOOLONG. Keep glibc's exact continuation set and
-  source citations; qualify Apple and other targets independently. Require
-  the actual Rust native command in every differential cell, including each
-  of 255, 256, 300, 4095, 4096 and 5000 component bytes and an overlong name.
-- Prove interpreter identity under symlink and same-inode hard-link aliases;
-  admit ignored pnpm values and bodies as syntax; preserve the inspected
-  launcher head; compare the actual retained Node identity with the native
-  child. Preserve all previous sentinel, separator/NBSP and home controls.
-- Retain Apple's default-path correction without generalizing it to FreeBSD.
-  Separate source/table evidence, native platform execution, compiling removal
-  proofs and fresh literal coverage. All seven crate suites, workspace tests,
-  bundle compilation and exact coverage remain delivery obligations; missing
-  executions stay pending and historical numbers do not certify this candidate.
+- Answer **fourth-hold R1** by preserving the platform's candidate byte
+  sequence, including glibc's implicit empty iteration after an oversized
+  skip. Port glibc 2.42's loop literally and qualify Apple's own walk by
+  operation; no `split_paths` walk or path-joining normalization substitutes.
+- Apply **never cwd, otherwise native**: equality is necessary but does not
+  authorize a search-derived cwd candidate. Refuse there by the named cwd
+  reason, or by the terminal cause native would encounter there. Absent PATH
+  keeps native default-search equality; direct paths and D10 loader refusals
+  keep their established meaning.
+- Expand both named matrix/doctor regressions with competing, looping and
+  missing cwd candidates at each 4095/4096/5000 boundary, explicit empty-entry
+  layouts, both Command forms, exact identities/causes, no forbidden doctor
+  markers and same-fixture component-removal equality.
+- Reconcile the full chief review's remaining byte-boundary, exhaustion,
+  Apple-operation, env-alias and ignored-pnpm-structure findings in AR/AS1.
+  Preserve retained launcher-head/Node observations, the sole producer and
+  the measured rc.2 identity. Require fresh independent removal proofs.
+- Preserve AQ's ownership correction: concrete delivery commands stay in
+  planning, while AS1 owns behavior and evidence semantics. All candidate
+  gates, the unchanged fresh exact-coverage script and native positives remain
+  owed; historical reports and passing skips confer no completion.
 
-The following bullets retain earlier commissions and completed work. AQ
-reconciles validation ownership; AP and AS1 retain the third-hold acceptance,
-and earlier AN/AO remain adopted where compatible with AP.
+The following bullets retain earlier commissions and completed work. AR is
+the current reconciliation of AP/AQ, AN/AO and AS1; incompatible historical
+absent-PATH refusals, cwd admissions and 4096/5000-to-B expectations are not
+current acceptance authority.
 
 - For the 2026-09-20 security-hold repair, adopt the existing loader,
   producer, measured fixture and doctor seam, then address the seven findings
@@ -3157,7 +3181,8 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   entry is invented. Unix slash-only classification, Windows' own rule,
   explicit paths without PATH, override precedence and up-front NUL rejection
   remain. Present-empty PATH and leading/interior/trailing empty entries keep
-  their native cwd meaning, with competing sentinel identities proving order.
+  their native cwd meaning, with competing sentinel identities proving order;
+  AR now requires refusal at that iteration rather than cwd admission.
   Only test children execute lookup oracles; production gains no trial
   execution, shell lookup helper, resolver subprocess or loader emulator.
 
@@ -3225,8 +3250,9 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   silently replaced by a later candidate. Ordinary provable native successes
   select that exact file; native errors refuse by cause before probing. D10's
   concrete unprovable interpreter/loader refusal remains the sole exception
-  to ordinary positive equality, reported separately from the native outcome.
-  An exception supplies no authority to probe or substitute another candidate.
+  to ordinary positive equality in that third-hold account. AR additionally
+  requires refusal at search-derived cwd; both dispositions are reported
+  separately from the native outcome and authorize no later substitution.
 
   **Finding answers, accepted or refuted on evidence:**
 
@@ -3349,6 +3375,126 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   committed; no task checkbox, frozen byte, extension or decision changes.
   Decision 0056 stays proposed and 8.8 stays unchecked. Parts (d), 8.10,
   9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain outside this slice.
+
+
+- **AR — Fourth security hold, 2026-09-20: port the loop; never cwd, otherwise native.**
+  Adopt every commit through `314ed02b`, including the earlier specification,
+  design, task and implementation repairs. Read the commissioned
+  `.forge/tasks/controller-glibc-cwd-iteration-2026-09-20.json`, the absent-PATH
+  disposition, fourth-hold intake, and the complete chief and all four review
+  positions at `.forge/results/bfe86ad7-ddaa-4964-83e9-173d8cd39072-*.json`.
+  The chief's R1 is authored by SEC-1, A2, C2 and F1. Its full R1–R11 record
+  is reconciled below so still-open in-scope duties are not silently lost.
+  Attributed reproductions remain attributed; this seat did not execute them.
+
+  **Reconciled rule, verbatim for AS1 and implementation comments:**
+  equality with native is necessary — nothing is selected that native would not execute — and not sufficient: a candidate in the working directory (an empty PATH entry, or the implicit cwd iteration glibc produces after an oversized skip) is NEVER selected and NEVER skipped past.
+
+  At the next search-derived cwd candidate, refuse with
+  `the platform's search would fall into the working directory`. If native
+  would stop at that candidate, preserve that cause, including glibc ELOOP/40
+  for a cwd self-symlink. A missing cwd executable still cannot authorize
+  continuation to B. An earlier successful non-cwd candidate ends the search;
+  an earlier terminal error wins before cwd is reached. Explicit paths remain
+  deliberate direct-path controls, not PATH fallback. D10's unprovable-loader
+  refusal remains, without production trial execution.
+
+  **Authority and reasoned refusals.** The controller explicitly reconciles
+  two existing rules, not a new operator policy. Absent PATH searches native
+  system defaults and invents no cwd iteration; retain its positives, including
+  actual retained Node. Reject restoring unconditional absent-PATH refusal.
+  Reject both selecting native cwd and skipping it for B: the former violates
+  the cwd prohibition and the latter substitutes a different execution.
+  Reject treating missing cwd as permission to advance. Reject preserving AP's
+  unconditional 4096/5000-to-B expectations: the latest competing/looping
+  fixtures refute them. Also reject blanket refusal of long PATH values,
+  scalar length patches, path normalization and a components-plus-classifier
+  rewrite; ordinary native positives remain required before any forbidden
+  iteration. The current proposal and delta own this correction. No earlier
+  immutable artifact or decision amendment is needed, so `drafted` is the
+  specification result; this does not declare the implementation fixed.
+
+  **Implementation constraint and source boundary.** Port the glibc 2.42
+  PATH-byte loop, preserving `p`/`subp`, all empty components, the oversized
+  check, each `continue`, and the later colon increment. No `split_paths`
+  walk is allowed. Candidate construction preserves every source byte,
+  including the additional slash for a nonempty component ending in slash.
+  Rust comments must cite the exact source revision and line numbers at the
+  corresponding logic. Inspected [glibc 2.42 execvpe.c](https://github.com/bminor/glibc/blob/glibc-2.42/posix/execvpe.c):
+  lines 86–106 cover defaults/bounds; 107–119 the walk and early skip;
+  121–126 candidate construction; 134–158 errno handling; 160–168 the colon
+  increment and exhaustion. The early continue bypasses the increment, which
+  explains the implicit cwd iteration. This is a control-flow port in Rust,
+  not permission to execute candidates, add a loader emulator or second producer.
+
+  macOS gets its own literal [Apple exec.c walk](https://github.com/apple-oss-distributions/Libc/blob/main/gen/FreeBSD/exec.c#L178),
+  lines 178–218, qualified by invocation. Its advance precedes the oversize
+  continue. Compare [posix_spawnp](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c#L97)
+  lines 97–133 and 170–195: construction/error rules differ. [Apple env](https://github.com/apple-oss-distributions/shell_cmds/blob/main/env/env.c#L215)
+  calls execvp for nested Node lookup. Record the revision actually ported,
+  distinguish outer Command forms from nested env, and prove them on native
+  macOS; source inspection cannot supply that execution. Preserve Apple's
+  `/usr/bin:/bin` default and the other targets' own established defaults.
+
+  **Explicit reconciliation of the returned evidence:**
+
+  | Chief / position claims | Disposition and acceptance |
+  |---|---|
+  | R1 HIGH; SEC-1/A2/C2/F1 | Adopt the shared finding and controller reconciliation. The loop port must expose the implicit cwd candidate. Each 4095/4096/5000 length is crossed with competing executable, self-symlink and absent cwd candidates in both Command forms. Assert ENAMETOOLONG/36 at 4095; at 4096/5000 assert native cwd identity, ELOOP/40 or native B respectively, and resolver cwd refusal or the terminal cause. Doctor leaves no execution marker in every refused cell. |
+  | R2 HIGH; SEC-2/A1/C1 | Adopt. `PathBuf::join` loses the extra native separator; byte-exact construction is part of the same port. Add present/absent A/dsh at the padded-directory full-candidate boundary and a same-fixture one-slash removal control in both named regressions. Reject normalizing candidate bytes before inspection. |
+  | R3; SEC-3/A3/C7/F2 | Adopt the structural gap. Per-line admission cannot admit nesting below a scalar or mixed mapping/sequence siblings. Preserve indentation/container context within the existing closed grammar; valid nested controls stay readable. Extend producer and built-doctor regressions with named body/cause and an independent structure-guard removal. [YAML block grammar](https://yaml.org/spec/1.2.2/#82-block-collection-styles) supports the distinction; no full YAML parser is commissioned. |
+  | R4; C3 | Adopt native long-name causes over the invented universal NAME_MAX refusal. Independently invoke missing-directory, regular-file-component and existing-directory controls, preserving ENOENT, ENOTDIR or ENAMETOOLONG as actually returned. A successful port cannot copy the previous prose interpretation instead of the source's bounded operations. |
+  | R5; C4 | Adopt. Preserve final non-denial cause/candidate at exhaustion and remembered EACCES precedence, with terminal errors winning. Missing-then-file and file-then-missing controls must distinguish ENOTDIR/20 from ENOENT/2 on the measured glibc target. |
+  | R6; C5/F4 | Adopt as source-derived Apple debt, not a native result. Qualify exec/spawn/nested-env walk, construction and operation-specific errno handling, including the successful-stat condition for remembered denial. Native length and inaccessible-parent controls are pending. |
+  | R7; A4/C6/F5 | Adopt. Counting/logging an oracle is insufficient; both Command forms in every cell need identity or exact cause comparisons and no-probe assertions. Reject Linux-only error prose on Apple and assumed equality between its invocation forms. |
+  | R8; C8/F3 | Adopt file recognition, reject blanket non-env-basename refusal as completion. Establish supported file/invocation semantics, prove the successful hard-link alias with specific A-obstruction refusal and removed-A positive; unknown invocation keeps a named refusal. No production trial execution. |
+  | R9; C9/F6 and A4 evidence | Adopt the unmet F9 gate. Chief's fresh literal script exited 101 before reports; counts are unavailable. Retained 31893/32069 lines, 5382/5396 branches, 3098/3108 functions and hand-transcribed perfect counts are historical, not this candidate's pass. Require the unchanged script on a clean capable host and all three fresh nonzero equal integer pairs. |
+  | R10; C10/F7 and A4 evidence | Adopt the pending native macOS/Windows/MSRV and absent-PATH retained-Node positive/removals. A PENDING branch or missing Node proves no positive. Preserve the readable-composite and independent wrong-retention/unconditional-refusal removals. Final-head remote CI remains a separate pending handoff. |
+  | R11; C11/F8 | Adopt the missing independent removals: remembered EACCES, quote/indicator/type, header/outer/inner separation, ignored colon-space, Unicode preservation and home-only premise. Prior scalar records and unrelated failing mutations are not fresh proof. |
+  | Prior launcher-head obligation | Preserve the adopted repair and both rewriting regressions. Reopening the first line after the probe is still forbidden; retaining Node alone cannot replace that observation. |
+
+  **Named proofs and exact cells.** Extend
+  `native_executable_resolution_matches_command_matrix` and
+  `terminal_path_lengths_refuse_before_doctor_probe`, preserving their existing
+  controls and eight-name inventory. Add the nine length/cwd cells above and
+  separate `A::B`, trailing-colon, leading-colon and empty-PATH cells, with
+  competing/looping/missing cwd variants and earlier successful-A controls.
+  Each cell has inherited and explicit child-environment Command oracles and
+  an asserted result, with distinct native and doctor markers. Check forbidden
+  doctor markers before report text, including cwd, later B and Node markers.
+  Remove only the oversized component and its delimiter, keeping cwd and all
+  other fixture bytes unchanged: a fresh oracle and doctor must select the
+  same B. This fixture control is separate from compiling implementation
+  removals. Independently restore direct advance to B, remove cwd refusal,
+  normalize the extra slash, and weaken terminal ELOOP/ENAMETOOLONG handling;
+  name the failing identity/cause/marker assertion, restore exact bytes and
+  rerun green. A compiler/setup failure or zero executed tests proves nothing.
+
+  **Dependency reconciliation in declared phase order.** AR/AS1 supersede the
+  following incompatible current claims now; the owning phases must amend
+  them before implementation. No historical execution or checkbox is rewritten
+  by this specification checkpoint, and none certifies the revised obligations.
+
+  | Owning artifact | Required dependent amendment |
+  |---|---|
+  | Design Context, D6/D10 lookup and D11 proofs | Replace sole-loader-exception and component-classification accounts with native byte-walk plus cwd refusal. Carry separator bytes, per-operation Apple handling, cause-preserving exhaustion, ignored-body structure and supported env aliases. Preserve retained head/Node, one producer and proposed 0056. |
+  | Tasks 8.8.1.1–1.2 / 8.8.2.1–2.2 and matrix inventory | Replace unconditional 4096/5000-to-B expectations and explicit-empty admissions with the length/cwd cross-product and no-skip rule. Preserve existing addresses, both forms, component/slash controls and independent removals. |
+  | Tasks 8.8.3.1 / 8.8.8.1 | Carry structural ignored-body refusals, supported env invocation and remaining scalar, head, home and retained-Node positive/removal proofs. Old ticks do not establish changed acceptance. |
+  | Tasks 8.8.8.2–8.8.8.4 and delivery account | Record only actual candidate executions, revision/target/libc/compiler, errors and three coverage counts. Keep native positives and final-head remote results pending until measured. The hand-sequenced report never discharges the literal gate. |
+
+  **Delivery obligations, owned here and in planning, not standing commands
+  in AS1.** Run `cargo fmt --all -- --check`, locked all-target/all-feature
+  workspace clippy with `-D warnings`, all seven crate-scoped
+  `cargo test -p <crate> --all-features --locked` suites, house-rule
+  `cargo test --workspace` and the locked all-feature workspace suite,
+  self/verify bundle compilation and `openspec validate --all --strict`.
+  Run unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` itself with its
+  pinned compiler and unique clean instrumentation build; report its actual
+  line, branch and function covered/total integers. Namespace or tool failure
+  leaves it pending until a capable-host/CI run exists; no replacement script,
+  lower gate, new exclusion or historical report is acceptable. Notes describe
+  evidence and never direct a gate. No excluded task, frozen surface, proposed
+  decision, provider enablement, release, archive or push is authorized.
 
 
 ### F7 — Amend the standing append and dispatch requirement
@@ -5232,3 +5378,49 @@ hold remains open. Result: `drafted`, with
 `inputs.change: 2026-09-09-226-session-resumption`. Parts (d), 8.10, 9.6,
 10.6–10.8, 11.1–11.4 and groups 14–15 remain outside this slice; no task
 completion, provider enablement, push or release is claimed.
+
+## Specify validation — fourth security hold, 2026-09-20
+
+Adopted the complete branch through `314ed02b06a13b80b3c26ab91c59deff1bc6a999`.
+Read the repository dialect's specify/return files and rendered proposal/specs
+instructions through workspace hands; no workflow runner was invoked. Read
+both commissioned controller records and the full chief plus all four review
+positions. AR records the reasoned reconciliation and downstream ownership;
+AS1 follows it with the exact cwd rule, native bytes/order, per-form oracle
+outcomes, cause-bearing refusals and independent removal acceptance.
+
+- Strict active-change validation and `openspec validate --all --strict`
+  passed: **15 passed, 0 failed**. Inherited informational archive-readiness
+  notices for absent living safety/progress targets remain whole-change archive
+  debt; no archive, operation-kind change or archive-readiness claim is made.
+- The artifact audit and `git diff --check` passed. All **20 requirements**
+  and **207 inherited scenarios** remain; **12 new AS1 scenarios** bring the
+  total to **219**. AS2 onward, the other four deltas, design and tasks retain
+  their entry bytes. All **133 checkbox lines**, including dated task accounts,
+  are unchanged; 8.8 stays unchecked. Only proposal and AS1 changed, with the
+  other **741 tracked files** byte-identical to entry. Protected paths and
+  decision 0056's proposed status are unchanged.
+- Fresh attempts at formatting, locked all-target/all-feature clippy with
+  `-D warnings`, all seven crate-scoped all-feature locked suites, both the
+  house-rule workspace test and locked all-feature workspace suite, and
+  self/verify bundle compilation exited **127**, `cargo: command not found`.
+  These attempts did not execute Rust checks and establish no green gate.
+- The unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` itself was
+  attempted and exited **127 at line 33**, before fresh instrumentation or
+  reports, because Cargo is unavailable. This visit's actual counts are
+  **lines: unavailable; branches: unavailable; functions: unavailable**
+  (null counts, N/A percentages). The gate remains unmet. No historical or
+  hand-sequenced result is substituted. CI, release admission and the script
+  still consume `rust-nightly-version.txt`; no pin, exclusion or denominator
+  was changed.
+
+Attempt logs, structural audit and entry hashes are run-local under
+`.forge/specify-fourth-hold-747f0d2e/`, outside the committed artifact set.
+Delivered: proposal/AS1 amendments answering the fourth-hold R1 and explicitly
+reconciling all eleven chief findings within 8.8(a)–(c). Pending: the named
+owning design/task amendments, literal Rust ports and residual repairs,
+actual native-oracle/removal proofs, retained-Node positive, native platform
+and MSRV evidence, green Rust gates, fresh capable-host exact coverage and
+final-head remote CI. The security hold remains open; this phase's result is
+`drafted` with `inputs.change: 2026-09-09-226-session-resumption`.
+Parts (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded.

@@ -117,10 +117,10 @@ unreadable identity SHALL decline any offer as `unverified-harness`, run the
 shipped cold invocation unchanged and record no offerable root.
 
 Executable resolution SHALL follow the running platform's native program lookup
-rule for the same program name, cwd and child environment, subject only to
-D10's named pre-probe refusal for an unprovable interpreter/loader outcome
-below. Absent PATH is not a policy exception. On Unix a program
-is a path if and only if its spelling contains `/`; backslash is an ordinary
+rule for the same program name, cwd and child environment, subject to the
+working-directory refusal and D10's named pre-probe refusal for an unprovable
+interpreter/loader outcome below. Absent PATH is not a policy exception. On
+Unix a program is a path if and only if its spelling contains `/`; backslash is an ordinary
 filename byte. A drive-like spelling, extension or space SHALL NOT make a
 bare Unix name a direct path. Windows SHALL use Windows' native rule, including
 its native path and executable-name treatment, with no inferred Unix behavior.
@@ -131,40 +131,74 @@ before lookup or any probe. This discipline SHALL apply to both DSH and Node,
 including explicit overrides and the already-selected executable passed to the
 composite producer.
 
+The following reconciled rule SHALL govern search-derived cwd candidates:
+equality with native is necessary — nothing is selected that native would not execute — and not sufficient: a candidate in the working directory (an empty PATH entry, or the implicit cwd iteration glibc produces after an oversized skip) is NEVER selected and NEVER skipped past.
+
+When the next native search candidate is cwd, resolution SHALL refuse with
+`the platform's search would fall into the working directory`. Where native
+would stop at that candidate, resolution SHALL instead preserve that terminal
+cause, including glibc ELOOP for a cwd self-symlink. The absence of a runnable
+cwd candidate SHALL NOT permit advancing to a later entry; native continuation
+to B in that case does not waive this refusal. No DSH or Node version probe
+SHALL run after selection refuses. An earlier successful non-cwd candidate or
+terminal failure SHALL retain its outcome without reaching a later cwd entry.
+Explicit paths SHALL retain their separate native direct-path meaning; this
+refusal governs the search's cwd iteration, not deliberate direct-path controls.
+
 Bare-name Unix lookup SHALL distinguish absent PATH from a present PATH with
 an empty entry. Absent PATH SHALL follow the running platform's native default
 search semantics, including success when that search finds the name; absence
 alone SHALL NOT imply NotFound, require refusal or insert cwd into the search.
 A universal guessed default directory list SHALL NOT replace the platform's
 rule. Explicit empty entries SHALL retain their native cwd meaning at their
-position in the search, and present-empty PATH SHALL NOT inherit the absent
-PATH default. This rule applies equally to arbitrary primary/legacy DSH binary
-overrides and the Node lookup. A successful selection SHALL identify exactly
+position in the search and SHALL trigger the cwd refusal when reached.
+Present-empty PATH SHALL NOT inherit the absent PATH default. This rule applies
+equally to arbitrary primary/legacy DSH binary overrides and the Node lookup. A successful selection SHALL identify exactly
 the executable native `std::process::Command::new(name)` runs under the same
 conditions; native NotFound SHALL refuse without a probe target. A no-match
 refusal with PATH absent SHALL name the unsuccessful native default search;
 `PATH is absent` alone SHALL NOT establish failure. Ordinary provable positive
-cases SHALL NOT be silently refused or substituted, including default-search
-successes. The comparison SHALL use real native children with distinct
-harmless identities, not metadata, permissions, a manifest version or injected
+cases that reach no forbidden cwd iteration SHALL NOT be silently refused
+or substituted, including default-search successes. The comparison SHALL use
+real native children with distinct harmless identities, not metadata, permissions, a manifest version or injected
 success as a lookup oracle. An absent-PATH matrix containing only names absent
 from the platform default search SHALL NOT establish equality.
+
+The ordered candidate byte strings SHALL match those the running platform
+would try up to successful selection or named refusal. No normalization of
+separators, skipped delimiter revisits or component-only reconstruction SHALL
+change that sequence. In particular a nonempty PATH component already ending
+in `/` SHALL retain the additional separator native candidate construction
+appends, including at full-path length boundaries.
 
 For glibc lookup, a pre-execution component skip SHALL occur only when the
 native buffer-size check would skip that component, using the actual directory,
 separator and program byte lengths and the native construction bounds. It
-SHALL NOT be inferred from a metadata ENAMETOOLONG. After attempted execution,
-the native continuation set SHALL be exactly EACCES, ENOENT, ESTALE, ENOTDIR,
+SHALL NOT be inferred from a metadata ENAMETOOLONG. The implicit empty
+iteration after an oversized non-final component SHALL remain the next
+candidate and SHALL take the cwd refusal; skipping the component SHALL NOT
+mean advancing directly to the following nonempty directory. After attempted
+execution, the native continuation set SHALL be exactly EACCES, ENOENT, ESTALE, ENOTDIR,
 ENODEV and ETIMEDOUT; EACCES SHALL be remembered and reported if search ends
-without success. Every other returned errno SHALL be terminal, including
+without success. Without a remembered denial, exhaustion SHALL retain the
+platform's final cause and responsible candidate rather than relabel every
+non-denial failure as NotFound. A terminal cause SHALL take precedence over
+an earlier denial. Every other returned errno SHALL be terminal, including
 ENAMETOOLONG, ELOOP, EIO and EINVAL. Source revision and line citations SHALL
 support each implemented rule; adding an errno because it appears harmless
-SHALL NOT be permitted. Proposal AP records the inspected glibc source.
+SHALL NOT be permitted. Proposal AR records the current source boundary
+and literal-port constraint, superseding AP's incomplete candidate account.
 This is a lookup contract, not permission to execute candidates in production.
 
 Apple SHALL retain its own execution-error continuation and length handling,
-including ELOOP continuation, with the actual native Command invocation deciding
-which lookup path applies. Its absent-PATH default SHALL be `/usr/bin:/bin`,
+including ELOOP continuation, with the actual native Command invocation and
+nested interpreter operation deciding which lookup path applies. Outer
+spawn-based lookup SHALL NOT replace the exec-based walk used by env's nested
+Node search. Error accumulation SHALL respect the operation's prerequisites,
+including a successful stat where native requires it before remembering EACCES.
+At a cwd iteration that native would continue past, the cwd refusal still
+applies; a nonterminal Apple ELOOP SHALL NOT be called terminal by analogy to
+glibc. Its absent-PATH default SHALL be `/usr/bin:/bin`,
 not the wider `confstr(_CS_PATH)` value. This default SHALL NOT be applied to
 all BSD or non-Linux targets: FreeBSD's ordinary native default is
 `/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin`, in that order.
@@ -174,12 +208,19 @@ six-boundary expectations below SHALL NOT be asserted as universal Unix rules.
 
 Every differential cell and its removal-of-component control SHALL actually
 invoke native `std::process::Command` with a harmless sentinel under the same
-cwd and child environment as resolution. No cell SHALL pass or count as proved
-without that oracle, including direct paths, NUL, long names and D10 exceptions.
-Native success SHALL identify the exact selected canonical file; native errors
-SHALL retain their specific cause. Resolver and doctor execution markers SHALL
-be separate from oracle markers. Unavailable fixtures/native hosts SHALL be
-recorded as pending evidence and SHALL NOT count as passing cells.
+cwd and child environment as resolution, in both inherited-environment and
+explicit-child-environment invocation forms. Each form SHALL assert exact
+identity or specific native cause together with the applicable refusal; a
+logged result or oracle invocation count alone SHALL NOT establish comparison.
+The two forms SHALL NOT be assumed equivalent on a platform without evidence.
+No cell SHALL pass or count as proved without that oracle, including direct paths, NUL, long names and D10 exceptions.
+Native-success evidence SHALL identify the exact executed canonical file;
+native-error evidence SHALL retain its specific cause. Resolver and doctor execution markers SHALL
+be separate from oracle markers. Every refused cell SHALL first assert no
+doctor execution markers from cwd, a later candidate or Node, so a later
+composite refusal cannot conceal a probe. Missing-cwd continuation and runnable
+cwd success SHALL be recorded as policy refusals, not native equality passes.
+Unavailable fixtures/native hosts SHALL be recorded as pending evidence and SHALL NOT count as passing cells.
 
 Where the native outcome cannot be established without executing a candidate,
 resolution SHALL take D10's pre-probe refusal with the obstructing candidate
@@ -291,7 +332,11 @@ peerDependencies or snapshots SHALL refuse with pnpm, field/context and cause
 named. Empty flow collections and a legal trailing comma remain admitted
 controls; leading or doubled separators and completely empty flow members
 SHALL NOT be removed to manufacture valid input. Unsupported ignored-body
-syntax SHALL refuse explicitly rather than being skipped. This requirement
+syntax SHALL refuse explicitly rather than being skipped. Ignored block
+admission SHALL preserve indentation, parent value type and collection kind:
+a scalar SHALL NOT acquire nested children, and mapping and sequence members
+SHALL NOT be mixed at the same collection level. Valid nested blocks within
+the admitted subset SHALL remain readable. This requirement
 SHALL NOT widen the bounded closed grammar or normalize identity bytes.
 
 Only grammar-admitted structural ASCII separation outside scalar data may be
@@ -749,10 +794,11 @@ read as history, not as a current claim.
 #### Scenario: Program lookup is proved against the platform by a complete differential matrix
 - **GIVEN** isolated layouts with distinct harmless sentinel identities for every candidate, and the following program-name and layout axes
 - **WHEN** every name is crossed with every layout and a real native `Command::new(name)` child is compared with resolution under identical cwd and environment
-- **THEN** each ordinary native-success cell, including absent-PATH cells, identifies exactly the file native lookup ran, and every native-NotFound cell refuses without a probe target; success booleans or matching generic version strings cannot prove selected identity
+- **THEN** each ordinary native-success cell that reaches no forbidden cwd iteration, including absent-PATH cells, identifies exactly the file native lookup ran; native failures outside the separately asserted cwd/D10 refusals preserve their specific cause without a probe target; success booleans or matching generic version strings cannot prove selected identity
 - **AND** unprovable obstruction cells record the actual native result separately and assert the named D10 refusal with zero resolver/doctor probes; this loader exception is not native NotFound or an equality pass, and PATH absence alone cannot invoke it
 - **AND** a NUL-bearing name is refused with NUL named before any filesystem lookup or probe, and the native control returns invalid input without executing a sentinel
 - **AND** every cell invokes its own native Command oracle, including direct-path, NUL, overlong-name and removed-component controls; a missing oracle or unavailable prerequisite leaves evidence pending and cannot be counted as a pass
+- **AND** each inherited and explicit child-environment form asserts its own identity or raw errno/cause and applicable refusal, never only logs an outcome; at the next cwd candidate resolution refuses by the named cwd reason or the native terminal cause, even when cwd is missing and native continues to B
 - **AND** other terminal native errors retain a cause-bearing refusal and never authorize a later candidate
 - **AND** the same table executes on Windows with native executable sentinels and native fixture paths; names or layouts the platform cannot admit retain their observed native refusal rather than being relabelled, omitted or claimed from Unix evidence
 - **AND** the absent-PATH cells include the native default-search positive scenario below for DSH overrides and Node, alongside cwd-only sentinel negatives; an all-negative oracle cannot establish equality or justify unconditional absent-PATH refusal
@@ -762,9 +808,9 @@ read as history, not as a current claim.
 |---|---|
 | Program name | `dsh`; `./dsh`; `../dsh`; an absolute temporary path corresponding to `/abs/dsh`; literal `C:\Tools\dsh.exe`; `dsh.exe`; a name containing a space; a name containing NUL |
 | Layout / environment | file in cwd with PATH pointing elsewhere; file in a PATH directory; PATH absent with cwd file present; PATH containing an empty entry; PATH A:B with obstructed A and runnable B |
-| Empty-entry variants | present-empty PATH, leading empty entry, interior empty entry and trailing empty entry, with distinguishable competing candidates |
+| Empty-entry variants | separately identified `PATH=""`, `:B`, `A::B` and `A:` cells crossed with runnable/looping/missing cwd candidates, plus earlier successful-A controls; refusal when cwd is reached, never selection or skipping |
 | Obstruction variants | missing shebang interpreter; executable interpreter whose own loader is missing; native image with missing dynamic loader; platform-qualified self-symlink (glibc terminal, Apple continuation) and ordinary non-executable continuation controls |
-| Lookup boundaries, each an identified cell | PATH component lengths 255, 256, 300, 4095, 4096 and 5000 ASCII bytes ahead of B; regular-file component; nonexistent component; overlong bare program name and its explicit-path control; removing only the preceding component |
+| Lookup boundaries, each an identified cell | PATH component lengths 255, 256, 300, 4095, 4096 and 5000 ASCII bytes ahead of B; 4095/4096/5000 each crossed with runnable/looping/missing cwd, in both Command forms; trailing-separator full-candidate bounds with A present/absent; regular-file and nonexistent components; overlong bare and explicit names; same-fixture component and one-slash removal controls |
 | Default-search controls | add a bare name native default search actually executes (`sh` is the observed Unix positive), primary and legacy DSH overrides using that name, and the real Node lookup; compare absent PATH, present-empty PATH, explicit PATH and same-name cwd decoys without reducing the commissioned eight-name cross-product |
 | Platform | native Linux/glibc, macOS and Windows execution, with target/libc/compiler recorded; any other claimed target needs its own native evidence, not inferred Unix behavior |
 
@@ -776,7 +822,7 @@ read as history, not as a current claim.
 - **AND** the Node positive asserts successful native exit and compares canonical `process.execPath` with the actual retained Node path consumed by the composite, and that same observation produces a readable composite; a launcher's independently resolved `process.execPath`, matching version text or `ok dsh` prefix is insufficient
 - **AND** a compiling mutation retaining a distinct wrong Node fails that retained-identity/composite assertion while the native child still succeeds; a separate mutation restoring unconditional absent-PATH refusal fails the Node positive itself, with exact restoration and green reruns for both
 - **AND** adding a same-name cwd decoy preserves the native default-search identity and does not execute that decoy; absence alone neither inserts cwd nor permits refusal of that ordinary native success
-- **AND** with PATH present but empty and no same-name cwd file, native lookup returns NotFound and resolution refuses without a probe target; restoring the cwd decoy makes that explicit empty entry select the decoy exactly when the native control does, without falling back to absent-PATH default search
+- **AND** with PATH present but empty and no same-name cwd file, native lookup returns NotFound; restoring the cwd decoy makes native lookup execute that decoy, but in both fixtures resolution refuses with `the platform's search would fall into the working directory` and doctor leaves no execution marker, without falling back to absent-PATH default search
 - **AND** explicit PATH gives an independent positive identity control; the commissioned cwd-only `dsh` and literal backslash sentinels remain negative controls when absent from native default search, and platform-native explicit paths remain selectable without PATH
 - **AND** a compiling mutation restoring unconditional absent-PATH refusal makes `absent_path_default_search_matches_native_dsh_and_node` fail its selected-identity assertion while the native positive still executes, and exact restoration passes; removing such a guard is not a required refusal failure under the controller's withdrawn exception
 - **AND** the separate S1/S1b removal tests still fail specifically on execution of the cwd sentinel when their unsafe behavior is restored; a reason assertion alone does not discharge that proof
@@ -786,9 +832,46 @@ read as history, not as a current claim.
 #### Scenario: Explicit empty PATH entries and explicit overrides retain their meaning
 - **GIVEN** controlled executable names in cwd and a later PATH directory, plus distinct primary and legacy explicit override paths
 - **WHEN** PATH is present but empty, or contains an explicit empty entry among its directories
-- **THEN** cwd lookup has its native meaning at that entry's position and is not classified as absent PATH; doctor either describes the native-selected installation or gives a named safe refusal
+- **THEN** cwd lookup has its native meaning at that entry's position and is not classified as absent PATH; if reached, resolution and doctor refuse with `the platform's search would fall into the working directory`, or the native terminal cause there, and neither select cwd nor continue beyond it
+- **AND** an earlier successful non-cwd candidate remains selectable; all refused cells leave no doctor execution marker, including with no cwd executable and a runnable later candidate
 - **AND** primary then legacy override precedence remains unchanged, an absolute explicit override can be selected with PATH absent, and a failed explicit override never falls back to a PATH decoy
 - **AND** version and composite never describe different installations, including when a safe version probe succeeds but home resolution fails
+
+#### Scenario: An interior empty PATH entry refuses at cwd
+- **GIVEN** `A::B`, A contains no candidate and B/dsh is runnable, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: A trailing colon refuses at cwd
+- **GIVEN** `A:`, A contains no candidate, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: A leading colon refuses before a later candidate
+- **GIVEN** `:B`, B/dsh is runnable, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: Present-empty PATH refuses at cwd
+- **GIVEN** `PATH=""`, there is no default-path substitution, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: A successful earlier candidate ends search before cwd
+- **GIVEN** PATH `A::B` or `A:`, harmless runnable A/dsh, and separately competing, looping and absent cwd/dsh fixtures
+- **WHEN** each layout is compared with its own native oracle in both Command forms
+- **THEN** resolution and doctor select the exact A identity native runs, without reaching the later cwd entry; a blanket rejection of any PATH containing an empty component fails this positive
+
+#### Scenario: Native candidate construction preserves the extra trailing separator
+- **GIVEN** a glibc fixture whose existing A directory spelling is padded with trailing `/` bytes to 4092 bytes before `:B`, with A/dsh separately present or absent and B/dsh runnable
+- **WHEN** both named matrix/doctor regressions compare inherited and explicit child-environment native Command outcomes for `dsh`
+- **THEN** native construction appends its additional slash and returns ENAMETOOLONG/36; resolution refuses by that cause and doctor leaves no A, B, cwd or Node marker, rather than inspecting a normalized 4095-byte path
+- **AND** removing exactly one trailing slash from that same fixture makes a fresh oracle and doctor select identical A when present or identical B when A/dsh is absent; adding one slash to the original fixture retains terminal refusal
+- **AND** a compiling mutation normalizing the additional separator fails the cause/no-marker assertion; exact restoration reruns green
 
 #### Scenario: Bare-name lookup preserves native continuation and terminal errors
 - **GIVEN** PATH is A:B, neither binary override is set, and B/dsh is a working executable with a distinguishable sentinel identity
@@ -818,28 +901,57 @@ read as history, not as a current claim.
 - **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
 
 #### Scenario: A 4095-byte PATH component preserves terminal ENAMETOOLONG
-- **GIVEN** the same glibc layout with a 4095-byte ASCII component before runnable B
-- **WHEN** native Command, resolution and built doctor each observe that layout
-- **THEN** native lookup returns ENAMETOOLONG, resolution refuses by that cause before any probe, and doctor leaves no B execution marker
-- **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
+- **GIVEN** separate glibc layouts with a 4095-byte ASCII `x` component before runnable B, crossed with cwd/dsh a competing executable, a self-symlink, or absent
+- **WHEN** every cell in `native_executable_resolution_matches_command_matrix` and `terminal_path_lengths_refuse_before_doctor_probe` invokes its own inherited and explicit child-environment native Command control and compares resolution/doctor
+- **THEN** native lookup returns ENAMETOOLONG/36 before reaching cwd in each cell, resolution refuses by that cause, and doctor leaves no cwd, B or Node execution marker
+- **AND** removing only the component and its delimiter from each same fixture leaves cwd unchanged and makes a fresh native control and doctor select the exact same B identity in both forms
 
 #### Scenario: A 4096-byte PATH component exercises the native pre-buffer skip
-- **GIVEN** the same glibc layout with a 4096-byte ASCII component before runnable B
-- **WHEN** native Command, resolution and built doctor each observe that layout
-- **THEN** native lookup skips the component before attempting execution and selects B, and resolution/doctor select that exact identity rather than reporting metadata ENAMETOOLONG
-- **AND** removing only the component retains B in a separately invoked native-oracle control
+- **GIVEN** a glibc layout with PATH equal to 4096 ASCII `x` bytes followed by `:B`, competing harmless cwd/dsh and B/dsh sentinels, and separate oracle/doctor markers
+- **WHEN** both named matrix/doctor regressions invoke inherited and explicit child-environment native Command controls for that cell
+- **THEN** each native control runs the exact cwd/dsh identity after the pre-buffer skip, while resolution refuses with `the platform's search would fall into the working directory`, never selecting cwd or B
+- **AND** doctor leaves no cwd, B or Node execution marker; markers are checked before report text and a later unreadable composite cannot hide execution
+- **AND** removing only the oversized component and its delimiter from the same fixture, with cwd/dsh unchanged, makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 4096-byte skip reaches a terminal cwd self-symlink
+- **GIVEN** the 4096-byte glibc component followed by `:B`, runnable B/dsh, and cwd/dsh a self-symlink
+- **WHEN** both named regressions invoke their own native Command oracle in each invocation form, alongside resolution and built doctor
+- **THEN** both native forms return ELOOP/40 without executing a sentinel, resolution refuses by that same terminal cause, and doctor leaves no cwd, B or Node marker
+- **AND** removing only the oversized component and delimiter preserves the cwd loop and makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 4096-byte skip refuses even with no cwd executable
+- **GIVEN** the 4096-byte glibc component followed by `:B`, runnable B/dsh, and no cwd/dsh
+- **WHEN** both named regressions run each native Command form and compare resolution and doctor
+- **THEN** native lookup passes the missing cwd candidate and runs B, while resolution refuses with `the platform's search would fall into the working directory` before advancing to B
+- **AND** doctor leaves no execution marker, including B or Node; this policy refusal is recorded separately from native success and is not an equality pass
+- **AND** removing only the oversized component and delimiter keeps cwd absent and makes fresh native controls and doctor select the exact same B identity in both forms
 
 #### Scenario: A 5000-byte PATH component exercises the native pre-buffer skip
-- **GIVEN** the same glibc layout with a 5000-byte ASCII component before runnable B
-- **WHEN** native Command, resolution and built doctor each observe that layout
-- **THEN** native lookup skips the component before attempting execution and selects B, and resolution/doctor select that exact identity rather than reporting metadata ENAMETOOLONG
-- **AND** removing only the component retains B in a separately invoked native-oracle control; this cell alone cannot establish the other five boundaries
+- **GIVEN** a glibc layout with PATH equal to 5000 ASCII `x` bytes followed by `:B`, competing harmless cwd/dsh and B/dsh sentinels, and separate oracle/doctor markers
+- **WHEN** both named matrix/doctor regressions invoke inherited and explicit child-environment native Command controls for that cell
+- **THEN** each native control runs the exact cwd/dsh identity after the pre-buffer skip, while resolution refuses with `the platform's search would fall into the working directory`, never selecting cwd or B
+- **AND** doctor leaves no cwd, B or Node execution marker; markers are checked before report text and a later unreadable composite cannot hide execution
+- **AND** removing only the oversized component and its delimiter from the same fixture, with cwd/dsh unchanged, makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 5000-byte skip reaches a terminal cwd self-symlink
+- **GIVEN** the 5000-byte glibc component followed by `:B`, runnable B/dsh, and cwd/dsh a self-symlink
+- **WHEN** both named regressions invoke their own native Command oracle in each invocation form, alongside resolution and built doctor
+- **THEN** both native forms return ELOOP/40 without executing a sentinel, resolution refuses by that same terminal cause, and doctor leaves no cwd, B or Node marker
+- **AND** removing only the oversized component and delimiter preserves the cwd loop and makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 5000-byte skip refuses even with no cwd executable
+- **GIVEN** the 5000-byte glibc component followed by `:B`, runnable B/dsh, and no cwd/dsh
+- **WHEN** both named regressions run each native Command form and compare resolution and doctor
+- **THEN** native lookup passes the missing cwd candidate and runs B, while resolution refuses with `the platform's search would fall into the working directory` before advancing to B
+- **AND** doctor leaves no execution marker, including B or Node; this policy refusal is recorded separately from native success and is not an equality pass
+- **AND** removing only the oversized component and delimiter keeps cwd absent and makes fresh native controls and doctor select the exact same B identity in both forms
 
 #### Scenario: An overlong program name is measured rather than labelled a miss
 - **GIVEN** an overlong bare program name and an explicit-path spelling of it in an owned temporary layout
 - **WHEN** each spelling is passed to its own native Command oracle and resolver under identical context
 - **THEN** each native error is matched by a specific pre-probe refusal, including ENAMETOOLONG where returned, with no sentinel execution or invented ordinary NotFound
-- **AND** a valid-length name supplies an independently invoked positive native identity control; component-length continuation cannot stand in for either long-name oracle
+- **AND** the 300-byte glibc bare-name controls separately use a missing directory, a regular file as PATH component, and an existing directory, asserting each native cause (the commissioned observations are ENOENT/2, ENOTDIR/20 and ENAMETOOLONG/36 respectively), in both invocation forms
+- **AND** no universal pre-search NAME_MAX refusal may replace those distinct results; a valid-length name supplies an independently invoked positive native identity control, and component-length continuation cannot stand in for either long-name oracle
 
 #### Scenario: Continuation causes and permission accumulation follow the native target
 - **GIVEN** distinct sentinels and PATH layouts containing a regular-file component, a nonexistent component, non-executable A before B, and permission-denied entries with no later runnable candidate
@@ -847,21 +959,32 @@ read as history, not as a current claim.
 - **THEN** ENOENT and ENOTDIR continuation reach the same B identity, and remembered EACCES is reported when no candidate runs rather than downgraded to NotFound
 - **AND** glibc permits no post-execution continuation beyond EACCES, ENOENT, ESTALE, ENOTDIR, ENODEV and ETIMEDOUT; ENAMETOOLONG, ELOOP, EIO, EINVAL and other errors remain terminal
 - **AND** unit checks for rare errno branches carry source citations but do not count as native differential cells or waive their oracle calls
-- **AND** restoring unconditional ENAMETOOLONG continuation fails the terminal-boundary cause/no-doctor-marker assertions in `native_executable_resolution_matches_command_matrix` and the classifier/doctor regressions, while removing the genuine pre-buffer skip independently fails exact B identity at 4096/5000; each compiling removal is exactly restored and rerun green
+- **AND** independent compiling mutations restoring direct advance to B after an oversized skip, removing cwd refusal, or weakening terminal ENAMETOOLONG/ELOOP handling fail the named cause/identity/no-marker assertions in `native_executable_resolution_matches_command_matrix` and `terminal_path_lengths_refuse_before_doctor_probe`; removing the actual buffer skip independently fails the expected cwd refusal or ELOOP cause by inventing ENAMETOOLONG
+- **AND** each implementation mutation is named and exactly restored before a green rerun; same-fixture component removal is a separate oracle control and cannot substitute for removal of enforcement
+
+#### Scenario: Exhausted search preserves the last cause and denial precedence
+- **GIVEN** glibc layouts with only a regular-file PATH component, missing then regular-file components, the reverse order, and permission-denied entries followed by a miss or terminal error
+- **WHEN** each layout invokes its own native Command oracle in both forms and resolution/doctor observes the same context
+- **THEN** the first two non-denial layouts preserve ENOTDIR/20 and the reversed layout preserves ENOENT/2, with the responsible final candidate named; no generic not-on-PATH message erases the distinction
+- **AND** remembered EACCES wins over subsequent misses at exhaustion while a terminal cause wins over remembered denial; every refusal leaves no doctor marker
+- **AND** independently erasing the final cause, removing remembered EACCES or weakening terminal precedence fails its named cause assertion; each compiling mutation is exactly restored and rerun green
 
 #### Scenario: Apple lookup is established on Apple rather than inferred from glibc
 - **GIVEN** the six component-length cells, self-symlink A before runnable B, absent PATH, and explicit paths on native macOS
 - **WHEN** every cell actually invokes the same native Command form as the resolver context and macOS CI records target and compiler
-- **THEN** each selection or cause matches that native result, including ELOOP continuation, without imposing glibc's length thresholds or treating all Apple lookup APIs as interchangeable
+- **THEN** each form asserts its own exact native identity or specific cause and applicable cwd/loader refusal, including ELOOP continuation for non-cwd candidates, without imposing glibc's thresholds or error wording or treating Apple lookup APIs as interchangeable
 - **AND** absent lookup uses `/usr/bin:/bin`; a discriminating default-search regression distinguishes the additional system directories in confstr's wider value, since a shared `sh` positive cannot prove their exclusion
 - **AND** the platform-default test preserves FreeBSD's separately sourced directory order instead of applying Apple's constant to it; a claimed FreeBSD native result needs its own execution evidence
-- **AND** missing native macOS or other target evidence remains pending; restoring the wrong target's default or ELOOP rule fails its named discriminating check
+- **AND** an explicit env-node launcher with an oversized component before B/node exercises env's execvp walk separately from the outer Command spawn path, and inaccessible-parent exhaustion exercises the native successful-stat condition before remembered EACCES
+- **AND** a source-only check or logged oracle cannot establish either operation; each actually executed cell asserts its qualified native outcome and zero forbidden markers
+- **AND** missing native macOS or other target evidence remains pending; restoring the wrong target's default, ELOOP rule or outer-spawn rule for nested env fails its named discriminating check
 
 #### Scenario: Interpreter aliases cannot bypass the Node obstruction refusal
 - **GIVEN** disposable env and env-alias symlinks plus `tools/env` and `tools/uu_env` hard links verified to share device/inode, obstructed A/node and distinct runnable B/node
 - **WHEN** `an_env_argument_is_selected_as_the_kernel_hands_it_to_env` invokes a native Command control for each spelling and the built doctor observes the same chain
 - **THEN** every supported alias whose native control reaches B takes the same cause-bearing D10 refusal identifying A's obstruction, with zero doctor markers and the native result recorded separately
-- **AND** changing only the interpreter spelling never turns the unproved Node chain into probe authority; an unestablished or alias-sensitive interpreter reports its actual native outcome and named refusal without fabricating a positive
+- **AND** changing only the interpreter spelling never turns the unproved Node chain into probe authority; an unestablished or alias-sensitive invocation reports its actual native outcome and named refusal without fabricating a positive
+- **AND** a supported successful same-file `uu_env` invocation is established by file and invocation semantics, refuses the specific A obstruction, and admits the removed-A control; blanket non-env-basename refusal cannot discharge these assertions
 - **AND** removing only A/node gives independently invoked native and doctor positive controls for the same B identity under both valid hard-link spellings, and a valid non-obstructed chain remains admitted
 - **AND** restoring spelled-or-canonical-basename recognition in a compiling mutation fails the hard-link no-probe/cause assertion; exact restoration reruns green alongside the existing symlink controls
 
@@ -878,6 +1001,13 @@ read as history, not as a current claim.
 - **AND** valid sequences, empty collections and a legal trailing comma remain readable, as do admitted well-formed ignored bodies; unsupported bodies refuse explicitly instead of being skipped
 - **AND** separately restoring empty-member elision, ignored-body bypass, control-byte bypass or an existing ignored-scalar guard bypass causes its named reason/readability assertion to fail in a compiling removal, then exact restoration passes
 
+#### Scenario: Ignored pnpm blocks cannot discard parent and collection structure
+- **GIVEN** otherwise readable installations separately add a nested mapping below scalar `peerDependencies.react`, mapping and sequence siblings at the same ignored-body level, or `snapshots` containing scalar `foo: 1` with a more-indented `bar: 2` child
+- **WHEN** `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` and `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor` observe each full locator layout
+- **THEN** each refuses with pnpm, the responsible body/field and scalar-parent or mixed-collection cause named, without producing the valid control's composite
+- **AND** valid nested peerDependenciesMeta and snapshots mapping controls within the admitted subset remain readable, alongside the existing flow-member, control-byte, quote and scalar controls
+- **AND** independently removing parent-type or collection-kind enforcement in compiling mutations fails the corresponding named reason/readability assertion; exact restoration reruns green, and a per-line quote check cannot substitute for either structural proof
+
 #### Scenario: Composition retains the launcher head inspected before the probe
 - **GIVEN** a shell launcher that prints `v22.23.2` and rewrites itself to the env-node shebang, an otherwise identical non-rewriting control, and a valid env-node launcher
 - **WHEN** `the_composite_reuses_the_launcher_head_selection_inspected` and `the_composite_reuses_the_launcher_head_doctor_selected` observe their version and composite
@@ -889,6 +1019,7 @@ read as history, not as a current claim.
 - **WHEN** the candidate delivery record is updated
 - **THEN** each actual execution records revision, command, exit status, target and compiler, and Windows matrix/doctor/GetBinaryTypeW/MSRV, macOS lookup/loading, and absent-PATH Node-positive/removal obligations stay pending until they really run
 - **AND** source inspection, cross-compilation, a passing NotFound branch, skipped cells and historical results do not certify a positive, a platform or the final PR head
+- **AND** independent scalar-guard, remembered-denial and home-premise removal obligations remain pending until their own intended failed assertions and exact-restored passes are recorded; historical or unrelated mutations do not discharge them
 - **AND** the existing task addresses and excluded work remain unchanged and 8.8 remains unchecked
 
 #### Scenario: Fresh exact coverage cannot be replaced by retained perfect reports
@@ -956,7 +1087,7 @@ read as history, not as a current claim.
 - **AND** removing the missing-filename context makes the producer-facing reason assertion fail while restoring it passes; a private file-set helper alone does not prove the installed lookup path
 
 #### Scenario: Digest acceptance is proved by removal without completing the planner
-- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations, all five second-hold findings, AO's native-positive controls and AP's third-hold R1–R7/prior F1–F9 obligations covered above
+- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations, all five second-hold findings, AO's native-positive controls and AP's third-hold R1–R7/prior F1–F9 obligations and AR's fourth-hold reconciliation covered above
 - **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
 - **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
 - **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence
