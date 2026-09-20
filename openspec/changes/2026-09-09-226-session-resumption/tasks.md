@@ -1,155 +1,225 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current commission: **DSH COMPOSITE IDENTITY — security-hold successor**, run
-`dsh-composite-identity-issue-226-4437331e`, phase **tasks**. Adopt every commit
-through `ab2d8e1d` and specification/design commits `cbd7b84b`, `d1f84b33`
-and `3c0b2775` on `slice-dsh-composite-b`. Proposal AL/AM, AS1 and design
-D6/D10/D11 govern this return. The recovered controller reproduction and all
-seven findings were read before editing. The security hold remains open;
-this breakdown supplies no implementation or security-clearance claim.
+Current commission: **DSH COMPOSITE IDENTITY — second security hold**, run
+`dsh-composite-identity-issue-226-069caa79`, phase **tasks**. Adopt every
+commit on `slice-dsh-composite-b` through `681ca39f`, including the
+predecessor's delivered work and proposal AN/AO, AS1 and design D6/D10/D11.
+Both controller reproductions were read first, followed by the single
+absent-PATH disposition and the current artifacts/code. No `returned_from`
+fact is supplied. The active change needs no archive reopen.
 
-Only **8.8(a)–(c)** are commissioned. Execute the eight numbered groups below
-in order; group 8 verifies the seven repairs. Their dotted checkbox labels
-are local clause addresses beneath existing 8.8, not new change-wide task
-identifiers. Tick a repair clause only after its focused regression and the
-specified compiling removal/restoration proof pass. All new clauses are
-pending at this tasks checkpoint. Adopt the delivered loader, assessment
-carriage, fixed rc.2 inputs, one-read and locator work; do not redo them.
+Only **8.8(a)–(c)** are commissioned. Execute pending clauses in the eight
+numbered groups below in order: findings **1/4**, then **2**, **3**, **5**,
+then full validation and the committed delivery account. Groups 4–7 retain
+completed first-hold repairs; they are preservation obligations, not new
+implementation work. All fourteen local clause addresses are retained.
+Seven previously ticked clauses reopen because the second hold strengthens
+their acceptance; the local state is now **5 complete / 9 pending**.
+**8.8 stays unchecked**. All 101 change-wide task identifiers and their
+**84 complete / 17 pending** states remain unchanged; no identifier is added.
 
-The existing **101 task identifiers remain 84 complete / 17 pending**.
-**8.8 stays unchecked**, including after these repairs. Preserve every
-inherited checkbox outside this local breakdown, including historical ticks.
-The five deltas contain **20 requirements / 187 scenarios** (evidence 32,
-safety 91, boundary 11, progress 20, site 33). Historical counts and delivery
-entries below describe their dated visits. This breakdown supersedes their
-probe-before-selection assumptions and claims of closure for these seven
-findings; it does not erase their implementation or removal evidence.
-
-Every checkbox below serves **safety / AS1 — Resume support is measured per
+Every local checkbox names **safety / AS1 — Resume support is measured per
 adapter and execution shape**, in
 [the safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
-The scenario titles in each group identify its exact acceptance coverage.
-Design D10's September 20 decisions settle all build-affecting questions;
-no `returned_from` fact is supplied. No earlier artifact must change to make
-this breakdown honest, so the tasks result is `drafted`, not `upstream`.
+The five deltas contain **20 requirements / 192 scenarios**. D10's current
+decisions resolve the build-affecting questions; no earlier artifact needs
+amendment to write this breakdown. This is a `drafted` tasks checkpoint,
+not an implementation, fresh removal proof, green Rust gate or hold clearance.
 
-The change is active; no archive reopen is needed. Production repairs belong
-only in the existing Rust protocol/doctor surfaces and their tests. No new
-production file, dependency, command, public framework or identity format is
-planned. Preserve `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
-`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/` byte for
-byte; 0056 stays proposed. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and
-groups 14–15 remain outside this commission. No planner, roster, declaration,
-pin, provider qualification or retained-home measurement is part of it.
-The whole-change archive/fold remains pending outside this partial slice.
-Notes record observations and outcomes without directions to judging offices.
+Preserve the sole producer, fixed rc.2 inputs, one-read observation, closed
+loader/private assessment carriage, canonical containment and safe doctor
+diagnostics. Production repairs remain Rust in the existing protocol/doctor
+surfaces; D10 permits a test-only native helper if the existing child pattern
+cannot report sentinel identity. No new crate, registry dependency, public
+framework, identity format, installation or provider qualification follows.
+Builds/tests never read `.forge/` identity inputs.
 
-Implement visit of 2026-09-20, same run: twelve of the fourteen local clauses
-below are ticked on focused regressions plus compiling removal proofs;
-8.8.8.2 and 8.8.8.4 stay open on grounds named in
-[the implement account](#implement-visit--the-security-hold-answered-by-removal-proof-2026-09-20)
-at the foot of this file. 8.8 stays unchecked.
+Keep `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
+`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/`
+byte-identical; **0056 stays proposed**. Part (d), 8.10, 9.6, 10.6–10.8,
+11.1–11.4 and groups 14–15 remain outside this visit. Whole-change archive
+and folding into living truth remain the final whole-change obligations
+already recorded in group 15; this partial slice cannot perform them.
 
-## 8.8.1. Refuse absent PATH before any doctor probe — HIGH S1
+## Decisions
 
-- [x] 8.8.1.1 Repair `DshSeams::{selected,selected_from,resolve}` and local
-  executable lookup in `crates/brokkr-protocol/src/adapters/composite.rs`,
-  then the consuming `dsh_provider_line_with` and unavailable report in
-  `crates/brokkr-cli/src/doctor.rs`. Return an outer executable-selection
-  result: success contains one canonical executable and an independent
-  home/seams result; failure contains the declared spelling and named cause
-  for diagnosis only. Bare-name `None` PATH refuses with `PATH is absent`
-  before splitting; present-empty PATH is distinct. Resolution failures and
-  non-UTF-8 canonical paths never revert to a probeable declaration. Match
-  selection before probing; carry its cause through `Observed` and the
-  unavailable renderer. Verify zero DSH/Node probes on selection failure,
-  one selected version on success, and successful version visibility beside
-  a named home failure, extending existing protocol/doctor seam tests.
-  A compiling restoration of discarded selection errors must fail the
-  no-probe/reason assertions, then pass after exact restoration — safety / AS1.
+Adopt AN/AO and D10 without reopening their design choices. Native equality
+governs DSH and Node, including default-search successes with PATH absent.
+On Unix only `/` makes a direct path; NUL refuses before lookup. Present
+empty entries retain their native position. D10's named interpreter/loader
+refusal is the sole specified exception, recorded separately from native
+NotFound parity. Ordinary proven positives must select the exact native file.
+Refuse reinstating the withdrawn unconditional absent-PATH rule: it fails AO's
+native-positive scenario and removal test. No new scenario is needed here;
+AS1 and D10 already encode this answered ambiguity.
 
-- [x] 8.8.1.2 Add the real-child regression to
-  `crates/brokkr-cli/tests/init_doctor.rs` or an adjacent focused CLI target.
-  Launch the built binary by absolute path from a temporary cwd containing
-  executable `dsh` that prints `SECURITY_CWD_SENTINEL_9f3`; use the shipped
-  unmeasured declaration and remove PATH plus both DSH overrides on the
-  child only. Assert **absence of the sentinel first**, then the specific
-  `PATH is absent` refusal. A native Rust `Command::new("dsh")` child under
-  the same cwd/environment must return `NotFound`. Keep independent controls
-  for explicit `/usr/bin:/bin` with no DSH there and for removal of cwd `dsh`.
-  Run this same test with the compiling adopted pre-fix selection/probe path
-  (an isolated copy or reversible mutation, without rewriting history): it
-  must fail at the no-sentinel assertion. Restore the repair and record both
-  assertions passing. Missing-reason-only, fixture-removal, injected-error
-  and zero-test failures do not discharge S1 — safety / AS1.
+Reuse the existing clause addresses as D10 directs. Reopen 8.8.1.1–8.8.1.2,
+8.8.2.1–8.8.2.2, 8.8.3.1, 8.8.8.1 and 8.8.8.3. The first hold's dated
+implementation/removal accounts remain history, including their then-current
+ticks, coverage and runtime failures; they do not certify this candidate.
+The controller removed the causal roster commit. Refuse an inherited-failure
+exemption for `gpt_flash_shape`, `roster` or `witness_digests`: every
+crate must pass, and any new failure needs a current investigation.
 
-Coverage: AS1 scenarios **Absent PATH refuses before doctor can execute a cwd
-sentinel** and **Explicit empty PATH entries and explicit overrides retain
-their meaning**; D10's safe-selection/home-refusal state table. S1 completion
-precedes native-search repair; it is not just an `unwrap_or_default` edit.
+Use the literal unchanged exact gate with fresh instrumentation. Refuse
+substituting retained profiles, a subset/equivalent collection, ignored
+failures or a lowered denominator for the commissioned gate. Notes record
+outcomes and pending evidence; they do not direct a judging office.
+No archive or provider enablement is justified by completing this partial slice.
 
-## 8.8.2. Preserve native search failures and override precedence — finding 2
+## 8.8.1. Apply the native platform lookup rule — finding 1
 
-- [x] 8.8.2.1 Replace metadata/access booleans with local continuation,
-  admitted-candidate and named-refusal outcomes. Preserve true-absence and
-  proven ordinary non-executable/permission continuation; stop on ELOOP,
-  unproved errors and failed canonicalization. Use bounded shebang inspection
-  to refuse a missing absolute interpreter before probing; ambiguous forms
-  refuse by cause. Preserve the known `#!/usr/bin/env node` child-PATH form,
-  applying the same conservative rule to Node. Retain inspected bytes if
-  they later supply identity so the single-read invariant survives. Follow
-  D10 without loader emulation, trial candidate execution or a resolver
-  subprocess. Verify supported native/script forms with native child
-  controls, using platform guards rather than inferring Windows support
-  from Unix observations — safety / AS1.
+- [ ] 8.8.1.1 Repair `resolve_executable_in`, `selected_executable` and
+  their `DshSeams::{selected,selected_from,resolve}` callers in
+  `crates/brokkr-protocol/src/adapters/composite.rs`. Preserve the outer
+  fallible selection and independent home result. Reject NUL before
+  filesystem/home work or probes; preserve OS path bytes and named
+  unrepresentable-path refusal. On Unix share the slash-only rule across
+  both enforcing paths; bare backslashes, drive spellings, extensions and
+  spaces go through native search. Capture the actual lookup context once:
+  absent PATH uses the target libc's native default (read-only platform
+  query, no guessed directories or resolver subprocess), while present PATH
+  preserves ordered empty entries. Implement D10's Windows std lookup,
+  including explicit-child versus parent PATH, application/system/Windows
+  directories, native suffix and drive/UNC semantics; no Unix loop or
+  PATHEXT guess. Keep primary/legacy/default precedence, failed-override
+  no-fallback and selected-path reuse for version/core/Node observation.
+  Verify focused protocol selection tests on native positive/miss/NUL and
+  override controls, and doctor seam assertions for zero probes on failed
+  selection and the same selected path for version/composite. The real-child
+  removals in 8.8.1.2 and full matrix in 8.8.2.2 additionally prove this rule
+  before delivery — safety / AS1.
 
-- [x] 8.8.2.2 In real-child tests use PATH A:B and distinguishable B/dsh.
-  Native lookup runs B after executable A/dsh with a missing interpreter;
-  doctor deliberately refuses at A by missing-interpreter reason with
-  neither binary probed. A self-symlink at A makes the native child fail
-  with ELOOP and doctor refuse by that cause without executing B. Restore
-  metadata-only selection and error-erasing continuation separately; each
-  must fail its intended reason/no-probe assertion, then pass restored.
-  Include ordinary non-executable A followed by working B; explicit empty,
-  leading/trailing empty and dot PATH entries; primary `BROKKR_DSH_BIN`,
-  legacy `FORGE_DSH_BIN`, then PATH precedence; absolute override with PATH
-  absent; and failed override with a usable PATH decoy but no fallback.
-  Retain paired version/composite assertions and safe-version/home-failure
-  coverage. Record actual child outputs and causes, not the existing
-  manifest-reading `recorded_version` helper as native proof — safety / AS1.
+- [ ] 8.8.1.2 Extend the existing real-child doctor suite
+  `crates/brokkr-cli/tests/doctor_dsh_selection.rs`, using isolated cwd and
+  child-only environment changes with the shipped unmeasured declaration.
+  Keep `absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel`:
+  assert no sentinel/marker first, then a named native default-search miss
+  with PATH absence as context; retain explicit-PATH and removed-fixture
+  controls. Add `unix_backslash_names_follow_native_lookup_before_doctor_probe`
+  with the literal cwd `C:\Tools\dsh.exe` under absent and populated PATH,
+  a distinct same-named PATH candidate, and a slash-containing direct control.
+  Add `absent_path_default_search_matches_native_dsh_and_node`: actual
+  default-search `sh` via both DSH override sources and actual `node`
+  identity (not just version), same-name cwd decoys, present-empty PATH with
+  and without a cwd candidate, and explicit-PATH positives. Use identical
+  native/resolver environments and keep global installations untouched.
+  Independently restore absent-as-empty lookup, each backslash classifier,
+  and unconditional absent-PATH refusal in compiling mutations. The first
+  two must fail forbidden-execution/identity assertions; the last must fail
+  native-positive selected identity while the native child still succeeds.
+  Record each exact restoration and passing rerun. A shell result cannot
+  discharge Node; unavailable native-positive prerequisites remain pending
+  evidence, never a passing skip — safety / AS1.
 
-Coverage: AS1 **Bare-name lookup preserves native continuation and terminal
-errors**, **Explicit empty PATH entries and explicit overrides retain their
-meaning**, and **Doctor version and composite follow the same selected DSH
-installation**. Dependency: 8.8.1's fallible selection and diagnostic carriage.
+Coverage: AS1 **Absent PATH refuses before doctor can execute a cwd sentinel**,
+**Unix backslashes never confer direct-path authority**, **Absent PATH preserves
+a native default-search success for DSH and Node**, **Explicit empty PATH
+entries and explicit overrides retain their meaning**, and **Doctor version
+and composite follow the same selected DSH installation**. Complete lookup
+before the loader evidence below; group 2 supplies the full platform matrix.
 
-## 8.8.3. Validate pnpm syntax and scalar kind before decoding — finding 3
+## 8.8.2. Establish candidate loading evidence and differential proof — finding 4
 
-- [x] 8.8.3.1 Repair the existing bounded pnpm parser in `composite.rs`:
-  retain plain/quoted provenance until field-sensitive validation; require
-  actual colon separation for admitted mappings; scan complete flow tokens
-  with quote awareness. Reject `integrity:sha512-X` by missing-separation
-  cause and `sha512-X[one]` by unsupported-flow-syntax cause. Identity strings
-  reject plain null/`~`, boolean and numeric forms, including case variants,
-  signed/fractional/exponent/base-prefixed/non-finite forms, by field and
-  non-string/unsupported-scalar cause. Preserve supported quoted strings,
-  plain/quoted version-9 headers, admitted child vocabulary, whitespace/NUL
-  checks and the inclusive 8,388,608-byte bound with at most one extra byte.
-  No YAML dependency, scalar coercion, new block grammar or count cap.
-  Verify producer-facing installed-lock controls in `composite/tests.rs`:
-  all four reported plain values `null`, `~`, `true`, `42` refuse by
-  `pnpm lock` plus `integrity` plus cause, while quoted `'null'`/`'42'`,
-  separated fields, supported headers and retained measured inputs pass.
-  Exercise each representation the existing grammar admits. Remove the
-  separator, whole-flow and scalar-kind protections separately; record
-  intended reason-bearing failures and passing restored reruns — safety / AS1.
+- [ ] 8.8.2.1 Replace catch-all non-shebang and one-level interpreter admission
+  in `composite.rs` with D10's bounded, target-specific evidence, retaining
+  `Candidate::{Admitted,Passed,Refused}`. First preserve native continuation,
+  accumulated permission versus NotFound causes, terminal ELOOP and failed
+  canonicalization. Then inspect native images with checked offsets/counts/
+  ranges: ELF architecture/header/program tables/load segments and its unique
+  valid `PT_INTERP` plus loadable interpreter; macOS target Mach-O slice/
+  load commands and `LC_LOAD_DYLINKER`; Windows bounded PE header/machine/
+  subsystem/image ranges plus the OS binary-type query. Inspect shebangs
+  with each target's actual limits/delimiters, visited canonical identities
+  and bounded chain depth. Preflight `env node` through proven env and
+  actual Node selection; retain that selected Node and inspected identity
+  bytes for reuse. Missing, malformed, cyclic, unsupported or unprovable
+  prerequisites name the obstructing candidate/chain before any version
+  probe. Do not emulate loaders, walk arbitrary shared libraries, trial-run
+  candidates or refuse all native images. Verify native sentinel/shell/env/
+  Node positives and cause-bearing negative controls on each claimed target;
+  unsupported host evidence stays pending, not inferred. Use
+  `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`
+  to compare continuation/terminal causes, then independently restore
+  error-erasing continuation, unconditional native-image admission and
+  one-level interpreter metadata admission: each named regression must fail
+  its cause/no-probe assertion and pass after restoration — safety / AS1.
 
-Coverage: AS1 **Missing pnpm field separation and unsupported flow syntax
-refuse by reason**, **Pnpm identity strings preserve the distinction from
-typed scalars**, and the existing bounded-reader/measurement scenarios.
-Dependency: finish finding 2 before this independent parser repair.
+- [ ] 8.8.2.2 Add `native_executable_resolution_matches_command_matrix` to
+  the existing protocol/CLI test surfaces. Cross every name with every
+  layout in the table below, including direct-path rows; resolver and real
+  `Command::new(name)` oracle run in an isolated child already holding the
+  same cwd and environment. Native Rust sentinels report executable identity;
+  script markers map uniquely to candidates. Compare canonical identities,
+  not equal banners, manifest reads or success booleans. Separate oracle and
+  production marker destinations. Extend
+  `an_obstructed_path_search_takes_the_explicit_safe_refusal` with missing
+  interpreter, missing native loader and interpreter-with-missing-loader
+  cells. On Linux patch only `PT_INTERP` path bytes in an owned working
+  native sentinel; show native B runs, then show doctor names A/the precise
+  prerequisite without probing either. NUL compares native InvalidInput
+  with up-front rejection and zero resolver I/O/probes; native NotFound
+  requires no target plus its cause. Terminal errors never authorize B.
+  Loader refusals record the native result separately as D10 exceptions,
+  never equality successes. Run the same table natively on Windows, matching
+  parent PATH/application directory/child PATH state and Windows obstruction
+  behavior. Preserve the literal drive-path row without modifying an
+  operator installation; an unavailable owned fixture remains pending.
+  Demonstrate the matrix fails when backslash classification is restored,
+  and the obstruction assertions fail when each admission shortcut is
+  restored; record exact restoration/green reruns and platform/compiler
+  evidence, including Windows MSRV and candidate compiler — safety / AS1.
 
-## 8.8.4. Reject duplicate decoded package keys before normalization — finding 4
+| Matrix axis | Required cells and controls |
+|---|---|
+| Names | `dsh`, `./dsh`, `../dsh`, an absolute temporary `.../dsh`, literal `C:\Tools\dsh.exe`, `dsh.exe`, a name with a space, a NUL-bearing name. |
+| Layouts, crossed with every name | Cwd-only with PATH elsewhere; PATH-directory candidate plus competing cwd file; absent PATH with cwd file; present-empty PATH; leading/interior/trailing empty PATH entries; A:B with each of the three loader obstructions. |
+| Additional controls | ELOOP; ordinary non-executable A/runnable B; valid native A; primary/legacy override precedence and failed-override no-fallback; default-search DSH/actual Node positives from 8.8.1.2. |
+| Platform | Native Unix and native Windows execution, with target-native fixtures. Copy helper/doctor into one owned application directory where Windows search context requires it. No skipped or Unix-only result is Windows evidence. |
+
+Coverage: AS1 **Program lookup is proved against the platform by a complete
+differential matrix**, **Bare-name lookup preserves native continuation and
+terminal errors**, plus group 1's default-search/override/paired-observation
+scenarios. Dependency: group 1's context and selection rules.
+
+## 8.8.3. Preserve raw pnpm syntax and identity bytes — findings 2, then 3
+
+- [ ] 8.8.3.1 Repair the existing `pnpm_dependencies`, `pnpm_flow_map`
+  and `pnpm_scalar` path in `composite.rs`, preserving plain/quoted
+  provenance. First close finding 2: validate raw header, outer mapping and
+  every inner field using D10's private ASCII structural-separation helper;
+  audit blank lines, top-level sections, package headings and ignored fields.
+  Reject `lockfileVersion:9.0`, `resolution:{integrity: sha512-X}` and
+  `resolution: {integrity: sha512-X, tarball: x: y}` by pnpm component and,
+  respectively, header-separation, outer-separation and tarball-flow cause.
+  Whole-token quote-aware checks include plain colon-space and collection
+  punctuation. Keep separated plain/quoted version-9 controls, supported
+  quoted punctuation, colon-without-space URLs and the earlier inner-field/
+  typed-scalar refusals. Then close finding 3: remove Unicode trimming along
+  every path feeding a scalar/key, consuming only grammar-owned ASCII
+  padding. Leading/trailing U+00A0 in plain, single-quoted and double-quoted
+  integrity must reach `integrity carries whitespace`, with pnpm/package
+  context; Unicode outside quotes or on blank/key lines cannot disappear.
+  Preserve NUL/nonempty/whitespace checks, decoded-key uniqueness, complete-
+  triple normalization, single reads, the inclusive 8 MiB bound and fixed
+  measured composite literals. Extend
+  `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+  through `composite_over_pnpm`; add
+  `pnpm_integrity_preserves_unicode_whitespace_for_refusal` through that
+  same sole producer. Independently remove header separation, outer
+  separation, ignored-field colon-space rejection, then restore Unicode
+  trimming. Each compiling mutation must fail its own reason-bearing
+  producer assertion; restore exactly and pass negative and lawful positive
+  controls after each. No YAML crate, grammar expansion, extra cap or second
+  digest producer — safety / AS1.
+
+Coverage: AS1 **Missing pnpm field separation and unsupported flow syntax refuse
+by reason**, **Plain and quoted integrity retain their Unicode whitespace
+bytes**, **Pnpm identity strings preserve the distinction from typed scalars**,
+and the existing bounded-reader/measurement scenarios. Dependency: groups 1–2
+restored; implement and prove finding 2 before finding 3 within this clause.
+
+## 8.8.4. Preserve duplicate-key rejection — retained first-hold finding 4
 
 - [x] 8.8.4.1 Track admitted decoded package headings separately from the
   existing complete-triple set, before exclusions and normalization. In
@@ -165,7 +235,7 @@ Dependency: finish finding 2 before this independent parser repair.
 Coverage: AS1 **Duplicate decoded pnpm package keys refuse before triple
 normalization**. Dependency: 8.8.3's retained scalar/heading decoding.
 
-## 8.8.5. Replace the competing test serializer — finding 5
+## 8.8.5. Preserve the sole-producer expectations — retained first-hold finding 5
 
 - [x] 8.8.5.1 Replace the loop/hash oracle in
   `the_plugin_component_is_bytewise_path_order_and_fails_closed` with a
@@ -189,9 +259,9 @@ normalization**. Dependency: 8.8.3's retained scalar/heading decoding.
   or treating two producer calls as a fixed oracle — safety / AS1.
 
 Coverage: AS1 **Plugin expectations are recorded from the sole producer**.
-Dependency: findings 1–4 restored; the expectation is observed, never guessed.
+These first-hold clauses are adopted complete; preserve their literal provenance.
 
-## 8.8.6. Escape the unavailable binary and retained reason — LOW S2
+## 8.8.6. Preserve escaped diagnostics — retained first-hold S2
 
 - [x] 8.8.6.1 Apply the existing `Safe` at final rendering of the unavailable
   binary and retained selection cause in `doctor.rs`, leaving lookup/probe
@@ -206,7 +276,7 @@ Dependency: findings 1–4 restored; the expectation is observed, never guessed.
 Coverage: AS1 **A nonexistent override cannot inject terminal control bytes
 through doctor**. Dependency: 8.8.1's unavailable-diagnostic cause carriage.
 
-## 8.8.7. Name the missing manifest at exhausted bundle lookup — finding 7
+## 8.8.7. Preserve missing-manifest context — retained first-hold finding 7
 
 - [x] 8.8.7.1 Enrich only exhausted `resolve_bundle` lookup with
   `bundle 'dsh-plugin-cli-session' does not resolve: no package.json found`
@@ -220,90 +290,123 @@ through doctor**. Dependency: 8.8.1's unavailable-diagnostic cause carriage.
   fail, restore and rerun the doctor and lookup controls — safety / AS1.
 
 Coverage: AS1 **Removing only the plugin manifest names the drifted file**.
-Dependency: findings 1–6; frozen extension bytes are never the removal target.
+Adopted complete; frozen extension bytes are never a removal target.
 
-## 8.8.8. Verify restored repairs and record bounded delivery
+## 8.8.8. Correct the failing seam premise, verify and record delivery — finding 5
 
-- [x] 8.8.8.1 Consolidate each finding's removal evidence in this task account
-  or referenced run-local records: exact revision/mutation, command, nonzero
-  test count, intended assertion/reason failure, exact restoration and
-  passing rerun. Include S1's sentinel failure and F3's source-conformance
-  failure explicitly. Re-run the preserved loader/carriage, source-reuse,
-  six-file membership, raw-input/full ordered expectation, pnpm/npm
-  equivalence, canonical containment and doctor-disposition regressions.
-  Builds/tests never read `.forge/` identity inputs. Verify the diff contains
-  no residual mutation or excluded/frozen edit. Documentation changes, if
-  needed, only align existing doctor wording with rendered output. No inherited
-  evidence becomes a fresh execution claim — safety / AS1.
+- [ ] 8.8.8.1 Fix
+  `dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one` in
+  `crates/brokkr-protocol/src/adapters/composite/tests.rs`. Replace the
+  home-only success assertion and stale fallback comments with four
+  deterministic executable-present/absent × home-present/absent cases using
+  `selected_from`/`resolved`. Assert path/cause as well as result:
+  combined resolution needs both, failed selection probes zero times, and
+  safe selection with missing home retains that executable and can report
+  one successful version beside the named home/composite refusal. Exercise
+  actual child wiring with HOME=/tmp, PATH=/usr/bin:/bin and
+  BROKKR_DSH_BIN, FORGE_DSH_BIN and DSH_HOME unset; record native lookup,
+  use an isolated missing-executable control if a DSH is installed, and
+  reproduce the commissioned failing environment on a suitable host before
+  closure. Restore the home-only test premise in that controlled child,
+  record its intended assertion failure, restore the correction and rerun
+  green. This is a test-premise removal, not a production relaxation.
+  Consolidate each second-hold removal record: exact mutation/revision,
+  command and test name, nonzero executed count, intended assertion,
+  exact restoration and passing rerun. No compile failure, removed fixture,
+  bare `is_err()` or unrelated failure counts. Retain first-hold evidence
+  as dated history; rerun the preserved loader/carriage, source-reuse,
+  six-file membership, ordered measured values, npm/pnpm equivalence,
+  containment and doctor-disposition controls. Verify no residual mutation
+  or excluded-path edit remains — safety / AS1.
 
-- [ ] 8.8.8.2 On restored bytes run `cargo fmt --all -- --check` and
+- [ ] 8.8.8.2 On restored candidate bytes run
+  `cargo fmt --all -- --check` and
   `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`.
-  Run `cargo test -p <crate> --all-features --locked --no-fail-fast` separately
-  for all seven crates: `brokkr-core`, `brokkr-store`, `brokkr-protocol`,
+  Run `cargo test -p <crate> --all-features --locked` separately for all
+  seven crates: `brokkr-core`, `brokkr-store`, `brokkr-protocol`,
   `brokkr-runtime`, `brokkr-view`, `brokkr-bridge`, `brokkr-cli`.
-  Crate-scoped execution replaces the known potentially deadlocking workspace
-  invocation; a failure or bounded hang is still recorded, not skipped.
-  Run `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
-  and `openspec validate --all --strict`. Record command, exit status and
-  actual failed test names; repair slice regressions. Keep the four roster
-  failures below individually outside-slice and pending; their disposition
-  supplies no runtime pass or authorization to change roster/witness bytes.
-  This gate checkbox remains open while its required checks fail or cannot
-  run — safety / AS1.
-
-- [x] 8.8.8.3 Execute literal `bash scripts/coverage-exact.sh` or D11's
-  equivalent exact gate on the restored candidate. Preserve
-  `rust-nightly-version.txt`, isolated clean instrumentation, all production
-  sources, existing test-source exclusion and LCOV integer accounting.
-  A crate-by-crate equivalent runs the same complete suite and merges only
-  this candidate's instrumentation; skipping failed runtime tests or reporting
-  just two files is not equivalent. Record actual nonzero covered/total
-  counts and percentages for lines, branches and functions, including every
-  added/touched production region: **100% / 100% / 100%**, each by exact
-  integer equality. Add meaningful tests for repair coverage gaps; never
-  lower the threshold or denominator. Namespace-dependent work requires
-  capable-host/CI execution outside the box. An unavailable report has null
-  counts/N/A percentages, not 0% or 100%; this checkbox waits on actual passing
-  evidence, and final-head remote results remain pending until present
+  Also run `cargo test --workspace --all-features --locked`,
+  `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `openspec validate --all --strict`. Every crate must be green before
+  verify. Record command, candidate, exit status and actual failed test names
+  or hangs; investigate current failures, including `gpt_flash_shape`,
+  `roster` and `witness_digests`, without an inherited exemption or
+  unauthorized roster/witness edits. Record native-platform matrix results
+  from 8.8.2.2 separately; unavailable Windows execution remains pending.
+  This clause stays open if any required check fails or cannot run
   — safety / AS1.
 
-- [ ] 8.8.8.4 Record delivered (a)–(c) repairs separately from pending controls,
-  checks and excluded obligations; tick only clauses whose acceptance is
-  actually met. Verify the 101-ID ledger and 8.8 tick are unchanged, frozen
-  paths have no diff, 0056 remains proposed and the active change has not
-  been archived. Commit verified work in repository message style, never
-  push. The delivery clause is complete only with preceding clauses proved,
-  relevant tests and exact coverage green, and the work committed; a partial
-  committed account does not clear the hold or this checkbox — safety / AS1.
+- [ ] 8.8.8.3 Run literal `bash scripts/coverage-exact.sh` on the restored
+  candidate with its unique fresh instrumentation directory and unchanged
+  `rust-nightly-version.txt` pin (`nightly-2026-09-05`). Verify CI,
+  release admission and the script still consume that pin. Require the
+  unchanged complete workspace/all-feature suite, test-source exclusion
+  and LCOV integer accounting, with every production region retained.
+  Record actual nonzero covered/total lines, branches and functions and
+  **100% / 100% / 100%** by exact integer equality; explain denominator
+  changes against historical **31166/31166, 5214/5214, 3008/3008**.
+  Close gaps with meaningful tests, never retained profiles, exclusions,
+  skipped failures, `--ignore-run-fail` or a replacement subset gate.
+  Namespace-dependent execution needs a capable host/CI outside this box.
+  Until that fresh full result exists this clause remains pending; an
+  unavailable report has null counts/N/A percentages. Record final-head
+  remote evidence as pending until it exists — safety / AS1.
 
-Coverage: AS1 **Digest acceptance is proved by removal without completing the
-planner**, plus every scenario named in groups 8.8.1–8.8.7. Archive/folding,
-part (d), 8.10 and whole-change gates remain pending, not extra tasks here.
+- [ ] 8.8.8.4 Record the delivered (a)–(c) repairs and their test/removal/gate
+  evidence separately from pending native-platform/host results and excluded
+  work. Tick only clauses whose full acceptance is met; preserve all
+  change-wide states, especially unchecked 8.8, and keep 0056 proposed.
+  Audit the diff for frozen/excluded bytes and residual mutations. Commit
+  verified work using the repository's message style, never push. Verify the
+  commit and task ledger after recording it. Complete this delivery clause
+  only when preceding repair/proof obligations and relevant tests, native
+  matrix and exact coverage are green and the work is committed. A committed
+  partial account is not hold clearance. Leave the change active and group
+  15's eventual archive/fold for the whole-change commission — safety / AS1.
 
-### Recorded runtime integration failures and their ownership
+Coverage: AS1 **Executable selection and home availability are independent
+requirements**, **Digest acceptance is proved by removal without completing
+the planner**, and all scenarios named in groups 8.8.1–8.8.7. Dependency:
+findings 1/4, 2 and 3 restored before finding 5, then all final gates.
 
-The retained `.forge/gate-runtime-tests-nff.txt` ran
-`cargo test -p brokkr-runtime --all-features --locked --no-fail-fast`.
-Inspection of its failures, current assertions and `99fdbb0a..3c0b2775`
-shows no later change to the GPT/Flash recipe, agents or these test files.
-These four cases depend on the adopted roster re-pin, not composite/doctor
-observation. This is an evidence-backed outside-slice disposition, not a fresh
-rerun or a green suite. Roster/recipe reconciliation remains their precise
-outstanding obligation; neither assertions nor witness pins are weakened here.
+### Tasks-phase validation — second security hold, 2026-09-20
 
-| Fully qualified test | Recorded failure and outside-slice obligation |
-|---|---|
-| `brokkr-runtime::gpt_flash_shape::sol_rules_specification_and_planning` | `analyze:judge` is `astra`, expected `sol` (`gpt_flash_shape.rs:100`): office-model/recipe expectation reconciliation. |
-| `brokkr-runtime::gpt_flash_shape::every_strategy_reviews_with_a_mixed_panel_before_the_astra_chief` | `chore` review providers `{codex}`, expected `{codex, dsh}` (`gpt_flash_shape.rs:241`): GPT/Flash panel diversity after the roster re-pin. |
-| `brokkr-runtime::roster::every_shipped_panel_seats_at_least_two_providers` | `recipes/gpt-flash/bundle.json`, `seats.design.sequence.0`, first hires `{codex}` (`roster.rs:497`): the corresponding library-wide diversity obligation. |
-| `brokkr-runtime::witness_digests::pinned_bundles_keep_their_recorded_digest` | GPT/Flash actual `20b1ba158a6d1f71f07255ae8de383751596bdeba150c3308df094fb8fb133f5`, expected `2b6623f12af5f0209fd39c605d5c5c6ec82a52fc9a2456330619d10fe18928e4` (`witness_digests.rs:304`): roster/recipe witness reconciliation. |
+This seat delivered the requirement-linked breakdown for the five open findings.
+It preserved all fourteen local addresses, retained five completed first-hold
+clauses and reopened seven; nine local clauses now await implementation/proof.
+All 101 change-wide identifiers retain their 84/17 states, including 8.8.
+Production, tests, earlier specification/design artifacts and frozen surfaces
+are unchanged. The dated records below remain their original observations,
+not current completion claims or gate exceptions.
 
-Targeted commands are `cargo test -p brokkr-runtime --all-features --locked
---test gpt_flash_shape`, then the same options with `--test roster` and
-`--test witness_digests`. Their recorded failures still prevent a full green
-runtime or exact-coverage claim. Any new slice regression has no exemption.
+Fresh attempts are recorded in `.forge/tasks-second-hold-069caa79/gates.json`.
+Format, clippy, each of the seven crate suites, workspace tests and self-bundle
+compilation could not launch: **Cargo ENOENT, status 127** for each. Literal
+`bash scripts/coverage-exact.sh` exited **127** at line 33 for missing Cargo,
+before instrumentation. Fresh lines, branches and functions are each
+**N/A covered / N/A total (N/A%)**; structured counts are null. Historical
+31166/31166, 5214/5214 and 3008/3008 remain comparison data only. No Rust,
+coverage, differential or removal pass is claimed by this planning visit.
 
-### Tasks-phase validation — security-hold successor, 2026-09-20
+`openspec validate --all --strict` passes: **15 passed, 0 failed**. Strict
+active-change validation, artifact status and `git diff --check` also pass.
+The existing informational archive-target notices remain whole-change debt;
+this slice makes no archive-readiness claim. The byte/ledger audit confirms
+only `tasks.md` changed, all other 738 tracked files are byte-identical,
+all 133 checkbox addresses are retained (**105 checked / 28 unchecked**),
+and only the seven named local ticks reopened. Each local task names AS1
+and all current second-hold scenarios have explicit acceptance coverage.
+
+The tasks result is `drafted`: implementation,
+native Windows/default-Node evidence, all green suites and fresh host-capable
+exact coverage remain pending. No archive, provider probe, enablement, push
+or publication occurred.
+
+### Historical tasks-phase validation — first security hold, 2026-09-20
+
+The second-hold breakdown above supersedes this dated checkpoint's
+absent-PATH rule, runtime-failure disposition and coverage acceptance.
+Its attempts and counts remain historical observations only.
 
 This seat delivered the ordered, requirement-linked repair breakdown and the
 four precise outside-slice runtime dispositions. All 14 local clauses remain
@@ -1319,9 +1422,9 @@ saved for the phase commit.
       it, keep the wrapper and its capture marker, gate the planner
       separately and never substitute plain Claude to make resume
       work — safety / AS1, evidence / LE4.
-- [ ] 8.8 Current security-hold work is only (a)–(c), in the ordered
+- [ ] 8.8 Current second-security-hold work is only (a)–(c), in the ordered
       local groups 8.8.1–8.8.8 above; historical closure claims below do not
-      discharge its seven findings. The remaining text records whole-change
+      discharge its five findings. The remaining text records whole-change
       acceptance, including excluded (d), not this slice's execution order.
       After 1.1, 6.4, 11.5 and 13.1 establish the corrected disabled
       truth and 10.7's live half commits the adaptation, implement 10.3's
@@ -1420,8 +1523,9 @@ saved for the phase commit.
       package's `bin.dsh` script with the `#!/usr/bin/env node` first line;
       the core lock is only `<core root>/node_modules/.package-lock.json`, whose
       core entry carries the package's own version, with no root-lock fallback;
-      `node` is the first on the child environment's `PATH`, read by
-      `node --version`; only
+      `node` is selected by AO/D10's native child lookup, including the
+      native default search when PATH is absent; preflight its loader and
+      reuse that exact selection for `node --version`. Only
       `<home>/profiles/headless/package.json` supplies the profile manifest,
       with no search over other profiles, yielding `bundles` (a non-empty
       string array) and `patchReload` (`live` or `startup`); each listed bundle resolves by the
@@ -8827,6 +8931,10 @@ NOT the gate, which stays pending above.
   not change, so its sample stands. Nothing was pushed.
 
 ## Implement visit — the security hold answered by removal proof, 2026-09-20
+
+Historical first-hold account: its ticks, retained coverage and roster-failure
+disposition do not discharge the second hold. AN/AO and the current breakdown
+above govern; the removed roster commit supplies no current exemption.
 
 Run `dsh-composite-identity-issue-226-4437331e`, phase implement, on
 `slice-dsh-composite-b`. The branch this visit entered already carried
