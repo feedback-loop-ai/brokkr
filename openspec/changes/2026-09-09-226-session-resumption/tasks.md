@@ -2,12 +2,12 @@
 
 Current commission: **DSH COMPOSITE IDENTITY — fourth security hold**, run
 `dsh-composite-identity-issue-226-5e82d607`. Adopt every branch commit through
-`6b3c66b4`, including `314ed02b`, proposal AR/AS1 at `d9297641` and the
-fourth-hold D10 reconciliation. This tasks seat adopts the design return's
-fourteen local clauses, checks them against the current implementation and
-specification, and repairs execution order, requirement coverage and evidence
-ownership before implementation resumes. No `returned_from` finding was
-supplied; the commissioned chief R1 and adopted R2–R11 govern.
+`af0065a7`, including `314ed02b`, proposal AR/AS1 at `d9297641`, the
+fourth-hold D10 reconciliation and the ordered breakdown. This tasks return
+answers analyze finding **A1**: distinguish numbered task rows from all
+checkbox rows, including retained historical entries. Execution order,
+requirement coverage and evidence ownership remain as adopted; the
+commissioned chief R1 and adopted R2–R11 still govern implementation.
 The glibc-cwd controller record reconciles empty entries with absent-PATH
 native equality. Earlier dated task/delivery accounts below remain history,
 not current acceptance authority.
@@ -17,10 +17,12 @@ in order: lookup and doctor, interpreter/full matrix, syntax, preservation,
 then retained observations and full validation. Keep all fourteen addresses
 and their current **5 complete / 9 pending** states; all 101 change-wide
 identifiers retain **84 complete / 17 pending**. **8.8 stays unchecked**.
-This tasks visit changes no checkbox state. The complete file has **115
-checkboxes: 89 complete / 26 pending**, comprising those fourteen local and
-101 change-wide identifiers. Historical checks do not certify the new loop,
-cwd, separator, structure or outstanding independent proofs.
+This tasks visit changes no checkbox state. The **115 numbered task rows:
+89 complete / 26 pending** comprise those fourteen local and 101 change-wide
+identifiers. The complete file has **133 checkbox rows: 105 complete / 28
+pending**, including **18 retained historical rows: 16 complete / 2 pending**.
+Historical checks do not certify the new loop, cwd, separator, structure or
+outstanding independent proofs.
 
 Each local checkbox serves **safety / AS1 — Resume support is measured per
 adapter and execution shape**, in [the safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
@@ -554,6 +556,34 @@ perfect reports**, and **Digest acceptance is proved by removal without
 completing the planner**. Groups 1–7 and this group's ordered proof/gates are
 prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
+
+### Analyze-return repair — A1, 2026-09-21 (Europe/Sofia)
+
+This return adopts `af0065a7` and all its branch ancestry, including
+`314ed02b`, and answers the supplied analyze finding **A1 — LOW,
+INCONSISTENCY** in its owning artifact. The opening inventory now labels
+115 as numbered task rows (89 complete / 26 pending), distinct from the
+complete file's 133 checkbox rows (105 complete / 28 pending). The difference
+is 18 retained historical rows (16 complete / 2 pending). All checkbox rows,
+task identifiers, ticks, requirement coverage, execution order and earlier
+accounts remain unchanged. No upstream artifact amendment is needed.
+
+Fresh strict validation of this change and `openspec validate --all --strict`
+passed (15 items / 0 failures for all-item validation); the inventory,
+historical-byte preservation, frozen/excluded scope and whitespace checks
+passed. Format, clippy, all seven crate-scoped suites, both workspace suites,
+and self/verify bundle compilation were attempted and each exited 127:
+`cargo: command not found`. The unchanged exact-coverage command also exited
+127 at line 33's clean step; no Rust test, fresh instrumented build or report
+ran. Fresh covered/total lines, branches and functions are all **unavailable**
+(`null` on each axis). Commands, statuses and logs are retained under
+`.forge/tasks-a1-cf3c0ab9/`, outside the commit.
+
+Delivered here: the A1 inventory-scope repair only. The breakdown remains
+drafted; implementation, native/removal proofs and Rust/coverage gates remain
+pending under their existing owners. 8.8 stays unchecked, 0056 stays proposed,
+and the security hold remains open. Frozen/excluded surfaces are unchanged;
+no archive or push occurred.
 
 ### Historical fourth-hold disposition — design return, 2026-09-20
 
