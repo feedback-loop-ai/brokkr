@@ -44,9 +44,15 @@ pin, provider qualification or retained-home measurement is part of it.
 The whole-change archive/fold remains pending outside this partial slice.
 Notes record observations and outcomes without directions to judging offices.
 
+Implement visit of 2026-09-20, same run: twelve of the fourteen local clauses
+below are ticked on focused regressions plus compiling removal proofs;
+8.8.8.2 and 8.8.8.4 stay open on grounds named in
+[the implement account](#implement-visit--the-security-hold-answered-by-removal-proof-2026-09-20)
+at the foot of this file. 8.8 stays unchecked.
+
 ## 8.8.1. Refuse absent PATH before any doctor probe — HIGH S1
 
-- [ ] 8.8.1.1 Repair `DshSeams::{selected,selected_from,resolve}` and local
+- [x] 8.8.1.1 Repair `DshSeams::{selected,selected_from,resolve}` and local
   executable lookup in `crates/brokkr-protocol/src/adapters/composite.rs`,
   then the consuming `dsh_provider_line_with` and unavailable report in
   `crates/brokkr-cli/src/doctor.rs`. Return an outer executable-selection
@@ -62,7 +68,7 @@ Notes record observations and outcomes without directions to judging offices.
   A compiling restoration of discarded selection errors must fail the
   no-probe/reason assertions, then pass after exact restoration — safety / AS1.
 
-- [ ] 8.8.1.2 Add the real-child regression to
+- [x] 8.8.1.2 Add the real-child regression to
   `crates/brokkr-cli/tests/init_doctor.rs` or an adjacent focused CLI target.
   Launch the built binary by absolute path from a temporary cwd containing
   executable `dsh` that prints `SECURITY_CWD_SENTINEL_9f3`; use the shipped
@@ -84,7 +90,7 @@ precedes native-search repair; it is not just an `unwrap_or_default` edit.
 
 ## 8.8.2. Preserve native search failures and override precedence — finding 2
 
-- [ ] 8.8.2.1 Replace metadata/access booleans with local continuation,
+- [x] 8.8.2.1 Replace metadata/access booleans with local continuation,
   admitted-candidate and named-refusal outcomes. Preserve true-absence and
   proven ordinary non-executable/permission continuation; stop on ELOOP,
   unproved errors and failed canonicalization. Use bounded shebang inspection
@@ -97,7 +103,7 @@ precedes native-search repair; it is not just an `unwrap_or_default` edit.
   controls, using platform guards rather than inferring Windows support
   from Unix observations — safety / AS1.
 
-- [ ] 8.8.2.2 In real-child tests use PATH A:B and distinguishable B/dsh.
+- [x] 8.8.2.2 In real-child tests use PATH A:B and distinguishable B/dsh.
   Native lookup runs B after executable A/dsh with a missing interpreter;
   doctor deliberately refuses at A by missing-interpreter reason with
   neither binary probed. A self-symlink at A makes the native child fail
@@ -119,7 +125,7 @@ installation**. Dependency: 8.8.1's fallible selection and diagnostic carriage.
 
 ## 8.8.3. Validate pnpm syntax and scalar kind before decoding — finding 3
 
-- [ ] 8.8.3.1 Repair the existing bounded pnpm parser in `composite.rs`:
+- [x] 8.8.3.1 Repair the existing bounded pnpm parser in `composite.rs`:
   retain plain/quoted provenance until field-sensitive validation; require
   actual colon separation for admitted mappings; scan complete flow tokens
   with quote awareness. Reject `integrity:sha512-X` by missing-separation
@@ -145,7 +151,7 @@ Dependency: finish finding 2 before this independent parser repair.
 
 ## 8.8.4. Reject duplicate decoded package keys before normalization — finding 4
 
-- [ ] 8.8.4.1 Track admitted decoded package headings separately from the
+- [x] 8.8.4.1 Track admitted decoded package headings separately from the
   existing complete-triple set, before exclusions and normalization. In
   producer-facing locks reject identical repetitions, conflicting records
   in both orders, quoted/unquoted equivalent keys, and repeated excluded
@@ -161,7 +167,7 @@ normalization**. Dependency: 8.8.3's retained scalar/heading decoding.
 
 ## 8.8.5. Replace the competing test serializer — finding 5
 
-- [ ] 8.8.5.1 Replace the loop/hash oracle in
+- [x] 8.8.5.1 Replace the loop/hash oracle in
   `the_plugin_component_is_bytewise_path_order_and_fails_closed` with a
   literal recorded from the existing sole production producer. Record its
   producing revision and exact synthetic input: each of the six required
@@ -173,7 +179,7 @@ normalization**. Dependency: 8.8.3's retained scalar/heading decoding.
   mutation and observe the pinned expectation fail, then restore and pass
   the focused component and canonical suites — safety / AS1.
 
-- [ ] 8.8.5.2 Add D10's focused source-conformance assertion in the existing
+- [x] 8.8.5.2 Add D10's focused source-conformance assertion in the existing
   test surface. It detects restoration of the known competing serialization
   and concatenation-hash block without rejecting legitimate per-file hashing.
   Restore that exact test oracle in a compiling mutation: the conformance
@@ -187,7 +193,7 @@ Dependency: findings 1–4 restored; the expectation is observed, never guessed.
 
 ## 8.8.6. Escape the unavailable binary and retained reason — LOW S2
 
-- [ ] 8.8.6.1 Apply the existing `Safe` at final rendering of the unavailable
+- [x] 8.8.6.1 Apply the existing `Safe` at final rendering of the unavailable
   binary and retained selection cause in `doctor.rs`, leaving lookup/probe
   inputs unescaped. A built-doctor test uses a nonexistent explicit override
   containing a newline and ANSI clear-screen sequence; assert the recognizable
@@ -202,7 +208,7 @@ through doctor**. Dependency: 8.8.1's unavailable-diagnostic cause carriage.
 
 ## 8.8.7. Name the missing manifest at exhausted bundle lookup — finding 7
 
-- [ ] 8.8.7.1 Enrich only exhausted `resolve_bundle` lookup with
+- [x] 8.8.7.1 Enrich only exhausted `resolve_bundle` lookup with
   `bundle 'dsh-plugin-cli-session' does not resolve: no package.json found`
   (use the actual bundle name generally). Remove only the installed plugin
   `package.json` in an otherwise complete temporary layout with no later
@@ -218,7 +224,7 @@ Dependency: findings 1–6; frozen extension bytes are never the removal target.
 
 ## 8.8.8. Verify restored repairs and record bounded delivery
 
-- [ ] 8.8.8.1 Consolidate each finding's removal evidence in this task account
+- [x] 8.8.8.1 Consolidate each finding's removal evidence in this task account
   or referenced run-local records: exact revision/mutation, command, nonzero
   test count, intended assertion/reason failure, exact restoration and
   passing rerun. Include S1's sentinel failure and F3's source-conformance
@@ -245,7 +251,7 @@ Dependency: findings 1–6; frozen extension bytes are never the removal target.
   This gate checkbox remains open while its required checks fail or cannot
   run — safety / AS1.
 
-- [ ] 8.8.8.3 Execute literal `bash scripts/coverage-exact.sh` or D11's
+- [x] 8.8.8.3 Execute literal `bash scripts/coverage-exact.sh` or D11's
   equivalent exact gate on the restored candidate. Preserve
   `rust-nightly-version.txt`, isolated clean instrumentation, all production
   sources, existing test-source exclusion and LCOV integer accounting.
@@ -8819,3 +8825,210 @@ NOT the gate, which stays pending above.
   `policy/schemas/`, `fixtures/`, `reference/` and every byte under
   `extensions/dsh/` are untouched. The guide's composite vocabulary did
   not change, so its sample stands. Nothing was pushed.
+
+## Implement visit — the security hold answered by removal proof, 2026-09-20
+
+Run `dsh-composite-identity-issue-226-4437331e`, phase implement, on
+`slice-dsh-composite-b`. The branch this visit entered already carried
+`d54a9f7b` — this run's implement commit answering the seven findings of
+run `26def5a5`'s third review sitting — and one uncommitted test in
+`crates/brokkr-cli/tests/doctor_dsh_selection.rs`. Both were read, adopted
+and verified rather than redone; the controller's reproduction record
+(`.forge/tasks/controller-s1-reproduction-2026-09-20.json`) was read first.
+This visit added the removal proofs the breakdown asks for, closed the four
+coverage misses the exact rule found in `composite.rs`, ran every gate this
+seat can launch, and wrote this account. **8.8 stays unchecked**; part (d),
+8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 were not touched. The 101
+change-wide identifiers remain **84 complete / 17 pending**; the ticks below
+are the local 8.8.x.x clauses only.
+
+### What each finding cost, in production (adopted at `d54a9f7b`)
+
+| # | Finding | Repair in the delivered bytes |
+|---|---------|-------------------------------|
+| 1 | HIGH S1 | `resolve_executable_in` refuses a `None` `PATH` with `'<command>': PATH is absent` before any split; a present-empty `PATH` keeps its one-empty-entry cwd meaning. `DshSeams::selected` is fallible: `Ok(DshSelection { executable, seams })` only when a file was selected, `Err(DshUnselected { declared, cause })` otherwise. `dsh_provider_line_with` matches that result BEFORE probing; a failed selection returns the declared spelling and the cause and spawns nothing. |
+| 2 | MEDIUM correctness (3) / adversarial F1 | `classify_candidate` yields `Passed` only for ENOENT/EACCES/non-file/non-executable, `Refused` for a symlink loop, an unproved metadata error, a failed canonicalization and — via a bounded `#!` head read — a missing, non-absolute, non-executable, empty, NUL-carrying or unterminated interpreter. An explicit override takes the same checks with no next entry. |
+| 3 | MEDIUM correctness (1) / spec F1 | pnpm scalars keep plain/quoted provenance; a flow field needs `: ` separation; a plain flow value may not carry `[ ] { } ,`; a plain `integrity` that the YAML core schema reads as null, boolean or number refuses by field, spelling and kind. |
+| 4 | MEDIUM correctness (2) / adversarial F2 / spec F2 | a decoded `packages:` heading is a singleton, checked before exclusion or triple normalization: `a repeated package key '<key>'`. |
+| 5 | MEDIUM spec F3 | the plugin-component test compares to a literal recorded from the sole producer; `no_test_reassembles_the_component_stream` reads the test source and refuses the competing block. |
+| 6 | LOW S2 | the unavailable line renders the binary and the retained cause through `Safe` at their only interpolation. |
+| 7 | LOW spec F4 | exhausted `resolve_bundle` lookup reads `bundle '<name>' does not resolve: no package.json found`; lookup order and containment unchanged. |
+
+### What this visit changed on top of `d54a9f7b`
+
+- `crates/brokkr-cli/tests/doctor_dsh_selection.rs`:
+  `a_native_image_on_path_is_selected_as_the_child_selects_it` — the
+  native-image half of the platform-native controls (a symlink to the built
+  `brokkr` binary on `PATH`; doctor's line carries the native child's own
+  first line). Adopted from the uncommitted tree; passes.
+- `composite.rs`: `DshSeams::resolve` now delegates to a private
+  `resolved(selection)` seam, and `dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one`
+  drives both arms with injected selections (`'dsh': PATH is absent` comes
+  back as the layout's refusal; a selection is its seams either way the home
+  went). The failed-selection arm of `resolve` had no test reaching it.
+- `composite.rs`: `interpreter_obstruction` reads the head with
+  `File::open(..).and_then(|file| file.take(SHEBANG_BOUND).read_to_end(..))`,
+  one `cannot be read: <error>` reason for open and read alike. The separate
+  read-after-open failure arm had no deterministic trigger (a regular,
+  executable file that opens and then fails to read).
+- `composite.rs`: `classify_candidate` ends in
+  `canonicalize(candidate).map_or_else(Candidate::Refused, Candidate::Admitted)`.
+  The canonicalization refusal is unchanged in behaviour and reason; no test
+  reaches a candidate that passes metadata, access and head inspection and
+  still cannot be canonicalized, and none was invented.
+- `composite/tests.rs`: `the_producer_refuses_a_bare_executable_spelling`
+  asserts a backslash-only spelling (`missing\dsh`) is an explicit path
+  refused by what the lookup found, the one untaken branch of
+  `selected_executable`.
+
+No delta, requirement, scenario, guide, decision or frozen byte moved. The
+provider guide's two doctor samples (the LaneTally unavailable line and the
+DSH composite line) are unaffected: the `: <cause>` suffix appears only when
+a DSH selection itself failed.
+
+### Removal proofs, M1–M12
+
+Method: a detached scratch worktree of `HEAD` under the ignored `.forge/`
+(`git worktree add --detach .forge/mut HEAD`, the uncommitted test copied
+in), so no mutation ever raced a build in the candidate tree; each mutation
+applied alone, its focused test run, then undone by exact restoration. After
+this visit's coverage edits the scratch worktree was synced to the candidate
+sources and M1, M3 and M4 — the mutations inside the functions those edits
+touched — were run again with the same failures. Every failure below is the
+intended assertion or the named `was accepted` panic of `refused_vector`;
+every restored rerun is green in the final gates table. Line numbers are the
+test files' at the moment of the run; logs are run-local under
+`.forge/implement-4437331e/removal-M*.txt`.
+
+| # | Finding | Production mutation (compiling) | Test | Failure observed |
+|---|---------|--------------------------------|------|------------------|
+| M1 | S1 | `resolve_executable_in`: `let path = path.unwrap_or_default();` in place of the `None` refusal — the inherited pre-fix path | `absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel` (built binary) | `doctor_dsh_selection.rs:156` "doctor executed the cwd dsh under an absent PATH": the report's line read `ok       dsh: SECURITY_CWD_SENTINEL_9f3 · serves … · composite unreadable: the DSH layout is unreadable: 'node' is not on PATH (no declared wrapper_digest)` — the controller's observation, reproduced by the test's FIRST assertion. Same failure on the candidate bytes. |
+| M1 | S1 | same | `an_absent_path_is_a_named_refusal_and_never_the_working_directory` | `left: "…'dsh' is not on PATH"` vs `right: "…'dsh': PATH is absent"` |
+| M2 | S1 | `dsh_provider_line_with`: the `Err(DshUnselected)` arm hands `(declared, Err(cause))` on to the probe — the inherited discarded-error arrangement | `doctor::tests::a_failed_selection_probes_nothing_and_carries_its_cause` | panic at `doctor/tests.rs:2687` "a probe of 'dsh' after a failed selection" (the no-probe assertion) |
+| M2 | S1 | same | `absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel` | `:161` "the refusal names the absent PATH": the line read `warn     dsh: binary 'dsh' not found — seats resolving…` with no cause; the sentinel stayed unexecuted because M1 was restored |
+| M3 | 2 | `classify_candidate`: `let _ = interpreter_obstruction(candidate);` — metadata-only selection | `an_obstructed_path_search_takes_the_explicit_safe_refusal` (built binary) | `:239`: doctor selected and probed `A/dsh` (`warn     dsh: binary '…/a/dsh' not found — …`) instead of refusing by `its #! interpreter '…' is missing`. Same on the candidate bytes. |
+| M3 | 2 | same | `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable` | `tests.rs:96` "expected a refusal" at the missing-interpreter arm |
+| M4 | 2 | `classify_candidate`: the ELOOP arm returns `Candidate::Passed(error.to_string())` — the inherited error-erasing continuation | `an_obstructed_path_search_takes_the_explicit_safe_refusal` | `:256`: B executed past the loop — `ok       dsh: DSH_B_SENTINEL_0.0.0-b · serves …`. Same on the candidate bytes. |
+| M4 | 2 | same | `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable` | `tests.rs:96` "expected a refusal" at the self-symlink arm |
+| M5 | 3 | `pnpm_flow_map`: the `rest.starts_with(' ')` separation check removed | `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` | `"{integrity:sha512-X}" was accepted` |
+| M6 | 3 | `pnpm_flow_map`: the plain-value `[ ] { } ,` check removed | same | `"{integrity: sha512-X[one]}" was accepted` |
+| M7 | 3 | `pnpm_flow_map`: the `typed_plain_scalar` refusal for `integrity` removed | `pnpm_identity_strings_preserve_the_distinction_from_typed_scalars` | `"null" was accepted` |
+| M8 | 4 | `pnpm_dependencies`: `seen_packages.insert` no longer refuses a repeat | `duplicate_decoded_pnpm_package_keys_refuse_before_triple_normalization` | `"identical" was accepted` — the identical repeat vanished into the triple set again |
+| M9 | 5 | `component_digest` iterates `digests.iter().rev()` | `the_plugin_component_is_bytewise_path_order_and_fails_closed` | `:676` "the producer's recorded output over the synthetic six-file set": `left: "f193cd95…"` vs `right: "8894f23e…"` |
+| M10 | 5 | TEST mutation: the inherited `lines.push('\0')` / `digest_of(lines.as_bytes())` oracle restored verbatim from `ab2d8e1d` beside the literal | `the_plugin_component_is_bytewise_path_order_and_fails_closed` AND `no_test_reassembles_the_component_stream` in one run | the component test **passed** (runtime equality holds); the conformance test failed at `tests.rs:2226`: "tests.rs:686 pushes a NUL separator: a test that serializes the component stream is a second producer" |
+| M11 | S2 | `probe_providers`: `Safe` dropped from both interpolations of the unavailable line | `a_nonexistent_override_cannot_inject_terminal_control_bytes_through_doctor` (built binary) | `:385` "a raw escape byte reached stdout" |
+| M11 | S2 | same | `doctor::tests::the_unavailable_line_escapes_the_binary_and_the_selection_cause` | `:2767`: the raw newline split the line — `warn     dsh: binary '/tmp/x` |
+| M12 | 7 | `resolve_bundle`: exhausted lookup reads `bundle '<name>' does not resolve` | `removing_only_the_plugin_manifest_names_the_drifted_file` (producer) | `:2613`: `left: "…does not resolve"` vs `right: "…does not resolve: no package.json found"` |
+| M12 | 7 | same | `removing_only_the_plugin_manifest_names_the_drifted_file` (built binary) | `:490` "the bundle and the file": `… composite unreadable: the DSH layout is unreadable: bundle 'dsh-plugin-cli-session' does not resolve (no declared wrapper_digest)` |
+
+The real-child controls the breakdown asks for are in the tests themselves
+and were exercised on every run: `Command::new("dsh")` under the same cwd
+with no `PATH` returns `NotFound`; under `PATH=A:B` the native child runs B
+past a missing-interpreter A and stops with ELOOP at a self-symlinked A;
+explicit `/usr/bin:/bin`, a present `PATH` naming one empty directory, and
+the sentinel removed with `PATH` still absent are the retained controls;
+primary/legacy/`PATH` precedence, an absolute override with no `PATH`, and a
+failed override beside a usable decoy are asserted by version sentinel. The
+scratch worktree was removed after M4's restoration was verified equal to
+the candidate.
+
+### Gates, on the candidate bytes
+
+| Gate | Result |
+|------|--------|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `git diff --check` | clean |
+| `cargo test -p brokkr-core --all-features --locked --no-fail-fast` | ok (73 lib + 4 binaries) |
+| `cargo test -p brokkr-store --all-features --locked --no-fail-fast` | ok (58 lib + 6 binaries) |
+| `cargo test -p brokkr-protocol --all-features --locked --no-fail-fast` | ok: 357 lib, 99 integration (2 ignored), 1 doctest; 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked --no-fail-fast` | 441 lib ok, 21 binaries ok, **3 binaries failed on the four recorded tests below**; nothing else |
+| `cargo test -p brokkr-view --all-features --locked --no-fail-fast` | ok (243 lib, 3 ignored) |
+| `cargo test -p brokkr-bridge --all-features --locked --no-fail-fast` | ok (13) |
+| `cargo test -p brokkr-cli --all-features --locked --no-fail-fast` | ok: 463 lib, 31 binaries incl. `doctor_dsh_selection` (6), 0 failed |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | compiles (digest `1dd39826…`) |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | compiles (digest `0ce86285…`) |
+| `openspec validate --all --strict` | **NOT RUN from this seat**: both `openspec` and its full path require an approval this non-interactive seat cannot grant. The last recorded run on this change is the analyze seat's on `5a160542` (15 passed, 0 failed); under `openspec/` this visit changed only twelve `[ ]`→`[x]` ticks, one pointer paragraph and this account in `tasks.md`. |
+| `bash scripts/coverage-exact.sh` | **NOT RUN literally**: script launches are refused in this seat; the script would also have exited at the runtime failures before writing a report, and its `$TMPDIR` default is this host's 31 GiB tmpfs. The D11 equivalent below was run instead. |
+
+The four runtime failures were rerun three times this visit — the first
+crate gate, the final crate gate and inside the instrumented run — with
+byte-identical assertions, and none touches a file this slice reads or
+writes; their disposition is the roster/recipe table earlier in this file.
+
+| Fully qualified test | Failure this visit observed |
+|---|---|
+| `brokkr-runtime::gpt_flash_shape::sol_rules_specification_and_planning` | `gpt_flash_shape.rs:100`: analyze:judge `left: Some("astra")` vs `right: Some("sol")` |
+| `brokkr-runtime::gpt_flash_shape::every_strategy_reviews_with_a_mixed_panel_before_the_astra_chief` | `gpt_flash_shape.rs:241`: chore panel `left: {"codex"}` vs `right: {"codex", "dsh"}` |
+| `brokkr-runtime::roster::every_shipped_panel_seats_at_least_two_providers` | `roster.rs:497`: `recipes/gpt-flash/bundle.json` `seats.design.sequence.0` first hires `{"codex"}` |
+| `brokkr-runtime::witness_digests::pinned_bundles_keep_their_recorded_digest` | `witness_digests.rs:304`: gpt-flash manifest digest `20b1ba15…` vs pinned `2b6623f1…` |
+
+### Exact coverage — D11's equivalent, literal integers
+
+Commands, in order, on the candidate bytes with the pinned compiler:
+
+1. `cargo +nightly-2026-09-05 llvm-cov clean --workspace` — the script's own
+   clean, so no earlier instrumented executable joins the merge.
+2. `cargo +nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch --ignore-run-fail --json --output-path <run-local>/coverage-exact-final.json`
+   — the complete workspace suite, 67 test binaries, every test run; the
+   four runtime failures above fail inside it and are not skipped;
+   `--ignore-run-fail` only keeps the report from being abandoned.
+3. `cargo +nightly-2026-09-05 llvm-cov report --branch --lcov --output-path <run-local>/lcov-final.info`.
+4. The script's counting rule applied record by record — every `DA` and
+   `BRDA` hit, every logical function (file plus `FN` start line, any
+   positive compiled instance) hit — by a run-local Rust program under
+   `.forge/implement-4437331e/lcovtool/`, because this seat refuses `awk`,
+   `python3` and script launches; the rule is the script's, transcribed.
+   Harness-source check: 52 `SF` records, none matching
+   `(^|/)(tests\.rs|[^/]+_tests\.rs|tests/)`.
+
+Two departures from the literal script, both named: the instrumented target
+is the default `target/llvm-cov-target` after the clean rather than a fresh
+`$TMPDIR` directory (this seat cannot set environment variables on a
+command, and the tmpfs default is the hazard the D11 note warns of), and
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE` was not set for the same reason. The
+totals below are exact regardless, so no production record depended on a
+boundary proof that skipped.
+
+| Pass | Lines | Branches | Functions | Misses |
+|------|-------|----------|-----------|--------|
+| First, on `d54a9f7b` + the adopted test | **31,164 / 31,167** (99.9904%) | **5,215 / 5,216** (99.9808%) | **3,006 / 3,006** (100%) | all in `composite.rs`: `DA 1101` (`resolve`'s unselected arm), `DA 1384` (post-admission canonicalize failure), `DA 1418` (read failure after a successful open), `BRDA 1536 block 1 branch 3` (backslash-only spelling in `selected_executable`) |
+| Final, on the candidate | **31,166 / 31,166 (100%)** | **5,214 / 5,214 (100%)** | **3,008 / 3,008 (100%)** | none |
+
+The report's JSON and LCOV, both passes' logs and the evaluator are run-local
+under `.forge/implement-4437331e/`; nothing under `.forge/` is read by any
+build or test. Final-head remote CI, including the workflow's own
+`coverage-exact` job on a namespace-capable runner, remains pending until it
+exists.
+
+### Clauses: ticked, and left open with the reason
+
+Ticked on focused regression plus removal proof: 8.8.1.1 (M1 unit, M2),
+8.8.1.2 (M1 sentinel), 8.8.2.1 (M3, M4), 8.8.2.2 (real-child controls),
+8.8.3.1 (M5, M6, M7), 8.8.4.1 (M8), 8.8.5.1 (M9), 8.8.5.2 (M10), 8.8.6.1
+(M11), 8.8.7.1 (M12), 8.8.8.1 (this consolidation; `git status` shows only
+the three code files and this file changed, no frozen path), 8.8.8.3 (the
+exact totals above).
+
+Left open: **8.8.8.2**, because two of its required checks did not pass in
+this seat — `openspec validate --all --strict` could not be launched and
+`cargo test -p brokkr-runtime` exits nonzero on the four outside-slice
+failures; and **8.8.8.4**, because it is complete only with 8.8.8.2 proved.
+The work is committed all the same (message style `dsh:` for code and
+`tasks:` for this account), never pushed.
+
+### Still not delivered, and named
+
+- **Part (d)**, the planner, was not started, planned or touched; the
+  planner's two call sites are unchanged.
+- **8.10**'s rejection-vector ledger; **9.6**; **10.6–10.8** (including
+  10.7's retained-home doctor recording); **11.1–11.4**; groups **14–15**.
+- `openspec validate --all --strict` on this head from a seat that can
+  launch it; the roster/recipe reconciliation that owns the four runtime
+  failures; final-head remote CI and the namespace-capable coverage job.
+- No `wrapper_digest` was declared, no shape moved to `supported`, the DSH
+  route stays disabled and unmeasured for admission, and decision 0056
+  keeps its `proposed` status. `contracts/`, `policy/phase-machine.json`,
+  `policy/schemas/`, `fixtures/`, `reference/`, `extensions/dsh/` and
+  `docs/decisions/` have no diff. The active change is not archived.
+  Nothing was pushed.
