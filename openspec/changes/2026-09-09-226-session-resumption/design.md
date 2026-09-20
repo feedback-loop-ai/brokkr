@@ -3,12 +3,16 @@
 Current commission: **DSH COMPOSITE IDENTITY — third security hold**, run
 `dsh-composite-identity-issue-226-efb3360b`. Adopt change
 `2026-09-09-226-session-resumption` and the entire ancestry of
-`slice-dsh-composite-b` at `faa24d3fa529d65a2059e1dbc7b586b9dd560d65`.
-See proposal AP and safety requirement AS1 for the accepted R1–R7 findings.
-Clarify is `clear`; this run supplies no separate `returned_from` fact. The
-commission's third-hold R1 and remaining council findings are answered below.
-AP/AS1 already own the required behavior; no earlier requirement fault warrants
-an `upstream` result. This is a design checkpoint, not hold clearance.
+`slice-dsh-composite-b` at `72c1d9584f32c8f9bc6347b0214fb9586e950a24`,
+including design `aeb92115`, tasks `b30c69ff` and specification return `72c1d958`.
+See proposal AO/AP/AQ and safety requirement AS1 for the accepted behavior.
+`returned_from` is clarification's **clear** result at this head: its review
+found no remaining ambiguity and distinguished specification clearance from
+unperformed repairs, native/removal proofs, exact coverage and remote results.
+Accept that distinction explicitly. AQ already answered analyze A1's command-
+ownership defect in the proposal and owning scenarios; D10 below preserves
+that answer. No new upstream fault is established. This is a design return,
+not security-hold clearance.
 
 The controller directly measured 5000-byte continuation and ENOENT/ENOTDIR
 controls. The latest review chief additionally measured terminal
@@ -47,11 +51,14 @@ The dialect's design/return instructions and rendered
 `openspec instructions design --change 2026-09-09-226-session-resumption --json`
 name **design.md** as this phase's sole tracked artifact. Amend Context,
 D6/D10/D11, risks, migration and questions in dependency order and commit exactly
-that artifact. AP already supersedes conflicting task clauses. D10 maps their
-next tasks-phase amendments under the existing addresses; historical ticks
-cannot certify third-hold obligations. Run-local validation/result records are
-not committed. The old dated sittings remain history, subject to this sitting
-for current selection, syntax and proof requirements.
+that artifact. The adopted task plan already incorporates D10's fourteen
+local clauses and reopens the affected completion claims; D10 records the
+coherence audit under their existing addresses. No new ambiguity, acceptance
+scenario or dependent-artifact amendment is needed for this return. AQ keeps
+concrete delivery commands in planning; historical ticks cannot certify
+third-hold obligations. Run-local validation/result records are not committed.
+The old dated sittings remain history, subject to this sitting for current
+selection, syntax and proof requirements.
 
 Only 8.8(a)–(c) are commissioned. Production repairs, native oracle/removal
 executions, full green candidate gates and literal exact coverage remain owed.
@@ -2265,21 +2272,33 @@ tracked artifact to its exact subject head.
 
 ### D10 — Proposed 0056 and explicit council reconciliation
 
-#### Third security-hold sitting — 2026-09-20, adopted `faa24d3f`
+#### Third security-hold return — 2026-09-20, adopted `72c1d958`
 
-AP and AS1 govern this sitting and supersede conflicting earlier selection,
-parser and proof statements. Both complete run-local positions were read:
+Preserve the third-hold design at `aeb92115`, the reconciled task plan at
+`b30c69ff`, and AQ at `72c1d958`. AO/AP/AS1 govern selection, syntax and proof;
+AQ governs validation-command ownership. Both fresh positions against this
+adopted head were read in full and reconciled below, replacing their earlier
+run-local content pins without replacing settled design choices:
 
 - Robustness, `.forge/design/positions/robustness.md`, SHA-256
-  `f5b6c984beecb23f7018f709222ad2e6c25e270f9ebb6fc5a44a078731128fda`.
+  `d85f03b47c17a87959e58071e290f70ce7058106e47e970404c2a9244842835a`.
 - Simplicity, `.forge/design/positions/simplicity.md`, SHA-256
-  `2fb683ea7a4fb3a1a46069d45907406de7b710fc346a8aebbdb999ba235dd767`.
+  `a1d60d2a7a02732a735086e427b82377781b70e43af3958166184f41e046eb6f`.
 
 The ENAMETOOLONG controller record, prior S1/S1b and absent-PATH/ELOOP
-records, third-hold and preceding task notes, latest chief/security/correctness
-results at `9e0a2104`, prior chief at `d0d606f3`, current task delivery account
-and affected Rust/tests were read. Source findings and attributed executions
-are distinct. Neither council prose nor an inherited pass instructs a gate.
+records, third-hold and preceding task notes, latest chief result `9e0a2104`
+with its attributed security/correctness findings, current task delivery account,
+proposal AO/AP/AQ, AS1 and affected Rust/tests were read. Source inspection
+confirms the remaining defects; no native execution or mutation is claimed.
+Neither council prose nor an inherited pass instructs a gate.
+
+**Returned clarification:** accept `clear` without treating it as delivery
+acceptance. The owning AS1 scenarios already encode all six length boundaries,
+per-cell oracles, aliases, ignored syntax, retained Node/head and truthful
+coverage/platform evidence. AQ's two amended evidence scenarios resolve A1;
+restoring the concrete command checklist to them would recreate the defect.
+The archive-target notices retain their whole-change, non-archiving disposition.
+No earlier artifact needs repair, so this return is `drafted`, not `upstream`.
 
 **Council reconciliation:**
 
@@ -2294,6 +2313,7 @@ are distinct. Neither council prose nor an inherited pass instructs a gate.
 | Robustness R6: oracle outcome required for every cell, inventory counted; simplicity: expand existing harness, no replacement framework. | Combine. Keep existing named tests and isolated children. A comparison helper accepts only a completed native outcome; the independent executed-cell inventory catches early returns and missing oracles. D10 exceptions and unmet prerequisites never inflate equality counts. |
 | Robustness R7 and simplicity's proof table: independent compiling removals and full candidate gates. | Adopt all independent obligations below; select one name for each proposed new test to avoid duplicate suites. Exact coverage and native executions remain necessary even when local source and tests look sound. |
 | Both: preserve existing types, fixed identity inputs, closed loader, one producer, observation limits and scope. | Adopt. These findings need no persisted/wire member, installation, public resolver, snapshot, cache, loader emulator, trial execution, dependency, provider qualification or decision edit. Proposed 0056 remains proposed. |
+| Both: preserve AP/AQ and the already reconciled task plan; simplicity rejects another command checklist in AS1. | Adopt. AQ and the clarified evidence scenarios settle ownership without waiving any gate. Keep commands in D11/tasks 8.8.8.2–8.8.8.3, preserve existing task states, and audit dependencies rather than restart their authoring. |
 
 **1. Construction, lookup and loading are separate decisions (R1).**
 
@@ -2499,8 +2519,8 @@ Check forbidden markers before a later composite refusal can hide execution.
 |---|---|
 | Restore blanket ENAMETOOLONG continuation | Matrix/classifier above and new built-doctor `terminal_path_lengths_refuse_before_doctor_probe`: 256/300/4095 fail exact terminal cause or zero-B-marker assertion. |
 | Remove native pre-buffer skip | Matrix/classifier: 4096/5000 fail exact native B identity. This is separate from terminal continuation. |
-| Erase access errors or terminal/exhaustion precedence | Candidate classifier: the operation/cause or denial-before-terminal assertion fails, not a generic no-match. Synthetic rare-errno checks remain supplemental. |
-| Restore wrong-target defaults/ELOOP | `each_platforms_absent_path_search_is_its_own_loaders_rule`, native matrix, `apple_default_search_excludes_confstr_only_directories`, `an_obstructed_path_search_takes_the_explicit_safe_refusal`: target-specific order/identity/cause fails. Table and native evidence are separate. |
+| Erase access errors; separately erase terminal/exhaustion precedence | Candidate classifier: the operation/cause or denial-before-terminal assertion fails, not a generic no-match. Synthetic rare-errno checks remain supplemental. |
+| Restore wrong-target defaults; separately restore wrong-target ELOOP | `each_platforms_absent_path_search_is_its_own_loaders_rule`, native matrix, `apple_default_search_excludes_confstr_only_directories`, `an_obstructed_path_search_takes_the_explicit_safe_refusal`: target-specific order/identity/cause fails. Table and native evidence are separate. |
 | Restore absent-as-empty or either Unix backslash classifier | `absent_path_refuses_before_doctor_can_execute_a_cwd_sentinel`, `unix_backslash_names_follow_native_lookup_before_doctor_probe`: forbidden cwd marker/identity fails. |
 | Restore spelled/canonical-basename env admission | Protocol/doctor `an_env_argument_is_selected_as_the_kernel_hands_it_to_env`: hard-link alias loses named A/node obstruction or creates forbidden markers. Retain symlink and removed-A controls. |
 | Restore empty-member elision or ignored-body bypass, separately; bypass each prior scalar guard separately | `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`, `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`: corresponding field/body/cause or unreadability assertion fails; preserve valid controls. |
@@ -2514,7 +2534,8 @@ each requested fixture removal has its own fresh native oracle.
 
 **7. Evidence and dependent-artifact disposition (R6/R7).**
 
-D11 owns the exact commands and integer gate. The chief's failed
+AQ leaves the exact commands and integer gate in D11 and tasks 8.8.8.2–8.8.8.3;
+AS1 owns behavior and evidence semantics. The chief's failed
 31672/31848 lines, 5352/5366 branches and 3078/3088 functions at `8668aebc`,
 exit 1, remain attributed history. The retained perfect report is not a fresh
 pass; neither report is a measurement made by this design seat. Missing reports
@@ -2522,19 +2543,22 @@ have unavailable totals, not fabricated zeroes. Windows/macOS/MSRV, actual
 absent-PATH retained-Node positives/removals, capable-host coverage and final-head
 remote CI each remain pending until their own candidate-bound results exist.
 
-No new ambiguity requires an AS1 amendment: AP's owning scenarios already cover
-all answers above. This design phase changes only its declared `design.md`.
-The next tasks artifact must apply this reconciliation before implementation,
-retaining existing addresses and global states. AP/D10 supersede the earlier
-current task claims; they are not alternative instructions or current passes.
+No new ambiguity requires an AS1 amendment: AP/AQ's owning scenarios already
+cover all answers above. This design phase changes only its declared `design.md`.
+Read the current task clauses and R1–R7/F1–F9 reconciliation at `b30c69ff`:
+they already implement the earlier D10 handoff and agree with both fresh
+positions. Keep the fourteen local addresses (five complete, nine pending)
+and all 101 change-wide states (84 complete, 17 pending). No dependent task
+edit or duplicate breakdown follows. Earlier delivery claims remain expressly
+historical, not alternative instructions or current passes.
 
-| Task owner | Required amendment under the existing address |
+| Task owner | Existing coherent acceptance, retained on this return |
 |---|---|
-| 8.8.1.1–8.8.1.2 | Reopen affected lookup completion for R1/R2; exact buffer/errno/default rules, S1/S1b, Apple discriminator and actual retained-Node positive/removals. |
+| 8.8.1.1–8.8.1.2 | Affected lookup completion is reopened for R1/R2; exact buffer/errno/default rules, S1/S1b, Apple discriminator and actual retained-Node positive/removals. |
 | 8.8.2.1–8.8.2.2 | Actual env identity/invocation (R3), retained-head preservation, every-cell oracle inventory, all length/name/removal cells and source/native distinctions. Keep bounded loading and native target evidence pending where unrun. |
-| 8.8.3.1 | Reopen syntax completion for R4; include ignored bodies, empty-member positions and all positive/negative vectors, preserving separator/NBSP repairs. |
+| 8.8.3.1 | Syntax completion is reopened for R4; include ignored bodies, empty-member positions and all positive/negative vectors, preserving separator/NBSP repairs. |
 | 8.8.4–8.8.7 | Preserve completed duplicate-key, sole-producer, diagnostics and missing-manifest obligations; no reimplementation without a demonstrated defect. |
-| 8.8.8.1–8.8.8.4 and current F1–F9 account | Reconcile R1–R7 individually. Withdraw blanket F1 continuation/closure, all-BSD defaults, basename-identity and banner-equals-retained-Node claims. Preserve dated executions as history and record only actual current commands/removals/counts. Full gates, native execution and coverage remain pending/failed until measured. |
+| 8.8.8.1–8.8.8.4 and current R1–R7/F1–F9 account | R1–R7 are individually reconciled. Blanket F1 continuation/closure, all-BSD defaults, basename identity and banner-equals-retained-Node claims are withdrawn. Dated executions remain history; only actual current commands/removals/counts supply evidence. Full gates, native execution and coverage remain pending/failed until measured. |
 
 Global 8.8 stays unchecked. Parts (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and
 groups 14–15, qualification/recording, enablement, publication and channel work
@@ -4718,11 +4742,14 @@ the supplied record even after this assertion subset passes.
 
 ### D11 — Verify transitions and trace every requirement
 
-For the current **third** DSH security hold, AP/AS1 and D10 bind R1–R7
+For the current **third** DSH security hold, AP/AQ, AS1 and D10 bind R1–R7
 and preserved earlier repairs to existing protocol/doctor suites and the named
 native/removal proofs. Source coverage cannot prove the matrix complete: the
 same ENAMETOOLONG arm can be covered by 5000 bytes while mishandling 300.
 Oracle, removal, native-platform and exact coverage evidence are all required.
+Under AQ, this section and tasks 8.8.8.2–8.8.8.3 own the concrete commands;
+AS1's evidence scenarios retain their capability-level meaning. Their removal
+of duplicated command spellings changes neither this checklist nor its gate.
 
 On the actual restored candidate run:
 
@@ -4803,7 +4830,7 @@ not discharge whole-change enablement, C/D or archived provenance acceptance.
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 187 scenarios; `adapter-launch-evidence` 32, `adapter-resume-safety` 91, `boundary-record` 11, `sdd-progress-markers` 20, `site-session-resumption` 33.
+The current five deltas contain 20 requirements and 207 scenarios; `adapter-launch-evidence` 32, `adapter-resume-safety` 111, `boundary-record` 11, `sdd-progress-markers` 20, `site-session-resumption` 33. This return recounts the unchanged deltas; it authors no new requirement or scenario.
 The earlier AC inventory below is dated history: 20 requirements and 165 scenarios:
 `adapter-launch-evidence` 32 + `adapter-resume-safety` 69 + `boundary-record` 11 +
 `sdd-progress-markers` 20 + `site-session-resumption` 33 = 165. AC added three
@@ -5295,11 +5322,12 @@ Earlier whole-change and Pass B risks remain recorded below:
 
 ## Migration Plan
 
-For the third DSH security hold, adopt every commit through `faa24d3f` and
-AP/AS1. Only `design.md` is this phase's tracked artifact. No persisted format,
-journal, provider installation or declaration migration is needed. The next
-tasks phase reconciles D10's existing addresses/current evidence before
-implementation; historical ticks do not certify the revised obligations.
+For the third DSH security hold, adopt every commit through `72c1d958` and
+AO/AP/AQ/AS1. Only `design.md` is this phase's tracked artifact. No persisted
+format, journal, provider installation or declaration migration is needed.
+The existing task plan already reconciles D10's addresses/current evidence;
+follow its ordered repairs and proofs without repeating its authoring or
+changing ticks on the strength of this return.
 
 1. Repair native construction/error handling and target defaults. Preserve
    outer fallibility, home independence, exact selected paths and bounded
@@ -5539,7 +5567,7 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No build-affecting third-hold choice is deferred. AP/AS1 already settle the
+No build-affecting third-hold choice is deferred. AO/AP/AQ/AS1 already settle the
 behavior; D10 chooses private construction/error stages, source-qualified target
 and invocation handling, actual interpreter identity, complete ignored syntax,
 retained Node/head evidence and obligatory oracle/removal bindings. No earlier
@@ -6954,7 +6982,7 @@ Windows evidence. Any new runtime failure is a current failure. Part (d),
 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain outside this slice.
 No push, provider enablement, release or publication occurred.
 
-## Council design validation — third security hold, 2026-09-20
+## Historical council design validation — third security hold, 2026-09-20
 
 Run `dsh-composite-identity-issue-226-efb3360b` adopts change
 `2026-09-09-226-session-resumption` and all branch history through `faa24d3f`.
@@ -7002,3 +7030,55 @@ native Windows/macOS/MSRV, green candidate gates and fresh capable-host literal
 100% coverage remain owed. 8.8 stays unchecked and 0056 proposed. Part (d),
 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded. No provider
 installation, qualification, enablement, publication, archive or push occurred.
+
+## Council design return validation — clarified third hold, 2026-09-20
+
+Run `dsh-composite-identity-issue-226-efb3360b` adopts change
+`2026-09-09-226-session-resumption` and every commit through `72c1d958`.
+Read the dialect's design/return instructions and rendered design instructions
+through workspace hands; invoked no workflow runner. Both fresh council
+positions are read in full, content-pinned and reconciled under D10. The
+returned clarification is clear; AQ's ownership correction stands without
+waiving delivery gates or requiring another specification amendment.
+
+This return updates only `design.md`: current adoption/return context, council
+provenance, explicit AQ reconciliation, independent removal bindings,
+dependent-task coherence, current scenario inventory and migration account.
+The local cause-preserving resolver design, all six boundaries and every-cell
+oracle, env file/invocation identity, complete ignored pnpm syntax and retained
+Node/head proofs stand. Both positions reject a one-line errno patch, blanket
+refusal or a new resolver framework for the reasons recorded in D10. Existing
+risks and non-atomic observation limits remain explicit.
+
+The adopted task plan already carries these decisions. No task ID/state,
+proposal, capability scenario, production/test source or frozen byte changes.
+The five unchanged deltas recount to **20 requirements / 207 scenarios**;
+the fourteen local clauses remain **5 complete / 9 pending**, and all 101
+change-wide states remain **84 complete / 17 pending**. Task 8.8 is unchecked
+and decision 0056 is proposed.
+
+Fresh boxed checks on the adopted production bytes and revised design:
+
+| Check | Actual result |
+|---|---|
+| Strict active-change validation and `openspec validate --all --strict` | Exit 0; all-change validation **15 passed / 0 failed**. |
+| OpenSpec artifact status | Exit 0; planning presence supplies no implementation acceptance. |
+| `git diff --check` and tracked-byte/dependency audit | Clean; only declared `design.md` changes. |
+| Format, locked all-target/all-feature clippy, seven separate locked all-feature crate suites, workspace tests (plain and all-feature locked), self and verify bundle compilation | Each command attempted; each exit **127**, `cargo: command not found`. No Rust check ran. |
+| Unchanged `TMPDIR=/tmp bash scripts/coverage-exact.sh` | Fresh invocation exits **127** at line 33, missing Cargo during clean; no instrumentation build, tests or new reports. |
+| Fresh exact coverage: lines / branches / functions | **Unavailable / unavailable / unavailable**; all covered/total values are null, with no percentages or inherited totals substituted. |
+| Native macOS, Windows/GetBinaryTypeW/MSRV, actual Node positives, removals and final-head remote CI | Not executed here; pending. |
+
+Logs and the command/byte ledgers are run-local in
+`.forge/design-chief-ea74021c/`, outside the commit. Read-only inspection
+confirms CI, release admission and coverage consume `rust-nightly-version.txt`
+(`nightly-2026-09-05`); neither pin nor gate changed. The two pre-existing
+archive-target notices and long-requirement advisories do not change the
+successful strict validation or establish archive readiness. Archive remains
+outside this slice.
+
+This is a `drafted` design return. R1–R7 production/proof closure, all green
+candidate suites and fresh capable-host literal 100% coverage remain owed.
+Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded.
+No provider installation, qualification, enablement, archive, publication or
+push occurred. No result of this design seat clears the security hold.
