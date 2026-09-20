@@ -1096,7 +1096,17 @@ pub struct DshUnselected {
 
 impl DshSeams {
     pub fn resolve() -> Result<DshSeams, CompositeError> {
-        match DshSeams::selected() {
+        DshSeams::resolved(DshSeams::selected())
+    }
+
+    /// `resolve` over an injected selection: the selection's seams, or
+    /// the cause it did not happen by. The planner has no use for a
+    /// declared spelling without a file behind it, so a failed selection
+    /// is the layout's refusal and nothing is looked up again.
+    fn resolved(
+        selection: Result<DshSelection, DshUnselected>,
+    ) -> Result<DshSeams, CompositeError> {
+        match selection {
             Ok(selection) => selection.seams,
             Err(unselected) => Err(unselected.cause),
         }
@@ -1379,10 +1389,10 @@ fn classify_candidate(candidate: &Path) -> Candidate {
     if let Err(why) = interpreter_obstruction(candidate) {
         return refuse(why);
     }
-    match canonicalize(candidate) {
-        Ok(path) => Candidate::Admitted(path),
-        Err(error) => Candidate::Refused(error),
-    }
+    // Admitted as the file it canonically is; a canonicalization the
+    // metadata above did not already rule out is refused by the helper's
+    // own reason.
+    canonicalize(candidate).map_or_else(Candidate::Refused, Candidate::Admitted)
 }
 
 /// The kernel's own bound on a `#!` line (`BINPRM_BUF_SIZE`): a script
@@ -1407,18 +1417,14 @@ const SHEBANG_BOUND: usize = 256;
 fn interpreter_obstruction(candidate: &Path) -> Result<(), String> {
     use std::os::unix::ffi::OsStrExt;
 
-    let mut head = [0u8; SHEBANG_BOUND];
-    let mut file =
-        std::fs::File::open(candidate).map_err(|error| format!("cannot be read: {error}"))?;
-    let mut read = 0;
-    while read < SHEBANG_BOUND {
-        match file.read(&mut head[read..]) {
-            Ok(0) => break,
-            Ok(count) => read += count,
-            Err(error) => return Err(format!("cannot be read: {error}")),
-        }
-    }
-    let Some(line) = head[..read].strip_prefix(b"#!") else {
+    // At most the bound is read, whatever the file's length: the head
+    // is the only part of the candidate this resolver has any use for.
+    let mut head = Vec::with_capacity(SHEBANG_BOUND);
+    std::fs::File::open(candidate)
+        .and_then(|file| file.take(SHEBANG_BOUND as u64).read_to_end(&mut head))
+        .map_err(|error| format!("cannot be read: {error}"))?;
+    let read = head.len();
+    let Some(line) = head.strip_prefix(b"#!") else {
         return Ok(());
     };
     let line = match line.iter().position(|byte| *byte == b'\n') {

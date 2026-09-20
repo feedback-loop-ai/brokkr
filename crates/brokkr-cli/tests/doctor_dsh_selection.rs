@@ -343,6 +343,31 @@ fn explicit_overrides_keep_their_precedence_and_never_fall_back() {
     );
 }
 
+/// A NATIVE image on `PATH` — not a script — is admitted as itself, and
+/// doctor reports the version the native child prints for it. The
+/// built `brokkr` binary is the image: a native child under the same
+/// `PATH` runs it, and doctor's line carries that child's own first
+/// line. This is the native-image half of the platform-native controls;
+/// the script half is `an_obstructed_path_search_takes_the_explicit_safe_refusal`.
+#[test]
+fn a_native_image_on_path_is_selected_as_the_child_selects_it() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let native = cwd.join("native");
+    std::fs::create_dir_all(&native).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_brokkr"), native.join("dsh")).unwrap();
+    let child = native_dsh(cwd, native.to_str()).unwrap();
+    assert!(child.status.success(), "the native child ran the image");
+    let banner = String::from_utf8_lossy(&child.stdout);
+    let banner = banner.lines().next().unwrap_or_default().trim().to_string();
+    assert!(!banner.is_empty(), "the image answers --version");
+    let line = dsh_line(&stdout_of(doctor(cwd).env("PATH", &native)));
+    assert!(
+        line.starts_with(&format!("ok       dsh: {banner} · serves")),
+        "doctor's version is the native child's own first line: {line}"
+    );
+}
+
 /// S2. A nonexistent override carrying a newline and an ANSI
 /// clear-screen sequence reaches stdout ESCAPED: the spelling stays
 /// recognizable, no raw control byte is printed, and no injected line

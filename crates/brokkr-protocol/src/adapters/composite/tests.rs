@@ -2132,6 +2132,38 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             .map_err(|unselected| unselected.cause.to_string())
             .and_then(|selection| selection.seams.map_err(|error| error.to_string()))
     );
+    // Both arms, injected: a failed selection reaching the planner is
+    // the lookup's own cause — here the absent `PATH` — and never a
+    // spelling to look up again; a selection is its seams, whichever
+    // way the home went.
+    assert_eq!(
+        refused(DshSeams::resolved(Err(DshUnselected {
+            declared: "dsh".to_string(),
+            cause: CompositeError::Config("'dsh': PATH is absent".into()),
+        }))),
+        "the DSH layout is unreadable: 'dsh': PATH is absent"
+    );
+    let seams = DshSeams {
+        executable: "/opt/dsh/lib/bin.js".to_string(),
+        home: PathBuf::from("/opt/home"),
+    };
+    assert_eq!(
+        DshSeams::resolved(Ok(DshSelection {
+            executable: seams.executable.clone(),
+            seams: Ok(seams.clone()),
+        }))
+        .unwrap(),
+        seams
+    );
+    assert_eq!(
+        refused(DshSeams::resolved(Ok(DshSelection {
+            executable: seams.executable.clone(),
+            seams: Err(CompositeError::Config(
+                "no dsh home: set DSH_HOME or HOME".into()
+            )),
+        }))),
+        "the DSH layout is unreadable: no dsh home: set DSH_HOME or HOME"
+    );
 }
 
 /// The producer receives the SELECTED executable, a path the selection
@@ -2149,6 +2181,14 @@ fn the_producer_refuses_a_bare_executable_spelling() {
     assert_eq!(
         selected_executable(&install.seams.executable).unwrap(),
         Path::new(&install.seams.executable).canonicalize().unwrap()
+    );
+    // A backslash is a separator too, on the platform that spells paths
+    // with it: a spelling carrying one is an explicit path, taken to the
+    // lookup as itself and refused by what the lookup found there.
+    let enoent = fs::metadata("missing\\dsh").unwrap_err();
+    assert_eq!(
+        refused(selected_executable("missing\\dsh")),
+        format!("the DSH layout is unreadable: missing\\dsh: {enoent}")
     );
     assert_eq!(
         refused(resolve_core("dsh")),
