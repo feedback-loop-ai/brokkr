@@ -1,5 +1,26 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+This specify visit adopts `2026-09-09-226-session-resumption` and every
+commit through `8668aebc71cd3371a6c1f16a96cad12532e78108` on
+`slice-dsh-composite-b`, for run `dsh-composite-identity-issue-226-efb3360b`.
+Answer AP and AS1 answer the **third security hold**: native
+`std::process::Command` is the executable-selection specification, with an
+actual oracle invocation in every differential cell. Only task 8.8(a)–(c)
+is commissioned. The existing change, proposed 0056, sole producer and sound
+repairs stand; 8.8 remains unchecked.
+
+The controller ENAMETOOLONG record, the latest chief and both complete review
+positions, prior council findings and the branch delivery record were read.
+No `returned_from` is supplied in this run context; the commission names R1
+and retains the prior obligations. AP explicitly reconciles all seven latest
+chief findings and the earlier F1–F9. This is a specification amendment,
+not implementation, a fresh removal proof or security-hold clearance. It
+changes the proposal first and the owning AS1 delta second. AP supersedes
+conflicting downstream acceptance/evidence claims and identifies their owning
+phase amendments without rewriting dated history or editing their artifacts.
+
+Earlier Q1-W specify return, retained as dated history:
+
 This specify return adopts `2026-09-09-226-session-resumption` and every
 commit through `1d71b549d7a72018e186f7b08cd5c1d588e819b5` on
 `slice-dsh-composite-b` for run `dsh-composite-identity-issue-226-069caa79`.
@@ -290,14 +311,13 @@ ownership, provider enforcement and v5/store semantics as engine work.
 
 ## Why
 
-The adopted resolver can execute a cwd file literally named `C:\Tools\dsh.exe`
-on Unix when native lookup finds nothing, and can select a broken-loader PATH
-candidate that native lookup skips. The second hold also demonstrates malformed
-pnpm syntax and Unicode identity bytes becoming readable composites, and an
-incorrect environment-dependent test; these five findings must close before
-8.8(a)–(c) can be delivered. The measured rc.2 inputs and sole-producer contract
-remain authoritative, with planner work and whole-task acceptance outside this
-slice.
+Three security holds exposed one defect class: executable admission guessed
+at native lookup instead of proving its boundaries. At the adopted head,
+blanket ENAMETOOLONG continuation authorizes B/dsh where the native command
+stops; AS1 now makes every native-oracle cell, precise refusal and retained
+identity an explicit acceptance obligation for 8.8(a)–(c). AP also carries the
+remaining interpreter, parser, platform and evidence findings without
+re-authoring the measured rc.2 identity or expanding into planner work.
 
 Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
@@ -314,22 +334,23 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
 
 ## What Changes
 
-- For the **second security hold**, repair findings **1 and 4**, then **2**,
-  **3**, and **5**. Apply the running platform's executable lookup rule to DSH
-  and Node; prove exact native-selected identity with a real-child differential
-  matrix, including native default search with PATH absent, subject only to
-  D10's named pre-probe refusal for an unprovable interpreter/loader outcome.
-  Reject missing header/outer-field separation and plain colon-space syntax
-  before normalization; preserve integrity bytes so plain and quoted U+00A0
-  both refuse. Separate home availability from executable selection in the
-  regression assertions. AN, reconciled by AO, and AS1 define acceptance and
-  removal controls: DSH and Node preserve native absent-PATH successes and
-  refuse native misses without adding cwd to the platform's default search.
-  A fresh full exact gate and every green crate suite remain delivery debts;
-  the old roster-failure exemptions and retained coverage are not current proof.
+- For the **third security hold**, separate the native pre-execution buffer
+  skip from terminal ENAMETOOLONG. Keep glibc's exact continuation set and
+  source citations; qualify Apple and other targets independently. Require
+  the actual Rust native command in every differential cell, including each
+  of 255, 256, 300, 4095, 4096 and 5000 component bytes and an overlong name.
+- Prove interpreter identity under symlink and same-inode hard-link aliases;
+  admit ignored pnpm values and bodies as syntax; preserve the inspected
+  launcher head; compare the actual retained Node identity with the native
+  child. Preserve all previous sentinel, separator/NBSP and home controls.
+- Retain Apple's default-path correction without generalizing it to FreeBSD.
+  Separate source/table evidence, native platform execution, compiling removal
+  proofs and fresh literal coverage. All seven crate suites, workspace tests,
+  bundle compilation and exact coverage remain delivery obligations; missing
+  executions stay pending and historical numbers do not certify this candidate.
 
-The following bullets retain earlier commissions and completed work; AN as
-amended by AO controls this visit and supersedes conflicting current claims.
+The following bullets retain earlier commissions and completed work. AP and
+AS1 control this visit; earlier AN/AO remain adopted where compatible with AP.
 
 - For the 2026-09-20 security-hold repair, adopt the existing loader,
   producer, measured fixture and doctor seam, then address the seven findings
@@ -3163,6 +3184,111 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   visits. This specification reconciliation does not close the security hold.
 
 
+- **AP — Third security hold, 2026-09-20: the native oracle is the specification.**
+  Adopt `8668aebc` and its complete ancestry. Read
+  `.forge/tasks/controller-enametoolong-2026-09-20.json`,
+  `.forge/tasks/dsh-third-hold.md`, the first/second-hold and nine-findings
+  task notes, and the branch's F1–F9 delivery account. Read in full the latest
+  chief and both positions at `.forge/results/9e0a2104-4a8a-43b0-a176-3a13b5183142-{chief,positions-security,positions-correctness}.json`,
+  and the preceding chief at
+  `.forge/results/d0d606f3-9266-41f3-9562-d3b97dd75f70-chief.json`.
+  Their observations are attributed evidence, not new executions by this seat.
+  The chief reports `spec_defect: false`: AS1's existing native-equality rule
+  already forbids R1. This amendment closes acceptance gaps in its owning
+  proposal/delta; no immutable upstream contract needs amendment.
+
+  **One-line security property:** nothing is ever selected that native lookup
+  would not have executed, and nothing native lookup would have executed is
+  silently replaced by a later candidate. Ordinary provable native successes
+  select that exact file; native errors refuse by cause before probing. D10's
+  concrete unprovable interpreter/loader refusal remains the sole exception
+  to ordinary positive equality, reported separately from the native outcome.
+  An exception supplies no authority to probe or substitute another candidate.
+
+  **Finding answers, accepted or refuted on evidence:**
+
+  | Latest finding / prior obligation | Disposition and acceptance |
+  |---|---|
+  | R1 HIGH SECURITY (SEC-1/C1; F1) | Accept. The controller directly measured 5000-byte continuation and ENOENT/ENOTDIR controls; the chief measured terminal 256/300/4095 and continuing 255/4096/5000. Reject both blanket ENAMETOOLONG continuation and blanket refusal of long components. Separate the native pre-buffer skip from errors returned by the attempted execution. Every boundary, overlong program name, explicit-path and removed-component control gets its own actual Command oracle and identity/error assertion. |
+  | R2 MEDIUM (C2; F2) | Accept Apple's `/usr/bin:/bin` fix; reject assigning it to all other Unix targets. FreeBSD's ordinary default is `/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin`; preserve its order and each claimed target's own rule. A Linux table assertion or a shared `sh` positive is not native Apple/FreeBSD proof. |
+  | Prior F3, platform-qualified ELOOP | Retain `af7d6378`: glibc stops; Apple continues after an execution ELOOP. Reject a universal Unix rule, including inferring all other targets from Apple. Native macOS CI must assert its own outcome and length boundaries. |
+  | R3 MEDIUM SECURITY (SEC-2; F4) | Accept the same-device/inode `tools/env` / `tools/uu_env` reproduction. Spelled OR canonical basename still asks a name, not interpreter identity. Require the actual interpreter, native argument behavior, symlink and hard-link controls, obstructed A/node, native B result and zero doctor markers under both spellings. Unknown identity takes a named pre-probe refusal, not a bypass. |
+  | R4 MEDIUM SECURITY (SEC-3/C3; F5) | Accept malformed leading/doubled flow separators and unterminated quotes in ignored peerDependencies/snapshots bodies. Retain prior NUL/BEL, checksum, deprecated/engines, separator and NBSP repairs. Reject skipping ignored bodies or every empty flow member: valid empty collections and one legal trailing comma do not admit missing members. Each vector refuses through producer and built doctor with field/context/cause; valid ignored inputs stay readable. |
+  | Prior F6, launcher head | Adopt the retained-head repair and the chief's inspected/passing rewriting controls. Preserve its specific removal regression; no reimplementation or fresh removal claim follows from reading the account. The post-probe first-line reread remains forbidden within one observation. |
+  | R5 MEDIUM (C4; F7) | Accept. The launcher's `process.execPath` can agree with a native child while the composite consumes a different retained Node. Require native success, canonical equality with the actual retained Node, a readable composite through that same retained observation, and an independent wrong-retention mutation. A launcher banner, `ok dsh` prefix or composite-unreadable suffix cannot pass this positive. |
+  | R6 MEDIUM (C5; F8/F7) | Accept as missing evidence, not proof all platforms are broken. Native Windows matrix/doctor/GetBinaryTypeW/MSRV, macOS lookup/loading and actual absent-PATH Node positive/removals remain pending until candidate-bound native runs exist. Cross-compilation, source checks and passing negative branches do not complete positives. |
+  | R7 MEDIUM (C6; F9) | Accept the chief's fresh failed literal run: 31672/31848 lines, 5352/5366 branches, 3078/3088 functions, exit 1. The retained 31848/31848, 5366/5366, 3088/3088 report and hand-transcribed equivalent are historical evidence, not a replacement. Require the unchanged script with a fresh unique build, its three actual covered/total integers and literal nonzero equality on a capable host. Unavailable or failed measurement remains pending/failed, never zero-filled or implied green. |
+
+  **Source boundary.** Inspected on 2026-09-20:
+  [glibc posix/execvpe.c](https://codebrowser.dev/glibc/glibc/posix/execvpe.c.html#98),
+  rendered revision `glibc-2.39-288-gce65d944e3`, lines 98–107 (bounds),
+  114–128 (buffer and component skip), 130–136 (candidate construction/call),
+  145–169 (errno switch), 176–180 (remembered EACCES). After attempted
+  execution its continuation set is exactly EACCES, ENOENT, ESTALE, ENOTDIR,
+  ENODEV and ETIMEDOUT. All other returned errors are terminal, including
+  ENAMETOOLONG, ELOOP, EIO and EINVAL. Before execution only the source's
+  buffer check permits skipping; a metadata ENAMETOOLONG is not that check.
+  Implemented target rules must cite the inspected source revision and lines,
+  and preserve the real program/directory byte bounds rather than guess a
+  universal component threshold. Source explains the rule; the actual
+  platform/compiler's Command result is its differential acceptance oracle.
+
+  Apple's [exec.c](https://github.com/apple-oss-distributions/Libc/blob/main/gen/FreeBSD/exec.c#L206)
+  lines 206–212 skips an oversized constructed path, whereas its
+  [posix_spawn.c](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c#L125)
+  lines 125–127 returns ENAMETOOLONG at its construction bound. Both have
+  post-execution ELOOP continuation (exec.c 222–225; posix_spawn.c 139–143).
+  These main-branch source readings are not native execution proof and do not
+  authorize choosing whichever API gives a desired result: the actual
+  Command invocation used on macOS governs each cell. Apple's
+  [paths.h line 63](https://github.com/apple-oss-distributions/Libc/blob/main/include/paths.h#L63)
+  and [spawn default at lines 88–89](https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c#L88)
+  establish its default. FreeBSD's separate
+  [paths.h lines 36–40](https://github.com/freebsd/freebsd-src/blob/main/include/paths.h#L36)
+  and [exec.c](https://github.com/freebsd/freebsd-src/blob/main/lib/libc/gen/exec.c)
+  refute the all-BSD constant. No GNU/Apple inference certifies musl,
+  another Unix or Windows. Ignored pnpm data still obeys the admitted subset
+  of [YAML 1.2.2 flow syntax](https://yaml.org/spec/1.2.2/#74-flow-collection-styles);
+  rejecting malformed data does not authorize a larger YAML dialect.
+
+  **Proof boundary.** AS1 encodes each answer as a scenario. Extend the
+  existing `native_executable_resolution_matches_command_matrix`,
+  `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`,
+  `an_obstructed_path_search_takes_the_explicit_safe_refusal`,
+  `an_env_argument_is_selected_as_the_kernel_hands_it_to_env`,
+  `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`,
+  `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`,
+  `absent_path_default_search_matches_native_dsh_and_node`, and both retained-
+  launcher-head regressions. Keep S1/S1b, Unicode, home and retained-Node tests.
+  Each independent repair has a compiling removal, a named failed identity,
+  forbidden-execution or cause assertion, exact restoration and a green rerun.
+  Removing the actual native buffer skip and restoring terminal-error
+  continuation are independent mutations with opposite failing controls.
+  A wrong-retained-Node mutation is independent of absent-PATH refusal.
+  Rare errno classification unit checks cannot replace any real matrix oracle.
+
+  **Dependent artifact reconciliation.** Current AP/AS1 acceptance supersedes
+  the conflicting clauses below; the historical accounts remain attributed
+  history, not competing requirements or evidence of current completion:
+
+  | Owning artifact | Coherent next amendment within this same change |
+  |---|---|
+  | Design D6/D10 selection and Node evidence | Carry the exact native buffer/errno distinction, per-platform defaults, actual interpreter identity and retained Node/head obligations. Preserve bounded nonexecuting inspection, sole producer and no new wire member. |
+  | Design D10 parser and D11 proof | Carry complete ignored-body/flow syntax admission and the expanded oracle/removal matrix; no broad YAML parser, loader emulator or resolver subprocess. |
+  | Tasks 8.8.1–8.8.3 and 8.8.8, current F1–F9 account | Preserve existing clause addresses/global states; reconcile each R1–R7 and prior preservation duty. Withdraw current F1 closure and basename-identity claims. Treat old matrices, hand-derived coverage and platform skips as dated/partial evidence. Record actual candidate results and pending native positives rather than importing historical passes. |
+
+  This specify office commits only proposal and AS1, in that order; design
+  and task artifacts belong to their declared phases. All other capabilities
+  remain compatible and byte-unchanged. Decision 0056 stays proposed and all
+  frozen/extension/decision bytes stay unchanged. No new decision document,
+  qualification, install, resume enablement, archive, push or release follows.
+  Parts (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 stay outside
+  this slice. The specification checkpoint is `drafted`; actual R1–R7 closure,
+  removals, all seven crate suites, workspace tests, self/verify bundle
+  compilation, fresh exact coverage, native target/MSRV results and final-head
+  remote CI remain delivery evidence, not claims made by this amendment.
+
+
 ### F7 — Amend the standing append and dispatch requirement
 
 The third analysis finding is adopted on its new evidence: the living
@@ -4957,3 +5083,50 @@ checkpoint with result `drafted` and
 open. Only 8.8(a)–(c) is commissioned. Part (d), 8.10, 9.6, 10.6–10.8,
 11.1–11.4 and groups 14–15 remain outside this slice. No task completion,
 provider enablement, push or release is claimed.
+
+## Specify validation — third security hold, 2026-09-20
+
+Adopted every commit through `8668aebc71cd3371a6c1f16a96cad12532e78108`
+on `slice-dsh-composite-b`. Read the dialect's own specify/return instructions
+and rendered proposal/specs instructions through workspace hands; no workflow
+runner was invoked. Proposal AP reconciles the latest R1–R7 and previous F1–F9
+against the controller, both complete latest review positions, the chief,
+source and branch evidence. The owning AS1 delta follows the proposal and
+makes native-oracle calls, six separate length boundaries, interpreter
+identity, complete ignored syntax and actual retained Node proof explicit.
+
+- `openspec validate 2026-09-09-226-session-resumption --strict --no-interactive`
+  and `openspec validate --all --strict` passed; the latter reports **15 passed,
+  0 failed**. The inherited informational archive-readiness notices for absent
+  living safety/progress specs remain outside this non-archiving slice; no
+  archive operation or delta-kind change was made.
+- The artifact audit and `git diff --check` passed. All **20 requirements**
+  and **192 inherited scenario headings** remain; **15 new AS1 scenarios**
+  bring the total to **207**. AS2–AS5 and the other four deltas are byte-identical
+  to entry. Only proposal and AS1 changed; design/tasks, all task states,
+  production/tests and frozen/extension/decision surfaces are unchanged.
+  Decision 0056 remains proposed and 8.8 remains unchecked.
+- Fresh attempts at format, all-target/all-feature locked clippy with `-D
+  warnings`, each of the seven crate-scoped all-feature locked suites,
+  workspace tests, and self/verify bundle compilation all exited **127**:
+  `cargo: command not found`. These commands did not run Rust checks.
+- The literal `TMPDIR=/tmp bash scripts/coverage-exact.sh` was attempted and
+  exited **127 at line 33** because Cargo is unavailable, before fresh
+  instrumentation or report generation. This visit's covered/total numbers
+  are **lines: unavailable; branches: unavailable; functions: unavailable**
+  (null counts, N/A percentages). The chief's failed counts and the older
+  perfect counts in AP are attributed history, not this visit's measurements.
+  The gate, compiler pin, exclusions and denominators were not changed. CI,
+  release and coverage still consume `rust-nightly-version.txt`.
+
+Command logs and the structural audit are run-local under
+`.forge/specify-third-hold-57daadff/`; they are not committed artifacts.
+Delivered: this two-artifact specification checkpoint and explicit finding
+answers with named removal acceptance. Pending: the owning design/task
+reconciliation, production repairs, actual oracle/removal proofs, green Rust
+checks, native target/MSRV/Node-positive evidence, fresh capable-host exact
+coverage and final-head remote CI. No absent result certifies delivery and
+no historical failure is waived. Result: `drafted`, with
+`inputs.change: 2026-09-09-226-session-resumption`. The third security hold
+remains open; excluded tasks, provider enablement and release actions remain
+outside this office.

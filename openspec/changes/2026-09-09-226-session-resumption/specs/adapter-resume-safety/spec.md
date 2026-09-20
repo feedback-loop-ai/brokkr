@@ -124,9 +124,12 @@ is a path if and only if its spelling contains `/`; backslash is an ordinary
 filename byte. A drive-like spelling, extension or space SHALL NOT make a
 bare Unix name a direct path. Windows SHALL use Windows' native rule, including
 its native path and executable-name treatment, with no inferred Unix behavior.
-A program name containing NUL SHALL refuse with NUL named before lookup or any
-probe. This discipline SHALL apply to both DSH and Node, including explicit
-overrides and the already-selected executable passed to the composite producer.
+Nothing SHALL be selected that native lookup would not have executed, and
+nothing native lookup would have executed SHALL be silently replaced by a
+later candidate. A program name containing NUL SHALL refuse with NUL named
+before lookup or any probe. This discipline SHALL apply to both DSH and Node,
+including explicit overrides and the already-selected executable passed to the
+composite producer.
 
 Bare-name Unix lookup SHALL distinguish absent PATH from a present PATH with
 an empty entry. Absent PATH SHALL follow the running platform's native default
@@ -147,6 +150,37 @@ harmless identities, not metadata, permissions, a manifest version or injected
 success as a lookup oracle. An absent-PATH matrix containing only names absent
 from the platform default search SHALL NOT establish equality.
 
+For glibc lookup, a pre-execution component skip SHALL occur only when the
+native buffer-size check would skip that component, using the actual directory,
+separator and program byte lengths and the native construction bounds. It
+SHALL NOT be inferred from a metadata ENAMETOOLONG. After attempted execution,
+the native continuation set SHALL be exactly EACCES, ENOENT, ESTALE, ENOTDIR,
+ENODEV and ETIMEDOUT; EACCES SHALL be remembered and reported if search ends
+without success. Every other returned errno SHALL be terminal, including
+ENAMETOOLONG, ELOOP, EIO and EINVAL. Source revision and line citations SHALL
+support each implemented rule; adding an errno because it appears harmless
+SHALL NOT be permitted. Proposal AP records the inspected glibc source.
+This is a lookup contract, not permission to execute candidates in production.
+
+Apple SHALL retain its own execution-error continuation and length handling,
+including ELOOP continuation, with the actual native Command invocation deciding
+which lookup path applies. Its absent-PATH default SHALL be `/usr/bin:/bin`,
+not the wider `confstr(_CS_PATH)` value. This default SHALL NOT be applied to
+all BSD or non-Linux targets: FreeBSD's ordinary native default is
+`/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin`, in that order.
+Every claimed target SHALL follow its own source-backed rule; source/table
+evidence SHALL remain distinct from native execution evidence. The glibc
+six-boundary expectations below SHALL NOT be asserted as universal Unix rules.
+
+Every differential cell and its removal-of-component control SHALL actually
+invoke native `std::process::Command` with a harmless sentinel under the same
+cwd and child environment as resolution. No cell SHALL pass or count as proved
+without that oracle, including direct paths, NUL, long names and D10 exceptions.
+Native success SHALL identify the exact selected canonical file; native errors
+SHALL retain their specific cause. Resolver and doctor execution markers SHALL
+be separate from oracle markers. Unavailable fixtures/native hosts SHALL be
+recorded as pending evidence and SHALL NOT count as passing cells.
+
 Where the native outcome cannot be established without executing a candidate,
 resolution SHALL take D10's pre-probe refusal with the obstructing candidate
 and specific cause named, before probing that executable. A DSH selection
@@ -161,6 +195,14 @@ prove loader success. Missing interpreters, interpreter chains with missing
 loaders and native images with missing dynamic loaders SHALL NOT authorize
 selecting the obstructing entry or silently guessing a later entry. A terminal
 native lookup error SHALL preserve its cause and never authorize continuation.
+The env interpreter SHALL be recognized by the actual interpreter the platform
+would execute, including aliases, symlinks and same-file hard links. Neither
+its spelled nor canonical basename SHALL establish its identity. Unestablished
+interpreter semantics SHALL take a cause-bearing D10 refusal before a probe,
+not bypass the Node check. Native argument treatment and retained Node
+selection SHALL follow that established interpreter; a multicall alias's own
+native result SHALL be measured in tests, never assumed equivalent from its
+spelling.
 Resolution SHALL introduce no candidate trial execution or resolver subprocess.
 Explicit binary overrides SHALL retain precedence and no fallback to another
 installation; a platform-native explicit path does not require PATH to select
@@ -203,6 +245,13 @@ SHALL make the identity unreadable with the responsible component named.
 One returned observation SHALL derive repeated uses of each identity-bearing
 source from the same read, including the hidden lock and plugin patch; it
 SHALL NOT contradict itself by reopening a source within that observation.
+The identity-bearing launcher head inspected at selection SHALL remain the
+source of its first-line identity through the version probe and composition.
+Reopening the launcher after a probe SHALL NOT replace those bytes, even when
+the probe rewrites the file into the otherwise admitted env-node form. The
+actual retained Node identity SHALL likewise be the runtime consumed by the
+composite observation; the launcher's independent env search or printed
+runtime path SHALL NOT substitute for evidence about that retained identity.
 This requirement adds no atomic snapshot or continuous verification guarantee.
 
 For npm metadata the producer SHALL read only the core root's
@@ -234,6 +283,16 @@ separation or unsupported flow punctuation into a value. Its refusal SHALL
 name the pnpm component and syntax or type cause. Properly separated plain or
 quoted version-9 headers and admitted quoted/plain field controls SHALL remain
 readable, including supported colon-without-space URL values.
+
+Ignored pnpm values, blocks and sections SHALL undergo syntax admission before
+their dependency semantics are discarded. Invalid control bytes, malformed
+scalar/collection syntax and unterminated quotes in ignored package children,
+peerDependencies or snapshots SHALL refuse with pnpm, field/context and cause
+named. Empty flow collections and a legal trailing comma remain admitted
+controls; leading or doubled separators and completely empty flow members
+SHALL NOT be removed to manufacture valid input. Unsupported ignored-body
+syntax SHALL refuse explicitly rather than being skipped. This requirement
+SHALL NOT widen the bounded closed grammar or normalize identity bytes.
 
 Only grammar-admitted structural ASCII separation outside scalar data may be
 consumed as formatting. Identity-bearing scalar bytes SHALL NOT be trimmed or
@@ -693,6 +752,7 @@ read as history, not as a current claim.
 - **THEN** each ordinary native-success cell, including absent-PATH cells, identifies exactly the file native lookup ran, and every native-NotFound cell refuses without a probe target; success booleans or matching generic version strings cannot prove selected identity
 - **AND** unprovable obstruction cells record the actual native result separately and assert the named D10 refusal with zero resolver/doctor probes; this loader exception is not native NotFound or an equality pass, and PATH absence alone cannot invoke it
 - **AND** a NUL-bearing name is refused with NUL named before any filesystem lookup or probe, and the native control returns invalid input without executing a sentinel
+- **AND** every cell invokes its own native Command oracle, including direct-path, NUL, overlong-name and removed-component controls; a missing oracle or unavailable prerequisite leaves evidence pending and cannot be counted as a pass
 - **AND** other terminal native errors retain a cause-bearing refusal and never authorize a later candidate
 - **AND** the same table executes on Windows with native executable sentinels and native fixture paths; names or layouts the platform cannot admit retain their observed native refusal rather than being relabelled, omitted or claimed from Unix evidence
 - **AND** the absent-PATH cells include the native default-search positive scenario below for DSH overrides and Node, alongside cwd-only sentinel negatives; an all-negative oracle cannot establish equality or justify unconditional absent-PATH refusal
@@ -703,15 +763,18 @@ read as history, not as a current claim.
 | Program name | `dsh`; `./dsh`; `../dsh`; an absolute temporary path corresponding to `/abs/dsh`; literal `C:\Tools\dsh.exe`; `dsh.exe`; a name containing a space; a name containing NUL |
 | Layout / environment | file in cwd with PATH pointing elsewhere; file in a PATH directory; PATH absent with cwd file present; PATH containing an empty entry; PATH A:B with obstructed A and runnable B |
 | Empty-entry variants | present-empty PATH, leading empty entry, interior empty entry and trailing empty entry, with distinguishable competing candidates |
-| Obstruction variants | missing shebang interpreter; executable interpreter whose own loader is missing; native image with missing dynamic loader; retain the terminal self-symlink and ordinary non-executable continuation controls |
+| Obstruction variants | missing shebang interpreter; executable interpreter whose own loader is missing; native image with missing dynamic loader; platform-qualified self-symlink (glibc terminal, Apple continuation) and ordinary non-executable continuation controls |
+| Lookup boundaries, each an identified cell | PATH component lengths 255, 256, 300, 4095, 4096 and 5000 ASCII bytes ahead of B; regular-file component; nonexistent component; overlong bare program name and its explicit-path control; removing only the preceding component |
 | Default-search controls | add a bare name native default search actually executes (`sh` is the observed Unix positive), primary and legacy DSH overrides using that name, and the real Node lookup; compare absent PATH, present-empty PATH, explicit PATH and same-name cwd decoys without reducing the commissioned eight-name cross-product |
-| Platform | native Unix execution and native Windows execution; platform-specific path syntax and loader fixtures follow that platform's rules |
+| Platform | native Linux/glibc, macOS and Windows execution, with target/libc/compiler recorded; any other claimed target needs its own native evidence, not inferred Unix behavior |
 
 #### Scenario: Absent PATH preserves a native default-search success for DSH and Node
 - **GIVEN** a Unix platform whose native default search excludes the temporary cwd and where a real Rust native child executes a harmless bare name with PATH removed, not emptied (`sh` is the observed positive control), and isolated cwd layouts distinguish that default-search identity from a same-name cwd decoy
 - **WHEN** the differential test compares native lookup and executable resolution with PATH absent, first with that name as the primary DSH override and then as the legacy override with the primary unset
 - **THEN** each ordinary provable selection equals the exact native default-search identity; neither unconditional `PATH is absent` refusal nor execution of a cwd decoy passes, and the unrelated provider/composite qualification remains independent of this lookup proof
 - **AND** the Node side exercises its actual `node` lookup with PATH absent, including a real native-positive default-search control, and identifies exactly the runtime that native `Command::new("node")` executes when DSH was safely selected by an explicit path; a DSH or shell result alone cannot prove Node, and version text alone cannot prove selected identity
+- **AND** the Node positive asserts successful native exit and compares canonical `process.execPath` with the actual retained Node path consumed by the composite, and that same observation produces a readable composite; a launcher's independently resolved `process.execPath`, matching version text or `ok dsh` prefix is insufficient
+- **AND** a compiling mutation retaining a distinct wrong Node fails that retained-identity/composite assertion while the native child still succeeds; a separate mutation restoring unconditional absent-PATH refusal fails the Node positive itself, with exact restoration and green reruns for both
 - **AND** adding a same-name cwd decoy preserves the native default-search identity and does not execute that decoy; absence alone neither inserts cwd nor permits refusal of that ordinary native success
 - **AND** with PATH present but empty and no same-name cwd file, native lookup returns NotFound and resolution refuses without a probe target; restoring the cwd decoy makes that explicit empty entry select the decoy exactly when the native control does, without falling back to absent-PATH default search
 - **AND** explicit PATH gives an independent positive identity control; the commissioned cwd-only `dsh` and literal backslash sentinels remain negative controls when absent from native default search, and platform-native explicit paths remain selectable without PATH
@@ -735,6 +798,105 @@ read as history, not as a current claim.
 - **AND** replacing A with a self-referential symlink makes the native control behave as the running platform's own search does — on Linux (glibc `execvp`, measured 2026-09-20) the search stops with ELOOP and resolution refuses by that cause without probing B; on macOS (Apple libc `exec.c` and `posix_spawn.c`) the search continues to B and resolution selects exactly what that native control runs — and the differential test asserts the running platform's outcome, never a fixed "Unix" one
 - **AND** an ordinary non-executable A followed by runnable B remains a positive continuation control, and supported explicit native-image/interpreter cases identify exactly what their native controls run
 - **AND** restoring unconditional native-image admission or one-level interpreter metadata admission fails the relevant named-cause/no-probe assertion; restoring error-erasing continuation fails the terminal-error assertion
+
+#### Scenario: A 255-byte PATH component has its own native oracle
+- **GIVEN** a disposable glibc layout with PATH equal to 255 ASCII `x` bytes followed by `:B`, no such component, and a harmless B/dsh sentinel
+- **WHEN** native Command, resolution and built doctor observe the same name, cwd and child environment
+- **THEN** the native child succeeds at B and resolution/doctor select that exact identity, with separate oracle/doctor markers
+- **AND** removing only the component retains B in a separately invoked native-oracle control
+
+#### Scenario: A 256-byte PATH component preserves terminal ENAMETOOLONG
+- **GIVEN** the same glibc layout with a 256-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup returns ENAMETOOLONG, resolution refuses by that cause before any probe, and doctor leaves no B execution marker
+- **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
+
+#### Scenario: A 300-byte PATH component preserves terminal ENAMETOOLONG
+- **GIVEN** the same glibc layout with a 300-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup returns ENAMETOOLONG, resolution refuses by that cause before any probe, and doctor leaves no B execution marker
+- **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
+
+#### Scenario: A 4095-byte PATH component preserves terminal ENAMETOOLONG
+- **GIVEN** the same glibc layout with a 4095-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup returns ENAMETOOLONG, resolution refuses by that cause before any probe, and doctor leaves no B execution marker
+- **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
+
+#### Scenario: A 4096-byte PATH component exercises the native pre-buffer skip
+- **GIVEN** the same glibc layout with a 4096-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup skips the component before attempting execution and selects B, and resolution/doctor select that exact identity rather than reporting metadata ENAMETOOLONG
+- **AND** removing only the component retains B in a separately invoked native-oracle control
+
+#### Scenario: A 5000-byte PATH component exercises the native pre-buffer skip
+- **GIVEN** the same glibc layout with a 5000-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup skips the component before attempting execution and selects B, and resolution/doctor select that exact identity rather than reporting metadata ENAMETOOLONG
+- **AND** removing only the component retains B in a separately invoked native-oracle control; this cell alone cannot establish the other five boundaries
+
+#### Scenario: An overlong program name is measured rather than labelled a miss
+- **GIVEN** an overlong bare program name and an explicit-path spelling of it in an owned temporary layout
+- **WHEN** each spelling is passed to its own native Command oracle and resolver under identical context
+- **THEN** each native error is matched by a specific pre-probe refusal, including ENAMETOOLONG where returned, with no sentinel execution or invented ordinary NotFound
+- **AND** a valid-length name supplies an independently invoked positive native identity control; component-length continuation cannot stand in for either long-name oracle
+
+#### Scenario: Continuation causes and permission accumulation follow the native target
+- **GIVEN** distinct sentinels and PATH layouts containing a regular-file component, a nonexistent component, non-executable A before B, and permission-denied entries with no later runnable candidate
+- **WHEN** every layout is compared with its own native Command oracle
+- **THEN** ENOENT and ENOTDIR continuation reach the same B identity, and remembered EACCES is reported when no candidate runs rather than downgraded to NotFound
+- **AND** glibc permits no post-execution continuation beyond EACCES, ENOENT, ESTALE, ENOTDIR, ENODEV and ETIMEDOUT; ENAMETOOLONG, ELOOP, EIO, EINVAL and other errors remain terminal
+- **AND** unit checks for rare errno branches carry source citations but do not count as native differential cells or waive their oracle calls
+- **AND** restoring unconditional ENAMETOOLONG continuation fails the terminal-boundary cause/no-doctor-marker assertions in `native_executable_resolution_matches_command_matrix` and the classifier/doctor regressions, while removing the genuine pre-buffer skip independently fails exact B identity at 4096/5000; each compiling removal is exactly restored and rerun green
+
+#### Scenario: Apple lookup is established on Apple rather than inferred from glibc
+- **GIVEN** the six component-length cells, self-symlink A before runnable B, absent PATH, and explicit paths on native macOS
+- **WHEN** every cell actually invokes the same native Command form as the resolver context and macOS CI records target and compiler
+- **THEN** each selection or cause matches that native result, including ELOOP continuation, without imposing glibc's length thresholds or treating all Apple lookup APIs as interchangeable
+- **AND** absent lookup uses `/usr/bin:/bin`; a discriminating default-search regression distinguishes the additional system directories in confstr's wider value, since a shared `sh` positive cannot prove their exclusion
+- **AND** the platform-default test preserves FreeBSD's separately sourced directory order instead of applying Apple's constant to it; a claimed FreeBSD native result needs its own execution evidence
+- **AND** missing native macOS or other target evidence remains pending; restoring the wrong target's default or ELOOP rule fails its named discriminating check
+
+#### Scenario: Interpreter aliases cannot bypass the Node obstruction refusal
+- **GIVEN** disposable env and env-alias symlinks plus `tools/env` and `tools/uu_env` hard links verified to share device/inode, obstructed A/node and distinct runnable B/node
+- **WHEN** `an_env_argument_is_selected_as_the_kernel_hands_it_to_env` invokes a native Command control for each spelling and the built doctor observes the same chain
+- **THEN** every supported alias whose native control reaches B takes the same cause-bearing D10 refusal identifying A's obstruction, with zero doctor markers and the native result recorded separately
+- **AND** changing only the interpreter spelling never turns the unproved Node chain into probe authority; an unestablished or alias-sensitive interpreter reports its actual native outcome and named refusal without fabricating a positive
+- **AND** removing only A/node gives independently invoked native and doctor positive controls for the same B identity under both valid hard-link spellings, and a valid non-obstructed chain remains admitted
+- **AND** restoring spelled-or-canonical-basename recognition in a compiling mutation fails the hard-link no-probe/cause assertion; exact restoration reruns green alongside the existing symlink controls
+
+#### Scenario: Ignored pnpm syntax is admitted through the producer and built doctor
+- **GIVEN** a readable synthetic installation with separately malformed plain tarball NUL/BEL, quoted tarball NUL, checksum colon-space/NUL, unterminated deprecated quote or engines flow map
+- **WHEN** each lock is observed through the sole producer and `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`
+- **THEN** it refuses with pnpm, the field/context and syntax cause named, never yielding the valid control's readable composite
+- **AND** valid ignored scalar/collection fields, admitted URLs, separator and plain/quoted NBSP controls retain their specified outcomes; ignored dependency semantics do not exempt syntax
+
+#### Scenario: Ignored collections and bodies cannot erase malformed members
+- **GIVEN** separate locks with `cpu: [,x64]`, `cpu: [x64,,arm64]`, `engines: {,node: 22}`, `engines: {node: 18,,npm: 9}`, `engines: {,}`, and unterminated quotes inside peerDependencies or snapshots bodies
+- **WHEN** `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` and the built-doctor ignored-value test observe each lock through complete installed locators
+- **THEN** each refuses with pnpm, field/body context and its syntax cause, without producing the valid control's composite
+- **AND** valid sequences, empty collections and a legal trailing comma remain readable, as do admitted well-formed ignored bodies; unsupported bodies refuse explicitly instead of being skipped
+- **AND** separately restoring empty-member elision, ignored-body bypass, control-byte bypass or an existing ignored-scalar guard bypass causes its named reason/readability assertion to fail in a compiling removal, then exact restoration passes
+
+#### Scenario: Composition retains the launcher head inspected before the probe
+- **GIVEN** a shell launcher that prints `v22.23.2` and rewrites itself to the env-node shebang, an otherwise identical non-rewriting control, and a valid env-node launcher
+- **WHEN** `the_composite_reuses_the_launcher_head_selection_inspected` and `the_composite_reuses_the_launcher_head_doctor_selected` observe their version and composite
+- **THEN** both shell launchers refuse by the originally inspected first-line cause while the valid env-node control remains readable
+- **AND** a compiling mutation restoring the post-probe reread fails that precise refusal/composite assertion, and exact restoration reruns green; retaining only the Node path cannot substitute for retaining these bytes
+
+#### Scenario: Delivery evidence distinguishes executed positives from pending platforms
+- **GIVEN** the completed specification or source/tests for 8.8(a)–(c), with only some native environments available
+- **WHEN** the candidate delivery record is updated
+- **THEN** each actual execution records revision, command, exit status, target and compiler, and Windows matrix/doctor/GetBinaryTypeW/MSRV, macOS lookup/loading, and absent-PATH Node-positive/removal obligations stay pending until they really run
+- **AND** source inspection, cross-compilation, a passing NotFound branch, skipped cells and historical results do not certify a positive, a platform or the final PR head
+- **AND** the existing task addresses and excluded work remain unchanged and 8.8 remains unchecked
+
+#### Scenario: Fresh exact coverage cannot be replaced by retained perfect reports
+- **GIVEN** historical complete coverage and the chief's failed literal run with 31672/31848 lines, 5352/5366 branches and 3078/3088 functions at the adopted head
+- **WHEN** `TMPDIR=/tmp bash scripts/coverage-exact.sh` runs on the actual candidate with its pinned compiler and fresh unique instrumentation build
+- **THEN** the record states that run's actual covered/total source-line, branch and function integers, revision, command and exit status, with the fresh reports retained
+- **AND** only nonzero literal 100% equality on all three axes satisfies coverage; retained profiles, a hand-transcribed equivalent, reduced denominators, ignored failures or rounded percentages cannot replace the unchanged gate
+- **AND** inability to obtain a report is recorded with unavailable counts, and a namespace-blocked or failed run remains pending/failed until capable-host or CI evidence exists; no unavailable result is invented
 
 #### Scenario: Missing pnpm field separation and unsupported flow syntax refuse by reason
 - **GIVEN** an otherwise readable installed composite separately changes the lock header to `lockfileVersion:9.0`, the package child to `resolution:{integrity: sha512-X}`, or the resolution to `resolution: {integrity: sha512-X, tarball: x: y}`
@@ -794,11 +956,11 @@ read as history, not as a current claim.
 - **AND** removing the missing-filename context makes the producer-facing reason assertion fail while restoring it passes; a private file-set helper alone does not prove the installed lookup path
 
 #### Scenario: Digest acceptance is proved by removal without completing the planner
-- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations, all five second-hold findings and the returned Q1-R native-positive/policy-refusal controls covered above
+- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations, all five second-hold findings, AO's native-positive controls and AP's third-hold R1–R7/prior F1–F9 obligations covered above
 - **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
 - **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
 - **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence
-- **AND** delivery additionally requires every crate suite green and a fresh exact coverage run with actual nonzero covered/total line, branch and function equality; retained instrumentation and the removed roster commit's historical failures supply no current exemption
+- **AND** delivery additionally requires format, all-target/all-feature clippy with warnings denied, all seven crate-scoped all-feature locked suites green, workspace tests, self and verify bundle compilation, strict OpenSpec validation, and the fresh literal exact-coverage scenario above; retained instrumentation and historical runtime failures supply no current exemption
 - **AND** those proofs deliver task 8.8(a)–(c) only; `dsh_launch`/`dsh_launch_with`, planner production behavior, 8.10's remaining cases and the 8.8 checkbox remain pending
 
 #### Scenario: npm nested and scoped keys produce reproducible dependency values
