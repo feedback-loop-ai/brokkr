@@ -1,24 +1,38 @@
 ## Context
 
-Current commission: **DSH COMPOSITE IDENTITY**, run
-`dsh-composite-identity-issue-226-26def5a5`, adopting change
-`2026-09-09-226-session-resumption` on `slice-dsh-composite-b`. The commission's
-baseline is `99fdbb0a`; inspected HEAD is `9ccfc68d`, which commits the retained
-input amendment. Adopt the predecessor's specification, proposed decision 0056
-and architecture. Proposal answer AK and amended AS1 govern only task 8.8's
-**(a), (b), (c), in D10's order**. Part (d) is neither designed nor implemented
-here. Task 8.8 remains unchecked because its acceptance also spans (d) and 8.10.
+Current commission: **DSH COMPOSITE IDENTITY — security-hold successor**, run
+`dsh-composite-identity-issue-226-4437331e`, adopting change
+`2026-09-09-226-session-resumption` on `slice-dsh-composite-b`. Adopt every
+commit through commissioned baseline `ab2d8e1d`, plus specification commits
+`cbd7b84b` and `d1f84b33` (inspected HEAD). See proposal answers AL/AM and AS1
+for motivation and acceptance. The loader, private assessment carriage,
+producer, measured rc.2 literals and doctor integration are delivered inherited
+work. This design specifies seven repairs to that work; it does not redo it.
+Only 8.8(a)–(c) are commissioned. 8.8 remains unchecked.
 
-Both predecessor evidence parks were correct. The first demand for measured
-pnpm length exposed the abandoned `link:` lock beside hand-placed files; the
-canonical local-tarball reinstall and repeated cold/warm nonce continuity
-resolved it. The second correctly refused to recover inputs from hashes.
-The qualification record now retains the raw pnpm/profile-patch bytes and
-first-hit bundle layout, and its retained-hidden-lock addendum names the full
-npm lock. Answer AK supersedes the hash-only/synthetic fixture narrowing in
-this design and the dependent task account; it does not weaken measured proof.
+The controller's `.forge/tasks/controller-s1-reproduction-2026-09-20.json`
+was read before any write, together with all seven findings and both complete
+current design positions. It records cwd sentinel execution with PATH absent,
+but not with explicit `/usr/bin:/bin` or after removing the sentinel. Its
+SHA-256 is `e855211fb616791a151b99132966e1320c8bbda0cba702487007060dd83efe6c`.
+These are controller observations on `ab2d8e1d`, not this seat's executions.
+AM correctly resolves the former missing-record prerequisite. Clarify returned
+`clear`; no `returned_from` fact is supplied. The predecessor's third-sitting
+`REVIEW-SECURITY-HOLD` remains open pending repairs and executed evidence.
 
-Authoring checks reproduce the supplied input hashes and sizes:
+Source inspection confirms the HIGH: `selected_from` drops executable lookup
+errors and doctor probes its returned spelling before examining the seam
+result. Merely rejecting absent PATH inside the resolver would still leave
+that fallback executable. Candidate metadata/access booleans also erase native
+search distinctions. The pnpm parser loses type/separator information and
+package-key uniqueness; a test reconstructs plugin serialization; unavailable
+binary output lacks `Safe`; exhausted bundle lookup omits `package.json`.
+D6 and D10 now specify the repairs, alternatives and removal proofs in the
+commissioned order. No earlier requirement is contradictory: AL/AM and AS1
+already permit the chosen conservative pre-probe refusal.
+
+The retained-input requirements remain adopted, including these prior measured
+input checks (not newly calculated component/composite values):
 
 | Retained input | Bytes | SHA-256 |
 |---|---:|---|
@@ -26,37 +40,21 @@ Authoring checks reproduce the supplied input hashes and sizes:
 | Canonical pnpm lock | 1,982 | `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055` |
 | Profile `cordis.patch.yml` | 217 | `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027` |
 
-The pnpm lock has 57 lines, longest 186 bytes. N1 selects
-`@deepseek-ai/dsh` 0.1.5-rc.2 with integrity
+The selected core remains `@deepseek-ai/dsh` 0.1.5-rc.2, registry integrity
 `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`.
-The preinstall record's six file hashes match the unchanged committed plugin.
-The canonical plugin directory has no nested `node_modules/`; the earlier
-hand-placed shape supports a separate tolerance case. Both built-in bundles
-resolve under core and the plugin under profile. The complete measured lock
-set yields 502 distinct dependency values; counts never replace full-value
-assertions. These are input checks, not a plugin/composite calculation or a
-new provider qualification. D6 binds literal test-source inputs to the sole
-Rust producer; no build or test reads `.forge/`.
+The complete 501 npm / 502 combined dependency values, both bundle anchors,
+six unchanged plugin files and literal test-source inputs remain binding.
+No build or test reads `.forge/` for identity inputs.
 
-Clarify returned `clear`; no `returned_from` finding is supplied. Both complete
-current council positions are reconciled in D10's retained-input sitting.
-Source inspection confirms that the loader and separate canonical profile
-boundary already exist. The producer still exposes intermediate producers,
-reopens identity sources, reads pnpm without a bound, excludes by package name,
-handles paths lossily and misclassifies errors. Doctor still pairs a bare-PATH
-version probe with a separately resolved composite. These are implementation
-obligations under the adopted specification, not an upstream requirement fault.
-
-The rendered design dialect names only `design.md` for this phase. This
-amendment repairs its Context, D6, D10, risks and migration in place. The owning
-tasks visit must replace its superseded fixture/disposition clauses as specified
-under D10 before implementation; its identifiers and checkboxes stand. No Rust,
-guide, declaration, decision or task artifact is re-authored here. Implementation
-owns the assertions, compiling removal controls and gates. Cargo is absent in
-these workspace hands, so attempted Rust, bundle and exact-coverage gates cannot
-run; no passing result is inferred. Frozen surfaces and `extensions/dsh/` stay
-unchanged. Part (d), all 8.10 cases, the 10.7 recording, declaration pin and
-enablement remain pending.
+The dialect's rendered design instructions name only `design.md`. This seat
+amends that artifact and commits exactly it; the run-local result/evidence is
+not committed. D10 records current decisions and the precise dependency handoff
+within existing task identifiers. Historical delivery entries remain dated
+observations, not proof of hold clearance. Rust repairs, seven removal proofs,
+coverage and final-head results remain pending. Decision 0056 stays proposed;
+frozen surfaces, `extensions/dsh/`, `docs/decisions/`, all task ticks and every
+adopted commit remain unchanged. No workflow runner or live-provider probe is
+part of this sitting.
 
 Earlier CODEX ENABLEMENT commission, retained as dated history:
 
@@ -430,13 +428,14 @@ D6's bounded missing observations outside the workspace box.
 
 ## Goals / Non-Goals
 
-**Current goals:** Preserve 8.8(a)'s already-landed closed loader and exact
-private-context carriage; seal one production composite entry point over D6's
-fixed locators, byte form, bounded readers and literal measured rc.2 inputs; and
-make the existing doctor DSH line resolve one adapter seam for both its version
-and composite report. Every refusal names the responsible component or drifted
-path, and every substantive claim has a compiling remove/fail/restore/pass
-control at the claimed assertion.
+**Current goals:** Repair the seven AL/AM findings in order while retaining
+8.8(a)'s closed loader/private carriage and (b)'s sole producer, byte form,
+fixed locators, single-read sources and measured rc.2 inputs. Failed executable
+selection prevents probing; independently safe selection survives a home
+failure. Pnpm validates syntax, scalar kind and decoded-key uniqueness before
+identity normalization. Diagnostics name and safely render the cause. Each
+repair has its own discriminating removal/control proof, including S1's actual
+cwd sentinel on the pre-fix path.
 
 **Current non-goals:** No planner change, `dsh_launch*` work, provider
 installation or live measurement, declaration enablement or digest, new
@@ -888,7 +887,13 @@ and measured confirmation/accounting rules.
 | LaneTally | Share Claude parsing where measured; keep wrapper and capture marker, with separately gated planner. Never substitute plain Claude. | Wrapper identity/forwarding, underlying version, root, capture attribution and applicable restrictions. Unsupported hands remain unsupported. |
 | DSH | Use the latest official core, `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9` or the release answer N1's resolution selects in its place, with the repository-owned six-file adaptation of `dsh-plugin-cli-session` 0.2.0 at `0f487e74` under `extensions/dsh/plugin-cli-session/`. Keep the admitted headless profile and Rust-owned persistence/model/effort overlay, folding the bound route overlay ahead of those rows where the bundle carries one (below); use explicit `--new` cold and `--session <owned-id> --output-format stream-json` warm, only after the recomputed composite matches the declared `wrapper_digest`. | The adapted pair's compatibility and result envelopes on the resolved core, originating-root access, independent post-resume confirmation, current restriction precedence, complete current-sequence accounting, the qualified composite digest and unchanged global installation. |
 
-**Current digest-only correction (2026-09-19).** N1 has now exercised the
+**Current security-hold correction (2026-09-20).** The inherited (a)–(c)
+implementation and retained inputs stand. D10's security-hold sitting owns the
+seven repairs and supersedes the earlier sitting's probe-before-error
+interpretation. The following invariants describe required final behavior,
+not a request to reimplement already-landed mechanisms.
+
+**Retained digest-only correction (2026-09-19).** N1 has now exercised the
 version escape in the DSH row: the selected core is `@deepseek-ai/dsh`
 0.1.5-rc.2 with the registry integrity recorded in Context. The controller
 verified the replacement accessor on that exact release and re-qualified the
@@ -958,7 +963,19 @@ D6's lockfile-9 header, top-level sections, two-space package keys, the measured
 closed child vocabulary and exactly one admitted flow-form resolution with
 registry integrity. Tabs, CR, comments, document markers, malformed quoting,
 unknown structure, block-form or repeated resolution, malformed name/version
-keys and missing integrity are reason-bearing refusals.
+keys and missing integrity are reason-bearing refusals. Before trimming, mapping
+fields require their admitted colon separation. A quote-aware closed scanner
+rejects unsupported flow punctuation throughout a plain value, including
+`sha512-X[one]`. Scalar decoding retains whether the source was quoted until
+the field's type check: identity strings reject plain null/boolean/numeric
+forms, whereas supported quoted strings remain literal. The version header
+retains its admitted plain and quoted `9.0` forms. D10 fixes the reasons and
+controls without adding general YAML support.
+
+A separate set of decoded package headings rejects every repeated key before
+record exclusion or complete-triple deduplication, including identical,
+conflicting, quoted-equivalent and excluded local-tarball records. Valid
+complete triples continue to deduplicate independently across locks.
 
 One shared scalar rule rejects empty data, NUL and every whitespace character,
 including space, tab, CR and LF, before any identity value is concatenated.
@@ -979,8 +996,13 @@ credentials or settings. In particular, do not convert a failed metadata/read
 operation into absence: a dangling home-patch symlink is unreadable, not
 `absent`. Only true missing-path evidence supplies that literal. A selected
 bundle candidate's metadata or canonicalization failure cannot authorize
-searching later candidates. Node selection follows the child's executable
-PATH semantics, not merely the first ordinary file or a version-manager guess.
+searching later candidates. Executable selection for both DSH and Node agrees
+with the native child or refuses by concrete cause before probing. Absent PATH
+is a named refusal for a bare name, never an empty entry. Explicit empty PATH
+entries remain meaningful. Candidate classification preserves terminal errors
+such as ELOOP; missing-interpreter candidates take the conservative pre-probe
+refusal chosen in D10. Metadata/access success alone proves no parity. No
+version-manager inference or trial candidate execution supplies the answer.
 
 The inherited two-path profile representation is correct and stays: raw
 `<home>/profiles/headless` is the lookup anchor; its once-canonicalized value
@@ -1041,10 +1063,16 @@ itself is insufficient. The guide may show the resulting measured-fixture
 output, clearly attributed as such; this does not perform or replace 10.7's
 retained-home doctor recording.
 
-**(c) Make doctor observe one resolved installation.** Resolve `DshSeams`
-once for the DSH provider line. Probe `--version` on that resolved executable
-and pass the same seams to `dsh_composite`; do not probe `adapter.binary` on
-PATH and then hash an override-selected installation. The line reports version,
+**(c) Make doctor observe one safely resolved installation.** Resolve once
+through an outer fallible executable selection. Only success provides a
+canonical executable and the independent home/seams result. Doctor matches
+selection before probing; failure has a diagnostic spelling and cause but no
+fallback probe target. An unrepresentable canonical path refuses by name,
+never by reverting to a bare command. A safe executable can still report its
+version beside a home refusal. Probe `--version` on that selected path and
+pass it unchanged to `dsh_composite`; core discovery performs no second
+bare-name lookup. D10 defines the selection and report states. The line reports
+version,
 canonical digest and plugin component, or the stable unreadable component.
 For a readable result, distinguish `matches the declared wrapper_digest`,
 `differs from the declared wrapper_digest <digest>`, and
@@ -1061,6 +1089,11 @@ It reads no credential, settings, env layer, session, persisted state or overlay
 sample uses the same vocabulary and producer-derived measured-fixture output.
 Primary `BROKKR_DSH_BIN`, legacy `FORGE_DSH_BIN` and PATH precedence come from
 the adapter seam. A failed selected executable never retries a PATH decoy.
+The unavailable
+provider branch retains the selection reason even without a version. It renders
+the binary and reason with `Safe`; escaping belongs only at the output
+boundary, never in lookup or execution input. This availability warning applies
+even to the shipped unmeasured declaration.
 
 Every touched refusal test asserts its exact error variant/component, reason and
 drifted path where applicable; a bare `is_err()` is not evidence. Each
@@ -1477,7 +1510,8 @@ the profile's other files were written, as that code predicts.
 **How the function finds its inputs (analyze B2).** 8.8's function reaches
 every input from the two seams and nothing else:
 
-- *Executable and core.* It canonicalizes the resolved executable. The core
+- *Executable and core.* It consumes the once-selected canonical executable
+  under D10's pre-probe refusal rule, with no bare-name retry. The core
   package is the nearest ancestor directory whose `package.json` names
   `@deepseek-ai/dsh`. The canonical executable must be that package's `bin.dsh`
   target, and its first line must be exactly `#!/usr/bin/env node`. The
@@ -1494,8 +1528,9 @@ every input from the two seams and nothing else:
 - *Node runtime.* The shebang is a `PATH` lookup, so the runtime is the first
   executable `node` on the `PATH` of the environment the DSH child is spawned
   with. The adapter passes its own environment through, so doctor measures its
-  own. The `node` value is the single line `node --version` prints. No
-  version-manager directory is inspected.
+  own. D10's absent-PATH and conservative candidate-refusal rules also govern
+  this lookup. The `node` value is the single line `node --version` prints.
+  No version-manager directory is inspected.
 - *Profile manifest.* The function reads `<home>/profiles/headless/package.json`
   as JSON and takes only `dsh.profile.bundles`, which must be a non-empty array
   of strings, and `dsh.profile.patchReload`, which must be `live` or `startup`.
@@ -1516,7 +1551,9 @@ every input from the two seams and nothing else:
   Because the installation anchor is searched first, a same-named package above
   the core root or in a global folder would otherwise load in place of the
   adaptation the composite hashed. The function emulates this one documented
-  lookup over the file system; it spawns no resolver.
+  lookup over the file system; it spawns no resolver. Exhausted search names
+  both the bundle and `package.json`. A truly absent manifest still allows a
+  later hit; unreadable, uncanonicalizable or outside first hits still refuse.
 - *Canonical containment (council return, 2026-09-13).* Canonicalize the
   complete `<home>/profiles/headless` directory once when reading the profile,
   and retain that value as the containment boundary. Preserve the original
@@ -1536,7 +1573,8 @@ every input from the two seams and nothing else:
 - *Profile lock.* `<home>/profiles/headless/pnpm-lock.yaml` is read by a bounded
   line reader; no YAML crate is added, so deny, audit, licence and MSRV stay
   unchanged. The recognized grammar is the measured one. The first non-blank
-  line is `lockfileVersion: '9.0'`, and unindented `key:` lines delimit
+  line is an admitted plain or quoted `lockfileVersion: 9.0` header, and
+  unindented `key:` lines delimit
   top-level sections, of which only `packages:` is read. Inside it the reader
   accepts blank lines, entry keys at a two-space indent (`'<name>@<version>':`
   quoted or bare) and child lines at four or more spaces. Each entry carries
@@ -1547,8 +1585,10 @@ every input from the two seams and nothing else:
   missing or repeated resolution, or a key with no `@` after its first
   character makes the lock unreadable, so an unrecognized construct is never
   read as an empty result. The key is the text between the indent and the
-  line's final colon, without its single quotes; the name is the key up to the
-  first `@` after its first character. The plugin's own entry is the one named
+  line's final colon, decoded only by the supported quote grammar. Its decoded
+  spelling must be unique before exclusions; identity-string types, separation
+  and flow punctuation obey the current rules above. The name is the key up to
+  the first `@` after its first character. The plugin's own entry is the one named
   `dsh-plugin-cli-session` with a `file:` version, excluded as above.
 - *Path order.* The plugin component's six lines are in bytewise ascending
   order of their UTF-8 relative paths: `LICENSE`, `README.md`,
@@ -1599,14 +1639,17 @@ searches behind the newest root.
 one entry point outside a seat, so the value AS1 requires from the delivered
 Rust canonicalization reaches the qualification without a new subcommand or
 test harness. Doctor's existing `dsh` provider line already reports the probed
-version. It also reports the composite that the adapter's own seam resolution
+version only after successful executable selection; a named selection refusal
+is an availability warning before any probe. It also reports the composite that
+the adapter's own seam resolution
 finds (`BROKKR_DSH_BIN`, `FORGE_DSH_BIN` or PATH, and `$DSH_HOME` or
 `$HOME/.dsh`): its digest, or the component that made it unreadable, and
 whether it equals the declared `wrapper_digest`, differs from it, or has none
 to meet. It reads package metadata, the profile manifest, lock, plugin and
 patch files, spawns only the `dsh` and `node` version probes, never reads a
-credential or settings file, and opens no seat's gate. The detail stays informational while no
-`supported` DSH shape declares a digest. It becomes a warning when a supported
+credential or settings file, and opens no seat's gate. The composite detail stays informational while no
+`supported` DSH shape declares a digest; selection/availability warnings are
+independent and retain their sanitized reason even without a version. It becomes a warning when a supported
 shape's composite differs or is unreadable, because every offer on that home
 would then decline. This also meets answer O's guide obligation. An operator who
 deploys the pair can check which digest the home must reproduce instead of
@@ -2191,7 +2234,260 @@ tracked artifact to its exact subject head.
 
 ### D10 — Proposed 0056 and explicit council reconciliation
 
-#### Retained-input DSH composite sitting — 2026-09-19, adopted `9ccfc68d`
+#### Security-hold successor sitting — 2026-09-20, adopted `d1f84b33`
+
+This sitting adopts AL/AM, AS1, proposed 0056 and every predecessor commit.
+Both complete current positions were read through workspace hands and pinned:
+
+- Robustness: `eaf480e6b4e7b33f23a44b4bf24cc668320ecdd6fff76ec2b73a3e3a062a740d`.
+- Simplicity: `c4e4e651408e588d8b8ee64b2917a1303353eaac4f56d013da1e7c379276319b`.
+
+The controller record and retained third chief confirm that the security hold
+is correct. The controller's missing-file prerequisite is resolved by AM;
+there is no `returned_from` fact or earlier requirement fault to invent.
+Historical positions below remain dated evidence. This sitting controls the
+seven repair decisions, which belong under the existing D6 invariants.
+
+**Explicit council dispositions, in the commissioned repair order:**
+
+| Finding / claims | Decision, evidence and rejected alternative |
+|---|---|
+| 1. S1: robustness R1 separates executable and home results; simplicity §1 favors a distinguishable error in the existing tuple. | Combine the narrow separation and keep the existing string-compatible seam, but choose an **outer fallible executable selection**. Only success carries an executable plus the independent home result. Reject retaining an unconditional executable string beside a selection error: `selected_from:946–971` and `dsh_provider_line_with:239–240` show that this arrangement enabled the HIGH. Simplicity accepts the outer-result alternative; no provider-wide state framework follows. |
+| 2. Correctness (3) / adversarial F1: both positions favor conservative refusal and preserved native lookup errors. | Adopt. Replace boolean candidate classification locally with continuation, admitted candidate or named refusal. `is_executable_file` erases ELOOP, and metadata/access cannot detect the reported missing interpreter. Choose refusal at A for missing interpreter and ELOOP, not native-loader emulation or execution of trial candidates. A safe explicit override remains an explicit choice, including failure with no fallback. |
+| 3. Correctness (1) / spec F1: robustness R3 favors field-sensitive lexical structure; simplicity §3 favors a small plain-string rule. | Combine. Keep quote provenance and validate actual colon separation and whole plain flow tokens before decoding identity strings. `pnpm_scalar:539–563` and `pnpm_flow_map:574–584` currently erase these distinctions. A field-sensitive lexical check is sufficient; a four-token deny-list, unconditional numeric rejection (which breaks the 9.0 header) and a general YAML parser are rejected. |
+| 4. Correctness (2) / adversarial F2 / spec F2: both require a distinct decoded-key set. | Adopt. Package heading admission at `771–791` lacks uniqueness. A set checked before exclusion or normalization rejects ambiguous documents; the existing complete-triple set still deduplicates legitimate values. Reject merging identical/conflicting repeated records, even when a digest is order-independent. |
+| 5. Spec F3: both replace the test oracle with a producer-recorded literal and a focused source-conformance check. | Adopt. `composite/tests.rs:652–659` assembles and hashes the plugin stream independently. That source violates the existing sole-producer rule even when behavioral equality passes. Keep per-file hashes, measured pins and behavioral mutations; reject a fixture generator, alternate serializer or a broad syntax/dataflow-analysis framework. |
+| 6. S2: both reuse `Safe` at the rendering boundary. | Adopt. `doctor.rs:386` interpolates the binary directly; version-unavailable rendering also drops suffix information. Escape the binary and retained selection cause when rendering that branch. Reject pre-escaping executable input or adding another renderer. |
+| 7. Spec F4: both enrich only exhausted bundle lookup. | Adopt. `resolve_bundle:1483` already continues on true missing manifests; `1500–1502` loses the filename at exhaustion. Name the bundle and `package.json` without changing lookup order. Reject treating a manifest-free earlier directory as a terminal hit or collecting every attempted absolute path. |
+| Both: keep adopted producer/loader invariants and cut unrelated machinery. | Adopt all scope cuts: no new production file, crate, dependency, command, stored/wire field, digest format, cache, watcher, install/recovery flow, qualification, planner repair or provider-wide resolver migration. The small local selection result, candidate classification, lexical field distinction and decoded-key set enforce four different demonstrated invariants; collapsing them to an unconditional string, boolean or triple set recreates the defects. |
+| Both: real-child/removal controls, exact coverage and named runtime dispositions remain mandatory. | Adopt the bindings and dispositions below. The manifest-reading `recorded_version` helper cannot prove native child behavior. Previous passing tests and two-file coverage do not discharge this hold. Outside-slice failures remain failures; no assertion weakening, witness re-pin or denominator exclusion is authorized. |
+
+**1. Executable selection is fallible before any probe.** `selected()` returns
+an outer result. Its successful value supplies the selected canonical
+executable and an independent home/seams result; its failure supplies the
+declared spelling and concrete lookup cause for diagnosis only. Success is
+constructed only after local selection checks. `DshSeams::resolve` propagates
+selection failure. The current UTF-8 interface can remain: canonical paths
+that cannot be represented refuse explicitly rather than becoming a lossy
+path or a retry of the declaration. No public general-purpose error framework
+or digest type is required.
+
+Bare-name lookup branches on `Option<OsString>` before splitting PATH.
+`None` produces `PATH is absent`; `Some("")`, explicit empty elements and `.`
+retain their native cwd meaning. Primary `BROKKR_DSH_BIN`, legacy
+`FORGE_DSH_BIN`, then default `dsh` precedence stays unchanged. Path-valued
+overrides select directly and do not require PATH for that selection. A failed
+override supplies no fallback. Node's later bare-name lookup may independently
+refuse absent PATH. Core discovery uses the selected canonical path without
+resolving a bare spelling again.
+
+Doctor matches the outer result before calling its probe. A selection failure
+executes neither DSH nor Node, and its reason survives `Observed` and the
+version-unavailable renderer. A successful selection may answer `--version`
+even if its home result failed; that home error belongs beside the version as
+an unreadable composite. Gating every seam error would break this adopted
+behavior. Changing only `unwrap_or_default()` would leave the unsafe fallback
+in `selected_from`; both alternatives are explicitly rejected.
+
+| Selection / observation state | Version work | Report |
+|---|---|---|
+| Bare name, absent PATH | No probe | Availability warning containing `PATH is absent`, including for the shipped unmeasured declaration. |
+| Terminal lookup error, unsupported selection, invalid override or unrepresentable path | No probe | Sanitized declared spelling and named selection cause; no fallback. |
+| Safe executable, home failure | One selected DSH probe permitted | Its successful version plus named home/composite refusal; comparison unavailable. |
+| Safe executable, version fails | No substitute installation or composite observation | Existing availability failure for that selected executable. |
+| Safe executable, version succeeds, home available | Same selected path for version and composite | The retained readable/unreadable declaration table below applies. |
+
+**2. Conservative native-search handling.** The local candidate classifier
+preserves enough error information to distinguish proven continuation from
+refusal. True absence and the already-proved ordinary non-executable/permission
+cases can continue. ELOOP, unproved metadata/access failures and failed
+canonicalization stop with candidate and cause, before authorizing B. An
+explicit override uses the same safety checks without search continuation.
+
+A bounded byte inspection recognizes a script's shebang without decoding an
+entire native binary as UTF-8. For an executable A with an absolute nonexistent
+interpreter, the chosen outcome is a missing-interpreter refusal **before any
+DSH probe**, not a later failed spawn. Unrecognized or ambiguous interpreter
+forms refuse by cause. The known `#!/usr/bin/env node` form preserves its child
+PATH meaning; Node selection uses the same conservative rule. Supported native
+image and interpreter cases require platform-native child controls. This does
+not assert that file permissions and a shebang inspection emulate kernel
+loading, interpreter chains or all operating-system search rules. Unproved
+cases refuse instead of acquiring speculative support; there is no new
+ELF/PE loader, shell `which`, resolver subprocess or trial candidate execution.
+Any inspected bytes later used as identity evidence are retained for that use,
+so preflight cannot silently defeat the adopted single-read invariant.
+
+The required native child controls establish B after missing-interpreter A,
+and ELOOP at self-symlink A. Doctor deliberately refuses in both cases, naming
+the respective obstruction, with neither A nor B probed. Ordinary
+non-executable A followed by B remains the positive continuation control.
+Explicit valid/invalid overrides, present-empty PATH and leading/trailing empty
+entries retain their independent controls. Unix controls use native guards;
+they do not establish Windows parity. Same-host mutation after observation is
+still an accepted race, not an atomic executable/files snapshot guarantee.
+
+##### Scenario: Safe selection survives a home refusal; unsafe selection never probes
+
+- **GIVEN** a safely selected canonical DSH executable and a missing home
+- **WHEN** doctor obtains a version from that selected executable
+- **THEN** its version remains visible beside the named home/composite refusal
+- **AND** with bare-name lookup and PATH absent instead, selection has no probe
+  target and the availability warning names `PATH is absent`, even when a
+  cwd executable or the shipped unmeasured declaration is present.
+
+##### Scenario: An obstructed PATH search takes the explicit safe refusal
+
+- **GIVEN** PATH A:B, working B/dsh and executable A/dsh with a nonexistent interpreter
+- **WHEN** a real native child executes B and doctor evaluates the same layout
+- **THEN** doctor refuses before probing, naming A and its missing interpreter
+- **AND** replacing A with a self-symlink makes the native child fail with ELOOP
+  and doctor refuse by that cause without selecting or executing B.
+
+These resolve AS1's allowed alternative in favor of pre-probe refusal. They
+add no earlier-specification defect or new admission behavior.
+
+**3. Pnpm syntax and scalar kind precede identity strings.** Keep the existing
+bounded lockfile-9 parser and admitted child vocabulary. Structural recognition
+checks the colon and admitted separation before trimming a value, including
+`resolution: {...}` and its fields. A small quote-aware flow scanner keeps
+commas, colons and bracket punctuation meaningful: unsupported collection
+syntax inside a plain value refuses even after the first character. It never
+repairs `integrity:sha512-X` into the separated control.
+
+Decoded scalar data retains plain-versus-quoted provenance until a
+field-sensitive validator accepts it. Identity-string fields reject plain
+null/boolean/numeric spellings and ambiguous variants, including the reported
+`null`, `~`, `true`, `42`, case variants and numeric forms such as signed,
+fractional, exponent, base-prefixed and non-finite spellings. This is a closed
+lexical admission rule, not YAML value coercion. Supported quoted `'null'`
+and `'42'` remain strings. Admitted plain and quoted version-9 headers keep
+their separate rule; ignored section fields gain no new semantics. Existing
+quote/escape, whitespace, NUL and nonempty checks still apply. The 8,388,608-byte
+inclusive limit, at-most-one-extra-byte read and no-extra-count-limit rules
+remain unchanged.
+
+Refusals retain `pnpm lock`, the field (for example `integrity`) and a specific
+missing-separation, unsupported-flow-syntax or non-string/unsupported-scalar
+cause. Producer-facing controls distinguish each category from a generic
+malformed-lock failure, and retain measured-input/npm-equivalence controls.
+No block-resolution grammar, tags, aliases, escapes or YAML dependency is added.
+
+**4. Mapping-key uniqueness precedes normalization.** Validate and decode each
+package heading, then insert its decoded spelling into a separate set before
+exclusions or triple normalization. Repetition returns `repeated package key`
+with the key, including excluded local-tarball records. No readable partial
+digest escapes from a document that later repeats a heading. Distinct valid
+records contributing equal complete triples, including cross-lock overlap,
+still deduplicate; differing versions/integrities remain distinct. Duplicate
+syntax and semantic triple equality cannot be proved by the same set.
+
+**5. One producer supplies fixed expectations.** Replace the known competing
+loop/hash oracle with a literal recorded from the existing production producer
+for this exact synthetic set: the six required paths, each containing its own
+relative path's bytes without a newline. Record producer revision and input
+provenance next to the expectation, distinct from the retained rc.2 pins. No
+fresh expected digest is invented in this design. Independent input/per-file
+hashes remain permitted. Changed copied bytes, each required-file removal,
+extra-entry refusals and production path/line-order mutations retain their
+behavioral assertions. Calling the producer twice cannot replace a pin.
+
+Restoring a mathematically equivalent test serializer can pass every runtime
+digest assertion. Therefore the existing test surface also has a focused
+source-conformance check that fails restoration of the known competing
+serialization/hash block. Its scope distinguishes per-file input hashing from
+reconstruction of the component/composite stream. It claims detection of that
+restoration, not universal Rust dataflow analysis; source review and private
+production helpers remain complementary. No second generator or analysis
+framework follows.
+
+**6. Safe rendering preserves useful diagnostic context.** Apply the existing
+`Safe` to the binary in the version-unavailable branch and to the retained
+selection reason at their final interpolation points. Keep lookup/probe inputs
+unaltered. Real rendered output for a nonexistent override containing newline
+and ANSI clear-screen bytes includes the recognizable escaped value and omits
+the raw injected sequence; ordinary report newlines remain valid. Selection
+failure cannot disappear into a generic `not found` suffix loss.
+
+**7. Exhausted bundle search names the missing manifest.** The final reason is
+`bundle 'dsh-plugin-cli-session' does not resolve: no package.json found` (with
+the actual bundle name for other bundles). True missing manifests continue in
+the established order; metadata/canonicalization errors and outside first hits
+still stop. An otherwise complete temporary install with only the plugin
+manifest removed and no later copy proves the whole-producer and doctor path.
+A separate legitimate later-hit control proves the filename repair did not
+change lookup. No history-based guess at an installed directory is needed.
+
+**Removal evidence bindings — requirements, not claimed outcomes:**
+
+| Finding | Existing suite / discriminating proof |
+|---|---|
+| S1 | CLI `tests/init_doctor.rs` (or its adjacent focused integration target) launches the built doctor by absolute path with temporary cwd `dsh` printing `SECURITY_CWD_SENTINEL_9f3`, shipped unmeasured adapter, PATH and both overrides removed. Assert no sentinel **before** asserting `PATH is absent`. A native Rust child under the same environment returns NotFound. Explicit `/usr/bin:/bin` with no DSH there and removal of the cwd executable are separate controls. The same test with the sentinel present fails at the no-sentinel assertion on the compiling adopted pre-fix selection/probe path, then passes both assertions after restoration. A probe counter or marker may additionally detect executed-but-discarded output. |
+| Native selection | Real children establish B after missing interpreter and ELOOP at self-symlink; real doctor establishes the chosen named refusals and no B execution. Restoring metadata-only selection or error-erasing continuation fails the respective cause/no-probe checks. Manifest-read or injected versions alone are insufficient. |
+| Pnpm syntax/types | Installed lock inputs pass through the sole producer in `composite/tests.rs`. Remove separation, whole-flow or scalar-kind protection separately; the responsible reason assertion fails while separated fields, supported quotes, header forms and measured inputs remain positive controls. |
+| Duplicate keys | Identical, conflicting/reversed, decoded-equivalent and excluded-local repetitions fail by decoded key. Remove the heading-set check; those assertions fail. Independent valid cross-lock triple deduplication stays covered. |
+| Sole producer | Alter production serialization/order and the recorded literal assertion fails. Restore the competing test serializer and the source-conformance check fails even if runtime equality still holds. Retain byte-change and required-file-removal assertions. |
+| S2 | Built doctor output includes the escaped override and excludes its raw injection. Removing `Safe` fails that exact assertion; a helper-only safe-string test cannot replace the output test. |
+| Missing manifest | Whole producer and doctor name the bundle and `package.json`. Remove filename context and the reason assertion fails. True-absence/later-hit and unreadable/outside-first-hit controls retain lookup semantics. |
+
+Every control records exact compiling mutation, command, nonzero test count,
+intended failed assertion, exact restoration and passing rerun. Compile errors,
+unrelated failures, zero-test filters, bare `is_err()` and new diagnostic-only
+failure on S1's pre-fix path prove nothing about the claimed defect. Environment
+and cwd changes are child-local; temporary layouts never alter providers,
+retained homes, extension bytes or frozen fixtures. An isolated pre-fix copy or
+a reversible local mutation preserves every adopted commit and leaves no
+mutation in the delivered tree.
+
+**Four runtime failures: outside this slice, still failing evidence.** Read
+`.forge/gate-runtime-tests-nff.txt`, current test bodies and the history of
+`99fdbb0a`. The recorded command is `cargo test -p brokkr-runtime --all-features
+--locked --no-fail-fast`. That roster commit re-pins the GPT/Flash offices;
+the relevant recipe, agents and three test targets have no subsequent diff
+through `d1f84b33`. These tests exercise roster/recipe compilation, not DSH
+composite observation. They require their owning roster reconciliation and
+are not silently repaired or weakened here.
+
+| Fully qualified test | Recorded failure / ownership |
+|---|---|
+| `brokkr-runtime::gpt_flash_shape::sol_rules_specification_and_planning` | `analyze:judge` resolves `astra`, expected `sol` (`gpt_flash_shape.rs:100`): office-model/recipe expectation reconciliation. |
+| `brokkr-runtime::gpt_flash_shape::every_strategy_reviews_with_a_mixed_panel_before_the_astra_chief` | `chore` panel providers `{codex}`, expected `{codex, dsh}` (`gpt_flash_shape.rs:241`): GPT/Flash roster diversity after re-pin. |
+| `brokkr-runtime::roster::every_shipped_panel_seats_at_least_two_providers` | `recipes/gpt-flash/bundle.json`, `seats.design.sequence.0`, first hires `{codex}` only (`roster.rs:497`): corresponding library-wide panel diversity obligation. |
+| `brokkr-runtime::witness_digests::pinned_bundles_keep_their_recorded_digest` | GPT/Flash computes `20b1ba158a6d1f71f07255ae8de383751596bdeba150c3308df094fb8fb133f5`, expected `2b6623f12af5f0209fd39c605d5c5c6ec82a52fc9a2456330619d10fe18928e4` (`witness_digests.rs:304`): recipe witness reconciliation after the roster change. |
+
+Focused reproduction uses `cargo test -p brokkr-runtime --all-features --locked
+--test gpt_flash_shape`, then the same options with `--test roster` and
+`--test witness_digests`. These are four recorded failures across three targets,
+not fresh executions or a runtime-suite pass. Their scope disposition cannot
+make the full exact gate pass. New slice regressions have no inherited exemption.
+
+**Dependent-artifact coherence and refusal of scope expansion.** AL/AM and AS1
+already encode every acceptance case; no proposal, specification or proposed
+0056 amendment is needed. This dialect names only `design.md` for this phase.
+The existing `tasks.md` entries through the second council return are retained
+historical delivery/removal records, superseded as security-hold closure by
+this sitting. The tasks artifact's next revision belongs before implementation:
+it records the seven ordered repairs under existing 8.8(a)–(c), replaces any
+current probe-before-selection assumption with the outer-result state table,
+binds each repair to the removal evidence above, and carries the four precise
+runtime dispositions and full gate status. It does not redo accepted loader,
+source-reuse or measured-input work, add task IDs or tick 8.8. No incompatible
+new artifact is being used to conceal an earlier-specification fault.
+
+The accepted cuts and costs are explicit: conservative selection may refuse
+where a native bare-name child would find B; strict pnpm syntax may refuse
+future lock forms; single-read observation leaves later same-host races; lock
+metadata is not installed dependency-tree attestation. These limits do not
+permit execution after failed selection, cause loss or readable malformed
+identity. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4, groups 14–15, provider
+enablement and final-head remote results remain pending. Notes record evidence
+and outcomes; no gate-directed sentence is treated or emitted as authority.
+
+#### Prior retained-input DSH composite sitting — 2026-09-19, adopted `9ccfc68d`
+
+The following is the retained sitting at its own source baseline. The current
+sitting above supersedes its selection/probe interpretation and implementation
+status; its measured-input invariants and composite suffix table remain adopted.
 
 This sitting adopts AK, AS1 and proposed 0056 without reopening their decisions.
 Both current positions were read completely through workspace hands:
@@ -4059,6 +4355,42 @@ the supplied record even after this assertion subset passes.
 
 ### D11 — Verify transitions and trace every requirement
 
+For the current DSH security-hold successor, AS1 and D10's September 20 sitting
+bind all seven repairs to existing protocol/doctor/CLI suites, real child
+controls and individual compiling removal proofs. Adopt all already-delivered
+loader, carrier, measured-input and source-reuse evidence without repeating
+implementation. The current validation commands are:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+- `cargo test -p <crate> --all-features --locked`, separately for `brokkr-core`,
+  `brokkr-store`, `brokkr-protocol`, `brokkr-runtime`, `brokkr-view`,
+  `brokkr-bridge` and `brokkr-cli`; the commission's crate-scoped instruction
+  supersedes the generic workspace test invocation because of its reported
+  CLI deadlock. Failed or hung tests remain failed/pending evidence.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+- `bash scripts/coverage-exact.sh`, or an equivalent preserving the same pinned
+  compiler, isolated clean instrumentation, full production source denominator,
+  test-source exclusion rule and LCOV integer accounting. Crate-by-crate
+  collection may avoid the reported deadlock but must run the same full suite
+  and merge only the candidate's instrumented artifacts. Neither the two-file
+  subset nor skipped runtime failures is equivalent.
+- `openspec validate --all --strict`
+
+The coverage acceptance numbers are **100% lines, 100% branches and 100%
+functions**, with nonzero actual covered/total counts and every added/touched
+production region included. Rounded displays, stale profiles and unavailable
+measurements cannot establish equality. CI, release admission and the coverage
+script all read `rust-nightly-version.txt`; that agreement remains unchanged.
+Namespace-dependent checks need a capable host/CI outside this box. External
+coverage and final-head remote CI remain pending until their results exist;
+D10's precise outside-slice failures do not exempt them from the full gate.
+This design-only visit reports actual attempts below, not an implementation
+pass or hold clearance. No production lines are added or touched here, which
+does not make the unmeasured inherited production coverage vacuously 100%.
+
+Earlier CODEX ENABLEMENT verification scope, retained as history:
+
 For CODEX ENABLEMENT, AC and D10's September 18 sitting bind AS1/AS2/AS3,
 LE1/LE4/LE5 and engine-owned site rules to existing protocol, runtime and CLI
 tests. Adopt 10.1/10.5; record fresh assertion/removal results separately from
@@ -4098,7 +4430,8 @@ not discharge whole-change enablement, C/D or archived provenance acceptance.
 Extend existing Rust suites with deterministic provider shims for behavior
 under Brokkr's control and separate dated proof for provider behavior. The
 smith's numbered tasks name requirements and trace every existing scenario.
-The current five deltas contain 20 requirements and 165 scenarios:
+The current five deltas contain 20 requirements and 187 scenarios; `adapter-launch-evidence` 32, `adapter-resume-safety` 91, `boundary-record` 11, `sdd-progress-markers` 20, `site-session-resumption` 33.
+The earlier AC inventory below is dated history: 20 requirements and 165 scenarios:
 `adapter-launch-evidence` 32 + `adapter-resume-safety` 69 + `boundary-record` 11 +
 `sdd-progress-markers` 20 + `site-session-resumption` 33 = 165. AC added three
 provenance/stdin/exec-only scenarios to AB's 162-scenario inventory; AB had
@@ -4233,6 +4566,19 @@ dated-return and archive-ready states; tasks 15.5–15.7; decision 0042 rulings
 
 Current DSH composite risks and dispositions:
 
+- [A selection error still supplies something executable] → outer fallible
+  selection, pre-probe matching and an end-to-end absent-PATH sentinel control
+  on both repaired and pre-fix paths. Home errors remain independent.
+- [Native lookup and local inspection disagree] → preserve terminal causes,
+  choose named pre-probe refusal for missing interpreters and uncertainty,
+  and use real native-child comparisons. Conservative refusal can reject a
+  layout native lookup would run; the diagnostic exposes that deliberate cost.
+- [Syntax normalization merges unlike pnpm inputs] → retain quote/type and
+  delimiter information until field validation; reject repeated decoded
+  package keys before exclusions or triple deduplication.
+- [A fixed digest pin conceals a second serializer] → producer-recorded
+  provenance plus behavioral order/removal proofs and focused source conformance.
+  The source check detects the known restoration, not every imaginable program.
 - [A helper becomes a second producer] → expose only `dsh_composite` in
   production; keep serializers, file digests and injected seams private, with
   synthetic construction available only under tests.
@@ -4256,9 +4602,12 @@ Current DSH composite risks and dispositions:
 - [Lock identity is overstated as installed-tree integrity] → the dependency
   lines identify lock metadata, not every dependency's bytes; the ignored direct
   dependency subtree and later cross-file mutation remain accepted limits.
-- [Doctor combines two installations or emits hostile text] → resolve one DSH
-  seam for version and composite, make unreadable reasons terminal-safe, and
-  prove override precedence. Non-DSH probe unification is out of scope.
+- [Doctor combines installations, drops a refusal or emits hostile text] → only
+  successful selection supplies the shared path; unavailable rendering retains
+  the named cause and uses `Safe` for binary and reason. Non-DSH probe
+  unification is out of scope.
+- [Naming a missing manifest changes lookup] → enrich only the exhausted-search
+  reason; keep true-absence/later-hit and terminal first-hit controls.
 - [Digest work is mistaken for planner completion] → report (a)–(c) separately,
   keep 8.8 and 8.10 unchecked, and name part (d), 10.7 recording, exact
   coverage outside the box and remote CI as pending until their actual results
@@ -4547,59 +4896,60 @@ Earlier whole-change and Pass B risks remain recorded below:
 
 ## Migration Plan
 
-For DSH COMPOSITE IDENTITY, adopt AK and the retained-input D10 sitting.
-There is no data or installed-profile migration. Before implementation, the
-owning tasks visit replaces its explicitly superseded fixture and unreadable
-comparison clauses under the existing identifiers; the design-phase artifact
-is only this file. Then implement in D10's order:
+For the current DSH security-hold successor, adopt every commit through
+`d1f84b33` and AL/AM's existing contract. This phase commits only `design.md`.
+No wire, journal, data, profile, provider installation or declaration migration
+is needed. The next tasks revision records D10's seven repairs and proof
+bindings under existing identifiers before implementation. Implementation order
+is the commission's finding order:
 
-1. Preserve the loader and its exact transport. Run the existing
-   `the_optional_wrapper_digest_member_loads_carries_and_is_refused_by_name`
-   control with compiling removals of the measured-key admission, lowercase
-   grammar and selected-value carriage; each must fail its own field/content
-   assertion before exact restoration.
-2. In `brokkr-protocol`, seal the single production producer, retain each
-   identity source once, enforce exact plugin membership/path handling, exact
-   entry exclusions, the bounded closed pnpm reader, complete scalar
-   whitespace rejection and component-specific errors. Extend the existing
-   composite tests with exact-bound/overflow, all whitespace classes,
-   same-name registry retention, direct-only `node_modules/`, no-lossy-name,
-   single-read reuse and reason-bearing locator/component cases. Materialize
-   the full literal measured rc.2 inputs at both anchors, assert the complete
-   ordered 501/502-value expectations and pin only producer-derived component
-   and composite outputs. No runtime/build-time `.forge/` dependency remains.
-3. In the existing doctor DSH branch, resolve seams once, version-probe that
-   executable, call the sole producer with those seams, preserve readable
-   match/difference/undeclared states and unreadable declaration presence with
-   comparison unavailable, and render named errors safely. Prove primary,
-   legacy and PATH precedence for both observations, selected failure without
-   fallback, and D10's complete warning table. Update
-   `docs/guides/provider-adapters.md` so its sample and rc.2 account follow the
-   shipped line; do not record the retained home's digest
-   or change support status.
-4. For every delivered assertion, make the responsible production deletion or
-   weakening compile, record the exact test and assertion that fails, restore
-   the bytes and rerun it passing. A setup failure, compilation failure,
-   unrelated earlier failure or bare `is_err()` does not count.
-5. On final restored bytes run `cargo fmt --all -- --check`,
-   `cargo clippy --workspace --all-targets --all-features --locked -- -D
-   warnings`, crate-scoped tests for `brokkr-runtime`, `brokkr-protocol`
-   and `brokkr-cli` (the workspace-wide test can deadlock in the CLI),
-   `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`, the
-   literal exact-coverage gate where its namespace prerequisite exists, and
-   `openspec validate --all --strict`. Never lower or predict the coverage
-   result; record it pending when the box cannot create the required namespace.
+1. S1: make selection fallible before probing; preserve absent versus empty
+   PATH and useful version output after independent home failure. Record the
+   real cwd-sentinel pre-fix failure, restored pass and separate controls.
+2. Native search: preserve terminal candidate errors and choose conservative
+   missing-interpreter refusal. Record real native B/ELOOP controls, doctor's
+   named refusals and explicit override/no-fallback positives and negatives.
+3. Pnpm syntax/types: retain quote information, validate field separation and
+   whole flow tokens, and reject non-string identity scalars by cause while
+   preserving supported version headers and measured inputs.
+4. Duplicate keys: reject decoded package heading repetitions before exclusions
+   and keep legitimate complete-triple normalization independent.
+5. Sole producer: replace the competing test oracle with the producer-recorded
+   literal and provenance; retain behavioral sensitivity and add the focused
+   restoration-detecting source-conformance assertion.
+6. S2: render the unavailable binary and retained cause through `Safe`; prove
+   the real newline/ANSI override diagnostic without raw injection.
+7. Missing manifest: name the bundle and `package.json` at exhausted lookup,
+   retaining first-hit order and containment with whole-producer controls.
 
-No stored journal, contract, policy, fixture, reference byte, extension byte or
-provider installation migrates. Rollback reverts producer/doctor/guide/tests as
-one unit while leaving DSH `unmeasured`; the loader's already-shipped optional
-grammar remains because removing an admitted declaration member would itself be
-a compatibility regression. Delivery reporting identifies each completed
-subpart only from its executed evidence, and lists any unrun proof/gate as
-pending. It separately lists 8.8(d), all 8.10 cases, the 10.7 recording, the
-rest of 8.8 acceptance and remote CI as pending. Exact coverage stays pending
-until a capable host/CI returns its actual result; no unconditional delivery
-claim may imply that gate passed. Task 8.8 is not ticked. No push, archive, publication or channel/profile update occurs.
+Each step records a compiling restored-defect/removal failure at its intended
+assertion and exact restored pass. The existing Rust suites own those tests;
+run-local records describe actual outcomes rather than prefilled expectations.
+All adopted loader/carrier, fixed-input, membership and one-read regressions
+remain in the suite. Relevant guide wording follows the resulting diagnostic
+only if needed; no new live retained-home recording is implied.
+
+Final restored bytes receive D11's format, clippy, seven crate-scoped test
+runs, self-bundle compile, strict OpenSpec validation and full exact gate.
+Actual nonzero counts and literal 100% line/branch/function equality remain
+required. Missing Cargo, namespace capability or external results are pending
+proof, not a lower gate. The four individually named runtime failures remain
+outside-slice roster/recipe work and continue to prevent a full green claim.
+
+Well-formed retained inputs preserve their byte format and pinned identities;
+previously accepted malformed or ambiguous input now refuses by reason. A
+rollback that restores the old selector restores a confirmed HIGH, so that
+version cannot be described as repaired or safely validated. Reverting a repair
+is a local rollback only, with the hold and validation status reopened and DSH
+remaining unmeasured/disabled. No historical commit is rewritten. The already
+admitted optional loader member remains compatible.
+
+All seven repair/removal outcomes and exact coverage remain pending at design.
+Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain excluded;
+8.8 is not ticked. Decision 0056 stays proposed. Frozen contracts, production
+policy and schemas, fixtures, reference, extension and decision bytes do not
+move. No push, archive, release, profile/channel update or final-head remote
+success is implied by this local design commit.
 
 For CODEX ENABLEMENT, adopt AC at `d0b4f639`, item 1 at `85cf6d55` and
 completed 10.5 at `9da5ff92`. This chief commits exactly `design.md` unsigned.
@@ -4810,21 +5160,19 @@ facts are not current references to replace.
 
 ## Open Questions
 
-No DSH composite design choice or missing-input question is deferred. The
-complete retained bytes close both correct parks; literal Rust constants
-satisfy the measured-fixture and no-runtime-`.forge/` rules together. D10
-reconciles both current positions, preserves one producer with private helpers,
-separates raw lookup order from canonical containment, and fixes unreadable
-comparison wording without inventing an equality result. The positions now
-agree on source reuse and refusal of a digest newtype; their predecessor's
-disagreement is preserved only as dated history.
+No security-hold design question is deferred. D10 chooses the outer fallible
+selection, conservative native-search refusal, field-sensitive pnpm validation,
+separate decoded-key uniqueness, producer-recorded expectation, `Safe` rendering
+and filename-preserving lookup. AL/AM and AS1 already admit those choices; the
+controller record is recovered. No upstream requirement fault is established.
 
-Implementation outcomes, exact mutation failures/restorations, coverage and
-gate results remain pending observations. The owning tasks reconciliation is
-a defined artifact obligation, not a delegated design choice. If a compiling
-counterexample establishes that an earlier AS1 or proposed-decision requirement
-is contradictory, return `upstream`; do not disguise it in a weaker parser,
-comparison or fixture. No such upstream fault is established by this sitting.
+Implementation, real-child behavior on supported platforms, compiling removal
+outcomes and coverage counts remain pending evidence. An unproved executable
+form refuses by cause rather than acquiring speculative support; supporting
+additional forms would require new native controls under the same decision.
+The tasks artifact's accounting follows the defined handoff without new task
+IDs or ticks. A demonstrated contradiction in an earlier requirement would
+return `upstream`, not be hidden by weakening its downstream assertion.
 
 No design choice is deferred for CODEX ENABLEMENT. D10 answers all four
 robustness questions and rejects the unsupported handle-repair trace. The
@@ -6110,3 +6458,54 @@ implementation proofs/gates, part (d), the complete 8.10 ledger, 10.7's recordin
 declaration pin and enablement remain pending with their owners. No planner
 plan, task tick, release action, push or new run occurred. The required result
 returns the adopted identifier in `inputs.change`.
+
+
+## Council design validation — security-hold successor, 2026-09-20
+
+This chief adopted `2026-09-09-226-session-resumption`, every commissioned commit
+through `ab2d8e1d`, and specification amendments through inspected `d1f84b33`.
+The controller reproduction, seven findings, both complete current positions,
+README, decisions 0004/0005/0009, relevant proposed 0056 provisions, AL/AM,
+AS1, affected Rust/tests, exact-coverage script and runtime evidence were read.
+The dialect's own `openspec instructions design --change
+2026-09-09-226-session-resumption --json` named `design.md`; no workflow runner
+was invoked. All work used the boxed workspace tool.
+
+Delivered in this phase: current Context and goals; coherent D6 selection,
+scalar, key and diagnostic rules; D10's evidence-based adoption, combination
+and rejection of both positions; explicit scenarios choosing safe refusal;
+seven removal-proof bindings; D11's exact acceptance accounting; risks,
+migration/rollback and open-question dispositions. All four recorded runtime
+failures are named individually under D10 with their roster/recipe ownership.
+The five unchanged capability deltas contain 20 requirements / 187 scenarios.
+No earlier requirement fault was established. Result: `drafted`, not hold
+clearance or implementation success.
+
+Fresh local validation attempts and logs are recorded in
+`.forge/design-chief-4437331e/gates.json`:
+
+| Check | This seat's outcome |
+|---|---|
+| `openspec validate --all --strict` | Exit 0: 15 items passed, 0 failed. Existing long-requirement informational notices remain. |
+| `git diff --check` | Exit 0. |
+| Format and all-target/all-feature locked clippy | Each exit 127: Cargo is absent in these workspace hands. |
+| Seven separately invoked locked all-feature crate test suites | Each exit 127 for the same missing Cargo; no test pass or new runtime outcome is claimed. |
+| `bundles/self` compile | Exit 127 for missing Cargo. |
+| Literal `bash scripts/coverage-exact.sh` | Exit 127 at line 33, `cargo: command not found`, before instrumentation. |
+
+Fresh coverage is **unmeasured**: lines **N/A covered / N/A total (N/A%)**,
+branches **N/A / N/A (N/A%)**, functions **N/A / N/A (N/A%)**. The structured
+coverage record uses nulls. These are neither zero nor 100%; the required
+numbers remain **100% / 100% / 100%** with nonzero integer denominators.
+No source exclusion, threshold change, inherited subset or test skip was used.
+Missing Cargo is this seat's local blocker; namespace-dependent exact coverage
+also retains its capable-host/CI handoff. Final-head remote results are pending.
+
+Only `design.md` is the tracked artifact for this phase. The task account,
+other OpenSpec artifacts, Rust, frozen contracts/policy/schemas/fixtures/
+reference, extensions and decision bytes remain unchanged; 0056 remains
+proposed and 8.8 unchecked. Run-local validation records and the mandatory
+chief result are not committed. All seven implementation repairs and removal
+proofs remain pending, as do full exact coverage, the four outside-slice runtime
+failures, part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15.
+No push, provider remeasurement, declaration change or publication occurred.
