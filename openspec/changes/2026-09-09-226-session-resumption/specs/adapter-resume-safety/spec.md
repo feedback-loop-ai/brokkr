@@ -105,8 +105,8 @@ profiles and credentials, and other runs byte-unchanged, proven by snapshots
 taken before and after.
 
 At run time the DSH adapter SHALL resolve its executable through its existing
-seam (`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH) and its DSH
-home as the shipped driver already does (`$DSH_HOME` when set and non-empty,
+seam (`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then native lookup of `dsh`) and
+its DSH home as the shipped driver already does (`$DSH_HOME` when set and non-empty,
 otherwise `$HOME/.dsh`), and SHALL launch that home's admitted `headless`
 profile. Before provider work it SHALL recompute the composite identity of that
 executable, the Node runtime and resolved dependencies it loads, the installed
@@ -127,23 +127,33 @@ probe. This discipline SHALL apply to both DSH and Node, including explicit
 overrides and the already-selected executable passed to the composite producer.
 
 Bare-name Unix lookup SHALL distinguish absent PATH from a present PATH with
-an empty entry. Absent PATH SHALL refuse with `PATH is absent` before any DSH
-or Node version probe and SHALL NOT become cwd lookup. Explicit empty entries
-SHALL retain their native cwd meaning at their position in the search. A
-successful selection SHALL identify exactly the executable native
-`std::process::Command::new(name)` runs under the same conditions; native
-NotFound SHALL NOT become an executable selection. Ordinary provable positive
-cases SHALL NOT be silently refused or substituted. The comparison SHALL use
-real native children with distinct harmless sentinel identities, not metadata,
-permissions, a manifest version or injected success as a lookup oracle.
+an empty entry. Absent PATH SHALL follow the running platform's native default
+search semantics, including success when that search finds the name; absence
+alone SHALL NOT imply NotFound, require refusal or insert cwd into the search.
+A universal guessed default directory list SHALL NOT replace the platform's
+rule. Explicit empty entries SHALL retain their native cwd meaning at their
+position in the search, and present-empty PATH SHALL NOT inherit the absent
+PATH default. This rule applies equally to arbitrary primary/legacy DSH binary
+overrides and the Node lookup. A successful selection SHALL identify exactly
+the executable native `std::process::Command::new(name)` runs under the same
+conditions; native NotFound SHALL refuse without a probe target. A no-match
+refusal with PATH absent SHALL name the unsuccessful native default search;
+`PATH is absent` alone SHALL NOT establish failure. Ordinary provable positive
+cases SHALL NOT be silently refused or substituted, including default-search
+successes. The comparison SHALL use real native children with distinct
+harmless identities, not metadata, permissions, a manifest version or injected
+success as a lookup oracle. An absent-PATH matrix containing only names absent
+from the platform default search SHALL NOT establish equality.
 
 Where the native outcome cannot be established without executing a candidate,
 resolution SHALL take D10's pre-probe refusal with the obstructing candidate
 and specific cause named, before probing that executable. A DSH selection
 refusal SHALL prevent both DSH and Node probes; Node selection likewise SHALL
-refuse before its own probe. This refusal SHALL be reported distinctly from native NotFound and SHALL NOT count as an equality
-pass when a native control runs a later candidate. Metadata/access success,
-a readable shebang interpreter, or a non-shebang native image alone SHALL NOT
+refuse before its own probe. This refusal SHALL be reported distinctly from
+native NotFound and SHALL NOT count as an equality pass when a native control runs a later candidate. PATH
+absence by itself SHALL NOT count as an interpreter/loader obstruction.
+Metadata/access success, a readable shebang interpreter, or a non-shebang
+native image alone SHALL NOT
 prove loader success. Missing interpreters, interpreter chains with missing
 loaders and native images with missing dynamic loaders SHALL NOT authorize
 selecting the obstructing entry or silently guessing a later entry. A terminal
@@ -240,10 +250,11 @@ The canonical executable SHALL be the selected core package's `bin.dsh`, whose
 resolved relative path is `node_modules/@deepseek-ai/dsh/lib/bin.js` and whose
 first line is exactly `#!/usr/bin/env node`. The selected core's own hidden-lock
 entry SHALL supply its version and match the core package's version. `node`
-SHALL identify the runtime native child lookup would execute on the child
-PATH, subject to the same named pre-probe refusal for unprovable selection,
-and be observed through `node --version` as one non-empty record with at most
-its single output terminator; trimming SHALL NOT repair whitespace inside the version value. Only
+SHALL identify the runtime native child lookup would execute in the child
+environment, including native default search when PATH is absent, subject to
+the same named pre-probe refusal for unprovable selection, and be observed
+through `node --version` as one non-empty record with at most its single output
+terminator; trimming SHALL NOT repair whitespace inside the version value. Only
 `<home>/profiles/headless/package.json` SHALL supply the non-empty string-array
 `bundles` and `patchReload` (`live` or `startup`); no other profile is searched.
 Bundle resolution SHALL preserve the provider loader's order. The producer
@@ -260,8 +271,8 @@ SHALL produce the same identity.
 The existing `brokkr doctor` DSH line SHALL resolve the adapter's executable
 and home seams once and use that same resolution for both the DSH version probe
 and the sole composite producer. The executable precedence SHALL be
-`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH, with the adapter's
-existing home resolution. It SHALL NOT pair a PATH version with an
+`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then native lookup of `dsh`, with the
+adapter's existing home resolution. It SHALL NOT pair a PATH version with an
 override-selected composite or silently retry another installation when the
 selected executable fails. It SHALL report the canonical digest and plugin
 component, or the named unreadable component, and state whether the canonical
@@ -657,19 +668,19 @@ read as history, not as a current claim.
 - **AND** no credential/settings read or subprocess beyond the selected DSH and Node version probes is needed for this diagnostic, and the guide sample follows the same wording
 
 #### Scenario: Absent PATH refuses before doctor can execute a cwd sentinel
-- **GIVEN** a real executable `dsh` in a temporary cwd prints `SECURITY_CWD_SENTINEL_9f3`, no DSH binary override is set, the child environment has no PATH, and the shipped DSH declaration is unmeasured with no `wrapper_digest`
+- **GIVEN** a real executable `dsh` in a temporary cwd prints `SECURITY_CWD_SENTINEL_9f3`, no DSH binary override is set, the child environment has no PATH, native default search has no `dsh`, and the shipped DSH declaration is unmeasured with no `wrapper_digest`
 - **WHEN** the built doctor and a native Rust `Command::new("dsh").arg("--version")` control are invoked with the same cwd and environment
-- **THEN** doctor reports a DSH selection refusal containing `PATH is absent`, its output does not contain the sentinel, and the controlled native child returns `NotFound`
-- **AND** with PATH explicitly `/usr/bin:/bin` and no DSH installed there the sentinel remains unexecuted; removing cwd `dsh` while keeping PATH absent still produces the named absent-PATH refusal
-- **AND** with the sentinel executable present, the same doctor regression test fails specifically at its no-sentinel assertion on the adopted pre-fix execution path; after exact restoration of the repair it passes both that assertion and the `PATH is absent` reason assertion
+- **THEN** doctor reports a DSH selection refusal naming the unsuccessful native default search and its `PATH is absent` context, its output does not contain the sentinel, and the controlled native child returns `NotFound`
+- **AND** with PATH explicitly `/usr/bin:/bin` and no DSH installed there the sentinel remains unexecuted; removing cwd `dsh` while keeping PATH absent still produces the named default-search no-match refusal
+- **AND** with the sentinel executable present, the same doctor regression test fails specifically at its no-sentinel assertion on the adopted pre-fix execution path; after exact restoration of the repair it passes both that assertion and the default-search no-match reason assertion
 - **AND** removing only the fixture or supplying explicit PATH is a separate control, not a substitute for that production regression proof; failure only at a newly required reason assertion does not prove sentinel execution
 - **AND** environment changes are confined to child processes and no installed provider, global home or frozen fixture supplies this test
 
 #### Scenario: Unix backslashes never confer direct-path authority
-- **GIVEN** a temporary Unix cwd contains an executable literally named `C:\Tools\dsh.exe` printing `SECURITY_BACKSLASH_CWD_SENTINEL_9f3`, the primary DSH override spells that exact name, and the shipped declaration is unmeasured
+- **GIVEN** a temporary Unix cwd contains an executable literally named `C:\Tools\dsh.exe` printing `SECURITY_BACKSLASH_CWD_SENTINEL_9f3`, the primary DSH override spells that exact name, no file by that name exists in the native default search, and the shipped declaration is unmeasured
 - **WHEN** the built doctor and native `Command::new(name)` control use that cwd first with PATH absent and then with PATH set to directories containing no such file
 - **THEN** native lookup returns NotFound in both layouts, doctor refuses before any probe, and neither doctor output nor an execution marker records the cwd sentinel
-- **AND** the absent-PATH refusal names `PATH is absent`; the populated-PATH refusal identifies the unsuccessful lookup without converting the backslashes to separators
+- **AND** the absent-PATH refusal names the unsuccessful native default search with `PATH is absent` as context; the populated-PATH refusal identifies the unsuccessful lookup without converting the backslashes to separators
 - **AND** placing a distinct file with that literal name in a PATH directory selects that native PATH identity, while a `/`-containing explicit path to the cwd file exercises the separate direct-path control
 - **AND** removing the cwd fixture is a separate negative control; restoring backslash-as-separator classification must make the present-fixture no-execution assertion and differential matrix fail, then exact restoration passes both
 
@@ -681,6 +692,7 @@ read as history, not as a current claim.
 - **AND** a NUL-bearing name is refused with NUL named before any filesystem lookup or probe, and the native control returns invalid input without executing a sentinel
 - **AND** other terminal native errors retain a cause-bearing refusal and never authorize a later candidate
 - **AND** the same table executes on Windows with native executable sentinels and native fixture paths; names or layouts the platform cannot admit retain their observed native refusal rather than being relabelled, omitted or claimed from Unix evidence
+- **AND** the absent-PATH cells include the native default-search positive scenario below for DSH overrides and Node, alongside cwd-only sentinel negatives; absence alone cannot satisfy a refusal assertion
 - **AND** slash-containing explicit paths still occupy every matrix cell and preserve their native direct-path behavior regardless of which PATH layout surrounds them; ordinary successful controls prevent blanket refusal from satisfying the table
 
 | Axis | Required members |
@@ -689,7 +701,19 @@ read as history, not as a current claim.
 | Layout / environment | file in cwd with PATH pointing elsewhere; file in a PATH directory; PATH absent with cwd file present; PATH containing an empty entry; PATH A:B with obstructed A and runnable B |
 | Empty-entry variants | present-empty PATH, leading empty entry, interior empty entry and trailing empty entry, with distinguishable competing candidates |
 | Obstruction variants | missing shebang interpreter; executable interpreter whose own loader is missing; native image with missing dynamic loader; retain the terminal self-symlink and ordinary non-executable continuation controls |
+| Default-search controls | add a bare name native default search actually executes (`sh` is the observed Unix positive), primary and legacy DSH overrides using that name, and the real Node lookup; compare absent PATH, present-empty PATH, explicit PATH and same-name cwd decoys without reducing the commissioned eight-name cross-product |
 | Platform | native Unix execution and native Windows execution; platform-specific path syntax and loader fixtures follow that platform's rules |
+
+#### Scenario: Absent PATH preserves a native default-search success for DSH and Node
+- **GIVEN** a Unix platform whose native default search excludes the temporary cwd and where a real Rust native child executes a harmless bare name with PATH absent (`sh` is the observed positive control), and isolated cwd layouts distinguish that default-search identity from a same-name cwd decoy
+- **WHEN** the differential test compares native lookup and executable resolution with PATH removed, first with that name as the primary DSH override and then as the legacy override with the primary unset
+- **THEN** each ordinary provable selection equals the exact native default-search identity; neither blanket `PATH is absent` refusal nor execution of a cwd decoy passes, and the unrelated provider/composite qualification remains independent of this lookup proof
+- **AND** the Node side exercises its real `node` lookup under an equivalent native-positive default-search layout and identifies exactly the runtime the native `Command::new("node")` control executes; a DSH or shell result alone cannot prove Node, and version text alone cannot prove selected identity
+- **AND** with PATH present but empty and no same-name cwd file, native lookup returns NotFound and resolution refuses without a probe target; restoring the cwd decoy makes that explicit empty entry select the decoy exactly when the native control does, without falling back to the absent-PATH default
+- **AND** explicit PATH gives an independent positive identity control; the commissioned cwd-only `dsh` and literal backslash sentinels remain negative controls when absent from native default search
+- **AND** a compiling mutation restoring unconditional absent-PATH refusal makes `absent_path_default_search_matches_native_dsh_and_node` fail its selected-identity assertion while the native positive still executes, and exact restoration passes; an always-cwd mutation still fails the named S1/S1b no-execution controls
+- **AND** unavailable default-search positives or native Windows execution are recorded as pending platform evidence, never replaced by injected results, guessed search directories, passing skips or tests containing only native misses; fixtures do not modify the operator's installed programs, global environment or provider home
+- **AND** a concrete D10 loader obstruction retains its separate named pre-probe refusal and is not counted as a positive equality result or used to excuse ordinary default-search success
 
 #### Scenario: Explicit empty PATH entries and explicit overrides retain their meaning
 - **GIVEN** controlled executable names in cwd and a later PATH directory, plus distinct primary and legacy explicit override paths
@@ -765,7 +789,7 @@ read as history, not as a current claim.
 - **AND** removing the missing-filename context makes the producer-facing reason assertion fail while restoring it passes; a private file-set helper alone does not prove the installed lookup path
 
 #### Scenario: Digest acceptance is proved by removal without completing the planner
-- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations and all five second-hold findings covered above
+- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations, all five second-hold findings and the returned Q1 default-search controls covered above
 - **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
 - **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
 - **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence

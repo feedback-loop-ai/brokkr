@@ -1,20 +1,23 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
-This specify visit adopts `2026-09-09-226-session-resumption` and every commit
-through `b9eba961` on `slice-dsh-composite-b` for run
-`dsh-composite-identity-issue-226-069caa79`. Answer AN addresses the **second
-security hold**, including S1's platform rule after the `4437331e` run repaired
-only its absent-PATH instance. Both commissioned controller reproductions were
-read first. The existing loader, sole producer, measured inputs and doctor
-selection result are adopted; this checkpoint delivers acceptance amendments,
-not implementation or hold clearance. Only task 8.8(a)–(c) is commissioned.
+This specify return adopts `2026-09-09-226-session-resumption` and every
+commit through `e017d9770de1a17094b203f74a9be4ec0cba87ce` on
+`slice-dsh-composite-b` for run `dsh-composite-identity-issue-226-069caa79`.
+Answer AO resolves `returned_from` clarify's Q1: absent PATH follows the
+running platform's native lookup, including successful default search. It is
+not an unconditional refusal policy. The two controller reproductions remain
+valid negative controls for their layouts; their absent-PATH generalization
+and AN/AS1's corresponding universal refusal are corrected on executable
+evidence. Both commissioned controller records were read first.
 
-AN supersedes AL/AM's current-hold and inherited-runtime-failure dispositions.
-The controller removed the roster commit that caused those four failures;
-none is an inherited exception at this base. Earlier records below remain
-historical evidence. Decision 0056 remains proposed and 8.8 stays unchecked.
-The proposal is amended first, then the owning AS1 delta. No `returned_from`
-fact was supplied; the named second hold is answered without inventing one.
+AN's five second-hold dispositions remain adopted as amended by AO. The
+controller removed the roster commit that caused the four historical runtime
+failures; none is an inherited exception at this base. Earlier records below
+remain dated evidence. The proposal precedes its owning AS1 delta; this
+specification checkpoint does not repair Rust or clear the hold. Only task
+8.8(a)–(c) is commissioned, decision 0056 remains proposed, and 8.8 stays
+unchecked. Dependent design/task reconciliation and executable delivery proof
+remain pending under the corrected requirement.
 
 Earlier security-hold specify re-entry, retained as dated history:
 
@@ -317,12 +320,13 @@ whole acceptance. Decision 0030's 0.148.0 measurements remain history.
   Reject missing header/outer-field separation and plain colon-space syntax
   before normalization; preserve integrity bytes so plain and quoted U+00A0
   both refuse. Separate home availability from executable selection in the
-  regression assertions. AN and AS1 define the acceptance and removal controls.
+  regression assertions. AN, corrected by AO, and AS1 define acceptance and
+  removal controls, including absent-PATH native successes for DSH and Node.
   A fresh full exact gate and every green crate suite remain delivery debts;
   the old roster-failure exemptions and retained coverage are not current proof.
 
-The following bullets retain earlier commissions and completed work; AN
-controls this visit's scope and supersedes conflicting current-status claims.
+The following bullets retain earlier commissions and completed work; AN as
+amended by AO controls this visit and supersedes conflicting current claims.
 
 - For the 2026-09-20 security-hold repair, adopt the existing loader,
   producer, measured fixture and doctor seam, then address the seven findings
@@ -2977,7 +2981,7 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
 
   | Finding | Adopted acceptance and rejected interpretation |
   |---|---|
-  | 1, HIGH: S1's rule | On Unix only `/` makes a program spelling a path. Backslashes, drive-like spellings, extensions and spaces confer no path authority. A bare name with absent PATH refuses; explicit empty entries keep their native position. DSH and Node use the running platform's rule, with NUL rejected before lookup. Reject patching only the supplied spelling or applying Unix heuristics to Windows. Every admitted selection must be the exact file native `Command::new(name)` runs in the same environment and cwd. |
+  | 1, HIGH: S1's rule | On Unix only `/` makes a program spelling a path. Backslashes, drive-like spellings, extensions and spaces confer no path authority. A bare name with absent PATH follows native lookup, including default-search success (AO corrects the original universal refusal); explicit empty entries keep their native position. DSH and Node use the running platform's rule, with NUL rejected before lookup. Reject patching only the supplied spelling or applying Unix heuristics to Windows. Every admitted selection must be the exact file native `Command::new(name)` runs in the same environment and cwd. |
   | 4, MEDIUM: loader continuation | Native PATH A:B can run B after A's missing interpreter, an interpreter whose own loader is missing, or a native image's missing dynamic loader. Retain D10's named pre-probe refusal wherever selection cannot be established without execution. Reject metadata/access success and a non-shebang prefix as loader evidence, later generic NotFound as refusal proof, candidate trial execution, and silent substitution. A safe refusal is explicitly different from native NotFound parity, never an equality pass. |
   | 2, MEDIUM: grammar boundaries | Reject `lockfileVersion:9.0`, `resolution:{integrity: sha512-X}`, and `resolution: {integrity: sha512-X, tarball: x: y}` through the sole producer, with the pnpm component and separation or unsupported-flow cause. Check header, outer mapping and every inner field before discarding structural bytes; even an ignored field cannot hide invalid syntax. Preserve admitted separated plain/quoted controls and colon-without-space URL controls. A patch to the integrity field alone is insufficient. |
   | 3, MEDIUM: identity preservation | Plain integrity with leading or trailing U+00A0 must refuse with `integrity carries whitespace`, just like either quoted control. Legal ASCII structural separation is distinct from scalar bytes. Reject Unicode trimming, including trimming before quote recognition, because it aliases distinct input into the control's readable composite. Preserve the existing nonempty, NUL and all-whitespace identity rules. |
@@ -2985,8 +2989,11 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
 
   **Differential proof boundary.** AS1 crosses all eight commissioned program
   spellings with cwd, PATH-directory, absent-PATH, explicit-empty-entry and
-  obstructed A:B layouts. Every cell has a native child under the identical cwd
-  and environment and distinct sentinel identities for competing files. Normal
+  obstructed A:B layouts. AO additionally requires a native default-search
+  positive, including DSH override and Node controls; only absent-from-default
+  names cannot establish absent-PATH parity. Every cell has a native child
+  under the identical cwd and environment and distinct sentinel identities
+  for competing files. Normal
   cells require exact selected identity or native NotFound/refusal parity;
   NUL has an invalid-input/no-execution control. Unprovable loader cells record
   native B separately and require D10's cause-bearing refusal with zero probes.
@@ -3046,6 +3053,77 @@ these choices into `design.md` Decisions and the numbered rulings of proposed
   `policy/schemas/`, `fixtures/`, `reference/`, `extensions/dsh/` and
   `docs/decisions/` retain their bytes; 0056 stays proposed. Subsequent delivery
   records must separate completed repairs/removal proofs from pending work.
+
+
+- **AO — Clarify return Q1, 2026-09-20: absent PATH is not a refusal policy.**
+  Adopt `e017d977` and answer the supplied `returned_from` finding in this
+  proposal, then AS1. Q1 is accepted: the universal absent-PATH refusal in
+  AN/AS1 conflicts with native equality. The commission's central requirement
+  is native behavior; its controller examples establish NotFound only for
+  those names and layouts. Reject their generalization to every bare name.
+  No intentional absent-PATH policy exception is adopted.
+
+  **Evidence.** A fresh execution of retained Rust test binary
+  `target/debug/deps/brokkr_cli-5695c6189f59edac`, SHA-256
+  `8b801832757120dadd49567a208de5e569ac39b23bad65a352879f274d1164a1`,
+  repeats clarify's positive control. The exact test
+  `doctor::tests::the_posix_shell_probe_executes_a_portable_shell_operation`
+  calls the source's native `Command::new("sh")` probe. With child-only
+  environments and `LLVM_PROFILE_FILE=/dev/null`, absent PATH passes one test
+  (exit 0), PATH empty fails with `None` versus `Some("POSIX shell")`
+  (exit 101, intentional negative control), and PATH `/usr/bin:/bin`
+  passes one test (exit 0). These results disprove universal NotFound; they
+  do not prove the resolver selects the right file, exercise Node, or count
+  as fresh-build, removal or crate-suite evidence. Logs are local authoring
+  evidence under `.forge/specify-q1-b3e9dd9d/`, never test-runtime inputs.
+
+  **Answer and reasoned refusals.** When native default search succeeds with
+  PATH absent, both the DSH override seam and Node lookup must follow that
+  result, selecting the exact native identity when selection is provable.
+  The resolver must distinguish unset from present-empty PATH, use the
+  running platform's default search semantics, and neither insert cwd nor
+  invent a universal default directory list. Absence alone cannot refuse an
+  ordinary native-positive cell. If the native control returns NotFound,
+  refuse without probing and name the failed lookup; `PATH is absent` can
+  describe its context, not establish that outcome by itself. Primary and
+  legacy DSH override precedence, Node's actual `node` name, Unix slash-only
+  path classification, explicit path behavior and NUL rejection are retained.
+  This grants no provider support or composite identity to the harmless `sh`
+  control: executable selection remains separate from provider qualification.
+
+  D10's existing concrete interpreter/loader obstruction refusal remains a
+  distinct pre-probe outcome. It is not native NotFound or an equality pass,
+  and cannot be repurposed as a blanket absent-PATH refusal. No candidate trial
+  execution, shell lookup helper, resolver subprocess or loader emulator is
+  authorized. Native child executions belong to the differential test oracle.
+
+  **Acceptance and removal.** AS1 adds the scenario “Absent PATH preserves a
+  native default-search success for DSH and Node” and extends its matrix with
+  real default-search positives and same-name cwd decoys. Keep the commissioned
+  eight-name cross-product, empty-PATH positives and negatives, and S1/S1b's
+  cwd-only negative controls. A table of names absent from the platform default
+  search cannot satisfy this acceptance. The delivery test
+  `absent_path_default_search_matches_native_dsh_and_node` must fail its
+  selected-identity assertion when unconditional absent-PATH refusal is
+  restored in a compiling mutation, then pass after exact restoration. Its
+  native-positive control must still run in the mutation. Existing S1/S1b
+  no-sentinel removal proofs prevent an always-cwd replacement. Node evidence
+  must exercise its real lookup path, not be inferred from DSH or `sh` alone;
+  unavailable platform controls remain pending rather than passing skips.
+
+  **Dependency reconciliation.** This return repairs the faulty owning
+  proposal and AS1; no earlier immutable decision or missing input prevents
+  their correction, so the specification result is `drafted`, with
+  `inputs.change`. AN's other four findings, parser/Unicode controls, home
+  independence, rejection of roster exemptions and all delivery gates remain
+  adopted. Within this phase only proposal and AS1 change. D10's `None`
+  refusal paragraph, its unconditional absent-PATH table/scenario, and task
+  expectations derived from them are superseded specifically by AO/AS1;
+  their owning design/tasks phases must reconcile them before implementation.
+  D10's distinct loader refusal and other adopted choices are retained.
+  Production's current unconditional `None` refusal and its test are repair
+  debts, not reasons to disguise this specification defect downstream.
+  Proposed 0056, frozen surfaces and every excluded task retain their status.
 
 
 ### F7 — Amend the standing append and dispatch requirement
@@ -4680,3 +4758,53 @@ pending. External namespace-capable validation and final-head remote results
 remain pending until supplied. The second security hold stays open; part (d),
 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 remain outside this slice.
 No provider enablement, task completion, push or release is claimed.
+
+## Specify return validation — clarify Q1, 2026-09-20
+
+Adopted every commit through `e017d977` and answered the sole `returned_from`
+finding in dependency order. AO corrects the proposal's absent-PATH rule;
+AS1 corrects the requirement, narrows S1/S1b's negative conditions, and adds
+native default-search success to the differential acceptance for DSH overrides
+and Node. The dialect's specify/return files and rendered proposal/specs
+instructions were read through workspace hands without invoking its workflow
+runner. No earlier immutable ruling or unavailable input blocks this owning
+specification repair, so the result is `drafted` with the adopted change.
+
+The retained Rust shell test was executed anew with absent, empty and explicit
+PATH: **1 pass / 1 intentional negative-control failure / 1 pass**. AO records
+the exact test and binary hash. This is evidence for the specification choice,
+not a fresh build or a resolver, Node, removal or delivery-suite pass. The
+required removal test is named in AO/AS1; its implementation and execution
+remain pending.
+
+Strict active-change validation and `openspec validate --all --strict` pass
+**15 items / 0 failures**; artifact-status inspection and `git diff --check`
+pass. The five deltas retain **20 requirements** and now contain **192
+scenarios**. The two inherited informational archive-readiness notices remain
+outside this return. No archive or delta-operation rewrite occurred.
+
+The artifact audit finds exactly proposal and AS1 changed; the other **737
+tracked files** retain their entry SHA-256 values. All **133 task checkboxes
+(112 checked / 21 unchecked)** retain their exact bytes, including unchecked
+8.8. Design/tasks, the other four deltas, production/tests, frozen surfaces,
+extension bytes and proposed 0056 are unchanged. AO explicitly identifies the
+superseded downstream absent-PATH instructions for their owning phases.
+
+Fresh format, locked all-target/all-feature clippy, all seven crate-scoped
+suites, workspace tests and self-bundle compilation cannot launch: **Cargo
+ENOENT, launch status 127**. The exact command `bash scripts/coverage-exact.sh`
+was run and exits **127 at line 33**, before instrumentation, because Cargo
+is unavailable. Fresh line/branch/function covered/total counts are therefore
+**unmeasured / unmeasured / unmeasured**, not the predecessor's retained
+`31166/31166`, `5214/5214`, `3008/3008`. No gate, compiler pin, denominator or
+exclusion was changed. Logs and the file audit are local evidence under
+`.forge/specify-q1-b3e9dd9d/` and are not committed artifacts.
+
+Delivered: the Q1 specification correction and its acceptance/removal
+obligations. Pending: design/task reconciliation, all second-hold Rust repairs,
+DSH/Node differential and removal executions, green crate suites, fresh exact
+coverage, native Windows proof and applicable external namespace/final-head
+CI results. The security hold remains open. Task 8.8, part (d), 8.10, 9.6,
+10.6–10.8, 11.1–11.4 and groups 14–15 retain their scope and status. Only the
+two declared specification artifacts form this commit; no push, enablement or
+release occurred.
