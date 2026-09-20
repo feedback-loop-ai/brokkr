@@ -116,6 +116,16 @@ construct the plugin's `--new` and `--session` launches. A mismatch or an
 unreadable identity SHALL decline any offer as `unverified-harness`, run the
 shipped cold invocation unchanged and record no offerable root.
 
+Bare-name executable lookup SHALL distinguish absent PATH from a present PATH
+containing an empty entry. Absent PATH SHALL refuse with a reason containing
+`PATH is absent` before a DSH or Node version probe; it SHALL NOT become cwd
+lookup. With PATH present, selection SHALL agree with native child search or
+refuse safely before probing with the concrete lookup cause named. A candidate's
+metadata or execute permission alone SHALL NOT establish that agreement. A
+terminal native lookup error SHALL NOT authorize a later candidate. Explicit
+binary overrides SHALL retain their precedence and no-fallback behavior;
+an absolute explicit override does not require PATH to select that executable.
+
 One Rust function beside the DSH planner SHALL be the only producer of the
 plugin component and canonical composite. For the plugin component it SHALL
 read exactly `LICENSE`, `README.md`, `cordis.patch.yml`, `lib/index.js`,
@@ -171,6 +181,17 @@ byte SHALL refuse before dependency normalization with `pnpm lock exceeds
 separate line, line-length or entry-count limit. Equivalent npm and pnpm triples
 SHALL produce identical value bytes.
 
+The admitted pnpm grammar SHALL preserve scalar types and field separation.
+An identity-bearing string field SHALL NOT accept an unquoted null, boolean or
+number as a string, or repair missing colon separation or unsupported flow
+punctuation into a value. Its refusal SHALL name the pnpm component and the
+syntax or type cause. Supported quoted strings and the existing admitted
+lockfile-version forms SHALL remain distinct from this refusal. Each decoded
+mapping key within `packages` SHALL occur at most once, including excluded
+local records. A repeated key SHALL refuse with that decoded key named before
+record exclusion or legitimate complete-triple deduplication; order, identical
+values and different quoted spellings SHALL NOT cure the repeated mapping.
+
 The canonical executable SHALL be the selected core package's `bin.dsh`, whose
 resolved relative path is `node_modules/@deepseek-ai/dsh/lib/bin.js` and whose
 first line is exactly `#!/usr/bin/env node`. The selected core's own hidden-lock
@@ -203,7 +224,16 @@ digest equals, differs from or has no declared `wrapper_digest`. The result is
 informational while no `supported` shape declares a digest. Once a supported
 shape declares one, difference or unreadability SHALL be a warning. This probe
 SHALL read no credential or settings file and SHALL spawn only the existing
-`dsh` and `node` version probes.
+`dsh` and `node` version probes. An executable-selection refusal SHALL be
+reported by reason before probing any candidate, including for an unmeasured
+shape with no declared digest. An independently safe selected executable may
+still report its version beside a home/composite refusal. Every rendered
+selected-binary value and unreadable reason SHALL escape terminal control
+characters, including on the binary-not-found path, without injecting a new
+line or terminal command. If the required plugin manifest is absent and no
+candidate resolves under the existing lookup order, the refusal SHALL identify
+both the plugin bundle and `package.json`; a later legitimate candidate remains
+eligible when the earlier manifest is truly absent.
 
 The qualified composite SHALL be the value of an optional `wrapper_digest`
 member of the declaration's measured identity form, beside `version` and
@@ -578,8 +608,72 @@ read as history, not as a current claim.
 - **AND** if the selected executable's version probe fails while a PATH binary remains available, doctor reports the selected failure without silently reporting the other installation
 - **AND** no credential/settings read or subprocess beyond the selected DSH and Node version probes is needed for this diagnostic, and the guide sample follows the same wording
 
+#### Scenario: Absent PATH refuses before doctor can execute a cwd sentinel
+- **GIVEN** a real executable `dsh` in a temporary cwd prints `SECURITY_CWD_SENTINEL_9f3`, no DSH binary override is set, the child environment has no PATH, and the shipped DSH declaration is unmeasured with no `wrapper_digest`
+- **WHEN** the built doctor and a native Rust `Command::new("dsh").arg("--version")` control are invoked with the same cwd and environment
+- **THEN** doctor reports a DSH selection refusal containing `PATH is absent`, its output does not contain the sentinel, and the controlled native child returns `NotFound`
+- **AND** with PATH explicitly `/usr/bin:/bin` and no DSH installed there the sentinel remains unexecuted; removing cwd `dsh` while keeping PATH absent still produces the named absent-PATH refusal
+- **AND** the same doctor regression test fails on the adopted pre-fix execution path because the sentinel runs, then passes with the repair; removing only the fixture is a control, not a substitute for that production regression proof
+- **AND** environment changes are confined to child processes and no installed provider, global home or frozen fixture supplies this test
+
+#### Scenario: Explicit empty PATH entries and explicit overrides retain their meaning
+- **GIVEN** controlled executable names in cwd and a later PATH directory, plus distinct primary and legacy explicit override paths
+- **WHEN** PATH is present but empty, or contains an explicit empty entry among its directories
+- **THEN** cwd lookup has its native meaning at that entry's position and is not classified as absent PATH; doctor either describes the native-selected installation or gives a named safe refusal
+- **AND** primary then legacy override precedence remains unchanged, an absolute explicit override can be selected with PATH absent, and a failed explicit override never falls back to a PATH decoy
+- **AND** version and composite never describe different installations, including when a safe version probe succeeds but home resolution fails
+
+#### Scenario: Bare-name lookup preserves native continuation and terminal errors
+- **GIVEN** PATH is A:B, neither binary override is set, and B/dsh is a working executable with a distinguishable version
+- **WHEN** executable A/dsh names a nonexistent shebang interpreter, then in a separate case A/dsh is a self-referential symlink
+- **THEN** real native child controls execute B in the missing-interpreter case and fail with ELOOP in the self-symlink case
+- **AND** in the first case doctor either reports B's version and B's composite or refuses safely before probing with the missing-interpreter lookup cause named; it never claims that metadata-selected A is the native-selected installation
+- **AND** in the second case resolution refuses with the symlink-loop cause named before any version probe and never executes B
+- **AND** the comparisons use real child execution and distinguishable outputs, not injected version answers; restoring the metadata-only selection makes the relevant assertions fail
+
+#### Scenario: Missing pnpm field separation and unsupported flow syntax refuse by reason
+- **GIVEN** an otherwise readable installed composite whose pnpm resolution contains `integrity:sha512-X` or plain `integrity: sha512-X[one]`
+- **WHEN** the sole producer reads that lock through the profile locator
+- **THEN** each input refuses with the pnpm component and missing-separation or unsupported-flow-syntax cause named, without producing a readable composite
+- **AND** the properly separated `integrity: sha512-X` control remains readable; malformed separation cannot yield the same readable identity as that control
+- **AND** a compiling removal of the syntax protection fails the exact reason-bearing regression assertion and restoration passes it
+
+#### Scenario: Pnpm identity strings preserve the distinction from typed scalars
+- **GIVEN** an otherwise readable composite with `resolution.integrity` separately set to plain `null`, `~`, `true` or `42`, in each admitted block or flow representation
+- **WHEN** the sole producer reads the lock
+- **THEN** each plain typed scalar refuses with the pnpm component, integrity field and non-string or unsupported-scalar cause named
+- **AND** the corresponding supported quoted string is a readable string control, including `'null'`; plain null cannot share its readable identity
+- **AND** admitted lockfile-version syntax, including its existing plain and quoted version forms, still passes, and restoring string coercion fails the reason-bearing controls
+
+#### Scenario: Duplicate decoded pnpm package keys refuse before triple normalization
+- **GIVEN** a valid pnpm package record followed by an identical record, a conflicting-integrity record in either order, or an equivalent quoted/unquoted spelling of the same decoded package key
+- **WHEN** the sole producer reads each installed lock, including a repeated local-tarball key otherwise excluded from dependency identity
+- **THEN** every repetition refuses with a repeated-package-key reason naming the decoded key, before exclusions or complete-triple deduplication can hide it
+- **AND** distinct valid records across the two locks still deduplicate equal complete triples and retain triples with different versions or integrities
+- **AND** removing duplicate-key rejection makes the repeated-record assertion fail; reversed conflicting records producing an equal digest is evidence of the defect, not a positive deduplication control
+
+#### Scenario: Plugin expectations are recorded from the sole producer
+- **GIVEN** an exact plugin input set with its source bytes identified and a fixed expected component recorded from the sole producer at an identified revision
+- **WHEN** the plugin component and canonical composite assertions run for measured or synthetic layouts
+- **THEN** expectations are literals with that provenance, and no test helper, fixture generator or prose calculation reconstructs either serialization or hashes its concatenation as a competing oracle
+- **AND** independent per-file input hashes remain permitted, while changed file bytes, removed required files and altered production path ordering still fail their named behavioral or compiling-removal assertions
+- **AND** restoration of the independent test serializer fails an explicit source-conformance check; comparing two calls to the producer alone does not establish the expected byte format
+
+#### Scenario: A nonexistent override cannot inject terminal control bytes through doctor
+- **GIVEN** a nonexistent explicit DSH binary override contains a newline followed by ANSI clear-screen bytes
+- **WHEN** the built doctor renders its binary-not-found diagnostic
+- **THEN** the selected value is escaped using the established terminal-safe convention and remains recognizable, while its raw newline and ANSI sequence cannot create an injected line or terminal command in stdout
+- **AND** the test asserts the escaped value and absence of the raw injected sequence; removing safe rendering fails that assertion
+
+#### Scenario: Removing only the plugin manifest names the drifted file
+- **GIVEN** a complete temporary installed plugin layout with only `package.json` removed and no later resolving copy of that bundle
+- **WHEN** the sole producer reads the installed composite and doctor reports its refusal
+- **THEN** the unreadable reason names both `dsh-plugin-cli-session` and `package.json`, rather than only saying the bundle does not resolve
+- **AND** a positive control with a truly absent earlier manifest and a valid later hit retains the established lookup order; an unreadable or outside first hit is still a refusal and never falls through
+- **AND** removing the missing-filename context makes the producer-facing reason assertion fail while restoring it passes; a private file-set helper alone does not prove the installed lookup path
+
 #### Scenario: Digest acceptance is proved by removal without completing the planner
-- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition and the paired version/composite seam assertions
+- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, and all seven security-hold findings covered above
 - **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
 - **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
 - **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence
