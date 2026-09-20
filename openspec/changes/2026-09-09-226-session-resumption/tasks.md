@@ -618,6 +618,113 @@ prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
 
+### Implement visit — the delivered port confirmed as found, 2026-09-21
+
+This implement seat (run `dsh-composite-identity-issue-226-124cca78`, no
+`returned_from`) adopted `slice-dsh-composite-b` at
+`42bb02108360e80976d462ba7263d091457bd272`, clean at entry, with the delivered
+`417354ec` / `25b40967` and the adoption commits `3dfb3c5c` / `c3f36568` /
+`42bb0210` as ancestors. Its commission was 8.8(a)–(c) only: confirm the
+delivery on the committed bytes, change nothing unless a gate genuinely
+failed there, and hand the port to independent verify and the full review
+council. No gate failed, so **no Rust, test, capability, decision, compiler
+pin or frozen byte changed**; this account is the visit's only edit, and
+it changes no checkbox state.
+
+Environment: Linux x86_64 glibc host, unboxed, stable `cargo 1.98.0` for
+the suites and the pinned `nightly-2026-09-05` for coverage. The shell of
+this seat refuses shell loops, `$?` expansion, `awk`, script launches and
+`openspec`, so every command below was issued singly and the LCOV rule was
+applied by the run-local Rust transcription under `.forge/lcovtool/` (the
+security-hold visit's evaluator, rebuilt unchanged).
+
+| Gate, on `42bb0210` | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean, exit 0 |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean, exit 0 |
+| `git diff --check`; `git grep coverage(off)` under `crates/` | clean; no exclusion |
+| `cargo test -p brokkr-core --all-features --locked` | ok: 73 lib + 13 across 3 binaries; 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | ok: 58 lib + 6 across 5 binaries; 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | ok: 377 lib, 99 integration (2 ignored), 1 doctest; 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked` | ok: 441 lib + 93 across 22 binaries; 0 failed — the four roster cases recorded on 2026-09-20 pass on this head |
+| `cargo test -p brokkr-view --all-features --locked` | ok: 243 lib (3 ignored); 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | ok: 13; 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | ok: 463 lib + 312 across 28 binaries incl. `doctor_dsh_selection` (6); 0 failed; zero `Text file busy` — one attempt, no rerun needed |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | compiles, exit 0 |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | compiles, exit 0 |
+| `openspec validate --all --strict` | **NOT RUN from this seat**: `openspec`, its full path and `npx` each require an approval this non-interactive seat cannot grant. The tasks seat's run on `c3f36568` passed **15 / 0** the same day; `42bb0210` and this visit change only `tasks.md`. |
+| `bash scripts/coverage-exact.sh` | **NOT RUN literally**: script launches are refused in this seat. The D11 equivalent below was run instead; the literal gate stays with a capable host / CI. |
+
+The seven suites were run one crate at a time, in the framed order, never
+workspace-wide; the crate totals (86 / 64 / 477 / 534 / 243 / 13 / 775 =
+**2,192 passed, 0 failed**) equal the controller's unboxed measurement on
+`25b40967` in `controller-branch-gates-2026-09-21.json`, now reproduced by
+this seat on `42bb0210`.
+
+Fresh exact coverage, the script's steps by hand on the pinned compiler,
+in order: `cargo +nightly-2026-09-05 llvm-cov clean --workspace`; `cargo
++nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch
+--json --output-path .forge/v88b-coverage.json` (68 test binaries, every
+test run, **0 failed**, no `--ignore-run-fail`, exit 0); `cargo
++nightly-2026-09-05 llvm-cov report --branch --lcov --output-path
+.forge/v88b-lcov.info`; the harness-exclusion check on the JSON (**0**
+harness files among 53 `SF` records); the exact rule record by record.
+One departure from the literal script, named: the instrumented target is
+the default `target/llvm-cov-target` after the clean rather than a unique
+`$CARGO_LLVM_COV_TARGET_DIR`, because this seat cannot set an environment
+variable on a command; the clean step ran first, so no earlier profile
+joined the merge.
+
+| Pass | Lines | Branches | Functions | Misses |
+|------|-------|----------|-----------|--------|
+| Fresh, on `42bb0210` | **32,322 / 32,322 (100%)** | **5,440 / 5,440 (100%)** | **3,139 / 3,139 (100%)** | none |
+
+All three integers equal the controller-attributed delivery measurement in
+8.8.8.3 exactly; the production denominator did not move. Logs and reports
+are run-local under `.forge/v88b-*`, untracked, read by no build or test.
+
+Read on the delivered bytes, not re-derived: `glibc_walk` carries the
+`p`/`subp` cursor pair, the oversized `continue` that leaves the cursor on
+the colon and the late colon increment, so the bare-name candidate after
+an oversized skip is constructed as glibc constructs it and refused by the
+named cwd reason (`Origin::AfterOversizedSkip`); `musl_walk` steps past
+the colon and constructs no such candidate; `apple_walk` separates
+`execvP`'s warn-and-continue from `posix_spawnp`'s `ENAMETOOLONG` stop;
+`refuse_working_directory` reads metadata only and preserves a native stop
+cause (`ELOOP`, `ENAMETOOLONG`) over the cwd refusal. Nothing here is a
+verdict — independent verify and the full review council own theirs
+under 8.8.8.4.
+
+**Checkbox states, unchanged, and why.** 8.8.8.2 stays open because
+`openspec validate --all --strict` could not execute from this seat, which
+its own text makes a pending ground. 8.8.8.3 stays open because a by-hand
+equivalent does not supply the literal gate; its fresh integers are
+recorded above for the capable-host run to confirm. 8.8.8.4 stays open
+until verify and the council return their actual findings or a clean
+verdict. 8.8.1.1, 8.8.1.2, 8.8.2.1, 8.8.2.2, 8.8.3.1 and 8.8.8.1 keep
+their native macOS/Windows/MSRV, Apple/env source-pin and retained-Node
+debts. The fourteen local addresses stay **5 complete / 9 pending**, the
+101 change-wide identifiers **84 complete / 17 pending**, and the file's
+133 checkbox rows **105 / 28**.
+
+**Delivered, and confirmed as found:** 8.8(a)–(c) — the closed
+`wrapper_digest` loader, the sole sealed composite producer over the fixed
+D6 locators, and the once-resolved DSH doctor — with the fourth hold's
+literal platform walks and the never-cwd rule, file-established env
+invocations (E1–E4) and ignored-pnpm structure (P1–P3). **Still pending,
+recorded and not claimed:** **8.8 stays unchecked**; part **(d)**, the
+planner, untouched; **8.10**'s rejection-vector ledger; **9.6**;
+10.6–10.8, 11.1–11.4 and groups 14–15; native **macOS** and **Windows**
+execution (matrix, doctor, `GetBinaryTypeW`, Windows 1.88 MSRV); the
+immutable Apple and env source pins; the absent-PATH Node positive and its
+two removals; strict OpenSpec on this head from a seat that can launch it;
+the literal coverage script on a capable host; final-head remote CI. No
+`wrapper_digest` is declared, the DSH route stays disabled and unmeasured
+for admission, **0056 stays proposed**, and `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`, `reference/`,
+`extensions/dsh/` and `docs/decisions/` have no diff against `42bb0210`.
+The active change is not archived. Nothing was pushed.
+
 ### Tasks-phase validation — delivered-port adoption, 2026-09-21
 
 Entry HEAD `c3f365682c8b6f598744145889373ac3dec2a6d4`, clean at entry;
