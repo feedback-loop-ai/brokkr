@@ -1,5 +1,19 @@
 # Change: Same-instance session resumption and durable progress (#226)
 
+Current specify visit, 2026-09-21: adopt change
+`2026-09-09-226-session-resumption` and every commit on
+`slice-dsh-composite-b` through `25b40967f43ae19c65278d60162160df98a4f439`,
+for run `dsh-composite-identity-issue-226-124cca78`. The commissioned
+8.8(a)–(c) port is delivered in `417354ec` and `25b40967`; answer AS under
+**Decisions** records the adoption, verification evidence and pending work.
+No `returned_from` finding is supplied. This visit changes only the
+proposal's adoption/evidence account and adopts all five capability deltas
+unchanged. Verification and the full review council have no verdict in this
+run yet. No production repair or task completion is inferred from this
+specification checkpoint.
+
+Earlier fourth-hold specify adoption, retained as dated history:
+
 This specify visit adopts `2026-09-09-226-session-resumption` and every
 commit on `slice-dsh-composite-b` through
 `314ed02b06a13b80b3c26ab91c59deff1bc6a999`, for run
@@ -352,10 +366,12 @@ ownership, provider enforcement and v5/store semantics as engine work.
 ## Why
 
 Four security holds exposed a recurring mismatch between a model of PATH
-components and the platform's actual candidate sequence. At adopted
-`314ed02b`, an oversized glibc component can make native lookup try cwd while
-the resolver authorizes B; AR and AS1 require the literal platform walk plus
-the reconciled cwd refusal, with actual per-cell oracles proving the boundary.
+components and the platform's actual candidate sequence. At the earlier
+`314ed02b`, an oversized glibc component could make native lookup try cwd
+while the resolver authorized B. The adopted delivery through `25b40967`
+ports the loop and applies AR/AS1's cwd refusal. This commission verifies
+that delivery and obtains independent review; it does not commission a
+replacement implementation.
 
 Eligible Claude and DSH retries lose their session's reasoning while retaining
 partial edits, making the next smith reconstruct work it can misinterpret.
@@ -371,6 +387,10 @@ proofs; dependency completion and a shipping disposition do not prove its
 whole acceptance. Decision 0030's 0.148.0 measurements remain history.
 
 ## What Changes
+
+The following DSH changes are adopted as delivered through `25b40967`.
+Their acceptance remains unchanged; AS separates delivered code and recorded
+proofs from verification still pending in this commission.
 
 - Answer **fourth-hold R1** by preserving the platform's candidate byte
   sequence, including glibc's implicit empty iteration after an oversized
@@ -538,9 +558,10 @@ current acceptance authority.
 
 ## Capabilities
 
-This visit amends only the existing `adapter-resume-safety` delta, requirement
-AS1. The five-capability inventory below is adopted; there is no new capability
-or delta-operation change, and the other four deltas retain their requirements.
+This visit adopts all five capability deltas byte-for-byte, including
+`adapter-resume-safety` requirement AS1. The inventory below is retained;
+there is no new capability, changed requirement, scenario or delta operation.
+Delivery commands and dated measurements remain in planning, per AQ and PM4.
 
 ### New Capabilities
 
@@ -846,6 +867,76 @@ Its bytes join the pinned composite identity; they do not become a Brokkr
 runtime.
 
 ## Decisions
+
+- **AS — Delivered-port adoption, 2026-09-21.** Adopt every commit through
+  `25b40967`, including `417354ec`'s native PATH-byte loop and cwd refusal,
+  and `25b40967`'s file-established env invocations and structural ignored
+  pnpm bodies. Read both commissioned controller JSON records, the owning
+  Rust paths, proposal/AS1, design D10 and the implementation accounts in
+  tasks. Read the repository dialect's specify/return files and rendered
+  proposal/specs instructions through workspace hands; no workflow runner ran.
+
+  The existing scenarios already express the delivered behavior: native
+  candidate bytes/order and terminal causes, never selecting or skipping a
+  reached cwd candidate, supported same-file env invocations and ignored-block
+  parent/container admission. Adopt them without re-authoring requirements.
+  The tasks account records E1–E4 and P1–P3 as seven independent compiling
+  removals, each reaching its named assertion in protocol and built doctor,
+  then restored green. These are adopted executions, not fresh mutations by
+  this seat. No gate exposed a reproducible defect in the committed source,
+  so no Rust, test or acceptance change is justified.
+
+  Reject treating the prior boxed #255 ETXTBSY run as an implementation
+  failure: the controller identifies the flake and records green reruns and
+  all seven unboxed crate suites at this exact head. The commission's explicit
+  crate-scoped, one-at-a-time instruction supersedes earlier workspace-test
+  instructions for this visit. No boxed `cargo test --workspace` or workspace
+  coverage test invocation ran. Missing Cargo is a tooling limitation, not a
+  failed test or an upstream specification fault.
+
+  **Candidate evidence, with provenance kept distinct.** All fresh attempts
+  below preceded this documentation-only amendment at clean `25b40967`.
+  Run-local logs and the entry hash audit are under
+  `.forge/validation/dsh-124cca78/`; neither they nor the engine result are
+  tracked artifacts.
+
+  | Check | Evidence and disposition |
+  |---|---|
+  | Seven crate suites, controller on `25b40967`, unboxed, 2026-09-21 | core 86, store 64, protocol 477, runtime 534, view 243, bridge 13, CLI 775: **2,192 passed, 0 failed**, from `controller-branch-gates-2026-09-21.json`. |
+  | Seven fresh `cargo test -p <crate> --all-features --locked` attempts, one crate at a time | Each exited **127**, `cargo: command not found`; no tests executed and no fresh pass is claimed. |
+  | Format and locked all-target/all-feature clippy with `-D warnings` | Controller reports both clean on `25b40967`. This seat's exact commands exited **127** before running; fresh confirmation remains unavailable. |
+  | Self and verify bundle compilation | The adopted implementation account records both compiled. This seat's `cargo run --locked -p brokkr-cli -- compile --bundle bundles/{self,verify}` attempts each exited **127**; fresh confirmation remains unavailable. |
+  | `openspec validate --all --strict` | Fresh **exit 0, 15 passed, 0 failed**. Existing archive-readiness informational notices remain whole-change archive debt; no archive is performed. |
+  | Exact coverage, adopted delivery report | Seat of run `5e82d607`, attributed by the controller to the committed bytes: **32322/32322 lines, 5440/5440 branches, 3139/3139 functions**, using the pinned nightly's by-hand steps. This is the reported measurement, not this seat's fresh report or a literal-script pass. |
+  | Fresh exact-coverage preparation | A unique target directory was selected with pin `nightly-2026-09-05`; `cargo +nightly-2026-09-05 llvm-cov clean --workspace` exited **127** before instrumentation. Fresh lines, branches and functions are each **unavailable**; no dependent test/report/count step ran and no retained report was substituted. |
+
+  CI, release admission and the unchanged coverage script all consume
+  `rust-nightly-version.txt`. The literal exact gate on a capable host and
+  final-head remote CI remain pending; no compiler, exclusion, denominator or
+  threshold moved. The explicit commissioned prohibition on boxed workspace
+  tests also prevents invoking that script's workspace test run here.
+
+  **Dependency and scope reconciliation.** This answer updates the current
+  adoption and evidence status. Earlier visit-relative statements that the
+  loop/env/parser still await implementation, or OpenSpec has not run, are
+  superseded by the delivered commits and this measurement; their dated
+  design/task accounts remain history. Their behavior and acceptance clauses
+  remain adopted, so no dependent artifact requires a semantic amendment.
+  All **20 requirements / 219 scenarios**, task identifiers and checkbox
+  states are retained. In particular, **8.8 stays unchecked**: part **(d)**,
+  **8.10**, **9.6**, native **macOS/Windows** evidence (including Windows MSRV),
+  the absent-PATH retained-Node positive and its removals, and immutable Apple
+  and env source pins remain pending as recorded by the delivery seat. Other
+  excluded #226 work remains outside this commission. Decision **0056 stays
+  proposed**; frozen contracts, policy, fixtures, reference, extensions and
+  decisions remain unchanged.
+
+  Verify and the full review council still own their independent findings;
+  this specify result does not clear their holds or claim shipping. No new
+  council finding has been supplied to repair. The phase result is
+  `drafted` with `inputs.change: 2026-09-09-226-session-resumption`.
+  Only this proposal's adoption/evidence record is amended and committed;
+  no archive, enablement, push or publication follows.
 
 These specification answers were recorded across the returns on 2026-09-09
 and 2026-09-10. Answers A–K remain settled; L corrects the delta operation for
