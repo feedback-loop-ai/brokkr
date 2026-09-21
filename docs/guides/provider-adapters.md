@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.2 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
+ok       dsh: 0.1.5-rc.2 · serves flash, flash-experiment, glm, glm-flash, glm53, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-flash41, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
@@ -153,6 +153,34 @@ any pinned `--effort` is refused at start. `recipes/research-dsh`
 states `low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's
 own Qwen catalog lists, and pins `xhigh` (decision 0035, second
 addendum).
+
+The `glm-flash` alias pins `spark-glm/GLM-5.3-Flash-EXL3`, a vLLM
+on the DGX Spark (`http://spark:8888/v1`), keyed by the same
+`SPARK_API_KEY` placeholder as the `spark` route — the server checks
+no key, but the route requires one to be named. Verified 2026-09-16
+with a headless turn: the endpoint lists the model at `max_model_len`
+700000, returns OpenAI-style `reasoning` deltas (parsed beside
+`reasoning_content`) and native function tool calls, and refuses a
+pinned effort (`UNSUPPORTED_REASONING_EFFORT` on `low`), so the
+model entry states no `reasoningEfforts` and seats on this lane pin
+none. Capacity is the shared KV figure, not a default: 700k across
+4 concurrent sessions, so the window is capped at 200000 with
+`maxTokens` 32768, and compaction measures against that cap
+(`thresholdRatio` 0.8, so it fires at 160k — four seats at the
+trigger together hold ~640k — with `retainRatio` 0.16).
+
+The `studio-flash41` and `glm53` aliases pin `dashscope/deepseek-v4.1-flash`
+and `dashscope/glm-5.3` on the Model Studio route. Both ids appeared in
+the endpoint's own catalogue (`GET /compatible-mode/v1/models`) on
+2026-09-21 and each was verified that day with a chat completion, which
+returned DeepSeek-dialect `reasoning_content` like the route's other
+models. They stand beside `studio-flash` and `glm` rather than replacing
+them: a recipe that pins the older id keeps its digest, and moving a seat
+to the newer model is a ruling of its own. Neither entry states
+`reasoningEfforts` yet, so a seat on either pins no effort until a level
+table is measured (see the `qwen-max` note above). All three new lanes —
+these two and `glm-flash` — sealed a result through `brokkr driver dsh`
+on 2026-09-21 with no effort pinned.
 
 The `flash-experiment` alias pins `deepseek-v4.1-flash-expires-on-0910`
 on DeepSeek's own API. A completion verified this beta id on 2026-09-08;

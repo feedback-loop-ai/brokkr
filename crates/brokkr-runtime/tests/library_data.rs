@@ -473,6 +473,8 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
             ("flash", "deepseek-v4-flash"),
             ("flash-experiment", "deepseek-v4.1-flash-expires-on-0910"),
             ("glm", "dashscope/glm-5.2"),
+            ("glm-flash", "spark-glm/GLM-5.3-Flash-EXL3"),
+            ("glm53", "dashscope/glm-5.3"),
             ("muse", "meta/meta/muse-spark-1.3"),
             (
                 "muse-contributor",
@@ -486,6 +488,7 @@ fn the_exec_adapter_declares_every_capability_unsupported() {
             ("qwen37-max", "dashscope/qwen3.7-max"),
             ("spark-flash", "spark/qwen3.8-flash"),
             ("studio-flash", "dashscope/deepseek-v4-flash-0731"),
+            ("studio-flash41", "dashscope/deepseek-v4.1-flash"),
             ("studio-pro", "dashscope/deepseek-v4-pro"),
         ]
     );
