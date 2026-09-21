@@ -23,7 +23,12 @@ macro_rules! absolute {
     };
 }
 
-static ADAPTER_ENV: Mutex<()> = Mutex::new(());
+/// The one lock every adapter test that MUTATES or READS the process
+/// environment takes. It is reachable from the sibling composite suite
+/// because a reader there is as much a party to the race as a writer
+/// here: the process has one `DSH_HOME`, and a reader that skips this
+/// lock observes another test's temporary home.
+pub(in crate::adapters) static ADAPTER_ENV: Mutex<()> = Mutex::new(());
 
 fn binding(name: &str, value: &str) -> secret::BoundSecret {
     let dir = tempfile::tempdir().unwrap();
@@ -4408,20 +4413,41 @@ fn dsh_controls_that_decide_the_session_or_a_restriction_are_refused() {
         "--profile",
         "--json-schema",
         "--dump-config",
+        "--dump-default-config",
+        "--help",
+        "-h",
         "--from-default-profile",
         "--verbose",
         "--",
         "--unknown",
+        "--settings",
         "--session=session-9",
+        // Short, joined and clustered spellings of the same controls.
+        "-nrl",
+        "-osession-9",
+        "-s=session-9",
+        "-v",
         "positional",
+        "",
     ] {
         let argv = vec![control.to_string()];
-        assert!(dsh_control_conflict(&argv).is_some(), "{control}");
+        assert!(dsh_control_conflict(&argv).is_some(), "{control:?}");
     }
     // The category is fixed and never echoes the rejected token.
-    for marker in ["--session", "--unknown", "zzz-residual-token"] {
+    for marker in [
+        "--session",
+        "--unknown",
+        "--zzz-residual-token",
+        "-zzz-residual-token",
+        "zzz-residual-token",
+        "--session=zzz-residual-token",
+    ] {
         let category = dsh_control_conflict(&[marker.to_string()]).unwrap();
         assert!(!category.contains(marker), "{marker} echoed in {category}");
+        assert!(
+            !category.contains("zzz-residual-token"),
+            "{marker}: the value echoed in {category}"
+        );
     }
 }
 
@@ -8249,9 +8275,38 @@ fn a_dsh_identity_mismatch_declines_the_offer_and_keeps_the_cold_route() {
     }
 }
 
+/// Which fixed diagnostic a rejected spelling must name: the residual
+/// category `dsh_control_conflict` returns, or the field of the splitter
+/// that owns the malformed control.
+enum DshAdmission {
+    Control,
+    Field(&'static str),
+}
+
+/// 8.10's complete admission ledger for the planner's own inputs. After
+/// the engine's `--model`, the shared effort splitter's level and the one
+/// authorized `--patch` are extracted, EVERY other argument is refused:
+/// the plugin's value and bare selectors, the launcher's own controls, an
+/// unknown name, the option terminator, short, joined and clustered
+/// spellings and bare positional text alike. The malformed spellings of
+/// the three authorized controls are refused by their own splitters. Each
+/// refusal precedes the route read, the version probe, the composite
+/// producer, retained-root allocation and overlay staging, on the cold,
+/// offered and disabled paths alike — an error alone does not establish
+/// that nothing was staged, so the private staging counter reads zero.
+///
+/// Every rejected spelling carries the private marker below in an option
+/// name, an equals-joined value, the pinned model, a selector value, a
+/// patch value or positional text: no diagnostic may echo it
+/// (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
 #[cfg(unix)]
 #[test]
 fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
+    use DshAdmission::{Control, Field};
+    // A plain identifier, so it is also a VALID model id: the control
+    // cases pin it, and no control refusal may name it.
+    const MARK: &str = "zzz-9f31c7-marker";
+
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let prior_home = std::env::var_os("DSH_HOME");
@@ -8272,82 +8327,159 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
         },
     });
 
-    let s = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
-    for (path, input, session) in [
-        ("disabled", disabled, None),
-        ("offered", enabled.clone(), Some("session-1")),
-        ("enabled", enabled, None),
-    ] {
-        for (case, control, extra) in [
+    let unknown_name = format!("--{MARK}");
+    let joined_model = format!("--model={MARK}");
+    let malformed_model = format!("{MARK} bad");
+    let flag_value = format!("-{MARK}");
+    let patch_value = format!("{MARK}.yml");
+    let joined_patch = format!("--patch={MARK}.yml");
+    let joined_session = format!("--session={MARK}");
+    let joined_short = format!("-o{MARK}");
+    let equals_short = format!("-s={MARK}");
+    // The shared splitter clamps a level to one bounded word that starts
+    // with an alphanumeric; a spelling outside that clamp stays in the
+    // argv rather than being dropped in silence, and is refused here.
+    let unclamped_effort = format!("_{MARK}");
+    let joined_effort = format!("--effort={MARK}/x");
+
+    // The seat's own argv verbatim, and the same behind a valid pin: the
+    // control cases must refuse the residual, not a missing model.
+    let raw = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+    let pinned = |parts: &[&str]| {
+        let mut argv = vec!["--model".to_string(), MARK.to_string()];
+        argv.extend(parts.iter().map(|part| part.to_string()));
+        argv
+    };
+    let ledger = || {
+        vec![
+            // Residual arguments, every category the admission rule names.
             (
-                "unknown option",
-                true,
-                s(&[
-                    "--model",
-                    "deepseek-v4-flash",
-                    "--patch",
-                    "does-not-exist.yml",
-                    "--unknown",
-                ]),
+                "unknown option beside a readable-looking route",
+                Control,
+                pinned(&["--patch", "does-not-exist.yml", &unknown_name]),
             ),
-            (
-                "option terminator",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--", "x"]),
-            ),
-            (
-                "unverified verbose",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--verbose"]),
-            ),
+            ("option terminator", Control, pinned(&["--", MARK])),
+            ("unverified verbose", Control, pinned(&["--verbose"])),
             (
                 "from-default-profile",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--from-default-profile"]),
+                Control,
+                pinned(&["--from-default-profile"]),
+            ),
+            ("competing session", Control, pinned(&["--session", MARK])),
+            ("joined session", Control, pinned(&[&joined_session])),
+            ("short session", Control, pinned(&["-s", MARK])),
+            (
+                "short session joined by equals",
+                Control,
+                pinned(&[&equals_short]),
+            ),
+            ("new", Control, pinned(&["--new"])),
+            ("short new", Control, pinned(&["-n"])),
+            ("resume", Control, pinned(&["--resume"])),
+            ("list", Control, pinned(&["--list"])),
+            ("clustered shorts", Control, pinned(&["-nrl"])),
+            (
+                "profile override",
+                Control,
+                pinned(&["--profile", "headless"]),
+            ),
+            ("workdir override", Control, pinned(&["--workdir", MARK])),
+            ("short workdir", Control, pinned(&["-w", MARK])),
+            (
+                "output override",
+                Control,
+                pinned(&["--output-format", "stream-json"]),
             ),
             (
-                "competing session",
-                true,
-                s(&["--model", "deepseek-v4-flash", "--session", "session-9"]),
+                "short output joined to its value",
+                Control,
+                pinned(&[&joined_short]),
             ),
-            ("joined model", false, s(&["--model=deepseek-v4-flash"])),
+            ("json schema", Control, pinned(&["--json-schema", MARK])),
+            ("dump config", Control, pinned(&["--dump-config"])),
             (
-                "positional text",
-                true,
-                s(&["--model", "deepseek-v4-flash", "extra"]),
+                "dump default config",
+                Control,
+                pinned(&["--dump-default-config"]),
+            ),
+            ("help", Control, pinned(&["-h"])),
+            ("settings override", Control, pinned(&["--settings", MARK])),
+            ("positional text", Control, pinned(&[MARK])),
+            // Effort spellings the shared splitter leaves in the argv
+            // rather than dropping a pin in silence.
+            (
+                "duplicate effort",
+                Control,
+                pinned(&["--effort", "high", "--effort", "low"]),
+            ),
+            (
+                "mixed effort spellings",
+                Control,
+                pinned(&["--effort", "high", "--effort=low"]),
+            ),
+            ("valueless effort", Control, pinned(&["--effort"])),
+            (
+                "effort level outside the clamp",
+                Control,
+                pinned(&["--effort", &unclamped_effort]),
+            ),
+            (
+                "joined effort outside the clamp",
+                Control,
+                pinned(&[&joined_effort]),
+            ),
+            // The three authorized controls' own malformed spellings.
+            ("joined model", Field("--model"), raw(&[&joined_model])),
+            (
+                "duplicate model",
+                Field("--model"),
+                raw(&["--model", "deepseek-v4-flash", "--model", MARK]),
+            ),
+            ("valueless model", Field("--model"), raw(&["--model"])),
+            ("empty model value", Field("--model"), raw(&["--model", ""])),
+            (
+                "flag-shaped model value",
+                Field("--model"),
+                raw(&["--model", &flag_value]),
+            ),
+            (
+                "malformed model",
+                Field("the pinned model"),
+                raw(&["--model", &malformed_model]),
             ),
             (
                 "duplicate patch",
-                false,
-                s(&[
-                    "--model",
-                    "deepseek-v4-flash",
-                    "--patch",
-                    "a.yml",
-                    "--patch",
-                    "b.yml",
-                ]),
+                Field("--patch"),
+                pinned(&["--patch", "a.yml", "--patch", &patch_value]),
+            ),
+            ("bare patch", Field("--patch"), pinned(&["--patch"])),
+            ("joined patch", Field("--patch"), pinned(&[&joined_patch])),
+            (
+                "odd patch spelling",
+                Field("--patch"),
+                pinned(&["--patchy", &patch_value]),
             ),
             (
-                "bare patch",
-                false,
-                s(&["--model", "deepseek-v4-flash", "--patch"]),
+                "flag-shaped patch value",
+                Field("--patch"),
+                pinned(&["--patch", &flag_value]),
             ),
-            ("effort without model", false, s(&["--effort", "high"])),
             (
-                "duplicate effort",
-                true,
-                s(&[
-                    "--model",
-                    "deepseek-v4-flash",
-                    "--effort",
-                    "high",
-                    "--effort",
-                    "low",
-                ]),
+                "effort without a model",
+                Field("--effort"),
+                raw(&["--effort", "high"]),
             ),
-        ] {
+        ]
+    };
+
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("cold", enabled, None),
+    ] {
+        for (case, names, extra) in ledger() {
             let calls = std::cell::Cell::new(0u32);
+            reset_dsh_staging_calls();
             let result = dsh_launch_with(
                 &shim_text,
                 &extra,
@@ -8364,30 +8496,102 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
                 .unwrap_or_else(|| panic!("{path}/{case} must refuse"));
             assert_eq!(calls.get(), 0, "{path}/{case}: no producer call");
             assert!(!marker.exists(), "{path}/{case}: no version probe");
+            assert_eq!(
+                dsh_staging_calls(),
+                0,
+                "{path}/{case}: no staged overlay ({error})"
+            );
             assert!(
                 !error.contains("route"),
-                "{path}/{case}: the control refusal precedes the route read: {error}"
+                "{path}/{case}: the admission refusal precedes the route read: {error}"
             );
-            if control {
-                assert!(
+            match names {
+                Control => assert!(
                     error.contains("the seat's arguments carry"),
-                    "{path}/{case}: the control category: {error}"
-                );
+                    "{path}/{case}: the fixed residual category: {error}"
+                ),
+                Field(field) => assert!(
+                    error.contains(field),
+                    "{path}/{case}: the fixed field {field}: {error}"
+                ),
             }
-            for echo in ["does-not-exist", "session-9", "deepseek-v4-flash", "a.yml"] {
+            for echo in [MARK, "does-not-exist", "deepseek-v4-flash", "a.yml"] {
                 assert!(
                     !error.contains(echo),
                     "{path}/{case}: {echo} echoed in {error}"
                 );
             }
         }
-        // Every refusal on this path precedes retained-root allocation and
-        // overlay staging, so the seat's own store was never created.
+        // Every refusal on this path precedes retained-root allocation, so
+        // the seat's own store was never created either.
         assert!(
             !dir.path().join("sessions").exists(),
-            "{path}: no retained root or staged overlay"
+            "{path}: no retained root"
         );
     }
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// The counter the ledger's zero assertions read against is calibrated on
+/// a positive plan: both admitted effort spellings — the separate
+/// `--effort <level>` and the equals-joined `--effort=<level>` the shared
+/// splitter already takes — compose the same seat settings document and
+/// each stage exactly one overlay. No alias is guessed beside them
+/// (task 8.10; answer U's R3).
+#[cfg(unix)]
+#[test]
+fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", dir.path());
+    let marker = dir.path().join("m-effort");
+    let shim = dsh_recording_version_shim(dir.path(), "dsh-effort", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let disabled = json!({"workdir": dir.path()});
+    let workdir = dir.path().to_str().unwrap();
+
+    let plan = |case: &str, extra: &[String]| {
+        let calls = std::cell::Cell::new(0u32);
+        reset_dsh_staging_calls();
+        let launch = dsh_launch_with(&shim_text, extra, workdir, None, &disabled, || {
+            calls.set(calls.get() + 1);
+            Ok(synthetic_dsh_composite(&"b".repeat(64)))
+        })
+        .unwrap_or_else(|error| panic!("{case}: {error}"));
+        assert_eq!(
+            calls.get(),
+            0,
+            "{case}: a disabled gate reaches no producer"
+        );
+        assert_eq!(dsh_staging_calls(), 1, "{case}: exactly one staged overlay");
+        let settings = launch
+            .overlay
+            .settings
+            .as_ref()
+            .unwrap_or_else(|| panic!("{case}: a settings document beside the patch"));
+        std::fs::read_to_string(settings.path()).unwrap()
+    };
+
+    let s = |parts: &[&str]| parts.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+    let separate = plan(
+        "separate",
+        &s(&["--model", "dashscope/qwen3.8-max", "--effort", "xhigh"]),
+    );
+    let joined = plan(
+        "equals-joined",
+        &s(&["--model", "dashscope/qwen3.8-max", "--effort=xhigh"]),
+    );
+    assert_eq!(
+        separate, joined,
+        "both admitted spellings compose the same document"
+    );
+    assert!(separate.contains("reasoningEffort: 'xhigh'"), "{separate}");
+    assert!(!marker.exists(), "a disabled gate probes no version");
 
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
@@ -10144,24 +10348,65 @@ fn recordable_digests_admit_digits_and_letters_and_refuse_everything_else() {
 
 #[test]
 fn the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes() {
+    // The marker rides every rejected value: each splitter's diagnostic is
+    // its own fixed field and never the value it refused (AS3; task 8.10).
+    const MARK: &str = "zzz-4be20d-splitter";
+    let refused_model = |argv: &[&str]| {
+        let argv = argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+        let error = split_dsh_model(&argv)
+            .err()
+            .unwrap_or_else(|| panic!("{argv:?} must refuse"));
+        assert!(!error.contains(MARK), "{argv:?}: {MARK} echoed in {error}");
+        error
+    };
+    let refused_patch = |argv: &[&str]| {
+        let argv = argv.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+        let error = split_dsh_patch(&argv)
+            .err()
+            .unwrap_or_else(|| panic!("{argv:?} must refuse"));
+        assert!(!error.contains(MARK), "{argv:?}: {MARK} echoed in {error}");
+        error
+    };
+    let joined_model = format!("--model={MARK}");
+    let joined_patch = format!("--patch={MARK}.yml");
+    let flag_value = format!("-{MARK}");
+    let patch_value = format!("{MARK}.yml");
+
     // `--model` needs a non-empty, non-flag id, once, in its separate form.
-    assert!(split_dsh_model(&["--model".into(), String::new()]).is_err());
-    assert!(split_dsh_model(&["--model".into(), "--x".into()]).is_err());
-    assert!(
-        split_dsh_model(&["--model".into(), "a".into(), "--model".into(), "b".into()]).is_err()
+    let arity = "dsh driver: --model needs a model id after it";
+    assert_eq!(refused_model(&["--model", ""]), arity);
+    assert_eq!(refused_model(&["--model"]), arity);
+    assert_eq!(refused_model(&["--model", &flag_value]), arity);
+    assert_eq!(refused_model(&[&joined_model]), arity);
+    assert_eq!(
+        refused_model(&["--model", "a", "--model", MARK]),
+        "dsh driver: --model given twice"
     );
-    assert!(split_dsh_model(&["--model=a".into()]).is_err());
-    // `--patch` needs a non-empty, non-flag value, once, in its separate form.
-    assert!(split_dsh_patch(&["--patch".into(), String::new()]).is_err());
-    assert!(split_dsh_patch(&["--patch".into(), "--x".into()]).is_err());
-    assert!(split_dsh_patch(&[
-        "--patch".into(),
-        "a.yml".into(),
-        "--patch".into(),
-        "b.yml".into()
-    ])
-    .is_err());
-    assert!(split_dsh_patch(&["--patch=a.yml".into()]).is_err());
+    // `--patch` needs a non-empty, non-flag value, once, in its separate
+    // form: a single-dash spelling is as flag-shaped as a double-dash one.
+    let arity = "dsh driver: --patch needs an overlay path after it";
+    assert_eq!(refused_patch(&["--patch", ""]), arity);
+    assert_eq!(refused_patch(&["--patch"]), arity);
+    assert_eq!(refused_patch(&["--patch", "--x"]), arity);
+    assert_eq!(refused_patch(&["--patch", &flag_value]), arity);
+    assert_eq!(
+        refused_patch(&["--patch", "a.yml", "--patch", &patch_value]),
+        "dsh driver: --patch given twice"
+    );
+    assert_eq!(
+        refused_patch(&[&joined_patch]),
+        "dsh driver: only the one separate `--patch <overlay>` spelling is admitted"
+    );
+    assert_eq!(
+        refused_patch(&["--patchy", &patch_value]),
+        "dsh driver: only the one separate `--patch <overlay>` spelling is admitted"
+    );
+    // A malformed id names the field, not the id.
+    let error = parse_dsh_model(&format!("{MARK} bad"))
+        .err()
+        .expect("a malformed id must refuse");
+    assert!(error.contains("the pinned model is not"), "{error}");
+    assert!(!error.contains(MARK), "{MARK} echoed in {error}");
     // The admitted shapes pass the other arguments through verbatim.
     let (model, rest) = split_dsh_model(&["--model".into(), "p/m".into(), "--x".into()]).unwrap();
     assert_eq!(model.as_deref(), Some("p/m"));

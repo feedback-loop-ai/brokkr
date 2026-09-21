@@ -11963,3 +11963,196 @@ groups 14–15 were not touched. `contracts/`,
 `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
 `reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
 decision 0056 keeps its `proposed` status. Nothing was pushed.
+
+## Implement visit — 8.8(d) Pass B, argument admission, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-3d08ce19` on
+`slice-dsh-planner-d`, stacked on `slice-dsh-composite-b` (PR #311) and
+adopting every one of its commits. This visit owns exactly the FIRST
+paragraph of Pass B — admission of the planner's own inputs, before any
+route read, version probe, composite call or staging — and its matching
+8.10 cases. Everything after identity agreement in the (d) text, and
+the whole launch half, stays where it was.
+
+### What the admission surface already proved, and what it did not
+
+The planner's order was already right: `split_dsh_model`, the shared
+`split_effort`, `split_dsh_patch`, then `dsh_control_conflict` over the
+WHOLE residual, then model validation and the effort/model
+relationship, and only then `route_overlay::claim`. The inherited
+selector-only deny-list is already gone: `dsh_control_conflict` refuses
+every residual by fixed category.
+
+What was missing was the observation. The inherited matrix drove
+eleven spellings on three paths; 8.10's ledger names roughly forty, and
+it requires the private staging counter to read zero on each — an
+error and an absent retained directory do not establish that nothing
+was staged. It also requires the private marker to sit IN the rejected
+spellings, which the inherited vectors did not do.
+
+### The one production repair, and the failure that demanded it
+
+`split_dsh_patch` refused a value starting with `--` and admitted one
+starting with a single `-`. Its own contract says "non-empty, non-flag
+value", and `split_dsh_model` beside it refuses any leading `-`. So
+`--patch -<anything>` — every short launcher spelling — passed arity
+and was carried into the route read, where it refused for a DIFFERENT
+reason, in a diagnostic naming the route.
+
+Demonstrated first, before the line moved:
+
+```
+disabled/flag-shaped patch value: the admission refusal precedes the
+route read: refusing to invoke the dsh driver: the route overlay
+binding disagrees with the `--patch` value
+  adapters/tests.rs:8504
+```
+
+The repair is one character of predicate (`"--"` → `'-'`) with its
+reason beside it, and it is the ONLY production line this visit moves.
+Restoring the old predicate reproduces that panic and a second one,
+`["--patch", "-zzz-4be20d-splitter"] must refuse` at
+`adapters/tests.rs:10366`; restoring the repair passes both.
+
+### Removal proofs
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `split_dsh_patch`'s flag predicate back to `"--"` | `dsh_residual_and_joined_controls_refuse_before_any_observation`, `the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes` | "the admission refusal precedes the route read"; `must refuse` |
+| the `dsh_control_conflict` block moved BELOW `route_overlay::claim` | `dsh_residual_and_joined_controls_refuse_before_any_observation` | `disabled/unknown option beside a readable-looking route`: the refusal read `route_overlay file is unreadable` |
+| the staging counter's `+ 1` at `dsh_seat_overlay_in` entry | `both_dsh_effort_spellings_are_admitted_and_stage_one_overlay` | `separate: exactly one staged overlay`, left 0 right 1 |
+
+The third is D10's calibration: the ledger's forty-odd zero assertions
+are only evidence because a positive plan makes the same counter read
+one.
+
+### The ledger
+
+`dsh_residual_and_joined_controls_refuse_before_any_observation` now
+drives every category 8.10 names, on the disabled, offered and cold
+paths, each against a route binding that would fail to read:
+
+- the plugin's value and bare selectors, long and short —
+  `--session`/`-s`, `--new`/`-n`, `--resume`, `--list`,
+  `--workdir`/`-w`, `--output-format`, `--json-schema`,
+  `--profile`, `--dump-config`, `--dump-default-config`, `-h`;
+- joined and clustered spellings — `--session=…`, `-s=…`, `-o…`,
+  `-nrl`;
+- the launcher's own unverified controls — `--from-default-profile`,
+  `--verbose`; a settings override; an unknown option name; the option
+  terminator; bare positional text;
+- the effort spellings the shared splitter deliberately leaves in the
+  argv rather than dropping a pin in silence — duplicate, mixed
+  separate/joined, valueless, and a level outside its clamp in either
+  spelling;
+- the three authorized controls' own malformed shapes, refused by
+  their own splitters with their own fixed field — joined, duplicate,
+  valueless, empty-valued and flag-shaped `--model`; a malformed id;
+  duplicate, bare, joined, `--patch…`-prefixed and flag-shaped
+  `--patch`; effort without a model.
+
+Each case asserts: a refusal; zero producer calls; no version probe
+(the recording shim's marker); `dsh_staging_calls() == 0`; no retained
+root under the home; the refusal names its fixed category or fixed
+field; and the refusal contains neither the private marker nor the
+route value.
+
+The marker `zzz-9f31c7-marker` is a PLAIN IDENTIFIER, so it is also a
+valid model id: the control cases pin it as the seat's model and carry
+it in option names, equals-joined values, selector values, patch values
+and positional text at once. No diagnostic echoes it.
+
+One correction to the commission's own reading: there is no closed
+effort VOCABULARY at this boundary. `effort_token` is a shape clamp —
+one bounded word of at most forty characters starting with an
+alphanumeric — so `--effort <any-plain-word>` is admitted by design and
+the invalid-effort vectors are the ones outside that clamp.
+
+`both_dsh_effort_spellings_are_admitted_and_stage_one_overlay` keeps
+both admitted spellings as positive cases with no guessed alias: the
+separate `--effort xhigh` and the equals-joined `--effort=xhigh`
+compose the identical settings document and each stage exactly one
+overlay.
+
+`dsh_controls_that_decide_the_session_or_a_restriction_are_refused`
+and `the_dsh_model_and_patch_splitters_refuse_their_malformed_shapes`
+grew the same way at unit level. The second no longer asserts
+`is_err()`: every refusal is now compared to its exact reason, and the
+marker is checked absent from each.
+
+### An inherited test race, repaired
+
+`adapters::composite::tests::dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one`
+READS the process `DSH_HOME` and asserts what it read, without taking
+the `ADAPTER_ENV` lock every planner test takes when it sets a
+temporary one. It is an inherited race, not this visit's: two tests
+that both exist at `1f60fdf4`, run together, reproduce it —
+
+```
+left: "/tmp/.tmpOgldUg"  right: "/home/vyanakiev/.dsh"
+```
+
+— with none of this visit's new tests running in that filter. Two more
+`DSH_HOME` writers made it fire on the ordinary crate run, so the
+reader now takes the same lock; `ADAPTER_ENV` became
+`pub(in crate::adapters)` to make that possible. A reader is as much a
+party to the race as a writer.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue
+#255):
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-protocol` | 485 (385 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-runtime` | 534 across 24 binaries, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+`openspec validate --all --strict` COULD NOT RUN in this box: the
+binary is installed at `~/.volta/bin/openspec` but the sandbox refused
+the invocation. This visit adds no `openspec/specs` delta and touches
+only this tasks file under `openspec/`, but that is not a substitute
+for the check. `bash scripts/coverage-exact.sh` did not run here
+either; it is not lowered.
+
+### What Pass C still owes, and what the rest of B does
+
+Pass C — launch-root confirmation before publishing — is untouched and
+uncredited: no `root_session`, `transcript` locator or launch row may
+be published before the pinned plugin's post-`await agents.resume`
+init event names the offered root on the selected persistence root,
+with a valid prior depth-zero header retained at the resolved locator,
+no fresh sibling root or session in the retained store, and new
+sequence activity past the recorded `firstSeq`. A request-derived
+`session_id` is not that event. The inherited partial implementation
+stands exactly as it was.
+
+The REST of Pass B — the route binding beyond admission, the
+gate-before-probe matrix, the identity comparisons and the owned-storage
+boundary — was already delivered on `slice-dsh-composite-b` and its
+suites pass here unchanged; this visit neither extended nor re-derived
+them.
+
+8.8 and 8.10 stay unchecked, and no sub-clause was ticked: the owners
+run through C and D. 9.6, 10.x, 11.1–11.4 and groups 14–15 were not
+touched. `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
+`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/`
+have no diff; decision 0056 keeps its `proposed` status; the DSH route
+stays disabled. The research-dsh roster assertion, `bundle.json`,
+`research-web.yml`, compiled staffing and every witness digest are
+unmoved — `git status` names three files, all under
+`crates/brokkr-protocol/src/`, plus this record. Nothing was pushed.
+
+No Windows handling was added anywhere. Where the (d) text names a
+Windows obligation it is withdrawn by decision 0063 (accepted
+2026-09-21): the hosts are Linux and macOS. The new fixtures build on
+temporary roots and take no literal errno.

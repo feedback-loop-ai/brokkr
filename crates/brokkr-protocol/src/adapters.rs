@@ -4353,7 +4353,12 @@ fn split_dsh_patch(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
             let value = parts
                 .next()
                 .ok_or_else(|| "dsh driver: --patch needs an overlay path after it".to_string())?;
-            if value.is_empty() || value.starts_with("--") {
+            // A flag-shaped value is refused HERE, by arity, exactly as
+            // `split_dsh_model` refuses one: any leading `-`, not only a
+            // long option's `--`. A single-dash launcher spelling taken
+            // as the overlay path would otherwise be carried past the
+            // admission rule into the route read (AS3; task 8.8(d)).
+            if value.is_empty() || value.starts_with('-') {
                 return Err("dsh driver: --patch needs an overlay path after it".to_string());
             }
             if route.replace(value.clone()).is_some() {

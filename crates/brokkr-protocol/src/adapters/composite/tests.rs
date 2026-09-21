@@ -2428,6 +2428,11 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
 /// commissioned environment.
 #[test]
 fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
+    // This test READS the process `DSH_HOME` and asserts what it read;
+    // the planner suite beside it sets a temporary one. Without the
+    // shared adapter-environment lock the two race and this assertion
+    // reports another test's home as this host's fact.
+    let _guard = crate::adapters::tests::ADAPTER_ENV.lock().unwrap();
     // The selection is the ADAPTER's, resolved once: the file the
     // declared name resolves to, or a failed selection carrying that
     // name and the lookup's cause. Asserting the literal `dsh` here made
