@@ -1458,18 +1458,25 @@ fn an_expressible_restriction_rides_one_typed_argument_unchanged() {
 #[test]
 fn a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks() {
     let root = cq1_root();
-    let stuck = test_native(
-        json!({"default": "always on"}),
-        json!({"unsupported": "the 9.9 CLI has no flag or config key that removes the tool"}),
-        json!({"unsupported": "x"}),
-    );
+    let stuck = NativeInventory::parse(
+        "adapter 'test-native'",
+        Some(&json!({"known": {"web-search": {
+            "capability": "web-search", "tools": ["lookup", "search"],
+            "on": {"default": "always on"},
+            "off": {"unsupported": "the 9.9 CLI has no flag or config key that removes the tool"},
+            "restrictions": {"unsupported": "x"},
+            "evidence": {"source": "controller probe 2026-09-21", "scope": "test-cli 9.9 cold exec",
+                         "limitations": []}}}})),
+    )
+    .unwrap();
     let impossible = |site: &SiteAsks, label: &str, office: &str| {
         format!(
             "seat '{label}' (office '{office}') in realm 'private': provider 'test-native' \
              cannot switch off its native capability 'web-search', which this seat does not \
-             hold (the 9.9 CLI has no flag or config key that removes the tool); an ungranted \
-             native capability that cannot be disabled cannot be seated in this realm \
-             (decision 0065 ruling 4)"
+             hold (the 9.9 CLI has no flag or config key that removes the tool; evidence: \
+             controller probe 2026-09-21, scope: test-cli 9.9 cold exec); an ungranted native \
+             capability that cannot be disabled cannot be seated in this realm (decision 0065 \
+             ruling 4)"
         ) + &site.label[..0]
     };
     // No ask at all, in a realm that grants nothing.
@@ -1493,6 +1500,23 @@ fn a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks(
         elsewhere.resolve(&implement, &serving(&stuck)).unwrap_err(),
         impossible(&implement, "implement", "implement")
     );
+    // Nor does SUBTRACTING the ask: a seat that gives the capability up
+    // does not hold it, the harness still has it, and it still cannot be
+    // removed — under a realm that would have granted it, too.
+    let office = parse_requests("agent 'researcher'", &json!({"web-search": "wants"})).unwrap();
+    let subtracted =
+        SiteAsks::of("research", Some(("researcher", &office)), Some(&json!({}))).unwrap();
+    assert_eq!(subtracted.subtracted, ["web-search"]);
+    let generous = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
+    for realm in [&nothing, &generous] {
+        assert_eq!(
+            realm.resolve(&subtracted, &serving(&stuck)).unwrap_err(),
+            impossible(&subtracted, "research", "researcher")
+        );
+    }
     // Held through the grant, the same harness seats: ON is its default.
     let granted = authority(
         root.path(),
@@ -1634,6 +1658,74 @@ fn a_site_records_each_candidate_apart_and_serves_the_selected_one() {
     let none = CapabilityContext::no_grants(UNMAPPED, root.path());
     assert_eq!(none.realm, "<unmapped>");
     assert!(none.grants.is_empty());
+}
+
+/// [`SiteCapabilities::serving`] finds a link's outcome by provider and
+/// model, and a chain may name one pair twice — at two efforts, say. That
+/// lookup is sound because an outcome is a function of the site's asks,
+/// the authority and the provider's declaration ALONE: what a link
+/// authored can refuse a compile and can never alter an outcome, so two
+/// links sharing a pair carry EQUAL outcomes and neither can be lent
+/// anything the other does not already hold.
+#[test]
+fn two_links_sharing_a_provider_and_model_carry_equal_outcomes() {
+    let root = cq1_root();
+    let granted = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
+    let site = asks(json!({"web-search": "wants"}));
+    let native = switchable();
+    let high = ["--effort".to_string(), "high".to_string()];
+    let low = [
+        "--effort".to_string(),
+        "low".to_string(),
+        "--verbose".to_string(),
+    ];
+    let outcomes: Vec<Outcome> = [&high[..], &low[..], &[]]
+        .into_iter()
+        .map(|authored| {
+            granted
+                .resolve(
+                    &site,
+                    &Serving {
+                        authored,
+                        ..serving(&native)
+                    },
+                )
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(outcomes[0], outcomes[1]);
+    assert_eq!(outcomes[1], outcomes[2]);
+    assert_eq!(outcomes[0].held["web-search"].dialect, "search-native");
+    let recorded = SiteCapabilities {
+        asks: site.clone(),
+        outcomes,
+    };
+    assert_eq!(
+        recorded.serving(Some(("test-native", "tn-1"))),
+        Some(&recorded.outcomes[1])
+    );
+    // The one thing authored argv can do is refuse — and then there is no
+    // outcome to look up at all.
+    let contender = ["--search".to_string()];
+    assert_eq!(
+        granted
+            .resolve(
+                &site,
+                &Serving {
+                    authored: &contender,
+                    ..serving(&native)
+                }
+            )
+            .unwrap_err(),
+        "seat 'research' (office 'researcher') in realm 'private': its arguments carry \
+         '--search', which controls native capability 'web-search' of provider 'test-native'. \
+         Only the realm grants a capability, and the engine composes the one control the grant \
+         resolves to; request 'web-search' by name under 'capabilities' instead (decision 0065 \
+         rulings 3 and 4)"
+    );
 }
 
 /// The embedded contract is the published one, byte for byte: a dialect

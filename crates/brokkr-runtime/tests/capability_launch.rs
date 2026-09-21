@@ -846,6 +846,77 @@ fn a_native_control_declaration_moves_the_manifest_digest() {
     assert_eq!(digest(copied.path()), shipped, "restored");
 }
 
+/// Ruling 4's other half, at the compiler and both ways round: were Codex
+/// measured UNABLE to remove its search tool, a Codex seat could not be
+/// seated in a realm that has not granted search — boxed or unboxed, and
+/// whether the seat asks for nothing, wants it, or belongs to an office
+/// that subtracted it. The box is no substitute for the switch: the power
+/// is the provider's server-side tool, which no namespace contains. Held
+/// through a grant, the same seat compiles. The refusal names the seat,
+/// the realm, the capability, the provider, the reason and the evidence.
+#[test]
+fn a_codex_that_could_not_switch_search_off_is_unseatable_boxed_and_unboxed() {
+    let operator = Operator::new();
+    let copied = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(workspace().join("adapters")).unwrap() {
+        let path = entry.unwrap().path();
+        std::fs::copy(&path, copied.path().join(path.file_name().unwrap())).unwrap();
+    }
+    let codex = copied.path().join("codex.json");
+    let mut declared: Value = serde_json::from_slice(&std::fs::read(&codex).unwrap()).unwrap();
+    let native = &mut declared["native_capabilities"]["known"]["web-search"];
+    native["off"] = json!({"unsupported": "a hypothetical CLI with no key that removes the tool"});
+    native["evidence"]["source"] = json!("a hypothetical measurement");
+    native["evidence"]["scope"] = json!("hypothetical-cli 9.9");
+    std::fs::write(&codex, serde_json::to_vec_pretty(&declared).unwrap()).unwrap();
+
+    let refusal = |seat: &str, office: &str| {
+        format!(
+            "bundle: seat '{seat}' (office '{office}') in realm 'private': provider 'codex' \
+             cannot switch off its native capability 'web-search', which this seat does not hold \
+             (a hypothetical CLI with no key that removes the tool; evidence: a hypothetical \
+             measurement, scope: hypothetical-cli 9.9); an ungranted native capability that \
+             cannot be disabled cannot be seated in this realm (decision 0065 ruling 4)"
+        )
+    };
+    let nothing = operator.context(json!({}));
+    for boundary in [Boundary::Namespace, Boundary::Harness] {
+        // No ask, a want, and an office's ask subtracted by its seat: the
+        // first Codex site the walk reaches refuses, every time.
+        for (asks, seat) in [
+            (None, None),
+            (Some(json!({"web-search": "wants"})), None),
+            (None, Some(json!({}))),
+        ] {
+            assert_eq!(
+                operator
+                    .compile_against(copied.path(), &nothing, boundary, asks, seat)
+                    .unwrap_err(),
+                refusal("agent", "searcher"),
+                "{boundary:?}"
+            );
+        }
+    }
+    // A grant to ANOTHER office excuses nobody.
+    let elsewhere = operator.context(json!({"web-search": {"dialect": "codex-native-search",
+                                              "offices": ["nobody"]}}));
+    assert_eq!(
+        operator
+            .compile_against(copied.path(), &elsewhere, Boundary::Harness, None, None)
+            .unwrap_err(),
+        refusal("agent", "searcher")
+    );
+    // Held by every Codex site, the very same declaration seats.
+    let granted = operator.context(json!({"web-search": {"dialect": "codex-native-search"}}));
+    let wants = Some(json!({"web-search": "wants"}));
+    let bundle = operator
+        .compile_against(copied.path(), &granted, Boundary::Harness, wants, None)
+        .unwrap();
+    for label in ["inline", "agent"] {
+        assert_eq!(off_pairs(&launch(&bundle, label, 0)), 0, "{label}");
+    }
+}
+
 /// Every shipped bundle, as it compiles in this repository's own realm —
 /// which grants NOTHING. Every executable site of every form has an
 /// outcome; no seat holds anything; every Codex candidate is composed with
@@ -1052,4 +1123,200 @@ fn a_panel_member_and_a_sequence_step_resolve_under_their_own_labels() {
          request belongs to the site that executes — the member, step or case body — because \
          that is the office the realm grants to (decision 0065 ruling 5)"
     );
+}
+
+/// One office — `scholar`, which REQUIRES `web-search` and WANTS
+/// `web-fetch` — seated in a panel, a sequence, a select and an inherited
+/// bundle. Wherever it sits, writing no map inherits the office's asks, a
+/// map is an unchanged-strength subset whose omissions are subtracted
+/// (a requirement included), `{}` subtracts everything, and the office
+/// keeps its name under every execution label (ruling 5; design D2).
+#[test]
+fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
+    let operator = Operator::new();
+    let root = operator.root();
+    write(
+        root,
+        "agents/scholar.json",
+        &json!({
+            "description": "an office that must search and may fetch",
+            "charter": "charters/searcher.md",
+            "models": ["astra"],
+            "efforts": {"astra": "high"},
+            "hands": {"kind": "workspace", "network": false, "binds": []},
+            "capabilities": {"web-search": "requires", "web-fetch": "wants"},
+        }),
+    );
+    std::fs::create_dir_all(root.join("nested/roles")).unwrap();
+    std::fs::write(root.join("nested/roles/role.md"), "# role\n").unwrap();
+    write(
+        root,
+        "nested/policy.json",
+        &json!({"phases": ["judges", "steps", "pick", "review", "done"], "initial": "judges",
+            "terminal": ["done"], "rules": [
+                {"id": "A", "from": "judges", "result": "pass", "next": "steps", "reason": "r"},
+                {"id": "B", "from": "judges", "result": "fail", "next": "steps", "reason": "r"},
+                {"id": "C", "from": "steps", "result": "complete", "next": "pick", "reason": "r"},
+                {"id": "D", "from": "pick", "result": "complete", "next": "review", "reason": "r"},
+                {"id": "E", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}),
+    );
+    let scholar = |written: Option<Value>| {
+        let mut site = json!({"agent": "scholar"});
+        if let Some(written) = written {
+            site["capabilities"] = written;
+        }
+        site
+    };
+    let fetch_only = json!({"web-fetch": "wants"});
+    let search_only = json!({"web-search": "requires"});
+    let seats = |subset: Value, emptied: Value| {
+        let mut step = scholar(Some(emptied));
+        step["name"] = json!("none");
+        step["results"] = json!(["complete"]);
+        let mut last = scholar(None);
+        last["name"] = json!("all");
+        json!({
+            "judges": {"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": {
+                "inherits": scholar(None), "subset": scholar(Some(subset))}},
+            "steps": {"results": ["complete"], "sequence": [step, last]},
+            "pick": {"results": ["complete"], "select": {"on": "strategy",
+                "cases": {"engine": scholar(None)},
+                "default": scholar(Some(search_only.clone()))}},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}},
+        })
+    };
+    let compile_typed = |recipe: &str, offices: Option<Value>| {
+        let mut grant = json!({"dialect": "codex-native-search"});
+        if let Some(offices) = offices {
+            grant["offices"] = offices;
+        }
+        Bundle::compile_with_capabilities(
+            &root.join(recipe),
+            &root.join("agents"),
+            &workspace().join("adapters"),
+            Some("private"),
+            None,
+            Boundary::Namespace,
+            &operator.context(json!({"web-search": grant})),
+        )
+    };
+    let compile = |recipe: &str, offices: Option<Value>| {
+        compile_typed(recipe, offices).map_err(|error| error.to_string())
+    };
+    let nested = |subset: Value, emptied: Value| {
+        write(
+            root,
+            "nested/bundle.json",
+            &json!({"name": "nested", "policy": "policy.json", "seats": seats(subset, emptied)}),
+        );
+        compile("nested", None)
+    };
+    let bundle = nested(fetch_only.clone(), json!({})).unwrap();
+    // (subtracted, held, launched with the OFF pair) for one site.
+    let read = |bundle: &Bundle, label: &str| {
+        let site = bundle.sites[label].capabilities.as_ref().unwrap();
+        assert_eq!(site.asks.office, "scholar", "{label} keeps its office");
+        let outcome = &site.outcomes[0];
+        (
+            site.asks.subtracted.join(","),
+            outcome.held.keys().cloned().collect::<Vec<_>>().join(","),
+            off_pairs(&launch(bundle, label, 0)),
+        )
+    };
+    let all = [
+        ("judges:inherits", ("", "web-search", 0)),
+        ("judges:subset", ("web-search", "", 1)),
+        ("steps:none", ("web-fetch,web-search", "", 1)),
+        ("steps:all", ("", "web-search", 0)),
+        ("pick:engine", ("", "web-search", 0)),
+        ("pick:default", ("web-fetch", "web-search", 0)),
+    ];
+    for (label, (subtracted, held, off)) in all {
+        assert_eq!(
+            read(&bundle, label),
+            (subtracted.to_string(), held.to_string(), off),
+            "{label}"
+        );
+    }
+    // A subtracted REQUIREMENT is not a refusal and not a drop: the seat
+    // says why it does not hold it, and no notice is recorded for it.
+    let subset = &bundle.sites["judges:subset"]
+        .capabilities
+        .as_ref()
+        .unwrap()
+        .outcomes[0];
+    assert_eq!(
+        subset.not_held["web-search"],
+        "this seat subtracted it from its office's asks"
+    );
+    assert_eq!(
+        subset.notices,
+        [(
+            "web-fetch".to_string(),
+            "seat 'judges:subset' (office 'scholar') in realm 'private': dropped wanted \
+             capability 'web-fetch' because the realm does not grant it to this office"
+                .to_string()
+        )]
+    );
+    assert!(bundle.sites["steps:none"]
+        .capabilities
+        .as_ref()
+        .unwrap()
+        .outcomes[0]
+        .notices
+        .is_empty());
+
+    // A seat never adds and never re-rates, in a nested body as anywhere.
+    assert_eq!(
+        nested(fetch_only.clone(), json!({"library-docs": "wants"})).unwrap_err(),
+        "bundle: seat 'steps:none' (office 'scholar') adds capability 'library-docs', which its \
+         office does not ask for; a seat may subtract from its office's asks and never add to \
+         them"
+    );
+    assert_eq!(
+        nested(json!({"web-search": "wants"}), json!({})).unwrap_err(),
+        "bundle: seat 'judges:subset' (office 'scholar') changes capability 'web-search' from \
+         requires to wants; a seat may subtract from its office's asks and never change their \
+         strength"
+    );
+
+    // INHERITED: a recipe that extends `nested` and changes nothing
+    // resolves every site exactly as its base does.
+    nested(fetch_only, json!({})).unwrap();
+    write(
+        root,
+        "derived/bundle.json",
+        &json!({"name": "derived", "extends": "nested"}),
+    );
+    let derived = compile("derived", None).unwrap();
+    assert_eq!(
+        derived.manifest["capabilities"]["sites"],
+        bundle.manifest["capabilities"]["sites"]
+    );
+    // And an inherited REQUIREMENT the realm does not reach refuses the
+    // derived recipe, naming the inherited seat — while the seats that
+    // subtracted it would have compiled.
+    // (The doubled prefix is how every failure on a composed bundle has
+    // always read: the chain note wraps the displayed error.)
+    assert_eq!(
+        compile("derived", Some(json!(["nobody"]))).unwrap_err(),
+        "bundle: bundle: seat 'judges:inherits' (office 'scholar') in realm 'private': requires \
+         capability 'web-search' but the realm grants it only to offices [nobody], not to this \
+         office (composed: derived -> nested)"
+    );
+    // The chain note keeps the refusal a CAPABILITY one, which is what lets
+    // `brokkr resume` send it through the manifest-mismatch door.
+    assert!(matches!(
+        compile_typed("derived", Some(json!(["nobody"]))),
+        Err(brokkr_runtime::bundle::CompileError::Capability(_))
+    ));
+    // A seat's own declaration fault is the bundle's, not authority's.
+    assert!(matches!(
+        {
+            nested(json!({"web-search": "wants"}), json!({})).unwrap_err();
+            compile_typed("nested", None)
+        },
+        Err(brokkr_runtime::bundle::CompileError::Invalid(_))
+    ));
 }
