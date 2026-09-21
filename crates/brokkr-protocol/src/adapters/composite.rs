@@ -1771,9 +1771,9 @@ impl Admitted {
         // Only a name that is truly absent is a lock that was not
         // located; a dangling link, a denied one and every failure to
         // read what is there are refusals of a located lock.
-        let located = !matches!(
-            std::fs::symlink_metadata(&lock),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        let located = std::fs::symlink_metadata(&lock).map_or_else(
+            |error| error.kind() != std::io::ErrorKind::NotFound,
+            |_| true,
         );
         // The names whose installed bytes supply a component line of
         // their own, as the profile DECLARES them: composition resolves

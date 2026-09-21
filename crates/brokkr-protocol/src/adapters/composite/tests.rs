@@ -2518,6 +2518,17 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
         "{}",
         unlocated.cause()
     );
+    // And with no home at all: the same independent fact, by the home's
+    // own cause, with the invocation still there for the version.
+    assert_eq!(
+        DshSeams::selected_from("dsh".to_string(), |_| selected(), None)
+            .unwrap()
+            .admission,
+        Err(DshUnprepared::Unlocated {
+            invocation: invoked.clone(),
+            cause: CompositeError::Config("no dsh home: set DSH_HOME or HOME".into()),
+        })
+    );
     let seams = selection.seams.unwrap();
     assert_eq!(seams.executable, selection.executable);
     // The Node selection made beside the executable is the seams' own:
@@ -4190,6 +4201,20 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
         refused_vector(composite_over_pnpm(&install, &tabbed), &tabbed),
         "pnpm lock is unreadable: a tab"
     );
+    // A quote OPENS a quoted scalar: one that never closes is that
+    // scalar's own fault behind any padding, and is not reported as an
+    // indicator opening.
+    for padding in [" ", "   "] {
+        let member = format!("node:{padding}'oops");
+        let unclosed = with_child(&format!("engines: {{{member}}}"));
+        assert_eq!(
+            refused_vector(composite_over_pnpm(&install, &unclosed), &unclosed),
+            format!(
+                "pnpm lock is unreadable: a package child 'engines' carrying the malformed flow \
+                 member '{member}'"
+            )
+        );
+    }
 
     // R3 (review of run `124cca78`): an implicit block key is found by a
     // lookahead YAML bounds at 1,024 characters, counted over the key AS
