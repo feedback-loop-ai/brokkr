@@ -357,3 +357,59 @@ fn an_unmapped_run_reads_and_keeps_the_operated_repository_as_its_root() {
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(ws.events(&run), before);
 }
+
+/// A map that does NOT name the operated repository: the repository stands
+/// in no realm and is granted nothing — a neighbouring realm's grant is
+/// not its own — while the operator's directory is still the map's, not
+/// the repository's (design D2). The run pins that world, so its resume
+/// reads the same directory.
+#[test]
+fn a_repository_the_map_does_not_name_is_granted_nothing_beside_a_granting_realm() {
+    let ws = Workspace::new();
+    std::fs::create_dir_all(ws.path().join("neighbour")).unwrap();
+    std::fs::write(
+        ws.path().join("realms.json"),
+        json!({
+            "schema": "forge.realms/v6",
+            "realms": [{"name": "public", "path": "neighbour", "default_branch": "main",
+                        "capabilities": serde_json::from_str::<Value>(GRANT).unwrap()}],
+            "journal": "forge.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // Under the repository only — which is not the operator's directory
+    // once a map is active, so the seat's ask finds no definition.
+    ws.operator_data("repo");
+    let (code, stderr) = ws.verb("run", None);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(
+        stderr.contains(
+            "bundle: seat 'work' (office 'work') in realm '<unmapped>': capability \
+             'web-search' has no abstract definition at 'capabilities/web-search.json' in the \
+             operator configuration; declare its classes before requesting it"
+        ),
+        "{stderr}"
+    );
+    // Beside the map it runs — unmapped, granted nothing by `public`.
+    ws.operator_data(".");
+    let (code, stderr) = ws.verb("run", None);
+    assert_eq!(code, Some(0), "{stderr}");
+    let run = run_id(&stderr);
+    let pinned = ws.pinned(&run);
+    assert_eq!(pinned["realm"], "<unmapped>");
+    assert_eq!(pinned["grants"], json!({}));
+    assert_eq!(pinned["dialects"], json!({}));
+    assert_eq!(
+        notices(&pinned),
+        json!([
+            "seat 'work' (office 'work') in realm '<unmapped>': dropped wanted capability \
+             'web-search' because the realm does not grant it to this office"
+        ])
+    );
+    let before = ws.events(&run);
+    std::fs::remove_dir_all(ws.path().join("repo/capabilities")).unwrap();
+    let (code, stderr) = ws.verb("resume", Some(&run));
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(ws.events(&run), before);
+}
