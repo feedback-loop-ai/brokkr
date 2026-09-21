@@ -287,6 +287,21 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/seat-record.v5.schema.json",
             "Forge seat record v5",
         ),
+        // Decision 0065, slice one: the grant arrives as `forge.realms/v6`
+        // beside v5, the capability authority a bundle compiled under as
+        // `run-manifest.v11` beside v10, and the tool dialect as its own
+        // first contract. No older file moves: v5's and v10's bytes are
+        // pinned in `the_capability_contracts_land_beside_their_frozen_
+        // predecessors` below.
+        ("contracts/realms.v6.schema.json", "Forge realms map v6"),
+        (
+            "contracts/run-manifest.v11.schema.json",
+            "Forge run manifest v11",
+        ),
+        (
+            "contracts/tool-dialect.v1.schema.json",
+            "Brokkr tool dialect v1",
+        ),
     ] {
         let body: serde_json::Value =
             serde_json::from_slice(&std::fs::read(workspace().join(relative)).unwrap()).unwrap();
@@ -517,5 +532,278 @@ fn the_v5_realm_schema_carries_the_crossings_and_closes_their_entries() {
         let mut older = crossed.clone();
         older["schema"] = json!(version);
         assert!(!validator.is_valid(&older), "{version} under the v5 schema");
+    }
+}
+
+fn contract(name: &str) -> jsonschema::Validator {
+    let schema: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(workspace().join(name)).unwrap()).unwrap();
+    jsonschema::draft7::new(&schema).unwrap()
+}
+
+/// Decision 0065 lands three files and edits none: the two predecessors
+/// its new versions stand beside keep their exact bytes.
+#[test]
+fn the_capability_contracts_land_beside_their_frozen_predecessors() {
+    for (relative, pinned) in [
+        (
+            "contracts/realms.v5.schema.json",
+            "e0203be78cc2896ce6983d8c8a26417544ccbef311c1b3c63425bfc55a96c1e5",
+        ),
+        (
+            "contracts/run-manifest.v10.schema.json",
+            "1093c99ce1ff7bb33c5994f2fa4bba6315f29b911fa9e2b68216f600e2927962",
+        ),
+    ] {
+        assert_eq!(digest(relative), pinned, "{relative} bytes moved");
+    }
+}
+
+/// `forge.realms/v6` is v5 plus one optional per-realm `capabilities` map
+/// (decision 0065 ruling 3). Omission and `{}` both grant nothing; the
+/// optional lists keep absent apart from empty; `null`, a wrong type and a
+/// repeated entry are refused; and every older version's own contract
+/// refuses the word even written empty.
+#[test]
+fn the_v6_realm_schema_admits_the_grant_and_no_older_version_does() {
+    use serde_json::json;
+    let v6 = contract("contracts/realms.v6.schema.json");
+    let map = |capabilities: Option<serde_json::Value>| {
+        let mut realm = json!({"name": "private", "path": "repo", "default_branch": "main",
+                               "boundary": "harness"});
+        if let Some(capabilities) = capabilities {
+            realm["capabilities"] = capabilities;
+        }
+        json!({"schema": "forge.realms/v6", "realms": [realm], "journal": "forge.db"})
+    };
+    for valid in [
+        None,
+        Some(json!({})),
+        Some(json!({"web-search": {"dialect": "codex-native-search"}})),
+        Some(
+            json!({"web-fetch": {"dialect": "fetch-mcp", "tools": ["fetch"],
+                    "allow": {"hosts": ["sourceware.org", "yaml.org"]}},
+                    "web-search": {"dialect": "codex-native-search",
+                                   "offices": ["review-security", "review-adversarial"]},
+                    "library-docs": {"dialect": "context7", "tools": [], "offices": []}}),
+        ),
+    ] {
+        assert!(v6.is_valid(&map(valid.clone())), "{valid:?}");
+    }
+    for invalid in [
+        json!(null),
+        json!([]),
+        json!({"Web Search": {"dialect": "d"}}),
+        json!({"web-search": "codex-native-search"}),
+        json!({"web-search": {"tools": ["web_search"]}}),
+        json!({"web-search": {"dialect": "../escape"}}),
+        json!({"web-search": {"dialect": "d", "tools": null}}),
+        json!({"web-search": {"dialect": "d", "tools": ["a", "a"]}}),
+        json!({"web-search": {"dialect": "d", "offices": [7]}}),
+        json!({"web-search": {"dialect": "d", "offices": [""]}}),
+    ] {
+        assert!(
+            !v6.is_valid(&map(Some(invalid.clone()))),
+            "the v6 schema admitted {invalid}"
+        );
+    }
+    // The label is the version's own, in both directions.
+    for (version, file) in [
+        ("forge.realms/v1", "contracts/realms.v1.schema.json"),
+        ("forge.realms/v2", "contracts/realms.v2.schema.json"),
+        ("forge.realms/v3", "contracts/realms.v3.schema.json"),
+        ("forge.realms/v4", "contracts/realms.v4.schema.json"),
+        ("forge.realms/v5", "contracts/realms.v5.schema.json"),
+    ] {
+        let mut older = json!({"schema": version, "journal": "forge.db", "realms": [
+            {"name": "private", "path": "repo", "default_branch": "main"}]});
+        let schema = contract(file);
+        assert!(
+            schema.is_valid(&older),
+            "{version} still loads and grants nothing"
+        );
+        assert!(!v6.is_valid(&older), "{version} under the v6 schema");
+        older["realms"][0]["capabilities"] = json!({});
+        assert!(
+            !schema.is_valid(&older),
+            "{version} admitted capabilities, even empty"
+        );
+    }
+}
+
+/// `brokkr.tool-dialect/v1` is a closed discriminated shape: exactly one
+/// kind, that kind's binding and no other's. Both MCP connection forms are
+/// whole as data; a mixture, a missing pin, a credential by value and a
+/// word from the wrong vocabulary are refused.
+#[test]
+fn the_tool_dialect_schema_binds_one_capability_to_exactly_one_kind() {
+    use serde_json::json;
+    let v1 = contract("contracts/tool-dialect.v1.schema.json");
+    let sends = json!({"description": "a query the model composes", "seat_composed": true});
+    let native = json!({
+        "schema": "brokkr.tool-dialect/v1", "name": "codex-native-search",
+        "serves": "web-search", "kind": "provider-native", "provider": "codex",
+        "adapter_key": "web-search", "tools": ["web_search"], "sends": sends,
+        "classes": ["reads", "egress"], "egress": "uncontracted",
+        "restrictions": {"type": "object", "additionalProperties": false}
+    });
+    let mcp = |connection: serde_json::Value| {
+        json!({
+            "schema": "brokkr.tool-dialect/v1", "name": "docs-mcp", "serves": "library-docs",
+            "kind": "mcp", "connection": connection, "version": "1.4.2",
+            "secrets": ["DOCS_TOKEN"], "tools": ["resolve"], "retained": true, "sends": sends
+        })
+    };
+    let hands = json!({
+        "schema": "brokkr.tool-dialect/v1", "name": "hands", "serves": "workspace",
+        "kind": "hands", "tools": ["workspace"], "egress": "local",
+        "sends": {"description": "nothing leaves the box", "seat_composed": false}
+    });
+    for valid in [
+        native.clone(),
+        mcp(json!({"argv": ["docs-mcp", "--stdio"]})),
+        mcp(json!({"url": "https://docs.example.org/mcp"})),
+        hands.clone(),
+    ] {
+        assert!(v1.is_valid(&valid), "{valid}");
+    }
+    // Every shipped dialect is inside the contract it is published under.
+    for entry in std::fs::read_dir(workspace().join("dialects/tools")).unwrap() {
+        let path = entry.unwrap().path();
+        let shipped: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(
+            v1.is_valid(&shipped),
+            "{} is outside tool-dialect/v1",
+            path.display()
+        );
+        assert_eq!(shipped["kind"], "provider-native", "{}", path.display());
+    }
+    let edit = |base: &serde_json::Value, mutate: &dyn Fn(&mut serde_json::Value)| {
+        let mut value = base.clone();
+        mutate(&mut value);
+        value
+    };
+    let stdio = mcp(json!({"argv": ["docs-mcp"]}));
+    for invalid in [
+        edit(&native, &|d| d["kind"] = json!("plugin")),
+        edit(&native, &|d| {
+            d.as_object_mut().unwrap().remove("serves");
+        }),
+        edit(&native, &|d| {
+            d.as_object_mut().unwrap().remove("adapter_key");
+        }),
+        edit(&native, &|d| {
+            d.as_object_mut().unwrap().remove("sends");
+        }),
+        edit(&native, &|d| d["tools"] = json!([])),
+        edit(&native, &|d| {
+            d["connection"] = json!({"url": "https://docs.example.org"})
+        }),
+        edit(&native, &|d| d["egress"] = json!("reads")),
+        edit(&native, &|d| d["classes"] = json!(["contracted"])),
+        edit(&native, &|d| d["classes"] = json!([])),
+        edit(&stdio, &|d| d["provider"] = json!("codex")),
+        edit(&stdio, &|d| {
+            d["connection"] = json!({"argv": ["x"], "url": "https://docs.example.org"})
+        }),
+        edit(&stdio, &|d| d["connection"] = json!({})),
+        edit(&stdio, &|d| {
+            d["connection"] = json!({"url": "https://user:secret@docs.example.org"})
+        }),
+        edit(&stdio, &|d| {
+            d.as_object_mut().unwrap().remove("version");
+        }),
+        edit(&stdio, &|d| {
+            d.as_object_mut().unwrap().remove("secrets");
+        }),
+        edit(&stdio, &|d| d["secrets"] = json!(["a literal value"])),
+        edit(&stdio, &|d| d["token"] = json!("a literal value")),
+        edit(&hands, &|d| d["serves"] = json!("web-search")),
+        edit(&hands, &|d| d["tools"] = json!(["workspace", "shell"])),
+        edit(&hands, &|d| d["provider"] = json!("claude")),
+    ] {
+        assert!(
+            !v1.is_valid(&invalid),
+            "the tool-dialect schema admitted {invalid}"
+        );
+    }
+}
+
+/// `run-manifest/v11` is v10 plus the REQUIRED `capabilities` section
+/// (decision 0065 ruling 8): an explicit empty authority validates, a
+/// manifest without the section does not, and the records are closed.
+#[test]
+fn the_v11_manifest_schema_requires_the_capability_section_and_closes_its_records() {
+    use serde_json::json;
+    let v11 = contract("contracts/run-manifest.v11.schema.json");
+    let sha = "a".repeat(64);
+    let manifest = |capabilities: Option<serde_json::Value>| {
+        let mut manifest = json!({"engine": "0.10.0", "event_schema": 1, "database_schema": 1,
+            "driver_protocol": 1, "bundle_name": "fast", "files": {"bundle.json": sha}});
+        if let Some(capabilities) = capabilities {
+            manifest["capabilities"] = capabilities;
+        }
+        manifest
+    };
+    let empty = json!({"realm": "<unmapped>", "grants": {}, "definitions": {}, "dialects": {},
+                       "sites": {}});
+    let held = json!({
+        "realm": "private",
+        "grants": {"web-search": {"dialect": "codex-native-search", "offices": ["researcher"],
+                                  "allow": {"hosts": ["yaml.org"]}}},
+        "definitions": {"web-search": {"source": "capabilities/web-search.json", "sha256": sha,
+                                       "classes": ["reads", "egress"]}},
+        "dialects": {"codex-native-search": {"source": "dialects/tools/codex-native-search.json",
+            "sha256": sha, "kind": "provider-native", "serves": "web-search"}},
+        "sites": {"research": {"office": "researcher", "asks": {"web-search": "wants"},
+            "subtracted": ["web-fetch"], "candidates": [
+                {"provider": "codex", "model": "astra",
+                 "held": {"web-search": {"classes": ["reads", "egress"],
+                     "dialect": "codex-native-search", "dialect_sha256": sha,
+                     "definition_sha256": sha, "tools": ["web_search"],
+                     "restrictions": {"allow": {"hosts": ["yaml.org"]}}}},
+                 "not_held": {"web-fetch": "this seat subtracted it from its office's asks"},
+                 "notices": [],
+                 "native": {"inventory": "known", "declaration": sha,
+                            "on": ["web-search"], "off": []}},
+                {"provider": "dsh", "held": {}, "not_held": {}, "notices": ["a dropped want"],
+                 "native": {"inventory": "unmeasured", "reason": "never probed"}}]}}
+    });
+    assert!(v11.is_valid(&manifest(Some(empty.clone()))));
+    assert!(v11.is_valid(&manifest(Some(held.clone()))));
+    assert!(!v11.is_valid(&manifest(None)), "the section is required");
+    // v10 cannot admit the section, and a v10 manifest is not a v11 one.
+    let v10 = contract("contracts/run-manifest.v10.schema.json");
+    assert!(v10.is_valid(&manifest(None)));
+    assert!(!v10.is_valid(&manifest(Some(empty.clone()))));
+    let edit = |mutate: &dyn Fn(&mut serde_json::Value)| {
+        let mut value = held.clone();
+        mutate(&mut value);
+        manifest(Some(value))
+    };
+    for invalid in [
+        edit(&|c| {
+            c.as_object_mut().unwrap().remove("sites");
+        }),
+        edit(&|c| c["holdings"] = json!({})),
+        edit(&|c| c["definitions"]["web-search"]["source"] = json!("/etc/web-search.json")),
+        edit(&|c| c["definitions"]["web-search"]["source"] = json!("../web-search.json")),
+        edit(&|c| c["definitions"]["web-search"]["classes"] = json!(["network"])),
+        edit(&|c| c["dialects"]["codex-native-search"]["sha256"] = json!("short")),
+        edit(&|c| c["dialects"]["codex-native-search"]["argv"] = json!(["codex"])),
+        edit(&|c| c["sites"]["research"]["asks"]["web-search"] = json!("optional")),
+        edit(&|c| {
+            c["sites"]["research"]["candidates"][0]["held"]["web-search"]["tools"] = json!([])
+        }),
+        edit(&|c| c["sites"]["research"]["candidates"][0]["secret"] = json!("value")),
+        edit(&|c| {
+            c["sites"]["research"]["candidates"][0]["native"] = json!({"inventory": "known"})
+        }),
+        edit(&|c| {
+            c["sites"]["research"]["candidates"][1]["native"] = json!({"inventory": "unmeasured"})
+        }),
+    ] {
+        assert!(!v11.is_valid(&invalid), "the v11 schema admitted {invalid}");
     }
 }

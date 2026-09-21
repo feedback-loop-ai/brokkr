@@ -1090,6 +1090,7 @@ impl Bundle {
     /// The agent roots ride through: composition resolves the bundle,
     /// then agent references inside the RESOLVED seats resolve against
     /// the library and adapters (decisions 0016 and 0017 layered).
+    #[allow(clippy::too_many_arguments)]
     fn assemble(
         dir: &Path,
         resolved: compose::Resolved,

@@ -4916,6 +4916,9 @@ mod agent_tests;
 mod artifact_gate_tests;
 
 #[cfg(test)]
+mod capability_tests;
+
+#[cfg(test)]
 mod conclude_tests;
 
 #[cfg(test)]
