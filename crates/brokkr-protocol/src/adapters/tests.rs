@@ -5761,11 +5761,16 @@ fn the_seat_overlay_reports_a_file_it_cannot_stage_or_write() {
     );
     // YAML is the overlay's grammar for the root as much as the model:
     // a path that could open a line of its own is refused, not written.
+    // The refusal names its own field and carries no byte of the path.
     for bad in ["/tmp/a\nb", "/tmp/a\rb"] {
+        let refused = dsh_transcript_row(std::path::Path::new(bad))
+            .err()
+            .unwrap_or_else(|| panic!("{bad:?} must be refused"));
         assert!(
-            dsh_transcript_row(std::path::Path::new(bad)).is_err(),
-            "{bad:?} must be refused"
+            refused.contains("transcript root") && refused.contains("spans more than one line"),
+            "{bad:?}: {refused}"
         );
+        assert!(!refused.contains("/tmp/a"), "{bad:?}: echoed in {refused}");
     }
     // A quote in the path is doubled inside the single-quoted scalar,
     // so it closes nothing.
@@ -8309,19 +8314,25 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
 
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    // The fixture root is canonicalized once and every path below is
+    // derived from it: on macOS the temporary directory is reached
+    // through `/var` → `/private/var`, and a home, workdir or shim
+    // spelled the other way is a different path to the admission
+    // comparisons this ledger drives.
+    let root = dir.path().canonicalize().unwrap();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
-    let marker = dir.path().join("m-controls");
-    let shim = dsh_recording_version_shim(dir.path(), "dsh-ctl", "0.1.5-rc.1", &marker);
+    std::env::set_var("DSH_HOME", &root);
+    let marker = root.join("m-controls");
+    let shim = dsh_recording_version_shim(&root, "dsh-ctl", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
     let digest = "b".repeat(64);
-    let mut enabled = dsh_enabled_input("0.1.5-rc.1", &digest, dir.path());
+    let mut enabled = dsh_enabled_input("0.1.5-rc.1", &digest, &root);
     // A route binding that would fail to read: every control refusal must
     // precede the route read and any provider observation, on every path.
     enabled["resume_context"]["route_overlay"] =
         json!({"value": "does-not-exist.yml", "digest": "a".repeat(64)});
     let disabled = json!({
-        "workdir": dir.path(),
+        "workdir": root,
         "resume_context": {
             "route_overlay": {"value": "does-not-exist.yml", "digest": "a".repeat(64)},
         },
@@ -8469,6 +8480,32 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
                 Field("--effort"),
                 raw(&["--effort", "high"]),
             ),
+            // Adjacency in the argv the SEAT wrote, not in what survives
+            // an earlier extraction pass. Each of these puts a later
+            // authorized control in an earlier control's value slot, so
+            // removing that later control's pair would leave a shape that
+            // reads as valid and would swallow the trailing positional
+            // text as a level or an overlay path.
+            (
+                "effort claiming a later model control",
+                Field("--effort"),
+                raw(&["--effort", "--model", MARK, "high"]),
+            ),
+            (
+                "patch claiming a later model control",
+                Field("--patch"),
+                raw(&["--patch", "--model", MARK, &patch_value]),
+            ),
+            (
+                "patch claiming a later effort control",
+                Field("--patch"),
+                pinned(&["--patch", "--effort", "high", &patch_value]),
+            ),
+            (
+                "patch claiming a joined effort control",
+                Field("--patch"),
+                pinned(&["--patch", "--effort=high", &patch_value]),
+            ),
         ]
     };
 
@@ -8483,7 +8520,7 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
             let result = dsh_launch_with(
                 &shim_text,
                 &extra,
-                dir.path().to_str().unwrap(),
+                root.to_str().unwrap(),
                 session,
                 &input,
                 || {
@@ -8524,10 +8561,7 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
         }
         // Every refusal on this path precedes retained-root allocation, so
         // the seat's own store was never created either.
-        assert!(
-            !dir.path().join("sessions").exists(),
-            "{path}: no retained root"
-        );
+        assert!(!root.join("sessions").exists(), "{path}: no retained root");
     }
 
     match prior_home {
@@ -8548,12 +8582,15 @@ fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
     let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let prior_home = std::env::var_os("DSH_HOME");
-    std::env::set_var("DSH_HOME", dir.path());
-    let marker = dir.path().join("m-effort");
-    let shim = dsh_recording_version_shim(dir.path(), "dsh-effort", "0.1.5-rc.1", &marker);
+    // Derived from one canonicalized root, for the reason the ledger
+    // above states: `/var` and `/private/var` are not the same path.
+    let root = dir.path().canonicalize().unwrap();
+    std::env::set_var("DSH_HOME", &root);
+    let marker = root.join("m-effort");
+    let shim = dsh_recording_version_shim(&root, "dsh-effort", "0.1.5-rc.1", &marker);
     let shim_text = shim.to_string_lossy().into_owned();
-    let disabled = json!({"workdir": dir.path()});
-    let workdir = dir.path().to_str().unwrap();
+    let disabled = json!({"workdir": root});
+    let workdir = root.to_str().unwrap();
 
     let plan = |case: &str, extra: &[String]| {
         let calls = std::cell::Cell::new(0u32);
@@ -8592,6 +8629,63 @@ fn both_dsh_effort_spellings_are_admitted_and_stage_one_overlay() {
     );
     assert!(separate.contains("reasoningEffort: 'xhigh'"), "{separate}");
     assert!(!marker.exists(), "a disabled gate probes no version");
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// A transcript root the overlay cannot write as one YAML scalar refuses
+/// the seat by FIELD, never by path. That root is composed beneath the
+/// admitted DSH home, so its every byte is the operator's own — the
+/// home's name, the harness layout, the seat directory. Interpolating it
+/// into the diagnostic publishes all of it into the seat's error on the
+/// cold, offered and disabled paths alike, so the refusal names the
+/// field it owns and nothing else (safety / AS3, evidence / LE2;
+/// tasks 8.8(d)/8.10).
+#[cfg(unix)]
+#[test]
+fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
+    // A private marker in the home, beside the newline the overlay row
+    // cannot write: no diagnostic may carry either back to the seat.
+    const MARK: &str = "zzz-4a0e13-home";
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join(format!("{MARK}\nline"));
+    std::fs::create_dir_all(&home).unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &home);
+    let marker = root.join("m-transcript");
+    let shim = dsh_recording_version_shim(&root, "dsh-root", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let digest = "b".repeat(64);
+    let enabled = dsh_enabled_input("0.1.5-rc.1", &digest, &root);
+    let disabled = json!({"workdir": root});
+    let workdir = root.to_str().unwrap();
+
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("cold", enabled, None),
+    ] {
+        let error = dsh_launch_with(&shim_text, &[], workdir, session, &input, || {
+            Ok(synthetic_dsh_composite(&digest))
+        })
+        .err()
+        .unwrap_or_else(|| panic!("{path}: a root that spans a line must refuse the seat"));
+        assert!(
+            error.contains("transcript root") && error.contains("spans more than one line"),
+            "{path}: the fixed field: {error}"
+        );
+        assert!(!error.contains(MARK), "{path}: the home echoed in {error}");
+        assert!(
+            !error.contains(root.to_str().unwrap()),
+            "{path}: the root path echoed in {error}"
+        );
+    }
 
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),

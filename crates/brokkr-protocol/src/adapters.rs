@@ -3489,6 +3489,10 @@ fn dsh_launch_with(
     input: &Value,
     composite: impl FnOnce() -> Result<DshComposite, String>,
 ) -> Result<DshLaunch, String> {
+    // Original adjacency first: the three extractions below are
+    // sequential, so a control standing in another control's value slot
+    // would vanish before that slot is read (see `dsh_input_boundaries`).
+    dsh_input_boundaries(extra)?;
     let (model, passthrough) = split_dsh_model(extra)?;
     let (effort, passthrough) = split_effort(&passthrough);
     let (route_arg, passthrough) = split_dsh_patch(&passthrough)?;
@@ -4339,6 +4343,50 @@ fn split_dsh_model(extra: &[String]) -> Result<(Option<String>, Vec<String>), St
     Ok((model, passthrough))
 }
 
+/// Each authorized DSH control's value slot, read in the argv the SEAT
+/// actually wrote. The three extractions below run in sequence, and each
+/// removes its own flag with its value before the next one looks; so a
+/// control that stood in a LATER control's value slot disappears by the
+/// time that later control is split, and what was positional text behind
+/// it slides into the emptied slot. `--effort --model <id> high` would
+/// then read as a valid level, and `--patch --model <id> <path>` or
+/// `--patch --effort[=]<level> <path>` as a valid overlay path — three
+/// arguments admitted from an argv that never offered any of them.
+///
+/// So DSH-local admission checks the original adjacency first: a value
+/// slot occupied by a flag-shaped token is refused by the field that
+/// owns the slot, before any extraction, route read, version probe,
+/// composite call or staging. The shared effort splitter is untouched
+/// and keeps its behaviour for every other adapter; this pass only
+/// refuses argv the DSH arm must never admit. The fixed field never
+/// echoes the occupying token, its joined value, a model or a path
+/// (AS3; tasks 8.8(d)/8.10).
+///
+/// A slot with nothing in it at all is not this pass's business: a bare
+/// `--model` or `--patch` is refused by arity in its own splitter, and a
+/// bare `--effort` stays in the argv as the residual the shared splitter
+/// declines to drop in silence.
+fn dsh_input_boundaries(extra: &[String]) -> Result<(), String> {
+    let mut parts = extra.iter();
+    while let Some(part) = parts.next() {
+        let refusal = match part.as_str() {
+            "--model" => "dsh driver: --model needs a model id after it",
+            "--patch" => "dsh driver: --patch needs an overlay path after it",
+            "--effort" => "dsh driver: --effort needs a level after it",
+            // Every other spelling — a joined control, a residual, a
+            // value — claims no separate slot, so the walk moves on by
+            // one and the splitters and the residual rule judge it.
+            _ => continue,
+        };
+        // The one part after the flag is its value. It is consumed here
+        // either way: a control's value is never re-read as a control.
+        if parts.next().is_some_and(|value| value.starts_with('-')) {
+            return Err(refusal.to_string());
+        }
+    }
+    Ok(())
+}
+
 /// Split the seat's single `--patch` value out of the passthrough. One
 /// exact `--patch` with a non-empty, non-flag value is the only admitted
 /// shape; a second `--patch`, a bare `--patch` and any other `--patch…`
@@ -4444,9 +4492,15 @@ fn dsh_transcript_root_in(
 fn dsh_transcript_row(root: &std::path::Path) -> Result<String, String> {
     let root = root.to_string_lossy();
     if root.contains('\n') || root.contains('\r') {
-        return Err(format!(
-            "dsh driver: transcript root {root:?} spans more than one line"
-        ));
+        // The field, never the path: this root is composed beneath the
+        // admitted DSH home, so echoing it hands the seat the operator's
+        // home name and harness layout in a Result.error it can read
+        // (AS3; tasks 8.8(d)/8.10).
+        return Err(
+            "dsh driver: the seat's transcript root spans more than one line, so it cannot be \
+             written as one overlay scalar"
+                .to_string(),
+        );
     }
     Ok(format!(
         "# Written by `brokkr driver dsh` for one seat: this seat's session\n\
