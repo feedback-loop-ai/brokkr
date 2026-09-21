@@ -614,6 +614,127 @@ followed by padding before its colon (`'k' : v`) is refused by the existing
 closed grammar as "not a mapping entry", stricter than YAML. Any pnpm MEDIUM a
 council still finds is the operator's debt ruling.
 
+### Returned implement — the chief's three mediums on the R1–R4 repair, 2026-09-21
+
+This implement seat (run `dsh-composite-identity-issue-226-e291e076`,
+`returned_from` review, chief on `46142902`) adopted `slice-dsh-composite-b`
+at `46142902`, clean at entry, every commit kept. It answers the chief's three
+MEDIUM findings, all inside R1–R4, and nothing else. Environment as the
+delivery above: Linux x86_64 glibc, uutils `/usr/bin/env`,
+`cargo 1.98.0 (797e8a9bc 2026-08-05)`, `nightly-2026-09-05` with
+`cargo-llvm-cov` for coverage. Logs are under `.forge/impl-r1r4-return/`.
+
+One signed commit, not pushed: **`69fc8670`** — the code candidate every
+number below binds to. The commit carrying this account changes no Rust.
+
+**Delivered, by finding.**
+
+- **Item 1, R3 incomplete (security).** The lookahead bound guarded
+  `pnpm_ignored_line` alone. The `packages:` heading trimmed its pre-colon
+  padding before reading the scalar, so `debug@2.6.9` and 1,014 spaces — a
+  1,025-character span — kept the control composite with both probes run. The
+  bound is now one function, `implicit_key_lookahead`, asked of the RAW span
+  at both routes that admit a key of the document's choosing: the ignored
+  bodies (unchanged behaviour) and the heading, before its trim and decode.
+  The heading's refusal is `a package key that is an implicit key past YAML's
+  implicit-key lookahead limit of 1,024 characters`. The two remaining key
+  sites — top-level keys and package children — compare the whole spelled key
+  against closed lists of short names, so an over-limit or padded spelling of
+  one is already a named refusal; they are stated in the function's comment,
+  not changed. No line, value or file bound moved.
+- **Item 2, Windows test build.** The dangling-lock subcase of
+  `the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained` is
+  `#[cfg(unix)]`, and asserts its cause (`<lock>: <ENOENT>` as
+  `DshUnprepared::Refused`) where it held a bare variant match. The admission
+  and retention assertions around it run on every host.
+  `cargo check -p brokkr-protocol --tests --all-features --locked --offline
+  --target x86_64-pc-windows-msvc` — the chief's E0433 reproduction — now
+  finishes; the same check of `brokkr-cli` cannot run here (`ring` and
+  `libsqlite3-sys` build scripts need a Windows C toolchain) and its
+  built-doctor test file is unix-only as before.
+- **Item 3, env without `--version`.** Neither direct-env control requires
+  `/usr/bin/env --version` to succeed. The producer test compares the selected
+  invocation's status, stdout and stderr with native's under the same PATH.
+  The built-doctor test reads native's answer first: where env prints a
+  version the line is `ok dsh: <version>` with an unreadable composite, as
+  before; where it does not, the line is `warn dsh: binary '/usr/bin/env' not
+  found — ` with no selection cause, and the alias loop's
+  env-version-absence assertion applies only where a version exists. The
+  failed-probe arm is NOT executed on this host, whose env answers; whether
+  Apple's env is even established as direct env by the resolver is native
+  macOS evidence this seat does not have. Both stay pending with the inherited
+  macOS proof.
+
+**Tests (executed, nonzero).** Producer:
+`missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+gains an 11-row heading matrix — plain, single- and double-quoted
+`debug@2.6.9` padded to 1,024 (control composite) and 1,025 (refused), a
+4,096 span, an unpadded long-version key at 1,024/1,025 plain and quoted — and
+a control with 64 spaces AFTER the colon, which are not the key's span.
+`the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained` gains
+the chief's reproduction as a third located refusal: `DshUnprepared::Refused`
+by cause, zero Node probes, a selection holding nothing to probe. Built
+doctor: `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`
+gains the plain and quoted 1,025 headings as refusal rows (markers `[]`
+asserted before the prose, named reason, no control digest) and the 1,024
+headings as controls (control digest, both probes).
+
+**Removals** — each a compiling mutation on the candidate, a focused nonzero
+run, restored before the next; `git diff --stat` after restoration showed the
+pre-mutation change set and the focused tests reran green.
+
+| # | Mutation | Failing test and assertion |
+|---|---|---|
+| N1 (R3 heading) | heading `implicit_key_lookahead` call removed | producer matrix: `expected a refusal` (tests.rs:116) at the first 1,025 row; admission test: `unwrap_err()` on an `Ok` `DshPrepared` holding `debug 2.6.9 sha512-DEBUG`; built doctor: markers `["dsh", "node"]` ≠ `[]` with the line `ok dsh: v22.23.2 … composite f742ba0e…` — the chief's reproduction, exactly |
+| N2 (R3 body) | ignored-body call disabled, re-proving M2 after the refactor | the same two producer tests fail at the `peerDependencies` rows |
+
+**Gates on committed `69fc8670`.**
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| Seven crate suites, sequential, `--all-features --locked` | core 86, store 64, protocol 480 (2 ignored), runtime 534, view 243 (3 ignored), bridge 13, cli 780: **2,200 passed, 0 failed** |
+| #255 | the first protocol attempt failed one test, `a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation` (`adapters/tests.rs:5026`, the `unwrap` of a launch that spawns a just-written shim; no code of this repair). Its cause line was not retained. It passed alone and the full crate rerun is green 380 + 99 + 1 (`protocol-rerun.log`); the instrumented protocol run was green first time |
+| `compile --bundle bundles/self`, `bundles/verify` | both exit 0 |
+| `openspec validate --all --strict` | **not executed**: refused to this seat by permission, as before. Pending; this visit changes no spec delta, and this account is prose |
+| Frozen/excluded paths, manifests, pin | `contracts/`, `policy/`, `fixtures/`, `reference/`, `extensions/dsh/`, `docs/decisions/`, `Cargo.toml`, `Cargo.lock`, `rust-nightly-version.txt`, `scripts/` show no diff from `81d7fe87` |
+
+**Coverage on committed `69fc8670`: source lines 32512/32512 (100%), branches
+5464/5464 (100%), functions 3161/3161 (100%)** — nonzero exact equality,
+harness-leak audit `true`, no `coverage(off)`. Against `b2f723e1`
+(32507 / 5466 / 3159): +5 lines and +2 functions are `implicit_key_lookahead`
+and the heading's `map_err` closure; −2 branches is the inline
+`if …is_some()` becoming a `match` inside the shared function. This is again a
+hand-executed equivalent and NOT the literal gate:
+`bash scripts/coverage-exact.sh` is refused to the seat, so
+`target/llvm-cov-target` was deleted and `llvm-cov clean --workspace` run in
+place of a unique target directory, the seven crates were instrumented
+sequentially with `--no-report --all-features --locked --branch`, the JSON and
+LCOV reports were written to `target/coverage/`, and the script's awk count
+was re-expressed in `jq` with the same first-comma and file-plus-start-line
+rules. This box cannot create a namespace, so it cannot execute the boundary
+proof; the unchanged script on a capable host, and its three numbers on these
+bytes, remain the controller's.
+
+**States.** No checkbox moves. 8.8.3.1 stays ticked: the chief showed its R3
+clause was incomplete while ticked, and the heading route is what it lacked.
+**8.8 stays unchecked.** Pending, unchanged in kind: native macOS proof
+(now including the failed-probe arm above), strict OpenSpec validation, the
+capable-host literal coverage gate, independent verify/review and final-head
+remote CI. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 are
+untouched; 0056 stays proposed. Two adjacent facts are recorded and not
+repaired, being outside R1–R4. First, flow-map keys — `engines: {…}` and the
+`resolution` map — carry no lookahead bound here: YAML 1.2.2 bounds implicit
+keys of block mappings and of single-pair flow-sequence entries (productions
+154–155), not flow-mapping entries (§7.4.2), and this reader already refuses a
+pair inside a flow sequence. A YAML 1.1-era scanner that applies its
+simple-key limit in flow context as well may refuse a 1,025-character flow key
+this reader admits; that was reasoned from the grammar and NOT executed,
+because the seat is refused a Python interpreter. Second, the quoted-key
+padding strictness recorded above stands. Any pnpm MEDIUM a council still
+finds is the operator's debt ruling.
+
 ### Returned implement — review R1–R4 of the delivered port, 2026-09-21
 
 This implement seat (run `dsh-composite-identity-issue-226-124cca78`, the
