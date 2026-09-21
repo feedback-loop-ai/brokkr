@@ -203,7 +203,7 @@ do not narrow full acceptance to earn a tick. AS1 names the requirement above.
 
 ## 8.8.3. Admit pnpm syntax before both probes — current R1 and R3
 
-- [ ] 8.8.3.1 After groups 1–2, implement these clauses in order in
+- [x] 8.8.3.1 After groups 1–2, implement these clauses in order in
   existing protocol/doctor code and tests. Each clause serves safety / AS1:
   Resume support is measured per adapter and execution shape.
 
@@ -478,6 +478,141 @@ capable-host coverage and independent verify/review remain unproved. There is
 no upstream behavioral/design gap preventing this breakdown. This checkpoint
 records `drafted`, never implementation completion or permission to expand the
 operator's four-finding scope. The change remains active and 0056 proposed.
+
+### Implement — the final R1–R4 repair delivered, 2026-09-21
+
+This implement seat (run `dsh-composite-identity-issue-226-e291e076`, no
+`returned_from`) adopted `slice-dsh-composite-b` at
+`88385af3`, clean at entry, every commit kept. It delivers exactly chief
+`124cca78`'s R1–R4, proves each changed rule by removal, runs the gates and
+records what remains. Environment: Linux x86_64 glibc host whose `/usr/bin/env`
+is uutils; `cargo 1.98.0 (797e8a9bc 2026-08-05)` for fmt/clippy/tests/bundles
+and `nightly-2026-09-05` with `cargo-llvm-cov 0.9.0` for coverage. Evidence
+logs are under `.forge/impl-r1r4/`.
+
+Commits, all signed, none pushed: **`336598b9`** (the repair, its tests and the
+guide), **`aa1dbbb5`** (three coverage gaps the repair's own new code opened),
+**`b2f723e1`** (built-doctor test rows only). `b2f723e1` is the code candidate
+every number below binds to; the commit carrying this account changes no Rust.
+
+**Delivered, by finding.**
+
+- **R1.** `split_flow_entry` consumes the whole run of separator spaces before
+  `flow_scalar` judges a value's opening, and an indicator opening is named
+  (`…whose value opens with the YAML indicator '*'`). Tabs keep the document's
+  own refusal; quoted values keep their bytes; an unclosed quoted member stays
+  its own fault.
+- **R3.** `pnpm_ignored_line` bounds the raw implicit-key span — quotes and
+  pre-colon padding included — at 1,024 characters (`IMPLICIT_KEY_LOOKAHEAD`)
+  before trimming or decoding. No line, value or file bound moved.
+- **Shared preparation (R1/R3 wiring).** `DshPrepared` is constructed only by
+  admission of the located profile and pnpm lock, holds the invocation
+  privately and retains the profile declarations, anchor, boundary and admitted
+  dependencies; `dsh_composite_prepared` composes from them without reopening
+  either file. `DshUnprepared::Refused` (a located lock that fails admission)
+  carries no invocation, so doctor reports `binary '…' selected and not probed`
+  beside the refusal and declaration context, with no version and no recorded
+  availability. `Unlocated` (home, profile or lock not found) keeps the
+  version-only line. The standalone `dsh_composite` admits before its Node
+  probe; `DshSeams::resolve` admits nothing, so the planner path reads once.
+- **R2.** `DshInvocation` (candidate path, native `argv[0]`) rides beside the
+  canonical identity through `Selected`, `DshNode` and the selection; doctor's
+  `invocation_version` and the Node probe launch it. `env_dispatch` is factored
+  out of `env_program` and asked of the selected executable in `classify_in`:
+  searched and absolute `dsh -> /usr/bin/env` refuse at selection. Direct
+  `/usr/bin/env` stays the availability control.
+- **R4.** An established env with an empty or blank argument tail is a refusal
+  naming launcher, interpreter and missing program; the admitted bare-env row
+  in `the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`
+  is flipped beside four blank variants, with `env sh` the admitted control.
+
+**Tests (executed, nonzero).** Protocol, new:
+`the_selected_invocation_is_not_replaced_by_its_canonical_target`,
+`the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained`;
+extended: `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+(R1 3 openings × 4 paddings, R3 13-row span matrix, long-value controls), the
+classifier table (R4) and the seams test (invocation carriage, no-home arm).
+Doctor unit, new: `a_refused_pnpm_lock_stops_the_line_before_either_probe`
+(probe/producer call counts), `a_selected_and_unprobed_dsh_is_not_reported_missing`,
+`the_dsh_probe_runs_the_selected_invocation_and_not_its_canonical_target`;
+`the_guide_documents_the_wording_the_classifier_emits` pins the two new guide
+samples. Built doctor, new:
+`a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected`,
+`an_env_launcher_without_a_program_is_refused_before_any_probe`; extended:
+`ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`, whose
+`node` shim now marks DSH and Node probes separately — every refusal row
+asserts NO marker before the prose, every control asserts both.
+
+**Native evidence, recorded and never counted** (`native-evidence.log`): both
+R2 alias forms exit 1 with empty stdout (uutils name mismatch); bare and blank
+R4 launchers did not exit within the 2-second process-group deadline and were
+killed and reaped; `env sh` terminated with its version. Doctor returned the
+named refusal for all four reproductions with zero markers; a silent env
+leaves no marker, so R2/R4's no-probe half rests on the selection holding no
+invocation (`DshUnselected`) and the panicking-probe callback test.
+
+**Removals** — each one compiling mutation on the candidate, a nonzero focused
+run failing at the intended assertion, restored before the next; the restored
+files compared byte-identical to the pre-mutation snapshot (`cmp`). Run before
+rustfmt and before `aa1dbbb5`, which touches none of the mutated lines.
+
+| # | Mutation | Failing test and assertion |
+|---|---|---|
+| M1 (R1) | one-space consumption restored | producer: `{node:  *missing}` "was accepted"; built doctor: markers `["dsh","node"]` ≠ `[]`, line showing control composite `f742ba0e…` |
+| M2 (R3) | raw-span guard disabled | producer: "expected a refusal" at the 1,025 row; built doctor: markers ≠ `[]` for the lookahead reason |
+| M3 (R3) | guard moved after trimming | same two tests, failing at the padded-over-limit row (the plain 1,025 row still refuses) |
+| M4 (R4) | blank tail `Ok(None)` restored | classifier: "expected a refusal" for the bare-env row; nothing spawned |
+| M5 (R2) | selected-env qualification removed | protocol: "expected a refusal"; built doctor: line lacks the pre-probe cause |
+| M6 (R2) | canonical path substituted as invocation | protocol: `DshInvocation` inequality; built doctor: version line prints `lib/launcher.sh` |
+| M7 (wiring) | refused lock handed an invocation | doctor unit: call counts `(1, 0)` ≠ `(0, 0)`; built doctor: markers `["dsh"]` ≠ `[]` |
+| M8 (wiring) | Node probe moved ahead of admission | protocol: Node probe count `1` ≠ `0` |
+| M9 (wiring) | composition reopens its inputs | protocol: retain-and-reuse composite inequality |
+
+**Gates on the candidate.**
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| Seven crate suites, sequential, `--all-features --locked` | core 86, store 64, protocol 480 (2 ignored), runtime 534, view 243 (3 ignored), bridge 13, cli 780: **2,200 passed, 0 failed** on `336598b9`; protocol and the cli unit binary rerun green after `aa1dbbb5`, the built-doctor binary after `b2f723e1`, and all seven again under instrumentation on `b2f723e1` |
+| #255 | one instrumented protocol attempt on `b2f723e1` failed 12: root `dsh_unsafe_stored_candidates_decline_instead_of_being_skipped` (a just-written version shim, injected composite, no code of this repair) plus 11 `PoisonError` siblings; attempt retained (`cov3-brokkr-protocol.log`), crate rerun green 380 + 99 (`cov3b-…`) |
+| `compile --bundle bundles/self`, `bundles/verify` | both exit 0 |
+| `openspec validate --all --strict` | **not executed**: the command is refused to this seat by permission. Pending; this account changes prose and one checkbox only |
+| Frozen/excluded paths, manifests, pin | `contracts/`, `policy/`, `fixtures/`, `reference/`, `extensions/dsh/`, `docs/decisions/`, `Cargo.toml`, `Cargo.lock`, `rust-nightly-version.txt`, `scripts/` byte-identical to `81d7fe87`; CI, release admission and the script read the one pin |
+
+**Coverage on committed `b2f723e1`: source lines 32507/32507, branches
+5466/5466, functions 3159/3159** — nonzero exact equality, harness-leak audit
+`true`, no `coverage(off)`. Against chief `124cca78`'s fresh baseline
+(32148/32324, 5434/5448, 3125/3135) the denominators grew by 183 lines, 18
+branches and 24 functions, all of it this repair's production code in
+`composite.rs` and `doctor.rs`; the first instrumented pass on `336598b9`
+read 32507/32508, 5466/5468, 3158/3158, and `aa1dbbb5` answers those three
+misses (one unreachable match guard removed, two arms driven). No namespace
+boundary test skipped in these runs. This is a hand-executed equivalent and
+NOT the literal gate; the deviations: the seat cannot run the script (command
+substitution, `mktemp`, `awk` and env-prefixed commands are refused), so the
+default `target/llvm-cov-target` was deleted and `llvm-cov clean --workspace`
+run in place of a unique `CARGO_LLVM_COV_TARGET_DIR`; the seven crates were
+instrumented sequentially with `--no-report --all-features --locked --branch`;
+and the script's awk count was re-expressed in `jq` with the same first-comma
+and file-plus-start-line rules. The unchanged
+`TMPDIR=/tmp bash scripts/coverage-exact.sh` on a capable host, and its three
+numbers, remain the controller's.
+
+**States.** 8.8.3.1 is ticked: its whole acceptance is met and it carries no
+inherited predicate. Local rows are now **6 complete / 8 pending**; change-wide
+addresses **85 / 16**; numbered rows **90 / 25**; checkbox rows **106 / 27** —
+superseding the tasks-phase counts above. 8.8.1.1–8.8.2.2 have their current
+repair clauses delivered and stay open for their inherited Apple/env source
+pins and native macOS/Windows proof; 8.8.8.1 for the absent-PATH retained-Node
+positive and its removals; 8.8.8.2 for strict OpenSpec validation; 8.8.8.3 for
+the capable-host literal gate; 8.8.8.4 for independent verify/review and
+final-head remote CI. **8.8 stays unchecked.** Part (d), 8.10, 9.6, 10.6–10.8,
+11.1–11.4 and groups 14–15 are untouched; 0056 stays proposed. One adjacent
+fact is recorded and not repaired, being outside R1–R4: a QUOTED implicit key
+followed by padding before its colon (`'k' : v`) is refused by the existing
+closed grammar as "not a mapping entry", stricter than YAML. Any pnpm MEDIUM a
+council still finds is the operator's debt ruling.
 
 ### Returned implement — review R1–R4 of the delivered port, 2026-09-21
 
