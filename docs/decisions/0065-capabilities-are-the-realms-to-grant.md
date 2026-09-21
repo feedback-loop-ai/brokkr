@@ -1,6 +1,6 @@
 # 0065 — Capabilities are the realm's to grant: a seat's tools are an abstraction, a dialect makes one concrete, and nothing is on until the operator lists it
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
 ## Context
