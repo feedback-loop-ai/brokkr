@@ -18,6 +18,9 @@ and restored green reruns. Do not rebuild those mechanisms or replay their
 unchanged mutations. Change implementation only for a genuine gate failure
 on the committed bytes or a concrete returned council finding; repair exactly
 that finding and prove the changed rule by removal before returning.
+Returned once, 2026-09-21: the council's R1/R2 (MEDIUM, security) and R3
+(LOW) are answered in `## Decisions` and in the dated account "Returned
+implement — review R1–R4 of the delivered port" below.
 
 The existing eight local groups now order evidence adoption, fresh validation,
 then independent verify/full review and the commissioned slice handoff. Their
@@ -97,6 +100,21 @@ and retained head/Node carriers through `25b40967`; retain completed proofs
 and name the remaining source-pin/native/Node evidence separately.
 The current dispositions supersede incompatible oversized-to-B, cwd-admission,
 sole-loader-exception and hand-transcribed-coverage claims in dated accounts.
+
+Returned implement, 2026-09-21 (review of run `124cca78`, R1/R2 MEDIUM
+security, R3 LOW): the platform's `env` file is established under the name
+`env` and under no other name. The fourth hold's same-file `uu_env` positive
+is withdrawn as a requirement: the file does not say which utility is
+installed as `env`, uutils runs `env` under that layout and busybox copied to
+`env` runs nothing under it, so a file-derived admission guesses and
+fail-closed loading (decision 0004) rules over one host's native success;
+trial execution of the utility stays forbidden. Every mapping scope the pnpm
+grammar admits without reading — flow maps, ignored block bodies at every
+depth, package children — refuses a repeated DECODED key by its scope, the
+key set being the block's own. Both rules are proved by compiling removals
+(E5, D1–D3) in the producer and through the built doctor. The `(6)` in the
+2026-09-21 gate table was a miscount of `doctor_dsh_selection`, corrected to
+14 against its own log.
 
 A removal is an independent compiling mutation of its enforcing rule, followed
 by a named regression reaching the intended identity/cause/no-execution
@@ -271,10 +289,12 @@ inferred from glibc**, and paired doctor selection. Group 2 completes the invent
   Compare device/inode against the fixed platform env reference; for a copy,
   compare checked equal lengths and streaming bytes in fixed buffers, checking
   opened-file metadata on both sides and inconsistent/failed reads. Retain that result in
-  this observation. Establish the utility's supported argv0/invocation form
-  from target source and kernel argument handling; file equality alone cannot
-  establish multicall dispatch. Unknown identity, an impostor named env or an
-  unsupported invocation produces a specific pre-probe D10 refusal, never
+  this observation. The utility's argv0 behaviour is a property of WHICH
+  implementation is installed as `env`, which the file does not carry: file
+  equality establishes identity, never another-name dispatch, and the file is
+  established under the name `env` alone (review of run `124cca78`, R1).
+  Unknown identity, an impostor named env or an
+  other-name invocation produces a specific pre-probe D10 refusal, never
   `Ok(None)` admission. Preserve bounded ELF/Mach-O/PE evidence, actual Windows
   GetBinaryTypeW, shebang limits/depth/cycle checks, ordinary shell/native
   positives and `Selected { path, node, head }`/`DshSeams` retention; composition
@@ -284,12 +304,15 @@ inferred from glibc**, and paired doctor selection. Group 2 completes the invent
   spellings and a copied reference with same-device/inode hard links
   `tools/env` and `tools/uu_env`. Every spelling gets a native child, distinct
   oracle/doctor markers, obstructed A/node, runnable B/node, removed-A oracle
-  and valid-chain control. Where native runs B, doctor names A's missing
-  prerequisite and probes neither; a utility's alias refusal is recorded but
-  cannot discharge the successful-alias positive. Establish a native-success
-  same-file `uu_env` invocation, require its specific A obstruction and admit
-  its removed-A control; blanket alias refusal fails. Independently restore
-  that blanket refusal as well as name recognition. In those same named
+  and valid-chain control. Where native runs B under an `env`-named spelling,
+  doctor names A's missing prerequisite and probes neither. Refuse every
+  same-file invocation under another name (`uu_env`, `myenv`, `env-alias`,
+  `link_env`) as a dispatch not established without executing the utility;
+  record each native outcome beside the refusal — B on a uutils host,
+  `applet not found` under an installed-as-`env` multicall stand-in and
+  under busybox copied to `env` where the host has it — and count none of
+  it as a positive. Independently restore same-file admission under another
+  name (E5) as well as name recognition. In those same named
   protocol/doctor regressions, separately exercise an impostor named env and
   an unsupported invocation: record each actual native outcome and assert its
   specific identity/invocation refusal with zero production markers. Preserve
@@ -433,6 +456,14 @@ existing bounded-reader/measured-input scenarios.
 
 Coverage: AS1 **Duplicate decoded pnpm package keys refuse before triple
 normalization**. Dependency: 8.8.3's retained scalar/heading decoding.
+
+Extended on return, 2026-09-21 (review of run `124cca78`, R2): the same
+singleton rule holds in every mapping scope the grammar admits without
+reading — a flow map, an ignored block body at every depth, a package child
+spelled twice — by DECODED key and per block, so one key in two sibling
+blocks stays two keys. Each scope's guard is proved by its own removal
+(D1–D3) in the dated account below; `resolution` keeps its own repeat
+refusal.
 
 ## 8.8.5. Preserve the sole-producer expectations — retained first-hold finding 5
 
@@ -618,6 +649,147 @@ prerequisites to the final delivery account. Remote final-PR-head results stay
 an honest handoff record until observed, without inventing local execution.
 
 
+### Returned implement — review R1–R4 of the delivered port, 2026-09-21
+
+This implement seat (run `dsh-composite-identity-issue-226-124cca78`, the
+`REVIEW-REFORGE` return from the full council's chief, `gpt-6-astra` at
+`xhigh`, reviewing `d120dd91`) adopted `slice-dsh-composite-b` at
+`d120dd9190005614112f5e097f449d35a5b1070a`, clean at entry, every commit
+kept. It fixes exactly the council's findings, proves each changed rule by
+removal, reruns the gates and records what remains. Environment: Linux
+x86_64 glibc host, unboxed; `cargo 1.98.0 (797e8a9bc 2026-08-05)` for
+every gate, `nightly-2026-09-05` for the coverage steps; `/usr/bin/env`
+resolves to `/usr/lib/cargo/bin/coreutils/env` (uutils installed as `env`)
+and `/usr/bin/busybox` is present. Notes describe; they direct no gate.
+
+**R1 (MEDIUM, security) — the other-name `env` invocation is refused, not
+established.** The chief copied busybox to a file named `env`, hard-linked
+it as `uu_env`, and the delivered `is_env`/`env_dispatch`/`env_invocation`
+answered `Ok(true)`/`Named`/`Ok(())` while the layout natively exited 127,
+`uu_env: applet not found`. The prefixed-name rule inferred WHICH utility is
+installed as `env` from the reference's file name; the file does not carry
+that fact, and uutils (runs `env` under `uu_env`), busybox and GNU's
+single-binary `coreutils` (no applet under it) and a dedicated GNU/Apple
+`env` (any name) are indistinguishable by device, inode, length, bytes or
+name. `EnvDispatch`, `env_dispatch` and `env_invocation` are removed;
+`env_program`'s same-file/other-name arm is one refusal — `is the
+platform's env utility invoked under the name '<spelled>', a dispatch this
+resolver does not establish without executing it` — and never `Ok(None)`.
+The fourth hold's R8 positive (same-file `uu_env` reaching B on a uutils
+host) is withdrawn as a requirement and kept as a recorded native fact:
+fail-closed loading (decision 0004) rules over one host's success, and
+trial execution stays forbidden. Native evidence, this host
+(`an_env_argument_is_selected_as_the_kernel_hands_it_to_env`, protocol and
+doctor, every spelling with its own native child and marker directory):
+
+| Spelling | Native child (obstructed A/node; valid chain) | Resolver / doctor |
+|---|---|---|
+| `tools/uu_env`, hard link of the copy of `/usr/bin/env` (uutils) | ran B's node both times (`MARK:b-node`; doctor markers `["DSH_B_NODE_0.0.3"]`) | refused as unestablished; zero doctor markers, both times — recorded, not counted |
+| `tools/env-alias`, `tools/link_env` symlinks; `tools/myenv` hard link | the utility's own refusals as before (security violation; argument dispatch) | refused as unestablished; zero markers |
+| `tools/bb/env`, a stand-in INSTALLED AS `env` dispatching on `$0`'s basename (`env` → the platform's env, anything else → `applet … not found`, exit 127), injected as the reference | `bb/env`: A's obstruction natively, then `MARK:b-node`; `bb/uu_env` (hard link): exit 32512, stdout empty, `multicall: applet uu_env not found`, both times | `bb/env`: A's obstruction, then B's node selected and retained; `bb/uu_env`: refused as unestablished, both times |
+| `tools/busybox/env`, the real busybox copied to `env`; `tools/busybox/uu_env`, its hard link (the chief's layout, run where `/usr/bin/busybox` exists; recorded `PENDING` otherwise) | `env /bin/echo ENV_SELECTED` → `ENV_SELECTED`, exit 0; `uu_env /bin/echo ENV_SELECTED` → exit 32512, stdout empty, `uu_env: applet not found`; through a launcher, `env` reached `MARK:b-node` and `uu_env` ran nothing | `env`: B's node selected and retained; `uu_env`: refused as unestablished |
+| `/usr/bin/env`, `linked/env` symlink, `tools/env` copy; `impostor/env` | unchanged | unchanged (A's obstruction then B; refused as not the platform's env) |
+
+**R2 (MEDIUM, security) — a repeated decoded key refuses in every admitted
+mapping scope.** Three guards, each named by its scope: a flow map's keys
+(`pnpm_ignored`: `the flow map '{node: '>=18', node: '>=20'}' with the
+repeated key 'node'`; `'node'` and `node` are one decoded key), an ignored
+block's keys (`Frame.keys`, the block's own set, checked in
+`IgnoredBody::admit`: `the entry 'react' at 6 spaces, which repeats a key
+of its block`, likewise `ms` in a `snapshots` body, a `snapshots` record
+heading at 2 spaces, `autoInstallPeers` in `settings`), and a record's
+children (`seen_children`, reset per heading: `a repeated package child
+'cpu'`, `'peerDependencies'`); `resolution` keeps its own repeat refusal.
+Nine producer vectors in
+`missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason`
+and the chief's four through the built doctor in
+`ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`, each
+asserted never to report the control's digest. Controls kept readable: one
+key in two sibling blocks — `dependencies` under two importers, `cpu` in two
+records, `optional` under two `peerDependenciesMeta` children — at the
+digest of the same records without the ignored bodies (producer) and the
+control's digest (doctor). No YAML dependency, grammar expansion, bound or
+identity change.
+
+**R3 (LOW)** — the 2026-09-21 gate row said `doctor_dsh_selection` (6); its
+own log `.forge/v88b-test-cli.log:606-624` says `running 14 tests` /
+`14 passed`. Corrected in place, with the correction named. **R4** — the
+chief rejected the adversarial's closing instruction as untrusted panel
+prose; nothing in it directed this seat, and this account directs nothing.
+
+**Removal proofs** (each a compiling mutation of the enforcing line; the
+named regression run with `cargo test -p brokkr-protocol --all-features
+--locked --lib -- <name> --exact` and `cargo test -p brokkr-cli
+--all-features --locked --test doctor_dsh_selection -- <name> --exact`; the
+failed assertion quoted; exact restoration; both green again, 1 passed
+each, before the next):
+
+| Removal | Named regression → failed assertion |
+|---|---|
+| E5 same-file admission under another name restored (`env_program`, `(true, false) => {}`) | protocol `an_env_argument…` at `tests.rs:5532`: `tools/uu_env: no spelling bypasses D10` — left A's obstruction (the chain FOLLOWED through `uu_env`), right the unestablished refusal; doctor `an_env_argument…` at `doctor_dsh_selection.rs:1099`: the `uu_env` line carries A's obstruction, not the refusal (markers still zero only because A's node is obstructed). The `bb/uu_env` and busybox cells sit downstream of that first failure in the same test and admit under the same removal. |
+| D1 flow-map key guard disabled (`!keys.insert(key.text()) && false`) | protocol `missing_pnpm…` at `tests.rs:111`: `…engines: {node: '>=18', node: '>=20'}\n" was accepted`; doctor `ignored_pnpm…` at `doctor_dsh_selection.rs:2397`: that lock reported `ok dsh … composite f742ba0e…` — the control's digest |
+| D2 block key guard disabled (`key.is_some_and(…) && false`) | protocol: `…peerDependencies:\n      react: '>=16'\n      react: '>=17'\n" was accepted`; doctor: the same lock reported the control's composite |
+| D3 package-child guard disabled (`!seen_children.insert(name) && false`) | protocol: `…cpu: [x64]\n    cpu: [arm64]\n" was accepted`; doctor: `a repeated package child 'cpu'` lock reported the control's composite |
+
+`grep -rn REMOVAL crates/` is empty and `git diff --check` clean after the
+last restoration. E1–E4 stand as history of the rule they proved; E1 and
+E4 proved a rule this return removes, and E5 is their successor.
+
+**Gates on the restored candidate.**
+
+| Check | Actual outcome |
+|---|---|
+| `cargo fmt --all -- --check` | clean, exit 0 |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean, exit 0 (`.forge/scratch/r124-clippy.log`) |
+| `cargo test -p brokkr-core --all-features --locked` | ok: 86 passed, 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | ok: 64 passed, 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | first attempt **FAILED 316 / 61** — one `adapters::tests::a_class_that_cannot_travel_spawns_cold_with_the_reason_journaled` panic, `could not invoke the agent CLI: Text file busy (os error 26)` (`adapters/tests.rs:2678`), then 60 sibling `adapters::tests` failures as `PoisonError` on the lock that panic poisoned — the #255 shape, reproduced UNBOXED; rerun of the same crate suite: **ok: 377 lib + 99 integration (2 ignored) + 1 doctest = 477 passed, 0 failed**, no `Text file busy` (`.forge/scratch/r124-test-protocol.log`, `…-rerun.log`) |
+| `cargo test -p brokkr-runtime --all-features --locked` | ok: 534 passed, 0 failed |
+| `cargo test -p brokkr-view --all-features --locked` | ok: 243 passed (3 ignored), 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | ok: 13 passed, 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | ok: 463 lib + 312 across 31 binaries (`doctor_dsh_selection` 14) = 775 passed, 0 failed, no hang |
+| `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` / `bundles/verify` | both compile, exit 0 |
+| `openspec validate --all --strict` | **NOT RUN from this seat**: refused (approval required) under the bare spelling, as for every prior seat. The last strict run on this change was the tasks seat's **15 / 0** on `c3f36568`; this return edits `tasks.md`, `design.md` and the AS1 delta's prose and existing scenarios only, adding no requirement, scenario or file. Pending on a seat that can launch it. |
+| `bash scripts/coverage-exact.sh` | **NOT RUN literally**: refused. Its three cargo steps by hand on the pinned nightly, in order, into `.forge/scratch/r124-coverage/` (`llvm-cov clean --workspace`; `llvm-cov --workspace --all-features --locked --branch --json`, **68 binaries `test result: ok`, 0 failed, 0 `Text file busy`**, no `--ignore-run-fail`; `llvm-cov report --branch --lcov`); the script's `jq` harness-leak check on the JSON → `true`, **0 harness files among 53 `SF` records**; its LCOV rule through the retained transcription `.forge/lcovtool` (`cargo run --release --manifest-path …`). |
+
+| Pass | Lines | Branches | Functions | Misses |
+|------|-------|----------|-----------|--------|
+| Fresh, on this return's bytes | **32,300 / 32,300 (100%)** | **5,440 / 5,440 (100%)** | **3,132 / 3,132 (100%)** | none |
+
+The denominator moved from `25b40967`'s 32,322 / 5,440 / 3,139 by −22
+lines and −7 functions: `env_dispatch`, `env_invocation`, `EnvDispatch` and
+its derived `Debug`/`Clone`/`PartialEq` are gone, and the three key guards
+and the one-arm refusal are added; every remaining record is hit. The
+literal script, CI's `coverage-exact` job and final-head remote CI remain
+the gate's own artifacts and are pending until they run.
+
+**Dependent artifacts kept coherent.** AS1's requirement text now states
+the `env`-name-only rule; the scenario *Interpreter aliases cannot bypass
+the Node obstruction refusal* carries the answered ambiguity (the same-file
+other-name spellings are refused, native outcomes recorded, the stand-in
+and busybox counterexamples, E5) and *Duplicate decoded pnpm package keys
+refuse before triple normalization* carries R2's scopes and controls; the
+five deltas still hold **20 requirements / 219 scenarios**. Design D10 §4
+records both answers as dated paragraphs superseding the prefixed-name rule
+(the reconciliation rows above them are history). `## Decisions`, 8.8.2.1
+and 8.8.4 in this file carry the same two rules. No checkbox changed: the
+fourteen local addresses stay **5 complete / 9 pending**, the 101
+change-wide identifiers **84 / 17**, the 133 rows **105 / 28**.
+
+**Still pending, recorded and not claimed.** **8.8 stays unchecked**; part
+**(d)**, **8.10**, **9.6**, 10.6–10.8, 11.1–11.4 and groups 14–15 untouched;
+native **macOS/Windows** execution (matrix, doctor, `GetBinaryTypeW`,
+Windows 1.88 MSRV); the immutable Apple and env source pins (this seat, like
+the last, could fetch none: the source rules above are cited by function);
+the absent-PATH Node positive and its two removals (no `node` on
+`/bin:/usr/bin`); strict OpenSpec on this head; the literal coverage script;
+final-head remote CI; independent verify and the council's second sitting on
+this return. No `wrapper_digest` is declared, the DSH route stays disabled,
+**0056 stays proposed**, and `contracts/`, `policy/phase-machine.json`,
+`policy/schemas/`, `fixtures/`, `reference/`, `extensions/dsh/` and
+`docs/decisions/` have no diff (`git diff --stat` over them is empty). The
+active change is not archived. Nothing was pushed.
+
 ### Implement visit — the delivered port confirmed as found, 2026-09-21
 
 This implement seat (run `dsh-composite-identity-issue-226-124cca78`, no
@@ -649,7 +821,7 @@ security-hold visit's evaluator, rebuilt unchanged).
 | `cargo test -p brokkr-runtime --all-features --locked` | ok: 441 lib + 93 across 22 binaries; 0 failed — the four roster cases recorded on 2026-09-20 pass on this head |
 | `cargo test -p brokkr-view --all-features --locked` | ok: 243 lib (3 ignored); 0 failed |
 | `cargo test -p brokkr-bridge --all-features --locked` | ok: 13; 0 failed |
-| `cargo test -p brokkr-cli --all-features --locked` | ok: 463 lib + 312 across 28 binaries incl. `doctor_dsh_selection` (6); 0 failed; zero `Text file busy` — one attempt, no rerun needed |
+| `cargo test -p brokkr-cli --all-features --locked` | ok: 463 lib + 312 across 28 binaries incl. `doctor_dsh_selection` (14 — this row first said 6, a miscount corrected on the 2026-09-21 return against `.forge/v88b-test-cli.log:606-624`, review R3); 0 failed; zero `Text file busy` — one attempt, no rerun needed |
 | `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` | compiles, exit 0 |
 | `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify` | compiles, exit 0 |
 | `openspec validate --all --strict` | **NOT RUN from this seat**: `openspec`, its full path and `npx` each require an approval this non-interactive seat cannot grant. The tasks seat's run on `c3f36568` passed **15 / 0** the same day; `42bb0210` and this visit change only `tasks.md`. |

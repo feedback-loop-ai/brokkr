@@ -2508,6 +2508,34 @@ found`). Each refused spelling records that outcome beside its named
 refusal. Source references are cited by function; their revisions and lines
 are not pinned (no source access in the seat).
 
+*Answered on return (2026-09-21, review of run `124cca78`, R1 MEDIUM,
+security; supersedes the prefixed-name rule above).* The prefixed-name rule
+inferred WHICH utility is installed as `env` from the reference's file name,
+and the file does not carry that fact: the chief copied busybox to a file
+named `env`, hard-linked it as `uu_env` — the same file, its own name, a
+prefixed spelling, every predicate of the rule met — and the layout exited
+127, `uu_env: applet not found`, while the resolver established it. uutils
+installed as `env` runs `env` under that layout; busybox and GNU's
+single-binary `coreutils` installed as `env` run no applet under it; a
+dedicated GNU or Apple `env` runs `env` under any name. Device, inode,
+length, bytes against the reference and the spelled or canonical name are
+identical across the three, so no other-name invocation is established from
+the file, and establishing it by executing the utility is the trial
+execution D10 forbids. The implemented rule is therefore: the platform's
+`env` file is established under the name `env` and under no other name;
+`env_dispatch`, `EnvDispatch` and `env_invocation` are removed, and
+`env_program`'s same-file/other-name arm is one named refusal (`is the
+platform's env utility invoked under the name '<spelled>', a dispatch this
+resolver does not establish without executing it`), never `Ok(None)`. The
+fourth hold's R8 positive — a same-file `uu_env` that natively runs B's node
+on a uutils host — is recorded as that host's fact beside the refusal and is
+withdrawn as a required positive: a resolver that admits it admits the
+busybox layout that runs nothing, and fail-closed loading (decision 0004)
+rules. Tests carry both oracles: an installed-as-`env` stand-in dispatching
+on `argv[0]` (unconditional) and, where the host has `/usr/bin/busybox`, the
+real thing; removal E5 restores the admission and fails the `tools/uu_env`
+cause assertion in the protocol regression and the doctor line assertion.
+
 For ignored pnpm bodies, extend the existing closed scanner with a private
 indentation/container stack, field/body context and scalar/container kind.
 Reject children of scalars, mapping/sequence sibling switches and dedents that
@@ -2517,6 +2545,26 @@ peerDependenciesMeta/snapshots and measured locks readable. No input-limit
 reduction, general YAML parser or blanket ignored-body refusal is accepted.
 The existing producer and built-doctor tests assert the responsible body/field
 and scalar-parent/mixed-collection cause, never the valid control's composite.
+
+*Answered on return (2026-09-21, review of run `124cca78`, R2 MEDIUM,
+security).* Key uniqueness (YAML 1.2.2 §3.2.1.1) was enforced for top-level
+keys, package headings and `resolution` fields but not for the mappings this
+grammar admits without reading: a flow map (`engines: {node: 1, node: 2}`), a
+block under a package child (`peerDependencies` with `react` twice), a
+`snapshots`/`importers`/`settings` body at any depth, and a package child
+spelled twice (`cpu` twice). Each retained the valid control's composite
+where the installed YAML parser refuses `DUPLICATE_KEY`. The rule is now
+uniform: every admitted mapping scope refuses a repeated DECODED key —
+`'node'` and `node` are one key — with the responsible scope named (`the
+flow map '…' with the repeated key 'node'`; `the entry 'react' at 6 spaces,
+which repeats a key of its block`; `a repeated package child 'cpu'`). The
+key set is the block's own, held in `Frame`, so one key in two sibling
+blocks (`optional` under two `peerDependenciesMeta` children, `dependencies`
+under two importers) stays two keys and the monorepo shape stays readable.
+No YAML dependency, grammar expansion, bound or identity change follows;
+`resolution` keeps its own repeat refusal. Removals D1–D3 disable each guard
+in turn and each fails its own accepted-vector assertion in the producer and
+its own control-digest assertion through the built doctor.
 
 Retain `Selected { path, node, head }` through `DshSeams`; composition consumes
 the same pre-probe head and selected Node. Preserve both self-rewriting-launcher

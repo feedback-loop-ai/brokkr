@@ -240,7 +240,11 @@ The env interpreter SHALL be recognized by the actual interpreter the platform
 would execute, including aliases, symlinks and same-file hard links. Neither
 its spelled nor canonical basename SHALL establish its identity. Unestablished
 interpreter semantics SHALL take a cause-bearing D10 refusal before a probe,
-not bypass the Node check. Native argument treatment and retained Node
+not bypass the Node check. The platform's env file SHALL be established only
+under the name `env`: an invocation of the same file under any other name
+SHALL be refused as unestablished, because the utilities installed as a file
+named `env` disagree on what another name runs and the file does not say
+which is installed. Native argument treatment and retained Node
 selection SHALL follow that established interpreter; a multicall alias's own
 native result SHALL be measured in tests, never assumed equivalent from its
 spelling.
@@ -984,9 +988,9 @@ read as history, not as a current claim.
 - **WHEN** `an_env_argument_is_selected_as_the_kernel_hands_it_to_env` invokes a native Command control for each spelling and the built doctor observes the same chain
 - **THEN** every supported alias whose native control reaches B takes the same cause-bearing D10 refusal identifying A's obstruction, with zero doctor markers and the native result recorded separately
 - **AND** changing only the interpreter spelling never turns the unproved Node chain into probe authority; an unestablished or alias-sensitive invocation reports its actual native outcome and named refusal without fabricating a positive
-- **AND** a supported successful same-file `uu_env` invocation is established by file and invocation semantics, refuses the specific A obstruction, and admits the removed-A control; blanket non-env-basename refusal cannot discharge these assertions
-- **AND** removing only A/node gives independently invoked native and doctor positive controls for the same B identity under both valid hard-link spellings, and a valid non-obstructed chain remains admitted
-- **AND** restoring spelled-or-canonical-basename recognition in a compiling mutation fails the hard-link no-probe/cause assertion; exact restoration reruns green alongside the existing symlink controls
+- **AND** the same-file `uu_env`, `myenv`, `env-alias` and `link_env` spellings are each refused as an invocation not established without executing the utility, with the native outcome recorded beside the refusal and never counted: on a uutils host the same-file `uu_env` runs B natively, and on an installed-as-`env` multicall — a stand-in dispatching on `argv[0]`, and busybox copied to `env` where the host has it — the same layout runs no program, so no file-derived rule may admit it
+- **AND** removing only A/node gives independently invoked native and doctor positive controls for the same B identity under the `env`-named spellings (the reference, a symlink named `env`, a byte-for-byte copy named `env`), and a valid non-obstructed chain remains admitted
+- **AND** restoring spelled-or-canonical-basename recognition, or restoring same-file admission under another name, in a compiling mutation fails the hard-link no-probe/cause assertion; exact restoration reruns green alongside the existing symlink controls
 
 #### Scenario: Ignored pnpm syntax is admitted through the producer and built doctor
 - **GIVEN** a readable synthetic installation with separately malformed plain tarball NUL/BEL, quoted tarball NUL, checksum colon-space/NUL, unterminated deprecated quote or engines flow map
@@ -1065,6 +1069,8 @@ read as history, not as a current claim.
 - **THEN** every repetition refuses with a repeated-package-key reason naming the decoded key, before exclusions or complete-triple deduplication can hide it
 - **AND** distinct valid records across the two locks still deduplicate equal complete triples and retain triples with different versions or integrities
 - **AND** removing duplicate-key rejection makes the repeated-record assertion fail; reversed conflicting records producing an equal digest is evidence of the defect, not a positive deduplication control
+- **AND** every mapping scope the grammar admits without reading refuses a repeated decoded key by its responsible scope — a flow map (`engines: {node: 1, 'node': 2}`), a block under a package child (`peerDependencies` naming `react` twice), an ignored section body at any depth (`snapshots` dependencies naming `ms` twice, a record heading twice, `settings` naming a key twice) and a package child spelled twice (`cpu`) — through the sole producer and the built doctor, never yielding the valid control's composite
+- **AND** one key in two sibling blocks is two keys: `optional` under two `peerDependenciesMeta` children and `dependencies` under two importers stay readable at the control's digest, and disabling each scope's guard in a compiling mutation makes that scope's accepted-vector and control-digest assertions fail
 
 #### Scenario: Plugin expectations are recorded from the sole producer
 - **GIVEN** an exact plugin input set with its source bytes identified and a fixed expected component recorded from the sole producer at an identified revision

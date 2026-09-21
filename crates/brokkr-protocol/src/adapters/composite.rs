@@ -761,6 +761,12 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
                 ));
             }
             let fields = split_flow_fields(inner);
+            // A flow map's keys are singletons like any mapping's, and
+            // decoded ones: `{node: 1, 'node': 2}` spells one key twice.
+            // A reader that admitted the repeat read a document YAML
+            // refuses (§3.2.1.1, "the key is unique") as the valid
+            // control (review of run `124cca78`, R2).
+            let mut keys: BTreeSet<&str> = BTreeSet::new();
             for (index, field) in fields.iter().enumerate() {
                 let field = field.trim_matches(' ');
                 // `{}` and `[]` are the empty collections, and `[a,]`
@@ -789,8 +795,14 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
                 let entry = split_flow_entry(field);
                 let member = match (open, entry) {
                     ('{', Some((key, member))) => {
-                        if flow_scalar(key.trim_end_matches(' ')).is_err() {
+                        let Ok(key) = flow_scalar(key.trim_end_matches(' ')) else {
                             return Err(format!("the malformed flow member '{field}'"));
+                        };
+                        if !keys.insert(key.text()) {
+                            return Err(format!(
+                                "the flow map '{value}' with the repeated key '{}'",
+                                key.text()
+                            ));
                         }
                         member
                     }
@@ -935,11 +947,16 @@ impl Block {
     }
 }
 
-/// One open block of an ignored body: the indentation its members share
-/// and the kind they all are.
-struct Frame {
+/// One open block of an ignored body: the indentation its members share,
+/// the kind they all are, and — for a mapping — the decoded keys it has
+/// spelled so far, because a mapping's keys are singletons and a block
+/// that repeated one was read as the valid control (review of run
+/// `124cca78`, R2). The set is the block's own: `optional` under two
+/// `peerDependenciesMeta` children is two keys in two blocks.
+struct Frame<'a> {
     indent: usize,
     block: Block,
+    keys: BTreeSet<&'a str>,
 }
 
 /// The STRUCTURE of a body this grammar does not read, carried line by
@@ -959,9 +976,9 @@ struct Frame {
 /// here reads a value, and the admitted dialect does not grow: a valid
 /// nested `peerDependenciesMeta` or `snapshots` body is admitted as it
 /// was, and there is still no YAML implementation behind it.
-struct IgnoredBody {
+struct IgnoredBody<'a> {
     /// The open blocks, innermost last.
-    frames: Vec<Frame>,
+    frames: Vec<Frame<'a>>,
     /// The previous member where it was a scalar — an entry with an
     /// inline value, or a sequence item — described for the refusal of a
     /// child below it. `None` when the previous member, or the parent
@@ -969,10 +986,10 @@ struct IgnoredBody {
     closed: Option<String>,
 }
 
-impl IgnoredBody {
+impl<'a> IgnoredBody<'a> {
     /// A body just opened by its parent key: no block open yet, and the
     /// first line at any deeper indentation opens the first.
-    fn new() -> IgnoredBody {
+    fn new() -> IgnoredBody<'a> {
         IgnoredBody {
             frames: Vec::new(),
             closed: None,
@@ -980,18 +997,20 @@ impl IgnoredBody {
     }
 
     /// Admit one line at `indent` spaces: its syntax, then its place.
-    fn admit(&mut self, indent: usize, text: &str) -> Result<(), String> {
-        // The member, how a refusal names it, and how a child below it
-        // would name it where it is a scalar (`None` where it opens a
-        // block).
-        let (block, spelled, closed) = match pnpm_ignored_line(text)? {
+    fn admit(&mut self, indent: usize, text: &'a str) -> Result<(), String> {
+        // The member, its decoded key where it has one, how a refusal
+        // names it, and how a child below it would name it where it is
+        // a scalar (`None` where it opens a block).
+        let (block, key, spelled, closed) = match pnpm_ignored_line(text)? {
             Member::Item(value) => (
                 Block::Sequence,
+                None,
                 format!("the sequence item '{value}'"),
                 Some(format!("the sequence item '{value}'")),
             ),
             Member::Entry { key, opens } => (
                 Block::Mapping,
+                Some(key),
                 format!("the entry '{key}'"),
                 (!opens).then(|| format!("the scalar entry '{key}'")),
             ),
@@ -1005,7 +1024,12 @@ impl IgnoredBody {
                     "{spelled} nested below {parent}, which opens no block"
                 ));
             }
-            self.frames.push(Frame { indent, block });
+            // The first member of a fresh block repeats nothing.
+            self.frames.push(Frame {
+                indent,
+                block,
+                keys: key.into_iter().collect(),
+            });
         } else {
             // A sibling of an open block's members, or a dedent to one:
             // the blocks below that indentation are closed, and the one
@@ -1018,7 +1042,11 @@ impl IgnoredBody {
             {
                 self.frames.pop();
             }
-            let Some(frame) = self.frames.last().filter(|frame| frame.indent == indent) else {
+            let Some(frame) = self
+                .frames
+                .last_mut()
+                .filter(|frame| frame.indent == indent)
+            else {
                 return Err(format!(
                     "{spelled} at {indent} spaces, which dedents to no open block"
                 ));
@@ -1028,6 +1056,14 @@ impl IgnoredBody {
                     "{spelled} at {indent} spaces beside {}, which mixes mapping entries and \
                      sequence items in one block",
                     frame.block.members()
+                ));
+            }
+            // A sibling in an open mapping: its decoded key is one the
+            // block has not spelled, or the document has two values for
+            // one key and no single meaning.
+            if key.is_some_and(|key| !frame.keys.insert(key)) {
+                return Err(format!(
+                    "{spelled} at {indent} spaces, which repeats a key of its block"
                 ));
             }
         }
@@ -1284,7 +1320,12 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
     // comparison would be a guard no input could falsify, which is a
     // claim the code cannot keep. The body beside the name carries the
     // structure of the lines admitted so far.
-    let mut block: Option<(&str, IgnoredBody)> = None;
+    let mut block: Option<(&str, IgnoredBody<'_>)> = None;
+    // The children the open record has spelled: each is a singleton
+    // whether read or ignored, and a record that spelled `cpu` twice was
+    // read as the valid control (review of run `124cca78`, R2).
+    // `resolution` keeps its own repeat refusal below.
+    let mut seen_children: BTreeSet<&str> = BTreeSet::new();
     // The structure of the open section's body where the section is one
     // this reader does not read.
     let mut body = IgnoredBody::new();
@@ -1427,6 +1468,7 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             if !seen_packages.insert(key.to_string()) {
                 return Err(bad(&format!("a repeated package key '{key}'")));
             }
+            seen_children.clear();
             entry = Some(PnpmEntry {
                 key: key.to_string(),
                 name: name.to_string(),
@@ -1459,8 +1501,11 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
             };
             if name != "resolution" {
                 // Recognized and not read — but still ADMITTED as
-                // syntax. A child with no inline scalar opens a block
-                // whose own lines are skipped below.
+                // syntax, and still a singleton. A child with no inline
+                // scalar opens a block whose own lines are skipped below.
+                if !seen_children.insert(name) {
+                    return Err(bad(&format!("a repeated package child '{name}'")));
+                }
                 match value {
                     Separated::Block => block = Some((name, IgnoredBody::new())),
                     Separated::Inline(value) => pnpm_ignored(value)
@@ -3111,135 +3156,39 @@ fn same_bytes(left: &mut impl Read, right: &mut impl Read, len: u64) -> Result<b
     Ok(true)
 }
 
-/// What the platform's `env` FILE is installed as, read from the file
-/// the reference resolves to — never from executing it.
+/// The `env` INVOCATION this resolver establishes: the platform's `env`
+/// file, invoked under the name `env`. Nothing else.
 ///
 /// The kernel hands the utility the interpreter path exactly as the
-/// `#!` line spells it, as `argv[0]` (`fs/binfmt_script.c`). What the
-/// utility does with that name is a property of which executable it
-/// is, and the executables that serve as `env` are installed in two
-/// shapes:
-///
-/// - a file NAMED `env`: GNU coreutils' separate `src/env.c` build,
-///   whose `main` reads `argv[0]` for diagnostics only; Apple's
-///   `usr.bin/env/env.c` likewise; uutils coreutils, whose `env` is
-///   either its standalone build or its multicall binary installed
-///   under this name (`src/bin/coreutils.rs`, `main`: the utility is
-///   the name the binary runs as, exactly or as a PREFIXED spelling —
-///   any stem ending in a non-alphanumeric character before `env` —
-///   and the name it runs as is checked against the executable's own
-///   file name).
-/// - a LINK to a multicall executable of another name: busybox
-///   (`libbb/appletlib.c`, `main`: the applet is `argv[0]`'s basename)
-///   and GNU coreutils' single-binary build (`src/coreutils.c`, `main`,
-///   `launch_program` on `argv[0]`'s basename). Under the name `env` it
-///   runs `env`; under another name it runs another applet or none.
-///
-/// The source references are cited by function; their revisions and
-/// line numbers are not pinned by this seat (no source access). The
-/// native oracle on this host — uutils, installed as `env` — ran `env`
-/// through the hard-linked copy `tools/uu_env` and refused the symlink
-/// `tools/env-alias` as a name that is not its executable's, which is
-/// what `env_invocation` establishes and refuses respectively.
-#[cfg(unix)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum EnvDispatch {
-    /// The reference resolves to a file named `env`.
-    Named,
-    /// The reference resolves to a multicall executable of this other
-    /// name, which dispatches on `argv[0]`'s basename.
-    Multicall(String),
-}
-
-#[cfg(unix)]
-fn env_dispatch(reference: &Path) -> Result<EnvDispatch, String> {
-    let file = std::fs::canonicalize(reference).map_err(|error| {
-        format!(
-            "cannot be compared with the platform's env '{}', whose file cannot be resolved: \
-             {error}",
-            reference.display()
-        )
-    })?;
-    let name = file
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    Ok(match name == "env" {
-        true => EnvDispatch::Named,
-        false => EnvDispatch::Multicall(name),
-    })
-}
-
-/// Whether the platform's `env` file, invoked under `spelled` — a name
-/// other than `env` — is an invocation this resolver establishes as
-/// running `env`, from the file and the utilities' own dispatch rules
-/// (`EnvDispatch`) and never by executing it.
-///
-/// A blanket refusal of every name but `env` was stricter than the
-/// platform where it matters: the chief's `tools/uu_env` — a copy of
-/// `env`, hard-linked — RUNS `env` natively, and the resolver refused
-/// it (fourth hold, R8). A blanket admission of the same bytes under
-/// any name guesses: the same copy hard-linked as `ls` runs `ls` under
-/// a multicall `env`, and a symlink named `env-alias` to this host's
-/// `env` is refused by the utility itself as a name that is not its
-/// executable's. So an other-name invocation is established exactly
-/// when every implementation installed as `env` runs `env` under it:
-/// the name is the file's OWN name — a hard link or a copy, never a
-/// renaming symlink, so the name the utility runs as is the name the
-/// kernel invoked — and it spells `env` as a prefixed utility name,
-/// which the multicall dispatch installed under `env` reads as `env`
-/// and a dedicated `env` ignores. A link to a multicall of another
-/// name establishes no other-name invocation at all.
-#[cfg(unix)]
-fn env_invocation(interpreter: &Path, spelled: &str, reference: &Path) -> Result<(), String> {
-    let binary = match env_dispatch(reference)? {
-        EnvDispatch::Named => None,
-        EnvDispatch::Multicall(binary) => Some(binary),
-    };
-    if let Some(binary) = binary {
-        return Err(format!(
-            "is the platform's env utility invoked under the name '{spelled}', which its \
-             multicall file '{binary}' dispatches on and this resolver does not establish \
-             without executing it"
-        ));
-    }
-    let own = std::fs::canonicalize(interpreter)
-        .map_err(|error| format!("cannot be resolved to the file that runs: {error}"))?;
-    let own_name = own
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    if own_name != spelled {
-        return Err(format!(
-            "is the platform's env utility invoked under the name '{spelled}', which is not the \
-             name of the file that runs ('{own_name}'), a dispatch this resolver does not \
-             establish without executing it"
-        ));
-    }
-    let prefixed = spelled
-        .strip_suffix("env")
-        .and_then(|stem| stem.chars().last())
-        .is_some_and(|before| !before.is_alphanumeric());
-    if !prefixed {
-        return Err(format!(
-            "is the platform's env utility invoked under the name '{spelled}', which does not \
-             spell env as a prefixed utility name, a dispatch this resolver does not establish \
-             without executing it"
-        ));
-    }
-    Ok(())
-}
-
-/// The `env` INVOCATION this resolver establishes: the platform's `env`
-/// file, invoked under the name `env` or under an other name
-/// `env_invocation` establishes.
+/// `#!` line spells it, as `argv[0]` (`fs/binfmt_script.c`), and what
+/// the utility does with that name is a property of WHICH executable is
+/// installed as `env` — a property the file does not carry. GNU
+/// coreutils' separate `src/env.c` build and Apple's `usr.bin/env/env.c`
+/// read `argv[0]` for diagnostics only and run `env` under any name;
+/// uutils' multicall binary installed as `env` (`src/bin/coreutils.rs`,
+/// `main`) runs `env` under its own name and under a PREFIXED spelling
+/// of it (`uu_env`) and refuses a renaming symlink; busybox
+/// (`libbb/appletlib.c`, `main`) and GNU's single-binary `coreutils`
+/// (`src/coreutils.c`, `launch_program`) dispatch on `argv[0]`'s
+/// basename alone, so installed as a file named `env` they run `env`
+/// under that name and NO applet under `uu_env`. The fourth hold's
+/// `uu_env` oracle ran `env` because that host's `env` is uutils; the
+/// chief of run `124cca78` (R1) copied busybox to `env`, hard-linked it
+/// as `uu_env`, and the same layout — same file, same own name, same
+/// prefixed spelling — exited 127, `applet not found`, while the
+/// resolver of that delivery established it. Two implementations
+/// installed as a file named `env`, indistinguishable by device, inode,
+/// length, bytes-against-the-reference or name, disagree on what
+/// another name runs; so no other-name invocation is established from
+/// the file, and establishing it by executing the utility is not a
+/// thing this resolver does (design D10: no candidate trial execution).
 ///
 /// File identity alone does not establish argv0-insensitive behaviour,
-/// and a name alone does not establish identity: the same file under a
-/// name it is not established to run `env` under is refused as
-/// unestablished, and a different file under the name `env` is refused
-/// as an impostor. Neither refusal is `Ok(None)` admission (design D10,
-/// third and fourth holds).
+/// and a name alone does not establish identity: the same file under
+/// another name is refused as unestablished, and a different file under
+/// the name `env` is refused as an impostor. Neither refusal is
+/// `Ok(None)` admission (design D10, third and fourth holds; review of
+/// run `124cca78`, R1).
 #[cfg(unix)]
 fn env_program(
     interpreter: &Path,
@@ -3260,7 +3209,12 @@ fn env_program(
                 search.env_reference.display()
             ))
         }
-        (true, false) => env_invocation(interpreter, &spelled, &search.env_reference)?,
+        (true, false) => {
+            return Err(format!(
+                "is the platform's env utility invoked under the name '{spelled}', a dispatch \
+                 this resolver does not establish without executing it"
+            ))
+        }
         (true, true) => {}
     }
     let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';

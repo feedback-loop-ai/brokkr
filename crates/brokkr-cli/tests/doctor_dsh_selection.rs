@@ -919,24 +919,29 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         "{line}"
     );
 
-    // F4 (review 2026-09-20) and R3 (run `09ec8d81`), SECURITY. The
-    // `env` an interpreter IS, asked of the FILE and never of a name.
-    // Doctor recognized the measured form by the spelled basename, so
+    // F4 (review 2026-09-20), R3 (run `09ec8d81`) and R1 (review of run
+    // `124cca78`), SECURITY. The `env` an interpreter IS, asked of the
+    // FILE and never of a name, and the invocation it is established
+    // under, which is the name `env` and nothing else. Doctor
+    // recognized the measured form by the spelled basename, so
     // `env-alias` carried a launcher whose `node` was missing past
     // D10's refusal and doctor EXECUTED it; recognition by the canonical
     // basename was still recognition by name, and a COPY of `env`
     // hard-linked as `tools/uu_env` — the same bytes, no `env` name
-    // anywhere — walked past it too. The spellings, each with its own
-    // native control and its own marker directory:
+    // anywhere — walked past it too; establishing that hard link from
+    // its own prefixed name guessed which utility is installed as `env`
+    // (uutils runs env under it, busybox copied to `env` runs nothing).
+    // The spellings, each with its own native control and its own
+    // marker directory:
     //
     // - `/usr/bin/env`, a symlink NAMED `env` elsewhere, and a
     //   byte-for-byte copy named `env`: the platform's env under the
     //   name `env`, the established invocation — doctor names A's
     //   obstruction and probes nothing;
-    // - the `env-alias` symlink and the `uu_env` hard link of the copy:
-    //   the same file under another NAME, a dispatch doctor cannot
-    //   establish without executing it — refused by that cause and
-    //   probes nothing;
+    // - the `env-alias` and `link_env` symlinks and the `uu_env` and
+    //   `myenv` hard links of the copy: the same file under another
+    //   NAME, a dispatch doctor cannot establish without executing it —
+    //   refused by that cause and probes nothing;
     // - an impostor named `env`: refused as such and probes nothing.
     let tools = cwd.join("tools");
     std::fs::create_dir_all(&tools).unwrap();
@@ -985,75 +990,32 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             missing.display()
         )
     };
-    // The file `/usr/bin/env` resolves to on THIS host decides what the
-    // other-name spellings meet (fourth hold, R8): named `env`, the
-    // hard-linked copy `uu_env` — the file's own name, a prefixed `env`
-    // — is an established invocation, so doctor names A's obstruction
-    // and, with it gone, probes B's node through it exactly as the
-    // native child runs it, while the renaming symlink `env-alias` and
-    // the hard-linked copy `myenv`, no prefixed spelling, are refused
-    // with their native outcome recorded (this host's uutils `env`
-    // refuses `env-alias` itself); named otherwise, it is a link to a
-    // multicall executable and only the name `env` is established. The
-    // protocol companion runs the multicall rule on this host through
-    // an injected reference.
-    let env_file = std::fs::canonicalize(&env_binary).unwrap();
-    let named = env_file.file_name().unwrap() == "env";
+    // Every other-name spelling of the platform's env file meets ONE
+    // refusal, whatever `/usr/bin/env` resolves to on this host: the
+    // file does not say which utility is installed as `env`, and the
+    // utilities disagree on what another name runs — uutils runs env
+    // under the hard-linked `uu_env`, busybox copied to `env` answers
+    // `applet not found` under the same layout (the protocol companion
+    // reproduces both on files it owns). Each spelling's native outcome
+    // is recorded beside the refusal, never counted: on this host's
+    // uutils `env`, `uu_env` runs B's node and `env-alias` is refused by
+    // the utility itself.
     let myenv = tools.join("myenv");
     std::fs::hard_link(&copied_env, &myenv).unwrap();
-    // A renaming SYMLINK whose name is a prefixed spelling: the one
-    // spelling only the own-name rule refuses, and the one this host's
-    // `env` refuses natively.
     let link_env = tools.join("link_env");
     std::os::unix::fs::symlink(&env_binary, &link_env).unwrap();
-    let multicall = |interpreter: &Path| {
+    let unestablished = |interpreter: &Path| {
         format!(
             "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
-             '{}', which its multicall file '{}' dispatches on and this resolver does not \
-             establish without executing it",
+             '{}', a dispatch this resolver does not establish without executing it",
             launchers.join("dsh").display(),
             interpreter.display(),
-            interpreter.file_name().unwrap().to_str().unwrap(),
-            env_file.file_name().unwrap().to_str().unwrap()
+            interpreter.file_name().unwrap().to_str().unwrap()
         )
     };
-    let alias_expected = match named {
-        true => format!(
-            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
-             'env-alias', which is not the name of the file that runs ('env'), a dispatch this \
-             resolver does not establish without executing it",
-            launchers.join("dsh").display(),
-            alias.display()
-        ),
-        false => multicall(&alias),
-    };
-    let myenv_expected = match named {
-        true => format!(
-            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
-             'myenv', which does not spell env as a prefixed utility name, a dispatch this \
-             resolver does not establish without executing it",
-            launchers.join("dsh").display(),
-            myenv.display()
-        ),
-        false => multicall(&myenv),
-    };
-    let link_env_expected = match named {
-        true => format!(
-            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
-             'link_env', which is not the name of the file that runs ('env'), a dispatch this \
-             resolver does not establish without executing it",
-            launchers.join("dsh").display(),
-            link_env.display()
-        ),
-        false => multicall(&link_env),
-    };
     eprintln!(
-        "R8: this host's env resolves to {} ({})",
-        env_file.display(),
-        match named {
-            true => "installed as env: the own-name prefixed spelling uu_env is established",
-            false => "a link to a multicall executable: only the name `env` is established",
-        }
+        "R1: this host's env resolves to {}",
+        std::fs::canonicalize(&env_binary).unwrap().display()
     );
     let impostor_refusal = format!(
         "{}: its #! interpreter '{}' is named env but is not the platform's env utility \
@@ -1100,17 +1062,14 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         ran
     };
     // The chief's copied-and-hard-linked spelling first: it is the one
-    // name recognition of either kind admits, and the marker assertion
-    // that fails under that removal names it.
-    let uu_env_obstructed = match named {
-        true => obstruction(&uu_env),
-        false => multicall(&uu_env),
-    };
+    // name recognition of either kind admits and the prefixed-name rule
+    // established, and the marker assertion that fails under that
+    // removal names it.
     for (interpreter, expected) in [
-        (&uu_env, uu_env_obstructed),
-        (&link_env, link_env_expected.clone()),
-        (&alias, alias_expected.clone()),
-        (&myenv, myenv_expected.clone()),
+        (&uu_env, unestablished(&uu_env)),
+        (&link_env, unestablished(&link_env)),
+        (&alias, unestablished(&alias)),
+        (&myenv, unestablished(&myenv)),
         (&env_binary, obstruction(&env_binary)),
         (&linked_env, obstruction(&linked_env)),
         (&copied_env, obstruction(&copied_env)),
@@ -1150,20 +1109,19 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // The valid-chain positives: with A's `node` gone, every
     // established spelling SELECTS the launcher, the native child runs
     // B's node through it, and doctor reports B's version from exactly
-    // one probe. The unestablished spellings and the impostor are still
-    // refused with zero markers — a whole chain establishes no dispatch
-    // — and their native outcome is recorded beside the refusal.
+    // one probe. The other-name spellings and the impostor are still
+    // refused with zero markers — a whole chain establishes no dispatch,
+    // and on this uutils host the native child DOES run B's node through
+    // `uu_env`: recorded, never counted, because the same layout runs
+    // nothing under busybox and the file does not say which it is.
     std::fs::remove_file(nodes_a.join("node")).unwrap();
-    let mut established = vec![&env_binary, &linked_env, &copied_env];
+    let established = [&env_binary, &linked_env, &copied_env];
     let mut refused = vec![
-        (&alias, alias_expected),
-        (&myenv, myenv_expected),
-        (&link_env, link_env_expected),
+        (&uu_env, unestablished(&uu_env)),
+        (&alias, unestablished(&alias)),
+        (&myenv, unestablished(&myenv)),
+        (&link_env, unestablished(&link_env)),
     ];
-    match named {
-        true => established.push(&uu_env),
-        false => refused.push((&uu_env, multicall(&uu_env))),
-    }
     for (round, interpreter) in established.into_iter().enumerate() {
         stage_executable(
             &launchers,
@@ -2401,6 +2359,39 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "a line in section 'snapshots' carrying the entry 'mid' at 4 spaces, which dedents \
              to no open block",
         ),
+        // R2 (review of run `124cca78`): the four repeated keys the chief
+        // ran through the built doctor — `peerDependencies.react`, a
+        // flow-map `engines.node`, the `cpu` child and
+        // `snapshots….dependencies.ms` — each retained the control's
+        // composite before; each is refused by its responsible scope.
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 react: '>=16'\n      react: '>=17'\n"
+            ),
+            "a line under the package child 'peerDependencies' carrying the entry 'react' at 6 \
+             spaces, which repeats a key of its block",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: '>=18', \
+                 node: '>=20'}}\n"
+            ),
+            "a package child 'engines' carrying the flow map '{node: '>=18', node: '>=20'}' with \
+             the repeated key 'node'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    cpu: [x64]\n    cpu: [arm64]\n"),
+            "a repeated package child 'cpu'",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n\nsnapshots:\n\n  debug@2.6.9:\n    \
+                 dependencies:\n      ms: 2.0.0\n      ms: 2.0.0\n"
+            ),
+            "a line in section 'snapshots' carrying the entry 'ms' at 6 spaces, which repeats a \
+             key of its block",
+        ),
     ] {
         let line = run(&body);
         assert!(
@@ -2426,6 +2417,9 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
         "hasBin: true",
         "peerDependencies:\n      '@scope/peer': '>=1'\n      react: '>=16.8.0 || ^17'\n    \
          peerDependenciesMeta:\n      react:\n        optional: true",
+        // One key in two sibling blocks is two keys (R2's control).
+        "peerDependenciesMeta:\n      react:\n        optional: true\n      '@scope/peer':\n        \
+         optional: true",
     ] {
         let body = format!("{package}    resolution: {{integrity: sha512-D}}\n    {child}\n");
         assert!(
