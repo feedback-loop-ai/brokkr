@@ -11588,3 +11588,186 @@ touched. `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
 `fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/` have
 no diff; decision 0056 keeps its `proposed` status. No delivery recipe
 was selected. Nothing was pushed.
+
+## Implement visit — ending the macOS whack-a-mole, 2026-09-21
+
+Run `dsh-composite-identity-issue-226-380a534e`, phase implement, on
+`slice-dsh-composite-b` at adopted head `75605bdc`. Task 8.8(a)–(c),
+parts of PR #311's macOS leg. **8.8 stays unchecked** and no checkbox
+moved. Three macOS passes had answered twelve failures, then one, then
+two; this visit answers the two AND the reason each pass revealed only
+the next cell.
+
+**There is no macOS host in this seat.** The only native observations
+are the CI excerpts in
+`.forge/tasks/controller-macos-ci-failures-pr311-pass3-2026-09-21.txt`
+and its two predecessors, read first.
+
+### F1 — the Apple-arm leftover of a rule already replaced
+
+`the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`
+still spelled a DIRECT name's loop cause per library: `loop_stops` true
+gave `a symlink loop stops the lookup: …` and false gave the raw
+`io::Error`. Run `551ef2a7` had already made production name that loop
+on every arm, so the false branch was dead wording that only macOS could
+execute. The expectation is now unconditional and built from the
+fixture's own `eloop`. `loop_stops` still governs the SEARCHED assertion
+above it, which is genuinely per library.
+
+Every other expectation of the same shape was looked for, by grep over
+`symlink loop stops the lookup` and `Errno::LOOP` across `crates/`:
+`doctor_dsh_selection.rs:740` branches on the NATIVE control's own
+outcome rather than on a library constant and is correct, and nothing
+else qualifies a direct name's wording by library.
+
+### F2 — which refusal Apple's arm owes an oversized component
+
+Cell n0-l10, `PATH` a single 5,000-byte component, name `dsh`: native
+answered ENAMETOOLONG/63, production answered `<5000 x>/dsh: the
+platform's lookup stops before attempting a candidate longer than the
+1024 bytes it builds one in (ENAMETOOLONG)`, and the matrix required the
+kernel-answered wording for every ENAMETOOLONG.
+
+**Production was right and the matrix was wrong.** Apple sizes EVERY
+candidate against a 1,024-byte buffer before building it —
+`lp + ln + 2 > sizeof(buf)`, `sys/posix_spawn.c` 97–143 and
+`gen/FreeBSD/exec.c` 178–218, the revisions design D10 §3 inspected — so
+a 5,004-byte candidate is never constructed and never handed to
+`execve`. The kernel cannot be the author of that errno, because the
+path it would have measured does not exist; `posix_spawnp` answers
+`err = ENAMETOOLONG` at the bound and `execvP` warns and takes the next
+token. The two refusals differ in exactly that, and the pre-attempt one
+is the true one on this arm. glibc's bound is `PATH_MAX`/4,096 and its
+skip leaves the cursor on the colon, which is why the same `PATH` is a
+working-directory iteration there and a stop here.
+
+The matrix now translates a layout's DECLARED expectation — glibc's,
+because glibc is where every cell was measured — to the running library
+and this form's operation, in `expect_on`. On Apple a layout whose first
+component overflows the bound is `Expect::ConstructionStop` under
+`posix_spawnp` and, under `execvP`, whatever the surviving tokens make
+it: `Parity` where B follows, `WorkingDirectory` where an explicit empty
+entry does. That only the first component overflows is asserted of every
+later slot rather than assumed. A new `Expect::ConstructionStop` arm
+asserts native's ENAMETOOLONG, the pre-attempt wording, and that neither
+B nor the working directory is reached. A removal control carries its
+own `PATH` now, because one slash off a 4,092-byte padded A is still far
+over 1,024 and is still a construction stop there.
+
+The terminal-error arm's ENAMETOOLONG and ELOOP assertions are per
+library and per position too: Apple's switch CONTINUES past both, so on
+that arm a searched name can only end on one by exhausting its entries,
+while a direct name — which no switch governs — names the terminal
+cause on every arm alike. The `overlong-explicit-path` control is a
+direct name and is therefore no longer glibc-gated; its expectation
+renders ENAMETOOLONG's number from the constant the kernel answers with,
+36 under Linux and 63 under Darwin, instead of spelling Linux's integer
+into a control that runs on both.
+
+### The one production change, and its bound
+
+At `Position::Direct`, `lookup_failure`'s named-stop guard now covers
+`Errno::NAMETOOLONG` beside `Errno::LOOP`. Those two are exactly the
+errnos the searching libraries part company on, and therefore the two
+whose direct-name refusal read one way on Linux and another on macOS. At
+a direct name no switch runs at all, so the refusal may not vary by
+library. **Every Linux string is byte-identical**: glibc and musl
+already reached `stop_cause` for both errnos, so the new arm returns
+what they returned; only the Apple arm moves, from the bare `File name
+too long (os error 63)` to `metadata answers File name too long (os
+error 63), on which the platform's lookup stops`. ENOENT, ENOTDIR and
+EACCES are untouched — they sit in every library's continue-set and
+already answered alike on every arm.
+
+Removal proof: the guard restored to `LOOP` alone (a compiling mutation,
+the arm retained) → `the_lookup_rule_is_each_librarys_own_switch_arm_by_arm`
+fails with `left: "passed (false): File name too long (os error 36)"`
+against the named stop, under "Apple names a direct name's terminal
+ENAMETOOLONG"; restored → green. Separately, `apple_walk`'s
+`Operation::Spawn` arm forced to `continue` → the new construction-bound
+test fails at its first `refused(…)`; restored → green.
+
+### The loop fix, and its own removal proof
+
+The matrix parent asserted `output.status.success()` inside its per-case
+loop, and each child panicked at its first failing cell — which is why
+three passes at ~25 minutes each revealed one cell apiece. Both now
+COLLECT: `collecting` runs one cell under `catch_unwind` and records the
+payload, and `report` raises every recorded failure in one panic — by
+the child for its cells, by the parent for its children, ahead of the
+inventory assertion (a failing child also stops reporting oracles, so
+its missing identifiers are a consequence of the failure and not a
+second finding). The 13 named controls collect the same way. Cells are
+independent: each name's fixtures are its own and are removed after it.
+
+Proved by removal rather than described: `CWD_REASON` set to a wrong
+string and the matrix run once → **16 layouts, 128 distinct cells**
+reported in one panic (`the matrix: 16 of this child's cells failed`,
+then `layout 12: 8 …` through `layout 49: 8 …`). Before the change that
+same run reported layout 12 and stopped. Restored → green.
+
+### The Apple-arm audit — errno × name kind × covered by
+
+Read from `step`, `apple_walk` and `lookup_failure` against Apple's two
+walks. "Searched" is one entry of a search; "direct" is a name
+containing `/`, which no library's switch governs.
+
+| errno | searched, Apple | direct, Apple | Linux-runnable proof of the Apple arm |
+| --- | --- | --- | --- |
+| EACCES | remembered denial, walk continues | `is not executable by this process`, as on every arm | `…_switch_arm_by_arm`: `step(Apple, ACCESS)`; the direct cross-arm loop (new) |
+| ENOENT | continues | the operation's own answer, as on every arm | same test: `step(Apple, NOENT)`; the direct cross-arm loop |
+| ENOTDIR | continues | the operation's own answer, as on every arm | same test: `step(Apple, NOTDIR)`; the direct cross-arm loop (new) |
+| ELOOP | continues to the next entry | `a symlink loop stops the lookup: …` on every arm | `a_direct_names_symlink_loop_is_named_on_every_librarys_arm`; `lookup_failure(Apple, LOOP, Searched)` |
+| ENAMETOOLONG, kernel-answered | continues; only exhaustion can end on it | `metadata answers …, on which the platform's lookup stops` on every arm (new) | `…_switch_arm_by_arm`: the 600-byte component reaching B; the searched and direct Apple assertions (new) |
+| ENAMETOOLONG, construction bound | `posix_spawnp` stops before any attempt; `execvP` skips the token | not reachable — a direct name constructs no candidate | `the_apple_arm_answers_an_oversized_component_by_its_construction_bound` (new); the 1,100-byte cells |
+| ENOEXEC | no pinned arm → named limitation | same limitation | `step(Apple, NOEXEC) == Err(…)` (new); `lookup_failure(Apple, IO, Searched)` |
+| EIO, EINVAL, ESTALE | no pinned arm → named limitation | same limitation — **the one residual** | `step(Apple, …)`; the direct EIO assertion recording it (new) |
+| the working-directory candidate | `./<name>` for an empty token, refused under the searched NAME | not a search | `the_working_directory_refusal_names_the_searched_name_under_every_library` |
+
+The residual: at a direct name an errno outside Apple's pinned switch
+renders as that limitation, where glibc and musl name the stop a direct
+name always is. No cell of the matrix asserts it and no Linux string
+carries it; it is asserted as it stands and left as named pending work
+rather than guessed at.
+
+`the_apple_arm_answers_an_oversized_component_by_its_construction_bound`
+drives the exact `PATH` spellings of the cells the third pass had still
+to reveal — the sole 5,000-byte component (n0-l10); 4,095, 4,096 and
+5,000 ahead of a runnable B (n0-l11/47, n0-l12/48, n0-l13/49); the 4,092
+bytes the padded-A spelling reaches (n0-l39–41); and 4,096 ahead of an
+explicit empty entry and B (n0-l18) — under an injected Apple arm in
+both operations, with glibc's answers to the same spellings beside them.
+
+### Gates, on the candidate bytes
+
+`cargo fmt --all -- --check` clean; `cargo clippy --workspace
+--all-targets --all-features --locked -- -D warnings` clean; the seven
+crate suites each run on their own, sequentially, each **ok, 0 failed**
+(`brokkr-protocol` 383 + 99 + 1; `brokkr-cli` 466 plus its 29
+integration binaries; `brokkr-runtime` 441 plus its binaries;
+`brokkr-core` 73; `brokkr-store` 58; `brokkr-view` 243;
+`brokkr-bridge` 13). No boxed workspace sweep and no concurrent crate
+suites.
+
+`openspec validate --all --strict` did NOT run and is not a pass: this
+seat's sandbox refused the binary under every spelling tried, as it did
+on the previous visit. Only this file moved under `openspec/`, and no
+file under `openspec/specs` did. `bash scripts/coverage-exact.sh` was
+not run here either. The one production change adds a pattern
+alternative to an existing match guard; both alternatives, the
+fall-through and the `Searched` position are each exercised by
+`…_switch_arm_by_arm`, and the coverage gate is unchanged and not
+lowered — neither fact substitutes for the check.
+
+### Awaiting the macOS leg
+
+The repaired head's own `test (macos-latest)` job. It is now expected to
+report its WHOLE remaining surface in one panic rather than the next
+cell, which is the point of the change. The Apple arm is injected here,
+which proves the resolver's branches on Linux; that is not native macOS
+execution and does not replace one.
+
+Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 were not
+touched. `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
+`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/` have
+no diff; decision 0056 keeps its `proposed` status. Nothing was pushed.
