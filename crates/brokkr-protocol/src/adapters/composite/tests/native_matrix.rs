@@ -1134,7 +1134,14 @@ fn assert_glibc_padded(
 /// collects every oracle the children report and asserts the two sets
 /// are one.
 fn parent() {
-    let root = tempfile::tempdir().unwrap();
+    // The child reconstructs this root from its own `current_dir`, which
+    // the kernel answers canonically, and then asserts that the `PATH`
+    // the parent staged is the one it rebuilt. Where the temporary
+    // directory is reached through a symlink — macOS's `/var` to
+    // `/private/var` — the two spellings differ and every layout's first
+    // assertion fails, so the root is resolved ONCE here and both sides
+    // build on the same bytes.
+    let root = FixtureRoot::new();
     let root = root.path();
     let cwd = root.join("cwd");
     fs::create_dir_all(&cwd).unwrap();

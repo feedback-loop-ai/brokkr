@@ -2974,7 +2974,9 @@ impl Search {
                     )),
                 };
                 if let Some(how) = working_directory {
-                    return ControlFlow::Break(Err(self.refuse_working_directory(&candidate, how)));
+                    return ControlFlow::Break(Err(
+                        self.refuse_working_directory(command, &candidate, how)
+                    ));
                 }
                 match classify_in(&candidate, self, chain) {
                     Candidate::Admitted(selected) => ControlFlow::Break(Ok(selected)),
@@ -3033,7 +3035,25 @@ impl Search {
     /// working directory. A missing cwd candidate is no permission to
     /// advance: native's continuation to B does not waive it, because B
     /// is not what a search that reached cwd is allowed to answer.
-    fn refuse_working_directory(&self, candidate: &Path, how: String) -> CompositeError {
+    ///
+    /// The two answers name two different things, and deliberately. A
+    /// STOP is the platform's own observation of a FILE, so it names the
+    /// candidate in the bytes the platform built it from. The named
+    /// refusal is this resolver's policy answer about the NAME it was
+    /// asked to search for, and the cwd candidate is not one spelling
+    /// across the libraries: glibc and musl build the bare name for an
+    /// empty entry, Apple builds `./<name>` (`gen/FreeBSD/exec.c`'s
+    /// `p = "."`). Displaying the candidate made the same refusal of the
+    /// same search read `mytool` on Linux and `./mytool` on macOS, which
+    /// is a difference in how one rule is reported and not a difference
+    /// in the rule (PR #311's macOS leg, 2026-09-21). The searched name
+    /// is what the caller asked for, so it is what the refusal says.
+    fn refuse_working_directory(
+        &self,
+        command: &str,
+        candidate: &Path,
+        how: String,
+    ) -> CompositeError {
         let stops = std::fs::metadata(candidate)
             .err()
             .and_then(|error| errno_of(&error))
@@ -3042,8 +3062,7 @@ impl Search {
             return stop_cause(candidate, "metadata", errno);
         }
         CompositeError::Config(format!(
-            "{}: the platform's search would fall into the working directory: {how}",
-            candidate.display()
+            "{command}: the platform's search would fall into the working directory: {how}"
         ))
     }
 }

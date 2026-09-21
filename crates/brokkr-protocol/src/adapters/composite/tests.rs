@@ -69,6 +69,40 @@ fn plugin_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions/dsh/plugin-cli-session")
 }
 
+/// A temporary fixture tree and the CANONICAL spelling of its root, kept
+/// together because only the second of them may be built on.
+///
+/// The producer canonicalizes what it reports, and the per-user temporary
+/// directory is not reached through a canonical path on every host:
+/// macOS's `$TMPDIR` lives under `/var`, which is a symlink to
+/// `/private/var`, so `TempDir::path()` spells `/var/folders/…` where the
+/// producer says `/private/var/folders/…`. A fixture that glued
+/// `TempDir::path()` into an expected refusal therefore wrote a path the
+/// producer never says, and seven assertions that hold on Linux failed on
+/// macOS for that reason alone (PR #311's macOS leg, 2026-09-21). The
+/// root is resolved ONCE here, at creation, and every fixture path is
+/// joined onto it, so fixture and producer name the same file by the same
+/// spelling. Linux's `/tmp` is already canonical, so no Linux expectation
+/// moves. The `TempDir` is retained, and with it the tree's cleanup.
+struct FixtureRoot {
+    /// Held for its `Drop` alone: the tree lives as long as this value
+    /// does, and is removed with it. Nothing reads its raw path.
+    _dir: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl FixtureRoot {
+    fn new() -> FixtureRoot {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap();
+        FixtureRoot { _dir: dir, path }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 fn digest_of(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(Sha256::digest(bytes))
@@ -1099,7 +1133,7 @@ fn the_canonical_composite_orders_lines_and_moves_with_its_inputs() {
 /// refusal vectors and the two optional layouts live. The measured rc.2
 /// ground truth has its own fixture below.
 struct Synthetic {
-    dir: tempfile::TempDir,
+    dir: FixtureRoot,
     seams: DshSeams,
 }
 
@@ -1114,7 +1148,7 @@ fn selected_head(path: &Path) -> Vec<u8> {
 
 impl Synthetic {
     fn new() -> Synthetic {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = FixtureRoot::new();
         let root = dir.path().to_path_buf();
         let core = root.join("core");
         let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
@@ -1608,7 +1642,7 @@ fn a_bundle_candidate_that_cannot_be_inspected_stops_the_search() {
 /// line (council return 2026-09-19, F5).
 #[test]
 fn the_core_executable_must_be_lib_bin_js_with_the_exact_shebang() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = FixtureRoot::new();
     let root = dir.path();
 
     // A manifest that names a DIFFERENT file, which exists and carries
@@ -1661,7 +1695,9 @@ fn the_core_executable_must_be_lib_bin_js_with_the_exact_shebang() {
 
     // And a core whose `lib/bin.js` is missing altogether is named by the
     // locator it could not canonicalize, never by a raw-path fallback.
-    let bare = tempfile::tempdir().unwrap();
+    // The locator is spelled from the fixture's canonical root, which is
+    // the only spelling available for a file that does not exist.
+    let bare = FixtureRoot::new();
     let pkg = bare.path().join("node_modules/@deepseek-ai/dsh");
     write(
         &pkg,
@@ -2212,6 +2248,79 @@ fn an_empty_path_entry_is_the_working_directory_and_is_refused() {
         "the child ran the case rather than filtering it away: {said}"
     );
     assert!(output.status.success(), "{said}");
+}
+
+/// The working-directory refusal names the SEARCHED NAME, whichever
+/// library's rule the search translates. The candidate a platform builds
+/// for its cwd iteration is not one spelling: glibc and musl build the
+/// bare name for an empty entry, Apple builds `./<name>` (`p = "."` in
+/// `gen/FreeBSD/exec.c`). A refusal that displayed the candidate
+/// therefore reported the SAME refusal of the SAME search as `mytool` on
+/// Linux and `./mytool` on macOS (PR #311's macOS leg, 2026-09-21). Each
+/// library's rule is a plain test on this host because `Search` carries
+/// the library it translates; only the running host's own row is native
+/// evidence as well.
+///
+/// The other half of the rule is asserted beside it: where native STOPS
+/// at that candidate the answer is the platform's observation of a FILE,
+/// so it keeps the candidate in the bytes the platform built.
+#[cfg(unix)]
+#[test]
+fn the_working_directory_refusal_names_the_searched_name_under_every_library() {
+    let search = |library: Library, entries: &str| Search {
+        entries: OsString::from(entries),
+        default: false,
+        library,
+        operation: Operation::Spawn,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let reason = |how: &str| {
+        format!(
+            "the DSH layout is unreadable: mytool: the platform's search would fall into the \
+             working directory: {how}"
+        )
+    };
+    for library in [Library::Glibc, Library::Musl, Library::Apple] {
+        assert_eq!(
+            refused(search(library, ":/nonexistent").find("mytool", &mut Vec::new())),
+            reason("PATH entry 0 is empty"),
+            "{library:?} reaches the working directory at entry 0"
+        );
+    }
+    // glibc's IMPLICIT cwd iteration after an oversized skip is the same
+    // answer about the same name, by its own `how`.
+    assert_eq!(
+        refused(
+            search(
+                Library::Glibc,
+                &format!("{}:/nonexistent", "x".repeat(5000))
+            )
+            .find("mytool", &mut Vec::new())
+        ),
+        reason(
+            "glibc skips the 5000-byte component and its next iteration is the empty entry it \
+             leaves the cursor on (posix/execvpe.c 118–124, 168)"
+        )
+    );
+    // The native stop at the cwd candidate: the cause is that file's, and
+    // so is the path it names.
+    let dir = FixtureRoot::new();
+    let looping = dir.path().join("mytool");
+    std::os::unix::fs::symlink("mytool", &looping).unwrap();
+    let stopped = search(Library::Glibc, "").refuse_working_directory(
+        "mytool",
+        &looping,
+        "PATH entry 0 is empty".to_string(),
+    );
+    assert_eq!(
+        stopped.to_string(),
+        format!(
+            "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {}",
+            looping.display(),
+            fs::metadata(&looping).unwrap_err()
+        ),
+        "a stop names the candidate the platform built, not the name searched for"
+    );
 }
 
 // Unix only: the case is built from POSIX literals — a `:`-separated
@@ -5491,16 +5600,44 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         ),
     ];
     vectors.extend(foreign);
+    // `-S node` and `FOO=1 node` are both a MULTIWORD argument tail, and
+    // which refusal they meet is the KERNEL's rule, chosen at compile
+    // time in `env_program` and therefore here too. The Linux kernel
+    // hands the whole tail to `env` as one argument, so the form check
+    // reads it and names the form; Apple's kernel separates a `#!`
+    // line's arguments on whitespace (XNU `exec_shell_imgact`), so the
+    // resolver refuses the split before any form is read. Each is that
+    // platform's own exact reason, and the one does not soften the
+    // other. The `\xff` vector below carries no blank and reaches the
+    // UTF-8 refusal on both.
+    let multiword = |tail: &str| match cfg!(any(target_os = "linux", target_os = "android")) {
+        true => format!(
+            "its #! interpreter '/usr/bin/env' takes '{tail}', which is not the measured \
+             `env <program>` form"
+        ),
+        false => format!(
+            "its #! interpreter '/usr/bin/env' takes '{tail}', which this platform splits into \
+             more than the one `env <program>` word this establishes"
+        ),
+    };
     vectors.extend([
+        (b"#!/usr/bin/env -S node\n".to_vec(), multiword("-S node")),
         (
-            b"#!/usr/bin/env -S node\n".to_vec(),
-            "its #! interpreter '/usr/bin/env' takes '-S node', which is not the measured \
+            b"#!/usr/bin/env FOO=1 node\n".to_vec(),
+            multiword("FOO=1 node"),
+        ),
+        // The same two forms as ONE word, which no kernel splits: the
+        // form check answers them on every platform, so the measured-form
+        // refusal has a vector of its own wherever this suite runs.
+        (
+            b"#!/usr/bin/env -S\n".to_vec(),
+            "its #! interpreter '/usr/bin/env' takes '-S', which is not the measured \
              `env <program>` form"
                 .to_string(),
         ),
         (
-            b"#!/usr/bin/env FOO=1 node\n".to_vec(),
-            "its #! interpreter '/usr/bin/env' takes 'FOO=1 node', which is not the measured \
+            b"#!/usr/bin/env FOO=1\n".to_vec(),
+            "its #! interpreter '/usr/bin/env' takes 'FOO=1', which is not the measured \
              `env <program>` form"
                 .to_string(),
         ),
@@ -7041,6 +7178,14 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
         )),
         "passed (true): Permission denied (os error 13)"
     );
+    // ELOOP is the one errno in this table whose NUMBER is the host's
+    // rather than the constant's: 40 under Linux, 62 under Darwin, while
+    // ENOENT, EACCES, EIO and ENOTDIR agree across both. The switch under
+    // test is the LIBRARY's, chosen by the table's own `Library` row, and
+    // the rendering is `io::Error`'s, which is the running host's — so
+    // the expectation is built from the same errno constant the call is
+    // given and the assertion stays the whole reason, not a prefix.
+    let rendered = |errno: Errno| std::io::Error::from_raw_os_error(errno.raw_os_error());
     assert_eq!(
         describe(lookup_failure(
             candidate,
@@ -7048,8 +7193,11 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             "metadata",
             Errno::LOOP
         )),
-        "refused: the DSH layout is unreadable: /nowhere/dsh: a symlink loop stops the lookup: \
-         Too many levels of symbolic links (os error 40)"
+        format!(
+            "refused: the DSH layout is unreadable: /nowhere/dsh: a symlink loop stops the \
+             lookup: {}",
+            rendered(Errno::LOOP)
+        )
     );
     assert_eq!(
         describe(lookup_failure(
@@ -7068,7 +7216,7 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             "metadata",
             Errno::LOOP
         )),
-        "passed (false): Too many levels of symbolic links (os error 40)"
+        format!("passed (false): {}", rendered(Errno::LOOP))
     );
     assert_eq!(
         describe(lookup_failure(
@@ -7615,6 +7763,18 @@ fn the_plugin_walk_refuses_symlinks_special_files_and_unreadable_roots() {
 /// refused by reason. A lossy conversion would map it onto a spelling
 /// that might collide with a declared one, which is the one outcome a
 /// membership check must never allow.
+///
+/// Whether such a name can EXIST is the filesystem's answer, not this
+/// suite's. Linux's tmpfs and ext4 take any byte sequence without a NUL
+/// or a `/`, so the entry is made and the walker meets it. APFS enforces
+/// UTF-8 at creation and answers EILSEQ, so on that host there is no
+/// on-disk entry for the walker to meet and none can be made: what is
+/// provable there is the filesystem's own refusal, and it is asserted by
+/// its exact cause — never unwrapped into a panic, never skipped, and
+/// never reduced to `is_err()`. The walker's refusal itself then awaits a
+/// host whose filesystem can hold the name; no injected reader can stand
+/// in for it, because a `std::fs::DirEntry` is only ever yielded by a
+/// real directory.
 #[cfg(unix)]
 #[test]
 fn the_plugin_walk_refuses_a_name_that_is_not_utf8() {
@@ -7622,13 +7782,37 @@ fn the_plugin_walk_refuses_a_name_that_is_not_utf8() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), "LICENSE", b"x");
     let raw = dir.path().join(std::ffi::OsStr::from_bytes(b"LICENSE\xff"));
-    fs::write(&raw, b"x").unwrap();
-    let error =
-        plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES, &read_dir_entries).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "plugin component is unreadable: the component directory holds an entry whose name is not UTF-8"
-    );
+    match fs::write(&raw, b"x") {
+        Ok(()) => {
+            let error = plugin_file_digests("plugin", dir.path(), &PLUGIN_FILES, &read_dir_entries)
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "plugin component is unreadable: the component directory holds an entry whose name is not UTF-8"
+            );
+        }
+        Err(error) => {
+            assert_eq!(
+                errno_of(&error),
+                Some(rustix::io::Errno::ILSEQ),
+                "a filesystem that refuses the name refuses it as an encoding error: {error}"
+            );
+            // And it really refused: nothing of that name was left behind
+            // for the walk to have met.
+            assert!(
+                raw.symlink_metadata().is_err(),
+                "the refused name left no entry"
+            );
+            let digests =
+                plugin_file_digests("plugin", dir.path(), &["LICENSE"], &read_dir_entries).unwrap();
+            assert_eq!(digests.len(), 1, "the directory holds the one made name");
+            eprintln!(
+                "the walker's non-UTF-8 refusal is PENDING on {}: the filesystem answered {error} \
+                 to the fixture's creation",
+                std::env::consts::OS
+            );
+        }
+    }
 }
 
 /// A declared file whose bytes cannot be read after its metadata was
