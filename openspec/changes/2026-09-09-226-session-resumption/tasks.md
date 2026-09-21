@@ -28,6 +28,9 @@ breakdown adds **19 unchecked numbered rows**, yielding **152 checkbox rows,
 unchecked**. All inherited checkbox states and addresses remain unchanged.
 The five deltas retain **20 requirements / 236 scenarios**. **8.8, 8.10 and
 9.6 stay unchecked**, including after this bounded repair is delivered.
+After the implement visit recorded under "Implementation delivery" below,
+17 of those 19 are ticked: **125 checked / 27 unchecked**. 8.8.14.2 and
+8.8.15.1 stay open for the one smith gate that visit could not run.
 
 Only `tasks.md` is a tracked output of this phase. Implementation belongs in
 `crates/brokkr-protocol/src/adapters.rs` and `adapters/tests.rs`; retain the
@@ -129,7 +132,7 @@ owning requirements:
 
 ## 8.8.9. Establish real terminal and observation proofs
 
-- [ ] 8.8.9.1 Add D7's private `run_seat` invocation seam and extend the existing
+- [x] 8.8.9.1 Add D7's private `run_seat` invocation seam and extend the existing
       `dsh_stream_launch`/`invoke_dsh_launch` test helpers to return the actual
       wire results and checkpoints from one real child. Verify ordinary
       confirmed warm and qualified cold controls through the shared terminal
@@ -138,7 +141,7 @@ owning requirements:
       cases; no synthetic terminal implementation or qualified install fixture.
       Prove the controls' publication/terminal assertions by applicable removal
       and restored rerun. **Requirements: [LE1], [LE3], [LE5].**
-- [ ] 8.8.9.2 Add the per-invocation completed-observation seam and bounded
+- [x] 8.8.9.2 Add the per-invocation completed-observation seam and bounded
       child/parent acknowledgment described under Decisions. Retain immutable
       actual census/read/stream facts before the child may restore or advance;
       notify on all completed outcomes, not only in the refusal branch. Verify
@@ -150,7 +153,7 @@ owning requirements:
 
 ## 8.8.10. Repair the shared watcher rule and retained identity
 
-- [ ] 8.8.10.1 Centralize the absorbing refusal transition and initialize it
+- [x] 8.8.10.1 Centralize the absorbing refusal transition and initialize it
       when an offered launch lacks `first_seq`, a successful baseline census
       or exactly one baseline offered header. Retain the complete baseline
       and offered canonical address; never replace missing history later.
@@ -158,7 +161,7 @@ owning requirements:
       refused/mismatched/confirmed state. Verify focused state transitions and
       baseline-repair controls with applicable compiling removals, restoring
       the repair green. **Requirements: [LE1], [LE3].**
-- [ ] 8.8.10.2 Replace both ID-set reductions with counted pair containment
+- [x] 8.8.10.2 Replace both ID-set reductions with counted pair containment
       over the bounded reader's admitted `(ID, PathBuf)` occurrences. Check
       current offered-header cardinality first, then its retained address,
       then current counts against immutable baseline counts. Keep duplicate
@@ -169,7 +172,7 @@ owning requirements:
       controls with applicable removals/restoration. Preserve containment,
       budgets, delegated-header exclusion and whole-walk errors. **Requirements:
       [LE1], [LE5].**
-- [ ] 8.8.10.3 Unify pre-init and post-init store evaluation using those retained
+- [x] 8.8.10.3 Unify pre-init and post-init store evaluation using those retained
       facts and one offered-sequence read per observation. Census/read failure,
       missing/ambiguous/replaced header and new/excess entry refuse on either
       side of init. Before init, `last > first_seq` refuses; after init only
@@ -182,7 +185,7 @@ owning requirements:
 
 ## 8.8.11. Give every stream exit the same refusal boundary
 
-- [ ] 8.8.11.1 Refuse malformed pre-init output even with no observed sequence
+- [x] 8.8.11.1 Refuse malformed pre-init output even with no observed sequence
       advance, before its current `continue`; refuse pending line-read errors
       before `break`. Keep cold malformed/non-UTF-8 behavior and settled states.
       Process valid init before its store observation and allow valid non-init
@@ -191,7 +194,7 @@ owning requirements:
       repaired otherwise-confirming stores and the proof contract; each removal
       must fail the intended terminal assertion, not time out. **Requirements:
       [LE1], [LE2], [LE3], [LE5].**
-- [ ] 8.8.11.2 On malformed post-init output while pending, apply the common
+- [x] 8.8.11.2 On malformed post-init output while pending, apply the common
       store observation before skipping without blanket JSON refusal. Verify
       consistent noise can still confirm, and a contradictory census consumed
       on that malformed line remains refused after restoration, on both
@@ -202,7 +205,7 @@ owning requirements:
 
 ## 8.8.12. Prove each surviving finding independently on both endings
 
-- [ ] 8.8.12.1 Prove **R1**: baseline `session-1`/27, append `assistant/message`
+- [x] 8.8.12.1 Prove **R1**: baseline `session-1`/27, append `assistant/message`
       28, emit non-JSON and then matching init, with no valid pre-init event
       that could trigger another guard. Execute both exact LE1 scenarios
       **R1 Malformed pre-init work with clean exit** and **with delivered
@@ -211,7 +214,7 @@ owning requirements:
       and rerun both green. Keep 8.8.11.1's no-advance case distinct so a
       store-only check cannot stand in for the rule. **Requirements: [LE1],
       [LE3], [LE5], [AS4].**
-- [ ] 8.8.12.2 Prove **R2**: matching init arrives with fresh `session-9` and
+- [x] 8.8.12.2 Prove **R2**: matching init arrives with fresh `session-9` and
       offer still at 27. Witness the completed contradictory production census
       before permitting deletion; then advance offer to 28 and emit another
       event. Establish that the repaired final store satisfies every positive
@@ -221,7 +224,7 @@ owning requirements:
       transition, retaining observations/acknowledgments; each ending must
       reach later false confirmation and fail the intended assertion. Restore
       and rerun green. **Requirements: [LE1], [LE3], [LE5], [AS4].**
-- [ ] 8.8.12.3 Prove **R3** separately: baseline has `session-9` under `--old--`;
+- [x] 8.8.12.3 Prove **R3** separately: baseline has `session-9` under `--old--`;
       retain it and add the same ID under `--new--`, keeping exactly one
       offered `session-1`, advanced from 27 to 28, and valid matching init.
       Execute LE1's **R3 A new storage entry reuses an existing sibling ID with
@@ -234,7 +237,7 @@ owning requirements:
 
 ## 8.8.13. Close the bounded rule audit and preservation controls
 
-- [ ] 8.8.13.1 Prove LE1's **Post-init offered-header contradictions cannot be
+- [x] 8.8.13.1 Prove LE1's **Post-init offered-header contradictions cannot be
       restored away**: observe missing and ambiguous offered headers after
       matching init, then restore uniqueness and advance. Use only baseline
       storage addresses for ambiguity, with the offered sequence otherwise
@@ -243,7 +246,7 @@ owning requirements:
       cardinality/identity protection in removals so another guard cannot
       provide the claimed refusal. Restore all four cases green.
       **Requirements: [LE1], [LE3], [LE5], [AS4].**
-- [ ] 8.8.13.2 Prove LE1's **Required post-init evidence cannot become readable
+- [x] 8.8.13.2 Prove LE1's **Required post-init evidence cannot become readable
       later to cure refusal**: independently fail the census and offered
       sequence read after init, witness each actual failed observation, then
       repair the store to permit confirmation. Also drive missing boundary,
@@ -253,7 +256,7 @@ owning requirements:
       permit later false confirmation. Restore green; pre-init partial-tail
       evidence remains independently covered. **Requirements: [LE1], [LE3],
       [LE5], [AS4].**
-- [ ] 8.8.13.3 Prove LE1's **A fresh sibling observed before init also latches
+- [x] 8.8.13.3 Prove LE1's **A fresh sibling observed before init also latches
       refusal** on valid non-init JSON with the offered sequence unchanged.
       Acknowledge that census, remove the sibling, then supply matching init
       and activity. Run both endings under the proof contract and remove the
@@ -261,7 +264,7 @@ owning requirements:
       Retain valid-JSON pre-init work and unreadable/partial-tail controls;
       replace sleep-only causal evidence for any transient case newly credited
       here. Restore green. **Requirements: [LE1], [LE3], [LE5], [AS4].**
-- [ ] 8.8.13.4 Prove the remaining identity comparisons through focused child
+- [x] 8.8.13.4 Prove the remaining identity comparisons through focused child
       exchanges: an additional admitted alias repeats the exact canonical
       `(ID, file)` occurrence; separately, a replacement changes a retained
       address while unique IDs and total entry count remain unchanged. On
@@ -271,7 +274,7 @@ owning requirements:
       protection where applicable. Restore green. These compare the admitted
       census and add no Pass D containment or inode-identity matrix.
       **Requirements: [LE1], [LE3], [LE5], [AS4].**
-- [ ] 8.8.13.5 Complete LE1's **A consistent pending rejoin can still confirm**
+- [x] 8.8.13.5 Complete LE1's **A consistent pending rejoin can still confirm**
       and **Cold stream noise keeps its existing behavior** using the same
       terminal route: valid pre-init noise, unchanged unrelated sibling,
       delayed activity, ordinary init consumed after its current activity was
@@ -285,7 +288,7 @@ owning requirements:
 
 ## 8.8.14. Validate the restored repair, sequentially
 
-- [ ] 8.8.14.1 Audit every D7 transition/early return and both census conversions
+- [x] 8.8.14.1 Audit every D7 transition/early return and both census conversions
       against a task -> scenario -> actual test/ending -> mutation -> failed
       assertion -> restored pass ledger. Require all six headline proofs and
       every additional rule/control above; retain observed transient facts
@@ -308,7 +311,7 @@ owning requirements:
       execute green. An unavailable tool is not a pass. The recipe's separate
       workspace verify exec remains required by its design, not a smith-selected
       command or finding. **Requirements: [LE5], [PM4].**
-- [ ] 8.8.14.3 Prepare the unchanged external exact-coverage handoff for the
+- [x] 8.8.14.3 Prepare the unchanged external exact-coverage handoff for the
       candidate: `bash scripts/coverage-exact.sh` on CI/a host that can create
       the boundary namespace. Verify no pin, gate, exclusion, denominator or
       test-selection change; CI, release admission and local coverage still
@@ -420,6 +423,114 @@ artifact**, not implementation completion or clearance of the predecessor's
 park. The phase commit contains only this file; the required result and
 post-commit hash evidence are written through workspace hands outside tracked
 artifacts.
+
+## Implementation delivery — Pass C R1–R3, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-bff4c1e2`, implement seat. Adopted every
+commit through tasks `a4780c22`. The repair is commit
+`f88535acedea6a5b42b92752e9feef0ca5d004ea` (signed), touching only
+`crates/brokkr-protocol/src/adapters.rs` and `adapters/tests.rs`;
+`driver_conformance.rs` is unchanged and its 24 cases are retained. No
+dependency, schema, contract, policy, fixture, reference, extension or decision
+byte moved; 0056 stays proposed and the DSH route stays disabled. Never pushed.
+
+**What was built.** One absorbing `DshRootWatch::refuse` (settled, never
+released; nothing clears it). An immutable pre-spawn `DshBaseline` — boundary,
+the ONE offered header's canonical address, and every admitted
+`(header id, canonical file)` occurrence — whose absence refuses the launch in
+`new`. One required-store rule, `dsh_read_offered_store`, on both sides of the
+init event: census, offered-header cardinality, retained address, counted
+sub-multiset containment (`dsh_census_within`), then one sequence read. The
+separate pre-init predicate is retired. The stream loop decodes before it
+observes; `unread` refuses a malformed line before init and an unreadable line
+while pending, and leaves a cold launch alone. Two private seams:
+`run_seat_with` (production `run_seat` delegates to it) and
+`invoke_dsh_launch_observed`, whose per-invocation observer receives each
+completed `DshObservation` after every read, on every outcome.
+
+**Removal ledger.** Every row was run with
+`cargo test -p brokkr-protocol --all-features --locked --lib -- <the ten new
+test names>` (10 selected; M12 added the inherited cold control, 11 selected).
+`refused_on_both_endings` runs BOTH endings behind `catch_unwind`, so each
+ending's own failed assertion is in the log. "False confirmation" below means
+the named-reason assertion failed with `left:` =
+`seat wrote no result file (the result contract was not met)` on the clean
+exit and `left: None` (a `Succeeded` result) on the delivered result — the
+guard at the old line 5568 was walked past, and the held locator/launch rows
+were published. No removal timed out except M10, noted there. Each mutation
+was restored before the next; the restored file is SHA-256
+`252cb0f7…029ef5`, byte-identical to the committed one, and no mutation is in
+any commit.
+
+| # | Production mutation (compiling) | Tests and endings that failed, and how | Tasks |
+|---|---|---|---|
+| M1a | The former skip whole: no `unread` refusal before init, and no store reading behind a malformed pre-init line | **R1** clean + delivered, and "store unmoved" clean + delivered: false confirmation | 8.8.11.1, 8.8.12.1 |
+| M1b | Only the `unread` pre-init refusal removed (a store-only check) | "store unmoved" clean + delivered: false confirmation. R1's two endings stay refused by the store reading and lose only the witness that the LINE refused (`census: None`) — so R1's headline is jointly protected, and M1a is its removal | 8.8.11.1 |
+| M2 | `unread` no longer refuses `Unreadable` | "unreadable line while pending" clean + delivered: false confirmation at the settle behind the exit | 8.8.11.1 |
+| M3 | A post-init refusal becomes a pending return (`_ if self.named_the_offer => {}`), observer untouched | **R2** clean + delivered; offered header missing, offered header ambiguous, census fails, sequence unreadable, sibling read on a malformed line — each clean + delivered: false confirmation after the acknowledged repair. (R3 and the identity cases stay terminally refused, pending for ever, and lose only the watcher-state assertion) | 8.8.10.3, 8.8.11.2, 8.8.12.2, 8.8.13.1, 8.8.13.2 |
+| M4 | Containment skipped before init (the retired predicate's blind spot) | "fresh sibling before init" clean + delivered: false confirmation | 8.8.10.3, 8.8.13.3 |
+| M5 | `dsh_census_within` reduced to the former id-set comparison | **R3** clean + delivered; alias clean + delivered; sibling replaced at a new address clean + delivered: false confirmation. "Offered header moves" stays refused — the retained address holds alone | 8.8.10.2, 8.8.12.3, 8.8.13.4 |
+| M5b | Pair SET (`baseline.contains`, occurrences reused) | alias clean + delivered: false confirmation; nothing else | 8.8.10.2, 8.8.13.4 |
+| M5+M7 | M5 and the retained offered-address check removed together | adds "offered header moves" clean + delivered: false confirmation. Disclosed overlap: counted containment alone also refuses a moved offer, so the address check is only separable jointly | 8.8.10.2, 8.8.13.4 |
+| M6 | The refusal in `new` removed | all five baseline cases, both endings, lose `ended refused` (`left: Some(Pending)`). Disclosed: the terminal reason does NOT change — pending for ever and refused are the same `Unconfirmed` ending, as they were before this repair; the observation's disposition is what tells them apart | 8.8.10.1, 8.8.13.2 |
+| M6′ | Baseline offered header resolved to its first match | "ambiguous baseline, the first header removed" clean + delivered: false confirmation (the other variant loses its state assertion; which variant confirms follows enumeration order, which is why both are run) | 8.8.10.1, 8.8.13.2 |
+| M8 | No store reading behind a malformed post-init line; acknowledgment still fires | "sibling read on a malformed line" clean + delivered: false confirmation; the positive "malformed noise after init" loses `confirmed on Malformed` | 8.8.11.2 |
+| M9 | Containment tightened to whole-store equality | positive "an unrelated baseline sibling is gone": `a confirmed rejoin is accepted` fails (`Failed`) | 8.8.10.2, 8.8.13.5 |
+| M10 | Consistent-but-incomplete evidence refuses instead of waiting | positive "pre-init noise, a sibling and delayed activity" fails accepted; the unreadable-line case loses its `[Pending, Refused, Refused]` order. One child here waited out its 30 s bound and FAILED on `every awaited observation was really completed` — a timeout is reported, never read as a refusal | 8.8.9.1, 8.8.9.2, 8.8.13.5 |
+| M12 | `unread` allowed to refuse a cold launch | new cold terminal control (`rooted`) and the inherited `a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms` both fail | 8.8.9.1, 8.8.13.5 |
+
+Not separately removable, and said so: the CURRENT offered-header cardinality
+check after init. Its ambiguity case is built at a baseline address as D7
+asks, where the relabelled pair is also outside the baseline, and resolving it
+to a first match confirms or refuses by enumeration order; M3 proves its
+permanence, not its independence. The inherited sleep-gated pre-init cases
+(`dsh_uncertainty_before_the_init_event_…`) are retained unchanged and are
+credited with nothing new here; every transient case credited above waits on
+the observer.
+
+**Restored results, this candidate (`f88535ac`).**
+
+- Focused ten: `10 passed; 0 failed` (397 filtered out).
+- `cargo fmt --all -- --check`: clean.
+  `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`: clean.
+- Crate suites, separately and in order, `cargo test -p <crate> --all-features
+  --locked`, counted as `test result: ok` lines with zero `FAILED`/`panicked`
+  in each log: core 5 (lib 73); store 7 (lib 58); protocol 3 (lib **407**,
+  then 99 with 2 ignored, then 1); runtime 24 (lib 441); view 2 (243, 3
+  ignored); bridge 2 (13); cli 32, including `driver_conformance`
+  **24 passed**.
+- `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self` and
+  `… bundles/verify`: both exit 0.
+- `git diff --check`: clean. Frozen surfaces, `scripts/`, workflows and
+  `rust-nightly-version.txt` show no diff against `a4780c22`; CI, release
+  admission and `coverage-exact.sh` all still consume the pin.
+- **NOT RUN: `openspec validate --all --strict`.** This seat's permission grant
+  withholds `openspec` (refused by name and by absolute path). It was not
+  reached by another route. That is why **8.8.14.2 and 8.8.15.1 stay
+  unticked**: an unavailable tool is not a pass. The tasks seat's 15/0 was
+  over a tree in which only checkbox states and this section have since moved.
+- **PENDING, external:** `bash scripts/coverage-exact.sh` (also withheld here,
+  and by design run outside the box) — covered/total lines, branches and
+  functions unavailable; native macOS; final-head remote CI.
+
+Inventory: 152 checkbox rows, now **125 checked / 27 unchecked**; 134 numbered
+rows, **109 checked / 25 unchecked**. **8.8, 8.10 and 9.6 stay unticked.**
+
+**Observed while proving, owed by 9.6, not repaired here.** The fold's
+`find_dsh_transcript` takes the FIRST depth-zero transcript the enumeration
+reaches, not the offered one. Beside an unrelated retained sibling a confirmed
+rejoin can therefore tail the sibling's file and fold no current work. The
+positive control with a sibling asserts launch order only and says why; this
+is 9.6's warm retained-store integration.
+
+**Still owed.** Pass D: composite/doctor/adaptation drift, worked lock-dialect
+vectors, byte order/equality, containment and the retained-storage matrix.
+9.6: cold/warm retained-store integration (including the item above),
+historical/current multi-message/tool/retry intervals, output/tool/target
+filtering, usage deduplication, per-message versus cumulative accounting,
+omission of unattributable totals and legacy compatibility. No latch proof
+credits either. Run-local logs are under
+`.forge/validation/dsh-bff4c1e2-implement/`, outside the committed artifact.
 
 ## Historical composite decisions and execution clauses
 
