@@ -220,9 +220,17 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> String {
     // The contract therefore names the one tool that can write — and,
     // since decision 0046, the boundary the seat stands under. An exec
     // driver reads no paragraph: its script reads the environment.
+    // Decision 0065 ruling 5: beside its hands, a model seat is told by
+    // capability name what it holds and what it does not, so it never
+    // discovers a missing tool by failing to call it — from the same
+    // record the launch was composed from.
     let hands = match kind {
         AdapterKind::Exec => String::new(),
-        _ => hands_paragraph(input),
+        _ => format!(
+            "{}{}",
+            hands_paragraph(input),
+            crate::native_controls::capabilities_paragraph(input)
+        ),
     };
     // Under a `last-message` door (decision 0046 ruling 4) the contract's
     // own line says how the file comes to exist: the harness writes the
@@ -2363,8 +2371,12 @@ fn split_effort(extra: &[String]) -> (Option<String>, Vec<String>) {
 }
 
 /// The cold argv: `codex exec --json -C <workdir>`, the pinned effort as
-/// the config override codex reads, then the seat's own passthrough.
-fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
+/// the config override codex reads, the seat's own passthrough, and LAST
+/// the engine-managed native controls (decision 0065 ruling 4) — the OFF
+/// switch for a native capability the seat does not hold. They arrive
+/// from the driver input and never from `extra`: an authored pair that
+/// spells the same switch was refused before this builder ran.
+fn codex_cold(bin: &str, extra: &[String], workdir: &str, managed: &[String]) -> Vec<String> {
     let (effort, passthrough) = split_effort(extra);
     let mut command = vec![
         bin.to_string(),
@@ -2378,7 +2390,19 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str) -> Vec<String> {
         command.push(codex_effort_config(effort));
     }
     command.extend(passthrough);
+    command.extend(managed.iter().cloned());
     command
+}
+
+/// The engine-managed native controls of one codex launch. Read again
+/// where a rejected rejoin is replaced cold: `codex_launch` already
+/// refused a missing authority, so what is read here is the same plan.
+fn codex_managed(input: &Value) -> Vec<String> {
+    crate::native_controls::managed(input)
+        .ok()
+        .flatten()
+        .map(|controls| controls.argv)
+        .unwrap_or_default()
 }
 
 /// The seat's declared sandbox class, taken out of its own passthrough.
@@ -2545,10 +2569,21 @@ fn codex_launch(
              refused before any provider work rather than dropped in silence"
         ));
     }
+    // Decision 0065 rulings 4 and 5: the native controls this launch is
+    // composed with are the engine's, read from the driver input. A site
+    // the engine computed no authority for is refused, and so is an
+    // authored argument that reaches the same capability — `--search`, a
+    // `web_search` config assignment, even the OFF pair itself — because
+    // ordering two controls against each other is not a ruling.
+    let controls = crate::native_controls::managed(input)?.unwrap_or_default();
+    if let Some(conflict) = crate::native_controls::authored_conflict(extra, &controls.guards) {
+        return Err(crate::native_controls::conflict_refusal(&conflict));
+    }
+    let managed = controls.argv;
     let gate = resume_gate(input, CODEX_SHAPE);
     let probe = vec![bin.to_string(), "--version".to_string()];
     let cold = |refusal: Option<&'static str>, version: Option<String>| LaunchPlan {
-        command: codex_cold(bin, extra, workdir),
+        command: codex_cold(bin, extra, workdir, &managed),
         rejoining: None,
         refusal,
         sandbox: None,
@@ -2618,6 +2653,13 @@ fn codex_launch(
         command.push(codex_effort_config(effort));
     }
     command.extend(passthrough);
+    // The managed native controls ride the rejoin exactly as they ride a
+    // cold spawn (decision 0065 ruling 4): a resume drops what it was
+    // given, so a search switched off cold must be switched off again
+    // here. They never passed through `codex_resume_blocker` — that
+    // allow-list judges what the SEAT wrote, and an authored `-c` still
+    // turns the rejoin cold — and they sit before the two positionals.
+    command.extend(managed.iter().cloned());
     command.push(session.to_string());
     // The prompt still arrives on stdin, which `codex exec resume` reads
     // only when the prompt positional is `-` (verified against 0.148.0).
@@ -2816,6 +2858,19 @@ fn claude_launch(
     shape: &str,
     wrapper_digest: Option<String>,
 ) -> Result<LaunchPlan, String> {
+    // Decision 0065 rulings 4 and 5, as on the codex path: the engine's
+    // plan or a refusal, and no authored list that admits a native tool
+    // the realm did not grant. The held tools are then folded into the
+    // seat's OWN lists, once, so the hands fragment's empty tool list
+    // gains exactly what is held, `mcp__brokkr__workspace` stays allowed
+    // and strict MCP configuration stays — and the duplicate and arity
+    // refusals below judge the argv that will actually run.
+    let controls = crate::native_controls::managed(input)?.unwrap_or_default();
+    if let Some(conflict) = crate::native_controls::authored_conflict(extra, &controls.guards) {
+        return Err(crate::native_controls::conflict_refusal(&conflict));
+    }
+    let composed = crate::native_controls::apply_selection(extra, &controls.selection);
+    let extra = composed.as_slice();
     if let Some(conflict) = claude_selector_conflict(extra) {
         return Err(format!(
             "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
@@ -4722,7 +4777,7 @@ fn invoke_with_stager(
                 // spawn — so a second builder guard here would repeat a
                 // check that cannot have become false.
                 let cold = LaunchPlan::cold(
-                    codex_cold(&bin, extra, &workdir),
+                    codex_cold(&bin, extra, &workdir, &codex_managed(input)),
                     "codex-thread",
                     Some("harness-refused"),
                 );

@@ -16,6 +16,9 @@
   "effort_flag": "unsupported",
   "tool_permissions": "unsupported",
   "mcp": "unsupported",
+  "native_capabilities": {
+    "unmeasured": "exec runs whatever command the bundle names; the engine cannot certify what an arbitrary child program reaches on its own, so its native inventory is unmeasured. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged"
+  },
   "hands": {
     "workspace": []
   }

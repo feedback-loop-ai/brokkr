@@ -63,6 +63,125 @@
       "mcp__brokkr__workspace"
     ]
   },
+  "native_capabilities": {
+    "known": {
+      "web-search": {
+        "capability": "web-search",
+        "tools": [
+          "WebSearch"
+        ],
+        "on": {
+          "selection": {
+            "include": [
+              "WebSearch"
+            ],
+            "allow": [
+              "WebSearch"
+            ],
+            "deny": []
+          }
+        },
+        "off": {
+          "selection": {
+            "include": [],
+            "allow": [],
+            "deny": [
+              "WebSearch"
+            ]
+          }
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on Claude Code's WebSearch has been established"
+        },
+        "evidence": {
+          "source": "adapters/claude.json and the installed 2.1.266 help: --tools, --allowedTools and --disallowedTools each take tool names",
+          "scope": "adapter data and argv composition only; no live denial or enablement of WebSearch has been measured",
+          "limitations": [
+            "that a boxed seat's empty --tools list under --strict-mcp-config leaves no native tool is adapter data, not a live measurement",
+            "WebSearch ON beside the hands tool, and WebSearch OFF by --disallowedTools on an unboxed seat, are both unmeasured live; the checks are owed to the controller",
+            "this names the two native network tools that were known, not an exhaustive inventory of what Claude Code can reach on its own"
+          ]
+        },
+        "authored": {
+          "list_flags": [
+            "--tools",
+            "--allowedTools",
+            "--allowed-tools"
+          ],
+          "value_flags": [
+            "--model",
+            "--effort",
+            "--permission-mode",
+            "--mcp-config"
+          ]
+        }
+      },
+      "web-fetch": {
+        "capability": "web-fetch",
+        "tools": [
+          "WebFetch"
+        ],
+        "on": {
+          "selection": {
+            "include": [
+              "WebFetch"
+            ],
+            "allow": [
+              "WebFetch"
+            ],
+            "deny": []
+          }
+        },
+        "off": {
+          "selection": {
+            "include": [],
+            "allow": [],
+            "deny": [
+              "WebFetch"
+            ]
+          }
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on Claude Code's WebFetch has been established; a WebFetch(domain:…) permission pattern was not measured as a host allowlist"
+        },
+        "evidence": {
+          "source": "adapters/claude.json and the installed 2.1.266 help: --tools, --allowedTools and --disallowedTools each take tool names",
+          "scope": "adapter data and argv composition only; no live denial or enablement of WebFetch has been measured",
+          "limitations": [
+            "that a boxed seat's empty --tools list under --strict-mcp-config leaves no native tool is adapter data, not a live measurement",
+            "WebFetch ON beside the hands tool, and WebFetch OFF by --disallowedTools on an unboxed seat, are both unmeasured live; the checks are owed to the controller"
+          ]
+        },
+        "authored": {
+          "list_flags": [
+            "--tools",
+            "--allowedTools",
+            "--allowed-tools"
+          ],
+          "value_flags": [
+            "--model",
+            "--effort",
+            "--permission-mode",
+            "--mcp-config"
+          ]
+        }
+      }
+    },
+    "selection": {
+      "include": {
+        "flag": "--tools",
+        "separator": ","
+      },
+      "allow": {
+        "flag": "--allowedTools",
+        "separator": ","
+      },
+      "deny": {
+        "flag": "--disallowedTools",
+        "separator": ","
+      }
+    }
+  },
   "resume": {
     "boxed-workspace": {
       "status": "unmeasured",

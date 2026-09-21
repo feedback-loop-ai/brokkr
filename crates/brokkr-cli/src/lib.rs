@@ -1955,14 +1955,39 @@ fn compile_in_realm(
     let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
         realm.boundary()
     });
-    Ok(Bundle::compile_with_realm(
+    Ok(Bundle::compile_with_capabilities(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
         boundary,
+        &capability_context(workspace, world, realm),
     )?)
+}
+
+/// The capability context one compile authorises against (decision 0065;
+/// design D2): the OPERATED realm's grants — never a neighbouring realm's,
+/// never the recipe's home — and the directory the operator's abstract
+/// definitions and tool dialects live in. With a map that is the map
+/// file's own directory, by the rule every other map-relative name
+/// follows; without one it is the workspace, and the context grants
+/// nothing. A repository the map does not name grants nothing either.
+fn capability_context(
+    workspace: &std::path::Path,
+    world: Option<&World>,
+    realm: Option<&brokkr_core::realms::Realm>,
+) -> brokkr_runtime::capabilities::CapabilityContext {
+    let root = world
+        .and_then(|world| workspace.join(&world.source).parent().map(PathBuf::from))
+        .unwrap_or_else(|| workspace.to_path_buf());
+    brokkr_runtime::capabilities::CapabilityContext {
+        realm: realm.map_or(brokkr_runtime::capabilities::UNMAPPED.to_string(), |realm| {
+            realm.name.clone()
+        }),
+        grants: realm.map(|realm| realm.grants.clone()).unwrap_or_default(),
+        root,
+    }
 }
 
 /// Resume compiles against the dialect embedded in the run, never against
@@ -1994,13 +2019,19 @@ fn compile_from_manifest(
     let boundary = realm.map_or(brokkr_core::realms::Boundary::Namespace, |realm| {
         realm.boundary()
     });
-    Ok(Bundle::compile_with_realm(
+    // And the grants the run was started under, from the same pinned map
+    // (decision 0065 ruling 8): a grant added to the workspace's map since
+    // is not borrowed. The definitions and dialects are re-read from the
+    // pinned source's directory and must reproduce the pinned digests, or
+    // the manifest comparison refuses the resume with capabilities named.
+    Ok(Bundle::compile_with_capabilities(
         dir,
         &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
         &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
         Some(realm_name),
         dialect,
         boundary,
+        &capability_context(workspace, Some(&world), realm),
     )?)
 }
 

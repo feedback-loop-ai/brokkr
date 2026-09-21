@@ -1191,6 +1191,7 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
             &BTreeMap::new(),
             &serde_json::Map::new(),
             Boundary::Namespace,
+            None,
         )
         .is_ok());
     }

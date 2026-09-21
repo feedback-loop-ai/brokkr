@@ -1626,24 +1626,29 @@ fn a_composed_run_resumes_and_refuses_when_its_base_moved() {
         .unwrap()
         .contains_key("@compose/0000/base"));
 
+    // Decision 0065 ruling 8 (design D7): every compiled bundle now pins
+    // its capability authority, and the frozen v2 lineage cannot carry
+    // it. Its own fail-closed list refuses the key BY NAME, before any
+    // row, rather than stripping the authority to make the round-trip
+    // fit — so a Looper-bound start of a compiled bundle is refused until
+    // that lineage gains a version that can carry `capabilities`.
     let store = Store::open(&dir.path().join("composed.db")).unwrap();
     let envelope = dispatch(&composed);
-    let engine = Engine::start_with_dispatch(
+    match Engine::start_with_dispatch(
         store,
         composed.clone(),
         "composed",
         Some(dir.path().into()),
         envelope,
-    )
-    .unwrap();
-    let resumed = Engine::resume(
-        engine.store,
-        composed.clone(),
-        "bound-run",
-        Some(dir.path().into()),
-    )
-    .unwrap();
-    assert_eq!(resumed.feature, "composed");
+    ) {
+        Err(EngineError::Dispatch(
+            brokkr_core::dispatch::DispatchError::ManifestKeyUnsupportedByDispatchLineage(key),
+        )) => assert_eq!(key, "capabilities"),
+        Err(other) => panic!("expected the named lineage refusal: {other}"),
+        Ok(_) => panic!("the v2 lineage cannot carry capability authority"),
+    }
+    let refused = Store::open(&dir.path().join("composed.db")).unwrap();
+    assert!(refused.list_runs().unwrap().is_empty());
 
     // A base that moved under a plain run surfaces BY NAME: resume
     // recompiles, re-resolves from the same library, and the existing

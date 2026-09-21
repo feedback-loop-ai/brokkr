@@ -385,6 +385,14 @@ pub struct SiteFacts {
     pub hands: HandsState,
     pub record: Option<Value>,
     pub driver: Option<DriverDigests>,
+    /// The resolved chain of an agent-backed site, kept beside its record
+    /// so the capability pass judges exactly the candidates the site will
+    /// run (decision 0065). Empty for an inline site.
+    pub chain: Vec<Candidate>,
+    /// Decision 0065 ruling 5: what this site asks for and, per provider
+    /// candidate, what it holds. `None` only until the capability pass has
+    /// run; the engine refuses to launch a model site that still has none.
+    pub capabilities: Option<crate::capabilities::SiteCapabilities>,
 }
 
 impl SiteFacts {
@@ -1016,6 +1024,40 @@ impl Bundle {
         dialect: Option<&Dialect>,
         boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
+        // No grant context was supplied, so there is none: the explicit
+        // no-grant context, never a skipped denial (decision 0065 ruling
+        // 4). The operator's configuration directory is the one the
+        // library and the default dialect already stand in.
+        let capabilities = crate::capabilities::CapabilityContext::no_grants(
+            realm_name.unwrap_or(crate::capabilities::UNMAPPED),
+            library_root.parent().unwrap_or(Path::new("")),
+        );
+        Self::compile_with_capabilities(
+            dir,
+            library_root,
+            adapters_root,
+            realm_name,
+            dialect,
+            boundary,
+            &capabilities,
+        )
+    }
+
+    /// Compile under an explicit capability context (decision 0065; design
+    /// D2): the operated realm, what it grants, and where the operator's
+    /// definitions and tool dialects live. Every other entry point reaches
+    /// here with the no-grant context; only a caller that read the
+    /// operator's realm map can supply a grant, which is what makes the
+    /// realm the one place a capability is granted.
+    pub fn compile_with_capabilities(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+        realm_name: Option<&str>,
+        dialect: Option<&Dialect>,
+        boundary: Boundary,
+        capabilities: &crate::capabilities::CapabilityContext,
+    ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
             .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
@@ -1032,6 +1074,7 @@ impl Bundle {
             realm_name,
             dialect,
             boundary,
+            capabilities,
         ) {
             Ok(bundle) => Ok(bundle),
             // Every failure downstream of resolution on a composed
@@ -1055,7 +1098,15 @@ impl Bundle {
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
         boundary: Boundary,
+        capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
+        // Decision 0065 (design D4 steps 1 and 2): the operated realm's
+        // grants are judged BEFORE any seat is looked at — every
+        // definition, every selected dialect, every restriction, and the
+        // two realm-wide refusals. None of them can become an optional
+        // drop, because no ask has been read yet.
+        let authority = crate::capabilities::Authority::load(capabilities.clone())
+            .map_err(CompileError::Invalid)?;
         let config = &resolved.document;
         let name = resolved.name.clone();
         let description = config
@@ -1080,10 +1131,13 @@ impl Bundle {
         // `drivers` pin the exemptions do: a site that already has an
         // exemption names the same provider and digest, so extending
         // the map leaves that fact unchanged rather than duplicating it.
-        let (pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
-            &resolved.seats,
-            load_pin_adapters(adapters_root, &resolved.seats).as_ref(),
-        )?;
+        // Kept for the capability pass below (decision 0065): an inline
+        // model seat in a bundle that seats no gate opens no agent
+        // context, and its adapter's native declaration is still what
+        // says how its search is switched off.
+        let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
+        let (pin_drivers, inline_resume, resume_witness) =
+            enforce_model_pins(&resolved.seats, pin_adapters.as_ref())?;
         // The one canonical family table (design D10 F1). Seeded with the
         // inline pins and assessments before any parse writes beside
         // them; every later fact is written into an entrant of this same
@@ -1466,6 +1520,22 @@ impl Bundle {
             }
         }
 
+        // Decision 0065 ruling 5, over the COMPOSED seats and before the
+        // wrapper moves anything: every executable site — seat, member,
+        // step, selected body, inherited or not — resolves office asks
+        // minus seat subtractions against the realm's grants, once per
+        // provider candidate, and the outcome lands in the one canonical
+        // site family so relocation carries it like every other fact.
+        {
+            let (library, adapters) = match &agents {
+                Some(context) => (context.library.as_ref(), Some(&context.adapters)),
+                None => (None, pin_adapters.as_ref()),
+            };
+            for (phase, raw) in &resolved.seats {
+                record_capabilities(&authority, library, adapters, phase, raw, &mut sites)?;
+            }
+        }
+
         // The authoring census (design D10 F2): every structural owner is
         // registered, and a raw collision refused, BEFORE the wrapper
         // changes an address or any destination fact is written. The
@@ -1606,6 +1676,47 @@ impl Bundle {
 
         refuse_global_aliasing(&seats)?;
 
+        // A site the engine generated — the dialect's injected validator —
+        // was written by no author and asks for nothing, and it still gets
+        // an explicit outcome: "no capability" is a recorded fact, never a
+        // missing one (design D5).
+        {
+            let adapters = agents.as_ref().map(|context| &context.adapters);
+            for (label, facts) in &mut sites {
+                if facts.capabilities.is_none() {
+                    facts.capabilities = Some(site_capabilities(
+                        &authority,
+                        adapters,
+                        crate::capabilities::SiteAsks {
+                            label: label.clone(),
+                            office: label.clone(),
+                            ..Default::default()
+                        },
+                        &[],
+                        Some("exec"),
+                        &[],
+                    )?);
+                }
+            }
+        }
+        let capability_sites: Map<String, Value> = sites
+            .iter()
+            .map(|(label, facts)| {
+                let site = facts
+                    .capabilities
+                    .as_ref()
+                    .expect("every site was given an outcome above");
+                (label.clone(), site.manifest())
+            })
+            .collect();
+        let consulted: Vec<String> = sites
+            .values()
+            .filter_map(|facts| facts.capabilities.as_ref())
+            .flat_map(|site| site.asks.asks.keys().chain(&site.asks.subtracted).cloned())
+            .collect();
+        let mut capability_record = authority.manifest(&consulted);
+        capability_record["sites"] = Value::Object(capability_sites);
+
         let select_records: Map<String, Value> = seats
             .iter()
             .filter_map(|(site, seat)| match &seat.body {
@@ -1651,6 +1762,7 @@ impl Bundle {
             &hands,
             &select_records,
             boundary,
+            Some(capability_record),
         )?;
         Ok(Bundle {
             hands,
@@ -2155,6 +2267,9 @@ fn resolve_reference(
         });
     }
     site_facts(sites, site_key).record = Some(resolution.record.clone());
+    // The capability pass judges exactly the chain this site will run
+    // (decision 0065): one outcome per candidate, never their union.
+    site_facts(sites, site_key).chain = candidates.clone();
     Ok(ResolvedSeat {
         role_path: resolution.charter.clone(),
         command: candidates[0].argv.clone(),
@@ -2220,6 +2335,7 @@ const SEAT_KEYS: &[&str] = &[
     "role",
     "driver",
     "hands",
+    "capabilities",
     "panel",
     "aggregate",
     "sequence",
@@ -2232,6 +2348,7 @@ const BODY_KEYS: &[&str] = &[
     "role",
     "driver",
     "hands",
+    "capabilities",
     "panel",
     "aggregate",
     "sequence",
@@ -2241,7 +2358,7 @@ const BODY_KEYS: &[&str] = &[
 /// has no `results`, `limits`, `inputs` or `secrets` of its own — the
 /// seat above it does — which is why an agent declaring them at a member
 /// site is already refused rather than silently discarded.
-const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver", "hands"];
+const MEMBER_KEYS: &[&str] = &["class", "agent", "role", "driver", "hands", "capabilities"];
 
 /// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
 /// the two a step needs to be a panel of its own.
@@ -2253,6 +2370,7 @@ const STEP_KEYS: &[&str] = &[
     "role",
     "driver",
     "hands",
+    "capabilities",
     "panel",
     "aggregate",
     "dialect",
@@ -2820,8 +2938,14 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
 /// realm map and dialect library are workspace declarations pinned into
 /// the RUN manifest, never bundle files. One function, shared by the walk
 /// and by the pinned-script lookup, so the two cannot drift.
+///
+/// Decision 0065 adds the operator's abstract capability definitions on
+/// the same terms: the ones a compile CONSULTS are pinned by name and
+/// digest in the manifest's `capabilities` section, so walking the whole
+/// directory would make an unconsulted definition a second source of
+/// bundle identity.
 fn unpinned_top_level(name: &str) -> bool {
-    name == "realms.json" || name == "dialects"
+    name == "realms.json" || name == "dialects" || name == crate::capabilities::DEFINITIONS_DIR
 }
 
 /// Re-walk the script's directory, including its helpers, against the
@@ -2905,6 +3029,149 @@ fn record_hands(
         None => HandsState::NoHands,
     };
     site_facts(sites, what).hands = state;
+    Ok(())
+}
+
+/// One site's sealed capability facts (decision 0065 ruling 5): its asks
+/// resolved once per provider candidate — the agent's chain, or the one
+/// driver an inline site dispatches. A command that dispatches no built-in
+/// driver is an opaque custom one: no adapter answers for it, so its
+/// native inventory is unmeasured and it can hold nothing.
+fn site_capabilities(
+    authority: &crate::capabilities::Authority,
+    adapters: Option<&Adapters>,
+    asks: crate::capabilities::SiteAsks,
+    chain: &[Candidate],
+    inline_driver: Option<&str>,
+    inline_argv: &[String],
+) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
+    let native = |provider: &str| {
+        adapters
+            .and_then(|adapters| adapters.adapter(provider))
+            .map(|adapter| (&adapter.native, adapter.digest.as_str()))
+    };
+    let inline = inline_driver.unwrap_or("<custom>");
+    let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
+        true => vec![crate::capabilities::Serving {
+            provider: inline,
+            model: None,
+            native: native(inline),
+            authored: inline_argv,
+        }],
+        false => chain
+            .iter()
+            .map(|candidate| crate::capabilities::Serving {
+                provider: &candidate.provider,
+                model: Some(&candidate.model),
+                native: native(&candidate.provider),
+                authored: &candidate.argv,
+            })
+            .collect(),
+    };
+    let mut outcomes = Vec::with_capacity(servings.len());
+    for serving in &servings {
+        outcomes.push(
+            authority
+                .resolve(&asks, serving)
+                .map_err(CompileError::Invalid)?,
+        );
+    }
+    Ok(crate::capabilities::SiteCapabilities { asks, outcomes })
+}
+
+/// Walk one composed seat exactly as [`collect_unpinned`] does — same
+/// labels, so the facts land where the engine looks — and resolve every
+/// executable site's capabilities. An agent-backed site's asks are its
+/// agent's minus what the site subtracts; an inline site's map is its own
+/// office's asks. A wanted capability a candidate lost is a notice in that
+/// site's agent record, where a skipped model link already is.
+fn record_capabilities(
+    authority: &crate::capabilities::Authority,
+    library: Option<&Library>,
+    adapters: Option<&Adapters>,
+    what: &str,
+    raw: &Value,
+    sites: &mut BTreeMap<String, SiteFacts>,
+) -> Result<(), CompileError> {
+    let written = raw.get("capabilities");
+    if let Some(name) = raw.get("agent").and_then(Value::as_str) {
+        let agent = library
+            .and_then(|library| library.agent(name))
+            .expect("the seat loop resolved this agent reference");
+        let asks = crate::capabilities::SiteAsks::of(
+            what,
+            Some((name, &agent.capabilities)),
+            written,
+        )
+        .map_err(CompileError::Invalid)?;
+        let chain = site_facts(sites, what).chain.clone();
+        let site = site_capabilities(authority, adapters, asks, &chain, None, &[])?;
+        let facts = site_facts(sites, what);
+        let notices = facts
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("notices"))
+            .and_then(Value::as_array_mut)
+            .expect("an agent-backed site carries its resolution record");
+        for (candidate, outcome) in chain.iter().zip(&site.outcomes) {
+            for (capability, message) in &outcome.notices {
+                notices.push(
+                    crate::agents::Notice {
+                        agent: candidate.agent.clone(),
+                        provider: candidate.provider.clone(),
+                        model: candidate.model.clone(),
+                        capability: "capability".to_string(),
+                        item: capability.clone(),
+                        message: message.clone(),
+                    }
+                    .value(),
+                );
+            }
+        }
+        facts.capabilities = Some(site);
+        return Ok(());
+    }
+    if raw.get("driver").is_some() || raw.get("role").is_some() {
+        let asks = crate::capabilities::SiteAsks::of(what, None, written)
+            .map_err(CompileError::Invalid)?;
+        let parts = command_parts(raw);
+        let driver = dispatch_driver(&parts);
+        let site = site_capabilities(authority, adapters, asks, &[], driver.as_deref(), &parts)?;
+        site_facts(sites, what).capabilities = Some(site);
+        return Ok(());
+    }
+    if written.is_some() {
+        return Err(CompileError::Invalid(format!(
+            "seat '{what}' declares 'capabilities' beside a panel, sequence or select; a request \
+             belongs to the site that executes — the member, step or case body — because that \
+             is the office the realm grants to (decision 0065 ruling 5)"
+        )));
+    }
+    let mut nested: Vec<(String, &Value)> = Vec::new();
+    if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
+        nested.extend(panel.iter().map(|(member, raw)| (format!("{what}:{member}"), raw)));
+    }
+    if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
+        for (index, step) in sequence.iter().enumerate() {
+            let name = step
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("step-{}", index + 1));
+            nested.push((format!("{what}:{name}"), step));
+        }
+    }
+    if let Some(select) = raw.get("select").and_then(Value::as_object) {
+        if let Some(cases) = select.get("cases").and_then(Value::as_object) {
+            nested.extend(cases.iter().map(|(case, raw)| (format!("{what}:{case}"), raw)));
+        }
+        if let Some(body) = select.get("default") {
+            nested.push((format!("{what}:default"), body));
+        }
+    }
+    for (label, raw) in nested {
+        record_capabilities(authority, library, adapters, &label, raw, sites)?;
+    }
     Ok(())
 }
 
@@ -3781,6 +4048,7 @@ fn manifest_for(
     hands: &BTreeMap<String, HandsSpec>,
     select: &Map<String, Value>,
     boundary: Boundary,
+    capabilities: Option<Value>,
 ) -> Result<Value, CompileError> {
     let mut files = Map::new();
     for (index, ancestor) in chain.iter().enumerate() {
@@ -3809,6 +4077,17 @@ fn manifest_for(
         "bundle_name": bundle_name,
         "files": Value::Object(files),
     });
+    // ALWAYS present in a compiled bundle, unlike every key below
+    // (decision 0065 ruling 8; run-manifest v11): "this realm grants
+    // nothing and this seat holds nothing" is a fact about the bundle, and
+    // a manifest that merely lacked the key could not be told from one
+    // written before the word existed. A changed grant, scope, tool
+    // subset, restriction, definition or dialect byte moves the digest.
+    // Absent only from an ANCESTOR layer's own digest, which is compiled
+    // in no realm and holds nothing.
+    if let Some(capabilities) = capabilities {
+        manifest["capabilities"] = capabilities;
+    }
     // ABSENT when no seat references an agent (the decision-0012
     // `if !seat.secrets.is_empty()` precedent, applied verbatim): a
     // non-adopting bundle's manifest is byte-identical to what it was.

@@ -22,19 +22,17 @@
 //!   with MORE power than it declares. `optional` is structurally
 //!   unrepresentable on a restriction — `tools.allow` is a plain array,
 //!   there is no key to set.
-//! - A **grant** the provider cannot serve (an MCP server) is a hard
-//!   failure too, unless the agent marked that server `optional`, in
-//!   which case it becomes a notice that lands in the run manifest.
-//!   Never nothing.
-//! - Both checks run over **every** entry in the chain, not just the
-//!   chosen one: a chain whose second link cannot express the agent's
-//!   restrictions would silently widen its blast radius the moment it
-//!   fell back.
-//! - Matching is per NAMED item. "The provider supports MCP" does not
-//!   satisfy "the agent needs the `github` server"; otherwise the agent
-//!   runs, finds no tools, and reports a content failure for a
-//!   configuration cause — the machine diagnosing itself wrong, which
-//!   decision 0001 exists to prevent.
+//! - A **capability** an office asks for is asked for by ABSTRACT name,
+//!   `requires` or `wants` (decision 0065 ruling 1), and only a realm
+//!   grants one. An agent therefore names no MCP server: the `tools.mcp`
+//!   list this library once read is refused non-empty, because a server
+//!   an office could name would be a door a pulled bundle could open. A
+//!   `wants` the realm does not grant becomes a notice that lands in the
+//!   run manifest. Never nothing.
+//! - The restriction check runs over **every** entry in the chain, not
+//!   just the chosen one: a chain whose second link cannot express the
+//!   agent's restrictions would silently widen its blast radius the
+//!   moment it fell back.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -91,15 +89,6 @@ impl Availability {
     }
 }
 
-/// One MCP server an agent needs. `optional` exists ONLY here — which is
-/// what makes "optional on a restriction" unrepresentable rather than
-/// merely forbidden.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpNeed {
-    pub server: String,
-    pub optional: bool,
-}
-
 /// One agent definition, as written plus the digests that pin it.
 #[derive(Debug, Clone)]
 pub struct Agent {
@@ -119,7 +108,10 @@ pub struct Agent {
     /// `None` declares NO tool restriction; `Some` is ordered, and that
     /// order is the provider flag's order.
     pub allow: Option<Vec<String>>,
-    pub mcp: Vec<McpNeed>,
+    /// Decision 0065 ruling 1: the capabilities this office asks for, by
+    /// abstract name, each `requires` or `wants`. A request, never a
+    /// grant: it names no dialect, server, provider or tool.
+    pub capabilities: crate::capabilities::Requests,
     /// Decision 0043: the agent's hands are one boxed tool. When set, the
     /// tool allow-list is not consulted — the box bounds what running
     /// anything can touch — and the adapter must say how it replaces the
@@ -306,6 +298,13 @@ pub struct Adapter {
     /// `hands` already uses, and the reading every adapter written
     /// before this ruling gets.
     pub resume: ResumeAssessment,
+    /// Decision 0065 ruling 4: the powers this harness already has — a
+    /// server-side search, a built-in fetch — each with how it is switched
+    /// on and off, or `unsupported` with the measured reason, or
+    /// `unmeasured`. Absent reads as unmeasured, never as an empty
+    /// verified inventory: an adapter written before the ruling grants
+    /// nothing and claims no denial.
+    pub native: crate::capabilities::NativeInventory,
     pub digest: String,
 }
 
@@ -716,7 +715,6 @@ fn compose(
     adapter: &Adapter,
     model: &str,
     concrete: &str,
-    notices: &mut Vec<Notice>,
     boxed: bool,
 ) -> Result<Composed, ResolveError> {
     let mut argv = adapter.driver.clone();
@@ -856,45 +854,9 @@ fn compose(
         argv.push(expressed.join(&permissions.separator));
     }
 
-    for need in &agent.mcp {
-        let served = adapter
-            .mcp
-            .as_ref()
-            .and_then(|mcp| mcp.servers.get(&need.server).map(|value| (mcp, value)));
-        match served {
-            Some((mcp, value)) => {
-                argv.push(mcp.flag.clone());
-                argv.push(value.clone());
-            }
-            None => {
-                let capability = match adapter.mcp.as_ref() {
-                    Some(_) => format!(
-                        "the provider declares no MCP server named '{}'",
-                        need.server
-                    ),
-                    None => format!(
-                        "the provider declares mcp unsupported, so the MCP server \
-                         '{}' cannot be provided",
-                        need.server
-                    ),
-                };
-                if !need.optional {
-                    return Err(capability_gap(agent, adapter, model, capability));
-                }
-                notices.push(Notice {
-                    agent: agent.name.clone(),
-                    provider: adapter.provider.clone(),
-                    model: model.to_string(),
-                    capability: "mcp".to_string(),
-                    item: need.server.clone(),
-                    message: format!(
-                        "optional capability gap: {capability}; the agent runs with \
-                         less power than it declares"
-                    ),
-                });
-            }
-        }
-    }
+    // An agent names no MCP server (decision 0065 ruling 3): a server is
+    // the realm's to grant through a tool dialect, never an office's to
+    // ask for by name, so there is nothing of the kind to compose here.
     Ok((argv, effort, hands_fragment))
 }
 
@@ -919,12 +881,9 @@ fn entry_for(
         };
     };
     let presence = availability.presence(&adapter.provider);
-    let mut notices = Vec::new();
     let (argv, effort, hands_fragment, gap) =
-        match compose(agent, adapter, model, concrete, &mut notices, boxed) {
+        match compose(agent, adapter, model, concrete, boxed) {
             Ok((argv, effort, hands_fragment)) => (argv, effort, hands_fragment, None),
-            // A blocked entry contributes no notices: it contributes an
-            // error, and reporting both would double-count one gap.
             Err(gap) => (Vec::new(), None, Vec::new(), Some(gap)),
         };
     ChainEntry {
@@ -936,7 +895,9 @@ fn entry_for(
         hands_fragment,
         harness: adapter.harness.clone(),
         gap,
-        notices,
+        // Filled by the compiler, which knows the realm: a capability the
+        // office wants and the realm does not grant (decision 0065).
+        notices: Vec::new(),
     }
 }
 

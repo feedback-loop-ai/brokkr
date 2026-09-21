@@ -236,20 +236,74 @@ fn an_agent_without_tools_allow_declares_no_restriction() {
     );
 }
 
-/// A named MCP server the provider declares is composed onto the command
-/// line; matching is per named item.
+/// Decision 0065 ruling 3: an agent requests and only a realm grants, so
+/// an agent no longer NAMES an MCP server — required or optional, served
+/// by its adapter or not. The legacy list is refused with the migration,
+/// and no server reaches a command line from agent data; the empty list
+/// every shipped agent writes stays valid and composes nothing.
 #[test]
-fn a_declared_mcp_server_reaches_the_command_line() {
+fn an_agent_naming_an_mcp_server_is_refused_and_never_reaches_a_command_line() {
+    for need in [
+        json!([{"server": "github"}]),
+        json!([{"server": "github", "optional": true}]),
+        json!("github"),
+    ] {
+        let tree = Tree::new();
+        let mut body = agent_body();
+        body["tools"]["mcp"] = need;
+        tree.write("agents/tester.json", &body);
+        // The adapter DOES map the server: the legacy map is no authority.
+        tree.write("adapters/claude.json", &claude_body());
+        let problem = tree.library_error();
+        assert!(
+            problem.ends_with(
+                "'tools.mcp' names an MCP server; an agent no longer names one, because a \
+                 server an office could name would be a door a pulled bundle could open. \
+                 Request the capability by abstract name under 'capabilities' (\"requires\" or \
+                 \"wants\") and let realms.json grant it through a tool dialect (decision 0065 \
+                 rulings 1 and 3)"
+            ),
+            "{problem}"
+        );
+    }
+    let tree = ready();
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert!(!resolution.candidates[0]
+        .argv
+        .iter()
+        .any(|part| part == "--mcp-config"));
+    assert!(resolution.notices.is_empty());
+    assert_eq!(resolution.record["notices"], json!([]));
+}
+
+/// An agent asks for capabilities by ABSTRACT name, and the loader holds
+/// the map to its two-word vocabulary; an absent map asks for nothing.
+#[test]
+fn an_agent_requests_capabilities_by_abstract_name() {
     let tree = Tree::new();
     let mut body = agent_body();
-    body["tools"]["mcp"] = json!([{"server": "github"}]);
+    body["capabilities"] = json!({"web-fetch": "wants", "library-docs": "requires"});
     tree.write("agents/tester.json", &body);
-    tree.write("adapters/claude.json", &claude_body());
-    let resolution = resolved(&tree, &Availability::unspecified());
-    assert!(resolution.candidates[0]
-        .argv
-        .windows(2)
-        .any(|pair| pair == ["--mcp-config", "/etc/github.json"]));
+    let library = tree.library();
+    let asks = &library.agent("tester").unwrap().capabilities;
+    assert_eq!(asks["web-fetch"], crate::capabilities::Strength::Wants);
+    assert_eq!(asks["library-docs"], crate::capabilities::Strength::Requires);
+
+    body["capabilities"] = json!({"web-fetch": {"dialect": "fetch-mcp"}});
+    tree.write("agents/tester.json", &body);
+    assert_eq!(
+        tree.library_error(),
+        "agent 'tester' requests capability 'web-fetch' as {\"dialect\":\"fetch-mcp\"}; a \
+         request is \"requires\" or \"wants\" and nothing else — a dialect, a tool list, a \
+         class or a grant belongs to realms.json and the operator's definitions (decision 0065 \
+         ruling 3)"
+    );
+    assert!(ready()
+        .library()
+        .agent("tester")
+        .unwrap()
+        .capabilities
+        .is_empty());
 }
 
 // ------------------------------------------------------- honesty rules
@@ -363,59 +417,6 @@ fn a_provider_that_cannot_pin_the_model_is_a_hard_failure() {
     let message = refusal(&tree, "tester");
     assert!(message.contains("model_flag unsupported"), "{message}");
     assert!(message.contains("default would run"), "{message}");
-}
-
-/// A REQUIRED MCP server the provider cannot serve fails, whether the
-/// provider lacks MCP entirely or merely lacks that server.
-#[test]
-fn a_required_mcp_grant_the_provider_cannot_serve_is_a_hard_failure() {
-    for (adapter_mcp, expected) in [
-        (json!("unsupported"), "declares mcp unsupported"),
-        (
-            json!({"flag": "--mcp-config", "servers": {}}),
-            "declares no MCP server named 'github'",
-        ),
-    ] {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"]["mcp"] = json!([{"server": "github"}]);
-        tree.write("agents/tester.json", &body);
-        let mut adapter = claude_body();
-        adapter["mcp"] = adapter_mcp;
-        tree.write("adapters/claude.json", &adapter);
-        let message = refusal(&tree, "tester");
-        assert!(message.contains(expected), "{message}");
-    }
-}
-
-/// AC-3: an OPTIONAL grant gap warns rather than failing, and the
-/// warning is a value that reaches the manifest record — never a print.
-#[test]
-fn an_optional_mcp_grant_gap_becomes_a_notice_in_the_record() {
-    for adapter_mcp in [
-        json!("unsupported"),
-        json!({"flag": "--mcp-config", "servers": {}}),
-    ] {
-        let tree = Tree::new();
-        let mut body = agent_body();
-        body["tools"]["mcp"] = json!([{"server": "github", "optional": true}]);
-        tree.write("agents/tester.json", &body);
-        let mut adapter = claude_body();
-        adapter["mcp"] = adapter_mcp;
-        tree.write("adapters/claude.json", &adapter);
-        let resolution = resolved(&tree, &Availability::unspecified());
-        // Two chain entries, both on the same gapped provider.
-        assert_eq!(resolution.notices.len(), 2);
-        let notice = &resolution.notices[0];
-        assert_eq!(notice.capability, "mcp");
-        assert_eq!(notice.item, "github");
-        assert!(notice.message.contains("less power"), "{notice:?}");
-        let recorded = resolution.record["notices"].as_array().unwrap();
-        assert_eq!(recorded.len(), 2);
-        assert_eq!(recorded[0]["item"], "github");
-        assert_eq!(recorded[0]["agent"], "tester");
-        assert_eq!(recorded[0]["provider"], "claude");
-    }
 }
 
 /// The pinch of salt made mechanical: a gap on a NON-CHOSEN entry fails
@@ -775,17 +776,17 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
                    "tools": {"mcp": "no"}}),
-            "'tools.mcp' must be an array",
+            "'tools.mcp' names an MCP server",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
                    "tools": {"mcp": [{"invented": 1}]}}),
-            "'tools.mcp' entry has unknown key",
+            "'tools.mcp' names an MCP server",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
-                   "tools": {"mcp": [{"server": "GitHub"}]}}),
-            "'tools.mcp.server' names 'GitHub'",
+                   "capabilities": ["web-search"]}),
+            "'capabilities' must be an object",
         ),
         (
             json!({"description": "d", "charter": "charters/c.md", "models": ["opus"],
