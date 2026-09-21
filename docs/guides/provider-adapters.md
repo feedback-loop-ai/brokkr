@@ -73,12 +73,36 @@ does not run either. It refuses at that candidate, names the missing
 interpreter or loader, and probes nothing, because a version probe that
 discovered the obstruction first would already have executed a guess.
 
+The executable is run as the search found it — the candidate path, under
+the name that was looked up — and never as the canonical file behind it:
+the file is the installation's identity, and the invocation is what a
+child of Brokkr would actually run. A `dsh` that is the platform's `env`
+utility under another name is refused at selection for that reason,
+because what `env` does under a name that is not its own differs between
+implementations and is not established without executing it. So is an
+`env` launcher whose `#!` line names no program: the kernel hands `env`
+the launcher itself, which would run it again without end.
+
 Where the composite cannot be read, the line says which component
 refused and keeps the declaration context without inventing a comparison:
 
 ```
-warn     dsh: 0.1.5-rc.2 · serves … · composite unreadable: pnpm lock is unreadable: pnpm lock exceeds 8388608-byte limit (declared wrapper_digest <digest>; comparison unavailable)
+warn     dsh: 0.1.5-rc.2 · serves … · composite unreadable: the DSH layout is unreadable: bundle 'dsh-plugin-cli-session' does not resolve: no package.json found (declared wrapper_digest <digest>; comparison unavailable)
 ```
+
+The home's profile and pnpm lock are read BEFORE anything is executed. A
+lock that is there and is refused — malformed, over the size bound, not a
+document YAML reads — stops the line before the version probe and before
+the Node probe, so neither program runs for it. The executable was
+selected and is not missing, and the line says exactly that:
+
+```
+warn     dsh: binary '<selected path>' selected and not probed · serves … · composite unreadable: pnpm lock is unreadable: pnpm lock exceeds 8388608-byte limit (declared wrapper_digest <digest>; comparison unavailable)
+```
+
+A home, profile or lock that is not found at all is a different fact: the
+executable's availability does not depend on it, so the version is still
+reported beside the reason no composite could be read.
 
 The digests in the sample above are the **measured-fixture** values: what
 the sole Rust producer computes over the recorded rc.2 inputs — the

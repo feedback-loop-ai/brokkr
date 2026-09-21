@@ -92,6 +92,21 @@ fn component_of(dir: &Path, expected: &[&str]) -> Result<String, CompositeError>
     )?))
 }
 
+/// The canonical FILE of a retained Node selection: the identity half,
+/// which the selection tests written before R2 compare.
+fn node_file(node: &Option<DshNode>) -> Option<PathBuf> {
+    node.as_ref().map(|node| node.path.clone())
+}
+
+/// A Node runtime run under its own path: what a suite retains by hand.
+fn node_at(path: impl Into<PathBuf>) -> DshNode {
+    let path = path.into();
+    DshNode {
+        invocation: DshInvocation::of(path.clone()),
+        path,
+    }
+}
+
 /// The refusal from a producer whose success value is a private struct
 /// with no `Debug`: a derived one nobody prints is a function the exact
 /// coverage gate counts and no test can reach, so the reason is read by
@@ -2252,19 +2267,23 @@ fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     // check under test is never reached and the only trace is a branch the
     // coverage gate reports missing. Name the reason and the test says what
     // it means.
-    let refusal = |path: std::path::PathBuf| match spawn_node_runtime_at(path) {
+    // Each shim is run under its own spelling: an explicit path's
+    // invocation (R2).
+    let spawn_at =
+        |path: std::path::PathBuf| spawn_node_runtime_at(path.clone(), &DshInvocation::of(path));
+    let refusal = |path: std::path::PathBuf| match spawn_at(path) {
         Ok(runtime) => panic!("expected a refusal, got {}", runtime.version),
         Err(error) => error.to_string(),
     };
     // One record with its single terminator, and the same record with a
     // CRLF terminator: the terminator is not part of the version.
     let good = stage("node-good", "#!/bin/sh\nprintf 'v1.2.3\\n'\n");
-    assert_eq!(spawn_node_runtime_at(good).unwrap().version, "v1.2.3");
+    assert_eq!(spawn_at(good).unwrap().version, "v1.2.3");
     let crlf = stage("node-crlf", "#!/bin/sh\nprintf 'v1.2.3\\r\\n'\n");
-    assert_eq!(spawn_node_runtime_at(crlf).unwrap().version, "v1.2.3");
+    assert_eq!(spawn_at(crlf).unwrap().version, "v1.2.3");
     // No terminator at all is still one record.
     let bare = stage("node-bare", "#!/bin/sh\nprintf 'v1.2.3'\n");
-    assert_eq!(spawn_node_runtime_at(bare).unwrap().version, "v1.2.3");
+    assert_eq!(spawn_at(bare).unwrap().version, "v1.2.3");
 
     let failed = stage("node-fail", "#!/bin/sh\nexit 3\n");
     assert_eq!(
@@ -2316,14 +2335,23 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             // home refusal, and `resolve` is that refusal.
             match &home {
                 Some(home) => {
-                    let seams = selection.seams.as_ref().unwrap();
+                    let seams = DshSeams::resolve().unwrap();
                     assert_eq!(seams.executable, selection.executable);
                     assert_eq!(&seams.home, home);
-                    assert_eq!(DshSeams::resolve().unwrap(), *seams);
+                    // Whether THIS host's home admits is the host's
+                    // fact; an admitted one holds the same seams.
+                    if let Ok(prepared) = &selection.admission {
+                        assert_eq!(prepared.seams(), &seams);
+                    }
                 }
                 None => {
                     assert_eq!(
-                        refused(selection.seams.clone()),
+                        selection
+                            .admission
+                            .as_ref()
+                            .unwrap_err()
+                            .cause()
+                            .to_string(),
                         "the DSH layout is unreadable: no dsh home: set DSH_HOME or HOME"
                     );
                     assert_eq!(
@@ -2449,20 +2477,47 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     // takes, and a gate that demands every line cannot rest on that.
     let home = Some(dir.path().to_path_buf());
     let resolved = dir.path().join("resolved-dsh");
-    let retained = dir.path().join("retained-node");
-    let selection = DshSeams::selected_from(
-        "dsh".to_string(),
-        |_| {
-            Ok(Selected {
-                path: resolved.clone(),
-                node: Some(retained.clone()),
-                head: b"#!/usr/bin/env node\n".to_vec(),
-            })
+    let retained = DshNode {
+        path: dir.path().join("retained-node"),
+        invocation: DshInvocation {
+            program: dir.path().join("bin").join("node"),
+            argv0: "node".into(),
         },
-        home.clone(),
-    )
-    .unwrap();
+    };
+    // The invocation is its own fact: the candidate the search found
+    // under the searched name, beside the canonical file (R2).
+    let invoked = DshInvocation {
+        program: dir.path().join("bin").join("dsh"),
+        argv0: "dsh".into(),
+    };
+    let selected = || {
+        Ok(Selected {
+            path: resolved.clone(),
+            invocation: invoked.clone(),
+            node: Some(retained.clone()),
+            head: b"#!/usr/bin/env node\n".to_vec(),
+        })
+    };
+    let selection =
+        DshSeams::located_from("dsh".to_string(), |_| selected(), home.clone()).unwrap();
     assert_eq!(Path::new(&selection.executable), resolved);
+    assert_eq!(selection.invocation, invoked);
+    // Admitted, the same selection over a home with no profile keeps the
+    // invocation beside the cause the home was not located by: the
+    // executable's availability does not depend on the home.
+    let unlocated = DshSeams::selected_from("dsh".to_string(), |_| selected(), home.clone())
+        .unwrap()
+        .admission
+        .unwrap_err();
+    match &unlocated {
+        DshUnprepared::Unlocated { invocation, .. } => assert_eq!(invocation, &invoked),
+        DshUnprepared::Refused { cause } => panic!("nothing was located to refuse: {cause}"),
+    }
+    assert!(
+        unlocated.cause().to_string().contains("profiles/headless"),
+        "{}",
+        unlocated.cause()
+    );
     let seams = selection.seams.unwrap();
     assert_eq!(seams.executable, selection.executable);
     // The Node selection made beside the executable is the seams' own:
@@ -2509,6 +2564,7 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             |_| {
                 Ok(Selected {
                     path: raw.clone(),
+                    invocation: DshInvocation::of(raw.clone()),
                     node: None,
                     head: Vec::new(),
                 })
@@ -2525,12 +2581,12 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
             )
         );
     }
-    // `resolve` is the selection's seams, or the selection's cause.
+    // `resolve` is the location's seams, or the selection's cause.
     assert_eq!(
         DshSeams::resolve().map_err(|error| error.to_string()),
-        DshSeams::selected()
+        DshSeams::located()
             .map_err(|unselected| unselected.cause.to_string())
-            .and_then(|selection| selection.seams.map_err(|error| error.to_string()))
+            .and_then(|located| located.seams.map_err(|error| error.to_string()))
     );
     // Both arms, injected: a failed selection reaching the planner is
     // the lookup's own cause — here the absent `PATH` — and never a
@@ -2546,26 +2602,349 @@ fn dsh_seams_resolve_reads_the_home_and_refuses_a_missing_one() {
     let seams = DshSeams {
         executable: "/opt/dsh/lib/bin.js".to_string(),
         home: PathBuf::from("/opt/home"),
-        node: Some(PathBuf::from("/opt/node/bin/node")),
+        node: Some(DshNode {
+            path: PathBuf::from("/opt/node/bin/node"),
+            invocation: DshInvocation::of("/opt/node/bin/node"),
+        }),
         head: b"#!/usr/bin/env node\n".to_vec(),
     };
     assert_eq!(
-        DshSeams::resolved(Ok(DshSelection {
+        DshSeams::resolved(Ok(Located {
             executable: seams.executable.clone(),
+            invocation: DshInvocation::of(&seams.executable),
             seams: Ok(seams.clone()),
         }))
         .unwrap(),
         seams
     );
     assert_eq!(
-        refused(DshSeams::resolved(Ok(DshSelection {
+        refused(DshSeams::resolved(Ok(Located {
             executable: seams.executable.clone(),
+            invocation: DshInvocation::of(&seams.executable),
             seams: Err(CompositeError::Config(
                 "no dsh home: set DSH_HOME or HOME".into()
             )),
         }))),
         "the DSH layout is unreadable: no dsh home: set DSH_HOME or HOME"
     );
+}
+
+/// R2 (review of run `124cca78`): a selection is the canonical file AND
+/// the invocation native runs it by, and neither stands in for the
+/// other.
+///
+/// `dsh -> /usr/bin/env`, searched and as an absolute alias, is the
+/// platform's env utility run under the name `dsh`: natively uutils exits
+/// 1 on the name mismatch and prints nothing, while executing the
+/// canonical target under its own name reported env's version as DSH's.
+/// Both refuse at selection, by the selected invocation and the env
+/// dispatch, so there is no probe target. Direct `/usr/bin/env` is the
+/// availability control; an admitted path-sensitive launcher proves the
+/// invocation, and not the canonical target, is what runs.
+#[cfg(unix)]
+#[test]
+fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a");
+    let lib = dir.path().join("lib");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&lib).unwrap();
+    let path = |dir: &Path| Some(OsString::from(dir.display().to_string()));
+    let native = |program: &std::ffi::OsStr, search: &Path| {
+        std::process::Command::new(program)
+            .arg("--version")
+            .env("PATH", search)
+            .output()
+    };
+
+    let alias = a.join("dsh");
+    std::os::unix::fs::symlink(ENV_REFERENCE, &alias).unwrap();
+    let unestablished = format!(
+        "the DSH layout is unreadable: {}: the selected invocation is the platform's env utility \
+         invoked under the name 'dsh', a dispatch this resolver does not establish without \
+         executing it",
+        alias.display()
+    );
+    for (form, declared) in [
+        ("searched", "dsh".to_string()),
+        ("absolute", alias.display().to_string()),
+    ] {
+        // The native outcome is the HOST's and is recorded, never
+        // counted: uutils refuses the name, GNU's env runs under any.
+        let ran = native(declared.as_ref(), &a).unwrap();
+        eprintln!(
+            "native {form} alias: {:?}, {} stdout bytes",
+            ran.status,
+            ran.stdout.len()
+        );
+        assert_eq!(
+            refused(select_in(&declared, path(&a))),
+            unestablished,
+            "{form}"
+        );
+        // And through the seam a caller holds: no selection, so no
+        // invocation and nothing to probe.
+        let unselected = DshSeams::selected_from(
+            declared.clone(),
+            |name| select_in(name, path(&a)),
+            Some(dir.path().to_path_buf()),
+        )
+        .unwrap_err();
+        assert_eq!(unselected.declared, declared);
+        assert_eq!(unselected.cause.to_string(), unestablished, "{form}");
+    }
+
+    // Direct env: established under its own name, selected as the file
+    // it canonically is and invoked as it was spelled. Its version is
+    // the availability control, and the invocation answers as native.
+    let direct = select_in(ENV_REFERENCE, path(&a)).unwrap();
+    assert_eq!(
+        direct.path,
+        Path::new(ENV_REFERENCE).canonicalize().unwrap()
+    );
+    assert_eq!(direct.invocation, DshInvocation::of(ENV_REFERENCE));
+    assert_eq!(direct.node, None);
+    let control = native(ENV_REFERENCE.as_ref(), &a).unwrap();
+    let invoked = direct
+        .invocation
+        .command()
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(control.status.success(), "{control:?}");
+    assert_eq!(invoked.status, control.status);
+    assert_eq!(invoked.stdout, control.stdout);
+
+    // An admitted launcher that reads the path it was run by, behind a
+    // symlink: identity is the target, the invocation is the candidate
+    // the search found under the searched name, and running it prints
+    // what native prints — never the canonical target's path.
+    let launcher = stage_executable(&lib, "launcher.sh", b"#!/bin/sh\necho \"$0\"\n");
+    fs::remove_file(&alias).unwrap();
+    std::os::unix::fs::symlink(&launcher, &alias).unwrap();
+    let selected = select_in("dsh", path(&a)).unwrap();
+    assert_eq!(selected.path, launcher.canonicalize().unwrap());
+    assert_eq!(
+        selected.invocation,
+        DshInvocation {
+            program: alias.clone(),
+            argv0: "dsh".into(),
+        }
+    );
+    let natively = native("dsh".as_ref(), &a).unwrap();
+    let invoked = selected
+        .invocation
+        .command()
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(natively.status.success(), "{natively:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&invoked.stdout),
+        format!("{}\n", alias.display()),
+        "the selected candidate runs, not its canonical target"
+    );
+    assert_eq!(invoked.stdout, natively.stdout);
+    // An explicit path keeps its own spelling on both halves.
+    let explicit = select_in(&alias.display().to_string(), path(&a)).unwrap();
+    assert_eq!(explicit.invocation, DshInvocation::of(&alias));
+    assert_eq!(explicit.path, selected.path);
+
+    // A platform env that cannot be inspected establishes nothing about
+    // the selected file either, and says so — asked of a native image,
+    // which has no interpreter to be asked first.
+    fs::remove_file(&alias).unwrap();
+    fs::copy(std::env::current_exe().unwrap(), a.join(".dsh.staging")).unwrap();
+    fs::rename(a.join(".dsh.staging"), &alias).unwrap();
+    let absent = dir.path().join("no-env");
+    let enoent = fs::metadata(&absent).unwrap_err();
+    let search = Search {
+        entries: OsString::from(a.display().to_string()),
+        default: false,
+        library: LIBRARY,
+        operation: Operation::Exec,
+        env_reference: absent.clone(),
+    };
+    assert_eq!(
+        refused(lookup_in("dsh", &search, &mut Vec::new())),
+        format!(
+            "the DSH layout is unreadable: {}: the selected invocation cannot be compared with \
+             the platform's env '{}', which cannot be inspected: {enoent}",
+            alias.display(),
+            absent.display()
+        )
+    );
+
+    // The carried values print, copy and compare as values.
+    let node = node_at(&launcher);
+    assert_eq!(node.clone(), node);
+    assert!(format!("{node:?}").contains("launcher.sh"));
+}
+
+/// R1 and R3's wiring (review of run `124cca78`): the home's profile and
+/// pnpm lock are ADMITTED before anything is executed, and composed as
+/// retained.
+///
+/// The lock was parsed last — after doctor's DSH probe and the producer's
+/// Node probe — so a lock YAML refuses was refused only once both had
+/// run. Admission is now the selection's, and the producer's own first
+/// step; a located lock that fails it is a refusal with nothing spawned,
+/// a home that was never located keeps the invocation for the version
+/// alone, and a probe that rewrites the admitted files changes nothing
+/// the composite reads.
+#[test]
+fn the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained() {
+    let install = Synthetic::new();
+    let profile = install.profile();
+    let lock = profile.join("pnpm-lock.yaml");
+    let admitted_lock = fs::read(&lock).unwrap();
+    let control = install.composite();
+    let invoked = DshInvocation {
+        program: install.dir.path().join("bin").join("dsh"),
+        argv0: "dsh".into(),
+    };
+
+    let prepared = DshPrepared::admit(invoked.clone(), install.seams.clone()).unwrap();
+    assert_eq!(prepared.invocation(), &invoked);
+    assert_eq!(prepared.seams(), &install.seams);
+    assert_eq!(prepared.clone(), prepared);
+    assert!(format!("{prepared:?}").contains("debug 2.6.9 sha512-DEBUG"));
+
+    // The probe REWRITES the lock and the profile manifest it was
+    // admitted from. The composite is the admitted one: a reopen would
+    // read `other@1.0.0` and a `live` reload and differ.
+    let probes = std::cell::Cell::new(0);
+    let observed = dsh_composite_observing(prepared.seams(), &prepared.admitted, || {
+        probes.set(probes.get() + 1);
+        write(
+            &profile,
+            "pnpm-lock.yaml",
+            b"lockfileVersion: '9.0'\n\npackages:\n\n  other@1.0.0:\n    resolution: {integrity: sha512-OTHER}\n",
+        );
+        write(
+            &profile,
+            "package.json",
+            br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"live"}}}"#,
+        );
+        Ok(install.node())
+    })
+    .unwrap();
+    assert_eq!(probes.get(), 1);
+    assert_eq!(
+        observed.canonical, control.canonical,
+        "the retained inputs are the ones composed"
+    );
+    // The rewritten files ARE another identity to a fresh observation,
+    // so the equality above is retention and not indifference.
+    assert_ne!(install.composite().canonical, control.canonical);
+    write(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+
+    // A LOCATED lock that fails admission: refused by its cause, with no
+    // invocation to probe, and through the producer with no Node probe.
+    for (body, reason) in [
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-DEBUG}\n    engines: {node:  *missing}\n".to_string(),
+            "pnpm lock is unreadable: a package child 'engines' carrying the malformed flow \
+             member 'node:  *missing', whose value opens with the YAML indicator '*'",
+        ),
+        (
+            format!(
+                "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {{integrity: sha512-DEBUG}}\n    peerDependencies:\n      {}: a\n",
+                "k".repeat(1025)
+            ),
+            "pnpm lock is unreadable: a line under the package child 'peerDependencies' \
+             carrying an implicit key past YAML's implicit-key lookahead limit of 1,024 \
+             characters",
+        ),
+    ] {
+        fs::write(&lock, body).unwrap();
+        let refusal = DshPrepared::admit(invoked.clone(), install.seams.clone()).unwrap_err();
+        assert_eq!(
+            refusal,
+            DshUnprepared::Refused {
+                cause: CompositeError::PnpmLock(
+                    reason
+                        .strip_prefix("pnpm lock is unreadable: ")
+                        .unwrap()
+                        .to_string()
+                ),
+            }
+        );
+        assert_eq!(refusal.cause().to_string(), reason);
+        assert_eq!(refusal.clone(), refusal);
+        assert!(format!("{refusal:?}").starts_with("Refused"));
+        let probes = std::cell::Cell::new(0);
+        assert_eq!(
+            refused(dsh_composite_resolving(&install.seams, || {
+                probes.set(probes.get() + 1);
+                Ok(install.node())
+            })),
+            reason
+        );
+        assert_eq!(probes.get(), 0, "no Node probe for a lock that fails admission");
+        // The selection a caller holds says the same, and holds nothing
+        // to probe.
+        let selection = DshSeams::selected_from(
+            "dsh".to_string(),
+            |_| {
+                Ok(Selected {
+                    path: PathBuf::from(&install.seams.executable),
+                    invocation: invoked.clone(),
+                    node: None,
+                    head: install.seams.head.clone(),
+                })
+            },
+            Some(install.seams.home.clone()),
+        )
+        .unwrap();
+        assert_eq!(selection.admission, Err(refusal));
+    }
+    // A dangling lock is LOCATED: the name is there and cannot be read.
+    fs::remove_file(&lock).unwrap();
+    std::os::unix::fs::symlink(profile.join("no-such-lock"), &lock).unwrap();
+    assert!(matches!(
+        DshPrepared::admit(invoked.clone(), install.seams.clone()),
+        Err(DshUnprepared::Refused { .. })
+    ));
+
+    // A lock, or a profile, that was never FOUND is the independent
+    // fact: the invocation stays beside the cause, for the version alone.
+    fs::remove_file(&lock).unwrap();
+    let enoent = fs::metadata(&lock).unwrap_err();
+    let unlocated = DshPrepared::admit(invoked.clone(), install.seams.clone()).unwrap_err();
+    assert_eq!(
+        unlocated,
+        DshUnprepared::Unlocated {
+            invocation: invoked.clone(),
+            cause: CompositeError::PnpmLock(format!("{}: {enoent}", lock.display())),
+        }
+    );
+    assert_eq!(unlocated.clone(), unlocated);
+    assert!(format!("{unlocated:?}").starts_with("Unlocated"));
+    fs::remove_file(profile.join("package.json")).unwrap();
+    match DshPrepared::admit(invoked.clone(), install.seams.clone()).unwrap_err() {
+        DshUnprepared::Unlocated { invocation, cause } => {
+            assert_eq!(invocation, invoked);
+            assert!(cause.to_string().contains("package.json"), "{cause}");
+        }
+        DshUnprepared::Refused { cause } => panic!("no lock was located to refuse: {cause}"),
+    }
+
+    // Restored, the same home admits and composes as the control.
+    write(
+        &profile,
+        "package.json",
+        br#"{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+    );
+    fs::write(&lock, admitted_lock).unwrap();
+    let prepared = DshPrepared::admit(invoked, install.seams.clone()).unwrap();
+    let observed =
+        dsh_composite_observing(prepared.seams(), &prepared.admitted, || Ok(install.node()));
+    assert_eq!(observed.unwrap().canonical, control.canonical);
 }
 
 /// The producer receives the SELECTED executable, a path the selection
@@ -2859,7 +3238,7 @@ fn absent_path_node_identity_is_retained_by_the_composite() {
             let ran = Path::new(&ran).canonicalize().unwrap();
             let selected = select_in(&executable, None).unwrap();
             assert_eq!(
-                selected.node,
+                node_file(&selected.node),
                 Some(ran.clone()),
                 "the retained node is the runtime the native default search ran"
             );
@@ -2887,7 +3266,7 @@ fn absent_path_node_identity_is_retained_by_the_composite() {
                 b"#!/bin/sh\necho v0.0.0-wrong\n",
             );
             let retained_wrong = DshSeams {
-                node: Some(wrong),
+                node: Some(node_at(wrong)),
                 ..seams.clone()
             };
             let observed = dsh_composite(&retained_wrong).unwrap();
@@ -3760,6 +4139,123 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             composite_over_pnpm(&install, &lock).unwrap().canonical,
             control.canonical,
             "{child:?}"
+        );
+    }
+    let with_child = |child: &str| {
+        format!(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {{integrity: sha512-X}}\n    {child}\n"
+        )
+    };
+    // R1 (review of run `124cca78`): separator padding cannot hide a
+    // scalar's opening. An alias, an anchor and a reserved indicator are
+    // refused behind one, two and more spaces alike — by pnpm, the
+    // `engines` member and the opening indicator — where two spaces read
+    // each as the valid control's composite.
+    for opening in ["*missing", "&", "%bad"] {
+        for padding in [" ", "  ", "   ", "        "] {
+            let member = format!("node:{padding}{opening}");
+            let lock = with_child(&format!("engines: {{{member}}}"));
+            assert_eq!(
+                refused_vector(composite_over_pnpm(&install, &lock), &lock),
+                format!(
+                    "pnpm lock is unreadable: a package child 'engines' carrying the malformed \
+                     flow member '{member}', whose value opens with the YAML indicator '{}'",
+                    opening.chars().next().unwrap()
+                ),
+                "{lock:?}"
+            );
+        }
+    }
+    // The same padding before a value YAML reads stays readable, and is
+    // the control: numeric, plain and quoted, in a map and in a sequence
+    // beside it. A quoted value keeps the spaces inside its quotes.
+    for child in [
+        "engines: {node: 22}",
+        "engines: {node:    22}",
+        "engines: {node:  '>=18',   npm:     \"9\"}",
+        "engines: {node:   '  *kept  '}",
+    ] {
+        assert_eq!(
+            composite_over_pnpm(&install, &with_child(child))
+                .unwrap()
+                .canonical,
+            control.canonical,
+            "{child:?}"
+        );
+    }
+    // A tab is not separation here and keeps its own, document-wide
+    // refusal: the separator run consumed above is spaces and no more.
+    let tabbed = with_child("engines: {node: \t22}");
+    assert_eq!(
+        refused_vector(composite_over_pnpm(&install, &tabbed), &tabbed),
+        "pnpm lock is unreadable: a tab"
+    );
+
+    // R3 (review of run `124cca78`): an implicit block key is found by a
+    // lookahead YAML bounds at 1,024 characters, counted over the key AS
+    // SPELLED — quotes and pre-colon padding included, indentation, colon
+    // and value not. Every 1,025-character span refuses by pnpm, the
+    // `peerDependencies` body and the limit; every 1,024-character span
+    // is the valid ignored-body control's composite.
+    let peer =
+        |key: &str, value: &str| with_child(&format!("peerDependencies:\n      {key}: {value}"));
+    let body_control = composite_over_pnpm(&install, &peer("react", "a"))
+        .unwrap()
+        .canonical;
+    assert_eq!(body_control, control.canonical);
+    let ascii = |count: usize| "k".repeat(count);
+    // U+00E9 is two bytes: 1,024 of them are 2,048 bytes and one key.
+    let multibyte = |count: usize| "\u{e9}".repeat(count);
+    for (key, admitted) in [
+        (ascii(1024), true),
+        (ascii(1025), false),
+        (format!("{} ", ascii(1023)), true),
+        (format!("{} ", ascii(1024)), false),
+        (format!("{}     ", ascii(1020)), false),
+        (format!("'{}'", ascii(1022)), true),
+        (format!("'{}'", ascii(1023)), false),
+        (format!("\"{}\"", ascii(1022)), true),
+        (format!("\"{}\"", ascii(1023)), false),
+        (multibyte(1024), true),
+        (multibyte(1025), false),
+        (format!("{} ", multibyte(1023)), true),
+        (format!("{} ", multibyte(1024)), false),
+        (format!("'{}'", multibyte(1022)), true),
+        (format!("'{}'", multibyte(1023)), false),
+    ] {
+        let lock = peer(&key, "a");
+        let observed = composite_over_pnpm(&install, &lock);
+        let spelled = key.chars().count();
+        match admitted {
+            true => assert_eq!(
+                observed.unwrap().canonical,
+                body_control,
+                "{spelled} characters"
+            ),
+            false => assert_eq!(
+                refused(observed),
+                "pnpm lock is unreadable: a line under the package child 'peerDependencies' \
+                 carrying an implicit key past YAML's implicit-key lookahead limit of 1,024 \
+                 characters",
+                "{spelled} characters"
+            ),
+        }
+    }
+    // The bound is the KEY's. A long value and a long line are YAML, in
+    // the body and beside it.
+    let long = "v".repeat(4096);
+    for child in [
+        format!("peerDependencies:\n      react: {long}"),
+        format!("peerDependencies:\n      {}: '{long}'", ascii(1024)),
+        format!("deprecated: {long}"),
+    ] {
+        assert_eq!(
+            composite_over_pnpm(&install, &with_child(&child))
+                .unwrap()
+                .canonical,
+            control.canonical,
+            "a {}-byte child",
+            child.len()
         );
     }
     // A key repeated in ANOTHER block is another key: two importers each
@@ -4706,17 +5202,20 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     }
 
     // The forms the head ADMITS: a shebang with arguments and tabs, one
-    // whose whole file is shorter than the bound and unterminated, `env`
-    // alone, the measured `env node` form with a `node` on the SAME
-    // search (staged in B), a script whose interpreter is a script, and
-    // a native image that is not a script at all — this test binary,
-    // hard-linked in, whose loader the reader opens and checks.
+    // whose whole file is shorter than the bound and unterminated, an
+    // established `env` with a program that is not `node` (`env sh`, the
+    // terminating control beside R4's refusals below), the measured `env
+    // node` form with a `node` on the SAME search (staged in B), a script
+    // whose interpreter is a script, and a native image that is not a
+    // script at all — this test binary, hard-linked in, whose loader the
+    // reader opens and checks.
     stage_executable(&b, "node", b"#!/bin/sh\necho v0\n");
+    stage_executable(&b, "sh", b"#!/bin/sh\n");
     let interpreter_script = stage_executable(&b, "interp", b"#!/bin/sh\n");
     for (body, node) in [
         (b"#! \t/bin/sh\t-e  extra\n".to_vec(), None),
         (b"#!/bin/sh".to_vec(), None),
-        (b"#!/usr/bin/env\n".to_vec(), None),
+        (b"#!/usr/bin/env sh\n".to_vec(), None),
         (
             b"#!/usr/bin/env node\n".to_vec(),
             Some(b.join("node").canonicalize().unwrap()),
@@ -4739,14 +5238,51 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
         );
         // The `node` an `env node` line selected is retained beside the
         // file; every other admitted form establishes none.
-        assert_eq!(selected.node, node, "{body:?}");
+        assert_eq!(node_file(&selected.node), node, "{body:?}");
+    }
+    // R4 (review of run `124cca78`): an established `env` with NO
+    // nonblank program. The kernel appends the launcher's path to the
+    // line's arguments, so the program `env` runs is the launcher itself,
+    // again and without end; this row was ADMITTED as "no node selected",
+    // and the doctor that followed never returned. Bare, unterminated,
+    // and every blank tail refuse by the launcher, the env interpreter
+    // and the missing program — with no selection, so nothing to probe.
+    for body in [
+        b"#!/usr/bin/env\n".to_vec(),
+        b"#!/usr/bin/env".to_vec(),
+        b"#!/usr/bin/env \n".to_vec(),
+        b"#!/usr/bin/env \t \t\n".to_vec(),
+        b"#! \t/usr/bin/env\t\n".to_vec(),
+    ] {
+        stage_executable(&a, "dsh", &body);
+        let missing_program = format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '/usr/bin/env' is the \
+             platform's env utility given no nonblank program, so the program it would run is \
+             the launcher itself",
+            a.join("dsh").display()
+        );
+        assert_eq!(
+            refused(select_in("dsh", path(&a))),
+            missing_program,
+            "{body:?}"
+        );
+        // Through the seam a caller probes by: no selection, so no
+        // invocation — there is nothing a version probe could launch.
+        let unselected = DshSeams::selected_from(
+            "dsh".to_string(),
+            |name| select_in(name, path(&a)),
+            Some(dir.path().to_path_buf()),
+        )
+        .unwrap_err();
+        assert_eq!(unselected.declared, "dsh");
+        assert_eq!(unselected.cause.to_string(), missing_program, "{body:?}");
     }
     // A script whose INTERPRETER is the `env node` script retains that
     // innermost selection as its own.
     let via = stage_executable(&b, "via-env-node", b"#!/usr/bin/env node\n");
     stage_executable(&a, "dsh", format!("#!{}\n", via.display()).as_bytes());
     assert_eq!(
-        select_in("dsh", path(&a)).unwrap().node,
+        node_file(&select_in("dsh", path(&a)).unwrap().node),
         Some(b.join("node").canonicalize().unwrap())
     );
     // An `env` argument with more than one word: the Linux kernel hands
@@ -5411,7 +5947,10 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     stage_executable(&b, "node", b"#!/bin/sh\necho v0\n");
     stage_executable(&a, "dsh", b"#!/usr/bin/env node \t \n");
     let selected = select_in("dsh", path.clone()).unwrap();
-    assert_eq!(selected.node, Some(b.join("node").canonicalize().unwrap()));
+    assert_eq!(
+        node_file(&selected.node),
+        Some(b.join("node").canonicalize().unwrap())
+    );
     stage_executable(&a, "dsh", b"#!/usr/bin/env node --flag\n");
     let native = spawn_retrying_etxtbsy(
         Command::new("dsh")
@@ -5689,7 +6228,7 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         let selected = select_in("dsh", path.clone()).unwrap();
         assert_eq!(selected.path, a.join("dsh").canonicalize().unwrap());
         assert_eq!(
-            selected.node,
+            node_file(&selected.node),
             Some(b.join("node").canonicalize().unwrap()),
             "{}",
             interpreter.display()
@@ -5780,7 +6319,10 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         "MARK:b-node"
     );
     let selected = lookup_in("dsh", &injected(&bb_env), &mut Vec::new()).unwrap();
-    assert_eq!(selected.node, Some(b.join("node").canonicalize().unwrap()));
+    assert_eq!(
+        node_file(&selected.node),
+        Some(b.join("node").canonicalize().unwrap())
+    );
     stage_executable(
         &a,
         "dsh",
@@ -5858,7 +6400,7 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     );
     let selected = lookup_in("dsh", &injected(&multicall), &mut Vec::new()).unwrap();
     assert_eq!(
-        selected.node,
+        node_file(&selected.node),
         Some(b.join("node").canonicalize().unwrap()),
         "the platform's own installed file is established under the name env"
     );
@@ -5913,7 +6455,10 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             "MARK:b-node"
         );
         let selected = lookup_in("dsh", &injected(&real_env), &mut Vec::new()).unwrap();
-        assert_eq!(selected.node, Some(b.join("node").canonicalize().unwrap()));
+        assert_eq!(
+            node_file(&selected.node),
+            Some(b.join("node").canonicalize().unwrap())
+        );
         stage_executable(
             &a,
             "dsh",
@@ -6726,7 +7271,7 @@ fn dsh_composite_composes_over_the_real_and_injected_runtime_probes() {
     let gone = install.dir.path().join("gone-node");
     let enoent = fs::metadata(&gone).unwrap_err();
     assert_eq!(
-        refused(spawn_node_runtime(Some(&gone))),
+        refused(spawn_node_runtime(Some(&node_at(&gone)))),
         format!("the DSH layout is unreadable: node --version: {enoent}")
     );
 }
@@ -6756,7 +7301,10 @@ fn the_composite_observes_the_node_the_selection_retained() {
         selected.path,
         Path::new(&install.seams.executable).canonicalize().unwrap()
     );
-    assert_eq!(selected.node, Some(a.join("node").canonicalize().unwrap()));
+    assert_eq!(
+        node_file(&selected.node),
+        Some(a.join("node").canonicalize().unwrap())
+    );
     let seams = DshSeams {
         executable: install.seams.executable.clone(),
         home: install.seams.home.clone(),

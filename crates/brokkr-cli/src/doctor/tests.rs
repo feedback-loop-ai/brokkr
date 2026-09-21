@@ -1,5 +1,5 @@
 use super::*;
-use brokkr_protocol::adapters::CompositeError;
+use brokkr_protocol::adapters::{dsh_composite, CompositeError};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -2120,16 +2120,38 @@ fn selected_head(executable: &str) -> Vec<u8> {
 
 /// A resolved home under a temporary root, so an injected `selected`
 /// hands the producer a real `DshSeams` without touching the operator's.
+///
+/// The selection is ADMITTED as production admits it — there is no other
+/// way to hold a prepared one — so a home with no profile of its own is
+/// given the smallest profile and pnpm lock that admit. A home that
+/// already has them is read as it is.
 #[cfg(test)]
 fn seams_at(executable: &str, home: &Path) -> Result<DshSelection, DshUnselected> {
+    let profile = home.join("profiles").join("headless");
+    if !profile.join("package.json").exists() {
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(
+            profile.join("package.json"),
+            br#"{"dsh":{"profile":{"bundles":["dsh-plugin-cli-session"],"patchReload":"startup"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            profile.join("pnpm-lock.yaml"),
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-D}\n",
+        )
+        .unwrap();
+    }
     Ok(DshSelection {
         executable: executable.to_string(),
-        seams: Ok(DshSeams {
-            executable: executable.to_string(),
-            home: home.to_path_buf(),
-            node: None,
-            head: selected_head(executable),
-        }),
+        admission: DshPrepared::admit(
+            DshInvocation::of(executable),
+            DshSeams {
+                executable: executable.to_string(),
+                home: home.to_path_buf(),
+                node: None,
+                head: selected_head(executable),
+            },
+        ),
     })
 }
 
@@ -2218,13 +2240,15 @@ fn the_dsh_version_and_composite_come_from_one_resolved_installation() {
     let seen: RefCell<Option<PathBuf>> = RefCell::new(None);
     let observed = dsh_provider_line_with(
         &adapter,
-        |binary| {
-            probed.borrow_mut().push(binary.to_string());
+        |invocation| {
+            probed
+                .borrow_mut()
+                .push(invocation.program.display().to_string());
             Some("0.1.5-rc.2 (sentinel)".to_string())
         },
         || seams_at(&selected, dir.path()),
-        |seams| {
-            *seen.borrow_mut() = Some(seams.home.clone());
+        |prepared| {
+            *seen.borrow_mut() = Some(prepared.seams().home.clone());
             Ok(("canonical".into(), "plugin".into()))
         },
     );
@@ -2253,7 +2277,7 @@ fn a_failed_selected_executable_is_never_retried_against_a_path_decoy() {
     let selected = dir.path().join("absent-dsh").display().to_string();
     let observed = dsh_provider_line_with(
         &adapter,
-        |binary| match binary == adapter.binary {
+        |invocation| match invocation.program == Path::new(&adapter.binary) {
             // The decoy the bare declared name WOULD have found.
             true => Some("0.0.0 (decoy on PATH)".to_string()),
             false => None,
@@ -2287,6 +2311,30 @@ fn the_guide_documents_the_wording_the_classifier_emits() {
     assert!(
         guide.contains(&unreadable),
         "the guide's unreadable sample is what doctor prints: {unreadable}"
+    );
+    // A refused pnpm lock is reported beside an executable that was
+    // selected and NOT probed (R1, R3): the guide's sample carries the
+    // report's own words for that, in front of the same suffix.
+    assert!(
+        guide.contains(&format!(
+            "warn     dsh: binary '<selected path>' selected and not probed · serves … · {unreadable}"
+        )),
+        "the guide's unprobed sample is the line doctor prints"
+    );
+    // The version-bearing sample is a refusal found AFTER the probe.
+    let (_, unresolved) = composite_detail(
+        Some("<digest>"),
+        false,
+        Err(
+            "the DSH layout is unreadable: bundle 'dsh-plugin-cli-session' does not resolve: \
+             no package.json found",
+        ),
+    );
+    assert!(
+        guide.contains(&format!(
+            "warn     dsh: 0.1.5-rc.2 · serves … · {unresolved}"
+        )),
+        "the guide's probed-and-unreadable sample: {unresolved}"
     );
     // And the readable vocabulary the sample line beside it uses.
     let (_, matched) = composite_detail(None, false, Ok(("<digest>", "<plugin>")));
@@ -2374,6 +2422,24 @@ fn recorded_version(binary: &str) -> Option<String> {
     Some(value.get("version")?.as_str()?.to_string())
 }
 
+/// The file an invocation runs: the installation `recorded_version`
+/// reads beside. The probe is handed the INVOCATION — a `PATH` symlink,
+/// where the seam searched — and the installation it witnesses is the
+/// one that spelling resolves to.
+#[cfg(test)]
+fn invoked_file(invocation: &DshInvocation) -> String {
+    std::fs::canonicalize(&invocation.program)
+        .unwrap_or_else(|_| invocation.program.clone())
+        .display()
+        .to_string()
+}
+
+/// `recorded_version`, asked as doctor's DSH probe is asked.
+#[cfg(test)]
+fn recorded_invocation_version(invocation: &DshInvocation) -> Option<String> {
+    recorded_version(&invoked_file(invocation))
+}
+
 /// Task 8.8(c), hermetically: the adapter seam's `BROKKR_DSH_BIN`, then
 /// `FORGE_DSH_BIN`, then PATH precedence moves BOTH halves of the DSH
 /// line together.
@@ -2408,7 +2474,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
             // through production's OWN `map_err` — the closure an
             // injected failure can never run (council return
             // 2026-09-19, finding 5).
-            let real = dsh_provider_line(&adapter, recorded_version);
+            let real = dsh_provider_line_probing(&adapter, recorded_invocation_version);
             assert_eq!(real.binary, chosen, "the seam's choice");
             assert_eq!(
                 real.version,
@@ -2449,13 +2515,13 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
         // so the reported version can only be the selected install's.
         let observed = dsh_provider_line_with(
             &adapter,
-            |binary| {
-                probed.borrow_mut().push(binary.to_string());
-                recorded_version(binary)
+            |invocation| {
+                probed.borrow_mut().push(invoked_file(invocation));
+                recorded_invocation_version(invocation)
             },
             DshSeams::selected,
-            |seams| {
-                dsh_composite(seams)
+            |prepared| {
+                dsh_composite_prepared(prepared)
                     .map(composite_identity)
                     .map_err(|error| error.to_string())
             },
@@ -2524,7 +2590,7 @@ fn the_dsh_seam_precedence_moves_the_version_and_the_composite_together() {
         // injected pair above. Only a fixture that installs a `node` and
         // a `dsh` of its own reaches this deterministically — which is
         // why the whole case runs in a child.
-        let real = dsh_provider_line(&adapter, recorded_version);
+        let real = dsh_provider_line_probing(&adapter, recorded_invocation_version);
         assert_eq!(real.binary, chosen, "case {case}: the real line's binary");
         assert_eq!(
             real.version,
@@ -2666,9 +2732,10 @@ fn a_failed_home_seam_leaves_the_version_visible_beside_the_reason() {
         || {
             Ok(DshSelection {
                 executable: "/opt/dsh/lib/bin.js".to_string(),
-                seams: Err(CompositeError::Config(
-                    "no dsh home: set DSH_HOME or HOME".into(),
-                )),
+                admission: Err(DshUnprepared::Unlocated {
+                    invocation: DshInvocation::of("/opt/dsh/bin/dsh"),
+                    cause: CompositeError::Config("no dsh home: set DSH_HOME or HOME".into()),
+                }),
             })
         },
         |_| panic!("no seams, no producer call"),
@@ -2699,7 +2766,7 @@ fn a_failed_selection_probes_nothing_and_carries_its_cause() {
     let adapter = dsh_adapter_declaring(None);
     let observed = dsh_provider_line_with(
         &adapter,
-        |binary| panic!("a probe of '{binary}' after a failed selection"),
+        |invocation| panic!("a probe of {invocation:?} after a failed selection"),
         || {
             Err(DshUnselected {
                 declared: "dsh".to_string(),
@@ -2726,7 +2793,7 @@ fn a_failed_selection_probes_nothing_and_carries_its_cause() {
     }));
     let observed = dsh_provider_line_with(
         &supported,
-        |binary| panic!("a probe of '{binary}' after a failed selection"),
+        |invocation| panic!("a probe of {invocation:?} after a failed selection"),
         || {
             Err(DshUnselected {
                 declared: "/override/dsh".to_string(),
@@ -2740,6 +2807,186 @@ fn a_failed_selection_probes_nothing_and_carries_its_cause() {
     assert_eq!(
         observed.cause.as_deref(),
         Some("the DSH layout is unreadable: /override/dsh: missing")
+    );
+}
+
+/// R1 and R3 (review of run `124cca78`) at doctor's callback seam: a
+/// LOCATED pnpm lock that fails admission stops the line before either
+/// callback. The DSH probe and the producer are counted, because a
+/// marker file cannot witness a probe that failed silently; both stay at
+/// zero, the refusal and the declaration context reach the line, and no
+/// version is invented. The valid control beside it probes once and
+/// composes once, so a blanket refusal cannot pass.
+#[test]
+fn a_refused_pnpm_lock_stops_the_line_before_either_probe() {
+    use std::cell::Cell;
+
+    let digest = "a".repeat(64);
+    let adapter = dsh_adapter_declaring(Some(ResumeIdentity::Measured {
+        version: "0.1.5-rc.2".into(),
+        applies_to: "0.1.5-rc.2".into(),
+        wrapper_digest: Some(digest.clone()),
+    }));
+    let package = "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    \
+                   resolution: {integrity: sha512-D}\n";
+    for (child, reason) in [
+        (
+            "    engines: {node:  *missing}\n".to_string(),
+            "a package child 'engines' carrying the malformed flow member 'node:  *missing', \
+             whose value opens with the YAML indicator '*'",
+        ),
+        (
+            format!("    peerDependencies:\n      {}: a\n", "k".repeat(1025)),
+            "a line under the package child 'peerDependencies' carrying an implicit key past \
+             YAML's implicit-key lookahead limit of 1,024 characters",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = dir.path().join("profiles/headless/pnpm-lock.yaml");
+        // The control first, over the same home: one probe, one compose.
+        let (probes, composes) = (Cell::new(0), Cell::new(0));
+        let line = |probes: &Cell<u32>, composes: &Cell<u32>| {
+            dsh_provider_line_with(
+                &adapter,
+                |_| {
+                    probes.set(probes.get() + 1);
+                    Some("0.1.5-rc.2".to_string())
+                },
+                || seams_at("/opt/dsh/lib/bin.js", dir.path()),
+                |_| {
+                    composes.set(composes.get() + 1);
+                    Ok((digest.clone(), "plugin".into()))
+                },
+            )
+        };
+        let control = line(&probes, &composes);
+        assert_eq!((probes.get(), composes.get()), (1, 1), "the control runs");
+        assert_eq!(control.version.as_deref(), Some("0.1.5-rc.2"));
+        assert!(control.suffix.contains(&digest), "{}", control.suffix);
+
+        std::fs::write(&lock, format!("{package}{child}")).unwrap();
+        let (probes, composes) = (Cell::new(0), Cell::new(0));
+        let observed = line(&probes, &composes);
+        assert_eq!(
+            (probes.get(), composes.get()),
+            (0, 0),
+            "neither DSH nor the producer's Node probe runs: {reason}"
+        );
+        assert_eq!(observed.binary, "/opt/dsh/lib/bin.js");
+        assert_eq!(observed.version, None, "no version is invented");
+        assert_eq!(observed.cause, None, "the executable WAS selected");
+        assert!(observed.warning, "a supported declaration warns");
+        assert_eq!(
+            observed.suffix,
+            format!(
+                "composite unreadable: pnpm lock is unreadable: {reason} (declared \
+                 wrapper_digest {digest}; comparison unavailable)"
+            )
+        );
+    }
+}
+
+/// The refused-admission line as the REPORT prints it: selected and not
+/// probed, with the refusal beside it — never "not found", which would
+/// send an operator holding a malformed lock to reinstall an executable
+/// that is there, and with no availability fact recorded for a probe
+/// that was never made.
+#[test]
+fn a_selected_and_unprobed_dsh_is_not_reported_missing() {
+    fn refused_admission(adapter: &Adapter, _: fn(&str) -> Option<String>) -> Observed {
+        dsh_provider_line_with(
+            adapter,
+            |invocation| panic!("a probe of {invocation:?} after a refused admission"),
+            || {
+                Ok(DshSelection {
+                    executable: "/opt/dsh/lib/bin.js\u{1b}[2J".to_string(),
+                    admission: Err(DshUnprepared::Refused {
+                        cause: CompositeError::PnpmLock("a tab".into()),
+                    }),
+                })
+            },
+            |_| panic!("no admission, no producer call"),
+        )
+    }
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    let availability = probe_providers(
+        &mut report,
+        &workspace().join("adapters"),
+        |_| None,
+        refused_admission,
+    );
+    let rendered = report.render();
+    let line = rendered
+        .lines()
+        .find(|line| line.contains(" dsh: "))
+        .expect("the dsh line");
+    assert!(
+        line.starts_with(
+            "warn     dsh: binary '/opt/dsh/lib/bin.js[2J' selected and not probed · serves"
+        ),
+        "{line}"
+    );
+    assert!(
+        line.contains("· composite unreadable: pnpm lock is unreadable: a tab ("),
+        "{line}"
+    );
+    assert!(!line.contains("not found"), "{line}");
+    assert!(!rendered.contains('\u{1b}'), "the binary is escaped");
+    assert!(
+        matches!(availability.presence("dsh"), Presence::Unknown),
+        "nothing is recorded about an availability that was never asked"
+    );
+}
+
+/// R2 (review of run `124cca78`) at doctor's own probe: what runs is the
+/// INVOCATION the selection carries — the candidate the search found —
+/// and never the canonical file behind it. The launcher prints the path
+/// it was run by, so a probe of the canonical target answers
+/// `lib/launcher.sh` and fails here. A launcher that exits nonzero and
+/// one that is not there report no version.
+#[cfg(unix)]
+#[test]
+fn the_dsh_probe_runs_the_selected_invocation_and_not_its_canonical_target() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (bin, lib) = (dir.path().join("bin"), dir.path().join("lib"));
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&lib).unwrap();
+    // Staged beside the target and renamed in, so no write descriptor on
+    // the launcher is open when it is executed (#255).
+    let stage = |name: &str, body: &str| {
+        let staged = lib.join(format!(".{name}.staging"));
+        std::fs::write(&staged, body).unwrap();
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::rename(&staged, lib.join(name)).unwrap();
+        lib.join(name)
+    };
+    let launcher = stage("launcher.sh", "#!/bin/sh\necho \"$0 $1\"\n");
+    let alias = bin.join("dsh");
+    std::os::unix::fs::symlink(&launcher, &alias).unwrap();
+    let invocation = DshInvocation {
+        program: alias.clone(),
+        argv0: "dsh".into(),
+    };
+    assert_eq!(
+        invocation_version(&invocation),
+        Some(format!("{} --version", alias.display())),
+        "the selected candidate is what runs"
+    );
+    assert_ne!(
+        invocation_version(&invocation),
+        invocation_version(&DshInvocation::of(launcher.canonicalize().unwrap())),
+        "the canonical target answers differently, so the two are told apart"
+    );
+    let failing = stage("failing.sh", "#!/bin/sh\necho v0\nexit 3\n");
+    assert_eq!(invocation_version(&DshInvocation::of(failing)), None);
+    assert_eq!(
+        invocation_version(&DshInvocation::of(bin.join("absent"))),
+        None
     );
 }
 

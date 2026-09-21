@@ -27,7 +27,8 @@ mod route_overlay;
 // serializer and injected helper stays private to `composite`, so no
 // caller can supply an already-computed component or composite value.
 pub use composite::{
-    dsh_composite, CompositeError, DshComposite, DshSeams, DshSelection, DshUnselected,
+    dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
+    DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
 
 use crate::dsh_sandbox;

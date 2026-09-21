@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::adapters::{
-    dsh_composite, DshComposite, DshSeams, DshSelection, DshUnselected,
+    dsh_composite_prepared, DshComposite, DshInvocation, DshPrepared, DshSeams, DshSelection,
+    DshUnprepared, DshUnselected,
 };
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
@@ -218,12 +219,37 @@ fn composite_identity(composite: DshComposite) -> (String, String) {
 /// through the seam probed the declared spelling after a failed lookup,
 /// which under an absent `PATH` executed a `dsh` sitting in the working
 /// directory (security hold 2026-09-20, S1).
-fn dsh_provider_line(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Observed {
-    dsh_provider_line_with(adapter, probe, DshSeams::selected, |seams| {
-        dsh_composite(seams)
+///
+/// The report's ordinary probe runs a NAME, and is not used here: DSH is
+/// probed as the INVOCATION its selection carries (`invocation_version`).
+fn dsh_provider_line(adapter: &Adapter, _: fn(&str) -> Option<String>) -> Observed {
+    dsh_provider_line_probing(adapter, invocation_version)
+}
+
+/// `dsh_provider_line` over an injected version probe and the real seams.
+fn dsh_provider_line_probing(
+    adapter: &Adapter,
+    probe: fn(&DshInvocation) -> Option<String>,
+) -> Observed {
+    dsh_provider_line_with(adapter, probe, DshSeams::selected, |prepared| {
+        dsh_composite_prepared(prepared)
             .map(composite_identity)
             .map_err(|error| error.to_string())
     })
+}
+
+/// The version of a SELECTED executable, asked as native asks it: the
+/// candidate the seam's search found, under the name it was looked up
+/// by. Probing the canonical target instead reported `env`'s version for
+/// a `dsh` symlinked to it, where native exits 1 on the name mismatch
+/// (review of run `124cca78`, R2). Nothing is searched for again: the
+/// invocation's program is a path.
+fn invocation_version(invocation: &DshInvocation) -> Option<String> {
+    let out = invocation.command().arg("--version").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(safe_line(&out.stdout))
 }
 
 /// `dsh_provider_line` over an injected seam resolver and composite
@@ -232,9 +258,9 @@ fn dsh_provider_line(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Ob
 /// real seams.
 fn dsh_provider_line_with(
     adapter: &Adapter,
-    probe: impl Fn(&str) -> Option<String>,
+    probe: impl Fn(&DshInvocation) -> Option<String>,
     selected: impl FnOnce() -> Result<DshSelection, DshUnselected>,
-    composite: impl FnOnce(&DshSeams) -> Result<(String, String), String>,
+    composite: impl FnOnce(&DshPrepared) -> Result<(String, String), String>,
 ) -> Observed {
     // The DSH work shape's name, one spelling in Rust so the guide
     // sample and this line cannot drift apart silently.
@@ -252,7 +278,7 @@ fn dsh_provider_line_with(
     // composite failure, not evidence that the binary is missing.
     let DshSelection {
         executable: binary,
-        seams,
+        admission,
     } = match selected() {
         Ok(selection) => selection,
         Err(DshUnselected { declared, cause }) => {
@@ -265,7 +291,29 @@ fn dsh_provider_line_with(
             };
         }
     };
-    let version = probe(&binary);
+    // The home's profile and pnpm lock were admitted with the selection,
+    // BEFORE this point, and the admission is what holds the invocation.
+    // A located lock that failed it leaves nothing to probe: the refusal
+    // is reported beside the declaration, with no version, and neither
+    // DSH nor Node runs for a lock YAML refuses (R1, R3). A home that was
+    // never located is a different fact — the executable's availability
+    // does not depend on it — so its invocation is still asked.
+    let (invocation, prepared) = match admission {
+        Ok(prepared) => (prepared.invocation().clone(), Ok(prepared)),
+        Err(DshUnprepared::Unlocated { invocation, cause }) => (invocation, Err(cause.to_string())),
+        Err(DshUnprepared::Refused { cause }) => {
+            let cause = cause.to_string();
+            let (warning, suffix) = composite_detail(declared.as_deref(), supported, Err(&cause));
+            return Observed {
+                binary,
+                version: None,
+                warning,
+                suffix,
+                cause: None,
+            };
+        }
+    };
+    let version = probe(&invocation);
     if version.is_none() {
         // The executable doctor selected did not answer. Nothing the
         // composite could say describes an installation this report
@@ -278,9 +326,7 @@ fn dsh_provider_line_with(
             cause: None,
         };
     }
-    let identity = seams
-        .map_err(|error| error.to_string())
-        .and_then(|seams| composite(&seams));
+    let identity = prepared.and_then(|prepared| composite(&prepared));
     let (warning, suffix) = match &identity {
         Ok((digest, plugin)) => {
             composite_detail(declared.as_deref(), supported, Ok((digest, plugin)))
@@ -402,6 +448,19 @@ fn probe_providers(
                 } else {
                     report.ok(&adapter.provider, detail);
                 }
+            }
+            // Selected, and deliberately NOT probed: the refusal that
+            // stopped the probe rides in the suffix. It is not a missing
+            // binary, and saying so would send an operator holding a
+            // malformed pnpm lock to reinstall an executable that is
+            // there; nothing is recorded about an availability that was
+            // never asked.
+            None if !suffix.is_empty() => {
+                let binary = Safe::new(&binary).as_str().to_string();
+                report.warn(
+                    &adapter.provider,
+                    format!("binary '{binary}' selected and not probed · {serves} · {suffix}"),
+                );
             }
             None => {
                 availability.record(&adapter.provider, Presence::Unavailable);

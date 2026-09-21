@@ -851,7 +851,19 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
                     (_, None) => field,
                 };
                 if flow_scalar(member).is_err() {
-                    return Err(format!("the malformed flow member '{field}'"));
+                    // The opening is judged on the member AFTER its
+                    // separation (`split_flow_entry`), and named: an
+                    // alias, an anchor or a reserved indicator is not a
+                    // scalar with an odd first character (R1). A quote
+                    // opens a quoted scalar, whose fault is its own.
+                    let quote = member.starts_with(['\'', '"']);
+                    return Err(match member.chars().next() {
+                        Some(open) if !quote && YAML_INDICATORS.contains(&open) => format!(
+                            "the malformed flow member '{field}', whose value opens with the \
+                             YAML indicator '{open}'"
+                        ),
+                        _ => format!("the malformed flow member '{field}'"),
+                    });
                 }
             }
             Ok(())
@@ -882,6 +894,16 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
 /// value, leaving a `: ` inside a quoted scalar to the scalar: `'a: b'`
 /// is one string member of a sequence, and `'k: x': v` is an entry
 /// whose key is a quoted string.
+///
+/// The separator is the WHOLE run of spaces after the colon, not its
+/// first one (YAML 1.2.2 §6.2, separation spaces). Consuming one space
+/// handed `{node:  *missing}` to the scalar rule as ` *missing`, whose
+/// first character is a space and not the alias indicator, so an alias,
+/// an anchor and a reserved indicator each read as the valid control's
+/// composite behind one space of padding (review of run `124cca78`, R1).
+/// A scalar's opening syntax is judged after all of its separation. Only
+/// spaces are separation here: a tab stays with the value and keeps its
+/// own refusal, and a quoted value keeps every byte inside its quotes.
 fn split_flow_entry(field: &str) -> Option<(&str, &str)> {
     let mut quote: Option<char> = None;
     for (index, c) in field.char_indices() {
@@ -890,13 +912,18 @@ fn split_flow_entry(field: &str) -> Option<(&str, &str)> {
             Some(_) => {}
             None if c == '\'' || c == '"' => quote = Some(c),
             None if c == ':' && field[index + 1..].starts_with(' ') => {
-                return Some((&field[..index], &field[index + 2..]));
+                return Some((&field[..index], field[index + 1..].trim_start_matches(' ')));
             }
             None => {}
         }
     }
     None
 }
+
+/// How many characters YAML looks ahead for the colon of an implicit
+/// block-mapping key (YAML 1.2.2 §8.2.2): the longest key this reader
+/// admits where it admits a key without reading it.
+const IMPLICIT_KEY_LOOKAHEAD: usize = 1024;
 
 /// One member of an ignored body whose SYNTAX was admitted: what the
 /// structure rule (`IgnoredBody`) still needs to know about the line.
@@ -941,6 +968,22 @@ fn pnpm_ignored_line(text: &str) -> Result<Member<'_>, String> {
     }
     let (key, rest) = split_mapping_key(text)
         .ok_or_else(|| format!("the line '{text}', which is not a mapping entry"))?;
+    // An implicit block key is found by LOOKAHEAD, and YAML bounds that
+    // lookahead: the colon sits within 1,024 characters of the key's
+    // first (YAML 1.2.2 §8.2.2, productions 192–193 through 154–155). The
+    // span is the key AS SPELLED — its quotes and the padding before the
+    // colon included, the indentation, the colon and the value not — and
+    // it is counted in characters before anything is trimmed or decoded,
+    // so neither padding nor quoting hides an over-limit key. A reader
+    // without the bound read a 1,025-character `peerDependencies` key as
+    // the valid control's composite (review of run `124cca78`, R3). The
+    // bound is on the key alone: a long value or a long line is YAML.
+    if key.chars().nth(IMPLICIT_KEY_LOOKAHEAD).is_some() {
+        return Err(
+            "an implicit key past YAML's implicit-key lookahead limit of 1,024 characters"
+                .to_string(),
+        );
+    }
     // The padding between a plain key and its colon belongs to the
     // separator, not the key: `react : b` spells the key `react` (YAML
     // 1.2.2 §7.10.3, a plain scalar ends before its trailing white
@@ -1666,7 +1709,7 @@ pub struct DshSeams {
     /// up again (review 2026-09-20, R5). `None` when the selection
     /// established no `node` — a native image, another interpreter —
     /// and the observation then looks `node` up by the same rule.
-    pub node: Option<PathBuf>,
+    pub node: Option<DshNode>,
     /// The bounded head of the selected executable, EXACTLY as selection
     /// read it. The observation's `#!` check reads this and never the
     /// file again: the version probe runs the selected executable, and a
@@ -1683,7 +1726,134 @@ pub struct DshSeams {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DshSelection {
     pub executable: String,
-    pub seams: Result<DshSeams, CompositeError>,
+    /// What the selection may be asked next. The invocation — the only
+    /// thing a caller can probe — is inside this and nowhere beside it,
+    /// so a located pnpm lock that failed admission leaves no probe
+    /// target at all.
+    pub admission: Result<DshPrepared, DshUnprepared>,
+}
+
+/// The profile declarations and the pnpm dependencies of one home,
+/// ADMITTED: read once, before anything is executed, and retained for
+/// the composition that follows.
+///
+/// The pnpm lock was parsed last — after doctor's DSH version probe and
+/// after the producer's Node probe — so a lock YAML refuses was found
+/// out only once both programs had run (review of run `124cca78`, R1 and
+/// R3: no DSH or Node execution for a lock that fails admission). It is
+/// also parsed ONCE: composition consumes these values and never reopens
+/// the profile manifest or the lock, so a probe that rewrote either
+/// cannot hand composition a second input. No digest is computed here;
+/// the exclusion names derive from the profile's declarations and count
+/// for nothing until composition has resolved and measured every
+/// declared bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Admitted {
+    profile: Profile,
+    pnpm: Vec<String>,
+}
+
+/// Why a home's inputs were not admitted, and which of two facts it is.
+struct Unadmitted {
+    /// Whether the pnpm lock was LOCATED and then refused, as opposed to
+    /// a profile or a lock that could not be found to be read at all.
+    located: bool,
+    cause: CompositeError,
+}
+
+impl Admitted {
+    fn read(home: &Path) -> Result<Admitted, Unadmitted> {
+        let profile = read_profile(home).map_err(|cause| Unadmitted {
+            located: false,
+            cause,
+        })?;
+        let lock = profile.dir.join("pnpm-lock.yaml");
+        // Only a name that is truly absent is a lock that was not
+        // located; a dangling link, a denied one and every failure to
+        // read what is there are refusals of a located lock.
+        let located = !matches!(
+            std::fs::symlink_metadata(&lock),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        );
+        // The names whose installed bytes supply a component line of
+        // their own, as the profile DECLARES them: composition resolves
+        // and measures each before these exclusions reach a digest.
+        let mut local = vec![PLUGIN_BUNDLE];
+        if profile.bundles.iter().any(|name| name == EXTENSION_BUNDLE) {
+            local.push(EXTENSION_BUNDLE);
+        }
+        read_pnpm(&lock)
+            .and_then(|text| pnpm_dependencies(&text, &local))
+            .map(|pnpm| Admitted { profile, pnpm })
+            .map_err(|cause| Unadmitted { located, cause })
+    }
+}
+
+/// A selection whose home was ADMITTED: the invocation a caller may now
+/// probe, the seams, and the retained inputs the composite is produced
+/// from. Every member is private and the only constructor is the
+/// admission itself, so holding one is the proof that the pnpm lock was
+/// read before anything ran.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshPrepared {
+    invocation: DshInvocation,
+    seams: DshSeams,
+    admitted: Admitted,
+}
+
+impl DshPrepared {
+    /// Admit the home beside a selected executable, before any probe.
+    pub fn admit(invocation: DshInvocation, seams: DshSeams) -> Result<DshPrepared, DshUnprepared> {
+        match Admitted::read(&seams.home) {
+            Ok(admitted) => Ok(DshPrepared {
+                invocation,
+                seams,
+                admitted,
+            }),
+            Err(Unadmitted {
+                located: true,
+                cause,
+            }) => Err(DshUnprepared::Refused { cause }),
+            Err(Unadmitted {
+                located: false,
+                cause,
+            }) => Err(DshUnprepared::Unlocated { invocation, cause }),
+        }
+    }
+
+    /// The selected executable as native runs it: what a version probe
+    /// launches.
+    pub fn invocation(&self) -> &DshInvocation {
+        &self.invocation
+    }
+
+    pub fn seams(&self) -> &DshSeams {
+        &self.seams
+    }
+}
+
+/// A selection with no admitted home, which is one of two facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DshUnprepared {
+    /// The home, its profile or its pnpm lock was not FOUND. The
+    /// executable's availability is independent of that, so the
+    /// invocation is still here to be asked its version; no composite
+    /// can follow.
+    Unlocated {
+        invocation: DshInvocation,
+        cause: CompositeError,
+    },
+    /// The located pnpm lock failed admission. Nothing is probed: there
+    /// is no invocation here to probe.
+    Refused { cause: CompositeError },
+}
+
+impl DshUnprepared {
+    pub fn cause(&self) -> &CompositeError {
+        match self {
+            DshUnprepared::Unlocated { cause, .. } | DshUnprepared::Refused { cause } => cause,
+        }
+    }
 }
 
 /// A selection that did not happen: the spelling that was looked for and
@@ -1698,20 +1868,28 @@ pub struct DshUnselected {
     pub cause: CompositeError,
 }
 
+/// One environment resolution, before admission: the canonical
+/// executable, the invocation native runs it by, and the home result.
+struct Located {
+    executable: String,
+    invocation: DshInvocation,
+    seams: Result<DshSeams, CompositeError>,
+}
+
 impl DshSeams {
     pub fn resolve() -> Result<DshSeams, CompositeError> {
-        DshSeams::resolved(DshSeams::selected())
+        DshSeams::resolved(DshSeams::located())
     }
 
-    /// `resolve` over an injected selection: the selection's seams, or
-    /// the cause it did not happen by. The planner has no use for a
-    /// declared spelling without a file behind it, so a failed selection
-    /// is the layout's refusal and nothing is looked up again.
-    fn resolved(
-        selection: Result<DshSelection, DshUnselected>,
-    ) -> Result<DshSeams, CompositeError> {
-        match selection {
-            Ok(selection) => selection.seams,
+    /// `resolve` over an injected location: the located seams, or the
+    /// cause the selection did not happen by. The planner has no use for
+    /// a declared spelling without a file behind it, so a failed selection
+    /// is the layout's refusal and nothing is looked up again. Nothing is
+    /// admitted here: the producer the planner calls next admits the home
+    /// itself, once, before its own Node probe.
+    fn resolved(located: Result<Located, DshUnselected>) -> Result<DshSeams, CompositeError> {
+        match located {
+            Ok(located) => located.seams,
             Err(unselected) => Err(unselected.cause),
         }
     }
@@ -1735,7 +1913,12 @@ impl DshSeams {
     /// beside a discarded lookup error, so a caller probed that spelling
     /// as though it had been selected (design D10, 2026-09-20).
     pub fn selected() -> Result<DshSelection, DshUnselected> {
-        DshSeams::selected_from(
+        DshSeams::located().map(DshSeams::admitted)
+    }
+
+    /// The environment's one resolution, before anything is admitted.
+    fn located() -> Result<Located, DshUnselected> {
+        DshSeams::located_from(
             super::adapter_binary("BROKKR_DSH_BIN", Some("FORGE_DSH_BIN"), "dsh"),
             select,
             crate::transcript::dsh_home(),
@@ -1746,12 +1929,48 @@ impl DshSeams {
     /// unresolvable and unspellable selections are all plain tests
     /// rather than facts about whichever `dsh` the host happens to have
     /// installed while the suite runs.
+    #[cfg(test)]
     fn selected_from(
         declared: String,
         resolve: impl FnOnce(&str) -> Result<Selected, CompositeError>,
         home: Option<PathBuf>,
     ) -> Result<DshSelection, DshUnselected> {
-        let Selected { path, node, head } = match resolve(&declared) {
+        DshSeams::located_from(declared, resolve, home).map(DshSeams::admitted)
+    }
+
+    /// The located selection, ADMITTED: the home's profile and pnpm lock
+    /// are read here, after the executable was selected and before any
+    /// caller holds an invocation to probe. A home that was never located
+    /// leaves the invocation beside its cause, because the executable's
+    /// availability does not depend on it.
+    fn admitted(located: Located) -> DshSelection {
+        let Located {
+            executable,
+            invocation,
+            seams,
+        } = located;
+        let admission = match seams {
+            Ok(seams) => DshPrepared::admit(invocation, seams),
+            Err(cause) => Err(DshUnprepared::Unlocated { invocation, cause }),
+        };
+        DshSelection {
+            executable,
+            admission,
+        }
+    }
+
+    /// `located` over an injected resolver and home.
+    fn located_from(
+        declared: String,
+        resolve: impl FnOnce(&str) -> Result<Selected, CompositeError>,
+        home: Option<PathBuf>,
+    ) -> Result<Located, DshUnselected> {
+        let Selected {
+            path,
+            invocation,
+            node,
+            head,
+        } = match resolve(&declared) {
             Ok(selected) => selected,
             Err(cause) => return Err(DshUnselected { declared, cause }),
         };
@@ -1768,7 +1987,11 @@ impl DshSeams {
             });
         };
         let seams = DshSeams::resolve_with(executable.clone(), node, head, home);
-        Ok(DshSelection { executable, seams })
+        Ok(Located {
+            executable,
+            invocation,
+            seams,
+        })
     }
 
     /// `resolve` over an injected executable, retained Node selection,
@@ -1776,7 +1999,7 @@ impl DshSeams {
     /// test.
     fn resolve_with(
         executable: String,
-        node: Option<PathBuf>,
+        node: Option<DshNode>,
         head: Vec<u8>,
         home: Option<PathBuf>,
     ) -> Result<DshSeams, CompositeError> {
@@ -1968,8 +2191,57 @@ fn effective_exec_access(path: &Path) -> Result<(), rustix::io::Errno> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Selected {
     path: PathBuf,
-    node: Option<PathBuf>,
+    invocation: DshInvocation,
+    node: Option<DshNode>,
     head: Vec<u8>,
+}
+
+/// How NATIVE runs a selected file: the candidate path the search
+/// produced — never its canonical target — and the `argv[0]` a child of
+/// this process would carry, which is the name as the caller spelled it.
+///
+/// A selection is two facts, and they were one. The canonical file is
+/// IDENTITY: core discovery, containment and every digest read it. The
+/// invocation is EXECUTION: a launcher reads the path it was run by and
+/// a multicall binary dispatches on the name it was run under, so a
+/// probe of the canonical target answers for a program native never runs
+/// (review of run `124cca78`, R2). Selection resolved the name once and
+/// this carries its answer; launching it is no second search, because
+/// `program` holds a separator and is executed as the path it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshInvocation {
+    pub program: PathBuf,
+    pub argv0: std::ffi::OsString,
+}
+
+impl DshInvocation {
+    /// A path run under its own spelling: an explicit path's invocation,
+    /// and the form a suite hands a fixture it selected by hand.
+    pub fn of(program: impl Into<PathBuf>) -> DshInvocation {
+        let program = program.into();
+        DshInvocation {
+            argv0: program.clone().into_os_string(),
+            program,
+        }
+    }
+
+    /// The command native would run: the selected candidate, under the
+    /// name it was looked up by.
+    pub fn command(&self) -> std::process::Command {
+        let mut command = std::process::Command::new(&self.program);
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::arg0(&mut command, &self.argv0);
+        command
+    }
+}
+
+/// The Node runtime a selection retained: the canonical file, which the
+/// runtime prefix and the global folders are read from, and the
+/// invocation `env` would run it by, which is what is probed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DshNode {
+    pub path: PathBuf,
+    pub invocation: DshInvocation,
 }
 
 /// What one search entry taught the resolver about its candidate.
@@ -2936,12 +3208,29 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
         Ok(loading) => loading,
         Err(why) => return refuse(why),
     };
-    // Admitted as the file it canonically is, with the bytes this
-    // inspection read retained beside it; a canonicalization the
-    // metadata above did not already rule out is refused by the helper's
-    // own reason.
+    // A candidate that IS the platform's env utility is run under the
+    // candidate's name, and what env does under a name is the dispatch
+    // `env_dispatch` establishes or refuses — here as for a `#!` line.
+    match is_env(candidate, &metadata, &search.env_reference) {
+        Ok(false) => {}
+        Ok(true) => {
+            if let Err(why) = env_dispatch(candidate, search) {
+                return refuse(format!("the selected invocation {why}"));
+            }
+        }
+        Err(why) => return refuse(format!("the selected invocation {why}")),
+    }
+    // Admitted as the file it canonically is — the identity — beside the
+    // candidate as native runs it — the invocation — with the bytes this
+    // inspection read retained; a canonicalization the metadata above did
+    // not already rule out is refused by the helper's own reason.
     canonicalize(candidate).map_or_else(Candidate::Refused, |path| {
-        Candidate::Admitted(Selected { path, node, head })
+        Candidate::Admitted(Selected {
+            path,
+            invocation: DshInvocation::of(candidate),
+            node,
+            head,
+        })
     })
 }
 
@@ -2989,7 +3278,7 @@ fn loading_obstruction(
     len: u64,
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
-) -> Result<(Option<PathBuf>, Vec<u8>), String> {
+) -> Result<(Option<DshNode>, Vec<u8>), String> {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
 
@@ -3256,48 +3545,34 @@ fn env_program(
     arguments: &[u8],
     search: &Search,
     chain: &mut Vec<(u64, u64)>,
-) -> Result<Option<PathBuf>, String> {
-    let is_env = is_env(interpreter, metadata, &search.env_reference)?;
-    let spelled = interpreter
-        .file_name()
-        .map_or(String::new(), |name| name.to_string_lossy().into_owned());
-    match (is_env, spelled == "env") {
-        (false, false) => return Ok(None),
-        (false, true) => {
-            return Err(format!(
+) -> Result<Option<DshNode>, String> {
+    if !is_env(interpreter, metadata, &search.env_reference)? {
+        return match interpreter.file_name() == Some(std::ffi::OsStr::new("env")) {
+            false => Ok(None),
+            true => Err(format!(
                 "is named env but is not the platform's env utility '{}'",
                 search.env_reference.display()
-            ))
-        }
-        (true, false) => {
-            return Err(format!(
-                "is the platform's env utility invoked under the name '{spelled}', a dispatch \
-                 this resolver does not establish without executing it"
-            ))
-        }
-        (true, true) => {}
+            )),
+        };
     }
-    // The file that RUNS: the path the interpreter's symlinks resolve
-    // to, whose own name uutils checks `argv[0]` against. It is named
-    // `env`, or it is the platform's own installed file; otherwise the
-    // implementations disagree and nothing is established.
-    let runs = std::fs::canonicalize(interpreter)
-        .map_err(|error| format!("cannot be resolved to the file that runs: {error}"))?;
-    let installed = std::fs::canonicalize(&search.env_reference).ok();
-    if runs.file_name() != Some(std::ffi::OsStr::new("env"))
-        && installed.as_deref() != Some(runs.as_path())
-    {
-        return Err(format!(
-            "is the platform's env utility invoked under the name 'env' but running as the \
-             file '{}', whose own name is not env, a dispatch this resolver does not establish \
-             without executing it",
-            runs.display()
-        ));
-    }
+    env_dispatch(interpreter, search)?;
+    // An `env` with NO program is not an interpreter that selects
+    // nothing: the kernel appends the launcher's own path to the line's
+    // arguments, so a bare or blank-tailed `#!/usr/bin/env` makes the
+    // launcher the program `env` runs — the launcher again, without end.
+    // Admitting it as "no node selected" handed doctor a probe that never
+    // returned (review of run `124cca78`, R4). Asked only of a `#!`
+    // line's argument tail: `env` selected directly has no such tail.
     let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';
     let arguments = match arguments.iter().position(|byte| !is_blank(byte)) {
         Some(start) => &arguments[start..],
-        None => return Ok(None),
+        None => {
+            return Err(
+                "is the platform's env utility given no nonblank program, so the program it \
+                 would run is the launcher itself"
+                    .to_string(),
+            )
+        }
     };
     let end = arguments
         .iter()
@@ -3330,9 +3605,55 @@ fn env_program(
     // `env` searches with `execvp`, whatever the outer form: on Apple
     // that is the `execvP` walk, not the outer `posix_spawnp`'s.
     match lookup_in(program, &search.for_env(), chain) {
-        Ok(selected) => Ok((program == "node").then_some(selected.path)),
+        Ok(selected) => Ok((program == "node").then_some(DshNode {
+            path: selected.path,
+            invocation: selected.invocation,
+        })),
         Err(cause) => Err(format!("selects no '{program}': {cause}")),
     }
+}
+
+/// Whether the platform's `env` file, reached under the spelling
+/// `invoked`, is an invocation this resolver ESTABLISHES: the name `env`,
+/// running as a file itself named `env` or as the platform's own
+/// installed file (`env_program`'s rule, above).
+///
+/// The rule is asked wherever the file is about to be RUN under a name,
+/// which is two places and not one: as a `#!` line's interpreter, and as
+/// the SELECTED executable. A `dsh` symlinked to `/usr/bin/env` is the
+/// second: native hands uutils the name `dsh`, which exits 1 on the name
+/// mismatch with nothing printed, while a doctor that executed the
+/// canonical target under its own name reported `env`'s version as
+/// DSH's availability (review of run `124cca78`, R2).
+#[cfg(unix)]
+fn env_dispatch(invoked: &Path, search: &Search) -> Result<(), String> {
+    let spelled = invoked
+        .file_name()
+        .map_or(String::new(), |name| name.to_string_lossy().into_owned());
+    if spelled != "env" {
+        return Err(format!(
+            "is the platform's env utility invoked under the name '{spelled}', a dispatch \
+             this resolver does not establish without executing it"
+        ));
+    }
+    // The file that RUNS: the path the spelling's symlinks resolve to,
+    // whose own name uutils checks `argv[0]` against. It is named `env`,
+    // or it is the platform's own installed file; otherwise the
+    // implementations disagree and nothing is established.
+    let runs = std::fs::canonicalize(invoked)
+        .map_err(|error| format!("cannot be resolved to the file that runs: {error}"))?;
+    let installed = std::fs::canonicalize(&search.env_reference).ok();
+    if runs.file_name() != Some(std::ffi::OsStr::new("env"))
+        && installed.as_deref() != Some(runs.as_path())
+    {
+        return Err(format!(
+            "is the platform's env utility invoked under the name 'env' but running as the \
+             file '{}', whose own name is not env, a dispatch this resolver does not establish \
+             without executing it",
+            runs.display()
+        ));
+    }
+    Ok(())
 }
 
 /// The loading prerequisite of a native image, read as the kernel reads
@@ -3413,7 +3734,9 @@ fn select(command: &str) -> Result<Selected, CompositeError> {
     select_in(command, None)
 }
 
-/// Resolve `command` to the canonical file alone.
+/// Resolve `command` to the canonical file alone: the suite's question.
+/// Production keeps the invocation beside the file and asks `select`.
+#[cfg(test)]
 fn resolve_executable(command: &str) -> Result<PathBuf, CompositeError> {
     select(command).map(|selected| selected.path)
 }
@@ -3484,7 +3807,12 @@ fn lookup_in(
             Candidate::Refused(error) => Err(error),
         };
     }
-    search.find(command, chain)
+    // A searched name runs the candidate the walk found under the NAME:
+    // `execvp` hands the child its caller's `argv[0]`, not the path.
+    search.find(command, chain).map(|mut selected| {
+        selected.invocation.argv0 = std::ffi::OsString::from(command);
+        selected
+    })
 }
 
 /// `select_in` on Windows: `path` is the child's explicit `PATH` —
@@ -3652,6 +3980,7 @@ fn admit_windows(candidate: &Path) -> Result<Selected, CompositeError> {
         open_head(candidate).map_err(|error| refuse(format!("cannot be read: {error}")))?;
     canonicalize(candidate).map(|path| Selected {
         path,
+        invocation: DshInvocation::of(candidate),
         node: None,
         head,
     })
@@ -3888,6 +4217,7 @@ fn resolve_core_reading(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Profile {
     /// The original lookup anchor: the raw `<home>/profiles/headless`
     /// path. The loader's Node search order is unchanged, so this is what
@@ -4078,12 +4408,19 @@ fn resolve_bundle(
 /// launcher, followed by a readable composite through `B/node`. The
 /// retained path is probed as it is; a runtime that is gone since
 /// selection is a refusal, never a different runtime.
-fn spawn_node_runtime(retained: Option<&Path>) -> Result<NodeRuntime, CompositeError> {
-    let path = match retained {
-        Some(node) => node.to_path_buf(),
-        None => resolve_executable("node")?,
+///
+/// The runtime is probed as `env` RUNS it — the candidate its search
+/// found, under the name `node` — and identified as the canonical file,
+/// which the prefix and the global folders are read from (R2).
+fn spawn_node_runtime(retained: Option<&DshNode>) -> Result<NodeRuntime, CompositeError> {
+    let node = match retained {
+        Some(node) => node.clone(),
+        None => select("node").map(|selected| DshNode {
+            path: selected.path,
+            invocation: selected.invocation,
+        })?,
     };
-    spawn_node_runtime_at(path)
+    spawn_node_runtime_at(node.path, &node.invocation)
 }
 
 /// `spawn_node_runtime` over an already-resolved executable, so a scripted
@@ -4093,8 +4430,12 @@ fn spawn_node_runtime(retained: Option<&Path>) -> Result<NodeRuntime, CompositeE
 /// terminator is removed, and what remains must satisfy the scalar rule.
 /// `trim()` would repair a malformed banner into a plausible version, and
 /// a repaired identity is the one thing this producer must never invent.
-fn spawn_node_runtime_at(path: PathBuf) -> Result<NodeRuntime, CompositeError> {
-    let output = std::process::Command::new(&path)
+fn spawn_node_runtime_at(
+    path: PathBuf,
+    invocation: &DshInvocation,
+) -> Result<NodeRuntime, CompositeError> {
+    let output = invocation
+        .command()
         .arg("--version")
         .output()
         .map_err(|error| CompositeError::Config(format!("node --version: {error}")))?;
@@ -4144,7 +4485,9 @@ fn home_patch(home: &Path) -> Result<String, CompositeError> {
 /// Compute the canonical composite over the resolved seams, with the
 /// Node runtime and global folders injected so every branch is a plain
 /// test. This is the only producer of either the plugin component or the
-/// canonical composite.
+/// canonical composite. The suite's entry: it admits the home and
+/// composes in one call, as `dsh_composite` does around its Node probe.
+#[cfg(test)]
 fn dsh_composite_with(
     seams: &DshSeams,
     node: &NodeRuntime,
@@ -4168,6 +4511,7 @@ fn dsh_composite_with(
 ///
 /// (council return 2026-09-19, finding 4.) Only the sources are
 /// injectable; the real readers stay production's.
+#[cfg(test)]
 fn dsh_composite_reading(
     seams: &DshSeams,
     node: &NodeRuntime,
@@ -4175,8 +4519,25 @@ fn dsh_composite_reading(
     read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
     read_json: &dyn Fn(&Path) -> Result<Value, String>,
 ) -> Result<DshComposite, CompositeError> {
+    let admitted = Admitted::read(&seams.home).map_err(|unadmitted| unadmitted.cause)?;
+    dsh_composite_admitted(seams, &admitted, node, globals, read_dir, read_json)
+}
+
+/// The composition itself, over inputs ALREADY admitted: the profile's
+/// declarations and the pnpm dependencies are the retained values, and
+/// neither the profile manifest nor the pnpm lock is opened here (R1 and
+/// R3, retained preparation). Every declared bundle is still resolved
+/// and measured below before the retained exclusions reach a digest.
+fn dsh_composite_admitted(
+    seams: &DshSeams,
+    admitted: &Admitted,
+    node: &NodeRuntime,
+    globals: &[PathBuf],
+    read_dir: &dyn Fn(&Path) -> std::io::Result<DirEntries>,
+    read_json: &dyn Fn(&Path) -> Result<Value, String>,
+) -> Result<DshComposite, CompositeError> {
     let core = resolve_core_reading(&seams.executable, &seams.head, read_json)?;
-    let profile = read_profile(&seams.home)?;
+    let Admitted { profile, pnpm } = admitted;
     let mut resolved: Vec<(String, PathBuf)> = Vec::new();
     for name in &profile.bundles {
         let dir = resolve_bundle(
@@ -4231,12 +4592,15 @@ fn dsh_composite_reading(
     };
     // The names whose installed bytes already supply a component line, so
     // their LOCAL records — and only those — leave the dependency lines.
+    // The extension is here exactly when the profile lists it, which is
+    // the rule the retained pnpm dependencies were admitted under, and
+    // both components were measured above before either exclusion counts.
     let mut local = vec![PLUGIN_BUNDLE];
     if extension.is_some() {
         local.push(EXTENSION_BUNDLE);
     }
     let npm = npm_dependencies(&core.lock, &local)?;
-    let pnpm = pnpm_dependencies(&read_pnpm(&profile.dir.join("pnpm-lock.yaml"))?, &local)?;
+    let pnpm = pnpm.clone();
     let core_line = format!("{CORE_NAME} {} {}", core.version, core.integrity);
     let profile_patch = patch_digest("profile-patch", &profile.dir.join("cordis.patch.yml"))?;
     let home_patch = home_patch(&seams.home)?;
@@ -4264,20 +4628,33 @@ fn dsh_composite_reading(
         dependencies: dependencies.into_iter().collect(),
         plugin_patch,
         profile_patch,
-        profile_bundles: profile.bundles,
-        profile_patch_reload: profile.patch_reload,
+        profile_bundles: profile.bundles.clone(),
+        profile_patch_reload: profile.patch_reload.clone(),
         home_patch,
         extension,
         core_root: core.root,
-        profile: profile.dir,
+        profile: profile.dir.clone(),
     })
 }
 
 /// The one production producer of either value (design D6 (b)): the
 /// canonical composite and the component values behind it, over the
 /// adapter's own resolved seams and a real `node --version` probe.
+///
+/// The home is admitted HERE, before the Node probe: a pnpm lock YAML
+/// refuses is refused with nothing executed (R1 and R3).
 pub fn dsh_composite(seams: &DshSeams) -> Result<DshComposite, CompositeError> {
-    dsh_composite_resolving(seams, || spawn_node_runtime(seams.node.as_deref()))
+    dsh_composite_resolving(seams, || spawn_node_runtime(seams.node.as_ref()))
+}
+
+/// The same producer over a selection ALREADY admitted — doctor's, which
+/// probed the prepared invocation in between. The retained inputs are
+/// the ones composed: nothing the probe did to the profile manifest or
+/// the pnpm lock is read.
+pub fn dsh_composite_prepared(prepared: &DshPrepared) -> Result<DshComposite, CompositeError> {
+    dsh_composite_observing(&prepared.seams, &prepared.admitted, || {
+        spawn_node_runtime(prepared.seams.node.as_ref())
+    })
 }
 
 /// `dsh_composite` over an injected runtime probe, so the composition is a
@@ -4286,9 +4663,27 @@ fn dsh_composite_resolving(
     seams: &DshSeams,
     spawn: impl FnOnce() -> Result<NodeRuntime, CompositeError>,
 ) -> Result<DshComposite, CompositeError> {
+    let admitted = Admitted::read(&seams.home).map_err(|unadmitted| unadmitted.cause)?;
+    dsh_composite_observing(seams, &admitted, spawn)
+}
+
+/// The one path from admitted inputs to a composite: the Node probe, then
+/// the composition over what was retained.
+fn dsh_composite_observing(
+    seams: &DshSeams,
+    admitted: &Admitted,
+    spawn: impl FnOnce() -> Result<NodeRuntime, CompositeError>,
+) -> Result<DshComposite, CompositeError> {
     let node = spawn()?;
     let globals = global_folders(&node);
-    dsh_composite_with(seams, &node, &globals)
+    dsh_composite_admitted(
+        seams,
+        admitted,
+        &node,
+        &globals,
+        &read_dir_entries,
+        &read_json,
+    )
 }
 
 mod image;

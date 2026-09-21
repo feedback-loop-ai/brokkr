@@ -2232,6 +2232,11 @@ fn the_composite_reuses_the_launcher_head_doctor_selected() {
     );
 }
 
+/// R3's refusal, as the pnpm reader words it under `peerDependencies`.
+const IMPLICIT_KEY_REFUSAL: &str =
+    "a line under the package child 'peerDependencies' carrying an implicit key past YAML's \
+     implicit-key lookahead limit of 1,024 characters";
+
 /// F5 (review 2026-09-20), SECURITY. The pnpm syntax rules through the
 /// BUILT doctor over a complete installation: every malformed spelling
 /// the review reproduced refuses by the pnpm component and a named
@@ -2247,17 +2252,40 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
     let workspace = shipped_workspace();
     let cwd = workspace.path();
     let shims = cwd.join("shims");
-    stage_executable(&shims, "node", "#!/bin/sh\necho v22.23.2\n");
+    // The `node` shim marks WHICH probe ran it, in doctor's own marker
+    // directory: the DSH version probe reaches it as `node <launcher>
+    // --version` through the launcher's `env node` line, and the
+    // producer's Node probe as `node --version`. An unmarked shim could
+    // not show that a refused lock ran neither (design D10, R1–R4).
+    stage_executable(
+        &shims,
+        "node",
+        "#!/bin/sh\nif [ -n \"$BROKKR_MARKS\" ]; then\n  case \"$1\" in\n    --version) : > \
+         \"$BROKKR_MARKS/node\" ;;\n    *) : > \"$BROKKR_MARKS/dsh\" ;;\n  esac\nfi\necho \
+         v22.23.2\n",
+    );
     let (bin, home) = install_dsh(&cwd.join("install"));
     let lock = home.join("profiles/headless/pnpm-lock.yaml");
-    let run = |body: &str| {
+    let runs = std::cell::Cell::new(0);
+    // The line, and the probes that ran to produce it.
+    let observe = |body: &str| {
         std::fs::write(&lock, body).unwrap();
-        dsh_line(&stdout_of(
+        runs.set(runs.get() + 1);
+        let marks = marks(cwd, &format!("doctor-{}", runs.get()));
+        let line = dsh_line(&stdout_of(
             doctor(cwd)
                 .env("PATH", &shims)
                 .env("BROKKR_DSH_BIN", &bin)
-                .env("DSH_HOME", &home),
-        ))
+                .env("DSH_HOME", &home)
+                .env("BROKKR_MARKS", &marks),
+        ));
+        (line, executed(&marks))
+    };
+    let both_probes = vec!["dsh".to_string(), "node".to_string()];
+    let run = |body: &str| {
+        let (line, probes) = observe(body);
+        assert_eq!(probes, both_probes, "a readable lock probes both: {line}");
+        line
     };
     let package = "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n";
     let control = run(&format!(
@@ -2461,8 +2489,81 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "a package child 'engines' carrying the flow map '{true: a, 'true': b}' with the key \
              'true', which is a boolean and not a string",
         ),
+        // R1 (review of run `124cca78`): the chief's three padded
+        // openings, each of which retained the control's composite, with
+        // the one-space and a wider spelling of the first beside them.
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node:  *missing}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node:  *missing', \
+             whose value opens with the YAML indicator '*'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node:  &}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node:  &', whose \
+             value opens with the YAML indicator '&'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node:  %bad}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node:  %bad', whose \
+             value opens with the YAML indicator '%'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: *missing}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node: *missing', \
+             whose value opens with the YAML indicator '*'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node:      *missing}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node:      *missing', \
+             whose value opens with the YAML indicator '*'",
+        ),
+        // R3: every 1,025-character implicit-key span — plain, padded
+        // before its colon, quoted, and multibyte.
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 {}: a\n",
+                "k".repeat(1025)
+            ),
+            IMPLICIT_KEY_REFUSAL,
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 {} : a\n",
+                "k".repeat(1024)
+            ),
+            IMPLICIT_KEY_REFUSAL,
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 '{}': a\n",
+                "k".repeat(1023)
+            ),
+            IMPLICIT_KEY_REFUSAL,
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 {}: a\n",
+                "\u{e9}".repeat(1025)
+            ),
+            IMPLICIT_KEY_REFUSAL,
+        ),
     ] {
-        let line = run(&body);
+        // The probes FIRST: a lock that fails admission runs neither DSH
+        // nor Node, and a refusal printed after a probe would hide that.
+        let (line, probes) = observe(&body);
+        assert_eq!(
+            probes,
+            Vec::<String>::new(),
+            "no DSH or Node probe for a lock that fails admission ({reason}): {line}"
+        );
+        assert!(
+            line.starts_with("warn     dsh: binary '") && line.contains("' selected and not probed · "),
+            "the executable was selected, and says it was not probed: {line}"
+        );
         assert!(
             line.contains(&format!(
                 "composite unreadable: pnpm lock is unreadable: {reason}"
@@ -2502,6 +2603,30 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "{child:?}"
         );
     }
+    // R1 and R3's controls: the same padding before a value YAML reads,
+    // and every 1,024-character implicit-key span, stay the control's own
+    // digest with BOTH probes run (`run` asserts them). The bound is the
+    // key's: a long value beside a short key and beside a full-length one
+    // is YAML.
+    let long = "v".repeat(4096);
+    for child in [
+        "engines: {node: 22}".to_string(),
+        "engines: {node:    22}".to_string(),
+        "engines: {node:   '  *kept  '}".to_string(),
+        format!("peerDependencies:\n      {}: a", "k".repeat(1024)),
+        format!("peerDependencies:\n      {} : a", "k".repeat(1023)),
+        format!("peerDependencies:\n      '{}': a", "k".repeat(1022)),
+        format!("peerDependencies:\n      {}: a", "\u{e9}".repeat(1024)),
+        format!("peerDependencies:\n      react: {long}"),
+        format!("peerDependencies:\n      {}: '{long}'", "k".repeat(1024)),
+    ] {
+        let body = format!("{package}    resolution: {{integrity: sha512-D}}\n    {child}\n");
+        assert!(
+            run(&body).contains(&format!("composite {digest} ")),
+            "a {}-byte child",
+            child.len()
+        );
+    }
     // And the valid nested `snapshots` body a real lock carries — a
     // mapping block, a dedent back to its parent, a sequence block
     // beside it and a sibling record — is still read, and still
@@ -2514,5 +2639,277 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
     assert!(
         run(&snapshots).contains(&format!("composite {digest} ")),
         "{snapshots:?}"
+    );
+}
+
+/// Run `command` in its own process group under a deadline, its stdout
+/// in a file so a full pipe cannot be what stops it. `None` is the
+/// deadline: the whole group is killed and the leader reaped before this
+/// returns, so a looping child outlives neither the call nor the suite.
+fn bounded(
+    command: &mut Command,
+    cwd: &Path,
+    tag: &str,
+    limit: std::time::Duration,
+) -> Option<(std::process::ExitStatus, String)> {
+    use std::os::unix::process::CommandExt;
+
+    let captured = cwd.join(format!("{tag}.stdout"));
+    command
+        .process_group(0)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = (0..50)
+        .find_map(|_| {
+            command.stdout(std::fs::File::create(&captured).unwrap());
+            match command.spawn() {
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    None
+                }
+                spawned => Some(spawned.expect("the bounded child spawns")),
+            }
+        })
+        .expect("the executable stayed busy");
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some((status, std::fs::read_to_string(&captured).unwrap()));
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(format!("kill -s KILL -- -{}", child.id()))
+                .status();
+            let _ = child.kill();
+            child.wait().unwrap();
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// R2 (review of run `124cca78`). `dsh -> /usr/bin/env`, as a searched
+/// name and as an absolute alias, is the platform's env utility run under
+/// the name `dsh`. Natively this host's uutils exits 1 on the name
+/// mismatch and prints nothing; doctor executed the CANONICAL target
+/// under its own name and reported env's version as DSH's availability.
+///
+/// Both forms now refuse at selection, by the selected invocation and
+/// the env dispatch, and env's version never reaches the line. A silent
+/// native env leaves no marker either way, so the no-probe half of this
+/// claim is the selection's — `DshUnselected` holds no invocation, and
+/// `a_failed_selection_probes_nothing_and_carries_its_cause` panics on any
+/// probe of one. Direct `/usr/bin/env` keeps its native version as the
+/// availability control and is no readable composite; an admitted
+/// launcher that prints the path it was run by shows the selected
+/// candidate, and not its canonical target, is what doctor runs.
+#[test]
+fn a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected() {
+    const ENV: &str = "/usr/bin/env";
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let (_, home) = install_dsh(&cwd.join("install"));
+    let a = cwd.join("a");
+    std::fs::create_dir_all(&a).unwrap();
+    let alias = a.join("dsh");
+    std::os::unix::fs::symlink(ENV, &alias).unwrap();
+    let search = a.display().to_string();
+
+    // The control's own answer, natively: what a canonical-target probe
+    // would have printed for the aliases too.
+    let direct = spawn(Command::new(ENV).arg("--version").current_dir(cwd)).unwrap();
+    assert!(direct.status.success(), "{direct:?}");
+    let env_version = String::from_utf8_lossy(&direct.stdout)
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .to_string();
+    assert!(!env_version.is_empty());
+
+    let refusal = format!(
+        "the DSH layout is unreadable: {}: the selected invocation is the platform's env utility \
+         invoked under the name 'dsh', a dispatch this resolver does not establish without \
+         executing it",
+        alias.display()
+    );
+    for (form, declared) in [
+        ("searched", "dsh".to_string()),
+        ("absolute", alias.display().to_string()),
+    ] {
+        // Native, recorded and never counted: the host's env decides.
+        let native = spawn(
+            Command::new(&declared)
+                .arg("--version")
+                .current_dir(cwd)
+                .env("PATH", &search),
+        )
+        .unwrap();
+        eprintln!(
+            "R2 native {form} alias: status {:?}, stdout {:?}",
+            native.status,
+            String::from_utf8_lossy(&native.stdout)
+        );
+        let marks = marks(cwd, &format!("doctor-alias-{form}"));
+        let mut command = doctor(cwd);
+        command
+            .env("PATH", &search)
+            .env("DSH_HOME", &home)
+            .env("BROKKR_MARKS", &marks);
+        if form == "absolute" {
+            command.env("BROKKR_DSH_BIN", &alias);
+        }
+        let line = dsh_line(&stdout_of(&mut command));
+        assert_eq!(executed(&marks), Vec::<String>::new(), "{form}: {line}");
+        assert!(
+            line.starts_with(&format!(
+                "warn     dsh: binary '{declared}' not found: {refusal} — "
+            )),
+            "{form}: {line}"
+        );
+        assert!(
+            !line.contains(&env_version),
+            "{form}: env's version is not DSH's availability: {line}"
+        );
+    }
+
+    // Direct env: available, by its own version, and no DSH composite.
+    let line = dsh_line(&stdout_of(
+        doctor(cwd)
+            .env("PATH", &search)
+            .env("BROKKR_DSH_BIN", ENV)
+            .env("DSH_HOME", &home),
+    ));
+    assert!(
+        line.starts_with(&format!("ok       dsh: {env_version} · serves")),
+        "{line}"
+    );
+    assert!(line.contains("· composite unreadable: "), "{line}");
+
+    // An admitted alias: the launcher prints the path it was run by.
+    let launcher = stage_executable(&cwd.join("lib"), "launcher.sh", "#!/bin/sh\necho \"$0\"\n");
+    std::fs::remove_file(&alias).unwrap();
+    std::os::unix::fs::symlink(&launcher, &alias).unwrap();
+    let native = native_dsh(cwd, Some(&search)).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&native.stdout).trim(),
+        alias.display().to_string(),
+        "natively the launcher is run by the alias"
+    );
+    let line = dsh_line(&stdout_of(
+        doctor(cwd).env("PATH", &search).env("DSH_HOME", &home),
+    ));
+    assert!(
+        line.starts_with(&format!("ok       dsh: {} · serves", alias.display())),
+        "doctor runs the selected candidate, as native does, and not {}: {line}",
+        launcher.display()
+    );
+}
+
+/// R4 (review of run `124cca78`). An established `#!/usr/bin/env` with no
+/// nonblank program makes the launcher the program `env` runs: natively
+/// it re-executes itself without end, and the doctor that admitted it
+/// never returned.
+///
+/// The native runs are EVIDENCE, bounded by an external process-group
+/// deadline and reaped, and a deadline there is never a refusal. Doctor's
+/// run is bounded too, and a deadline THERE fails: doctor returns the
+/// named refusal — launcher, env interpreter, missing program — without
+/// starting the loop, leaving no DSH or Node marker. `#!/usr/bin/env sh`
+/// is the control that terminates and is probed.
+#[test]
+fn an_env_launcher_without_a_program_is_refused_before_any_probe() {
+    let workspace = shipped_workspace();
+    let cwd = workspace.path();
+    let (_, home) = install_dsh(&cwd.join("install"));
+    let shims = cwd.join("shims");
+    stage_executable(&shims, "sh", "#!/bin/sh\nexec /bin/sh \"$@\"\n");
+    let body = "if [ -n \"$BROKKR_MARKS\" ]; then : > \"$BROKKR_MARKS/dsh\"; fi\necho v9.9.9-sh\n";
+    let native_limit = std::time::Duration::from_secs(2);
+    let doctor_limit = std::time::Duration::from_secs(120);
+
+    for (tag, shebang) in [
+        ("bare", "#!/usr/bin/env\n"),
+        ("blank", "#!/usr/bin/env \t \n"),
+    ] {
+        let dir = cwd.join(tag);
+        let launcher = stage_executable(&dir, "dsh", &format!("{shebang}{body}"));
+        let search = format!("{}:{}", dir.display(), shims.display());
+        let oracle = marks(cwd, &format!("oracle-{tag}"));
+        let native = bounded(
+            Command::new(&launcher)
+                .arg("--version")
+                .current_dir(cwd)
+                .env("PATH", &search)
+                .env("BROKKR_MARKS", &oracle),
+            cwd,
+            &format!("native-{tag}"),
+            native_limit,
+        );
+        eprintln!(
+            "R4 native {tag}: {}",
+            match &native {
+                None => format!("no exit within {native_limit:?}; the process group was killed"),
+                Some((status, stdout)) => format!("status {status:?}, stdout {stdout:?}"),
+            }
+        );
+
+        let marks = marks(cwd, &format!("doctor-{tag}"));
+        let (status, stdout) = bounded(
+            doctor(cwd)
+                .env("PATH", &search)
+                .env("DSH_HOME", &home)
+                .env("BROKKR_MARKS", &marks),
+            cwd,
+            &format!("doctor-{tag}"),
+            doctor_limit,
+        )
+        .unwrap_or_else(|| panic!("{tag}: doctor did not return: it started the loop"));
+        assert_eq!(executed(&marks), Vec::<String>::new(), "{tag}: {stdout}");
+        let line = dsh_line(&stdout);
+        assert!(
+            line.starts_with(&format!(
+                "warn     dsh: binary 'dsh' not found: the DSH layout is unreadable: {}: its #! \
+                 interpreter '/usr/bin/env' is the platform's env utility given no nonblank \
+                 program, so the program it would run is the launcher itself — ",
+                launcher.display()
+            )),
+            "{tag} ({status:?}): {line}"
+        );
+    }
+
+    // The control: `env sh` has a program, terminates, and is probed.
+    let dir = cwd.join("with-sh");
+    stage_executable(&dir, "dsh", &format!("#!/usr/bin/env sh\n{body}"));
+    let search = format!("{}:{}", dir.display(), shims.display());
+    let native = bounded(
+        Command::new("dsh")
+            .arg("--version")
+            .current_dir(cwd)
+            .env("PATH", &search),
+        cwd,
+        "native-with-sh",
+        doctor_limit,
+    )
+    .expect("the env sh control terminates natively");
+    assert!(native.0.success(), "{native:?}");
+    assert_eq!(native.1, "v9.9.9-sh\n");
+    let marks = marks(cwd, "doctor-with-sh");
+    let (_, stdout) = bounded(
+        doctor(cwd)
+            .env("PATH", &search)
+            .env("DSH_HOME", &home)
+            .env("BROKKR_MARKS", &marks),
+        cwd,
+        "doctor-with-sh",
+        doctor_limit,
+    )
+    .expect("doctor returns for the env sh control");
+    let line = dsh_line(&stdout);
+    assert_eq!(executed(&marks), vec!["dsh".to_string()], "{line}");
+    assert!(
+        line.starts_with("ok       dsh: v9.9.9-sh · serves"),
+        "{line}"
     );
 }
