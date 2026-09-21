@@ -472,6 +472,78 @@ fn a_legacy_allow_entry_cannot_authorize_a_native_capability() {
         .contains(&"Bash(cargo:*)".to_string()));
 }
 
+/// An adapter that declares native capabilities is authority data
+/// (decision 0065 ruling 4): a key written twice anywhere in the file is
+/// refused rather than read as its second copy, and a selection mapping
+/// that cannot be composed is refused where the adapter loads — each
+/// naming the adapter file and the place.
+#[test]
+fn a_native_declaration_with_a_repeated_key_or_an_uncomposable_selection_is_refused() {
+    let tree = Tree::new();
+    let native = |selection: Value| {
+        let mut adapter = claude_body();
+        adapter["native_capabilities"] = json!({"known": {"web-search": {
+            "capability": "web-search", "tools": ["WebSearch"],
+            "on": {"selection": {"include": ["WebSearch"], "allow": ["WebSearch"], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": ["WebSearch"]}},
+            "restrictions": {"unsupported": "no native restriction transport is established"},
+            "evidence": {"source": "adapter data", "scope": "declared", "limitations": []}}},
+            "selection": selection});
+        adapter
+    };
+    let flags = json!({"include": {"flag": "--tools", "separator": ","},
+                       "allow": {"flag": "--allowedTools", "separator": ","},
+                       "deny": {"flag": "--disallowedTools", "separator": ","}});
+    // Sound as written; then the same bytes with ONE key repeated, deep
+    // inside the declaration. `serde_json` alone would keep the second.
+    let sound = serde_json::to_string(&native(flags.clone())).unwrap();
+    tree.raw("adapters/claude.json", &sound);
+    tree.adapters();
+    let repeated = sound.replacen(
+        r#""scope":"declared""#,
+        r#""scope":"declared","scope":"measured live""#,
+        1,
+    );
+    assert_ne!(repeated, sound, "the fixture repeats a key");
+    tree.raw("adapters/claude.json", &repeated);
+    let what = format!(
+        "adapter 'claude' ({})",
+        tree.adapters_root().join("claude.json").display()
+    );
+    // The parser stands just past the second copy's value.
+    let second = r#""scope":"measured live""#;
+    let column = repeated.rfind(second).unwrap() + second.len();
+    assert_eq!(
+        tree.adapters_error(),
+        format!("{what}: key 'scope' is written twice at line 1 column {column}")
+    );
+    // A list flag with no separator cannot be composed into one argument.
+    let mut no_separator = flags.clone();
+    no_separator["deny"]
+        .as_object_mut()
+        .unwrap()
+        .remove("separator");
+    tree.write("adapters/claude.json", &native(no_separator));
+    assert_eq!(
+        tree.adapters_error(),
+        format!(
+            "{what} 'native_capabilities' at '/selection/deny': it does not satisfy \
+             '/definitions/list/required'"
+        )
+    );
+    // Nor can a mapping that names a list the harness does not have.
+    let mut unknown_list = flags;
+    unknown_list["exclude"] = json!({"flag": "--exclude", "separator": ","});
+    tree.write("adapters/claude.json", &native(unknown_list));
+    assert_eq!(
+        tree.adapters_error(),
+        format!(
+            "{what} 'native_capabilities' at '/selection': it does not satisfy \
+             '/properties/selection/additionalProperties'"
+        )
+    );
+}
+
 /// A provider that serves the model but cannot be told which model would
 /// run its own default and let the run claim the pinned one.
 #[test]

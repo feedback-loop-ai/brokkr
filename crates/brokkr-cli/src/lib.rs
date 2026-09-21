@@ -2863,8 +2863,7 @@ fn run_with(
             // (decision 0065; design D2): beside the active map, else in
             // the workspace — wherever `--agents-dir` points the library.
             let world = World::discover(workspace, None)?;
-            let operator_root =
-                capability_context(workspace, world.as_ref(), None, workspace).root;
+            let operator_root = capability_context(workspace, world.as_ref(), None, workspace).root;
             match command {
                 AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
                 AgentsCmd::Show {

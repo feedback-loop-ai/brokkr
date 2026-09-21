@@ -139,7 +139,9 @@ impl Workspace {
 
     /// `run`, `rerun --run <id>` or `resume --run <id>` over `repo/`.
     fn verb(&self, verb: &str, run: Option<&str>) -> (Option<i32>, String) {
-        let mut args = vec![verb, "--bundle", "bundle", "--db", "forge.db", "--repo", "repo"];
+        let mut args = vec![
+            verb, "--bundle", "bundle", "--db", "forge.db", "--repo", "repo",
+        ];
         match run {
             Some(run) => args.extend(["--run", run]),
             None => args.extend(["--feature", "capability proof"]),
@@ -220,8 +222,14 @@ fn run_and_rerun_read_todays_realm_and_resume_reads_the_runs_pin() {
     assert_eq!(code, Some(0), "{stderr}");
     let second = run_id(&stderr);
     let regranted = ws.pinned(&second);
-    assert_eq!(regranted["grants"], serde_json::from_str::<Value>(GRANT).unwrap());
-    assert_eq!(regranted["dialects"]["codex-native-search"]["source"], DIALECT);
+    assert_eq!(
+        regranted["grants"],
+        serde_json::from_str::<Value>(GRANT).unwrap()
+    );
+    assert_eq!(
+        regranted["dialects"]["codex-native-search"]["source"],
+        DIALECT
+    );
     assert_eq!(
         regranted["sites"]["work"]["candidates"][0]["held"],
         json!({})
