@@ -12850,7 +12850,11 @@ child init event.
   terminates itself after the init event and before any sequence
   activity, the shape a cancellation or watchdog deadline kill presents
   to the adapter: no exit code of its own, nothing published, no
-  checkpoint that `begins_work`, no replacement.
+  checkpoint that `begins_work`, no replacement. **Superseded by the
+  returned review's R3 below: a shim's own `kill $$` is not a deadline
+  and not a cancellation, and this case could observe neither
+  `deadline_killed` nor the driver's held checkpoints. It is replaced by
+  a timer-driven external kill and a built-driver watchdog case.**
 - `an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch`
   — the one DSH-specific LOCAL-decline path, driven end to end through
   `run_seat` over the built shipped route with no installed provider:
@@ -12870,7 +12874,16 @@ own `LaunchTerminal` and the rows it published, and the guard behind it
 is the existing cross-adapter proof. That division is a fact about the
 seam, recorded rather than papered over.
 
-### D2 — #255, and why staging by rename was never the cure
+### D2 — #255, and why staging by rename is not the whole cure
+
+> **Corrected 2026-09-21 by the returned review's R4.** This section
+> originally read "why staging by rename was NEVER the cure" and dropped
+> the rename entirely. The measurement below is right about what rename
+> does not fix, but the conclusion overreached: the house fix is a
+> temporary sibling, closed, then renamed into place, and abandoning the
+> rename gave up atomic installation for nothing. The helpers now do
+> both — the sibling's bytes are written by a child AND the sibling is
+> renamed in. Read every sentence below with that correction applied.
 
 The named fixture already staged by rename, and still failed in the box
 on this branch: `spawn_node_runtime_reads_one_version_line_and_refuses_
@@ -12990,3 +13003,206 @@ accounting fact; the already-adopted sequence-zero and planner-to-drain
 proof does not complete 9.6.
 
 10.x, 11.x and groups 14–15 were not opened.
+
+## Pass C, the returned review — R1 to R4 (2026-09-21)
+
+Run `dsh-launch-planner-issue-226-tas-ed4ff1bc` returned from review with
+four deduplicated findings against the section above: one MEDIUM security
+residual, two MEDIUM, one LOW. No high or critical finding and no
+specification defect was established, and D1 was confirmed addressed.
+This visit answers all four. **8.8 and 8.10 remain unticked.**
+
+### R1 (MEDIUM, security residual) — the fold ran ahead of the hold
+
+`settle` could withhold the confirmation while `drain_dsh_transcript`
+published the seat-turn and tool rows anyway. The sequence the review
+traced, and which now has a deterministic regression:
+
+1. the child appends `assistant/message` seq 28 to the offered root,
+   past the retained `firstSeq` of 27;
+2. it emits a line the envelope does not name;
+3. that line's `settle` withholds — no init event yet — and the drain
+   behind it publishes the work;
+4. the init event then arrives naming the offered root exactly, every
+   remaining observation agrees, and the hold releases: the locator, the
+   launch row and `root_session` reach the journal BEHIND their own work
+   rows, and the invocation returns `Resumed`, walking straight past
+   `run_seat`'s unsettled-result guard.
+
+An append landing between the settle and the drain produced the same
+inversion without any hostile shape at all. Nothing latched the
+work-before-confirmation as uncertain.
+
+Two guards, both in `adapters.rs`, each proved by removal:
+
+| Guard | What it does | Removal mutation | Failing case and assertion |
+| --- | --- | --- | --- |
+| `DshRootWatch::may_fold` | withholds EVERY drain while the hold is closed, so a rejoin publishes no work row before its locator and launch row | `!self.confirming() \|\| self.released` → `self.released \|\| true` | `dsh_work_before_the_init_event_is_never_adopted_by_it` at "and no work row was drained before the hold released", and `the_dsh_launch_hold_needs_every_confirmation_before_it_publishes` at "and no work row either" |
+| `DshRootWatch::refuse_work_before_confirmation` | latches the attempt permanently unconfirmed when the offered root has already moved past `firstSeq` before the init event names it | `if advanced` → `if advanced && false` | `dsh_work_before_the_init_event_is_never_adopted_by_it` at "the later init event adopts none of the work ahead of it" (`Resumed` where D7 requires `Unconfirmed`) |
+
+The latch is the fail-closed reading of D7's refusal to accept
+pre-confirmation work: the pinned plugin emits its init event
+immediately after `await agents.resume`, ahead of the session's first
+current turn, so sequence activity that PRECEDES it was not produced by
+a rejoin this driver has confirmed, and an init event arriving afterwards
+cannot adopt it retroactively. Latching `settled` without setting
+`released` leaves `LaunchHold::outcome` at `None`, so `terminal()` is
+`Unconfirmed`, `run_seat` refuses the invocation, and no locator, launch
+row or `root_session` is ever published. A store this driver cannot
+census, and an offer admitted without a prior boundary, observe nothing
+here — an unobserved fact is never a satisfied one, and both already
+withhold the confirmation in `settle`.
+
+`dsh_work_before_the_init_event_is_never_adopted_by_it` drives both
+endings: a clean exit, and the same sequence leaving an otherwise valid
+delivered result file, which is retained for diagnosis and is not the
+attempt's accepted work. Each asserts `Unconfirmed`, no launch row, no
+`root_session`, no locator, no work row and `refusal: None`.
+
+One consequence recorded rather than hidden: an unsettled rejoin now
+folds nothing at all, so its `num_turns` and token counts are never
+populated. That is correct — those rows would have named a session the
+driver cannot establish it was in — and `run_seat` refuses the attempt
+regardless.
+
+One question for 10.7, recorded where the measurement will answer it:
+this latch assumes the plugin's init event reaches stdout before
+`agents.resume` appends anything past `firstSeq` to the retained root.
+If 10.7 measures the real exchange writing a resume marker into the
+transcript ahead of that line, the latch would refuse a legitimate
+rejoin and the ordering — not the latch — is what would need revisiting.
+The fail-closed direction is deliberate: a false refusal is a park, a
+false confirmation is accepted work from an unnamed session.
+
+### R2 (MEDIUM) — an errno that is not portable to macOS
+
+`a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none` was
+`#[cfg(unix)]` and asserted `raw_os_error() == Some(26)` unconditionally.
+Apple's `exec_check_permissions` does not apply the writer-count check at
+all ([XNU `bsd/kern/kern_exec.c`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exec.c#L6340-L6349)),
+so on a supported macOS host that `unwrap_err()` would have been an
+`unwrap` on `Ok`. The mechanism half is now `#[cfg(target_os = "linux")]`
+and the successful-staging control runs on both supported hosts, which is
+the assertion every fixture in that file actually depends on. Recorded
+from the XNU source; this seat is Linux and did not run the macOS leg.
+
+### R3 (MEDIUM) — a shim killing itself is neither a deadline nor a cancel
+
+The superseded case ran `kill -TERM $$` inside the provider shim through
+`invoke_dsh_launch`. It cancelled no driver or process tree, created no
+watchdog deadline, and could verify neither `deadline_killed` nor the
+driver's held checkpoints. The delivery claim above is corrected in
+place. Design D7 adopts no asynchronous cancel protocol — `serve_io`
+invokes synchronously and the runtime watchdog owns process termination —
+so cancelling or timing out a running DSH seat IS the watchdog's kill,
+and 8.10's clause is now covered from both sides:
+
+- `a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing`
+  (`adapters/tests.rs`) — the adapter side, over the real stream-json
+  hold. The synthetic child emits the init event naming the offered
+  root, publishes its pid and `exec`s its stall, so the kill lands on the
+  process holding the stream exactly as a tree kill does. A watchdog
+  thread waits out a real 250 ms deadline and then delivers `SIGKILL`
+  from outside. The moment of the kill is pinned by construction: the
+  test asserts the init event was read (`session_meta["session_id"]`) and
+  that the offered root never moved past its recorded boundary
+  (`dsh_session_last_seq == Some(27)`), so the hold is provably still
+  closed when the child dies. It then asserts the watchdog really fired,
+  `exit_code == -1`, `Unconfirmed`, no launch row, no locator, no
+  checkpoint that `begins_work`, and `refusal: None`.
+- `a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement`
+  (`crates/brokkr-cli/tests/driver_conformance.rs`) — the engine side,
+  over the REAL watchdog and the REAL built driver. `DriverProcess` is
+  spawned on `brokkr driver dsh` with a 4 s deadline and an explicit
+  environment; the fixture's shim answers the version probe, records its
+  launch and `exec`s a stall. The attempt ends `Failed` naming the
+  deadline, `report.deadline_killed` is true, one version probe and
+  exactly one child were ever run — no replacement followed the kill —
+  and `report.accepted` is false with `report.checkpoints` EMPTY: the
+  pre-session rows decision 0053 buffers were still held, and a deadline
+  kill does not flush them as a fabricated launch row, locator or
+  `root_session`.
+- `a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing`
+  (`adapters/tests.rs`) — the cancellation at the seam that carries it:
+  `serve_io(AdapterKind::Dsh, …)` answers `Cancelled` for the named
+  effect and stops, emitting exactly two messages in total, launching
+  nothing and publishing no launch row, `root_session` or locator.
+
+The division is a fact about the seam and is recorded rather than papered
+over: the built-driver case cannot reach the QUALIFIED stream-json route,
+because that route resolves real seams and a real composite and no test
+here installs a provider — so the engine-level facts are proved on the
+shipped route and the open-hold facts on the injected one. Neither test
+claims the other's evidence.
+
+### R4 (LOW) — the rename D2 asked for
+
+The three staging helpers — `stage_executable` in
+`adapters/composite/tests.rs`, `executable` in `adapters/tests.rs` and
+`make_named_shim` in `driver_conformance.rs` — had dropped the rename
+entirely and written the final pathname from the child. Writing from a
+child is the right answer to ETXTBSY, but it does not require abandoning
+atomic installation. All three now write the temporary sibling IN THAT
+CHILD, reap it, set the mode on the sibling, and `rename` it into place.
+No retry loop and no sleep was added, and `spawn_retrying_etxtbsy`
+remains inherited, untouched and not counted as evidence.
+
+The sibling's name is short, unique within the run and derived from
+nothing about the destination (`.stage-<pid>-<n>`): the composite matrix
+probes its own length bounds and some destinations reach `NAME_MAX`
+exactly, so a name built by decorating the destination's would be the one
+name in that directory which could not be created — the first attempt at
+this repair failed exactly that way, in
+`the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovable`
+and the native matrix, as `ENAMETOOLONG` rather than as the subject under
+test.
+
+Removal proof for the rename: `fs::rename` → `fs::copy` fails
+`a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none` at
+"the temporary sibling was renamed into place, not left beside it",
+naming the surviving `.stage-…` entry. Restored, green. The ETXTBSY half
+keeps its own deterministic Linux proof in the same test.
+
+### Gates, this visit
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | 496 (396 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-view --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | 32 binaries, 0 failed (driver conformance 24/24) |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+| `git diff --check` | clean |
+
+`openspec validate --all --strict` COULD NOT RUN in this seat again:
+every spelling, including `npx`, was refused before execution. This visit
+adds no `openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending until their own
+results exist.
+
+### Scope, this visit
+
+The same four files, plus this record. Production changed in one crate
+and in one place: `DshRootWatch`'s `may_fold` gate, its
+`refuse_work_before_confirmation` latch, and the `released` field the two
+share. Pass B's admission, the exact-root latch,
+`confirms_from_locator: false`, the bounded storage reads, the private
+diagnostics and the generic terminal guard are untouched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled;
+no live provider was called; no new digest producer and no new public
+planner seam was added; no Windows handling was added (decision 0063).
+Nothing was pushed.
+
+Pass D and 9.6 still owe exactly what the section above names; this visit
+opened neither, and opened no part of 10.x, 11.x or groups 14–15.
