@@ -652,7 +652,12 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
             continue;
         }
         let agent = json(&entry.path());
-        let holds = agent
+        // Decision 0065 rulings 1 and 4: no office NAMES a provider's
+        // tool any more — the concrete aliases authorised nothing a realm
+        // had ruled, and are refused as a legacy authority path. What the
+        // researcher holds instead is a REQUEST, by abstract name, that
+        // only a realm can grant; it is still the one office that asks.
+        let names_a_tool = agent
             .pointer("/tools/allow")
             .and_then(Value::as_array)
             .is_some_and(|allow| {
@@ -660,14 +665,29 @@ fn the_fetch_grant_is_held_by_the_researcher_alone_and_never_by_a_gate() {
                     .iter()
                     .any(|t| FETCH.contains(&t.as_str().unwrap_or("")))
             });
+        assert!(
+            !names_a_tool,
+            "{}: an office asks for web-search and web-fetch by capability, never by a \
+             provider's tool name (decision 0065 ruling 1)",
+            entry.path().display()
+        );
+        let holds = agent
+            .get("capabilities")
+            .and_then(Value::as_object)
+            .is_some_and(|asks| !asks.is_empty());
         let is_researcher = entry.file_name() == "researcher.json";
         assert_eq!(
             holds,
             is_researcher,
-            "{}: the fetch grant belongs to researcher.json alone (decision 0044 ruling 5)",
+            "{}: the fetch request belongs to researcher.json alone (decision 0044 ruling 5)",
             entry.path().display()
         );
         if holds {
+            assert_eq!(
+                agent["capabilities"],
+                serde_json::json!({"web-fetch": "wants", "web-search": "wants"}),
+                "the researcher asks, and a realm that grants neither still seats it"
+            );
             assert!(
                 agent.get("bindings").is_none(),
                 "the researcher may not hold secret bindings beside the fetch grant"
