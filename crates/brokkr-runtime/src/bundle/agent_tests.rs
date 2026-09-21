@@ -146,6 +146,35 @@ fn claude() -> Value {
             "names": {"cargo": "Bash(cargo:*)"},
         },
         "mcp": "unsupported",
+        // Claude Code is KNOWN to carry web search and web fetch, so a
+        // seat is compiled on it only where its adapter says how each is
+        // denied (decision 0066 ruling 1): an adapter written before the
+        // ruling refuses, and this fixture is not one.
+        "native_capabilities": claude_native(),
+    })
+}
+
+/// The two native powers of Claude Code as `adapters/claude.json` declares
+/// them: switched through the harness's own tool lists.
+fn claude_native() -> Value {
+    let power = |capability: &str, tool: &str| {
+        json!({
+            "capability": capability, "tools": [tool],
+            "on": {"selection": {"include": [tool], "allow": [tool], "deny": []}},
+            "off": {"selection": {"include": [], "allow": [], "deny": [tool]}},
+            "restrictions": {"unsupported": "no native restriction transport is established"},
+            "evidence": {"source": "adapter data", "scope": "declared", "limitations": []},
+            "authored": {"list_flags": ["--tools", "--allowedTools", "--allowed-tools"]},
+        })
+    };
+    json!({
+        "known": {"web-search": power("web-search", "WebSearch"),
+                  "web-fetch": power("web-fetch", "WebFetch")},
+        "selection": {
+            "include": {"flag": "--tools", "separator": ","},
+            "allow": {"flag": "--allowedTools", "separator": ","},
+            "deny": {"flag": "--disallowedTools", "separator": ","},
+        },
     })
 }
 

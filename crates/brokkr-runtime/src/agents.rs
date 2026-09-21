@@ -573,6 +573,21 @@ pub struct Candidate {
     pub resume: ResumeAssessment,
 }
 
+impl Candidate {
+    /// The composed argv in its two parts, by who wrote them (decision
+    /// 0066 ruling 4): what the agent's definition AUTHORED — driver, model,
+    /// effort, local tool permissions — and the adapter's `hands.workspace`
+    /// fragment the engine owns. `compose` appends the fragment LAST and
+    /// records it in `hands_fragment`, so the split is at the length it
+    /// recorded there: a fact carried from the one place the fragment is
+    /// appended, never recovered by searching the argv for its text. An
+    /// author who spells the same bytes is on the authored side of it.
+    pub fn parts(&self) -> (&[String], &[String]) {
+        self.argv
+            .split_at(self.argv.len().saturating_sub(self.hands_fragment.len()))
+    }
+}
+
 /// An optional-capability gap: a WARNING that lands in the run manifest.
 /// A warning that only reaches stderr is "nothing" by the ruling's own
 /// words, so this is a value, not a print.

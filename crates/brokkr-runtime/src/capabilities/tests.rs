@@ -108,9 +108,14 @@ fn asks(requests: Value) -> SiteAsks {
 fn serving(native: &NativeInventory) -> Serving<'_> {
     Serving {
         provider: "test-native",
+        // A synthetic provider dispatches no built-in driver: opaque, so
+        // the resolver's own logic is what these tests read.
+        harness: OPAQUE_HARNESS,
         model: Some("tn-1"),
         native: Some((native, "d1ge57")),
+        unloaded: None,
         authored: &[],
+        fragment: &[],
     }
 }
 
@@ -1219,7 +1224,8 @@ fn provider_compatibility_drops_a_want_with_its_exact_notice() {
     );
     assert_eq!(
         dropped.controls(),
-        json!({"inventory": "unmeasured", "reason": "never probed"})
+        json!({"inventory": "unmeasured", "provider": "test-native", "harness": "<custom>",
+               "reason": "never probed"})
     );
     assert_eq!(
         dropped.prompt()["native"],
@@ -1622,23 +1628,44 @@ fn a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks(
         .resolve(&asks(json!({"web-search": "requires"})), &serving(&stuck))
         .unwrap();
     assert!(argv_of(&held).is_empty());
-    // An OFF nobody measured is not a refusal and not a denial.
+    // An OFF nobody measured claims no denial — and so it is a REFUSAL too
+    // (decision 0066 ruling 1; finding H1). It used to compile, recording
+    // the power as "unmeasured" and launching the harness with it on: a
+    // denial absence implied. It refuses on the same terms the impossible
+    // OFF does — no ask, a want, a grant to someone else, a subtraction —
+    // keeping its own reason rather than claiming a measured impossibility.
     let unknown = test_native(
         json!({"default": "on"}),
         json!({"unmeasured": "never tried"}),
         json!({"unsupported": "x"}),
     );
-    let outcome = nothing.resolve(&implement, &serving(&unknown)).unwrap();
-    assert_eq!(
-        outcome.manifest()["native"]["unmeasured"],
-        json!(["web-search"])
-    );
-    assert_eq!(outcome.manifest()["native"]["off"], json!([]));
-    assert_eq!(
-        outcome.not_held["web-search"],
-        "provider 'test-native' has it natively and its OFF control is unmeasured (never \
-         tried); it is not granted and no denial is claimed"
-    );
+    let unmeasured = |label: &str, office: &str| {
+        format!(
+            "seat '{label}' (office '{office}') in realm 'private': provider 'test-native' is \
+             known to carry native capability 'web-search', which this seat does not hold, and \
+             no valid control denies it: its OFF control is unmeasured (never tried). A known \
+             native power is launched only with a delivered denial, never on what absence \
+             implies; repair the adapter data (decision 0066 ruling 1)"
+        )
+    };
+    for (realm, site, label, office) in [
+        (&nothing, &implement, "implement", "implement"),
+        (&nothing, &wanting, "research", "researcher"),
+        (&elsewhere, &implement, "implement", "implement"),
+        (&nothing, &subtracted, "research", "researcher"),
+        (&generous, &subtracted, "research", "researcher"),
+    ] {
+        assert_eq!(
+            realm.resolve(site, &serving(&unknown)).unwrap_err(),
+            unmeasured(label, office),
+            "{label}"
+        );
+    }
+    // Held, the same harness seats: nobody has to switch OFF what is held.
+    let held = granted
+        .resolve(&asks(json!({"web-search": "requires"})), &serving(&unknown))
+        .unwrap();
+    assert_eq!(held.manifest()["native"]["on"], json!(["web-search"]));
     // Off by default needs no argv, and is still recorded as off.
     let quiet = test_native(
         json!({"argv": ["--search-on"]}),

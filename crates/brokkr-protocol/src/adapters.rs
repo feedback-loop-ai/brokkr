@@ -2394,17 +2394,6 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str, managed: &[String]) ->
     command
 }
 
-/// The engine-managed native controls of one codex launch. Read again
-/// where a rejected rejoin is replaced cold: `codex_launch` already
-/// refused a missing authority, so what is read here is the same plan.
-fn codex_managed(input: &Value) -> Vec<String> {
-    crate::native_controls::managed(input)
-        .ok()
-        .flatten()
-        .map(|controls| controls.argv)
-        .unwrap_or_default()
-}
-
 /// The seat's declared sandbox class, taken out of its own passthrough.
 /// `codex exec resume` accepts neither `-C/--cd` nor `-s/--sandbox`
 /// (verified: `codex exec resume --help`, codex-cli 0.148.0), so the
@@ -2561,6 +2550,52 @@ fn codex_launch(
     session: Option<&str>,
     input: &Value,
 ) -> Result<LaunchPlan, String> {
+    codex_launch_and_cold(bin, extra, workdir, session, input).map(|(plan, _)| plan)
+}
+
+/// What the engine's plan composes one provider's launch into: the seat's
+/// argv with every consumed control folded in, and the managed argv that is
+/// appended last (decision 0066 rulings 1 to 4). A driver run by hand
+/// carries no plan, and its argv is the operator's own, untouched.
+///
+/// An engine launch is judged part by part: the provenance the engine
+/// recorded must reassemble the argv actually handed over; the AUTHORED
+/// part may not contend with a managed native control, nor configure a
+/// capability server; and the plan must be ready for this provider and
+/// carry only representations its launch consumes.
+fn composed_launch(
+    provider: &str,
+    extra: &[String],
+    input: &Value,
+) -> Result<crate::native_controls::Composed, String> {
+    use crate::native_controls as controls;
+    let Some(plan) = controls::managed(input)? else {
+        return Ok(controls::Composed {
+            extra: extra.to_vec(),
+            managed: Vec::new(),
+        });
+    };
+    let (authored, fragment) = controls::launch_arguments(input, extra)?;
+    if let Some(conflict) = controls::authored_conflict(&authored, &plan.guards) {
+        return Err(controls::conflict_refusal(input, &conflict));
+    }
+    controls::compose_for_provider(provider, &authored, &fragment, &plan)
+        .map_err(|refusal| refusal.at_launch(input))
+}
+
+/// [`codex_launch`], and beside its plan the COLD argv the same validated
+/// controls compose. A rejoin the harness rejects before any work is
+/// replaced by exactly that command, so the replacement carries the control
+/// the launch already proved rather than decoding the plan a second time —
+/// where an error once degraded to no control at all (decision 0066 ruling
+/// 2).
+fn codex_launch_and_cold(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+) -> Result<(LaunchPlan, Vec<String>), String> {
     if let Some(conflict) = codex_selector_conflict(extra) {
         return Err(format!(
             "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
@@ -2575,15 +2610,33 @@ fn codex_launch(
     // authored argument that reaches the same capability — `--search`, a
     // `web_search` config assignment, even the OFF pair itself — because
     // ordering two controls against each other is not a ruling.
-    let controls = crate::native_controls::managed(input)?.unwrap_or_default();
-    if let Some(conflict) = crate::native_controls::authored_conflict(extra, &controls.guards) {
-        return Err(crate::native_controls::conflict_refusal(input, &conflict));
-    }
-    let managed = controls.argv;
+    let composed = composed_launch("codex", extra, input)?;
+    let cold = codex_cold(bin, &composed.extra, workdir, &composed.managed);
+    let plan = codex_plan(
+        bin,
+        &composed.extra,
+        workdir,
+        session,
+        input,
+        &composed.managed,
+    );
+    Ok((plan, cold))
+}
+
+/// The plan of one validated codex launch: `extra` and `managed` are what
+/// [`composed_launch`] composed, and nothing here can refuse.
+fn codex_plan(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    managed: &[String],
+) -> LaunchPlan {
     let gate = resume_gate(input, CODEX_SHAPE);
     let probe = vec![bin.to_string(), "--version".to_string()];
     let cold = |refusal: Option<&'static str>, version: Option<String>| LaunchPlan {
-        command: codex_cold(bin, extra, workdir, &managed),
+        command: codex_cold(bin, extra, workdir, managed),
         rejoining: None,
         refusal,
         sandbox: None,
@@ -2601,16 +2654,16 @@ fn codex_launch(
     // therefore be worth recording for the next retry.
     let Some(session) = session else {
         let qualification = qualify(&gate, &probe, None);
-        return Ok(cold(None, qualification.observed));
+        return cold(None, qualification.observed);
     };
     // A closed gate names ITS reason: under an unmeasured shape the
     // offer is declined because the shape is unmeasured, whatever the
     // seat's argv did or did not declare.
     if let ResumeGate::Disabled(reason) = &gate {
-        return Ok(cold(Some(reason), None));
+        return cold(Some(reason), None);
     }
     if !plain_thread_id(session) {
-        return Ok(cold(Some("invalid-session-id"), None));
+        return cold(Some("invalid-session-id"), None);
     }
     // The effort pin leaves the argv FIRST, for the same reason the
     // sandbox class does: `codex exec resume` takes neither as a flag,
@@ -2621,21 +2674,21 @@ fn codex_launch(
     let (effort, remainder) = split_effort(extra);
     let (class, passthrough) = split_codex_sandbox(&remainder);
     let Some(class) = class else {
-        return Ok(cold(Some("sandbox-unavailable"), None));
+        return cold(Some("sandbox-unavailable"), None);
     };
     if !CODEX_SANDBOX_CLASSES.contains(&class.as_str()) {
-        return Ok(cold(Some("unsupported-sandbox"), None));
+        return cold(Some("unsupported-sandbox"), None);
     }
     // The rest of the seat's argv has to be safe to carry across, part
     // by part: a second sandbox expression could outrank the one
     // re-imposed here, and last-write-wins is not a thing to gamble a
     // restriction on.
     if codex_resume_blocker(&passthrough).is_some() {
-        return Ok(cold(Some("incompatible-argv"), None));
+        return cold(Some("incompatible-argv"), None);
     }
     let qualification = qualify(&gate, &probe, originating_harness_version(input));
     if let Some(refusal) = qualification.refusal {
-        return Ok(cold(Some(refusal), qualification.observed));
+        return cold(Some(refusal), qualification.observed);
     }
     let mut command = vec![
         bin.to_string(),
@@ -2664,7 +2717,7 @@ fn codex_launch(
     // The prompt still arrives on stdin, which `codex exec resume` reads
     // only when the prompt positional is `-` (verified against 0.148.0).
     command.push("-".into());
-    Ok(LaunchPlan {
+    LaunchPlan {
         command,
         rejoining: Some(session.to_string()),
         refusal: None,
@@ -2675,7 +2728,7 @@ fn codex_launch(
         persistent: true,
         confirms_from_locator: true,
         effort: None,
-    })
+    }
 }
 
 /// The command a Codex launch WOULD spawn for this driver argv and input,
@@ -2895,14 +2948,20 @@ fn claude_launch(
     // list (design D6), found through the one alias reading this launch
     // already owns, so a local permission is kept rather than refused as
     // a duplicate of the engine's own flag.
-    let controls = crate::native_controls::managed(input)?.unwrap_or_default();
-    if let Some(conflict) = crate::native_controls::authored_conflict(extra, &controls.guards) {
-        return Err(crate::native_controls::conflict_refusal(input, &conflict));
-    }
-    let composed = crate::native_controls::apply_selection(extra, &controls.selection, |name| {
-        claude_restriction_control(name).map(|(control, _)| control)
-    });
-    let extra = composed.as_slice();
+    //
+    // Decision 0066 ruling 3 (finding H3): EVERY representation the plan
+    // carries is consumed here or the launch refuses — a managed list
+    // argument such as `--disallowedTools WebSearch` joins the same deny
+    // list a selection contributes to, and a restriction transport rides
+    // verbatim. Consuming the selection alone recorded such an OFF and
+    // never delivered it. LaneTally forwards claude's grammar, and is
+    // composed under its own name so it inherits no floor but its own.
+    let provider = match shape {
+        LANETALLY_SHAPE => "lanetally",
+        _ => "claude",
+    };
+    let composed = composed_launch(provider, extra, input)?;
+    let extra = composed.extra.as_slice();
     if let Some(conflict) = claude_selector_conflict(extra) {
         return Err(format!(
             "refusing to invoke the agent CLI: the seat's arguments carry '{conflict}', which \
@@ -3645,11 +3704,17 @@ fn dsh_launch_with(
     // the seat's argv is read, a route claimed, a version probed or an
     // overlay staged. DSH declares its native inventory unmeasured, so the
     // plan an engine writes carries no argv, no selection and no guard —
-    // there is nothing to compose and nothing authored to contend with,
-    // and every residual argument is refused below whatever it spells. The
-    // plan is read for the one thing it can say: that there is one. A
+    // and every residual argument is refused below whatever it spells. A
     // driver no ruling engine launched carries no key and runs as it did.
-    crate::native_controls::managed(input)?;
+    //
+    // The plan is COMPOSED all the same (decision 0066 ruling 3): this
+    // launch consumes no native control, so a plan that carries one — a
+    // managed argument, a tool selection — is refused here rather than
+    // recorded and dropped, and the engine's provenance must reassemble
+    // the argv like any other launch's. What comes back is the argv as it
+    // was handed over: DSH folds nothing in.
+    let composed = composed_launch("dsh", extra, input)?;
+    let extra = composed.extra.as_slice();
     // Original adjacency next: the three extractions below are
     // sequential, so a control standing in another control's value slot
     // would vanish before that slot is read (see `dsh_input_boundaries`).
@@ -4785,7 +4850,8 @@ fn invoke_with_stager(
         }
         AdapterKind::Codex => {
             let bin = adapter_binary("BROKKR_CODEX_BIN", Some("FORGE_CODEX_BIN"), "codex");
-            let plan = codex_launch(&bin, extra, &workdir, session, input)?;
+            let (plan, validated_cold) =
+                codex_launch_and_cold(&bin, extra, &workdir, session, input)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation = invoke_codex(&command, prompt, &workdir, &mut hold, emit)?;
@@ -4812,17 +4878,15 @@ fn invoke_with_stager(
             {
                 // The rejected child's candidates go with it: a
                 // replacement inherits none of its launch, root,
-                // locator or accounting. The cold argv reuses `extra`
-                // unchanged because `codex_launch` already validated
-                // exactly these immutable arguments — the selector and
-                // incompatible-argv guards ran on them before the first
-                // spawn — so a second builder guard here would repeat a
-                // check that cannot have become false.
-                let cold = LaunchPlan::cold(
-                    codex_cold(&bin, extra, &workdir, &codex_managed(input)),
-                    "codex-thread",
-                    Some("harness-refused"),
-                );
+                // locator or accounting. The cold argv IS the one the
+                // launch composed from the arguments and the capability
+                // plan it validated before the first spawn — the selector,
+                // provenance and native-control guards all ran on them —
+                // so the replacement carries the same delivered control,
+                // and nothing is decoded a second time where an error
+                // could degrade to no control (decision 0066 ruling 2).
+                let cold =
+                    LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
                 let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
                 let mut outcome = invoke_codex(&command, prompt, &workdir, &mut replacement, emit)?;

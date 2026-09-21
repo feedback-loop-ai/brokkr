@@ -1,5 +1,5 @@
 use super::*;
-use serde_json::json;
+use serde_json::{json, Value};
 
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
@@ -54,9 +54,26 @@ fn an_absent_plan_composes_nothing_and_a_null_plan_refuses() {
     );
 }
 
+/// The refusal a plan that cannot be read earns, around what is wrong.
+fn unreadable(problem: &str) -> Result<Option<Controls>, String> {
+    Err(format!(
+        "refusing to invoke the agent CLI: the engine's capability plan for this site cannot be \
+         read ({problem}). A plan is never repaired into an empty one: a harness launched on a \
+         guess is launched on its own defaults (decision 0066 ruling 2)"
+    ))
+}
+
+/// Finding H1 at the driver (decision 0066 ruling 2): a plan is read WHOLE
+/// or the launch is refused. Every default an unreadable part used to fall
+/// back to — no argv, no guard, no list, a selection with no flags — was a
+/// launch with a control missing, so each shape below names what is wrong
+/// with it instead. The fixtures are otherwise valid plans, one part at a
+/// time made wrong.
 #[test]
-fn a_plan_is_read_whole_and_a_partial_one_reads_as_empty_parts() {
+fn a_plan_is_read_whole_and_a_malformed_one_refuses_naming_its_fault() {
     let plan = json!({"native_controls": {
+        "inventory": "known", "provider": "claude", "harness": "claude",
+        "on": ["web-search"], "off": ["web-fetch"],
         "argv": ["-c", "web_search=\"disabled\""],
         "selection": {
             "include": ["WebSearch"], "allow": ["WebSearch"], "deny": ["WebFetch"],
@@ -74,6 +91,11 @@ fn a_plan_is_read_whole_and_a_partial_one_reads_as_empty_parts() {
         }]
     }});
     let controls = managed(&plan).unwrap().unwrap();
+    assert_eq!(controls.provider, "claude");
+    assert_eq!(controls.harness, "claude");
+    assert_eq!(controls.inventory, Inventory::Known);
+    assert_eq!(controls.held, argv(&["web-search"]));
+    assert_eq!(controls.denied, argv(&["web-fetch"]));
     assert_eq!(controls.argv, argv(&["-c", "web_search=\"disabled\""]));
     assert_eq!(
         controls.selection,
@@ -98,27 +120,145 @@ fn a_plan_is_read_whole_and_a_partial_one_reads_as_empty_parts() {
             value_flags: argv(&["--model"]),
         }]
     );
-    // An unmeasured inventory carries no argv, no selection and no guard;
-    // a selection whose flags are incomplete names no list at all.
+    // An unmeasured inventory names its provider and its reason, and
+    // carries no argv, no selection and no guard. A guard may leave an axis
+    // out — it guards nothing there — and a plan may carry no selection.
     assert_eq!(
-        managed(&json!({"native_controls": {"inventory": "unmeasured"}})),
-        Ok(Some(Controls::default()))
+        managed(&json!({"native_controls": {
+            "inventory": "unmeasured", "provider": "flash", "harness": "dsh",
+            "reason": "never probed"}})),
+        Ok(Some(Controls {
+            provider: "flash".into(),
+            harness: "dsh".into(),
+            inventory: Inventory::Unmeasured("never probed".into()),
+            ..Controls::default()
+        }))
     );
-    for flags in [
-        json!({}),
-        json!({"include": {"flag": "--tools", "separator": ","}}),
-        json!({"include": {"flag": "--tools", "separator": ","},
-               "allow": {"flag": "--allowedTools", "separator": ","}}),
-        json!({"include": {"flag": "--tools"}}),
-        json!({"include": {"separator": ","}}),
+    let sparse = managed(&json!({"native_controls": {
+        "inventory": "known", "provider": "codex", "harness": "codex", "on": [], "off": [],
+        "argv": [], "guards": [{"capability": "web-search"}]}}))
+    .unwrap()
+    .unwrap();
+    assert_eq!(sparse.selection, Selection::default());
+    assert_eq!(
+        sparse.guards,
+        vec![Guard {
+            capability: "web-search".into(),
+            ..Guard::default()
+        }]
+    );
+
+    // One part at a time made wrong, in an otherwise whole plan.
+    let whole = plan["native_controls"].clone();
+    let broken = |edit: &dyn Fn(&mut Value)| {
+        let mut plan = whole.clone();
+        edit(&mut plan);
+        managed(&json!({"native_controls": plan}))
+    };
+    let without = |key: &'static str| {
+        move |plan: &mut Value| {
+            plan.as_object_mut().unwrap().remove(key);
+        }
+    };
+    let list = |flag: Value| {
+        json!({"include": flag, "allow": {"flag": "--a", "separator": ","},
+                                   "deny": {"flag": "--d", "separator": ","}})
+    };
+    for (edit, problem) in [
+        (
+            &without("inventory") as &dyn Fn(&mut Value),
+            "'inventory' is not a string",
+        ),
+        (
+            &|plan: &mut Value| plan["inventory"] = json!("empty"),
+            "'inventory' is 'empty', not known or unmeasured",
+        ),
+        (
+            &|plan: &mut Value| plan["inventory"] = json!(true),
+            "'inventory' is not a string",
+        ),
+        (&without("provider"), "'provider' is not a string"),
+        (&without("harness"), "'harness' is not a string"),
+        (&without("on"), "'on' is missing"),
+        (&without("off"), "'off' is missing"),
+        (
+            &|plan: &mut Value| plan["off"] = json!("web-fetch"),
+            "'off' is not an array of strings",
+        ),
+        (&without("argv"), "'argv' is missing"),
+        (
+            &|plan: &mut Value| plan["argv"] = json!(["-c", 7]),
+            "'argv' is not an array of strings",
+        ),
+        (&without("guards"), "'guards' is missing"),
+        (
+            &|plan: &mut Value| plan["guards"] = json!({}),
+            "'guards' is not an array",
+        ),
+        (
+            &|plan: &mut Value| plan["guards"] = json!([{}]),
+            "'guards[0].capability' is not a string",
+        ),
+        (
+            &|plan: &mut Value| plan["guards"][0]["flags"] = json!("--search"),
+            "'guards[0].flags' is not an array of strings",
+        ),
+        (
+            &|plan: &mut Value| plan["guards"][0]["tools"] = json!([null]),
+            "'guards[0].tools' is not an array of strings",
+        ),
+        (
+            &|plan: &mut Value| plan["selection"] = json!({}),
+            "'selection.include' is missing",
+        ),
+        (
+            &|plan: &mut Value| plan["selection"]["deny"] = json!("WebFetch"),
+            "'selection.deny' is not an array of strings",
+        ),
+        (
+            &|plan: &mut Value| {
+                plan["selection"].as_object_mut().unwrap().remove("flags");
+            },
+            "'selection.flags' is missing",
+        ),
+        (
+            &|plan: &mut Value| plan["selection"]["flags"] = json!({}),
+            "'selection.flags.include' is missing",
+        ),
+        (
+            &|plan: &mut Value| plan["selection"]["flags"] = list(json!({"flag": "--tools"})),
+            "'selection.flags.include.separator' is not a string",
+        ),
+        (
+            &|plan: &mut Value| plan["selection"]["flags"] = list(json!({"separator": ","})),
+            "'selection.flags.include.flag' is not a string",
+        ),
     ] {
-        let controls = managed(&json!({"native_controls": {
-            "selection": {"flags": flags}, "guards": [{}]
-        }}))
-        .unwrap()
-        .unwrap();
-        assert_eq!(controls.selection.flags, None);
-        assert_eq!(controls.guards, vec![Guard::default()]);
+        assert_eq!(broken(edit), unreadable(problem), "{problem}");
+    }
+    assert_eq!(
+        managed(&json!({"native_controls": []})),
+        unreadable("it is not an object")
+    );
+    for (plan, problem) in [
+        (
+            json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh"}),
+            "'reason' is not a string",
+        ),
+        (
+            json!({"inventory": "unmeasured", "harness": "dsh", "reason": "r"}),
+            "'provider' is not a string",
+        ),
+        (
+            json!({"inventory": "unmeasured", "provider": "dsh", "reason": "r"}),
+            "'harness' is not a string",
+        ),
+    ] {
+        assert_eq!(
+            managed(&json!({"native_controls": plan})),
+            unreadable(problem),
+            "{problem}"
+        );
     }
 }
 
@@ -544,4 +684,704 @@ fn every_reason_the_outcome_carries_is_rendered_whole() {
              about what it can reach on its own.{DATA_ONLY}"
         )
     );
+}
+
+// ------------------------------------------- decision 0066: composition
+
+/// A ready plan for `provider`: every known power answered for.
+fn ready(provider: &str, held: &[&str], denied: &[&str]) -> Controls {
+    Controls {
+        provider: provider.into(),
+        harness: provider.into(),
+        held: argv(held),
+        denied: argv(denied),
+        ..Controls::default()
+    }
+}
+
+fn server_refusal(provider: &str, written: &str) -> Refusal {
+    Refusal {
+        authored: true,
+        cause: format!(
+            "carry '{written}', which configures a capability server or admits a server's tools \
+             for provider '{provider}'. A recipe's driver arguments are recipe data, and only \
+             the realm grants a capability (decision 0065 ruling 3); the workspace hands are the \
+             engine's own to compose and need no authored configuration (decision 0066 ruling 4)"
+        ),
+    }
+}
+
+/// Finding H2: a recipe's AUTHORED driver arguments configure no capability
+/// server and admit no server's tool — under `grants: {}`, with a sound
+/// inventory, independent of both. The council's two reproductions lead:
+/// Codex's `mcp_servers.ungranted.command` with its args, and Claude's
+/// `--mcp-config` beside an allowed `mcp__ungranted__fetch`. Every spelling
+/// names what was written and never a value; a value that merely SPELLS a
+/// control stays inert; and the same bytes in the ENGINE's fragment are
+/// the workspace hands and compose as they always did.
+#[test]
+fn an_authored_capability_server_is_refused_by_provenance_and_never_by_its_bytes() {
+    let codex = ready("codex", &[], &["web-search"]);
+    let claude = ready("claude", &[], &["web-search", "web-fetch"]);
+    let lanetally = Controls {
+        provider: "lanetally".into(),
+        harness: "lanetally".into(),
+        inventory: Inventory::Unmeasured("the wrapper forwards argv".into()),
+        ..Controls::default()
+    };
+    for (provider, controls, authored, written) in [
+        (
+            "codex",
+            &codex,
+            argv(&[
+                "-c",
+                "mcp_servers.ungranted.command=\"npx\"",
+                "-c",
+                "mcp_servers.ungranted.args=[\"fetch-mcp\"]",
+            ]),
+            "-c mcp_servers",
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["--config", "mcp_servers.x.url=\"https://h\""]),
+            "--config mcp_servers",
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["-c=mcp_servers.x.command=\"npx\""]),
+            "-c mcp_servers",
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["--config=mcp_servers={x={command=\"npx\"}}"]),
+            "--config mcp_servers",
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["-c", "mcp_servers = {}"]),
+            "-c mcp_servers",
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["-c", "\"mcp_servers\".x.command=\"npx\""]),
+            "-c mcp_servers",
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["-c", " mcp_servers . x . command = \"npx\""]),
+            "-c mcp_servers",
+        ),
+        // Counterfeit hands: the engine's own server name proves nothing.
+        (
+            "codex",
+            &codex,
+            argv(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]),
+            "-c mcp_servers",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&[
+                "--mcp-config",
+                "/etc/ungranted.json",
+                "--allowedTools",
+                "mcp__ungranted__fetch",
+            ]),
+            "--mcp-config",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--mcp-config={\"mcpServers\":{}}"]),
+            "--mcp-config",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--settings", "/etc/settings.json"]),
+            "--settings",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--allowedTools", "Bash(git:*),mcp__ungranted__fetch"]),
+            "--allowedTools mcp__*",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--allowed-tools=mcp__brokkr__workspace"]),
+            "--allowedTools mcp__*",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--tools", "mcp__x__y Bash"]),
+            "--tools mcp__*",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--allowedTools", "*"]),
+            "--allowedTools *",
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--allowedTools", "mcp*"]),
+            "--allowedTools *",
+        ),
+        (
+            "lanetally",
+            &lanetally,
+            argv(&["--mcp-config", "/etc/ungranted.json"]),
+            "--mcp-config",
+        ),
+        (
+            "lanetally",
+            &lanetally,
+            argv(&["--allowedTools", "mcp__ungranted__fetch"]),
+            "--allowedTools mcp__*",
+        ),
+    ] {
+        assert_eq!(
+            compose_for_provider(provider, &authored, &[], controls),
+            Err(server_refusal(provider, written)),
+            "{provider}: {authored:?}"
+        );
+    }
+    // Inert: a value position is a value, whatever it spells; a bare
+    // assignment follows no configuration flag; another key is another key.
+    for (provider, controls, authored) in [
+        (
+            "codex",
+            &codex,
+            argv(&["--model", "-c", "--sandbox", "mcp_servers.x=1"]),
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["-c", "model_verbosity=\"mcp_servers.x\""]),
+        ),
+        (
+            "codex",
+            &codex,
+            argv(&["-c", "mcp_servers_timeout=5", "mcp_servers.x=1"]),
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&[
+                "--model",
+                "--mcp-config",
+                "--append-system-prompt",
+                "--allowedTools mcp__x__y",
+            ]),
+        ),
+        (
+            "claude",
+            &claude,
+            argv(&["--allowedTools", "Bash(mcp__not_a_tool:*)"]),
+        ),
+    ] {
+        let composed = compose_for_provider(provider, &authored, &[], controls)
+            .unwrap_or_else(|refusal| panic!("{authored:?}: {refusal:?}"));
+        assert_eq!(&composed.extra[..authored.len()], authored, "{authored:?}");
+    }
+    // The ENGINE's fragment carries exactly these bytes and is the hands.
+    let hands = argv(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]);
+    assert_eq!(
+        compose_for_provider("codex", &argv(&["--sandbox", "read-only"]), &hands, &codex),
+        Ok(Composed {
+            extra: argv(&[
+                "--sandbox",
+                "read-only",
+                "-c",
+                "mcp_servers.brokkr.command=\"/bin/brokkr\""
+            ]),
+            managed: Vec::new(),
+        })
+    );
+    // A provider with no such door is not judged for one.
+    assert_eq!(
+        authored_server_conflict("dsh", &argv(&["--mcp-config", "x"])),
+        None
+    );
+    assert_eq!(
+        authored_server_conflict("exec", &argv(&["-c", "mcp_servers.x=1"])),
+        None
+    );
+    // Both voices of the one refusal.
+    let refusal = server_refusal("codex", "-c mcp_servers");
+    assert_eq!(
+        refusal.at_launch(&json!({"seat": "review:security"})),
+        format!(
+            "refusing to invoke the agent CLI: the arguments of seat 'review:security' {}",
+            refusal.cause
+        )
+    );
+    assert_eq!(
+        refusal.at_launch(&json!({})),
+        format!(
+            "refusing to invoke the agent CLI: the seat's arguments {}",
+            refusal.cause
+        )
+    );
+    assert_eq!(
+        refusal.at_compile("seat 'review' (office 'review') in realm 'private'"),
+        format!(
+            "seat 'review' (office 'review') in realm 'private': its arguments {}",
+            refusal.cause
+        )
+    );
+}
+
+fn unready_refusal(provider: &str, capability: &str, problem: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "provider '{provider}' is known to carry native capability '{capability}', and the \
+             capability plan {problem}; a known native power is launched only with a delivered \
+             control for it, never on what absence implies (decision 0066 ruling 1)"
+        ),
+    }
+}
+
+/// Finding H1 at the last boundary: a provider KNOWN to carry a native
+/// power is composed only under a plan that answers for it. An unmeasured
+/// inventory — what absent, legacy or emptied adapter data used to become —
+/// answers for nothing; a plan resolved for another provider is not this
+/// one's; and a known plan that names the power neither ON nor OFF never
+/// ruled on it. Providers with no floor keep their declared uncertainty.
+#[test]
+fn a_known_native_power_is_composed_only_under_a_plan_that_answers_for_it() {
+    let unmeasured = |provider: &str| Controls {
+        provider: provider.into(),
+        harness: provider.into(),
+        inventory: Inventory::Unmeasured(
+            "the adapter declares no native_capabilities \
+                                          assessment"
+                .into(),
+        ),
+        ..Controls::default()
+    };
+    assert_eq!(known_powers("codex"), ["web-search"]);
+    assert_eq!(known_powers("claude"), ["web-search", "web-fetch"]);
+    for provider in ["dsh", "lanetally", "exec", "<custom>"] {
+        assert_eq!(known_powers(provider), [""; 0], "{provider}");
+        assert_eq!(
+            compose_for_provider(provider, &argv(&["--x"]), &[], &unmeasured(provider)),
+            Ok(Composed {
+                extra: argv(&["--x"]),
+                managed: Vec::new()
+            }),
+            "{provider}"
+        );
+    }
+    let legacy = "declares the provider's inventory unmeasured (the adapter declares no \
+                  native_capabilities assessment)";
+    for (provider, controls, capability, problem) in [
+        ("codex", unmeasured("codex"), "web-search", legacy),
+        ("claude", unmeasured("claude"), "web-search", legacy),
+        (
+            "codex",
+            ready("claude", &[], &["web-search", "web-fetch"]),
+            "web-search",
+            "was resolved for harness 'claude'",
+        ),
+        (
+            "codex",
+            ready("codex", &[], &[]),
+            "web-search",
+            "neither holds it nor switches it off",
+        ),
+        (
+            "claude",
+            ready("claude", &["web-search"], &[]),
+            "web-fetch",
+            "neither holds it nor switches it off",
+        ),
+    ] {
+        assert_eq!(
+            compose_for_provider(provider, &[], &[], &controls),
+            Err(unready_refusal(provider, capability, problem)),
+            "{provider}: {problem}"
+        );
+    }
+    // Held is an answer as much as denied is: ON is not refused for being ON.
+    assert_eq!(
+        compose_for_provider("codex", &[], &[], &ready("codex", &["web-search"], &[])),
+        Ok(Composed::default())
+    );
+    // Adapters are data: a provider of ANY name that dispatches the codex
+    // driver is the codex harness, with its floor — and is composed as one.
+    let renamed = Controls {
+        provider: "zeta".into(),
+        ..ready("codex", &[], &["web-search"])
+    };
+    assert_eq!(
+        compose_for_provider("codex", &[], &[], &renamed),
+        Ok(Composed::default())
+    );
+    let refusal = unready_refusal("codex", "web-search", legacy);
+    assert_eq!(
+        refusal.at_launch(&json!({"seat": "implement"})),
+        format!("refusing to invoke the agent CLI: {}", refusal.cause)
+    );
+    assert_eq!(
+        refusal.at_compile("seat 'x'"),
+        format!("seat 'x': {}", refusal.cause)
+    );
+}
+
+fn form_refusal(provider: &str, form: &str) -> Refusal {
+    Refusal {
+        authored: false,
+        cause: format!(
+            "the capability plan carries {form} for provider '{provider}', which its launch does \
+             not consume; a control that cannot reach the final command is refused rather than \
+             recorded and dropped (decision 0066 ruling 3)"
+        ),
+    }
+}
+
+/// Finding H3: every representation a plan carries reaches the composed
+/// command, or the composition refuses it. The council's reproduction
+/// leads: Claude's search OFF written as ARGV `--disallowedTools WebSearch`
+/// beside fetch OFF as a SELECTION becomes ONE deny list, under one flag.
+/// A restriction transport — not a list — rides verbatim, last. What a
+/// provider's launch does not consume is refused by form.
+#[test]
+fn every_control_representation_reaches_the_composed_command_or_refuses() {
+    let claude = |argv_: &[&str], include: &[&str], allow: &[&str], deny: &[&str]| Controls {
+        argv: argv(argv_),
+        selection: Selection {
+            include: argv(include),
+            allow: argv(allow),
+            deny: argv(deny),
+            flags: claude_flags(),
+        },
+        ..ready("claude", &[], &["web-search", "web-fetch"])
+    };
+    let hands = argv(&[
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "/run/hands.json",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ]);
+    let seat = argv(&["--permission-mode", "acceptEdits"]);
+    // The reproduction, boxed and unboxed.
+    let mixed = claude(&["--disallowedTools", "WebSearch"], &[], &[], &["WebFetch"]);
+    assert_eq!(
+        compose_for_provider("claude", &seat, &hands, &mixed)
+            .unwrap()
+            .extra,
+        [
+            seat.clone(),
+            hands.clone(),
+            argv(&["--disallowedTools", "WebFetch,WebSearch"])
+        ]
+        .concat()
+    );
+    assert_eq!(
+        compose_for_provider("claude", &seat, &[], &mixed)
+            .unwrap()
+            .extra,
+        [
+            seat.clone(),
+            argv(&["--disallowedTools", "WebFetch,WebSearch"])
+        ]
+        .concat()
+    );
+    // Joined and kebab spellings of a managed list; a local deny list the
+    // agent authored gains the names where it stands, the flag once.
+    let local = argv(&["--disallowed-tools", "Bash(rm:*)"]);
+    assert_eq!(
+        compose_for_provider(
+            "claude",
+            &local,
+            &[],
+            &claude(&["--disallowed-tools=WebSearch,WebFetch"], &[], &[], &[])
+        )
+        .unwrap()
+        .extra,
+        argv(&["--disallowed-tools", "Bash(rm:*),WebSearch,WebFetch"])
+    );
+    // Search held as ARGV lists beside fetch denied by selection: the held
+    // tool joins the boxed tool list and the allow list, fetch is denied,
+    // and a name both representations carry appears once.
+    let held = claude(
+        &["--tools", "WebSearch", "--allowedTools", "WebSearch"],
+        &["WebSearch"],
+        &[],
+        &["WebFetch"],
+    );
+    assert_eq!(
+        compose_for_provider("claude", &seat, &hands, &held)
+            .unwrap()
+            .extra,
+        [
+            seat.clone(),
+            argv(&[
+                "--tools",
+                "WebSearch",
+                "--strict-mcp-config",
+                "--mcp-config",
+                "/run/hands.json",
+                "--allowedTools",
+                "mcp__brokkr__workspace,WebSearch",
+                "--disallowedTools",
+                "WebFetch"
+            ])
+        ]
+        .concat()
+    );
+    // A restriction transport is not a list: verbatim, after the lists.
+    let restricted = claude(
+        &[
+            "--search-policy",
+            "{\"allow\":{\"hosts\":[\"yaml.org\"]}}",
+            "--disallowedTools",
+            "WebFetch",
+        ],
+        &[],
+        &[],
+        &[],
+    );
+    assert_eq!(
+        compose_for_provider("claude", &seat, &[], &restricted)
+            .unwrap()
+            .extra,
+        [
+            seat.clone(),
+            argv(&[
+                "--disallowedTools",
+                "WebFetch",
+                "--search-policy",
+                "{\"allow\":{\"hosts\":[\"yaml.org\"]}}"
+            ])
+        ]
+        .concat()
+    );
+    // LaneTally forwards the same grammar and consumes the same forms.
+    let forwarded = Controls {
+        provider: "lanetally".into(),
+        harness: "lanetally".into(),
+        ..mixed.clone()
+    };
+    assert_eq!(
+        compose_for_provider("lanetally", &seat, &[], &forwarded)
+            .unwrap()
+            .extra,
+        [
+            seat.clone(),
+            argv(&["--disallowedTools", "WebFetch,WebSearch"])
+        ]
+        .concat()
+    );
+    // Codex consumes argv, appended LAST by its launch.
+    let off = Controls {
+        argv: argv(&["-c", "web_search=\"disabled\""]),
+        ..ready("codex", &[], &["web-search"])
+    };
+    assert_eq!(
+        compose_for_provider("codex", &seat, &[], &off),
+        Ok(Composed {
+            extra: seat.clone(),
+            managed: argv(&["-c", "web_search=\"disabled\""])
+        })
+    );
+
+    // What is NOT consumed refuses, by provider and form.
+    let mut no_flags = mixed.clone();
+    no_flags.selection = Selection::default();
+    let mut foreign = mixed.clone();
+    foreign.selection.flags = Some([
+        ListFlag {
+            flag: "--tools".into(),
+            separator: ",".into(),
+        },
+        ListFlag {
+            flag: "--allowedTools".into(),
+            separator: ",".into(),
+        },
+        ListFlag {
+            flag: "--deny".into(),
+            separator: ",".into(),
+        },
+    ]);
+    for (provider, controls, form) in [
+        (
+            "claude",
+            no_flags,
+            "a managed '--disallowedTools' with no value, or no selection mapping to fold it into,",
+        ),
+        (
+            "claude",
+            foreign,
+            "a managed '--disallowedTools' with no value, or no selection mapping to fold it into,",
+        ),
+        (
+            "claude",
+            claude(&["--disallowedTools"], &[], &[], &[]),
+            "a managed '--disallowedTools' with no value, or no selection mapping to fold it into,",
+        ),
+        (
+            "claude",
+            claude(&["--allowedTools", "WebSearch"], &[], &[], &["WebSearch"]),
+            "tool 'WebSearch' both admitted and denied",
+        ),
+        (
+            "claude",
+            claude(&[], &["WebFetch"], &[], &["WebFetch"]),
+            "tool 'WebFetch' both admitted and denied",
+        ),
+        (
+            "codex",
+            Controls {
+                selection: mixed.selection.clone(),
+                ..ready("codex", &[], &["web-search"])
+            },
+            "a tool selection",
+        ),
+        (
+            "dsh",
+            Controls {
+                selection: mixed.selection.clone(),
+                ..ready("dsh", &[], &[])
+            },
+            "a tool selection",
+        ),
+        (
+            "dsh",
+            Controls {
+                argv: argv(&["--no-web"]),
+                ..ready("dsh", &[], &[])
+            },
+            "managed arguments",
+        ),
+        (
+            "exec",
+            Controls {
+                argv: argv(&["--no-web"]),
+                ..ready("exec", &[], &[])
+            },
+            "managed arguments",
+        ),
+    ] {
+        assert_eq!(
+            compose_for_provider(provider, &seat, &[], &controls),
+            Err(form_refusal(provider, form)),
+            "{provider}: {form}"
+        );
+    }
+    // An OPAQUE custom driver is no launch the engine composes: its final
+    // command is never seen, the driver input is the only interface there
+    // is, and the plan rides it as data — reported back, claimed for nothing.
+    let custom = Controls {
+        argv: argv(&["--search-off"]),
+        selection: mixed.selection.clone(),
+        ..ready("<custom>", &[], &["web-search"])
+    };
+    assert_eq!(
+        compose_for_provider("<custom>", &seat, &[], &custom),
+        Ok(Composed {
+            extra: seat.clone(),
+            managed: argv(&["--search-off"])
+        })
+    );
+}
+
+/// Decision 0066 ruling 4, the carried fact: an engine launch is judged in
+/// the two parts the engine RECORDED, and a record that is absent, null,
+/// unreadable, or does not reassemble the argv actually handed over is
+/// refused — the flattened argv is never trusted by its bytes.
+#[test]
+fn provenance_is_a_recorded_fact_that_must_reassemble_the_argv() {
+    let extra = argv(&[
+        "--sandbox",
+        "read-only",
+        "-c",
+        "mcp_servers.brokkr.command=\"b\"",
+    ]);
+    let recorded = |authored: &[&str], managed: &[&str]| json!({"launch_arguments": {"authored": authored, "managed": managed}});
+    assert_eq!(
+        launch_arguments(
+            &recorded(
+                &["--sandbox", "read-only"],
+                &["-c", "mcp_servers.brokkr.command=\"b\""]
+            ),
+            &extra
+        ),
+        Ok((
+            argv(&["--sandbox", "read-only"]),
+            argv(&["-c", "mcp_servers.brokkr.command=\"b\""])
+        ))
+    );
+    assert_eq!(
+        launch_arguments(&recorded(&[], &[]), &[]),
+        Ok((Vec::new(), Vec::new()))
+    );
+    let refused = |problem: &str| {
+        Err(format!(
+            "refusing to invoke the agent CLI: {problem}. What a recipe authored and what the \
+             engine composed are judged apart, and an argv whose provenance is unknown is never \
+             trusted by its bytes (decision 0066 ruling 4)"
+        ))
+    };
+    for input in [json!({}), json!({"launch_arguments": null})] {
+        assert_eq!(
+            launch_arguments(&input, &extra),
+            refused("the engine recorded no provenance for this site's arguments"),
+            "{input}"
+        );
+    }
+    for input in [
+        json!({"launch_arguments": {"authored": []}}),
+        json!({"launch_arguments": {"managed": []}}),
+        json!({"launch_arguments": {"authored": "--x", "managed": []}}),
+        json!({"launch_arguments": {"authored": [], "managed": [1]}}),
+        json!({"launch_arguments": []}),
+    ] {
+        assert_eq!(
+            launch_arguments(&input, &extra),
+            refused("the engine's record of this site's arguments cannot be read"),
+            "{input}"
+        );
+    }
+    for input in [
+        recorded(&["--sandbox", "read-only"], &[]),
+        recorded(
+            &[],
+            &[
+                "--sandbox",
+                "read-only",
+                "-c",
+                "mcp_servers.brokkr.command=\"b\"",
+                "x",
+            ],
+        ),
+        recorded(
+            &["-c", "mcp_servers.brokkr.command=\"b\""],
+            &["--sandbox", "read-only"],
+        ),
+    ] {
+        assert_eq!(
+            launch_arguments(&input, &extra),
+            refused(
+                "the engine's record of this site's arguments does not reassemble the arguments \
+                 the driver was handed"
+            ),
+            "{input}"
+        );
+    }
 }

@@ -1071,6 +1071,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         env: SpawnEnv::Inherit,
         rewalk: Some(layer.join("scripts")),
         refusal: None,
+        managed: 0,
     };
     let run = |engine: &mut Engine| {
         engine
@@ -2044,6 +2045,7 @@ fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
             env: SpawnEnv::Inherit,
             rewalk: Some(layer.join("scripts")),
             refusal: None,
+            managed: 0,
         },
         offer: None,
         context: None,
@@ -2163,6 +2165,7 @@ fn an_inherited_dispatch_rewalks_its_script_layer_even_when_an_argument_names_th
         env: SpawnEnv::Inherit,
         rewalk: script_directory(&command, &engine.bundle.roots).map(|(_, directory)| directory),
         refusal: None,
+        managed: 0,
     };
     let run = |engine: &mut Engine| {
         engine

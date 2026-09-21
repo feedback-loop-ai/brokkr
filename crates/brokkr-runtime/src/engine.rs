@@ -1178,7 +1178,12 @@ impl Engine {
         // as a different effect.
         self.mark_hands(&site_name, &mut input);
         self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
-        self.mark_capabilities(&site_name, selection.get(&None), &mut input);
+        self.mark_capabilities(
+            &site_name,
+            selection.get(&None),
+            single.as_ref(),
+            &mut input,
+        );
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1327,7 +1332,23 @@ impl Engine {
     /// before any provider work rather than launching a harness on its
     /// own defaults. Written beside `mark_delivery`, outside the requested
     /// digest, for the same reason: a chain fallback moves it.
-    fn mark_capabilities(&self, label: &str, link: Option<&Candidate>, input: &mut Value) {
+    ///
+    /// `launch_arguments` rides beside them (decision 0066 ruling 4): the
+    /// composed spawn's arguments in their two parts, what the recipe or
+    /// its agent authored and what the engine appended for the boundary.
+    /// All three are written LAST, after every merge of seat, context and
+    /// member input, so nothing a recipe, a result or a returned capability
+    /// response carries can mint or overwrite them; a fallback link brings
+    /// its own plan AND its own parts.
+    /// A panel or a sequence is no launch of its own — each member and step
+    /// is marked with its own spawn — so its seat-level input carries none.
+    fn mark_capabilities(
+        &self,
+        label: &str,
+        link: Option<&Candidate>,
+        spawn: Option<&SiteSpawn>,
+        input: &mut Value,
+    ) {
         let outcome = self
             .bundle
             .sites
@@ -1338,6 +1359,7 @@ impl Engine {
             });
         input["native_controls"] = outcome.map_or(Value::Null, |outcome| outcome.controls());
         input["capabilities"] = outcome.map_or(Value::Null, |outcome| outcome.prompt());
+        input["launch_arguments"] = spawn.map_or(Value::Null, SiteSpawn::launch_arguments);
     }
 
     /// The judge's door under `harness` (decision 0046 ruling 4; design
@@ -1989,7 +2011,6 @@ impl Engine {
                 copy_secret_binding_facts(&mut input, seat_input);
                 self.mark_hands(&label, &mut input);
                 self.mark_delivery(&label, gate, selection.get(&site), &mut input);
-                self.mark_capabilities(&label, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
                 let spawn = self.compose(
                     attempt_id,
@@ -1999,6 +2020,7 @@ impl Engine {
                     selection.get(&site),
                     input["result_path"].as_str().unwrap_or_default(),
                 );
+                self.mark_capabilities(&label, selection.get(&site), Some(&spawn), &mut input);
                 // Each member's OWN offer and stamps, never the panel's:
                 // selection is per site, not per aggregate (proposed
                 // decision 0056 ruling 1).
@@ -2300,7 +2322,6 @@ impl Engine {
                     self.mark_hands(&step_label, &mut input);
                     let step_gate = step.class == SeatClass::Gate;
                     self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
-                    self.mark_capabilities(&step_label, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
                     let spawn = self.compose(
                         attempt_id,
@@ -2309,6 +2330,12 @@ impl Engine {
                         hands.as_ref(),
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
+                    );
+                    self.mark_capabilities(
+                        &step_label,
+                        selection.get(&site),
+                        Some(&spawn),
+                        &mut input,
                     );
                     // A sequence step now HAS such an identity: proposed
                     // decision 0056 ruling 1 gives it a structural site
@@ -2446,9 +2473,6 @@ impl Engine {
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
                     self.mark_hands(&step_label, &mut input);
-                    // The generated validator holds nothing, and says so
-                    // (decision 0065; design D5).
-                    self.mark_capabilities(&step_label, None, &mut input);
                     // A dialect step composes under a boxed boundary only:
                     // the compiler refuses it under `harness` and `open`
                     // (design DD8), so no unboxed arm is reached here.
@@ -2461,6 +2485,9 @@ impl Engine {
                         selection.get(&site),
                         input["result_path"].as_str().unwrap_or_default(),
                     );
+                    // The generated validator holds nothing, and says so
+                    // (decision 0065; design D5).
+                    self.mark_capabilities(&step_label, None, Some(&spawn), &mut input);
                     dialect_attempt_outcome(self.run_driver(
                         effect_id,
                         attempt_id,
@@ -4217,6 +4244,13 @@ pub struct SiteSpawn {
     pub env: SpawnEnv,
     pub rewalk: Option<PathBuf>,
     pub refusal: Option<String>,
+    /// How many TRAILING tokens of `argv` the engine composed for the
+    /// boundary — the adapter's workspace hands under the box, its harness
+    /// fragment unboxed — rather than the recipe or its agent (decision
+    /// 0066 ruling 4). Recorded where the fragment is appended, because the
+    /// flattened argv has lost the difference and an author can spell
+    /// whatever the engine can.
+    pub managed: usize,
 }
 
 impl SiteSpawn {
@@ -4228,7 +4262,22 @@ impl SiteSpawn {
             env: SpawnEnv::Inherit,
             rewalk: None,
             refusal: None,
+            managed: 0,
         }
+    }
+
+    /// The driver's private `launch_arguments`: the arguments after the
+    /// driver verb's `--`, exactly as the driver will read them, in their
+    /// two parts by who wrote them. The driver refuses a launch whose parts
+    /// do not reassemble what it was handed.
+    pub fn launch_arguments(&self) -> Value {
+        let arguments = self.argv.get(3..).unwrap_or_default();
+        let extra = match arguments.iter().position(|part| part == "--") {
+            Some(separator) => &arguments[separator + 1..],
+            None => arguments,
+        };
+        let (authored, managed) = extra.split_at(extra.len().saturating_sub(self.managed));
+        json!({"authored": authored, "managed": managed})
     }
 }
 
@@ -4404,7 +4453,15 @@ pub fn compose_site(
     }
     match boundary {
         BuiltBoundary::Namespace => {
-            SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots))
+            // A model seat's workspace fragment is already in its argv —
+            // `agents::compose` appended it last — and `hands_command`
+            // expands it token for token, so its length is unchanged. An
+            // inline site — an exec dispatch included — has no candidate:
+            // its argv is all the author's.
+            let managed = candidate.map_or(0, |candidate| candidate.hands_fragment.len());
+            let mut spawn = SiteSpawn::inherit(hands_command(command, Some(spec), workdir, roots));
+            spawn.managed = managed;
+            spawn
         }
         BuiltBoundary::Harness => {
             let mut argv = command;
@@ -4416,14 +4473,17 @@ pub fn compose_site(
                 SeatClass::Gate => candidate.harness.gate.as_deref(),
                 SeatClass::Work => candidate.harness.work.as_deref(),
             });
-            for token in fragment.unwrap_or(&[]) {
+            let fragment = fragment.unwrap_or(&[]);
+            for token in fragment {
                 argv.push(
                     token
                         .replace("{result_path}", result_path)
                         .replace("{brokkr}", &brokkr),
                 );
             }
-            SiteSpawn::inherit(argv)
+            let mut spawn = SiteSpawn::inherit(argv);
+            spawn.managed = fragment.len();
+            spawn
         }
         BuiltBoundary::Open => SiteSpawn::inherit(command),
     }

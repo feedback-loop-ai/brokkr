@@ -778,12 +778,19 @@ struct Unpinned {
     resume_witness: BTreeMap<String, DriverDigests>,
 }
 
-/// Adapter data for the effortless-route exemption (decision 0035
-/// addendum 2026-09-11). Loaded only where an inline model seat could
-/// claim it; a missing or malformed adapters root reads as no
-/// exemptions rather than an error — the strict rule stands, exactly
-/// as a bundle with no adapters/ directory in sight compiles today.
-fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Adapters> {
+/// Adapter data for an inline model seat, loaded only where a bundle seats
+/// one, and kept as the `Result` the load gave (decision 0066 ruling 1).
+///
+/// Two readers, with opposite needs. The effortless-route exemption
+/// (decision 0035 addendum 2026-09-11) is OPTIONAL: a missing or malformed
+/// adapters root reads as no exemptions and the strict rule stands, so it
+/// takes the `Ok` and ignores the rest. The capability pass is MANDATORY:
+/// the same data says how a harness's native search is switched off, and
+/// an error swallowed here used to reach it as "nothing declared" and
+/// compile a Codex seat with no denial. It takes the error too, and
+/// refuses the seat with the loader's own words. `None` is a bundle that
+/// seats no inline model driver and so asked for nothing.
+fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Result<Adapters, String>> {
     fn has_inline_model_driver(value: &Value) -> bool {
         match value {
             Value::Object(map) => {
@@ -796,7 +803,39 @@ fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Adapters
     if !seats.values().any(has_inline_model_driver) {
         return None;
     }
-    Adapters::load(root).ok()
+    Some(Adapters::load(root).map_err(|error| error.to_string()))
+}
+
+/// The adapters a capability pass resolves against, and why there are none
+/// where a load failed: what [`site_capabilities`] is handed.
+#[derive(Clone, Copy)]
+struct CapabilityAdapters<'a> {
+    adapters: Option<&'a Adapters>,
+    unloaded: Option<&'a str>,
+}
+
+impl<'a> CapabilityAdapters<'a> {
+    fn loaded(adapters: &'a Adapters) -> Self {
+        CapabilityAdapters {
+            adapters: Some(adapters),
+            unloaded: None,
+        }
+    }
+
+    /// An inline seat's adapters: loaded, failed to load, or never asked for.
+    fn of(pinned: Option<&'a Result<Adapters, String>>) -> Self {
+        match pinned {
+            Some(Ok(adapters)) => Self::loaded(adapters),
+            Some(Err(problem)) => CapabilityAdapters {
+                adapters: None,
+                unloaded: Some(problem),
+            },
+            None => CapabilityAdapters {
+                adapters: None,
+                unloaded: None,
+            },
+        }
+    }
 }
 
 /// Decision 0035 addendum 2026-09-11: a seat whose concrete lane
@@ -1175,8 +1214,12 @@ impl Bundle {
         // context, and its adapter's native declaration is still what
         // says how its search is switched off.
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
-        let (pin_drivers, inline_resume, resume_witness) =
-            enforce_model_pins(&resolved.seats, pin_adapters.as_ref())?;
+        let (pin_drivers, inline_resume, resume_witness) = enforce_model_pins(
+            &resolved.seats,
+            pin_adapters
+                .as_ref()
+                .and_then(|loaded| loaded.as_ref().ok()),
+        )?;
         // The one canonical family table (design D10 F1). Seeded with the
         // inline pins and assessments before any parse writes beside
         // them; every later fact is written into an entrant of this same
@@ -1588,8 +1631,11 @@ impl Bundle {
         // site family so relocation carries it like every other fact.
         {
             let (library, adapters) = match &agents {
-                Some(context) => (context.library.as_ref(), Some(&context.adapters)),
-                None => (None, pin_adapters.as_ref()),
+                Some(context) => (
+                    context.library.as_ref(),
+                    CapabilityAdapters::loaded(&context.adapters),
+                ),
+                None => (None, CapabilityAdapters::of(pin_adapters.as_ref())),
             };
             for (phase, raw) in &resolved.seats {
                 record_capabilities(&authority, library, adapters, phase, raw, &mut sites)?;
@@ -1713,11 +1759,13 @@ impl Bundle {
             // a native power it cannot switch off does not seat the
             // validator either (ruling 4).
             {
-                let context = agents.as_ref();
-                let library = context.and_then(|context| context.library.as_ref());
-                let adapters = context
-                    .map(|context| &context.adapters)
-                    .or(pin_adapters.as_ref());
+                // A dialect phase is what opened the agent context above,
+                // so the wrapper never runs without one.
+                let context = agents
+                    .as_ref()
+                    .expect("a bundle that uses the dialect opened its adapters");
+                let library = context.library.as_ref();
+                let adapters = CapabilityAdapters::loaded(&context.adapters);
                 record_capabilities(
                     &authority,
                     library,
@@ -3205,7 +3253,7 @@ fn record_hands(
 /// native inventory is unmeasured and it can hold nothing.
 fn site_capabilities(
     authority: &crate::capabilities::Authority,
-    adapters: Option<&Adapters>,
+    adapters: CapabilityAdapters<'_>,
     asks: crate::capabilities::SiteAsks,
     chain: &[Candidate],
     inline_driver: Option<&str>,
@@ -3213,24 +3261,53 @@ fn site_capabilities(
 ) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
     let native = |provider: &str| {
         adapters
+            .adapters
             .and_then(|adapters| adapters.adapter(provider))
             .map(|adapter| (&adapter.native, adapter.digest.as_str()))
     };
-    let inline = inline_driver.unwrap_or("<custom>");
+    let inline = inline_driver.unwrap_or(crate::capabilities::OPAQUE_HARNESS);
+    // Each serving's argv in its two parts, by who wrote them (decision
+    // 0066 ruling 4). An inline site's is wholly the author's. A
+    // candidate's is the agent's composed argv and then the adapter's hands
+    // fragment, which `agents::compose` appended LAST and recorded — so the
+    // parts are split at the length it recorded, a fact carried from where
+    // the fragment was appended, never recovered by matching its text.
+    //
+    // The HARNESS is the driver kind the command dispatches, read off the
+    // command itself: an inline site's provider already is that kind, and a
+    // candidate's argv opens with its adapter's `driver`, which may dispatch
+    // the codex or claude driver under whatever name the adapter carries.
+    let harnesses: Vec<String> = chain
+        .iter()
+        .map(|candidate| {
+            dispatch_driver(&candidate.argv)
+                .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string())
+        })
+        .collect();
     let servings: Vec<crate::capabilities::Serving<'_>> = match chain.is_empty() {
         true => vec![crate::capabilities::Serving {
             provider: inline,
+            harness: inline,
             model: None,
             native: native(inline),
+            unloaded: adapters.unloaded,
             authored: inline_argv,
+            fragment: &[],
         }],
         false => chain
             .iter()
-            .map(|candidate| crate::capabilities::Serving {
-                provider: &candidate.provider,
-                model: Some(&candidate.model),
-                native: native(&candidate.provider),
-                authored: &candidate.argv,
+            .zip(&harnesses)
+            .map(|(candidate, harness)| {
+                let (authored, fragment) = candidate.parts();
+                crate::capabilities::Serving {
+                    provider: &candidate.provider,
+                    harness,
+                    model: Some(&candidate.model),
+                    native: native(&candidate.provider),
+                    unloaded: adapters.unloaded,
+                    authored,
+                    fragment,
+                }
             })
             .collect(),
     };
@@ -3254,7 +3331,7 @@ fn site_capabilities(
 fn record_capabilities(
     authority: &crate::capabilities::Authority,
     library: Option<&Library>,
-    adapters: Option<&Adapters>,
+    adapters: CapabilityAdapters<'_>,
     what: &str,
     raw: &Value,
     sites: &mut BTreeMap<String, SiteFacts>,

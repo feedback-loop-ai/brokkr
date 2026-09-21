@@ -899,16 +899,34 @@ impl NativeInventory {
     }
 }
 
+/// The harness of a command that dispatches no built-in driver: opaque to
+/// the engine, which never sees its final command.
+pub const OPAQUE_HARNESS: &str = "<custom>";
+
 /// What resolution reads of one provider: its name, its native
 /// declaration, and the digest of the file that declaration came from.
 #[derive(Debug, Clone, Copy)]
 pub struct Serving<'a> {
     pub provider: &'a str,
+    /// The driver KIND the provider dispatches — `codex`, `claude`,
+    /// `lanetally`, `dsh`, `exec` — or [`OPAQUE_HARNESS`] for a command that
+    /// dispatches no built-in driver. Adapters are data, so a provider may
+    /// run the codex harness under any name: what a launch consumes and the
+    /// powers it is known to carry follow the harness, never the name.
+    pub harness: &'a str,
     pub model: Option<&'a str>,
     /// `None` where no adapter answers for the provider at all.
     pub native: Option<(&'a NativeInventory, &'a str)>,
-    /// The argv the seat or its agent AUTHORED, judged for contenders.
+    /// Why no adapter answers, where the adapter data could not be LOADED
+    /// at all — the loader's own words. A load that fails is not a
+    /// provider with nothing to declare (decision 0066 ruling 1).
+    pub unloaded: Option<&'a str>,
+    /// The argv the seat or its agent AUTHORED, judged for contenders and
+    /// for capability-server configuration.
     pub authored: &'a [String],
+    /// The fragment the ENGINE appended for the boundary — the adapter's
+    /// workspace hands. Composed with, never judged as authored.
+    pub fragment: &'a [String],
 }
 
 // ------------------------------------------------------------ authority
@@ -954,9 +972,6 @@ pub enum NativePlan {
         declaration: String,
         on: Vec<String>,
         off: Vec<String>,
-        /// Known powers whose OFF control nobody has measured: not held,
-        /// and not claimed denied.
-        unmeasured: Vec<String>,
         /// The driver input's `native_controls`.
         controls: Value,
     },
@@ -966,12 +981,31 @@ pub enum NativePlan {
     },
 }
 
+impl NativePlan {
+    /// The driver input's `native_controls` for `provider`: the engine-owned
+    /// plan the protocol composes the final argv from. An unmeasured
+    /// inventory names its provider too, so the driver can tell a provider
+    /// with nothing declared from one KNOWN to carry a power it must answer
+    /// for (decision 0066 ruling 1).
+    pub fn controls(&self, provider: &str, harness: &str) -> Value {
+        match self {
+            NativePlan::Known { controls, .. } => controls.clone(),
+            NativePlan::Unmeasured { reason, .. } => json!({
+                "inventory": "unmeasured", "provider": provider, "harness": harness,
+                "reason": reason,
+            }),
+        }
+    }
+}
+
 /// The sealed outcome for one site and one provider candidate. Only
 /// [`Authority::resolve`] constructs one; the manifest record, the driver
 /// input and the prompt paragraph are projections of it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
     pub provider: String,
+    /// The driver kind that provider dispatches ([`Serving::harness`]).
+    pub harness: String,
     pub model: Option<String>,
     pub held: BTreeMap<String, Holding>,
     pub not_held: BTreeMap<String, String>,
@@ -1002,20 +1036,17 @@ impl Outcome {
             })
             .collect();
         let native = match &self.native {
+            // A known power whose OFF nobody measured used to be listed
+            // here as `unmeasured`; such a seat is now refused (decision
+            // 0066 ruling 1), so a record that exists names every declared
+            // power as on or off.
             NativePlan::Known {
                 declaration,
                 on,
                 off,
-                unmeasured,
                 ..
-            } => {
-                let mut native = json!({"inventory": "known", "declaration": declaration,
-                                        "on": on, "off": off});
-                if !unmeasured.is_empty() {
-                    native["unmeasured"] = json!(unmeasured);
-                }
-                native
-            }
+            } => json!({"inventory": "known", "declaration": declaration,
+                        "on": on, "off": off}),
             NativePlan::Unmeasured {
                 declaration,
                 reason,
@@ -1043,12 +1074,7 @@ impl Outcome {
     /// The driver input's `native_controls`: the engine-owned plan the
     /// protocol composes the final argv from.
     pub fn controls(&self) -> Value {
-        match &self.native {
-            NativePlan::Known { controls, .. } => controls.clone(),
-            NativePlan::Unmeasured { reason, .. } => {
-                json!({"inventory": "unmeasured", "reason": reason})
-            }
-        }
+        self.native.controls(&self.provider, &self.harness)
     }
 
     /// The driver input's `capabilities`: what the prompt tells the seat.
@@ -1465,6 +1491,7 @@ impl Authority {
             }
         }
         let native = self.native_plan(&who, serving, &held, &keys, &mut not_held)?;
+        admit(&who, serving, &native)?;
         // A notice claims a native OFF only where THIS candidate's plan
         // composed one for a native power serving the capability. A
         // provider whose inventory or OFF control is unmeasured denies
@@ -1494,6 +1521,7 @@ impl Authority {
         }
         Ok(Outcome {
             provider: serving.provider.to_string(),
+            harness: serving.harness.to_string(),
             model: serving.model.map(str::to_string),
             held,
             not_held,
@@ -1515,23 +1543,68 @@ impl Authority {
         not_held: &mut BTreeMap<String, String>,
     ) -> Result<NativePlan, String> {
         let provider = serving.provider;
-        let (known, selection, declaration) = match serving.native {
-            Some((NativeInventory::Known { known, selection }, digest)) => {
+        // Decision 0066 ruling 1 (finding H1): a denial is something the
+        // launch proves, never something absence implies. A provider known
+        // to carry a native power is seated only where its adapter data
+        // declares a control for that power; data that is missing, legacy,
+        // emptied, unreadable or silent about it REFUSES the seat, with
+        // the cause named, instead of compiling a plan that denies
+        // nothing. The floor supplies no switch — the refusal is all it
+        // can do. No seat can hold the power on such data either, so
+        // "does not hold" is true of every site that reaches this.
+        let floor = brokkr_protocol::native_controls::known_powers(serving.harness);
+        let undeniable = |capability: &str, cause: String| {
+            format!(
+                "{who}: provider '{provider}' is known to carry native capability \
+                 '{capability}', which this seat does not hold, and no valid control denies \
+                 it: {cause}. A known native power is launched only with a delivered denial, \
+                 never on what absence implies; repair the adapter data (decision 0066 ruling \
+                 1)"
+            )
+        };
+        let (known, selection, declaration) = match (serving.native, floor.first()) {
+            (Some((NativeInventory::Known { known, selection }, digest)), _) => {
                 (known, selection, digest)
             }
-            Some((NativeInventory::Unmeasured(reason), digest)) => {
+            (Some((NativeInventory::Unmeasured(reason), _)), Some(capability)) => {
+                return Err(undeniable(
+                    capability,
+                    format!("its adapter declares its native capabilities unmeasured ({reason})"),
+                ))
+            }
+            (None, Some(capability)) => {
+                return Err(undeniable(
+                    capability,
+                    match serving.unloaded {
+                        Some(problem) => {
+                            format!("the adapter data could not be loaded ({problem})")
+                        }
+                        None => format!("no adapter declares provider '{provider}'"),
+                    },
+                ))
+            }
+            (Some((NativeInventory::Unmeasured(reason), digest)), None) => {
                 return Ok(NativePlan::Unmeasured {
                     declaration: Some(digest.to_string()),
                     reason: reason.clone(),
                 })
             }
-            None => {
+            (None, None) => {
                 return Ok(NativePlan::Unmeasured {
                     declaration: None,
                     reason: format!("no adapter declares provider '{provider}'"),
                 })
             }
         };
+        if let Some(capability) = floor
+            .iter()
+            .find(|name| !known.values().any(|native| native.capability == **name))
+        {
+            return Err(undeniable(
+                capability,
+                format!("its adapter declares no native capability serving '{capability}'"),
+            ));
+        }
         let guards: Vec<brokkr_protocol::native_controls::Guard> = known
             .values()
             .map(|native| brokkr_protocol::native_controls::Guard {
@@ -1558,9 +1631,38 @@ impl Authority {
             ));
         }
         let (mut argv, mut lists) = (Vec::new(), ToolLists::default());
-        let (mut on, mut off, mut unmeasured) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut on, mut off) = (Vec::new(), Vec::new());
         for (key, native) in known {
             let holding = keys.get(key).map(|capability| &held[capability]);
+            // What becomes of a seat that does not hold the power is the
+            // one assessment `brokkr doctor` reads too ([`Denial`]): a
+            // declared control composes below, and the other two refuse.
+            match (holding, native.denial()) {
+                (Some(_), _) | (None, Denial::Delivered) => {}
+                // The refusal carries its own warrant: who measured that
+                // the power cannot be removed, and over what — so an
+                // operator can tell a finding about one CLI version from a
+                // law about the provider.
+                (None, Denial::Impossible(reason)) => {
+                    return Err(format!(
+                        "{who}: provider '{provider}' cannot switch off its native capability \
+                         '{}', which this seat does not hold ({reason}; evidence: {}, scope: {}); \
+                         an ungranted native capability that cannot be disabled cannot be seated \
+                         in this realm (decision 0065 ruling 4)",
+                        native.capability, native.evidence.source, native.evidence.scope
+                    ))
+                }
+                // Nobody measured the OFF control: no denial is claimed,
+                // and the seat is refused rather than launched on a guess
+                // (decision 0066 ruling 1) — for every provider that
+                // declares the power, floor or not.
+                (None, Denial::Unmeasured(reason)) => {
+                    return Err(undeniable(
+                        &native.capability,
+                        format!("its OFF control is unmeasured ({reason})"),
+                    ))
+                }
+            }
             let disposition = match holding {
                 Some(_) => &native.on,
                 None => &native.off,
@@ -1591,28 +1693,16 @@ impl Authority {
                     lists.allow.extend(selected.allow.iter().cloned());
                     lists.deny.extend(selected.deny.iter().cloned());
                 }
-                // The refusal carries its own warrant: who measured that
-                // the power cannot be removed, and over what — so an
-                // operator can tell a finding about one CLI version from a
-                // law about the provider.
-                (Disposition::Unsupported(reason), _) => {
-                    return Err(format!(
-                        "{who}: provider '{provider}' cannot switch off its native capability \
-                         '{}', which this seat does not hold ({reason}; evidence: {}, scope: {}); \
-                         an ungranted native capability that cannot be disabled cannot be seated \
-                         in this realm (decision 0065 ruling 4)",
-                        native.capability, native.evidence.source, native.evidence.scope
-                    ))
-                }
-                (Disposition::Unmeasured(reason), _) => {
-                    unmeasured.push(key.clone());
-                    not_held.entry(native.capability.clone()).or_insert(format!(
-                        "provider '{provider}' has it natively and its OFF control is \
-                         unmeasured ({reason}); it is not granted and no denial is claimed"
-                    ));
-                    continue;
-                }
-                (Disposition::Default(_), _) => {}
+                // A measured default needs nothing written. The other two
+                // never reach this match: an ON that cannot be switched lost
+                // the holding in `holding`, and an OFF that cannot be was
+                // refused just above.
+                (
+                    Disposition::Default(_)
+                    | Disposition::Unsupported(_)
+                    | Disposition::Unmeasured(_),
+                    _,
+                ) => {}
             }
             match holding {
                 Some(holding) => {
@@ -1640,8 +1730,22 @@ impl Authority {
                 }
             }
         }
+        // The plan says whom it was resolved for and which abstract
+        // capabilities it answers for, ON and OFF, so the driver can prove
+        // at the last boundary that every known power of THIS provider was
+        // ruled on (decision 0066 rulings 1 and 2) — a fallback link's own
+        // plan, never its primary's, and never an empty one.
+        let capabilities = |keys: &[String]| -> Vec<&str> {
+            keys.iter()
+                .map(|key| known[key].capability.as_str())
+                .collect()
+        };
         let mut controls = json!({
             "inventory": "known",
+            "provider": provider,
+            "harness": serving.harness,
+            "on": capabilities(&on),
+            "off": capabilities(&off),
             "argv": argv,
             "guards": guards.iter().map(|guard| json!({
                 "capability": guard.capability,
@@ -1669,10 +1773,32 @@ impl Authority {
             declaration: declaration.to_string(),
             on,
             off,
-            unmeasured,
             controls,
         })
     }
+}
+
+/// Compile admission (decision 0066 rulings 3 and 4): the plan one
+/// candidate resolved to is composed by the SAME function the driver
+/// composes it with, over the same two parts of the argv — what was
+/// authored, and the fragment the engine appended. A capability server in
+/// the authored part, or a control the provider's launch does not consume,
+/// refuses here, naming the site, rather than first failing after a spawn
+/// or, worse, being recorded and dropped.
+fn admit(who: &str, serving: &Serving<'_>, plan: &NativePlan) -> Result<(), String> {
+    use brokkr_protocol::native_controls as launch;
+    let plan = plan.controls(serving.provider, serving.harness);
+    let decoded = launch::managed(&json!({"native_controls": plan}))
+        .expect("the plan this module wrote is one the driver reads")
+        .expect("the key is present");
+    launch::compose_for_provider(
+        serving.harness,
+        serving.authored,
+        serving.fragment,
+        &decoded,
+    )
+    .map(drop)
+    .map_err(|refusal| refusal.at_compile(who))
 }
 
 #[cfg(test)]

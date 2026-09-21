@@ -13786,6 +13786,10 @@ fn every_dsh_component_drift_declines_the_offer_before_any_provider_work() {
 fn codex_denied() -> Value {
     json!({
         "inventory": "known",
+        "provider": "codex",
+        "harness": "codex",
+        "on": [],
+        "off": ["web-search"],
         "argv": ["-c", "web_search=\"disabled\""],
         "guards": [{
             "capability": "web-search",
@@ -13804,7 +13808,29 @@ fn codex_denied() -> Value {
 fn codex_held() -> Value {
     let mut plan = codex_denied();
     plan["argv"] = json!([]);
+    plan["on"] = json!(["web-search"]);
+    plan["off"] = json!([]);
     plan
+}
+
+/// A driver input as the ENGINE writes it (decision 0066 ruling 4): the
+/// capability plan, and beside it the argv's two parts by who wrote them —
+/// the last `managed` tokens of `extra` are the fragment the engine
+/// appended for the boundary, everything before them the recipe's or its
+/// agent's.
+fn engine_input(mut input: Value, plan: Value, extra: &[String], managed: usize) -> Value {
+    let (authored, fragment) = extra.split_at(extra.len() - managed);
+    input["native_controls"] = plan;
+    input["launch_arguments"] = json!({"authored": authored, "managed": fragment});
+    input
+}
+
+/// The same input with `extra` recorded as WHOLLY authored: what the engine
+/// writes for an inline seat, whose argv is all the recipe's.
+fn all_authored(input: &Value, extra: &[String]) -> Value {
+    let mut input = input.clone();
+    input["launch_arguments"] = json!({"authored": extra, "managed": []});
+    input
 }
 
 const CODEX_OFF: [&str; 2] = ["-c", "web_search=\"disabled\""];
@@ -13839,9 +13865,10 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
         "--sandbox",
         "workspace-write",
     ]);
-    for (case, extra) in [("boxed", &boxed), ("unboxed", &unboxed)] {
-        let mut input = json!({"workdir": "/w"});
-        input["native_controls"] = codex_denied();
+    // Boxed, the last two tokens are the adapter's hands fragment: the
+    // engine's, recorded as such, and so not an authored server.
+    for (case, extra, managed) in [("boxed", &boxed, 2), ("unboxed", &unboxed, 0)] {
+        let input = engine_input(json!({"workdir": "/w"}), codex_denied(), extra, managed);
         let denied = codex_launch("codex", extra, "/w", None, &input).unwrap();
         // The whole argv: the seat's own controls intact, the pair LAST.
         let mut expected = s(&[
@@ -13862,7 +13889,7 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
         expected.extend(s(&CODEX_OFF));
         assert_eq!(denied.command, expected, "{case}: denied");
 
-        input["native_controls"] = codex_held();
+        let input = engine_input(json!({"workdir": "/w"}), codex_held(), extra, managed);
         let held = codex_launch("codex", extra, "/w", None, &input).unwrap();
         expected.truncate(expected.len() - 2);
         assert_eq!(held.command, expected, "{case}: held");
@@ -13900,8 +13927,12 @@ fn an_eligible_codex_resume_reimposes_the_capability_control() {
         .iter()
         .map(|part| part.to_string())
         .collect();
-        let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
-        input["native_controls"] = plan;
+        let input = engine_input(
+            enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+            plan,
+            &extra,
+            0,
+        );
         let launch =
             codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
         assert_eq!(launch.rejoining.as_deref(), Some(THREAD), "{case}");
@@ -13943,8 +13974,12 @@ fn an_authored_config_still_turns_a_rejoin_cold_and_the_fallback_stays_denied() 
         .iter()
         .map(|part| part.to_string())
         .collect();
-    let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
-    input["native_controls"] = codex_denied();
+    let input = engine_input(
+        enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+        codex_denied(),
+        &extra,
+        0,
+    );
     let launch = codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
     assert_eq!(launch.refusal, Some("incompatible-argv"));
     assert!(launch.rejoining.is_none());
@@ -13978,11 +14013,11 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
     ]);
     let hands = s(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\""]);
     let boxed_extra = [seat.clone(), hands.clone()].concat();
-    let site = |hands: &str, plan: Value| {
+    // `managed` is how many trailing tokens of `extra` the engine appended.
+    let site = |hands: &str, plan: Value, extra: &[String], managed: usize| {
         let mut input = enabled_assessment(CODEX_SHAPE, CODEX_VERSION, "namespace", "none");
         input["hands"] = json!(hands);
-        input["native_controls"] = plan;
-        input
+        engine_input(input, plan, extra, managed)
     };
 
     // The control: unboxed, the offer is taken and the pair rides it.
@@ -13991,7 +14026,7 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
         &seat,
         "/w",
         Some(THREAD),
-        &site("none", codex_denied()),
+        &site("none", codex_denied(), &seat, 0),
     )
     .unwrap();
     assert_eq!(unboxed.rejoining.as_deref(), Some(THREAD));
@@ -14015,8 +14050,8 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
         ("with the hands fragment", &boxed_extra, hands.clone()),
     ] {
         for (plan, managed) in [(codex_denied(), s(&CODEX_OFF)), (codex_held(), Vec::new())] {
-            let launch =
-                codex_launch(bin, extra, "/w", Some(THREAD), &site("boxed", plan)).unwrap();
+            let input = site("boxed", plan, extra, fragment.len());
+            let launch = codex_launch(bin, extra, "/w", Some(THREAD), &input).unwrap();
             assert_eq!(launch.refusal, Some("restrictions-unavailable"), "{case}");
             assert_eq!(
                 launch.rejoining, None,
@@ -14071,8 +14106,12 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
         ("held", codex_held(), ""),
     ] {
         std::fs::remove_file(&argv).ok();
-        let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
-        input["native_controls"] = plan;
+        let input = engine_input(
+            enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
+            plan,
+            &extra,
+            0,
+        );
         let mut emitted = Vec::new();
         let invocation = with_codex_bin(&shim, || {
             invoke(
@@ -14128,6 +14167,7 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
             ),
         ] {
             for session in [None, Some(THREAD)] {
+                let input = all_authored(&input, &extra);
                 let Err(error) = codex_launch("codex", &extra, "/w", session, &input) else {
                     panic!("{extra:?} must refuse before any provider work");
                 };
@@ -14144,7 +14184,8 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
             }
         }
         // A model that merely SPELLS the flag is a value, not a control.
-        assert!(codex_launch("codex", &s(&["--model", "--search"]), "/w", None, &input).is_ok());
+        let inert = s(&["--model", "--search"]);
+        assert!(codex_launch("codex", &inert, "/w", None, &all_authored(&input, &inert)).is_ok());
     }
 }
 
@@ -14165,8 +14206,15 @@ fn shipped_codex_plan(argv: &[&str]) -> (Value, Value) {
     let authored = native["authored"].clone();
     let mut guard = authored.clone();
     guard["capability"] = native["capability"].clone();
+    // The plan answers for web search either way round: OFF where it
+    // carries the pair, ON — the measured cold default — where it does not.
+    let (on, off): (&[&str], &[&str]) = match argv.is_empty() {
+        true => (&["web-search"], &[]),
+        false => (&[], &["web-search"]),
+    };
     (
-        json!({"inventory": "known", "argv": argv, "guards": [guard]}),
+        json!({"inventory": "known", "provider": "codex", "harness": "codex", "on": on,
+               "off": off, "argv": argv, "guards": [guard]}),
         authored,
     )
 }
@@ -14189,7 +14237,7 @@ fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
         let (plan, authored) = shipped_codex_plan(managed);
         let input = json!({"workdir": "/w", "seat": "inline", "native_controls": plan});
         let refused = |extra: &[String]| {
-            codex_launch("codex", extra, "/w", None, &input)
+            codex_launch("codex", extra, "/w", None, &all_authored(&input, extra))
                 .err()
                 .unwrap_or_else(|| panic!("{extra:?} must refuse before any provider work"))
         };
@@ -14280,7 +14328,7 @@ fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
         for flag in list("value_flags") {
             let extra = [flag.clone(), "--search".to_string()];
             assert_eq!(
-                codex_launch("codex", &extra, "/w", None, &input)
+                codex_launch("codex", &extra, "/w", None, &all_authored(&input, &extra))
                     .map(|launch| carries_off(&launch.command))
                     .map_err(|error| format!("{flag}: {error}")),
                 Ok(!managed.is_empty())
@@ -14355,11 +14403,32 @@ fn a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouc
             .as_deref(),
         Some(refusal)
     );
-    assert_eq!(codex_managed(&by_hand), Vec::<String>::new());
-    assert_eq!(codex_managed(&missing), Vec::<String>::new());
-    let mut denied = by_hand.clone();
-    denied["native_controls"] = codex_denied();
-    assert_eq!(codex_managed(&denied), CODEX_OFF);
+    // The cold replacement of a rejected rejoin is the argv the launch
+    // itself validated, never a second reading of the plan: a missing
+    // authority has no replacement because it has no launch, where the
+    // second reading used to answer it with an EMPTY control (decision 0066
+    // ruling 2; finding H1).
+    let cold = |input: &Value| {
+        codex_launch_and_cold("codex", &[], "/w", None, input).map(|(_, cold)| cold)
+    };
+    assert_eq!(
+        cold(&by_hand).unwrap(),
+        ["codex", "exec", "--json", "-C", "/w"]
+    );
+    assert_eq!(cold(&missing).err().as_deref(), Some(refusal));
+    let denied = engine_input(by_hand.clone(), codex_denied(), &[], 0);
+    assert_eq!(
+        cold(&denied).unwrap(),
+        [
+            "codex",
+            "exec",
+            "--json",
+            "-C",
+            "/w",
+            "-c",
+            "web_search=\"disabled\""
+        ]
+    );
 }
 
 const NO_AUTHORITY: &str = "refusing to invoke the agent CLI: the engine computed no capability \
@@ -14418,10 +14487,14 @@ fn a_dsh_launch_with_no_computed_authority_is_refused_before_any_provider_work()
 
     // An object plan — the unmeasured one the engine writes for DSH —
     // proceeds, and so does the absent key of a by-hand driver.
-    let planned = json!({"workdir": dir.path(), "native_controls": {
-        "inventory": "unmeasured",
-        "reason": "unsupported mcp and tool_permissions do not establish absence of native egress"
-    }});
+    let planned = engine_input(
+        json!({"workdir": dir.path()}),
+        json!({"inventory": "unmeasured", "provider": "dsh", "harness": "dsh",
+               "reason": "unsupported mcp and tool_permissions do not establish absence of \
+                          native egress"}),
+        &[],
+        0,
+    );
     let by_hand = json!({"workdir": dir.path()});
     for (case, input) in [("planned", &planned), ("by hand", &by_hand)] {
         let launch = dsh_launch_with("/nonexistent/dsh", &[], workdir, None, input, || {
@@ -14475,8 +14548,22 @@ fn every_model_launch_path_refuses_a_site_with_no_computed_authority() {
 }
 
 fn claude_plan(include: &[&str], allow: &[&str], deny: &[&str]) -> Value {
+    // The plan answers for both of Claude's known powers: OFF where its
+    // tool is denied by name, ON otherwise.
+    let powers = [("web-search", "WebSearch"), ("web-fetch", "WebFetch")];
+    let answered = |denied: bool| -> Vec<&str> {
+        powers
+            .iter()
+            .filter(|(_, tool)| deny.contains(tool) == denied)
+            .map(|(capability, _)| *capability)
+            .collect()
+    };
     json!({
         "inventory": "known",
+        "provider": "claude",
+        "harness": "claude",
+        "on": answered(false),
+        "off": answered(true),
         "argv": [],
         "selection": {
             "include": include, "allow": allow, "deny": deny,
@@ -14521,8 +14608,15 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
         "stream-json",
         "--verbose",
     ]);
+    // Boxed, everything after the permission mode is the adapter's hands
+    // fragment — the engine's, recorded as such (decision 0066 ruling 4);
+    // unboxed, the whole argv is the agent's own.
     let launch = |extra: &[String], plan: Value| {
-        let input = json!({"workdir": "/w", "native_controls": plan});
+        let managed = match extra == boxed.as_slice() {
+            true => boxed.len() - 2,
+            false => 0,
+        };
+        let input = engine_input(json!({"workdir": "/w"}), plan, extra, managed);
         claude_launch("claude", extra, None, &input, CLAUDE_SHAPE, None)
             .unwrap()
             .command[head.len()..]
@@ -14604,8 +14698,12 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
             "web-search",
         ),
     ] {
-        let input = json!({"workdir": "/w", "seat": "review:security",
-            "native_controls": claude_plan(&[], &[], &[])});
+        let input = engine_input(
+            json!({"workdir": "/w", "seat": "review:security"}),
+            claude_plan(&[], &[], &[]),
+            &extra,
+            0,
+        );
         assert_eq!(
             claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None)
                 .err()
@@ -14633,7 +14731,12 @@ const CLAUDE_HEAD: [&str; 5] = [
 /// or the refusal it earns.
 fn claude_composed(extra: &[&str], plan: Value) -> Result<Vec<String>, String> {
     let extra: Vec<String> = extra.iter().map(|part| part.to_string()).collect();
-    let input = json!({"workdir": "/w", "seat": "research", "native_controls": plan});
+    let input = engine_input(
+        json!({"workdir": "/w", "seat": "research"}),
+        plan,
+        &extra,
+        0,
+    );
     claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None).map(|plan| plan.command)
 }
 
