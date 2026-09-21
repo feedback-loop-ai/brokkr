@@ -444,6 +444,45 @@ fn the_dsh_launch_paths_the_terminator_proof_runs_on_are_the_ones_it_names() {
     );
 }
 
+/// The one shape a log written by the LAUNCHED shim can never report:
+/// the driver staged its seat overlay and then never launched anything,
+/// because there was nothing to launch. The staging directory says so
+/// even though the overlay is gone by the time the driver exits — which
+/// is what makes every "no overlay was staged" absence beside it a fact
+/// about staging rather than a fact about child execution (#226 task
+/// 8.8(d) D1).
+#[test]
+fn dsh_overlay_staging_is_observed_without_any_child_execution() {
+    let admissible = ["--model", DSH_PIN];
+    let fixture = DshFixture::without_a_provider();
+    let observed = fixture.observe(DshPath::EnabledCold, &admissible, None);
+    assert!(
+        observed.launches.is_empty() && observed.overlay.is_empty(),
+        "no child ran, so the launched shim's own log stays empty: {:?} {:?}",
+        observed.launches,
+        observed.overlay
+    );
+    assert!(
+        observed.staging_touched,
+        "and the staging directory still reports the overlay this driver staged"
+    );
+    assert!(
+        observed.staging_left.is_empty(),
+        "which it removed again before exiting: {:?}",
+        observed.staging_left
+    );
+    // The negative control on the same fixture: a payload refused during
+    // admission reaches no staging at all, so the two observations tell
+    // staging-then-cleanup apart from staging that never happened.
+    let refused = fixture.observe(DshPath::EnabledCold, &["--session", "x"], None);
+    assert!(
+        !refused.staging_touched,
+        "an admission refusal stages nothing: {:?}",
+        refused.staging_left
+    );
+    assert_eq!(refused.out.last().expect("a result")["status"], "failed");
+}
+
 /// The model pin every admissible DSH payload here carries, and the route
 /// value the ordering cases bind. Neither may appear in a refusal.
 const DSH_PIN: &str = "deepseek/deepseek-v4-flash";
@@ -506,6 +545,21 @@ struct DshObservations {
     launches: Vec<String>,
     /// The overlay bytes a launched child was actually handed by `--patch`.
     overlay: String,
+    /// Whether ANYTHING was created in the driver's own temporary
+    /// directory — the seat overlay's home — independently of whether a
+    /// child ever ran.
+    ///
+    /// The overlay is a `tempfile` that is removed before the driver
+    /// exits, so its absence afterwards proves nothing, and the `overlay`
+    /// field above is written only by a launched shim, so it cannot tell
+    /// staging-then-cleanup apart from staging that never happened. The
+    /// directory is stamped into 1990 before each run, and any create or
+    /// unlink inside it moves that stamp to now; a transient file is
+    /// therefore as visible as a surviving one (#226 task 8.8(d) D1).
+    staging_touched: bool,
+    /// Whatever the driver left behind in that directory, which must
+    /// always be nothing: the overlay outlives the child and no longer.
+    staging_left: Vec<PathBuf>,
     /// The seat roots retained under the admitted harness home.
     retained_roots: Vec<PathBuf>,
 }
@@ -532,9 +586,16 @@ impl DshObservations {
             "{label}: no child was launched: {:?}",
             self.launches
         );
+        // Independent of whether a child ever ran: the driver's temporary
+        // directory was never written in at all, so no overlay was staged
+        // — not merely none copied out by a shim that never started.
+        assert!(
+            !self.staging_touched,
+            "{label}: nothing was staged in the driver's temporary directory"
+        );
         assert!(
             self.overlay.is_empty(),
-            "{label}: no overlay was staged: {:?}",
+            "{label}: and no overlay reached a child: {:?}",
             self.overlay
         );
         assert!(
@@ -561,6 +622,18 @@ impl DshObservations {
             1,
             "{label}: one child was launched: {:?}",
             self.launches
+        );
+        // The positive control for the absence above: this payload DID
+        // stage, the staging directory says so, and the file itself is
+        // gone by the time anyone can look.
+        assert!(
+            self.staging_touched,
+            "{label}: the driver staged into its temporary directory"
+        );
+        assert!(
+            self.staging_left.is_empty(),
+            "{label}: and left nothing behind: {:?}",
+            self.staging_left
         );
         assert!(
             self.overlay.contains("root:"),
@@ -596,21 +669,46 @@ struct DshFixture {
     _dsh_home: tempfile::TempDir,
     _operator_home: tempfile::TempDir,
     _evidence: tempfile::TempDir,
+    _staging: tempfile::TempDir,
     workdir: PathBuf,
     dsh_home: PathBuf,
     operator_home: PathBuf,
+    /// The driver child's own `TMPDIR`, watched for staging.
+    staging: PathBuf,
     shim: PathBuf,
+    /// What the driver is pointed at as `dsh`. Normally the owned shim;
+    /// a fixture may point it at nothing, which stages an overlay and
+    /// then never launches a child.
+    binary: PathBuf,
     probe_log: PathBuf,
     launch_log: PathBuf,
     overlay_log: PathBuf,
 }
 
+/// The stamp every run starts its staging directory from, far enough in
+/// the past that no filesystem's timestamp granularity can confuse it
+/// with "now" (POSIX `touch -t [[CC]YY]MMDDhhmm`).
+const STAGING_STAMP: &str = "199001010000";
+
 impl DshFixture {
     fn new() -> Self {
+        Self::pointed_at(None)
+    }
+
+    /// The same fixture with no reachable `dsh` at all: the driver still
+    /// stages its seat overlay and then fails to spawn, which is staging
+    /// followed by cleanup with no child execution — the one shape a log
+    /// written by a launched shim can never report.
+    fn without_a_provider() -> Self {
+        Self::pointed_at(Some("dsh-does-not-exist"))
+    }
+
+    fn pointed_at(missing: Option<&str>) -> Self {
         let (workdir_owner, workdir) = canonical_root();
         let (dsh_home_owner, dsh_home) = canonical_root();
         let (operator_home_owner, operator_home) = canonical_root();
         let (evidence_owner, evidence) = canonical_root();
+        let (staging_owner, staging) = canonical_root();
         let probe_log = evidence.join("probes");
         let launch_log = evidence.join("launches");
         let overlay_log = evidence.join("overlay");
@@ -637,19 +735,51 @@ impl DshFixture {
                 version = DSH_SHIM_VERSION,
             ),
         );
+        let binary = match missing {
+            Some(name) => evidence.join(name),
+            None => shim.clone(),
+        };
         Self {
             _workdir: workdir_owner,
             _dsh_home: dsh_home_owner,
             _operator_home: operator_home_owner,
             _evidence: evidence_owner,
+            _staging: staging_owner,
             workdir,
             dsh_home,
             operator_home,
+            staging,
             shim,
+            binary,
             probe_log,
             launch_log,
             overlay_log,
         }
+    }
+
+    /// Empty the staging directory and stamp it into 1990, so the only
+    /// thing that can move its timestamp forward is the driver creating
+    /// or removing something inside it.
+    fn stamp_staging(&self) {
+        for entry in std::fs::read_dir(&self.staging).unwrap() {
+            let path = entry.unwrap().path();
+            let _ = std::fs::remove_dir_all(&path).or_else(|_| std::fs::remove_file(&path));
+        }
+        let stamped = Command::new("touch")
+            .arg("-t")
+            .arg(STAGING_STAMP)
+            .arg(&self.staging)
+            .status()
+            .expect("the host stamps a directory's timestamp");
+        assert!(stamped.success(), "the staging directory is stamped");
+    }
+
+    /// Whether anything was created or removed in the staging directory
+    /// since it was stamped.
+    fn staging_touched(&self) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let stamped_year_1990 = 700_000_000;
+        std::fs::metadata(&self.staging).unwrap().mtime() > stamped_year_1990
     }
 
     /// Drive one start on the given path with the given payload, and read
@@ -707,6 +837,7 @@ impl DshFixture {
         );
         messages.push(json!({"proto": "forge-driver/v1", "msg_id": "m4", "type": "shutdown"}));
 
+        self.stamp_staging();
         let mut child = Command::new(brokkr_bin())
             .arg("driver")
             .arg("dsh")
@@ -716,9 +847,12 @@ impl DshFixture {
             // reason `drive` states: no conformance run may reach a real
             // dsh.
             .env_remove("BROKKR_DSH_BIN")
-            .env("FORGE_DSH_BIN", &self.shim)
+            .env("FORGE_DSH_BIN", &self.binary)
             .env("HOME", &self.operator_home)
             .env("DSH_HOME", &self.dsh_home)
+            // The seat overlay is staged under the driver's own TMPDIR,
+            // which is this fixture's to watch.
+            .env("TMPDIR", &self.staging)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -743,6 +877,10 @@ impl DshFixture {
             probes: log_lines(&self.probe_log),
             launches: log_lines(&self.launch_log),
             overlay: std::fs::read_to_string(&self.overlay_log).unwrap_or_default(),
+            staging_touched: self.staging_touched(),
+            staging_left: std::fs::read_dir(&self.staging)
+                .map(|entries| entries.map(|entry| entry.unwrap().path()).collect())
+                .unwrap_or_default(),
             retained_roots: match std::fs::read_dir(self.dsh_home.join("sessions").join("brokkr")) {
                 Ok(entries) => entries.map(|entry| entry.unwrap().path()).collect(),
                 Err(_) => Vec::new(),
@@ -792,19 +930,32 @@ fn exec_refusal_is_the_scripts_own_failure_not_a_provider_refusal() {
 }
 
 fn make_shim(dir: &Path, body: &str) -> PathBuf {
-    let path = dir.join("shim");
-    // Staged beside the target and renamed into place: `exec` refuses a
-    // file any process still holds open for writing, and a forked child
-    // inherits this thread's write descriptor until it execs. The
-    // destination never carries a writer, so ETXTBSY has nowhere to
-    // happen (#255).
-    let staging = dir.join(".shim.staging");
-    std::fs::write(&staging, body).unwrap();
-    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("shim");
+    // The bytes are written by a CHILD, so this process never holds a
+    // write descriptor on the inode that is about to be exec'd. `exec`
+    // refuses a file any process still holds open for writing, and a
+    // forked child inherits this thread's descriptor until it execs.
+    // Staging beside the target and renaming in does NOT cure that:
+    // `rename` moves the inode, write count and all (#255).
+    let mut child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("cat > \"$0\"")
+        .arg(&path)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(body.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success(), "the shim is staged");
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&staging, permissions).unwrap();
-    std::fs::rename(&staging, &path).unwrap();
+    std::fs::set_permissions(&path, permissions).unwrap();
     path
 }
 

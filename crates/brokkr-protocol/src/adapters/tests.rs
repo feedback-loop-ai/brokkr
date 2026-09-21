@@ -482,21 +482,43 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
 
 #[cfg(unix)]
 fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    // Written beside the target and renamed into place, never written at
-    // the target itself. `exec` refuses a file any process still holds
-    // open for writing with ETXTBSY, and a suite this parallel forks
-    // constantly: a child forked between this thread's open and close
-    // inherits the write descriptor and holds it until it execs. Rename is
-    // atomic and the destination never carried a writer, so the race has
-    // nowhere to happen (#255).
-    let staging = dir.join(format!(".{name}.staging"));
-    std::fs::write(&staging, body).unwrap();
-    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
+    // The bytes are written by a CHILD, so this process never holds a
+    // write descriptor on the inode that is about to be exec'd. `exec`
+    // refuses a file any process still holds open for writing with
+    // ETXTBSY, and a suite this parallel forks constantly: a child forked
+    // between this thread's open and close inherits the descriptor and
+    // holds it until it execs. Staging beside the target and renaming in
+    // does NOT cure that — `rename` moves the inode, write count and all
+    // — which is measured in `composite::tests`'s own
+    // `a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none`
+    // and is why there is no retry loop here (#255).
+    let mut child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg("cat > \"$0\"")
+        .arg(&path)
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|error| panic!("staging {}: {error}", path.display()));
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(body.as_bytes())
+        .unwrap_or_else(|error| panic!("staging {}: {error}", path.display()));
+    let status = child.wait().unwrap();
+    assert!(
+        status.success(),
+        "staging {} exited {status}",
+        path.display()
+    );
+    // `chmod` opens nothing: only a WRITE descriptor is what exec counts.
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&staging, permissions).unwrap();
-    std::fs::rename(&staging, &path).unwrap();
+    std::fs::set_permissions(&path, permissions).unwrap();
     path
 }
 
@@ -4824,87 +4846,363 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
     }
 }
 
+/// A settled DSH launch over a synthetic store and a synthetic child, so
+/// the Pass C confirmation cases drive production's own
+/// `invoke_dsh_launch` without an installed provider.
 #[cfg(unix)]
-#[test]
-fn a_dsh_init_event_is_the_only_root_confirmation() {
-    let digest = "a".repeat(64);
-    let plan = |rejoining: Option<&str>| LaunchPlan {
-        command: Vec::new(),
+fn dsh_stream_launch(
+    shim: &std::path::Path,
+    root: &std::path::Path,
+    rejoining: Option<&str>,
+    first_seq: Option<u64>,
+) -> DshLaunch {
+    DshLaunch {
+        command: vec![shim.to_string_lossy().into_owned()],
         rejoining: rejoining.map(str::to_string),
         refusal: None,
-        sandbox: None,
-        kind: "dsh-session",
-        harness_version: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: Some(digest.clone()),
-        persistent: true,
-        confirms_from_locator: false,
-        effort: None,
-    };
-    // A result envelope alone confirms nothing.
-    let mut hold = LaunchHold::new("deepseek", plan(Some("session-1")));
-    let mut meta = Map::new();
-    let mut emitted = Vec::new();
-    fold_dsh_stream_event(
-        &json!({"type":"result","subtype":"success","session_id":"session-1"}),
-        &mut hold,
-        &mut meta,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert!(emitted.is_empty());
-    assert_eq!(hold.terminal(), LaunchTerminal::Unconfirmed);
-
-    // The post-resume init event naming the offered root confirms it.
-    fold_dsh_stream_event(
-        &json!({"type":"system","subtype":"init","session_id":"session-1"}),
-        &mut hold,
-        &mut meta,
-        &mut |value| emitted.push(value.clone()),
-    );
-    assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
-    let launch = emitted
-        .iter()
-        .find(|row| row["step"] == "harness-started")
-        .expect("the init event publishes the one launch row");
-    assert_eq!(launch["launch"], "resumed");
-    assert_eq!(launch["root_session"]["kind"], "dsh-session");
-    assert_eq!(launch["root_session"]["id"], "session-1");
-    assert_eq!(launch["root_session"]["harness_version"], "0.1.5-rc.1");
-    assert_eq!(launch["root_session"]["wrapper_digest"], digest);
-
-    // A different root is a mismatch and publishes nothing.
-    let mut mismatched = LaunchHold::new("deepseek", plan(Some("session-1")));
-    let mut out = Vec::new();
-    fold_dsh_stream_event(
-        &json!({"type":"system","subtype":"init","session_id":"session-2"}),
-        &mut mismatched,
-        &mut meta,
-        &mut |value| out.push(value.clone()),
-    );
-    assert!(out.is_empty());
-    assert_eq!(mismatched.terminal(), LaunchTerminal::Mismatch);
+        observed: Some("0.1.5-rc.1".to_string()),
+        wrapper_digest: Some("a".repeat(64)),
+        stream_json: true,
+        effortless: false,
+        facts: crate::hands::GitFacts::default(),
+        staged: None,
+        first_seq,
+        locator: "seat".to_string(),
+        root: root.to_path_buf(),
+        overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
+    }
 }
 
-/// The qualified stream-json exchange end to end: a synthetic child emits
-/// the init event and appends one current event past the offered root's
-/// own sequence, and the driver confirms the exact root and counts only
-/// that event.
+/// Run one synthetic stream-json child through production's dispatch and
+/// report the invocation beside every row it published.
+#[cfg(unix)]
+fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, Vec<Value>) {
+    let mut emitted = Vec::new();
+    let invocation = invoke_dsh_launch(
+        launch,
+        "the prompt",
+        workdir.to_str().unwrap(),
+        &mut |value| emitted.push(value.clone()),
+        |_| panic!("the qualified arm does not poll the child"),
+    )
+    .unwrap();
+    (invocation, emitted)
+}
+
+#[cfg(unix)]
+fn transcript_rows(emitted: &[Value]) -> Vec<&Value> {
+    emitted
+        .iter()
+        .filter(|row| row["step"] == "transcript")
+        .collect()
+}
+
+/// The DSH arm of LE1/AS1: the request-derived `session_id` is the value
+/// this driver ASKED for, echoed back, so neither it nor the result
+/// envelope is confirmation. A different root is a mismatch that publishes
+/// nothing at all (task 8.8(d), Pass C; design D7).
+#[cfg(unix)]
+#[test]
+fn a_dsh_init_event_alone_is_never_the_root_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+
+    // A result envelope naming the offered root confirms nothing, and an
+    // init event naming it confirms nothing either while the store has
+    // not moved: the id is request-derived.
+    let quiet = executable(
+        dir.path(),
+        "dsh-stream-quiet",
+        "#!/bin/sh\n\
+         printf '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"session-1\"}\\n'\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&quiet, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
+    assert!(
+        launch_rows(&emitted).is_empty(),
+        "an echoed session id publishes no launch row"
+    );
+    assert!(
+        transcript_rows(&emitted).is_empty(),
+        "an unconfirmed rejoin publishes no transcript locator"
+    );
+
+    // A DIFFERENT root is a mismatch: nothing published, and the root is
+    // never relabelled as the requested session.
+    let other = executable(
+        dir.path(),
+        "dsh-stream-other",
+        "#!/bin/sh\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-2\"}\\n'\n",
+    );
+    let (mismatched, rows) = run_dsh_stream(
+        dsh_stream_launch(&other, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(mismatched.launch, LaunchTerminal::Mismatch);
+    assert!(launch_rows(&rows).is_empty() && transcript_rows(&rows).is_empty());
+}
+
+/// The DSH arm of LE1/LE3/AS4/D7, case by case: the launch hold stays
+/// closed until ALL FOUR observations agree, and each is load-bearing on
+/// its own. Every case here ends failed or indeterminate — no
+/// `root_session`, no transcript locator, no launch row — and none of
+/// them authorizes a cold replacement, whether the child exits clean or
+/// leaves an otherwise valid delivered result file behind (task 8.8(d),
+/// Pass C; design D6/D7).
+///
+/// These are NOT 7.9's or 9.7's generic cross-adapter cases: no other
+/// adapter exercises a DSH child's init event against a retained store.
+#[cfg(unix)]
+#[test]
+fn the_dsh_launch_hold_needs_every_confirmation_before_it_publishes() {
+    let init =
+        "printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n";
+    // Each case names the one fact it withholds; everything else about
+    // the exchange is the confirmed control's.
+    let cases: [(&str, bool, bool, bool, bool); 7] = [
+        // (case, emit init, advance the sequence, plant a sibling,
+        //  carry the prior header's boundary)
+        ("no prior depth-zero header", true, true, false, false),
+        ("no init event at all", false, true, false, true),
+        ("no sequence past the boundary", true, false, false, true),
+        ("a fresh sibling session", true, true, true, true),
+        ("a sibling and a delivered result", true, true, true, true),
+        ("no init and a delivered result", false, true, false, true),
+        ("a second header naming the offer", true, true, false, true),
+    ];
+    for (index, (case, emits_init, advances, sibling, boundary)) in cases.into_iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("seat");
+        plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        if case.starts_with("a second header") {
+            // The store changed between the plan's selection and this
+            // one: ambiguous evidence is refused, never resolved to a
+            // substitute. BOTH candidates sit past the offered boundary,
+            // so whichever the enumeration reaches first would confirm if
+            // ambiguity were resolved instead of refused.
+            plant_dsh_session(dir.path(), "seat", "--other--", "session-1", 99);
+        }
+        let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+        let result = dir.path().join("result.json");
+        let delivers = case.ends_with("delivered result");
+        let mut body = "#!/bin/sh\n".to_string();
+        if emits_init {
+            body.push_str(init);
+        }
+        if sibling {
+            // A COMPLETE fresh session, so the store still censuses
+            // cleanly and it is the sibling itself — not an unreadable
+            // walk — that withholds the confirmation. It is planted
+            // BEFORE the sequence advances, so no reading of this store
+            // can ever see the advance without the sibling beside it.
+            let fresh = root.join("--w--").join("session-9");
+            body.push_str(&format!(
+                "mkdir -p '{fresh}'\n\
+                 printf '{{\"type\":\"session\",\"version\":3,\"id\":\"session-9\",\
+                 \"delegationDepth\":0}}\\n' > '{fresh}/{name}'\n\
+                 printf '{{\"type\":\"permission/preset\",\"seq\":0}}\\n' >> '{fresh}/{name}'\n",
+                fresh = fresh.display(),
+                name = DSH_TRANSCRIPT
+            ));
+        }
+        if advances {
+            body.push_str(&format!(
+                "printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+                 {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+                 \"outputTokens\":2}}}}}}\\n' >> '{file}'\n",
+                file = file.display()
+            ));
+        }
+        if delivers {
+            body.push_str(&format!(
+                "printf '{{\"result\":\"delivered\"}}' > '{result}'\n",
+                result = result.display()
+            ));
+        }
+        body.push_str(
+            "printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}\\n'\n",
+        );
+        let shim = executable(dir.path(), &format!("dsh-hold-{index}"), &body);
+        let (invocation, emitted) = run_dsh_stream(
+            dsh_stream_launch(&shim, &root, Some("session-1"), boundary.then_some(27u64)),
+            dir.path(),
+        );
+        assert!(
+            invocation.launch.is_unsettled(),
+            "{case}: an incomplete evidence set never settles the rejoin"
+        );
+        assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed, "{case}");
+        assert!(
+            launch_rows(&emitted).is_empty(),
+            "{case}: no launch row and no root_session: {emitted:?}"
+        );
+        assert!(
+            transcript_rows(&emitted).is_empty(),
+            "{case}: no transcript locator: {emitted:?}"
+        );
+        assert!(
+            invocation.refusal.is_none(),
+            "{case}: dsh classifies no machine session rejection, so ruling 8's \
+             single replacement is never authorized"
+        );
+        if delivers {
+            assert!(
+                std::fs::metadata(&result).is_ok(),
+                "{case}: the delivered file is retained for diagnosis"
+            );
+        }
+    }
+}
+
+/// The same terminal rule for the OTHER unsettled shape: an init event
+/// naming a different root, followed by an otherwise valid delivered
+/// result file, is a mismatch and never an accepted successful launch.
+#[cfg(unix)]
+#[test]
+fn a_dsh_root_mismatch_that_delivers_a_result_is_still_a_mismatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+    let result = dir.path().join("result.json");
+    let shim = executable(
+        dir.path(),
+        "dsh-mismatch-delivering",
+        &format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-2\"}}\\n'\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+             \"outputTokens\":2}}}}}}\\n' >> '{file}'\n\
+             printf '{{\"result\":\"delivered\"}}' > '{result}'\n\
+             printf '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false}}\\n'\n",
+            file = file.display(),
+            result = result.display()
+        ),
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Mismatch);
+    assert_eq!(
+        invocation.exit_code, 0,
+        "the child exited clean all the same"
+    );
+    assert!(std::fs::metadata(&result).is_ok(), "the file is retained");
+    assert!(launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty());
+    assert!(
+        invocation.refusal.is_none(),
+        "and no replacement is authorized"
+    );
+}
+
+/// AS4's unstructured-DSH-error case and LE3's cannot-classify-a-refusal
+/// case: a nonzero exit carrying stderr prose is not a measured machine
+/// session rejection, so the driver classifies nothing and performs no
+/// automatic cold replacement. The child is spawned exactly once.
+#[cfg(unix)]
+#[test]
+fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let spawns = dir.path().join("spawns");
+    let shim = executable(
+        dir.path(),
+        "dsh-prose",
+        &format!(
+            "#!/bin/sh\n\
+             printf 'x\\n' >> '{spawns}'\n\
+             printf 'dsh: the session could not be opened\\n' >&2\n\
+             exit 7\n",
+            spawns = spawns.display()
+        ),
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.exit_code, 7);
+    assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
+    assert!(
+        invocation.refusal.is_none(),
+        "prose is not a machine-readable session rejection"
+    );
+    assert!(
+        invocation.stderr.contains("could not be opened"),
+        "the harness line survives for the park to read: {:?}",
+        invocation.stderr
+    );
+    assert!(launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty());
+    assert_eq!(
+        std::fs::read_to_string(&spawns).unwrap(),
+        "x\n",
+        "exactly one child: no automatic cold replacement"
+    );
+}
+
+/// A cancellation or deadline kill landing while the launch hold is still
+/// open fabricates nothing: the hold never releases, no confirmed-session
+/// checkpoint is written, and no replacement starts. The shim terminates
+/// its own process group the way the outer watchdog's kill reaches the
+/// driver — after the init event, before any sequence activity.
+#[cfg(unix)]
+#[test]
+fn a_dsh_kill_inside_the_open_launch_hold_fabricates_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("seat");
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let shim = executable(
+        dir.path(),
+        "dsh-killed",
+        "#!/bin/sh\n\
+         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n\
+         kill -TERM $$\n\
+         sleep 5\n",
+    );
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(
+        invocation.exit_code, -1,
+        "a signalled child reports no exit code of its own"
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
+    assert!(
+        launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty(),
+        "nothing is fabricated from a hold that never released: {emitted:?}"
+    );
+    assert!(
+        !emitted
+            .iter()
+            .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+        "and no confirmed-session checkpoint: {emitted:?}"
+    );
+    assert!(invocation.refusal.is_none(), "and no replacement starts");
+}
+
+/// The DSH arm of LE1/LE3, confirmed: a synthetic child emits the
+/// post-`await agents.resume` init event naming the offered root and
+/// appends one current event past that root's own sequence, in a store
+/// that gained no sibling session. Only then does the driver publish the
+/// locator, the launch row and `root_session` — in that order and once —
+/// and it counts only the current event.
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("seat");
-    let session = root.join("--w--").join("session-1");
-    std::fs::create_dir_all(&session).unwrap();
-    let file = session.join(DSH_TRANSCRIPT);
-    let mut history =
-        "{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"delegationDepth\":0}\n"
-            .to_string();
-    for seq in 0..=27 {
-        history.push_str(&format!(
-            "{{\"type\":\"permission/preset\",\"seq\":{seq}}}\n"
-        ));
-    }
-    std::fs::write(&file, history).unwrap();
+    plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
     let shim = executable(
         dir.path(),
         "dsh-stream",
@@ -4919,41 +5217,26 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
             file = file.display()
         ),
     );
-    let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-    let launch = DshLaunch {
-        command: vec![shim.to_string_lossy().into_owned()],
-        rejoining: Some("session-1".to_string()),
-        refusal: None,
-        observed: Some("0.1.5-rc.1".to_string()),
-        wrapper_digest: Some("a".repeat(64)),
-        stream_json: true,
-        effortless: false,
-        facts: crate::hands::GitFacts::default(),
-        staged: None,
-        first_seq: Some(27),
-        locator: "seat".to_string(),
-        root: root.clone(),
-        overlay,
-    };
-    let mut hold = LaunchHold::new("deepseek", launch.plan());
-    let mut meta = Map::new();
-    let mut emitted = Vec::new();
-    let invocation = invoke_dsh_stream_json(
-        &launch.command,
-        &launch,
-        dir.path().to_str().unwrap(),
-        &mut hold,
-        &mut meta,
-        &mut |value| emitted.push(value.clone()),
-    )
-    .unwrap();
-    assert_eq!(hold.terminal(), LaunchTerminal::Resumed);
-    let row = emitted
+    let (invocation, emitted) = run_dsh_stream(
+        dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+        dir.path(),
+    );
+    assert_eq!(invocation.launch, LaunchTerminal::Resumed);
+    let rows = launch_rows(&emitted);
+    assert_eq!(rows.len(), 1, "one launch row per executing model site");
+    assert_eq!(rows[0]["launch"], "resumed");
+    assert_eq!(rows[0]["root_session"]["kind"], "dsh-session");
+    assert_eq!(rows[0]["root_session"]["id"], "session-1");
+    assert_eq!(rows[0]["root_session"]["harness_version"], "0.1.5-rc.1");
+    assert_eq!(rows[0]["root_session"]["wrapper_digest"], "a".repeat(64));
+    // D7's order: the held location fact, then the launch row, then the
+    // first work checkpoint.
+    let order: Vec<&str> = emitted
         .iter()
-        .find(|row| row["step"] == "harness-started")
-        .expect("the init event publishes one launch row");
-    assert_eq!(row["launch"], "resumed");
-    assert_eq!(row["root_session"]["id"], "session-1");
+        .filter_map(|row| row["step"].as_str())
+        .filter(|step| matches!(*step, "transcript" | "harness-started" | "seat-turn"))
+        .collect();
+    assert_eq!(order, vec!["transcript", "harness-started", "seat-turn"]);
     // Only the event past the offered boundary is counted.
     assert_eq!(invocation.session_meta["num_turns"], 1);
     assert_eq!(invocation.session_meta["input_tokens"], 5);
@@ -5087,47 +5370,12 @@ fn a_qualified_stream_json_launch_ends_on_a_non_utf8_line() {
          printf '\\377\\n'\n\
          printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n",
     );
-    // `Text file busy` is not this test's subject. A shim written moments
-    // ago can still be held open for writing by a concurrently forked
-    // child, and `exec` then refuses with ETXTBSY (#255); the window
-    // widens under the instrumented coverage run, which is where it has
-    // actually been seen. The plan owns its overlay and cannot be cloned,
-    // so each attempt builds its own, and every other error is raised
-    // untouched on the first try.
-    let mut attempt = 0;
-    let (invocation, _emitted) = loop {
-        let overlay = dsh_seat_overlay_with(None, None, &root, None, None).unwrap();
-        let launch = DshLaunch {
-            command: vec![shim.to_string_lossy().into_owned()],
-            rejoining: None,
-            refusal: None,
-            observed: Some("0.1.5-rc.1".to_string()),
-            wrapper_digest: None,
-            stream_json: true,
-            effortless: true,
-            facts: crate::hands::GitFacts::default(),
-            staged: None,
-            first_seq: None,
-            locator: "seat".to_string(),
-            root: root.clone(),
-            overlay,
-        };
-        let mut round = Vec::new();
-        match invoke_dsh_launch(
-            launch,
-            "the prompt",
-            dir.path().to_str().unwrap(),
-            &mut |value| round.push(value.clone()),
-            |_| panic!("the qualified arm does not poll the child"),
-        ) {
-            Ok(invocation) => break (invocation, round),
-            Err(problem) if problem.contains("Text file busy") && attempt < 20 => {
-                attempt += 1;
-                std::thread::sleep(std::time::Duration::from_millis(25));
-            }
-            Err(problem) => panic!("{problem}"),
-        }
-    };
+    // The inherited `Text file busy` retry that stood here is gone with
+    // its cause: `executable` no longer opens the shim's inode for
+    // writing in this process, so no fork of ours can be holding a
+    // descriptor when `exec` counts them (#255).
+    let (invocation, _emitted) =
+        run_dsh_stream(dsh_stream_launch(&shim, &root, None, None), dir.path());
     assert_eq!(invocation.launch, LaunchTerminal::Cold);
     assert!(
         invocation.session_meta.get("session_id").is_none(),
@@ -5207,6 +5455,111 @@ fn a_dsh_seat_journals_its_declined_offer_and_flushes_its_held_rows_on_a_failed_
         rows[1]["resume_refusal"], "unsupported-resume",
         "an offer reached the one arm that has no supported route for it: {}",
         rows[1]
+    );
+}
+
+/// The one DSH-specific LOCAL-decline path, end to end: an offer the
+/// standing assessment does not support is declined here, before the
+/// provider is reached, and permits exactly ONE independently safe cold
+/// launch — one child, no `--session`, no `--new`, no `--output-format`,
+/// no offerable root, and no recursive fallback. The declined root is
+/// never read back as this launch's confirmation (task 8.8(d), Pass C;
+/// design D7; safety / AS4).
+#[cfg(unix)]
+#[test]
+fn an_unsupported_dsh_offer_takes_exactly_one_independently_safe_cold_launch() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let prior = std::env::var_os("BROKKR_DSH_BIN");
+    let prior_legacy = std::env::var_os("FORGE_DSH_BIN");
+    let prior_home = std::env::var_os("DSH_HOME");
+    let argv = dir.path().join("argv");
+    let result = dir.path().join("result.json");
+    // No installed provider: a shim that records every invocation's argv,
+    // writes the seat's result and says nothing about any session.
+    let shim = executable(
+        dir.path(),
+        "dsh-declined",
+        // One line per invocation, the prompt excluded: it is the last
+        // argument and spans many lines of its own.
+        &format!(
+            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s\\n' \"$#\" \"$1\" \"$2\" \"$3\" \"$4\" >> '{argv}'\n\
+             printf '{{\"result\":\"complete\"}}' > '{result}'\nexit 0\n",
+            argv = argv.display(),
+            result = result.display()
+        ),
+    );
+    std::env::set_var("BROKKR_DSH_BIN", &shim);
+    std::env::remove_var("FORGE_DSH_BIN");
+    std::env::set_var("DSH_HOME", dir.path());
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Dsh,
+        &[],
+        &json!({
+            "effect_id":"effect", "attempt_id":"attempt",
+            "input": {"workdir": dir.path(), "result_path": result,
+                      "allowed_results": ["complete"], "feature":"f", "phase":"work"}
+        }),
+        Some("session-019c4b7e"),
+        &mut |body| messages.push(body),
+    );
+    match prior {
+        Some(value) => std::env::set_var("BROKKR_DSH_BIN", value),
+        None => std::env::remove_var("BROKKR_DSH_BIN"),
+    }
+    if let Some(value) = prior_legacy {
+        std::env::set_var("FORGE_DSH_BIN", value);
+    }
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+
+    let spawned = std::fs::read_to_string(&argv).unwrap();
+    assert_eq!(
+        spawned.lines().count(),
+        1,
+        "exactly one cold launch, never a second: {spawned:?}"
+    );
+    assert!(
+        !spawned.contains("--session")
+            && !spawned.contains("--new")
+            && !spawned.contains("--output-format"),
+        "the cold launch carries nothing of the declined offer: {spawned:?}"
+    );
+    assert!(
+        spawned.starts_with("5|--profile|headless|--patch|"),
+        "the shipped cold argv, and only the prompt behind it: {spawned:?}"
+    );
+    let rows: Vec<&Value> = messages
+        .iter()
+        .filter_map(|body| match body {
+            Body::Checkpoint { data, .. } => Some(data),
+            _ => None,
+        })
+        .collect();
+    let launches: Vec<&&Value> = rows
+        .iter()
+        .filter(|row| row["step"] == "harness-started")
+        .collect();
+    assert_eq!(launches.len(), 1, "one launch row: {rows:?}");
+    assert_eq!(launches[0]["launch"], "cold");
+    assert_eq!(launches[0]["resume_refusal"], "unsupported-resume");
+    assert!(
+        launches[0].get("root_session").is_none(),
+        "a declined offer supplies no offerable root: {}",
+        launches[0]
+    );
+    assert!(
+        messages.iter().any(|body| matches!(
+            body,
+            Body::Result {
+                status: ResultStatus::Succeeded,
+                ..
+            }
+        )),
+        "and the independently safe cold launch is a real seat: {messages:?}"
     );
 }
 

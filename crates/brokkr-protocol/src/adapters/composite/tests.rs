@@ -27,9 +27,6 @@ fn write_executable(dir: &Path, relative: &str, bytes: &[u8]) {
     }
 }
 
-/// Write an executable file, STAGED beside its destination and renamed
-/// in: the destination never carries a write descriptor, so a child
-/// forked mid-write cannot make `exec` refuse it with ETXTBSY (#255).
 /// Run a prepared command, retrying only the ETXTBSY a freshly linked
 /// binary can answer with.
 ///
@@ -38,6 +35,10 @@ fn write_executable(dir: &Path, relative: &str, bytes: &[u8]) {
 /// staged; the kernel then refuses with `Text file busy`. That is a fact
 /// about the moment, not about the code under test, and a coverage gate
 /// that demands one clean run cannot be left to lose a race (#255).
+///
+/// This is INHERITED and guards a different subject — `current_exe`, a
+/// file no thread of this run writes — so it is not the repair below and
+/// proves nothing about it.
 #[cfg(unix)]
 fn spawn_retrying_etxtbsy(command: &mut std::process::Command) -> std::process::Output {
     for _ in 0..50 {
@@ -52,16 +53,57 @@ fn spawn_retrying_etxtbsy(command: &mut std::process::Command) -> std::process::
     panic!("the child test binary stayed busy");
 }
 
+/// Write an executable file THIS PROCESS NEVER OPENS FOR WRITING, because
+/// that is the only property `execve` actually cares about (#255).
+///
+/// `execve` refuses with ETXTBSY while the inode's write count is above
+/// zero. A fork inherits every open descriptor and holds it until the
+/// child execs, so a shim written on one thread can be refused on another
+/// for as long as some sibling's fork is in flight — and this suite forks
+/// constantly.
+///
+/// Staging beside the destination and renaming in does NOT cure that:
+/// `rename` moves the INODE, write count and all, so the destination
+/// inherits exactly the descriptor the staging file carried. Measured on
+/// this host with eight forking threads and 4000 rounds: writing in place
+/// refused 436 times, staging-and-renaming refused 471, and writing the
+/// bytes from a CHILD — leaving this process with no descriptor for any
+/// fork to inherit — refused 0. So the bytes are written by `/bin/sh`,
+/// which every shim here already depends on for its own shebang, and this
+/// process only reaps it. No retry and no sleep: the race has nowhere
+/// left to happen.
 #[cfg(unix)]
 fn stage_executable(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    // The staging name is bounded so a 255-byte candidate name — the
-    // NAME_MAX control — can still be staged beside its destination.
-    let staging = dir.join(format!(".{}.staging", name.get(..64).unwrap_or(name)));
-    fs::write(&staging, body).unwrap();
-    fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
-    fs::rename(&staging, &path).unwrap();
+    let mut child = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg("cat > \"$0\"")
+        .arg(&path)
+        // The staging child's own PATH, never the caller's: the native
+        // matrix runs its cells under a PATH it composes itself, and a
+        // fixture that cannot be written there would fail as a missing
+        // `cat` rather than as the layout under test.
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|error| panic!("staging {}: {error}", path.display()));
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(body)
+        .unwrap_or_else(|error| panic!("staging {}: {error}", path.display()));
+    let status = child.wait().unwrap();
+    assert!(
+        status.success(),
+        "staging {} exited {status}",
+        path.display()
+    );
+    // `chmod` opens nothing, so the mode is the parent's to set: only the
+    // WRITE descriptor is what `execve` counts.
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
 
@@ -2362,13 +2404,57 @@ fn global_folders_reads_node_path_home_and_the_runtime_prefix() {
     assert!(global_folders_in(&root, None, None).is_empty());
 }
 
+/// The mechanism behind #255, proved rather than argued, so the staging
+/// helper above cannot quietly regress to a form that does not cure it.
+///
+/// `execve` refuses while the inode's write count is above zero. `rename`
+/// moves the INODE: a destination renamed in from a staging file inherits
+/// exactly the staging file's open write descriptor, so staging-and-
+/// renaming is not the cure it was taken for. The helper's product, whose
+/// bytes this process never opened for writing, execs.
+#[cfg(unix)]
+#[test]
+fn a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let body = b"#!/bin/sh\nexit 0\n";
+    let staging = dir.path().join(".probe.staging");
+    let renamed = dir.path().join("probe-renamed");
+    let mut held = fs::File::create(&staging).unwrap();
+    held.write_all(body).unwrap();
+    held.flush().unwrap();
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::rename(&staging, &renamed).unwrap();
+    // The descriptor is still open on the same inode, and the rename did
+    // nothing about it.
+    let refused = std::process::Command::new(&renamed).output().unwrap_err();
+    assert_eq!(
+        refused.raw_os_error(),
+        Some(26),
+        "a renamed shim whose writer is still open is Text file busy: {refused}"
+    );
+    // Closing it here proves nothing further: a fork of ANOTHER thread
+    // may still be carrying the same descriptor, which is exactly why a
+    // shim this process wrote can never be relied on to exec.
+    drop(held);
+    // The helper's product carries no descriptor of this process's at
+    // all, so there is none for any fork to have inherited.
+    let staged = stage_executable(dir.path(), "probe-staged", body);
+    assert!(std::process::Command::new(&staged)
+        .output()
+        .unwrap()
+        .status
+        .success());
+}
+
 #[cfg(unix)]
 #[test]
 fn spawn_node_runtime_reads_one_version_line_and_refuses_the_rest() {
     let dir = tempfile::tempdir().unwrap();
-    // Staged beside the target and renamed in: the destination never
-    // carries a write descriptor, so a child forked mid-write cannot make
-    // `exec` refuse it with ETXTBSY (#255).
+    // Every shim's bytes are written by a CHILD, so no fork of this
+    // process can be holding a write descriptor when `exec` counts them
+    // (#255; see `stage_executable`).
     let stage = |name: &str, body: &str| stage_executable(dir.path(), name, body.as_bytes());
     // Each refusal is asserted by its REASON, not merely by being an error.
     // A bare `is_err()` is satisfied by a spawn that failed for an unrelated

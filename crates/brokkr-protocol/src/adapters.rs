@@ -3154,9 +3154,38 @@ fn dsh_session_file_reading(
     budget: usize,
     read_dir: &dyn Fn(&std::path::Path) -> std::io::Result<SessionDirEntries>,
 ) -> Result<std::path::PathBuf, String> {
+    let mut matches: Vec<std::path::PathBuf> =
+        dsh_depth_zero_sessions_reading(root, budget, read_dir)?
+            .into_iter()
+            .filter(|(id, _)| id == expected)
+            .map(|(_, candidate)| candidate)
+            .collect();
+    match matches.len() {
+        0 => Err("dsh driver: no stored depth-zero session names the offered id".to_string()),
+        1 => Ok(matches.remove(0)),
+        _ => Err("dsh driver: more than one stored session names the offered id".to_string()),
+    }
+}
+
+/// Every stored depth-zero session under a retained root, as `(id, file)`
+/// pairs in enumeration order.
+///
+/// This is the one walk: `dsh_session_file_reading` filters it for the
+/// offered id, and Pass C's launch confirmation compares its id set with
+/// the set the store held before the child spawned, so a plugin that
+/// opened a FRESH sibling session instead of rejoining the offered one is
+/// visible as a session that was not there before (task 8.8(d); design
+/// D6/D7). Every containment, budget and header rule below is the
+/// admission's own: a directory, file or header that cannot be admitted
+/// fails the whole walk rather than being skipped for a convenient match.
+fn dsh_depth_zero_sessions_reading(
+    root: &std::path::Path,
+    budget: usize,
+    read_dir: &dyn Fn(&std::path::Path) -> std::io::Result<SessionDirEntries>,
+) -> Result<Vec<(String, std::path::PathBuf)>, String> {
     let root = std::fs::canonicalize(root)
         .map_err(|_| "dsh driver: the retained root is unreadable".to_string())?;
-    let mut matches = Vec::new();
+    let mut found = Vec::new();
     let mut visited = 0usize;
     let charge = |visited: &mut usize| -> Result<(), String> {
         *visited += 1;
@@ -3210,16 +3239,19 @@ fn dsh_session_file_reading(
                     return Err("dsh driver: a retained session header is unreadable".to_string())
                 }
                 Some(DshStoredSession::Delegated) => {}
-                Some(DshStoredSession::DepthZero(id)) if id == expected => matches.push(candidate),
-                Some(DshStoredSession::DepthZero(_)) => {}
+                Some(DshStoredSession::DepthZero(id)) => found.push((id, candidate)),
             }
         }
     }
-    match matches.len() {
-        0 => Err("dsh driver: no stored depth-zero session names the offered id".to_string()),
-        1 => Ok(matches.remove(0)),
-        _ => Err("dsh driver: more than one stored session names the offered id".to_string()),
-    }
+    Ok(found)
+}
+
+/// Every stored depth-zero session under a retained root, read through
+/// production's own directory reader and enumeration budget.
+fn dsh_depth_zero_sessions(
+    root: &std::path::Path,
+) -> Result<Vec<(String, std::path::PathBuf)>, String> {
+    dsh_depth_zero_sessions_reading(root, DSH_DIRECTORY_ENTRIES, &read_session_dir)
 }
 
 /// The highest sequence number stored in a session file — the owned
@@ -3778,7 +3810,7 @@ fn invoke_dsh_launch(
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<Invocation, String> {
-    let mut transcript = Transcript::resolve(TranscriptKind::DshSession)?;
+    let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     let staged = launch.staged.take();
     let mut session_meta = Map::new();
     // Decision 0035 addendum 2026-09-11: a dsh seat with no `--effort`
@@ -3794,9 +3826,18 @@ fn invoke_dsh_launch(
             Value::String(EFFORT_NOT_APPLICABLE.to_string()),
         );
     }
+    // The store is censused BEFORE anything spawns, so a session the
+    // plugin opens instead of rejoining the offered one is visible as a
+    // session that was not there (task 8.8(d), Pass C).
+    let mut watch = DshRootWatch::new(&launch, transcript);
     // The retained locator is published before anything spawns, exactly as
-    // before; `run_seat` holds it until a turn begins (decision 0053).
-    transcript.record(&launch.locator, &mut session_meta, emit);
+    // before; `run_seat` holds it until a turn begins (decision 0053). A
+    // REJOIN holds it instead: an attempt that never confirms the offered
+    // root publishes no locator either, because the row would address a
+    // session this driver cannot say it was in (design D7).
+    if !watch.confirming() {
+        watch.record_locator(&mut session_meta, emit);
+    }
     let mut hold = LaunchHold::new("deepseek", launch.plan());
     // The shipped cold route confirms nothing, so its one launch row is
     // published before the spawn — exactly where it always was, and the
@@ -3816,6 +3857,7 @@ fn invoke_dsh_launch(
             &command,
             &launch,
             workdir,
+            &mut watch,
             &mut hold,
             &mut session_meta,
             emit,
@@ -3926,10 +3968,12 @@ fn invoke_dsh_shipped(
 /// driver accepts. The retained transcript is folded alongside it, only
 /// past the offered root's own sequence boundary, so a warm session never
 /// re-counts its restored history.
+#[allow(clippy::too_many_arguments)]
 fn invoke_dsh_stream_json(
     command: &[String],
     launch: &DshLaunch,
     workdir: &str,
+    watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
@@ -3943,7 +3987,12 @@ fn invoke_dsh_stream_json(
         let Ok(event) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        fold_dsh_stream_event(&event, hold, session_meta, emit);
+        fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
+        // Every drain is preceded by the settle that could release the
+        // hold, so a confirmed rejoin's locator and launch rows reach the
+        // journal BEFORE the work row the same sequence activity produces
+        // (design D7's order; task 7.4).
+        watch.settle(hold, session_meta, emit);
         drain_dsh_transcript(
             &mut tail,
             &launch.root,
@@ -3954,6 +4003,7 @@ fn invoke_dsh_stream_json(
         );
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    watch.settle(hold, session_meta, emit);
     drain_dsh_transcript(
         &mut tail,
         &launch.root,
@@ -3966,12 +4016,14 @@ fn invoke_dsh_stream_json(
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the
-/// session the plugin actually opened after `agents.resume`; that is the
-/// one fact the launch hold waits for. The result envelope carries no
-/// per-message boundary, so the transcript fold — not this event — owns
-/// usage.
+/// session the plugin actually opened after `agents.resume`; that is one
+/// of the four facts the launch hold waits for, and on its own it is
+/// nothing but a value the request asked for. The result envelope carries
+/// no per-message boundary, so the transcript fold — not this event —
+/// owns usage.
 fn fold_dsh_stream_event(
     event: &Value,
+    watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
@@ -3989,7 +4041,178 @@ fn fold_dsh_stream_event(
         return;
     };
     session_meta.insert("session_id".into(), Value::String(id.to_string()));
-    hold.confirm(id, emit);
+    watch.named(id, hold, emit);
+}
+
+/// The launch-root confirmation a DSH rejoin has to pass before ANYTHING
+/// about its session is published (task 8.8(d), Pass C; design D6/D7).
+///
+/// The plugin's `session_id` is request-derived: it is the value this
+/// driver asked for, echoed back, so by itself it confirms nothing. Four
+/// mechanically observable facts have to agree before the hold releases:
+///
+/// 1. a valid prior depth-zero header retained at the resolved locator for
+///    the offered id — read BEFORE the spawn (it is what produced
+///    `first_seq`) and required to still be exactly one header there;
+/// 2. the pinned plugin's post-`await agents.resume` init event, read from
+///    the stream-json child, naming that same root;
+/// 3. no fresh sibling root or session in the retained store — a session
+///    the store did not hold before the spawn is the plugin opening a NEW
+///    session instead of rejoining the offered one;
+/// 4. new sequence activity past the recorded `firstSeq` in that same
+///    root.
+///
+/// Same-root nonce continuity is 10.7's probe-only model-recall device
+/// (design D6): it is never planted in a prompt and never read here.
+///
+/// Until all four agree this publishes nothing at all — no transcript
+/// locator, no launch row and no `root_session` — so a missing or
+/// different root followed by a clean exit, or by an otherwise valid
+/// delivered result file, stays failed or indeterminate under D7 and
+/// authorizes no cold replacement by itself.
+struct DshRootWatch {
+    /// The exact root this launch was built to rejoin. `None` is a cold
+    /// launch, which has no offer to confirm and publishes as it always
+    /// did.
+    offered: Option<String>,
+    /// The retained root the plan settled on, and the only store this
+    /// confirmation reads.
+    root: std::path::PathBuf,
+    /// The boundary the prior depth-zero header produced before the child
+    /// spawned. Its absence beside an offer is missing fact 1, and no
+    /// later reading can supply it.
+    first_seq: Option<u64>,
+    /// The depth-zero session ids the retained store held before the child
+    /// spawned. `None` is a store this driver could not census, which is
+    /// fact 3 unobserved, not fact 3 satisfied.
+    prior: Option<std::collections::BTreeSet<String>>,
+    /// The locator row, held until confirmation on a rejoin.
+    locator: String,
+    transcript: Transcript,
+    /// Whether the child's init event named the offered root.
+    named_the_offer: bool,
+    /// Latched once the outcome is settled: a confirmation publishes once,
+    /// and a mismatch is not revisited by a later reading.
+    settled: bool,
+}
+
+impl DshRootWatch {
+    /// Open the watch over a settled launch, censusing the retained store
+    /// BEFORE the child can touch it. A census is taken only where there
+    /// is an offer to confirm; a cold launch reads nothing.
+    fn new(launch: &DshLaunch, transcript: Transcript) -> DshRootWatch {
+        let offered = launch
+            .stream_json
+            .then(|| launch.rejoining.clone())
+            .flatten();
+        let prior = offered
+            .is_some()
+            .then(|| dsh_depth_zero_sessions(&launch.root).ok())
+            .flatten()
+            .map(|sessions| sessions.into_iter().map(|(id, _)| id).collect());
+        DshRootWatch {
+            offered,
+            root: launch.root.clone(),
+            first_seq: launch.first_seq,
+            prior,
+            locator: launch.locator.clone(),
+            transcript,
+            named_the_offer: false,
+            settled: false,
+        }
+    }
+
+    /// Whether this launch is holding its locator and launch rows for a
+    /// confirmation. A cold launch is not, and publishes before the spawn
+    /// exactly as it always has.
+    fn confirming(&self) -> bool {
+        self.offered.is_some()
+    }
+
+    /// Publish the retained locator row.
+    fn record_locator(
+        &mut self,
+        session_meta: &mut Map<String, Value>,
+        emit: &mut impl FnMut(&Value),
+    ) {
+        let locator = self.locator.clone();
+        self.transcript.record(&locator, session_meta, emit);
+    }
+
+    /// The child named a session. A DIFFERENT one settles at once —
+    /// there is nothing left to wait for and nothing to publish, and the
+    /// hold latches the mismatch — while the offered one still has to
+    /// survive the retained-store reads below.
+    fn named(&mut self, id: &str, hold: &mut LaunchHold, emit: &mut impl FnMut(&Value)) {
+        if self.settled {
+            return;
+        }
+        if self.offered.as_deref() != Some(id) {
+            // A cold plan's own fresh root, or a rejoin's mismatch. The
+            // hold decides which, and a mismatch publishes nothing.
+            hold.confirm(id, emit);
+            self.settled = true;
+            return;
+        }
+        self.named_the_offer = true;
+    }
+
+    /// Release the hold if — and only if — all four facts agree. Called
+    /// before every transcript drain, so the locator and launch rows reach
+    /// the journal ahead of the first work row (design D7's order).
+    fn settle(
+        &mut self,
+        hold: &mut LaunchHold,
+        session_meta: &mut Map<String, Value>,
+        emit: &mut impl FnMut(&Value),
+    ) {
+        if self.settled || !self.named_the_offer {
+            return;
+        }
+        let Some(offered) = self.offered.clone() else {
+            return;
+        };
+        // Fact 1, the half no later reading can supply: the prior
+        // depth-zero header this offer was admitted on.
+        let Some(first_seq) = self.first_seq else {
+            return;
+        };
+        let Some(prior) = self.prior.clone() else {
+            return;
+        };
+        let Ok(sessions) = dsh_depth_zero_sessions(&self.root) else {
+            return;
+        };
+        // Fact 3: the store holds no session it did not hold before.
+        let present: std::collections::BTreeSet<String> =
+            sessions.iter().map(|(id, _)| id.clone()).collect();
+        if !present.is_subset(&prior) {
+            return;
+        }
+        // Fact 1 again, at the resolved locator: exactly one depth-zero
+        // header still names the offered id.
+        let mut named = sessions.iter().filter(|(id, _)| *id == offered);
+        let Some((_, file)) = named.next() else {
+            return;
+        };
+        if named.next().is_some() {
+            return;
+        }
+        // Fact 4: this root has moved past the boundary the offer was
+        // recorded with. A rejoin that added nothing has confirmed
+        // nothing.
+        let Some(last) = dsh_session_last_seq(file) else {
+            return;
+        };
+        if last <= first_seq {
+            return;
+        }
+        self.settled = true;
+        // D7's order: the held location fact, then the launch row, then
+        // the first work checkpoint the drain behind this call emits.
+        self.record_locator(session_meta, emit);
+        hold.confirm(&offered, emit);
+    }
 }
 
 /// The common tail of both dsh invocations: the harness and profile the
