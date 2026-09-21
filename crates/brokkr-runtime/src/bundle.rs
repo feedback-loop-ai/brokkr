@@ -1643,6 +1643,27 @@ impl Bundle {
                 &mut sites,
             )?;
             record_hands(dialect_site, &synthetic, None, &secrets, &mut sites)?;
+            // The one site the engine generated was written by no author
+            // and asks for nothing, and it still gets an explicit outcome
+            // through the same walk every authored site takes: "no
+            // capability" is a recorded fact, never a missing one (design
+            // D5). ONLY this site is given one here — an authored site the
+            // walk above missed keeps none, and a site with no outcome is
+            // refused at dispatch rather than launched on its defaults.
+            {
+                let (library, adapters) = match &agents {
+                    Some(context) => (context.library.as_ref(), Some(&context.adapters)),
+                    None => (None, pin_adapters.as_ref()),
+                };
+                record_capabilities(
+                    &authority,
+                    library,
+                    adapters,
+                    dialect_site,
+                    &synthetic,
+                    &mut sites,
+                )?;
+            }
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
@@ -1677,36 +1698,13 @@ impl Bundle {
 
         refuse_global_aliasing(&seats)?;
 
-        // A site the engine generated — the dialect's injected validator —
-        // was written by no author and asks for nothing, and it still gets
-        // an explicit outcome: "no capability" is a recorded fact, never a
-        // missing one (design D5).
-        {
-            let adapters = agents.as_ref().map(|context| &context.adapters);
-            for (label, facts) in &mut sites {
-                if facts.capabilities.is_none() {
-                    facts.capabilities = Some(site_capabilities(
-                        &authority,
-                        adapters,
-                        crate::capabilities::SiteAsks {
-                            label: label.clone(),
-                            office: label.clone(),
-                            ..Default::default()
-                        },
-                        &[],
-                        Some("exec"),
-                        &[],
-                    )?);
-                }
-            }
-        }
         let capability_sites: Map<String, Value> = sites
             .iter()
             .map(|(label, facts)| {
                 let site = facts
                     .capabilities
                     .as_ref()
-                    .expect("every site was given an outcome above");
+                    .expect("the capability walk gave every compiled site an outcome");
                 (label.clone(), site.manifest())
             })
             .collect();
@@ -3129,7 +3127,8 @@ fn record_capabilities(
         facts.capabilities = Some(site);
         return Ok(());
     }
-    if raw.get("driver").is_some() || raw.get("role").is_some() {
+    // A single site, by the same two keys `has_single` reads.
+    if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
         let asks = crate::capabilities::SiteAsks::of(what, None, written)
             .map_err(CompileError::Invalid)?;
         let parts = command_parts(raw);
@@ -3144,6 +3143,24 @@ fn record_capabilities(
              belongs to the site that executes — the member, step or case body — because that \
              is the office the realm grants to (decision 0065 ruling 5)"
         )));
+    }
+    // A dialect step runs the realm dialect's own validator through the
+    // exec driver: no author wrote its command and it asks for nothing,
+    // and it still gets an explicit outcome — "no capability" is a
+    // recorded fact, never a missing one (design D5). Only where the
+    // dialect supplied a validator: an unsupported `check` compiles to no
+    // site at all, and none is invented for it here.
+    if raw.get("dialect").is_some() {
+        if sites.contains_key(what) {
+            let asks = crate::capabilities::SiteAsks {
+                label: what.to_string(),
+                office: what.to_string(),
+                ..Default::default()
+            };
+            let site = site_capabilities(authority, adapters, asks, &[], Some("exec"), &[])?;
+            site_facts(sites, what).capabilities = Some(site);
+        }
+        return Ok(());
     }
     let mut nested: Vec<(String, &Value)> = Vec::new();
     if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
@@ -3164,13 +3181,14 @@ fn record_capabilities(
         }
     }
     if let Some(select) = raw.get("select").and_then(Value::as_object) {
-        if let Some(cases) = select.get("cases").and_then(Value::as_object) {
-            nested.extend(
-                cases
-                    .iter()
-                    .map(|(case, raw)| (format!("{what}:{case}"), raw)),
-            );
-        }
+        nested.extend(
+            select
+                .get("cases")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .map(|(case, raw)| (format!("{what}:{case}"), raw)),
+        );
         if let Some(body) = select.get("default") {
             nested.push((format!("{what}:default"), body));
         }
