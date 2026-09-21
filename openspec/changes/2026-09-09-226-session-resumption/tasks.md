@@ -11724,6 +11724,13 @@ containing `/`, which no library's switch governs.
 | EIO, EINVAL, ESTALE | no pinned arm → named limitation | same limitation — **the one residual** | `step(Apple, …)`; the direct EIO assertion recording it (new) |
 | the working-directory candidate | `./<name>` for an empty token, refused under the searched NAME | not a search | `the_working_directory_refusal_names_the_searched_name_under_every_library` |
 
+**Superseded — read the corrected table in the next visit's account.** The
+returned review (R2, 2026-09-21) found this fourth column overstated:
+the EACCES, ENOENT, ENOTDIR and ENOEXEC rows cite `step` and
+`lookup_failure`, which answer the SWITCH's question and stop at an
+intermediate `Candidate::Passed`, not the refusal a caller reads; and
+ENOEXEC reaches no switch arm at all.
+
 The residual: at a direct name an errno outside Apple's pinned switch
 renders as that limitation, where glibc and musl name the stop a direct
 name always is. No cell of the matrix asserts it and no Linux string
@@ -11771,3 +11778,188 @@ Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 were not
 touched. `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
 `fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/` have
 no diff; decision 0056 keeps its `proposed` status. Nothing was pushed.
+
+## Implement visit — the returned review's R1 and R2, 2026-09-21
+
+Run `dsh-composite-identity-issue-226-380a534e`, returned from review
+with two MEDIUM residuals and one LOW against `75605bdc..77325d46`. Both
+MEDIUMs are about the PREVIOUS visit's own work — where its collection
+boundary sits, and what its audit table claims — so this visit's whole
+delta is tests. `crates/brokkr-protocol/src/adapters/composite.rs` has
+NO diff: the mutations below were applied to it and restored, and
+`git status` names only the two test files.
+
+### R1 — the collection boundary sat inside the operation, not around it
+
+The previous visit collected each cell's COMPARISON. Everything that
+produced the values compared — the planted errno, the oracle
+invocation, the resolution — still ran outside `collecting`, and
+`oracle` panics on two conditions of its own: an unidentified sentinel
+(`native_matrix.rs` 705–710 as reviewed) and an unsuccessful sentinel
+exit. So one such failure still ended its child at that cell, taking
+the name's other invocation form, every later name, and the per-name
+fixture cleanup with it — the exact failure mode the commission asked
+to end, one layer in.
+
+Four boundaries moved, and nothing else:
+
+1. **Each form's whole operation** — plant, oracle, resolve — is one
+   `collecting` call, and the comparison that follows it is skipped
+   where the invocation has no outcome to compare rather than invented.
+   The cross-form glibc check runs only where BOTH forms answered, so a
+   failed form is one finding and not two.
+2. **The per-name fixture staging** is collected the same way, and
+   records what it placed AS it places it, so a staging failure is that
+   cell's finding and whatever reached the filesystem is still removed.
+3. **The parent's per-case invocation** is collected, so a child this
+   parent cannot even spawn is one case's finding.
+4. **The parent's report validation** — a duplicated oracle identifier
+   and an unreadable tally line — is recorded instead of asserted, so a
+   malformed report does not end the run at the line it appeared on.
+
+The 12 named controls that drive an oracle now hold their oracle and
+their resolution inside their own `collecting` too; the thirteenth,
+`default-search-sh`, drives `matrix_spawn` directly and was already
+inside its own.
+
+`oracle` also prints the cell's identifier as soon as the invocation
+COMPLETES, ahead of identifying what ran. Fail-closed accounting is
+unchanged — the identifier still means "this cell's oracle ran", and
+`report` still fires ahead of the inventory assertion — but an
+unidentified sentinel is now ONE finding rather than its panic plus a
+hole in the parent's inventory.
+
+#### Removal proofs, this visit's own
+
+Each mutation applied to the candidate bytes, run, and restored; the
+recorded `CWD_REASON` proof of the last visit exercised the comparison
+aggregation alone, which is what R1 said.
+
+| mutation | what it proves | what was reported |
+| --- | --- | --- |
+| `oracle`'s marker prefix `MARK:` → `MARKX:` (every ran sentinel is unidentified) | oracle-level failures are collected AND the cells after them still run | **456 distinct cells** across **52 children**, in one panic (`the matrix: 52 of this child's cells failed`) |
+| `oracle` panics unconditionally after printing its identifier | the named controls collect at the same boundary | **all 12 oracle-driving controls** in one panic (`the controls: 12 of this child's cells failed`), and 72 parent cases |
+| the controls child prints a seventh tally slot | an unreadable report is a finding, not the end of the parent | `case controls: a tally line this parent cannot read: matrix-tally: 0 0 0 0 0 0 7` |
+| the controls child repeats an oracle identifier | a duplicated identifier likewise | `case controls: oracle control:valid-length-name reported twice` |
+
+Restored, the matrix is green and its inventory is unchanged: 8 names ×
+52 layouts, **997 oracles**, every declared cell reporting exactly once.
+
+### R2 — the audit named the switch where the refusal is the lookup's
+
+R2 is right on every count. `step` answers continue-or-stop and
+`lookup_failure` answers with an intermediate `Candidate`; a
+CONTINUATION is not a refusal at all, and what the differential matrix
+compares on macOS is the string `Search::find` or `lookup_in` finally
+produces. The EACCES, ENOENT and ENOTDIR rows cited the switch; the
+ENOEXEC row cited an arm no lookup path reaches, and lent it an EIO
+diagnostic that belongs to the unpinned-arm residual.
+
+`each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm`
+(`composite/tests.rs`) drives `lookup_in` itself, under the injected
+Apple arm beside glibc, musl and this target's own, in BOTH operations,
+and asserts the whole final reason of each:
+
+- **searched, denial** — `denied:nowhere` and `nowhere:denied` both end
+  in `'dsh' is not executable by this process on PATH: <denied>/dsh: is
+  not executable by this process`, which is the remembered EACCES
+  reported over a later cause, on every arm;
+- **searched, exhaustion** — `'dsh' is not on PATH (the search ended at
+  <candidate>: <cause>)` for ENOENT under a missing entry and ENOTDIR
+  under a regular file spelled as one, the cause taken from the same
+  kernel error the fixture gives this host;
+- **searched, positive** — all three walked past to a runnable B, so the
+  continuations are proved to BE continuations and not silent stops;
+- **direct** — ENOENT, ENOTDIR, EACCES, a directory (`is not a regular
+  file`), a 300-byte component under an existing directory (the named
+  ENAMETOOLONG stop), and the direct name that loads, each the one
+  answer `lookup_in` formats, identical on every arm;
+- **loading** — an executable whose content is neither a `#!` script nor
+  a loadable image refuses `is not a loadable native image: neither a
+  #! script nor a native image`, ahead of the runnable B behind it,
+  searched and direct alike.
+
+Removal proofs: `step(Apple, ACCESS)` weakened to `Continue { denied:
+false }` → the Apple denial assertion fails against the exhaustion
+string while glibc's passes (a per-ARM divergence at the final refusal,
+which is what the test exists to catch); `native_obstruction`'s
+`image::inspect` failure turned into `Ok(())` → the unloadable
+candidate is admitted and the loading assertions fail. Both restored →
+green.
+
+#### The Apple-arm audit, corrected — errno × name kind × covered by
+
+"Searched" is one entry of a search; "direct" is a name containing `/`,
+which no library's switch governs. The last column names the test that
+drives the FINAL refusal on the Apple arm, and says where only a
+switch-level check exists.
+
+| errno | searched, Apple | direct, Apple | Linux-runnable proof of the Apple arm |
+| --- | --- | --- | --- |
+| EACCES | remembered denial, walk continues; reported over any later cause when nothing is admitted | `is not executable by this process`, as on every arm | final: `each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm`, the denial string in both entry orders and the direct `<denied>/dsh`; switch: `…_switch_arm_by_arm`'s `step(Apple, ACCESS)` |
+| ENOENT | continues | the operation's own answer, as on every arm | final: same test — the exhaustion under a missing entry, and the direct `<nowhere>/dsh` |
+| ENOTDIR | continues | the operation's own answer, as on every arm | final: same test — the exhaustion under a file spelled as an entry, and the direct `<file>/dsh` |
+| ELOOP | continues to the next entry | `a symlink loop stops the lookup: …` on every arm | final: `a_direct_names_symlink_loop_is_named_on_every_librarys_arm`, through `lookup_in` in both operations, with Apple's searched continuation to B beside it |
+| ENAMETOOLONG, kernel-answered | continues; only exhaustion can end on it | `metadata answers …, on which the platform's lookup stops` on every arm | final, searched: `…_switch_arm_by_arm`'s 600-byte component reaching B through `lookup_in`; final, direct: `each_pinned_errno_…`'s 300-byte component under an existing directory |
+| ENAMETOOLONG, construction bound | `posix_spawnp` stops before any attempt; `execvP` skips the token | not reachable — a direct name constructs no candidate | final: `the_apple_arm_answers_an_oversized_component_by_its_construction_bound`, the matrix's own oversized `PATH` spellings under both operations |
+| ENOEXEC | **reaches no switch arm**: a candidate whose content no loader reads is refused by `native_obstruction` before any execution, on every arm alike | the same refusal, by the same path | final: `each_pinned_errno_…` — `is not a loadable native image: neither a #! script nor a native image`, searched (ahead of a runnable B) and direct. The superseded row's `step(Apple, NOEXEC)` described an arm the lookup never asks about |
+| EIO, EINVAL, ESTALE | no pinned arm → named limitation | same limitation — **the one residual** | switch level only: `…_switch_arm_by_arm`'s `step(Apple, …)` and its direct EIO assertion. No final-refusal test, because no fixture makes a kernel answer these to `metadata` or `access`; named rather than simulated |
+| not a regular file (no errno) | walked past as the denial `execve` answers EACCES for | `is not a regular file` | final: `each_pinned_errno_…`'s direct directory row |
+| the working-directory candidate | `./<name>` for an empty token, refused under the searched NAME | not a search | `the_working_directory_refusal_names_the_searched_name_under_every_library` |
+
+Two limitations stand, both recorded rather than modelled:
+
+- the EIO/EINVAL/ESTALE residual above, unchanged from the previous
+  visit;
+- Apple's `execvP` retries an ENOEXEC candidate through `_PATH_BSHELL`
+  (the returned review read `gen/FreeBSD/exec.c` for it; this seat
+  reached no Apple source). This resolver refuses such a candidate
+  instead, which is the DECLARED loading exception and strictly
+  narrower than native — it selects nothing native would not run — so
+  no cell can fail on it, and no matrix layout places such a body on a
+  macOS host (`loader_fixture()` is Linux-only, and the non-executable
+  body is a denial, not an ENOEXEC).
+
+### R3 — the LOW, on what the gates report
+
+The run-validation report for the previous visit named `cargo test
+--workspace`, which the commission does not permit. The gates below were
+crate-scoped and sequential, one crate at a time, no workspace sweep and
+no concurrent suites, and that is what is claimed for them.
+
+### Gates, on the candidate bytes
+
+`cargo fmt --all -- --check` clean. `cargo clippy --workspace
+--all-targets --all-features --locked -- -D warnings` clean. The seven
+crate suites each run on their own, sequentially, each **ok, 0 failed**:
+`brokkr-protocol` 384 + 99 + 1 doc-test; `brokkr-cli` 466 plus its 29
+integration binaries; `brokkr-runtime` 441 plus its binaries;
+`brokkr-view` 243; `brokkr-core` 73 plus three; `brokkr-store` 58 plus
+five; `brokkr-bridge` 13. `cargo run --locked -p brokkr-cli -- compile
+--bundle bundles/self` compiles.
+
+`openspec validate --all --strict` did NOT run and is not a pass: this
+seat's sandbox refused the binary under every spelling tried — the
+installed `openspec`, its absolute path, and `npx @fission-ai/openspec`
+— as on the two previous visits. Only this file moved under
+`openspec/`, and no file under `openspec/specs` did.
+`bash scripts/coverage-exact.sh` did not run here either; this visit
+adds tests and moves no production line, so the gate's subject is
+unchanged and it is not lowered — which is not a substitute for the
+check.
+
+### Awaiting the macOS leg
+
+Unchanged, and now the whole point of the change: the repaired head's
+own `test (macos-latest)` job is expected to report its WHOLE remaining
+surface in one panic — every failing cell of every layout and every
+failing control, including the ones whose ORACLE fails — rather than
+the next cell behind the last. The Apple arm is injected on this host,
+which proves the resolver's branches here; that is not native macOS
+execution and does not replace one.
+
+8.8 stays unchecked. Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and
+groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status. Nothing was pushed.
