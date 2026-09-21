@@ -1610,6 +1610,13 @@ reported without recursive resume/cold attempts. Session rejection SHALL NOT
 be confused with the separate provider model/auth/quota refusal rules already
 shipped with proposed decision 0053.
 
+A permanent offered-root confirmation refusal under LE1/LE3 SHALL survive
+later matching evidence and delivery. An otherwise valid result file SHALL
+remain available for diagnosis but SHALL NOT convert that invocation into
+accepted successful work. This refusal SHALL authorize no cold replacement
+and SHALL retain LE3's existing terminal diagnostic; it is not a new measured
+provider session-rejection classifier.
+
 #### Scenario: Unknown or expired session is conclusively rejected
 - **WHEN** an adapter observes its measured pre-work session-rejection shape for the offered handle
 - **THEN** it performs at most one cold replacement and reports that launch as cold with harness-refused evidence
@@ -1628,8 +1635,9 @@ shipped with proposed decision 0053.
 - **THEN** the adapter does not claim resumed or start another invocation; it reports the mismatch as failure or uncertainty according to the observed execution facts
 
 #### Scenario: A refusal notice is followed by delivery
-- **WHEN** a provider emits an error-shaped notice but subsequently works or delivers the current attempt's valid result with a clean exit
+- **WHEN** a provider emits an error-shaped notice but subsequently works or delivers the current attempt's valid result with a clean exit, and any required exact-root confirmation succeeded without a prior permanent refusal
 - **THEN** the delivered work is retained under the existing acceptance rules and the adapter does not run a cold replacement
+- **AND** a DSH invocation already refused under LE1 instead retains the file for diagnosis, fails with LE3's named reason and publishes no root, transcript locator, launch or work row; delivery cannot cure that refusal
 
 #### Scenario: The replacement also fails
 - **WHEN** the single cold replacement fails or is rejected
