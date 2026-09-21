@@ -2517,6 +2517,26 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "a package child 'engines' carrying the malformed flow member 'node:      *missing', \
              whose value opens with the YAML indicator '*'",
         ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: &}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node: &', whose \
+             value opens with the YAML indicator '&'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node:      &}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node:      &', whose \
+             value opens with the YAML indicator '&'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node: %bad}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node: %bad', whose \
+             value opens with the YAML indicator '%'",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{node:      %bad}}\n"),
+            "a package child 'engines' carrying the malformed flow member 'node:      %bad', \
+             whose value opens with the YAML indicator '%'",
+        ),
         // R3: every 1,025-character implicit-key span — plain, padded
         // before its colon, quoted, and multibyte.
         (
