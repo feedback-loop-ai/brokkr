@@ -12541,3 +12541,172 @@ No Windows handling was added. Decision 0063 (accepted 2026-09-21)
 withdraws every Windows obligation the (d) text names, including the
 native lookup oracle, GetBinaryTypeW, the native matrix, Windows MSRV
 and the Windows-specific transport obligation.
+
+## Implement visit — the surviving terminator MEDIUM, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-10abd37c`, on `slice-dsh-planner-d`
+at `d65f0784`. The previous run
+(`dsh-launch-planner-issue-226-tas-3d08ce19`) parked
+REVIEW-REFORGE-EXHAUSTED-MEDIUM on one finding and stays as it is for the
+operator; this visit repairs that finding and the LOW beside it. Every
+existing commit is adopted.
+
+### R1 — the repair the previous visit made was half of one
+
+The previous visit stopped `driver_extra_args` from searching the WHOLE
+vector, and kept the deletion of a LEADING `--`. But clap consumes the
+operator's outer separator ITSELF. Nothing the CLI receives is that
+separator — so the surviving deletion was not a boundary at all, it was a
+normalisation, and it swallowed exactly the token the DSH admission rule
+exists to refuse:
+
+| the operator's command line | what admission received | what it did |
+| --- | --- | --- |
+| `brokkr driver dsh -- --` | nothing at all | launched, staged, retained a root |
+| `brokkr driver dsh -- -- --model p/m` | `--model p/m` | launched on that model |
+
+The rule, not the instance: after clap parsing the DSH adapter's
+admission sees every payload token exactly as given — leading, interior
+and trailing alike. An adapter can only refuse what it receives.
+
+Every separator site in `brokkr-cli` was audited and each ruled on its
+own:
+
+| Site | What it does | Ruling |
+| --- | --- | --- |
+| `lib.rs` `driver_extra_args` | drops one LEADING `--` from a driver payload | kept for claude, lanetally, codex, exec; DSH opts out |
+| `lib.rs` `Cmd::Driver` dispatch | called it for all five | now calls `driver_payload(kind, args)` |
+| `lib.rs` `HandsCommand::Exec` | drops one LEADING `--` from a boxed command | untouched — a separate command boundary |
+
+`git grep '"--"' -- crates/brokkr-cli/src` returns seven hits and no
+eighth site: the two removals above, four `init.rs` scaffold strings that
+WRITE a `--` into a generated recipe, and `recipes.rs`'s `git clone`
+terminator.
+
+The opt-out is `driver_payload`, a two-arm match on `AdapterKind`. The
+shared helper is untouched and still owns the other four, so their
+behaviour cannot move under a DSH repair — and it did not move: their own
+suites ran green, including `conformance_across_all_builtin_adapters`,
+the three codex rejoin proofs and every adapter's refusal shape (22
+passed in `driver_conformance`, 0 failed). That is executed evidence, not
+an assertion in prose.
+
+### The built-CLI proof
+
+`a_residual_terminator_refuses_on_every_dsh_path_wherever_it_stands`
+drives the BUILT binary 18 times: six payloads on each of disabled,
+enabled-cold and offered. Bare `--`; a leading `--` before an admissible
+pin; an interior `--`; a trailing `--`; and the two route-ordering cases
+below. Each asserts the fixed option-terminator reason — never
+`is_err()`, never a status — and asserts the diagnostic echoes none of
+the model id, the route value, the offered session id, any `--` spelling
+at all, the workdir, the DSH home, the operator HOME or the shim path.
+
+Zero provider observations in all 18, each one an owned-shim or
+filesystem fact an error string cannot supply: no `--version` probe, no
+child, no staged overlay (the shim copies whatever `--patch` hands it),
+no retained root under `$DSH_HOME/sessions/brokkr`, no checkpoint.
+
+The last two payloads bind `resume_context.route_overlay` to a file that
+is never created, so an argv that reaches route resolution refuses in the
+route's own words. Both also assert the error never says `route_overlay`:
+the terminator refuses first from either position.
+
+`the_dsh_launch_paths_the_terminator_proof_runs_on_are_the_ones_it_names`
+proves the fixtures are what they claim, each path identified by an
+observation only that path produces: disabled probes no version at all;
+an open gate probes it exactly once and ships `cold`, because the
+declared wrapper digest is not this host's composite; an open gate handed
+a session back declines it as `resume_refusal: unverified-harness`. All
+three launch a child, stage the overlay and retain one root. Without this
+test the 18 refusals could have passed over a fixture that refused for
+some unrelated reason.
+
+### R2 — the fixture's temporary roots
+
+`canonical_root()` returns one `tempfile::TempDir` and its canonical
+path; `DshFixture` keeps the owner beside the path and derives the
+workdir, shim, logs, `DSH_HOME` and operator `HOME` from the canonical
+form, once each. macOS resolves the system temporary directory through
+`/var`, a symlink to `/private/var`, so a raw root and the path the
+driver canonicalizes are two strings for one directory. The old
+`drive_dsh` helper, which derived from raw roots, is gone; the retained
+`the_dsh_admission_rule_reads_the_whole_payload_…` keeps both its cases
+and its fixed-field assertions on the new fixture, with the full
+zero-observation set added. Executed on Linux only; no native macOS
+execution occurred and none is claimed.
+
+### Removal proofs
+
+The deletion was restored (`AdapterKind::Dsh => driver_extra_args(args)`),
+each test run alone, then the fix restored and every test re-run green.
+The final tree carries the fix.
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `driver_payload`'s DSH arm → back to the shared helper | `the_driver_payload_keeps_every_argument_the_dsh_command_line_carried` | `tests.rs:1186` — `left: []` against `right: ["--"]` |
+| the same line | `a_residual_terminator_refuses_on_every_dsh_path_wherever_it_stands` | `driver_conformance.rs:370` — `Disabled/a bare terminator alone: the fixed option-terminator reason: agent CLI exited 1` |
+| the same line, with the route case moved to the head of the list | the same | the same assertion — `Disabled/a leading terminator with a bound, absent route overlay: … refusing to invoke the dsh driver: route_overlay file is unreadable` |
+
+`agent CLI exited 1` is the shim's own exit: the payload was ADMITTED and
+a child ran. The third row is the reviewer's ordering finding reproduced
+exactly — a leading terminator reaching route-file resolution.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue #255:
+the verify exec is the controller's and is not a seat's choice).
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-protocol` | 488 (388 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime` | 24 binaries, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+No ETXTBSY attempt was needed: every crate suite passed on its first run.
+The evidence log is kept at
+`.forge/tasks/dsh-pass-b-terminator-delivery.md`.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat, as on the
+previous visits: every spelling was refused, and the binary's own
+directory is outside the seat's allowed paths. This visit adds no
+`openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending.
+
+### Scope
+
+Three files moved, plus this record. Production changed by one function:
+`driver_payload`, and the one dispatch line that now calls it.
+`driver_extra_args` keeps its body and its four callers' behaviour. The
+protocol crate has no diff at all: `dsh_control_conflict` already
+categorised a residual `--` as `the option terminator` before any route
+read, version probe, composite call or staging, and this visit only made
+sure the token reaches it.
+
+Pass C is untouched and uncredited. It still owes, before any
+`root_session`, transcript locator or launch row is published: a valid
+prior depth-zero header retained at the resolved locator for the offered
+ID; the pinned plugin's post-`await agents.resume` init event read from
+the stream-json child on the selected persistence root; no fresh sibling
+root or session in the retained store; and new sequence activity past the
+recorded `firstSeq`. A request-derived `session_id` is not that event,
+and `confirms_from_locator: false` stays.
+
+8.8 and 8.10 stay unchecked and no sub-clause was ticked. 9.6, 10.x, 11.x
+and groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled.
+No live provider was called. No Windows handling was added (decision
+0063). Nothing was pushed.
