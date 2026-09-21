@@ -11363,3 +11363,104 @@ The work is committed all the same (message style `dsh:` for code and
   `policy/schemas/`, `fixtures/`, `reference/`, `extensions/dsh/` and
   `docs/decisions/` have no diff. The active change is not archived.
   Nothing was pushed.
+
+## Implement visit — macOS portability of the delivered branch, 2026-09-21
+
+Run `dsh-composite-identity-issue-226-d462f720`, phase implement, on
+`slice-dsh-composite-b` at adopted head `a8c96e93`. This is a PORTABILITY
+repair of the already-judged 8.8(a)–(c) delivery, not a redesign: run
+`e291e076`'s council established no medium-or-higher defect, no security
+residual and no specification defect, and that disposition is inherited, not
+reopened. PR #311's CI passes ubuntu tests, exact coverage, clippy, MSRV and
+packaging, and fails `test (macos-latest)` with twelve tests, all in
+`crates/brokkr-protocol/src/adapters/composite/tests.rs` and its
+`tests/native_matrix.rs`.
+
+**There is no macOS host in this seat.** The only native macOS observation
+is the CI log excerpt in
+`.forge/tasks/controller-macos-ci-failures-pr311-2026-09-21.txt`, read
+first. Every claim below is marked as executed here or as awaiting the
+repaired head's own macOS leg. **8.8 stays unchecked** and no checkbox
+moved; part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4 and groups 14–15 were not
+touched. The full account, with logs, is
+`.forge/tasks/dsh-macos-portability-evidence.md`.
+
+### The five causes, and what each cost
+
+| # | Cause | Repair |
+|---|-------|--------|
+| A | macOS's `$TMPDIR` is reached through `/var`, a symlink to `/private/var`; the producer canonicalizes what it reports; seven fixtures glued `TempDir::path()` into their expectation. | A test-side `FixtureRoot` canonicalizes the temporary root ONCE at creation and retains the `TempDir` for cleanup; `Synthetic`, the core-executable test's two independent roots and the matrix parent build on it. No string substitution, no weakened comparison, no canonicalize of a deleted child. |
+| B | `Errno::LOOP` renders as `os error 40` on Linux and `os error 62` on Darwin; the table asserted the literal. | The expected text is built from the host's `io::Error` for the same `Errno::LOOP` the call is given. The reason is still asserted whole. ENOENT, EACCES, EIO and ENOTDIR agree across both hosts and keep their literals. |
+| C | **Production.** The cwd candidate is not one spelling: glibc and musl build the bare name for an empty entry, Apple builds `./<name>`, and the named refusal displayed the candidate — so one rule was reported two ways. | `Search::refuse_working_directory` renders the named refusal from the SEARCHED NAME. The native STOP at the same candidate still names the candidate as the platform built it, because that is an observation of a file, not an answer about a name. Every Linux string is byte-identical: on glibc the empty-entry candidate IS the bare name. AS1 fixes the phrase and the terminal-cause preservation and does not platform-qualify the prefix. |
+| D | Apple's kernel separates `#!` arguments on whitespace (XNU `exec_shell_imgact`), so `-S node` reaches `env_program`'s compile-time split arm, not the form check. The commission's summary reversed actual and expected; log lines 1973–1975 show the production arm already right. | The two multiword vectors follow the compile-time arm, as the neighbouring `node --flag` case already did. `FOO=1 node` had the same latent mismatch and moves with it. Two single-word vectors (`-S`, `FOO=1`) are added so the measured-form refusal has a vector on every platform. No parser and no production shebang policy changed. |
+| E | APFS enforces UTF-8 at creation, so the non-UTF-8 fixture cannot be built and the test panicked on its creation unwrap. | The creation is answered, not unwrapped. Where it succeeds the walker's exact refusal is asserted as before. Where it fails the filesystem error must be `Errno::ILSEQ`, the entry must be absent, and the walk over the remaining name must still complete — asserted by cause, never skipped, never `is_err()`. No injected reader impersonates the walker case: a `std::fs::DirEntry` is only ever yielded by a real directory. |
+
+No Windows handling of any kind was added. Accepted decision 0063 closes
+`e291e076`'s windows-msvc clippy LOW; it is not repair work.
+
+### Removal proofs
+
+**P1, the production change.** Restoring `candidate.display()` fails the new
+`the_working_directory_refusal_names_the_searched_name_under_every_library`
+on its `Library::Apple` row, on this Linux host, with exactly the CI
+excerpt's mismatch (`./mytool` where `mytool` is owed); restored, it passes.
+The same test drives `Library::Glibc` and `Library::Musl` beside Apple —
+the table carries the library it translates — and asserts that the glibc
+ELOOP stop still names the candidate and its cause, which is the guard
+against over-applying the change.
+
+**P2, the fixture root, proved on Linux.** The macOS condition is a
+temporary root whose spelling is not its canonical one, and that is
+reproducible here by handing the suite `TMPDIR=<...>/real/../real`. Under
+it, crate-scoped to `adapters::composite::`: **103 passed / 0 failed** with
+the canonicalization, **96 passed / 7 failed** with it removed, **103 / 0**
+restored. The seven are exactly the seven the macOS leg reports for this
+cause, failing in the same shape — including the opened-once counter's
+`left: 0 / right: 1` and the matrix child's swapped `PATH` equality. This
+proves the group is fixed at its cause on Linux; it is not a macOS
+execution and does not replace one.
+
+Not provable in this seat, and named as such: B's Darwin rendering (the
+literal and the constructed text coincide on this host, so removal changes
+nothing here), D's Apple arm (`#[cfg(not(linux))]` in `env_program`) and
+E's filesystem-refusal arm.
+
+### Gates, on the candidate bytes
+
+`cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets
+--all-features --locked -- -D warnings` clean; the seven crate suites each
+run on their own and each **ok, 0 failed** (`brokkr-protocol` 381 + 99 + 1);
+`cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`
+compiled. The full native matrix executed: 8 names × 52 layouts, 997
+oracles, 334 equal selections, 126 NotFound parities, 250 terminal-error
+parities, 104 NUL refusals, 42 D10 loader exceptions, 128
+working-directory refusals.
+
+Two required checks did NOT run and are not passes: `openspec validate
+--all --strict` and `bash scripts/coverage-exact.sh` were both refused
+launch by this seat's sandbox. No file under `openspec/specs` moved, and
+the production delta adds no branch and no function — it changes one format
+string and one signature — but neither fact is a substitute for the check.
+The coverage gate is unchanged and not lowered.
+
+One intermittent failure was seen and is not this repair's: the first
+`brokkr-protocol` run lost
+`spawn_node_runtime_reads_one_version_line_and_refuses_the_rest` to the
+known ETXTBSY race (#255); every rerun is green. The previous visit's four
+outside-slice `brokkr-runtime` failures did not reproduce here.
+
+### Still not delivered, and named
+
+- The repaired head's own `test (macos-latest)` leg. Nothing here claims
+  the branch green on macOS, and the earlier Linux CI passes do not
+  certify this diff.
+- `openspec validate --all --strict`, `bash scripts/coverage-exact.sh`, and
+  the workflow's `coverage-exact` job on a namespace-capable runner.
+- Every Apple branch that is `cfg`-selected or library-gated and therefore
+  recorded rather than executed: `env_program`'s split arm, the
+  `assert_glibc_*` matrix cells and `Library::Glibc` control arms under a
+  Darwin `LIBRARY`, and the non-UTF-8 test's filesystem-refusal arm.
+- Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4, groups 14–15. `contracts/`,
+  `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+  `reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+  decision 0056 keeps its `proposed` status. Nothing was pushed.
