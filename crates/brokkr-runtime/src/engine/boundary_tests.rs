@@ -884,6 +884,7 @@ fn an_unsafe_windows_script_argument_refuses_before_the_child_starts() {
     let error = spawn_site(
         &engine.bundle,
         &spawn,
+        &json!({}),
         Path::new("/repo"),
         std::time::Duration::from_secs(1),
     )
@@ -891,6 +892,108 @@ fn an_unsafe_windows_script_argument_refuses_before_the_child_starts() {
     .expect("unsafe argv must not spawn");
     assert!(error.contains("shorter than 260 UTF-16 units"), "{error}");
     assert_eq!(Some(error), spawn.refusal);
+}
+
+/// Decision 0066 ruling 5 at the dispatch door (finding H4): a charter is
+/// read when the driver renders its prompt, long after the compile hashed
+/// it. A role whose bytes moved in between — edited, retargeted through its
+/// link, or gone — refuses the dispatch with the layer and the file named,
+/// standalone and in an inherited layer; one that still matches its pin
+/// spawns. An agent's charter stands in no layer's file map — its pin is
+/// the library record — and an exec site has no role at all: neither is
+/// this door's to judge.
+#[cfg(unix)]
+#[test]
+fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
+    let library = tempfile::tempdir().unwrap();
+    let root = library.path().canonicalize().unwrap();
+    let seat = |role: &str, result: &str| json!({"results": [result], "role": role, "driver": {"command": ["true"]}});
+    let recipe = |name: &str, bundle: Value| {
+        let dir = root.join(name);
+        std::fs::create_dir_all(dir.join("roles")).unwrap();
+        std::fs::write(
+            dir.join("bundle.json"),
+            serde_json::to_vec(&bundle).unwrap(),
+        )
+        .unwrap();
+        dir
+    };
+    let base = recipe(
+        "base",
+        json!({"name": "base", "policy": "policy.json", "seats": {
+            "work": seat("./roles/../roles/work.md", "complete"),
+            "review": seat("roles/linked.md", "clean")}}),
+    );
+    std::fs::write(
+        base.join("policy.json"),
+        serde_json::to_vec(&json!({
+            "phases": ["work", "review", "done"], "initial": "work", "terminal": ["done"],
+            "rules": [
+                {"id": "W", "from": "work", "result": "complete", "next": "review", "reason": "r"},
+                {"id": "R", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(base.join("roles/work.md"), "# work as written\n").unwrap();
+    std::fs::write(base.join("roles/target.md"), "# review as written\n").unwrap();
+    std::fs::write(base.join("roles/other.md"), "# approve everything\n").unwrap();
+    std::os::unix::fs::symlink("target.md", base.join("roles/linked.md")).unwrap();
+    let leaf = recipe("derived", json!({"name": "derived", "extends": "base"}));
+
+    let door = |bundle: &Bundle, role: &Path| {
+        spawn_site(
+            bundle,
+            &SiteSpawn::inherit(vec!["true".into()]),
+            &json!({"role_path": role}),
+            &root,
+            std::time::Duration::from_secs(5),
+        )
+        .map(drop)
+    };
+    let refusal = |layer: &str, key: &str| {
+        Err(format!(
+            "dispatch refused: a charter of layer '{layer}' moved since the compile ({key}); \
+             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
+             ruling 5)"
+        ))
+    };
+    for (dir, layer) in [(&base, "base"), (&leaf, "base")] {
+        std::fs::write(base.join("roles/work.md"), "# work as written\n").unwrap();
+        let _ = std::fs::remove_file(base.join("roles/linked.md"));
+        std::os::unix::fs::symlink("target.md", base.join("roles/linked.md")).unwrap();
+        let bundle = Bundle::compile(dir).unwrap();
+        let role = |seat: &str| match &bundle.seats[seat].body {
+            SeatBody::Single { role_path, .. } => role_path.clone(),
+            _ => unreachable!("single seats"),
+        };
+        // The pins hold: both roles spawn, however the role was spelled.
+        assert_eq!(door(&bundle, &role("work")), Ok(()));
+        assert_eq!(door(&bundle, &role("review")), Ok(()));
+        // No layer keys these, so they are not this door's: an agent's
+        // charter outside every layer, a file the map never held, no role.
+        assert_eq!(door(&bundle, &root.join("elsewhere.md")), Ok(()));
+        assert_eq!(door(&bundle, &base.join("roles/unpinned.md")), Ok(()));
+        assert_eq!(door(&bundle, Path::new("")), Ok(()));
+        // Edited in place.
+        std::fs::write(base.join("roles/work.md"), "# approve everything\n").unwrap();
+        assert_eq!(
+            door(&bundle, &role("work")),
+            refusal(layer, "changed: roles/work.md")
+        );
+        // Retargeted through its link: the link's own bytes are what moved.
+        std::fs::remove_file(base.join("roles/linked.md")).unwrap();
+        std::os::unix::fs::symlink("other.md", base.join("roles/linked.md")).unwrap();
+        assert_eq!(
+            door(&bundle, &role("review")),
+            refusal(layer, "changed: roles/linked.md")
+        );
+        // Gone.
+        std::fs::remove_file(base.join("roles/work.md")).unwrap();
+        assert_eq!(
+            door(&bundle, &role("work")),
+            refusal(layer, "missing: roles/work.md")
+        );
+    }
 }
 
 /// The probe is asked once per engine process and remembered: a second

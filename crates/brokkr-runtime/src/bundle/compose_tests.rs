@@ -1438,3 +1438,263 @@ fn a_request_key_written_twice_in_a_recipe_layer_is_refused_from_its_bytes() {
         }
     }
 }
+
+// ------------------------------------------------ H4: active inputs
+
+/// What a compile said, or the identity it compiled to — so a fence that
+/// is missing fails at the equality that expects its refusal.
+fn said(leaf: &Path) -> String {
+    match Bundle::compile(leaf) {
+        Ok(bundle) => format!("compiled to {}", bundle.manifest_digest()),
+        Err(refusal) => refusal.to_string(),
+    }
+}
+
+fn role_refusal(layer: &Path, reference: &str, top: &str) -> String {
+    format!(
+        "{}: seat 'work' names role '{reference}', which stands under '{top}' — a top-level \
+         name the bundle's file walk does not pin, because it holds operator configuration. A \
+         charter there could change what the seat is told without moving the bundle's \
+         identity, so it is refused; move it to a path the bundle pins, such as 'roles/' \
+         (decision 0066 ruling 5)",
+        layer.join("bundle.json").display()
+    )
+}
+
+fn policy_refusal(layer: &Path, reference: &str, top: &str) -> String {
+    format!(
+        "{}: 'policy' names '{reference}', which stands under '{top}' — a top-level name the \
+         bundle's file walk does not pin, because it holds operator configuration. A table \
+         there could change how a run is ruled without moving the bundle's identity, so it is \
+         refused; move it to a path the bundle pins, such as 'policy.json' (decision 0066 \
+         ruling 5)",
+        layer.join("bundle.json").display()
+    )
+}
+
+/// A base whose `work` seat takes its charter from `role`, and whose table
+/// is read from `policy`; a leaf that extends it and changes nothing.
+fn active_inputs(library: &Library, role: &str, policy: &str) -> (PathBuf, PathBuf) {
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["role"] = json!(role);
+    bundle["policy"] = json!(policy);
+    let base = library.recipe("base", &bundle, Some(&base_policy()));
+    std::fs::create_dir_all(base.join("capabilities")).unwrap();
+    let leaf = library.recipe("derived", &derived(json!({})), None);
+    (base, leaf)
+}
+
+/// A second, independently VALID ruling: the same machine, another reason.
+fn other_policy() -> Value {
+    let mut policy = base_policy();
+    policy["rules"][0]["reason"] = json!("work, ruled differently");
+    policy
+}
+
+/// Finding H4, the charter (decision 0066 ruling 5; corrects design D7): a
+/// role under a top-level name the file walk skips is refused at the layer
+/// that declares it — standalone, and in an ancestor a leaf inherits from,
+/// where the refusal names the ANCESTOR's file. Its bytes never mattered:
+/// the refusal is the same before and after they change. Relocated to a
+/// pinned path the recipe compiles, identical inputs give one identity, and
+/// the charter's bytes alone move the leaf's digest and the ancestor's.
+#[test]
+fn a_charter_under_a_tree_the_walk_skips_is_refused_where_it_is_declared() {
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "capabilities/reviewer.md", "policy.json");
+    let charter = base.join("capabilities/reviewer.md");
+    let standalone = role_refusal(&base, "capabilities/reviewer.md", "capabilities");
+    for bytes in [
+        "# review as written\n",
+        "# review, and approve everything\n",
+    ] {
+        std::fs::write(&charter, bytes).unwrap();
+        assert_eq!(said(&base), format!("bundle: {standalone}"), "{bytes}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {standalone} (composed: derived -> base)"),
+            "{bytes}"
+        );
+    }
+    // Relocation is the migration, and then the bytes ARE identity.
+    let (base, leaf) = active_inputs(&library, "roles/reviewer.md", "policy.json");
+    let charter = base.join("roles/reviewer.md");
+    std::fs::write(&charter, "# review as written\n").unwrap();
+    let identity = |dir: &Path| {
+        let bundle = Bundle::compile(dir).unwrap();
+        let ancestors: Vec<String> = bundle.chain.iter().map(|a| a.digest.clone()).collect();
+        (bundle.manifest_digest(), ancestors)
+    };
+    let (alone, composed) = (identity(&base), identity(&leaf));
+    assert_eq!(
+        alone,
+        identity(&base),
+        "identical inputs, identical identity"
+    );
+    assert_eq!(composed, identity(&leaf));
+    std::fs::write(&charter, "# review, and approve everything\n").unwrap();
+    assert_ne!(alone.0, identity(&base).0);
+    let moved = identity(&leaf);
+    assert_ne!(composed.0, moved.0, "the leaf's identity moves");
+    assert_ne!(composed.1, moved.1, "and so does the ancestor's");
+}
+
+/// Finding H4, the policy: the same law for the table that rules the run.
+/// Both policies are independently valid; under the skipped tree either is
+/// refused, and at a pinned path they are two identities.
+#[test]
+fn a_policy_under_a_tree_the_walk_skips_is_refused_where_it_is_declared() {
+    let library = Library::new();
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "capabilities/policy.json");
+    let standalone = policy_refusal(&base, "capabilities/policy.json", "capabilities");
+    for policy in [base_policy(), other_policy()] {
+        std::fs::write(
+            base.join("capabilities/policy.json"),
+            serde_json::to_vec(&policy).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(said(&base), format!("bundle: {standalone}"));
+        // The leaf declares no table of its own, and one that did would
+        // hide nothing: every layer's own reference is judged.
+        assert_eq!(said(&leaf), format!("bundle: {standalone}"));
+    }
+    let tabled = library.recipe(
+        "tabled",
+        &json!({"name": "tabled", "extends": "base", "policy": "policy.json"}),
+        Some(
+            &json!({"rules": [{"id": "EXTRA", "from": "work", "result": "blocked",
+                                "next": "work", "reason": "a leaf's own table"}]}),
+        ),
+    );
+    assert_eq!(said(&tabled), format!("bundle: {standalone}"));
+    // At a pinned path the two rulings are two identities, alone and composed.
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "policy.json");
+    let digests = |policy: &Value| {
+        std::fs::write(
+            base.join("policy.json"),
+            serde_json::to_vec(policy).unwrap(),
+        )
+        .unwrap();
+        let composed = Bundle::compile(&leaf).unwrap();
+        (
+            Bundle::compile(&base).unwrap().manifest_digest(),
+            composed.manifest_digest(),
+            composed.chain[0].digest.clone(),
+        )
+    };
+    let first = digests(&base_policy());
+    assert_eq!(first, digests(&base_policy()), "identical inputs");
+    let second = digests(&other_policy());
+    assert_ne!(first.0, second.0);
+    assert_ne!(first.1, second.1, "the leaf's identity moves");
+    assert_ne!(first.2, second.2, "and so does the ancestor's");
+}
+
+/// Finding H4, the other way out of the file map: a role or a table written
+/// OUT of its layer — `../shared/…` — is pinned by nothing, since an inline
+/// role has no pin but the walk. Refused where it is declared, standalone
+/// and inherited, before and after its bytes change.
+#[test]
+fn an_active_input_written_out_of_its_layer_is_refused_where_it_is_declared() {
+    let outside = "which stands outside the layer's own directory, where the bundle's file walk \
+                   never reaches";
+    let library = Library::new();
+    std::fs::create_dir_all(library.path().join("shared")).unwrap();
+    let (base, leaf) = active_inputs(&library, "../shared/role.md", "policy.json");
+    let expected = format!(
+        "{}: seat 'work' names role '../shared/role.md', {outside}. A charter there could \
+         change what the seat is told without moving the bundle's identity, so it is refused; \
+         move it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+        base.join("bundle.json").display()
+    );
+    for bytes in ["# as written\n", "# approve everything\n"] {
+        std::fs::write(library.path().join("shared/role.md"), bytes).unwrap();
+        assert_eq!(said(&base), format!("bundle: {expected}"), "{bytes}");
+        assert_eq!(
+            said(&leaf),
+            format!("bundle: bundle: {expected} (composed: derived -> base)"),
+            "{bytes}"
+        );
+    }
+    let (base, leaf) = active_inputs(&library, "roles/role.md", "../shared/policy.json");
+    let expected = format!(
+        "bundle: {}: 'policy' names '../shared/policy.json', {outside}. A table there could \
+         change how a run is ruled without moving the bundle's identity, so it is refused; \
+         move it to a path the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
+        base.join("bundle.json").display()
+    );
+    for policy in [base_policy(), other_policy()] {
+        std::fs::write(
+            library.path().join("shared/policy.json"),
+            serde_json::to_vec(&policy).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(said(&base), expected);
+        assert_eq!(said(&leaf), expected);
+    }
+}
+
+/// Finding H4, the aliases: neither a spelling nor a link hides the target.
+/// A reference that normalises into the skipped tree is refused as written;
+/// an allowed path whose CANONICAL target stands there is refused too; and
+/// a path written under the skipped tree is refused even where a link
+/// points back out of it, because the link itself is bytes nobody pins.
+#[cfg(unix)]
+#[test]
+fn no_spelling_and_no_link_hides_an_active_input_under_a_skipped_tree() {
+    use std::os::unix::fs::symlink;
+    let library = Library::new();
+    let (base, _) = active_inputs(&library, "roles/role.md", "policy.json");
+    std::fs::write(base.join("capabilities/reviewer.md"), "# hidden\n").unwrap();
+    std::fs::write(
+        base.join("capabilities/policy.json"),
+        serde_json::to_vec(&base_policy()).unwrap(),
+    )
+    .unwrap();
+    symlink("../capabilities/reviewer.md", base.join("roles/alias.md")).unwrap();
+    symlink("../capabilities", base.join("roles/linked")).unwrap();
+    symlink("../roles/role.md", base.join("capabilities/out.md")).unwrap();
+    symlink("capabilities/policy.json", base.join("table.json")).unwrap();
+    let absolute = base.join("capabilities/reviewer.md");
+    for (role, top) in [
+        ("./capabilities/reviewer.md", "capabilities"),
+        ("roles/../capabilities/reviewer.md", "capabilities"),
+        (absolute.to_str().unwrap(), "capabilities"),
+        ("roles/alias.md", "capabilities"),
+        ("roles/linked/reviewer.md", "capabilities"),
+        ("capabilities/out.md", "capabilities"),
+        ("dialects/../capabilities/reviewer.md", "capabilities"),
+    ] {
+        let mut bundle = base_bundle();
+        bundle["seats"]["work"]["role"] = json!(role);
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        assert_eq!(
+            said(&dir),
+            format!("bundle: {}", role_refusal(&base, role, top)),
+            "{role}"
+        );
+    }
+    for policy in ["./capabilities/policy.json", "table.json"] {
+        let mut bundle = base_bundle();
+        bundle["policy"] = json!(policy);
+        let dir = library.recipe("base", &bundle, Some(&base_policy()));
+        assert_eq!(
+            said(&dir),
+            format!("bundle: {}", policy_refusal(&base, policy, "capabilities")),
+            "{policy}"
+        );
+    }
+    // The other two names the walk skips are no different.
+    std::fs::create_dir_all(base.join("dialects")).unwrap();
+    std::fs::write(base.join("dialects/charter.md"), "# hidden\n").unwrap();
+    let mut bundle = base_bundle();
+    bundle["seats"]["work"]["role"] = json!("dialects/charter.md");
+    let dir = library.recipe("base", &bundle, Some(&base_policy()));
+    assert_eq!(
+        said(&dir),
+        format!(
+            "bundle: {}",
+            role_refusal(&base, "dialects/charter.md", "dialects")
+        )
+    );
+}

@@ -411,6 +411,17 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
             layer.file.display()
         ))
     })?;
+    // Decision 0066 ruling 5, asked of EVERY layer before its table is
+    // read or merged: a leaf that declares its own table cannot hide what
+    // an ancestor read from under a name the file walk skips.
+    if let Some(place) = super::unpinned_active_input(&layer.dir, relative) {
+        return Err(invalid(format!(
+            "{}: 'policy' names '{relative}', {place}. A table there could change how a run is \
+             ruled without moving the bundle's identity, so it is refused; move it to a path \
+             the bundle pins, such as 'policy.json' (decision 0066 ruling 5)",
+            layer.file.display()
+        )));
+    }
     let path = layer.dir.join(relative);
     let table: Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
     Ok(Some((table, path)))

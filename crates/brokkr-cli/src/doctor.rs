@@ -838,7 +838,7 @@ fn report_capabilities(
     availability: &Availability,
 ) {
     use brokkr_runtime::capabilities::{
-        restriction_names, Authority, CapabilityContext, Definitions, Disposition, NativeInventory,
+        restriction_names, Authority, CapabilityContext, Definitions, Denial, NativeInventory,
         Transport, UNMAPPED,
     };
     let adapters = match Adapters::load(adapters_root) {
@@ -956,11 +956,29 @@ fn report_capabilities(
                         !grant.restrictions.is_empty()
                             && matches!(native.restrictions, Transport::Unsupported(_))
                     })
-                    .map(|_| {
+                    .map(|native| {
+                        // What becomes of the seat that dropped the want is
+                        // the OFF disposition's to say, never the grant's
+                        // (finding M1): the same assessment the launch uses.
+                        let dropped = match native.denial() {
+                            Denial::Delivered => {
+                                "one that wants it drops it with the native capability OFF"
+                                    .to_string()
+                            }
+                            Denial::Impossible(reason) => format!(
+                                "one that wants it drops it and is then refused, because the \
+                                 native capability cannot be switched off ({reason})"
+                            ),
+                            Denial::Unmeasured(reason) => format!(
+                                "one that wants it drops it and is then refused, because the \
+                                 native capability's OFF control is unmeasured ({reason}) and \
+                                 no denial is claimed"
+                            ),
+                        };
                         format!(
                             " · provider '{provider}' cannot express restriction '{}': a seat \
-                             that requires the capability is refused, one that wants it drops \
-                             it with the native capability OFF, and it never runs unrestricted",
+                             that requires the capability is refused, {dropped}, and it never \
+                             runs unrestricted",
                             restriction_names("", &grant.restrictions).join("', '")
                         )
                     })
@@ -1013,14 +1031,45 @@ fn report_capabilities(
                     native.evidence.scope,
                     native.evidence.limitations.join("; ")
                 );
-                match (granted, unread.contains(capability.as_str()), &native.off) {
-                    (Some(grant), _, _) => report.ok(
+                // The OFF disposition is judged BEFORE the grant is described
+                // (finding M1): however a grant is scoped it leaves seats
+                // that do not hold the power, and what happens to those is
+                // the launch's own assessment — a declared control denies,
+                // an impossible one refuses, an unmeasured one claims
+                // nothing and refuses too (ruling 4).
+                let held_by = granted.map(|grant| {
+                    format!(
+                        "granted to {} through dialect '{}'",
+                        scope_words(grant),
+                        grant.dialect
+                    )
+                });
+                match (
+                    held_by,
+                    unread.contains(capability.as_str()),
+                    native.denial(),
+                ) {
+                    (Some(held_by), _, Denial::Delivered) => report.ok(
                         &line,
                         format!(
-                            "granted to {} through dialect '{}'; every other seat on {provider} \
-                             is launched with it switched off · {evidence}",
-                            scope_words(grant),
-                            grant.dialect
+                            "{held_by}; every other seat on {provider} is launched with it \
+                             switched off · {evidence}"
+                        ),
+                    ),
+                    (Some(held_by), _, Denial::Impossible(reason)) => report.warn(
+                        &line,
+                        format!(
+                            "{held_by}, and it cannot be switched off ({reason}): a seat on \
+                             {provider} that does not hold it refuses compilation (decision \
+                             0065 ruling 4)"
+                        ),
+                    ),
+                    (Some(held_by), _, Denial::Unmeasured(reason)) => report.warn(
+                        &line,
+                        format!(
+                            "{held_by}, and its OFF control is unmeasured ({reason}); no denial \
+                             is claimed, and a seat on {provider} that does not hold it refuses \
+                             compilation (decision 0065 ruling 4)"
                         ),
                     ),
                     // The realm DECLARES a grant of this name and doctor
@@ -1034,7 +1083,7 @@ fn report_capabilities(
                              repaired · {evidence}"
                         ),
                     ),
-                    (None, false, Disposition::Unsupported(reason)) => report.warn(
+                    (None, false, Denial::Impossible(reason)) => report.warn(
                         &line,
                         format!(
                             "NOT granted here, and it cannot be switched off ({reason}): \
@@ -1042,14 +1091,15 @@ fn report_capabilities(
                              compilation (decision 0065 ruling 4)"
                         ),
                     ),
-                    (None, false, Disposition::Unmeasured(reason)) => report.warn(
+                    (None, false, Denial::Unmeasured(reason)) => report.warn(
                         &line,
                         format!(
                             "NOT granted here, and its OFF control is unmeasured ({reason}); no \
-                             denial is claimed"
+                             denial is claimed, and seating {provider} in this realm without \
+                             granting it refuses compilation (decision 0065 ruling 4)"
                         ),
                     ),
-                    (None, false, _) => report.warn(
+                    (None, false, Denial::Delivered) => report.warn(
                         &line,
                         format!(
                             "NOT granted here: every seat on {provider} is launched with it \

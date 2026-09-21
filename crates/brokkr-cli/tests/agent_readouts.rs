@@ -62,10 +62,13 @@ impl Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
-        for sub in ["bundle", "agents/charters", "adapters", "state"] {
+        for sub in ["bundle/roles", "agents/charters", "adapters", "state"] {
             std::fs::create_dir_all(ws.path().join(sub)).unwrap();
         }
         std::fs::write(ws.path().join("bundle/policy.json"), POLICY).unwrap();
+        // An inline seat's role stands inside its own bundle, where the
+        // file map pins it (decision 0066 ruling 5).
+        std::fs::write(ws.path().join("bundle/roles/work.md"), "# work\n").unwrap();
         std::fs::write(ws.path().join("agents/charters/work.md"), "# work\n").unwrap();
         ws.write(
             "adapters/absent.json",
@@ -127,7 +130,7 @@ impl Workspace {
                     "implement": {"results": ["complete"], "agent": "worker"},
                     "review": {
                         "results": ["clean"],
-                        "role": "../agents/charters/work.md",
+                        "role": "roles/work.md",
                         "driver": {"command": [
                             brokkr_bin(), "fake-driver",
                             "--script", ws.path().join("script.json").to_string_lossy(),

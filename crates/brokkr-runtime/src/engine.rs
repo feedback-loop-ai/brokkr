@@ -27,8 +27,8 @@ use uuid::Uuid;
 #[allow(unused_imports)]
 use crate::agents::{Candidate, HarnessHands, ResultDoor};
 use crate::bundle::{
-    dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState, PanelMember, Seat,
-    SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
+    charter_drift, dialect_results, layer_drift, Aggregate, Bundle, ExecutableBody, HandsState,
+    PanelMember, Seat, SeatBody, SeatClass, SequenceStep, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::AttemptReport;
@@ -1761,7 +1761,7 @@ impl Engine {
             );
         }
         let stamp = plan.map(|plan| plan.context.clone());
-        let process = match spawn_site(&self.bundle, spawn, &workdir, deadline) {
+        let process = match spawn_site(&self.bundle, spawn, &input, &workdir, deadline) {
             Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
             Ok(process) => process,
         };
@@ -2060,41 +2060,43 @@ impl Engine {
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     scope.spawn(move || {
-                        let report = match spawn_site(bundle, &run.spawn, &workdir, deadline) {
-                            Err(e) => AttemptReport {
-                                outcome: AttemptOutcome::Failed {
-                                    error: format!("member driver did not spawn: {e}"),
+                        let report =
+                            match spawn_site(bundle, &run.spawn, &run.input, &workdir, deadline) {
+                                Err(e) => AttemptReport {
+                                    outcome: AttemptOutcome::Failed {
+                                        error: format!("member driver did not spawn: {e}"),
+                                    },
+                                    session_ref: None,
+                                    checkpoints: Vec::new(),
+                                    stderr: String::new(),
+                                    // Nothing ran, so nothing was
+                                    // accepted: the structural
+                                    // fail-to-start predicate holds.
+                                    accepted: false,
+                                    // No process existed for a watchdog to
+                                    // kill.
+                                    deadline_killed: false,
                                 },
-                                session_ref: None,
-                                checkpoints: Vec::new(),
-                                stderr: String::new(),
-                                // Nothing ran, so nothing was
-                                // accepted: the structural
-                                // fail-to-start predicate holds.
-                                accepted: false,
-                                // No process existed for a watchdog to
-                                // kill.
-                                deadline_killed: false,
-                            },
-                            Ok(process) => process.run_attempt_resuming(
-                                ENGINE_VERSION,
-                                effect_id,
-                                attempt_id,
-                                &run.driver_seat,
-                                run.input.clone(),
-                                // This member's own offer, decided in
-                                // `site_plans` before anything spawned.
-                                // Only its provider ID crosses the wire;
-                                // the locator rides the member's private
-                                // `resume_context`.
-                                run.offer.as_ref().map(|offer| offer.provider_id.clone()),
-                                // Live telemetry: hand each checkpoint to the
-                                // main thread — the store has one writer.
-                                |data| {
-                                    let _ = sender.send((checkpoint_name.clone(), data.clone()));
-                                },
-                            ),
-                        };
+                                Ok(process) => process.run_attempt_resuming(
+                                    ENGINE_VERSION,
+                                    effect_id,
+                                    attempt_id,
+                                    &run.driver_seat,
+                                    run.input.clone(),
+                                    // This member's own offer, decided in
+                                    // `site_plans` before anything spawned.
+                                    // Only its provider ID crosses the wire;
+                                    // the locator rides the member's private
+                                    // `resume_context`.
+                                    run.offer.as_ref().map(|offer| offer.provider_id.clone()),
+                                    // Live telemetry: hand each checkpoint to the
+                                    // main thread — the store has one writer.
+                                    |data| {
+                                        let _ =
+                                            sender.send((checkpoint_name.clone(), data.clone()));
+                                    },
+                                ),
+                            };
                         (name, report)
                     })
                 })
@@ -4175,11 +4177,23 @@ struct MemberRun {
 fn spawn_site(
     bundle: &Bundle,
     spawn: &SiteSpawn,
+    input: &Value,
     workdir: &Path,
     deadline: std::time::Duration,
 ) -> Result<DriverProcess, String> {
     if let Some(reason) = &spawn.refusal {
         return Err(reason.clone());
+    }
+    // Decision 0066 ruling 5: the driver renders the prompt from the role
+    // file it is handed, so the file is judged here, against the pin the
+    // compile took, immediately before the driver that will read it.
+    let role = input["role_path"].as_str().unwrap_or_default();
+    if let Some((layer, key)) = charter_drift(bundle, Path::new(role)) {
+        return Err(format!(
+            "dispatch refused: a charter of layer '{layer}' moved since the compile ({key}); \
+             what a seat is told must be the bytes the bundle's identity names (decision 0066 \
+             ruling 5)"
+        ));
     }
     if let Some(layer) = &spawn.rewalk {
         if let Some((layer, key)) = layer_drift(bundle, layer) {

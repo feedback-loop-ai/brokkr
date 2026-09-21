@@ -266,13 +266,17 @@ fn installed_harnesses_are_told_apart_switchable_impossible_untried_and_unmeasur
              adapter declares no native_capabilities assessment. Nothing is granted through \
              it and no native denial is claimed"
                 .to_string(),
-            format!(
-                "ok       capabilities private native stuck 'web-search': granted to all \
-                 requesting offices through dialect 'stuck-search'; every other seat on stuck \
-                 is launched with it switched off · {EVIDENCE}"
-            ),
+            // The grant says who may hold it; stuck's OFF says what becomes
+            // of everyone else, and it cannot be switched off (finding M1).
+            "warn     capabilities private native stuck 'web-search': granted to all \
+             requesting offices through dialect 'stuck-search', and it cannot be switched off \
+             (9.9 has no switch for it): a seat on stuck that does not hold it refuses \
+             compilation (decision 0065 ruling 4)"
+                .to_string(),
             "warn     capabilities private native untried 'web-search': NOT granted here, \
-             and its OFF control is unmeasured (nobody has tried); no denial is claimed"
+             and its OFF control is unmeasured (nobody has tried); no denial is claimed, and \
+             seating untried in this realm without granting it refuses compilation (decision \
+             0065 ruling 4)"
                 .to_string(),
         ]
     );
@@ -288,6 +292,140 @@ fn installed_harnesses_are_told_apart_switchable_impossible_untried_and_unmeasur
     // An absent binary is not an installed, denied capability.
     let (_, lines) = self::lines(bare.path(), &installed(&[]));
     assert_eq!(lines.len(), 1, "{lines:?}");
+}
+
+/// Finding M1: a matching grant never makes the doctor promise a denial the
+/// launch does not deliver. A grant leaves seats unheld however it is
+/// scoped — another office, no office, no tool, or simply a seat that asks
+/// for nothing — and what happens to THOSE seats is decided by the native
+/// power's OFF disposition alone: a declared control denies it, a measured
+/// impossibility refuses the compile, and an unmeasured control claims no
+/// denial and refuses too (decision 0065 ruling 4). The OFF disposition is
+/// judged before the grant is described, for every scope the same.
+#[test]
+fn a_matching_grant_never_promises_a_denial_the_launch_does_not_deliver() {
+    let scopes = [
+        (
+            json!({"offices": ["researcher"]}),
+            "offices [researcher] only",
+        ),
+        (json!({"offices": []}), "no offices"),
+        (json!({"tools": []}), "all requesting offices"),
+        (json!({}), "all requesting offices"),
+    ];
+    // Every line of every combination, compared in ONE equality: a bypass
+    // that reads the grant first shows each scope it gets wrong, not only
+    // the first.
+    let (mut said, mut expected_lines) = (Vec::new(), Vec::new());
+    for (provider, dialect) in [
+        ("codex", "codex-native-search"),
+        ("stuck", "stuck-search"),
+        ("untried", "untried-search"),
+    ] {
+        for (extra, scope) in &scopes {
+            let mut grant = json!({"dialect": dialect});
+            grant
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let dir = workspace_with(Some(json!([realm(
+                "private",
+                Some(json!({"web-search": grant}))
+            )])));
+            write(
+                dir.path(),
+                "dialects/tools/untried-search.json",
+                &native_dialect("untried-search", "untried"),
+            );
+            let (_, lines) = lines(dir.path(), &installed(&[provider]));
+            let granted = format!(
+                "capabilities private native {provider} 'web-search': granted to {scope} \
+                 through dialect '{dialect}'"
+            );
+            let expected = match provider {
+                "codex" => format!(
+                    "ok       {granted}; every other seat on codex is launched with it \
+                     switched off · {EVIDENCE}"
+                ),
+                "stuck" => format!(
+                    "warn     {granted}, and it cannot be switched off (9.9 has no switch for \
+                     it): a seat on stuck that does not hold it refuses compilation (decision \
+                     0065 ruling 4)"
+                ),
+                _ => format!(
+                    "warn     {granted}, and its OFF control is unmeasured (nobody has \
+                     tried); no denial is claimed, and a seat on untried that does not hold \
+                     it refuses compilation (decision 0065 ruling 4)"
+                ),
+            };
+            said.extend(lines[1..].iter().cloned());
+            expected_lines.push(expected);
+        }
+    }
+    assert_eq!(said, expected_lines);
+    // Absent, the unmeasured OFF says the same of every seat: no denial is
+    // claimed, and the seat is refused rather than launched on a guess.
+    let bare = workspace_with(Some(json!([realm("private", None)])));
+    let (_, lines) = self::lines(bare.path(), &installed(&["untried"]));
+    assert_eq!(
+        lines[1..],
+        [
+            "warn     capabilities private native untried 'web-search': NOT granted here, and \
+          its OFF control is unmeasured (nobody has tried); no denial is claimed, and seating \
+          untried in this realm without granting it refuses compilation (decision 0065 ruling \
+          4)"
+        ]
+    );
+}
+
+/// Finding M1, the restriction paragraph: a grant whose restriction the
+/// provider cannot express drops a want — and whether the native power is
+/// then OFF is, again, the OFF disposition's to say, not the grant's.
+#[test]
+fn a_dropped_restricted_want_is_promised_off_only_where_off_is_deliverable() {
+    for (provider, dialect, consequence) in [
+        (
+            "codex",
+            "codex-native-search",
+            "one that wants it drops it with the native capability OFF, and it never runs \
+             unrestricted",
+        ),
+        (
+            "stuck",
+            "stuck-search",
+            "one that wants it drops it and is then refused, because the native capability \
+             cannot be switched off (9.9 has no switch for it), and it never runs unrestricted",
+        ),
+        (
+            "untried",
+            "untried-search",
+            "one that wants it drops it and is then refused, because the native capability's \
+             OFF control is unmeasured (nobody has tried) and no denial is claimed, and it \
+             never runs unrestricted",
+        ),
+    ] {
+        let dir = workspace_with(Some(json!([realm(
+            "private",
+            Some(json!({"web-search": {"dialect": dialect, "allow": {"hosts": ["yaml.org"]}}}))
+        )])));
+        write(
+            dir.path(),
+            "dialects/tools/untried-search.json",
+            &native_dialect("untried-search", "untried"),
+        );
+        let (_, lines) = lines(dir.path(), &installed(&[]));
+        assert_eq!(
+            lines,
+            [format!(
+                "ok       capabilities private 'web-search': dialect '{dialect}' \
+                 (provider-native, provider '{provider}') · tools [web_search] · all \
+                 requesting offices · restrictions {{\"allow\":{{\"hosts\":[\"yaml.org\"]}}}} \
+                 · provider '{provider}' cannot express restriction 'allow.hosts': a seat that \
+                 requires the capability is refused, {consequence}"
+            )],
+            "{provider}"
+        );
+    }
 }
 
 #[test]

@@ -3011,6 +3011,109 @@ fn unpinned_top_level(name: &str) -> bool {
     name == "realms.json" || name == "dialects" || name == crate::capabilities::DEFINITIONS_DIR
 }
 
+/// The top-level name an ACTIVE input stands under, where that name is one
+/// the walk skips (decision 0066 ruling 5, correcting decision 0065's
+/// design D7). A seat's charter decides what the seat is told and a layer's
+/// table decides how the run is ruled, so neither may sit where the
+/// manifest's file map does not look: the skip is sound for operator
+/// configuration only while nothing a recipe EXECUTES is read from under
+/// it. One predicate, shared with the walk, so the two cannot drift.
+///
+/// `root` is the declaring layer's canonical directory and `reference` is
+/// what that layer wrote. Judged twice: the reference as written, its `.`
+/// and `..` folded without touching the disk, which catches a path spelled
+/// into the skipped tree — a link there that points back out included,
+/// since the link is itself bytes nobody pins; and its canonical target,
+/// which catches an allowed spelling whose file, or whose parent, is a
+/// link into it. A target that does not exist answers `None` here and is
+/// refused by its caller as the missing file it is.
+///
+/// A reference written OUT of the layer altogether — `../shared/role.md`
+/// — escapes the same map the same way, and no other route pins it: an
+/// agent's charter is pinned by its library record, a dialect's
+/// instructions by the dialect pin, and an inline role by the file map or
+/// by nothing. It is refused on the same terms. The answer is WHERE the
+/// input stands, as the clause both refusals carry.
+pub(crate) fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
+    let skipped = |path: &Path| -> Option<String> {
+        let first = path.strip_prefix(root).ok()?.components().next()?;
+        let name = first.as_os_str().to_str()?;
+        unpinned_top_level(name).then(|| {
+            format!(
+                "which stands under '{name}' — a top-level name the bundle's file walk does \
+                 not pin, because it holds operator configuration"
+            )
+        })
+    };
+    let written = root.join(reference);
+    let folded = folded(&written);
+    if !folded.starts_with(root) {
+        return Some(
+            "which stands outside the layer's own directory, where the bundle's file walk \
+             never reaches"
+                .to_string(),
+        );
+    }
+    skipped(&folded).or_else(|| skipped(&written.canonicalize().ok()?))
+}
+
+/// A path with its `.` and `..` folded away, without touching the disk:
+/// the spelling a layer's file map keys a file under.
+fn folded(path: &Path) -> PathBuf {
+    let mut folded = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                folded.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => folded.push(other),
+        }
+    }
+    folded
+}
+
+/// Decision 0066 ruling 5 at the dispatch door: the charter a seat is
+/// about to be told must still be the bytes its layer's file map pinned.
+/// The driver reads a role when it renders the prompt, long after the
+/// compile that hashed it; without this check an edit in between reaches
+/// the seat as fresh instructions under the old identity. The owning layer
+/// is found as [`layer_drift`] finds it, and the role is read through any
+/// link exactly as the walk read it, so a link retargeted since the compile
+/// is a change like any other. `None` where the pin holds — and for a role
+/// no layer's map keys, which is an agent's charter: its pin is the library
+/// record in the manifest, compared whole wherever a bundle is recompiled.
+pub fn charter_drift(bundle: &Bundle, role: &Path) -> Option<(String, String)> {
+    let role = folded(role);
+    let layer = bundle
+        .roots
+        .iter()
+        .filter(|root| role.starts_with(root))
+        .max_by_key(|root| root.components().count())?;
+    let (name, pinned) = if layer == &bundle.dir {
+        (&bundle.name, bundle.manifest["files"].as_object()?)
+    } else {
+        let ancestor = bundle
+            .chain
+            .iter()
+            .find(|ancestor| &ancestor.dir == layer)?;
+        (&ancestor.name, &ancestor.files)
+    };
+    let key = role
+        .strip_prefix(layer)
+        .expect("role under layer")
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    let digest = pinned.get(&key)?.as_str()?;
+    match std::fs::read(&role) {
+        Ok(bytes) if sha256_bytes(&bytes) == digest => None,
+        Ok(_) => Some((name.clone(), format!("changed: {key}"))),
+        Err(_) => Some((name.clone(), format!("missing: {key}"))),
+    }
+}
+
 /// Re-walk the script's directory, including its helpers, against the
 /// declaring layer's compiled file map (decision 0046 ruling 4; proposed
 /// 0048 narrows DD9). A realm scaffolded by `init .` also holds mutable
@@ -3921,6 +4024,17 @@ fn parse_role(dir: &Path, what: &str, raw: &Value) -> Result<PathBuf, CompileErr
             "seat '{what}' missing 'role'"
         )));
     };
+    // Decision 0066 ruling 5: `dir` is the layer that WROTE this seat, so
+    // an inherited, selected or nested body is judged against its own
+    // declaring layer and the refusal names that layer's file.
+    if let Some(place) = unpinned_active_input(dir, role_rel) {
+        return Err(CompileError::Invalid(format!(
+            "{}: seat '{what}' names role '{role_rel}', {place}. A charter there could change \
+             what the seat is told without moving the bundle's identity, so it is refused; \
+             move it to a path the bundle pins, such as 'roles/' (decision 0066 ruling 5)",
+            dir.join("bundle.json").display()
+        )));
+    }
     let role_path = dir.join(role_rel);
     if !role_path.is_file() {
         return Err(CompileError::Invalid(format!(

@@ -48,8 +48,17 @@ impl AgentFixture {
         };
         std::fs::create_dir_all(fixture.library().join("charters")).unwrap();
         std::fs::create_dir_all(fixture.adapters()).unwrap();
-        std::fs::create_dir_all(fixture.bundle()).unwrap();
+        std::fs::create_dir_all(fixture.bundle().join("roles")).unwrap();
         std::fs::write(fixture.library().join("charters/work.md"), "# work\n").unwrap();
+        // An inline seat's role stands inside its own bundle, where the
+        // file map pins it (decision 0066 ruling 5). Here it is a link to
+        // the agent's charter — pinned by content under the link's own
+        // name — so an inline seat can be the same seat an agent resolves to.
+        std::os::unix::fs::symlink(
+            "../../agents/charters/work.md",
+            fixture.bundle().join("roles/work.md"),
+        )
+        .unwrap();
         fixture.write(
             "agents/worker.json",
             json!({
@@ -110,7 +119,7 @@ impl AgentFixture {
                 "work": {"results": ["complete"], "agent": "worker"},
                 "review": {
                     "results": ["clean"],
-                    "role": "../agents/charters/work.md",
+                    "role": "roles/work.md",
                     "driver": {"command": ["driver"]},
                 },
             },
@@ -199,7 +208,7 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
     let mut inline = fixture.config();
     inline["seats"]["work"] = json!({
         "results": ["complete"],
-        "role": "../agents/charters/work.md",
+        "role": "roles/work.md",
         "limits": {"max_attempts": 3, "timeout_seconds": 77},
         "driver": {"command": [
             "{brokkr}", "driver", "claude", "--",
@@ -236,7 +245,7 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
 fn an_agent_reference_refuses_every_key_that_would_amend_it() {
     let fixture = AgentFixture::new();
     for (key, value) in [
-        ("role", json!("../agents/charters/work.md")),
+        ("role", json!("roles/work.md")),
         ("inputs", json!(["fixes_applied"])),
     ] {
         let mut config = fixture.config();
@@ -319,7 +328,7 @@ fn panel_members_and_sequence_steps_may_name_agents() {
         "sequence": [
             {"name": "first", "aggregate": "unanimous-pass", "panel": {
                 "a": {"agent": "member"},
-                "b": {"role": "../agents/charters/work.md",
+                "b": {"role": "roles/work.md",
                       "driver": {"command": ["driver"]}},
             }},
             {"name": "second", "agent": "member"},
@@ -370,7 +379,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
             "results": ["complete"],
             "sequence": [
             {"name": "first", "results": ["complete"], "agent": agent},
-                {"name": "second", "role": "../agents/charters/work.md",
+                {"name": "second", "role": "roles/work.md",
                  "driver": {"command": ["driver"]}},
             ],
         });
@@ -385,7 +394,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
         "results": ["complete"],
         "sequence": [
             {"name": "first", "results": ["complete"], "agent": "worker", "panel": {}},
-            {"name": "second", "role": "../agents/charters/work.md",
+            {"name": "second", "role": "roles/work.md",
              "driver": {"command": ["driver"]}},
         ],
     });
@@ -397,7 +406,7 @@ fn an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step() {
         "results": ["complete"],
         "sequence": [
             {"name": "first", "results": ["complete"], "agent": "worker", "role": "x"},
-            {"name": "second", "role": "../agents/charters/work.md",
+            {"name": "second", "role": "roles/work.md",
              "driver": {"command": ["driver"]}},
         ],
     });
@@ -549,7 +558,7 @@ fn a_bundle_without_an_agent_reference_never_opens_the_library() {
     let mut config = fixture.config();
     config["seats"]["work"] = json!({
         "results": ["complete"],
-        "role": "../agents/charters/work.md",
+        "role": "roles/work.md",
         "driver": {"command": ["driver"]},
     });
     fixture.stage(&config, &policy());
@@ -590,7 +599,7 @@ fn compile_delegates_to_the_default_library_roots() {
     let mut config = fixture.config();
     config["seats"]["work"] = json!({
         "results": ["complete"],
-        "role": "../agents/charters/work.md",
+        "role": "roles/work.md",
         "driver": {"command": ["driver"]},
     });
     fixture.stage(&config, &policy());
@@ -691,10 +700,10 @@ fn a_refusal_inside_a_panel_member_propagates_out_of_its_step() {
         "sequence": [
             {"name": "first", "aggregate": "unanimous-pass", "panel": {
                 "a": {"agent": "nobody"},
-                "b": {"role": "../agents/charters/work.md",
+                "b": {"role": "roles/work.md",
                       "driver": {"command": ["driver"]}},
             }},
-            {"name": "second", "role": "../agents/charters/work.md",
+            {"name": "second", "role": "roles/work.md",
              "driver": {"command": ["driver"]}},
         ],
     });

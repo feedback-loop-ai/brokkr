@@ -787,6 +787,34 @@ pub struct NativeCapability {
     pub authored: Authored,
 }
 
+/// What becomes of a seat that does NOT hold a known native power (ruling
+/// 4), read off the power's OFF disposition and nothing else. The one
+/// assessment launch admission and `brokkr doctor` share, so a readout can
+/// never promise a denial the launch does not deliver — a grant changes who
+/// holds the power, never what happens to everyone who does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Denial<'a> {
+    /// The adapter declares a control that switches it off.
+    Delivered,
+    /// Measured: it cannot be switched off. The seat is refused.
+    Impossible(&'a str),
+    /// Nobody measured its OFF control. No denial is claimed, and the seat
+    /// is refused rather than launched on a guess.
+    Unmeasured(&'a str),
+}
+
+impl NativeCapability {
+    pub fn denial(&self) -> Denial<'_> {
+        match &self.off {
+            Disposition::Unsupported(reason) => Denial::Impossible(reason),
+            Disposition::Unmeasured(reason) => Denial::Unmeasured(reason),
+            Disposition::Argv(_) | Disposition::Default(_) | Disposition::Selection(_) => {
+                Denial::Delivered
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ListFlag {
     pub flag: String,
