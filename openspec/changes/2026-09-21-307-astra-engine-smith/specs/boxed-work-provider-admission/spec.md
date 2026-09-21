@@ -28,9 +28,12 @@ on a live provider or mutate the frozen `fixtures/` tree.
 For the otherwise valid fixture above under namespace, the restriction SHALL
 be expressible if and only if the agent declares hands and the provider
 declares `hands.workspace`. Adding hands SHALL replace the allow-list on both
-Codex and providers capable of expressing that list. A provider lacking
-workspace hands SHALL refuse rather than dropping the hands policy or borrowing
-`hands.harness.work`. Existing resolution that satisfies this rule SHALL remain
+Codex and providers capable of expressing that list. Replacement SHALL
+suppress arguments generated from `tools.allow`, not permission flags already
+declared by `hands.workspace` to grant access to the workspace MCP tool.
+The complete workspace fragment SHALL remain intact after placeholder
+expansion. A provider lacking workspace hands SHALL refuse rather than
+dropping the hands policy or borrowing `hands.harness.work`. Existing resolution that satisfies this rule SHALL remain
 unchanged; any necessary repair SHALL preserve existing boundary semantics
 and the no-hands diagnostic.
 
@@ -46,10 +49,11 @@ and the no-hands diagnostic.
 - **THEN** it refuses naming the seat, agent, provider and model, with `the provider declares hands unsupported` and `so the agent's hands cannot be put in the box and the agent would run with the harness's own tools` in the existing reason text
 - **AND** a supplied measured hands-gap reason is preserved; this is a capability refusal, not a malformed-fixture or unrelated tier error
 
-#### Scenario: A fixture keeps both fields to prove replacement on a capable provider
-- **GIVEN** a valid test-only agent carrying the same hands and tool list, and a provider fixture with both workspace hands and native per-tool permissions
+#### Scenario: A fixture distinguishes the MCP grant from retired tool-list grants (A1)
+- **GIVEN** a valid test-only agent carrying the same hands and `tools.allow: ["cargo", "git"]`, and a Claude-shaped provider fixture whose native permissions map that list to `--allowedTools Bash(cargo:*),Bash(git:*)` while its workspace fragment includes `--allowedTools mcp__brokkr__workspace`
 - **WHEN** it resolves under namespace
-- **THEN** the workspace fragment is present and the per-tool permission flag is absent, proving the same precedence used by Codex without retaining dead tools in the shipped agent
+- **THEN** the entire workspace fragment is preserved and `--allowedTools` occurs exactly once with the argument `mcp__brokkr__workspace`
+- **AND** no argument contains `Bash(cargo:*)` or `Bash(git:*)`; flag spelling alone does not distinguish the two sources, and hands precedence does not remove the MCP grant
 
 ### Requirement: Harness work is a separate case governed by the existing whole-chain rule
 
@@ -80,19 +84,26 @@ slice SHALL preserve the existing open and other-boundary behavior.
 
 ### Requirement: The shipped engine smith's namespace launch is tested as composed
 
-A deterministic regression SHALL load the actual shipped engine-smith agent
-and Codex adapter, resolve the work seat under namespace and inspect the
-launch produced by the production composition path. Independent expectations
-SHALL establish the complete relevant argv and server policy rather than
-compare a helper to itself. The proof SHALL be runnable without a provider,
+Deterministic regressions SHALL load the actual shipped engine-smith agent
+and Codex and Claude adapters, resolve the work seat under namespace and
+inspect each candidate's launch produced by the production composition path.
+Independent expectations SHALL establish the complete relevant argv and
+server policy rather than compare a helper to itself. The proof SHALL be runnable without a provider,
 network or nested namespace and SHALL canonicalize temporary workdirs.
 
-#### Scenario: The complete namespace launch exposes exactly the declared hands route
+#### Scenario: The complete Codex namespace launch exposes exactly the declared hands route
 - **WHEN** the shipped engine smith's Astra candidate is composed for a canonical temporary workdir and its own result path under namespace
 - **THEN** the model and effort are Astra's concrete Codex model and high, and the launch registers `mcp_servers.brokkr` with the engine executable and `hands serve` arguments
 - **AND** the decoded server arguments carry the canonical workdir and the complete declared hands spec, including network false, both toolchain binds and both Cargo masks
 - **AND** the native sandbox is exactly `--sandbox read-only` from `hands.workspace`, and the shipped MCP approval configuration remains present
 - **AND** no `workspace-write`, harness work fragment, per-tool list flag or unexpanded hands placeholder appears anywhere in that launch
+
+#### Scenario: The shipped Claude launch preserves its complete workspace fragment (A1)
+- **WHEN** the shipped engine smith's Fable candidate is composed for a canonical temporary workdir and its own result path under namespace
+- **THEN** the model and effort are Fable's concrete Claude model and high, and the complete existing workspace fragment appears in order: `--tools`, an empty argument, `--strict-mcp-config`, `--mcp-config`, the expanded hands MCP JSON, `--allowedTools`, `mcp__brokkr__workspace`
+- **AND** the decoded MCP JSON registers the Brokkr server with the engine executable and `hands serve` arguments carrying the canonical workdir and complete declared hands policy, including network false, both toolchain binds and both Cargo masks
+- **AND** `--allowedTools` occurs exactly once and grants only `mcp__brokkr__workspace`; no argument contains `Bash(cargo:*)` or `Bash(git:*)`
+- **AND** no harness work fragment or unexpanded hands placeholder appears; preserving this shipped fragment requires no adapter edit
 
 ### Requirement: Every claimed compile and composition protection has removal evidence
 
@@ -107,10 +118,11 @@ No production rule SHALL be weakened to improve coverage or admit the roster.
 #### Scenario: Removal proves each compile case independently
 - **WHEN** the evidence for the no-hands refusal, namespace admission, missing-workspace refusal and both harness admission/refusal outcomes is reviewed
 - **THEN** each names the removed protection, targeted test, observed relevant assertion failure, restoration and passing rerun
-- **AND** it covers the whole-chain missing-fallback refusal and the hands-over-tools precedence, including the capable-provider fixture
+- **AND** it covers the whole-chain missing-fallback refusal and the hands-over-tools precedence, including the capable-provider fixture: consulting the retired list introduces Cargo/Git grants and fails their absence assertions, while losing the existing workspace MCP grant fails its presence assertion
 
 #### Scenario: Removal proves the launch claims independently
-- **WHEN** the namespace launch evidence is reviewed
-- **THEN** removing the MCP registration, losing or altering the forwarded workdir/binds/network policy, or replacing the read-only native sandbox each breaks its corresponding assertion
-- **AND** introducing the harness work fragment or a per-tool flag likewise breaks the asserted absence, with every mutation restored and the test passing again
+- **WHEN** the Codex and Claude namespace launch evidence is reviewed
+- **THEN** removing either MCP registration or losing or altering its forwarded workdir/binds/network policy breaks the corresponding assertion, as does replacing Codex's read-only native sandbox
+- **AND** introducing a harness work fragment or any tool-list flag on Codex, or a retired Cargo/Git grant on Claude, breaks the corresponding absence assertion
+- **AND** removing or altering any part of Claude's required workspace fragment, including its `--allowedTools mcp__brokkr__workspace` grant, breaks its preservation assertion; every mutation is restored and the targeted test passes again
 - **AND** these observations are described as composition evidence, not proof of live Codex behavior or a new native-tool enforcement contract

@@ -16,7 +16,9 @@ The existing workspace hands mount SHALL supply the writable workdir; extra
 binds SHALL NOT duplicate it or name a machine-specific checkout. The agent
 SHALL omit `tools`, retain its charter and limits, and declare no boundary:
 the realm selects that axis. Both providers SHALL receive the same hands
-policy under namespace.
+policy under namespace. Each adapter's existing `hands.workspace` fragment
+SHALL be preserved, including Claude's MCP workspace grant. Neither provider
+SHALL receive arguments generated from the retired agent `tools.allow` list.
 
 #### Scenario: The shipped engine smith resolves both ruled hires
 - **WHEN** an otherwise valid work seat names `implementer-engine` under a namespace realm using the shipped adapters
@@ -28,10 +30,11 @@ policy under namespace.
 - **THEN** the hands server receives that workdir as its writable workspace and the declared Cargo overlay, masks and read-only Rust toolchain as additional binds
 - **AND** the agent contains no checkout-specific path, additional writable host bind, network grant or `boundary` field
 
-#### Scenario: The inactive tools declaration is removed for both providers
-- **WHEN** the shipped engine-smith declaration is inspected and resolved for both chain links
-- **THEN** it has no `tools` object and neither candidate receives a per-tool allow-list flag
-- **AND** Fable does not acquire an extra `cargo,git` restriction merely because Claude can express one; decision 0043 ruling 2 replaces that list on every provider
+#### Scenario: The inactive tools declaration is removed while the workspace grant remains (A1)
+- **WHEN** the shipped engine-smith declaration is inspected and resolved for both chain links under namespace
+- **THEN** it has no `tools` object and neither candidate receives arguments generated from the retired `tools.allow` list
+- **AND** Astra/Codex receives no per-tool list flag, while Fable/Claude retains exactly the existing `--allowedTools mcp__brokkr__workspace` grant as part of its complete `hands.workspace` fragment
+- **AND** neither candidate receives `Bash(cargo:*)` or `Bash(git:*)` anywhere in its arguments; granting the workspace MCP tool does not impose a `cargo,git` command restriction inside the box
 
 ### Requirement: Changed hires and hands are witnessed by actual compiled identities
 

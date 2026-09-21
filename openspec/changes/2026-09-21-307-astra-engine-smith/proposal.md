@@ -21,8 +21,11 @@ escalations: declare decision 0043's existing workspace hands and preserve
   with decisions 0043 and 0046 and preserving the refusal text verbatim.
 - Prove the engine smith's actual namespace launch composition: the MCP hands
   server receives its workdir and declared binds, Codex's native sandbox is
-  read-only, and neither `hands.harness.work` nor a tool-list flag travels.
-  Every required compile and composition assertion carries removal evidence.
+  read-only, and neither `hands.harness.work` nor a tool-list flag travels
+  on Codex. Preserve Claude's complete existing workspace fragment, including
+  `--allowedTools mcp__brokkr__workspace`, while forbidding grants generated
+  from the retired `tools.allow` list on either provider. Every required
+  compile and composition assertion carries removal evidence.
 - Re-measure affected manifests and update every moved witness and compose
   digest, with an explanatory history entry. Preserve panel diversity,
   GPT/Flash's separate crew and the whole runtime suite.
@@ -58,9 +61,10 @@ bundles hiring the smith regain compilability with the ruled hire. A harness
 realm still needs `hands.harness.work` on every link: the shipped Claude
 fallback lacks it and must refuse, not acquire a guessed fragment.
 
-This specify visit authors only this proposal, its two capability deltas and
-OpenSpec's generated change metadata. Design, task breakdown, implementation,
-tests and production documentation belong to their subsequent phases.
+This returned specify visit adopts the existing change and amends only this
+proposal and its two capability deltas; generated change metadata stays
+intact. Design, task breakdown, implementation, tests and production
+documentation belong to their subsequent phases.
 `contracts/`, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
 `reference/`, `extensions/` and the issue #226 task ledger are outside the
 change. Hosts are Linux and macOS under decision 0063; temporary test roots
@@ -117,17 +121,41 @@ and Git through Codex's boxed hands, a real commit, and verify passing.
 This enacts existing accepted semantics, so no new semantic decision is
 asserted or accepted; 0043's status stays unchanged.
 
+### D5 — Answer returned clarification A1: distinguish the source of the grant
+
+A1 identifies defective acceptance wording in this change, not an unanswered
+operator ruling. Accept the finding and withdraw the blanket ban on a literal
+per-tool flag across both candidates. `adapters/claude.json` declares
+`--allowedTools mcp__brokkr__workspace` inside `hands.workspace` alongside
+`--tools ""`, `--strict-mcp-config` and the MCP configuration.
+`agents.rs::compose` appends that complete fragment while bypassing
+`tools.allow` whenever boxed hands are declared (lines 798–822 at adoption).
+Removing the MCP grant would contradict 0043 ruling 2 and the existing
+namespace composition, so that interpretation is rejected.
+
+The prohibition covers arguments generated from the retired agent allow-list,
+including Claude's `Bash(cargo:*)` and `Bash(git:*)` grants. Codex still carries
+no per-tool list flag. Both deltas encode this distinction as scenarios; the
+capable-provider fixture uses the same flag for the two sources so flag-name
+absence cannot masquerade as proof of precedence. The shipped-Claude
+composition regression preserves the entire existing hands fragment after
+placeholder expansion, with exactly one MCP workspace grant and no Cargo/Git
+grants. Its removal evidence must detect loss of the required grant as well
+as addition of a retired grant. No adapter or boundary change follows, and
+the settled operator answers in D1 and D3 remain settled.
+
 ## Specification validation — 2026-09-21
 
-The specify artifacts pass
+After answering returned clarification A1, the revised specify artifacts pass
 `openspec validate 2026-09-21-307-astra-engine-smith --strict --no-interactive`
 and `openspec validate --all --strict --no-interactive` (16 items passed,
-zero failed). OpenSpec reports proposal and specs done; design and tasks are
-not authored in this phase. Existing informational archive diagnostics on
+zero failed). `git diff --check` is clean. OpenSpec reports proposal and
+specs done; design and tasks are not authored in this phase. Existing informational archive diagnostics on
 other changes do not fail strict validation and are outside this slice.
 
 The following checks were attempted through the workspace tool and could not
-start because `cargo` is unavailable in this seat's box (exit 127):
+start because `cargo` is unavailable in this seat's box (`ENOENT` on this
+return; shell exit 127 in the initial visit):
 `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`,
 `cargo test --workspace`, `cargo test -p <crate> --all-features --locked` for
