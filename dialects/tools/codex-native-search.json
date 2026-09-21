@@ -1,0 +1,19 @@
+{
+  "schema": "brokkr.tool-dialect/v1",
+  "name": "codex-native-search",
+  "serves": "web-search",
+  "kind": "provider-native",
+  "provider": "codex",
+  "adapter_key": "web-search",
+  "tools": ["web_search"],
+  "classes": ["reads", "egress"],
+  "egress": "uncontracted",
+  "sends": {
+    "description": "A free-text query the model composes — possibly from the repository it just read — sent to the provider's server-side search, which runs the search and returns results inside the model's response. No workspace network carries it, so a box with network false neither sees nor stops it.",
+    "seat_composed": true
+  },
+  "restrictions": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

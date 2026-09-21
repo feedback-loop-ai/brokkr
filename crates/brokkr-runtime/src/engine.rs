@@ -95,6 +95,22 @@ pub enum EngineError {
          one word (decision 0046 ruling 1)"
     )]
     BoundaryMismatch { compiled: Boundary, world: Boundary },
+    /// Decision 0065 ruling 3 at the same door: a bundle holds what the
+    /// realm it was COMPILED in grants, so it starts only in a world whose
+    /// operated realm grants exactly that. A different grant context is a
+    /// different authority, refused before any row is written.
+    #[error(
+        "this bundle was compiled under the capabilities realm '{compiled_realm}' grants \
+         ({compiled}), and the world it is started with resolves realm '{world_realm}' \
+         granting {world} for the operated repository; a seat holds only what the realm it \
+         runs in grants, so recompile in this world (decision 0065 ruling 3)"
+    )]
+    CapabilityMismatch {
+        compiled_realm: String,
+        compiled: String,
+        world_realm: String,
+        world: String,
+    },
     /// Decision 0046 ruling 6: `seatbelt` and `container` are named, pinned
     /// and admitted at compile, and built by slices (ii) and (iii). This
     /// engine composes nothing for either, and never simulates a boundary,
@@ -338,6 +354,34 @@ impl Engine {
             return Err(EngineError::BoundaryMismatch {
                 compiled: bundle.boundary,
                 world: resolved,
+            });
+        }
+        // Decision 0065 ruling 3, fenced the same way and for the same
+        // reason: the grants the operated realm declares TODAY are what
+        // this run may hold, and a bundle compiled under any other grant
+        // context — a neighbouring realm's, an edited map's, none at all
+        // — is refused before `create_run`, so nothing is journaled and no
+        // seat spawns.
+        let operated_realm = world.as_ref().and_then(|world| world.realm_for(&operated));
+        let world_realm = operated_realm.map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
+        let world_grants: Map<String, Value> = operated_realm
+            .into_iter()
+            .flat_map(|realm| &realm.grants)
+            .map(|(capability, grant)| (capability.clone(), grant.value()))
+            .collect();
+        // What is compared is the GRANTS, which is the authority: a bundle
+        // that records none was compiled under none.
+        let compiled = &bundle.manifest["capabilities"];
+        let compiled_grants = compiled.get("grants").cloned().unwrap_or_else(|| json!({}));
+        if compiled_grants != json!(world_grants) {
+            return Err(EngineError::CapabilityMismatch {
+                compiled_realm: compiled["realm"]
+                    .as_str()
+                    .unwrap_or(crate::capabilities::UNMAPPED)
+                    .to_string(),
+                compiled: compiled_grants.to_string(),
+                world_realm: world_realm.to_string(),
+                world: Value::Object(world_grants).to_string(),
             });
         }
         // Pinned for the same operated repository the fence judged, so a
@@ -1110,6 +1154,7 @@ impl Engine {
         // as a different effect.
         self.mark_hands(&site_name, &mut input);
         self.mark_delivery(&site_name, gate, selection.get(&None), &mut input);
+        self.mark_capabilities(&site_name, selection.get(&None), &mut input);
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1245,6 +1290,30 @@ impl Engine {
                 input["hands"] = Value::Null;
             }
         }
+    }
+
+    /// Decision 0065 rulings 4 and 5: what the serving candidate of this
+    /// site holds, and the native controls its launch is composed with —
+    /// both read from the ONE outcome compiled for that candidate, so the
+    /// prompt, the argv and the manifest cannot disagree. A fallback link
+    /// gets its own outcome, never its primary's.
+    ///
+    /// `native_controls` is ALWAYS written: the plan, or `null` where no
+    /// outcome was computed for the site — which the model adapters refuse
+    /// before any provider work rather than launching a harness on its
+    /// own defaults. Written beside `mark_delivery`, outside the requested
+    /// digest, for the same reason: a chain fallback moves it.
+    fn mark_capabilities(&self, label: &str, link: Option<&Candidate>, input: &mut Value) {
+        let outcome = self
+            .bundle
+            .sites
+            .get(label)
+            .and_then(|facts| facts.capabilities.as_ref())
+            .and_then(|site| {
+                site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+            });
+        input["native_controls"] = outcome.map_or(Value::Null, |outcome| outcome.controls());
+        input["capabilities"] = outcome.map_or(Value::Null, |outcome| outcome.prompt());
     }
 
     /// The judge's door under `harness` (decision 0046 ruling 4; design
@@ -1896,6 +1965,7 @@ impl Engine {
                 copy_secret_binding_facts(&mut input, seat_input);
                 self.mark_hands(&label, &mut input);
                 self.mark_delivery(&label, gate, selection.get(&site), &mut input);
+                self.mark_capabilities(&label, selection.get(&site), &mut input);
                 let hands = self.hands_for(&label);
                 let spawn = self.compose(
                     attempt_id,
@@ -2204,6 +2274,7 @@ impl Engine {
                     self.mark_hands(&step_label, &mut input);
                     let step_gate = step.class == SeatClass::Gate;
                     self.mark_delivery(&step_label, step_gate, selection.get(&site), &mut input);
+                    self.mark_capabilities(&step_label, selection.get(&site), &mut input);
                     let hands = self.hands_for(&step_label);
                     let spawn = self.compose(
                         attempt_id,
@@ -2349,6 +2420,9 @@ impl Engine {
                     });
                     copy_secret_binding_facts(&mut input, seq_input);
                     self.mark_hands(&step_label, &mut input);
+                    // The generated validator holds nothing, and says so
+                    // (decision 0065; design D5).
+                    self.mark_capabilities(&step_label, None, &mut input);
                     // A dialect step composes under a boxed boundary only:
                     // the compiler refuses it under `harness` and `open`
                     // (design DD8), so no unboxed arm is reached here.

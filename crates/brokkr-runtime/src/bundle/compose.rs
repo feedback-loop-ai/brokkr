@@ -836,6 +836,10 @@ pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
             &no_hands,
             &Map::new(),
             brokkr_core::realms::Boundary::Namespace,
+            // Nor does an ancestor hold or grant a capability (decision
+            // 0065): authority belongs to the composed bundle compiled in
+            // a realm, so a layer's digest carries none and does not move.
+            None,
         )?;
         chain.insert(
             0,

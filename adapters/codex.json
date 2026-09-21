@@ -59,6 +59,81 @@
       "result": "last-message"
     }
   },
+  "native_capabilities": {
+    "known": {
+      "web-search": {
+        "capability": "web-search",
+        "tools": [
+          "web_search"
+        ],
+        "on": {
+          "default": "codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag: the default run of the 2026-09-21 controller measurement issued a web_search item and answered with a cited version. No explicit ON value is declared because none was measured."
+        },
+        "off": {
+          "argv": [
+            "-c",
+            "web_search=\"disabled\""
+          ]
+        },
+        "restrictions": {
+          "unsupported": "no native transport for a restriction on codex's server-side search has been established; the measurement covers only the key's \"disabled\" value"
+        },
+        "evidence": {
+          "source": ".forge/tasks/controller-codex-web-search-switch-2026-09-21.json",
+          "scope": "codex-cli 0.154.0, cold `codex exec` only: with `-c web_search=\"disabled\"` the model answered NO SEARCH TOOL; without it the tool ran",
+          "limitations": [
+            "whether the OFF switch holds on a RESUMED codex session is unmeasured; the engine composes the pair on the `exec resume` argv too, and the live check is owed to the controller",
+            "whether a resumed session that holds web-search has it ON is unmeasured",
+            "values of web_search other than \"disabled\" were not measured, and the interactive CLI's --search flag was not exercised under `codex exec`",
+            "codex-cli versions other than 0.154.0 were not measured",
+            "this is one native capability that was measured, not an exhaustive inventory of what codex can reach on its own; profile and config.toml precedence over the -c override is unmeasured",
+            "the hands fragment adds mcp_servers.brokkr and does not establish that an ambient MCP server in the operator's codex configuration is excluded"
+          ]
+        },
+        "authored": {
+          "flags": [
+            "--search"
+          ],
+          "config_flags": [
+            "-c",
+            "--config"
+          ],
+          "config_keys": [
+            "web_search",
+            "web_search_mode",
+            "tools.web_search",
+            "features.web_search_request",
+            "features.web_search_cached"
+          ],
+          "feature_flags": [
+            "--enable",
+            "--disable"
+          ],
+          "features": [
+            "web_search_request",
+            "web_search_cached"
+          ],
+          "value_flags": [
+            "-m",
+            "--model",
+            "-i",
+            "--image",
+            "-o",
+            "--output-last-message",
+            "--output-schema",
+            "-s",
+            "--sandbox",
+            "--effort",
+            "-p",
+            "--profile",
+            "-C",
+            "--cd",
+            "--add-dir"
+          ]
+        }
+      }
+    }
+  },
   "resume": {
     "work-site": {
       "status": "supported",

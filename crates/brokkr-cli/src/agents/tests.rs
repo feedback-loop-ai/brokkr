@@ -118,7 +118,7 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
             // (decision 0035 ruling 5), and leaving it out here would
             // shadow the tool_permissions gap the assertion is for.
             "efforts": {"blocked": "medium"},
-            "tools": {"allow": ["cargo"], "mcp": [{"server": "github", "optional": true}]},
+            "tools": {"allow": ["cargo"], "mcp": []},
         }))
         .unwrap(),
     )

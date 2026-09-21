@@ -46,6 +46,9 @@
     "flag": "--mcp-config",
     "servers": {}
   },
+  "native_capabilities": {
+    "unmeasured": "the LaneTally wrapper forwards argv to claude, and forwarding is not confinement: whether Claude Code's native WebSearch and WebFetch controls hold through the wrapper, which owns its own per-session settings layer, has not been verified. Claude's declarations and evidence are not inherited; this wrapper's native inventory and controls are unmeasured on their own terms (decision 0065 slice one; owed to the controller)"
+  },
   "hands": {
     "unsupported": "the LaneTally session-capture wrapper forwards argv to claude verbatim and positionally \u2014 --mcp-config, --tools and --strict-mcp-config all reach the child unchanged (measured 2026-09-19, task 10.8). Forwarding is not confinement: whether the boxed work shape those flags describe actually holds through the wrapper is unmeasured, and the wrapper additionally owns the per-session --settings layer and refuses any settings-source flag in the child argv. Unsupported until confinement itself is measured."
   },
