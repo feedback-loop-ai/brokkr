@@ -11,14 +11,18 @@ Agents and inline executable sites SHALL accept a capabilities map from
 abstract capability names to exactly requires or wants. Capability names
 SHALL remain open; adding an operator-defined abstraction SHALL NOT require
 a provider-name match arm or a new engine release. Strict library and site
-lints SHALL validate names, values, capability class declarations and
-prohibited concrete-grant data. Absence SHALL mean no requests for an inline
-site and inheritance for a site naming an agent.
+lints SHALL validate names and values, resolve abstract classes from the
+operator's capabilities/ definitions as specified in tool-dialect-contract,
+and reject concrete-grant data or request-side class overrides. Missing
+abstract metadata SHALL be an invalid declaration before requires/wants
+resolution, not an optional capability gap. Absence SHALL mean no requests for
+an inline site and inheritance for a site naming an agent.
 
 #### Scenario: A new name is a request rather than an implicit grant
 
-- **WHEN** an office requests operator-library-docs as wants with valid abstract class metadata
-- **THEN** the request loads without a built-in catalogue entry
+- **GIVEN** the operator's capabilities/operator-library-docs.json defines {"name":"operator-library-docs","classes":["reads","egress"]} independently of any dialect
+- **WHEN** an office requests operator-library-docs as wants
+- **THEN** semantic library lint accepts the request without a built-in catalogue entry or selected provider
 - **AND** without a realm grant compilation records its drop, not a fabricated implementation
 
 #### Scenario: Misspelled strengths do not become optional
@@ -105,10 +109,15 @@ an ask SHALL never enable the capability.
 
 An applicable provider-native dialect SHALL be usable only by the provider
 and native adapter key it names, with expressible admitted tools and
-restrictions. A granted but incompatible requires SHALL refuse with seat,
-realm, capability, dialect, provider and cause. An incompatible wants SHALL
-be dropped with that complete reason in manifest notices. Every executable
-fallback candidate SHALL be checked and pinned against these rules; choosing
+restrictions. Realm-grant validity SHALL be established first under
+realm-capability-grants; invalid grant data SHALL not be an optional
+compatibility gap. Schema-valid but inexpressible native restrictions SHALL
+follow the CQ1 requires/wants/unused precedence in that delta. A granted but
+incompatible requires SHALL refuse with seat, realm, capability, dialect,
+provider and cause. An incompatible wants SHALL
+be dropped with that complete reason in manifest notices, leaving the native
+capability OFF subject to the independent impossible-denial refusal. Every
+executable fallback candidate SHALL be checked and pinned against these rules; choosing
 another candidate SHALL NOT grant a capability from an unrelated provider,
 realm or office.
 
@@ -122,6 +131,19 @@ realm or office.
 
 - **WHEN** the same request is wants
 - **THEN** the seat compiles without web-search and a notice records the dialect/provider mismatch
+
+#### Scenario: CQ1 restriction incompatibility follows the same strength rule
+
+- **WHEN** the valid search-native grant's allow.hosts is inexpressible by a serving test-native candidate
+- **THEN** requires and wants produce exactly the complete refusal and drop notice in realm-capability-grants' CQ1 scenarios, respectively
+- **AND** removing the compatibility check makes both assertions fail, while removing wants notice recording or OFF composition independently breaks its notice or final-argv assertion
+- **AND** all checks are restored for the final pass; an unrelated compile error is not removal proof
+
+#### Scenario: CQ2 optionality cannot hide missing class metadata
+
+- **WHEN** researcher requests operator-library-docs without its operator definition, even with no grant or selected dialect
+- **THEN** semantic library lint and compilation refuse the missing definition as specified in tool-dialect-contract before provider selection or optional-drop recording
+- **AND** supplying the valid reads/egress definition converts that failure to the ordinary missing-grant refusal for requires or the recorded drop for wants
 
 #### Scenario: Fallback cannot borrow another candidate's controls
 

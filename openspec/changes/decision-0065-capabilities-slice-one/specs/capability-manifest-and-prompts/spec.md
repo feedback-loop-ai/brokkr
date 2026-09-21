@@ -10,10 +10,15 @@ holds, while treating all returned capability material as untrusted data.
 The system SHALL publish contracts/run-manifest.v11.schema.json beside the
 existing versions, preserving their frozen bytes. The new manifest SHALL
 record capabilities for every executable site, including an explicit empty
-holding, and SHALL identify each held capability's abstract classes, serving
-dialect, SHA-256 digest of that dialect file's bytes, admitted tools and
+holding, and SHALL identify each held capability's abstract classes and their
+operator definition's identity and SHA-256 digest, serving dialect, SHA-256 digest of that dialect file's bytes, admitted tools and
 uninterpreted realm restrictions. It SHALL retain site and office identities,
 the applicable realm grant context and relevant optional-drop notices.
+Consulted abstract definitions SHALL also be pinned for requests later dropped
+or subtracted and for unused grants. Their source references SHALL be relative
+to the operator configuration directory, not host absolute paths. Inactive
+grant restrictions SHALL stay in realm context without being represented as
+enforced restrictions on a held capability.
 A site with executable fallback candidates SHALL pin their distinct resolved
 holdings and controls without presenting their union as a single entitlement.
 Secret references SHALL remain names; resolved secret values SHALL never
@@ -40,9 +45,10 @@ enter these records.
 ### Requirement: Capability authorization participates in bundle identity
 
 The selected realm's grant declarations, scoped effective holdings, native
-control declarations and serving dialect bytes SHALL participate in manifest
-identity. A change to a grant, office scope, admitted tools, restriction,
-serving dialect or its digest SHALL move that identity, including a realm
+control declarations, consulted abstract-definition bytes and serving dialect
+bytes SHALL participate in manifest identity. A change to a grant, office
+scope, admitted tools, restriction, serving dialect, consulted abstract
+definition or either file digest SHALL move that identity, including a realm
 grant currently unused by a seat. This authorization SHALL NOT exist only in
 a workspace-world field discarded by bundle identity or resume comparison.
 Identical inputs SHALL produce identical canonical manifests and digests.
@@ -59,6 +65,19 @@ Identical inputs SHALL produce identical canonical manifests and digests.
 - **THEN** the compiled manifest digest changes to reflect the realm's changed grant declaration
 - **AND** every seat's effective holding stays empty for that capability
 
+#### Scenario: CQ2 abstract definitions are pinned without an implementation
+
+- **WHEN** research wants operator-library-docs with its valid operator definition but has no grant or serving dialect
+- **THEN** the manifest pins capabilities/operator-library-docs.json, its SHA-256 digest and reads/egress class set beside the dropped request, with no invented dialect or holding
+- **AND** changing the consulted definition's bytes changes the manifest digest even though the request remains dropped
+- **AND** array order does not change set equality checks, while the byte digest still records the authored declaration
+
+#### Scenario: CQ1 inactive restrictions remain truthful context
+
+- **WHEN** a valid native grant's restriction cannot be expressed and the capability is dropped as wants or is unused
+- **THEN** the manifest retains the original grant and restriction, records no holding from it, and includes exactly the applicable drop notice if an ask remains
+- **AND** changing that inactive grant's restriction changes the digest, without representing it as an enforced restriction on an enabled capability
+
 #### Scenario: Resume cannot discard capability facts
 
 - **WHEN** a capability fact differs during the bundle/manifest resume comparison
@@ -67,7 +86,7 @@ Identical inputs SHALL produce identical canonical manifests and digests.
 
 #### Scenario: Identity proof detects an omitted capability field
 
-- **WHEN** the digest contribution of a grant, dialect digest or restriction is removed in isolation
+- **WHEN** the digest contribution of a grant, consulted abstract-definition digest, dialect digest or restriction is removed in isolation
 - **THEN** the corresponding single-axis identity assertion fails
 - **AND** restoring the contribution restores the pass
 
@@ -93,6 +112,12 @@ same resolved record that drives launch and manifest identity.
 - **WHEN** an inherited capability is subtracted or an optional native binding is incompatible with the serving fallback candidate
 - **THEN** the rendered prompt names that capability as not held and gives the subtraction or provider-compatibility reason
 - **AND** it does not print the primary candidate's holding on the fallback prompt
+
+#### Scenario: CQ1 a dropped restricted want is not advertised as held
+
+- **WHEN** a wanted capability is dropped because its binding cannot express the realm's valid restriction
+- **THEN** the prompt names that capability as not held with the restriction-compatibility reason from the CQ1 notice
+- **AND** its empty holding and native OFF agree with the manifest; neither the prompt nor manifest claims a restricted tool is running
 
 #### Scenario: Unknown inventory is not a fabricated denial
 
@@ -129,8 +154,8 @@ SHALL be re-pinned only from actual file bytes and actual compiles of the
 final implementation. The witness and compose history blocks SHALL append
 decision 0065 slice one and the concrete reason for each identity movement:
 native-control adapter data, abstract requests/charters, capability records,
-grant context or dialect bytes as applicable. Existing historical reasons
-SHALL remain historical; unaffected pins SHALL not be fabricated or churned.
+grant context, consulted abstract definitions or dialect bytes as applicable.
+Existing historical reasons SHALL remain historical; unaffected pins SHALL not be fabricated or churned.
 
 #### Scenario: Every changed pin has an observed source
 

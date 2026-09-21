@@ -18,13 +18,18 @@ highest-priority first slice.
 - Add tool-dialect.v1 and forge.realms/v6 beside the frozen contracts. A tool
   dialect serves an abstract capability; the realm selects the dialect,
   tools subset, office scope and dialect-schema-validated restrictions.
-  Capability classes are reads/writes/egress; dialect egress uses decision
+  Operator-owned capabilities/<name>.json definitions supply the abstract
+  reads/writes/egress class sets independently of requests and serving
+  dialects; defining a name grants nothing. Dialect egress uses decision
   0036's separate local/contracted/uncontracted vocabulary.
 - Agents and every executable seat form request requires/wants capabilities.
   The compiler resolves office asks minus seat subtractions, intersected with
   realm grants to that office. Requirements refuse with named reasons;
-  optional drops become manifest notices. Legacy server and native-tool
-  declarations cannot bypass that authorization.
+  optional drops become manifest notices. Schema-valid restrictions that a
+  native binding cannot express make that binding incompatible: requires
+  refuses, wants drops with native OFF, and an unused grant enables nothing.
+  Invalid grant data and impossible native denial still refuse independently.
+  Legacy server and native-tool declarations cannot bypass that authorization.
 - Add adapter-owned native ON/OFF declarations and explicit unsupported or
   unmeasured reasons. Ship provider-native dialect files only. Codex denial
   composes the measured -c web_search="disabled" on cold and eligible resume
@@ -35,9 +40,11 @@ highest-priority first slice.
   held and not-held capabilities; capability results are DATA, never
   instruction, including in charters of offices that use them.
 - Add run-manifest.v11 (v10 is the inspected latest version) for per-seat
-  holdings, dialect identity/digest, tools, restrictions and notices. Realm
-  grant changes, including unused realm grants, move the bundle identity. Re-pin witness, compose and affected
-  charter digests only from actual bytes and compiles, with history reasons.
+  holdings, abstract-definition identity/digest, dialect identity/digest,
+  tools, restrictions and notices. Changes to consulted abstract definitions
+  or realm grants, including unused realm grants, move the bundle identity.
+  Re-pin witness, compose and affected charter digests only from actual bytes
+  and compiles, with history reasons.
 - Define the complete mcp kind in the schema, but refuse every realm grant
   selecting it with a reason naming the absent second slice.
 
@@ -67,18 +74,19 @@ authorization is an additional axis, not a boundary change.
 
 Implementation will touch Rust realm representation, agent/adapter loaders,
 bundle resolution, launch/prompt integration and doctor under crates/, plus
-adapters/, affected agents/charters, new dialects/tools/ data, additive
-contracts and focused operator guides. The expected files and existing proof
+adapters/, affected agents/charters, new capabilities/ and dialects/tools/
+data, additive contracts and focused operator guides. The expected files and existing proof
 suites are inventoried in .forge/tasks/0065-capabilities-slice-one.md.
 No dependency is proposed; any later addition needs a stated justification.
 Supported hosts remain Linux and macOS under decision 0063.
 
-This specify visit authors only this proposal and its six specification
-deltas, in that order. Design, tasks, code, new contracts and digest updates
-are subsequent artifacts/work, not claims made by this draft. The checkout
-already names slice-0065-capabilities and starts at 5347c667, which accepts
-0065. The existing accepted decision is adopted as authority, not re-authored
-or demoted; any additional semantic ruling needs a separate proposed decision.
+This returned specify visit adopts decision-0065-capabilities-slice-one and
+amends only this proposal and its six specification deltas, in that order.
+Design, tasks, code, new contracts and digest updates are subsequent
+artifacts/work, not claims made by this draft. The checkout
+already names slice-0065-capabilities; this return starts at e40a716a, the
+initial specification commit on top of 5347c667, which accepts 0065. The
+existing accepted decision is adopted as authority, not re-authored or demoted; any additional semantic ruling needs a separate proposed decision.
 
 ## Decisions
 
@@ -93,8 +101,9 @@ Answers and reasoned refutations of specification ambiguities are encoded as
 scenarios in the owning deltas: a realm grant alone is not a seat holding;
 an optional MCP grant still refuses; a native adapter key is not a grant;
 DSH/LaneTally unknown inventories are not empty inventories; and a composed
-Codex resume control is not live proof. No council positions or returned_from
-finding were supplied on this initial specify visit.
+Codex resume control is not live proof. This return answers clarify findings
+CQ1 and CQ2 below and in the owning scenarios; no council positions were
+supplied. The accepted decision and controller cut remain unchanged.
 
 An explicit capabilities map on an agent-backed seat is the requested subset
 of its office's map; omission inherits, and an empty map subtracts everything.
@@ -110,6 +119,37 @@ permissions as grants would grandfather undeclared egress. The owning
 resolution delta instead requires explicit migration. Making the new Codex
 OFF pair force every otherwise eligible resume cold would evade the required
 resume proof; the native-controls scenarios explicitly reject that outcome.
+
+CQ1 — restriction compatibility follows decision 0065 ruling 5. Validate
+all selected-realm grants first: malformed restrictions and the unbuilt MCP
+kind refuse even for wants or unused grants. For a schema-valid native
+restriction the serving binding cannot express, a remaining requires refuses,
+a wants is dropped with its full reason and supported native OFF, and an
+unused grant stays pinned but inactive. The independent impossible-OFF
+refusal still wins over an optional drop. Rejecting every valid but unusable
+optional binding would contradict ruling 5; discarding only its restriction
+would violate rulings 3–5. The realm delta replaces its contradictory blanket
+refusal with this precedence and complete diagnostic scenarios. Existing
+local tool-permission restrictions retain their unconditional refusal.
+
+CQ2 — abstract classes have one operator-owned declaration source, independent
+of grant selection: capabilities/<name>.json under the active realms map's
+configuration directory, or the operated repository root when no map exists.
+Each file defines its abstract name and classes; neither an agent, a recipe,
+a provider nor a dialect supplies a missing definition. The tool-dialect
+scenarios give the complete operator-library-docs example, lookup/consistency
+scope and missing/conflicting metadata refusals. Request grammar stays
+name-to-requires/wants; semantic library lint resolves those names before
+optional dropping or provider choice. A valid definition without a grant
+still yields a named required refusal or optional drop. No-definition legacy
+inputs that request and grant nothing still deny known native tools; absence
+is never evidence of an empty native inventory. Consulted definitions are
+pinned even for dropped requests. This is the representation of ruling 1's
+abstract classes, not a new grant authority or an implementation catalogue
+inside a recipe. Provider-derived classes were rejected because they cannot
+classify an ungranted request and could change the abstraction when a dialect
+changes. All answers remain proposed specification choices for the later
+design phase, not amendments to the operator's accepted decision.
 
 The repository's realms.json must continue granting nothing. Protected
 policy/phase-machine.json, policy/schemas/, fixtures/, reference/, extensions/,
@@ -157,15 +197,29 @@ release, publication, profile update or push in this commission.
 
 ## Specification validation
 
-This specify visit passed strict validation of this change and
+The initial specify visit passed strict validation of this change and
 openspec validate --all --strict --no-interactive: 16 items passed, zero
 failed. OpenSpec reports proposal and specs complete; design and tasks remain
 subsequent phase work. Existing informational archive notices for issue-226
 spec deltas were reported by the validator and those artifacts were unchanged.
 
-Rust formatting, clippy, both workspace test commands, all seven crate-scoped
-test commands, the bundles/self compile and scripts/coverage-exact.sh were
+On the initial visit, Rust formatting, clippy, both workspace test commands,
+all seven crate-scoped test commands, the bundles/self compile and scripts/coverage-exact.sh were
 attempted through the workspace hands. Every attempt stopped with cargo:
 command not found (exit 127); no Rust suite, compilation or coverage result is
 claimed. These are environment limitations in this specification visit, not
 observed implementation failures or changes to the required gates.
+
+This return passed strict validation of the amended change and strict
+all-item validation: 16 passed, zero failed. Proposal and all six deltas are
+complete; design and tasks remain later-phase work. git diff --check is clean.
+The validator also reports informational long-requirement notices and the
+same unrelated issue-226 archive notices; neither is a validation failure.
+
+Return attempts of formatting, clippy, both workspace test commands, the
+seven actual crate suites and bundles/self compilation could not start
+because cargo is absent from the workspace PATH. The exact-coverage script
+also stopped at cargo with exit 127. No Rust, compile or coverage pass is
+claimed. No implementation, provider measurement, dependency change or digest
+re-pin is performed by this specification return; all controller measurement
+obligations above remain outstanding.

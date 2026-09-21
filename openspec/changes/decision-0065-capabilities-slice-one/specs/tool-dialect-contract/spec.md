@@ -28,24 +28,93 @@ SHALL execute no server, provider or network request.
 
 ### Requirement: Capability classes belong to the abstraction
 
-Each capability SHALL carry a nonempty set drawn only from reads, writes and
-egress, with multiple classes permitted. The class set SHALL describe the
-abstract operation, remain available without choosing a provider, and remain
-consistent across declarations and serving dialects of the same capability.
-A concrete implementation SHALL NOT remove egress or writes from a capability
-to widen its eligibility. The declaration grammar SHALL preserve the
-decision's requests map, for example capabilities: {"web-search": "wants"}.
+Each capability SHALL carry a nonempty, duplicate-free set drawn only from
+reads, writes and egress, with multiple classes permitted. The operator's
+abstract definition at capabilities/<name>.json SHALL be the authoritative
+source of that set. The file SHALL contain its name and classes, with the
+name matching the filename. These definitions SHALL describe no provider,
+server, tool, dialect choice or grant. Shipped web-search and web-fetch
+abstract definitions SHALL each declare reads and egress independently of
+the provider-native dialect files.
+
+The definition root SHALL be capabilities/ beside the active realms.json,
+shared by the realms in that map. Without a map it SHALL be capabilities/
+under the resolved operated repository root. Compilation and library lint
+SHALL use that explicit operator context, never search a recipe's directory,
+borrow a neighboring configuration's definitions or infer classes from an
+adapter, chosen dialect, capability spelling or model. Existing library-root
+selection SHALL NOT implicitly change the definition authority. Definition
+paths SHALL remain contained in that root; loading SHALL perform no network
+lookup. A missing root SHALL be an empty definition set, not built-in or
+provider-derived metadata.
+
+The definition loader SHALL validate every definition in that root and
+refuse malformed or conflicting declarations. Semantic library/site lint
+SHALL resolve every request in its loaded agents and inline sites, including
+asks later subtracted, against that one definition set. Compilation SHALL
+also resolve every grant in the selected realm, including unused grants.
+Missing class metadata SHALL refuse before requires/wants resolution, even
+without a selected dialect; optionality SHALL NOT forgive an invalid abstract
+request. Request syntax parsing alone SHALL NOT count as successful semantic
+library lint.
+
+Every serving dialect loaded for those grants SHALL agree with the abstract
+class set; any class annotation it declares SHALL be an equality assertion,
+never an override or a substitute for a missing definition. The consistency
+scope SHALL be the operator definition set, loaded requests and selected-realm
+grant dialects, not every unrelated dialect file in the repository. Agents
+and seats SHALL continue to request names using the decision's map, for
+example capabilities: {"web-search": "wants"}; they SHALL NOT redefine
+classes or carry an implementation catalogue. A different provider or dialect
+SHALL NOT remove egress or writes from the abstraction to widen eligibility.
+
+#### Scenario: CQ2 supplies an operator-defined abstraction without a dialect
+
+- **GIVEN** the operator configuration root is /world and /world/capabilities/operator-library-docs.json contains exactly {"name":"operator-library-docs","classes":["reads","egress"]}
+- **AND** /world/realms.json contains {"schema":"forge.realms/v6","realms":[{"name":"private","path":"repo","default_branch":"main","capabilities":{}}],"journal":".forge/forge.db"}
+- **AND** an otherwise valid researcher agent requests {"capabilities":{"operator-library-docs":"wants"}} and seat research hires it in private
+- **WHEN** semantic library lint and compilation resolve those inputs with no dialect serving operator-library-docs
+- **THEN** the abstract request loads with classes reads and egress and no built-in catalogue entry or provider choice is needed to classify it
+- **AND** compilation succeeds with no holding and the complete notice "seat 'research' (office 'researcher') in realm 'private': dropped wanted capability 'operator-library-docs' because the realm does not grant it to this office"
+- **AND** the definition alone enables nothing; with requires instead, compilation refuses "seat 'research' (office 'researcher') in realm 'private': requires capability 'operator-library-docs' but the realm does not grant it to this office"
+
+#### Scenario: CQ2 missing metadata is invalid even for an ungranted want
+
+- **WHEN** the preceding example omits operator-library-docs.json while retaining its request, with no selected dialect and no grant
+- **THEN** semantic library lint refuses "agent 'researcher': capability 'operator-library-docs' has no abstract definition at 'capabilities/operator-library-docs.json' in the operator configuration; declare its classes before requesting it"
+- **AND** compilation refuses "seat 'research' (office 'researcher') in realm 'private': capability 'operator-library-docs' has no abstract definition at 'capabilities/operator-library-docs.json' in the operator configuration; declare its classes before requesting it" rather than emitting a normal missing-grant drop
+- **AND** an inline site's missing definition likewise refuses naming its site, capability and expected definition, for either requires or wants and even if later subtraction would remove an inherited ask
+
+#### Scenario: CQ2 rejects conflicting implementation metadata
+
+- **GIVEN** the operator definition for web-search declares reads and egress
+- **WHEN** a selected realm grant uses native dialect search-native whose class annotation declares only reads
+- **THEN** compilation refuses "realm 'private': capability 'web-search' in dialect 'search-native' declares classes [reads], conflicting with abstract definition 'capabilities/web-search.json' classes [reads, egress]"
+- **AND** it refuses even for an optional request or an unused grant, without replacing the definition's classes or enabling native search
 
 #### Scenario: Search retains its disclosure class across implementations
 
-- **WHEN** web-search is declared as reads plus egress and two dialects serve it
-- **THEN** both bindings retain the same abstract class set
+- **WHEN** the operator defines web-search as reads plus egress and two independently selected dialects serve it consistently
+- **THEN** both bindings resolve the same abstract class set from capabilities/web-search.json
 - **AND** replacing one implementation cannot turn a seat-composed search into a reads-only capability
 
-#### Scenario: Invalid or inconsistent classes refuse
+#### Scenario: Invalid or inconsistent definitions refuse
 
-- **WHEN** a capability declares an empty class set, the class network, or class metadata inconsistent with another declaration of that capability
-- **THEN** loading refuses naming the capability, offending declaration and reads/writes/egress vocabulary or the conflicting sets
+- **WHEN** a definition declares an empty set, duplicate class, the class network, a name different from its filename, or a second conflicting declaration of the same name
+- **THEN** loading refuses naming the capability and offending declaration, with the closed vocabulary, naming mismatch or both conflicting sets as appropriate
+- **AND** directory order does not choose a winning declaration
+
+#### Scenario: A recipe cannot supply its own class authority
+
+- **WHEN** the operator definition is absent or declares reads and egress but the recipe supplies a local reads-only definition or a class override in an agent or seat
+- **THEN** the recipe-local file does not satisfy the missing operator definition and the class override is rejected as outside the request grammar
+- **AND** adding a provider-native dialect containing classes cannot cure the missing definition
+
+#### Scenario: Legacy denial needs no inferred abstract definition
+
+- **WHEN** the operated realm at any supported version grants no capabilities, its loaded agents and inline sites declare no requests, and its definition directory is absent
+- **THEN** it still loads and known native capabilities still receive their adapter-declared OFF controls or the existing impossible-OFF refusal
+- **AND** no capability is held or assigned invented classes, and an unmeasured native inventory stays unmeasured
 
 ### Requirement: Dialects describe their disclosure using the existing egress vocabulary
 
@@ -128,3 +197,15 @@ this slice, with no MCP server or general-purpose capability tool.
 - **WHEN** a realm attempts to select the reserved hands kind as a new tool grant
 - **THEN** compilation refuses explaining that hands remains governed by decisions 0043 and 0046
 - **AND** no second workspace tool or wider hands policy is composed
+
+## Decisions
+
+CQ2 assigns classification authority to operator-owned abstract definitions
+because ruling 1 makes classes independent of implementations and ruling 3
+keeps catalogues out of requests. The scenarios above settle missing metadata,
+no-grant requests and conflicts without choosing a serving dialect. Treating
+a provider's metadata as authoritative is refused: it leaves optional
+ungranted names unclassifiable and permits an implementation swap to change
+the abstraction. Request strengths remain requires/wants. The JSON example
+fixes the definition source and minimum data; additional wire layout is
+subsequent design work within these semantics.
