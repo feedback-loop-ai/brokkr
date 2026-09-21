@@ -197,6 +197,35 @@ Protected surfaces are unchanged: `contracts/`, `policy/phase-machine.json`,
 ledger. No Windows handling entered the slice; temporary roots in the new
 fixtures are canonicalised.
 
+## Host execution of the exact coverage gate (task 7.3)
+
+The seat could not execute `bash scripts/coverage-exact.sh`; its reproduction
+above is a reproduction. The script's own run is the pull request's CI job,
+outside any workspace box, where the namespace boundary tests execute:
+
+- job: `exact coverage gate`, pull request #315, workflow run 35646379313, job
+  106487742516 — **pass**
+- revision: `57c7a207119d3a5b3cd594e6f82d707d9c0cde5e`, the implementation
+  revision re-signed onto `main` at `5347c667`, content unchanged from the
+  seat's `1f2ace94`/`edc8a24a`
+- command: `bash scripts/coverage-exact.sh`, with the compiler pinned by
+  `rust-nightly-version.txt`, threshold and exclusions untouched
+- report (`coverage-summary.json` from the job's `coverage-exact` artifact):
+  lines 32530/32530, branches 5466/5466, functions 3161/3161 — the literal
+  nonzero 100% equality, and the same three tallies the seat's reproduction gave
+
+## Judgment of the found branch
+
+The delivering run stopped at `IMPL-BLOCKED` before verify and review. Run
+`review-first-verify-and-judge-th-c7f211dc` verified and judged that same
+revision: verify pass; review **clean**, no findings, no security residual,
+with the no-compiler-change claim, the word-for-word no-hands refusal, the
+composed Codex launch and both re-measured triage pins each checked
+independently. Tasks 7.4 and 7.5 were closed by the controller by hand on that
+revision: `openspec validate --all --strict --no-interactive` 16 passed, `git
+diff --check` clean, no frozen path and not the issue #226 ledger touched, no
+Windows work, every commit signed, the worktree clean.
+
 ## What this does not establish
 
 The ruling is **expressible, not proved**. A boxed seat has no network, so no
