@@ -150,25 +150,88 @@ into `conclude`'s free text.
    view says so. Policy endings need no classification: ruling 3 derives
    them for every run already in the journal.
 
-6. **Every read surface shows the ending beside the status.** `brokkr
-   runs` prints it as a column; `--ending <word>` filters on it, and
-   `--needs-operator` lists exactly `awaiting_operator` plus the endings
-   whose third column above is not "nothing". `brokkr inspect`, `watch`,
-   the TUI, the console and the dossier carry the word and, for
-   `superseded` and `delivered-elsewhere`, the citation as a link.
-   Muninn queues by it: a `superseded`, `withdrawn` or
+6. **Every read surface shows the ending, and colour says what a row is
+   waiting on, never whether it was good.** An ending implies its status
+   (`shipped` and `shipped-flagged` are `completed`; every other ending is
+   `stopped`), so `brokkr runs` prints the ending in the status column
+   for a terminal run and the status for a live one. The table gains no
+   column and the feature text keeps its width; `--status` and the JSON
+   keep the fold's word.
+
+   A red row says "something went wrong", and of the endings that is
+   true of exactly one. A refusal is the review gate doing its job, an
+   exhausted loop ended where decision 0022 says it should, and a blocked
+   smith was never judged. So tone is keyed to the third column of
+   ruling 2's table:
+
+   | tone | endings | what it says |
+   |---|---|---|
+   | green | `shipped`, `shipped-flagged` | done |
+   | yellow | `refused`, `exhausted`, and a parked `awaiting_operator` | waiting on a ruling from the operator |
+   | cyan | `blocked`, `infrastructure` | waiting on an action; the work was not judged |
+   | red | `failed` | judged, and did not pass |
+   | dim | `superseded`, `delivered-elsewhere`, `withdrawn`, `operator-stopped`, `unclassified` | settled, or nothing known |
+   | bold | `running` | live, as today |
+
+   `shipped-flagged` stays green because it shipped; `unclassified` is
+   dim because it is an absence of information, not a warning.
+
+   A one-character gutter carries the same distinction without colour,
+   so the table reads under `NO_COLOR`: `!` a ruling is wanted, `>` an
+   action is wanted, `~` shipped with residuals to read, `?`
+   unclassified, a space otherwise. The header counts the two that
+   matter, separately: `282 runs · 2 want a ruling · 1 wants an action`.
+   The existing dim detail line under a row names the rule that ruled a
+   policy ending, and the citation for `superseded` and
+   `delivered-elsewhere`. A closing line tallies the listing by ending,
+   which keeps the unclassified past visible until it is named.
+
+   ```
+   brokkr · 282 runs · 2 want a ruling · 1 wants an action · ./.forge/forge.db
+     dsh-launch-planner-…-ed4ff1bc  running          implement  seq 1113  1h32m  …
+   > issue-307-astra-as-…-8cb205dc  blocked          implement  seq 1233  1h32m  …
+       IMPL-BLOCKED
+   ! dsh-composite-identity-…7331e  refused          review     seq 902     2d   …
+       REVIEW-SECURITY-HOLD
+   ~ dsh-launch-planner-…-10abd37c  shipped-flagged  done       seq 424   3h04m  …
+     dsh-launch-planner-…-3d08ce19  superseded       review     seq 1337  5h10m  …
+       by dsh-launch-planner-…-10abd37c
+   ```
+
+   `--ending <word>` filters on it; `--needs-operator` lists exactly the
+   `!` and `>` rows. No listing hides settled runs by default: a table
+   that silently omits rows is a table nobody trusts; `--hide-settled`
+   is the explicit form. `brokkr inspect` and `watch` have the room and
+   show both words — `status stopped · ending superseded by <run>` —
+   with the ruling's reason sentence for a policy ending. The TUI and
+   the console paint the same word as a chip from the same six tone
+   classes, added to the console's fixed class allowlist, and the
+   console groups the fleet as *wants you*, *live*, *settled*. Muninn
+   queues by the ending: a `superseded`, `withdrawn` or
    `delivered-elsewhere` run is never offered as work, and an
-   `infrastructure` run is offered as a retry, not as a failure of the
-   seat that died in it. JSON output carries `ending` and `ending_cited`
+   `infrastructure` or `blocked` run is offered as a retry or an unblock,
+   never as a failure of the seat that was in it. JSON output carries
+   `ending`, `ending_cited` and `wants` (`ruling`, `action` or null)
    under a bumped `view_version`.
+
+   **Enforcement binding:** golden tests render a listing holding every
+   ending, once with colour and once under `NO_COLOR`, and a test asserts
+   that tone and gutter are total functions of the ending, so a new
+   ending cannot ship unpainted. Every ending, rule id and citation
+   reaches the terminal through `Safe`, as every journal string does.
 
 7. **The ledger reads endings, and says which it excluded.** Any
    comparison of seats, models or recipes drawn from the journal —
    `brokkr compare`, Muninn's advice, issue #271's corpus — counts
-   `refused`, `failed`, `blocked` and `exhausted` as outcomes of the
-   work, excludes `superseded`, `infrastructure`, `withdrawn` and
-   `delivered-elsewhere` from any success rate, and prints the count it
-   excluded. An `unclassified` run is excluded and counted as such.
+   `shipped`, `shipped-flagged`, `refused`, `failed` and `exhausted` as
+   outcomes of the work. It excludes `blocked`, `infrastructure`,
+   `superseded`, `withdrawn`, `delivered-elsewhere` and
+   `operator-stopped` from any success rate, because in none of them was
+   the work judged to its end, and it prints the count it excluded. An
+   `unclassified` run is excluded and counted as such. A `refused` run is
+   read both ways: against the seat whose work was refused, and for the
+   gate that raised the finding — a security hold is the judge's result
+   as much as the smith's.
 
 ## What this decision does not do
 
