@@ -46,7 +46,7 @@ the README's contributing section:
 Three things follow, and all three are enforced rather than trusted:
 
 1. **New version files sit beside the old ones.** `contracts/` today
-   contains separately numbered `run-manifest.v1` through `.v10` files.
+   contains separately numbered `run-manifest.v1` through `.v11` files.
    A later version does not replace or edit the earlier versions.
 2. **A version cannot quietly widen.** Schemas set
    `additionalProperties: false` and the loaders refuse unknown fields.
@@ -84,7 +84,7 @@ fields defined so far live in `effect-provenance.v1.schema.json`.
 There are **two** manifest lineages, not one line, and conflating them
 is the mistake to avoid.
 
-**The local lineage: `run-manifest.v1` → `v3` → `v4` → `v5` → `v6` → `v7` → `v8` → `v9` → `v10`.**
+**The local lineage: `run-manifest.v1` → `v3` → `v4` → `v5` → `v6` → `v7` → `v8` → `v9` → `v10` → `v11`.**
 
 - `v3` is `v1`'s bytes plus one optional `agents` property (decision
   0016), absent when no seat references an agent — so every
@@ -102,8 +102,9 @@ is the mistake to avoid.
 - `v5` adds authorising adapter witnesses (`drivers`); `v6` adds boxed
   hands; `v7` records strategy-selected cases; `v8` records per-step
   result vocabularies; `v9` pins the selected boundary per hands site.
-  These are bundle identity. The current compiler writes v9; older
-  contract files remain available for their readers.
+  These are bundle identity. The compiler wrote v9 until decision 0065
+  and writes v11 now; older contract files remain available for their
+  readers.
 - `v10` is `v9` plus one optional `crossings` property (decision 0057):
   per publishing realm, per crossing name, the resolved path and the
   sha256 the loader OBSERVED on disk at run start. Absent when no realm
@@ -111,17 +112,33 @@ is the mistake to avoid.
   exports the exact v9 shape. Like `realms` and unlike `drivers` or
   `boundary`, this is workspace data — the resume comparison drops it,
   so pinning a crossing moves no bundle digest. A COMPILED bundle
-  manifest never carries the key at all, which is why the compiler still
-  claims v9; a RUN manifest in a world that draws a crossing is v10.
+  manifest never carries the key at all; it rides only a RUN manifest in
+  a world that draws a crossing.
   Observation is not declaration: a consumer's declared pin already
   rides inside the embedded map (`realms.map…consumes[].sha256`, from
   v4), and holding the two side by side is how a reader sees what a
   world claimed against what it stood on.
-- Realm maps now reach `forge.realms/v5`: v3 added house and dialect
-  declarations, v4 adds the realm's boundary, and v5 adds the crossings a
+- `v11` is `v10` plus one REQUIRED `capabilities` property (decision
+  0065, slice one): the operated realm, every grant it declares, every
+  abstract definition and tool dialect the compile consulted with the
+  sha256 of its raw bytes, and per executable site the office, its asks
+  and one record per provider candidate. It is written even where nothing
+  is granted and nothing is asked, so **the compiler now claims v11** and
+  every bundle's digest moved once, on the day it landed. Unlike `realms`
+  and `crossings` it is BUNDLE identity: the resume comparison keeps it,
+  so a changed grant, scope, tool subset, restriction, definition or
+  dialect byte is refused with `capabilities` named. A run started
+  before this version pins no such section; resuming it recompiles a
+  bundle that does, and the comparison refuses the difference rather
+  than restoring a harness's old default. Historical runs are not
+  rewritten.
+- Realm maps now reach `forge.realms/v6`: v3 added house and dialect
+  declarations, v4 adds the realm's boundary, v5 adds the crossings a
   realm publishes and the ones it consumes, each pinned by a sha256 over
-  the published file's raw bytes (decision 0057). House content and its
-  digest are pinned in the run's realms record.
+  the published file's raw bytes (decision 0057), and v6 adds the
+  capabilities a realm grants (decision 0065). House content and its
+  digest are pinned in the run's realms record. Every older version keeps
+  loading and grants nothing.
 
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its
 round-trip reconstructs a bundle manifest from six named keys and drops
@@ -130,7 +147,11 @@ the run would become unresumable with a diff that blames no file. Rather
 than widen a contract a counterpart system reads, the engine **refuses**:
 `build_run_manifest_v2` rejects every key outside its six-key round-trip, and
 `brokkr run` refuses `--dispatch` together with a realms map. Lifting
-either needs a jointly agreed v2-lineage manifest version.
+either needs a jointly agreed v2-lineage manifest version. Since decision
+0065 that refusal reaches **every compiled bundle**: each now pins its
+capability authority under `capabilities`, the six-key round-trip cannot
+carry it, and the guard names the key before any run row is written
+rather than the authority being stripped to fit.
 
 **The other contracts, and where they stand:**
 
@@ -145,6 +166,7 @@ either needs a jointly agreed v2-lineage manifest version.
 | The world's map, many hearths | `realms.v2.schema.json` | `v2` = `v1` plus exactly one thing: a realm may name its own `journal`, falling back to the world's when it does not. `v1` maps are read exactly as they always were, and the one new word is refused under a `v1` label. |
 | Named boundary | `realms.v4.schema.json`, `run-manifest.v9.schema.json`, `seat-record.v4.schema.json`, `effect-boundary.v1.schema.json` | The realm selects the boundary, the manifest pins it, and effects and readouts retain it. Earlier versions remain unchanged. |
 | The crossing | `realms.v5.schema.json`, `run-manifest.v10.schema.json` | The map declares what a realm publishes and what it consumes, each consumed crossing pinned by a sha256 over the published file's raw bytes; the run manifest records what the loader observed for every published crossing at run start. Declaration and observation are separate keys and answer separate questions. Earlier versions remain unchanged. |
+| The grant | `realms.v6.schema.json`, `tool-dialect.v1.schema.json`, `run-manifest.v11.schema.json` | The map lists the capabilities a realm grants; a tool dialect binds one abstract capability to exactly one implementation kind; the manifest pins the authority a bundle compiled under, per site and per provider candidate. Only a realm grants. The `mcp` kind is whole as data and refused as a grant until decision 0065's slice two. Earlier versions remain unchanged. |
 | Specification dialect | `dialect.v1.schema.json`, `dialect.v2.schema.json`, `dialect.v3.schema.json` | `v2` = `v1` plus the tool's install identity; `v3` = `v2` plus the archive step's instruction. A dialect FILE is written and read at v3 only. A dialect PIN — a run embeds its resolved dialect in the manifest, and a resume rehydrates it — is read at any of the three, so a run pinned before a version landed still resumes and still folds exactly as it did. Each version is held to its own shape: a field is refused under a label that predates it. |
 | Finding closure | `operator-supersede.v1.schema.json` | The operator names the residual findings being closed and may cite the closing run. |
 | Evaluator behavior | `fixtures/evaluator/corpus.ndjson` | Frozen contract data. Never regenerated, only versioned. |

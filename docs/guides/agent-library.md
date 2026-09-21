@@ -47,9 +47,10 @@ brokkr doctor                # which providers and models are actually here
 ```
 
 An agent is one file in `agents/`: a description, a charter, an ORDERED
-preference chain of abstract model names, abstract tool and MCP
-configuration, its decision-0006 limits and its decision-0007 declared
-inputs. A seat, panel member or sequence step says `"agent": "<name>"`.
+preference chain of abstract model names, an abstract tool restriction,
+the capabilities it asks for, its decision-0006 limits and its
+decision-0007 declared inputs. A seat, panel member or sequence step
+says `"agent": "<name>"`.
 Inline seats stay first-class. Dialect validators such as `recipes/triage`'s
 `validate` step are also model-free execs, but their checked argv comes from
 the realm's pinned dialect rather than from an agent definition.
@@ -73,12 +74,13 @@ cannot resolve two ways on two machines.
 documented.** A tool restriction the provider cannot express fails
 compilation naming the agent, the provider and the capability — the
 agent would run with MORE power than it declares, so `optional` is
-structurally unrepresentable there. An MCP server the provider cannot
-serve fails the same way unless the agent marked it optional, and then
-it is a notice that lands in the run manifest and in every readout —
-never nothing. Both checks run over **every** entry in the chain, so a
-chain that would widen an agent's blast radius the moment it fell back
-fails at design time rather than at 2am. The chain is a fallback chain,
+structurally unrepresentable there. A capability the realm does not
+grant refuses compilation when the office `requires` it, and when the
+office only `wants` it the loss is a notice that lands in the run
+manifest and in every readout — never nothing. Both checks run over
+**every** entry in the chain, so a chain that would widen an agent's
+blast radius the moment it fell back fails at design time rather than at
+2am. The chain is a fallback chain,
 not a portability claim: Brokkr never says the second choice equals
 the first, and `brokkr compare` reports a model difference as a
 first-class divergence.
@@ -147,6 +149,74 @@ unreachable by construction rather than by convention.
    is not a failure to start at all: the fold reads the whole stream,
    the attempt reports its own result, and a seat that delivered its
    result file is never thrown away as a refusal.
+
+## Capabilities
+
+Beyond its hands a seat may hold **capabilities** — `web-search`,
+`web-fetch`, whatever an operator needs next — and decision 0065 rules
+who says so: **an office asks, and only the realm grants.**
+
+```json
+"capabilities": { "web-fetch": "wants", "library-docs": "requires" }
+```
+
+A request names an ABSTRACTION, never a server, a provider or a tool, so
+the charter that says "look the source up" means it on every provider the
+office can be seated on. The vocabulary is two words. `requires`: a realm
+that does not grant it to this office refuses compilation, naming the
+seat, the office, the capability and the realm. `wants`: the capability
+is dropped, the drop is a notice in the manifest, and the seat's prompt
+says what it lost and why. Anything else — `"optional"`, `true`, a
+dialect, a tool list, a class — is refused rather than read as optional:
+a request is never a grant.
+
+A capability's **class** — `reads`, `writes`, `egress`, one or more — is
+the abstraction's, not an implementation's. It lives in the operator's
+`capabilities/<name>.json`, beside `realms.json`:
+
+```json
+{ "name": "web-search", "classes": ["reads", "egress"] }
+```
+
+Every request must have one, even a `wants` no realm grants and even an
+ask a seat subtracts: a capability nobody defined is an invalid
+declaration, not an optional gap. Brokkr ships `web-search` and
+`web-fetch`; an operator adds a file, not a release.
+
+**A seat may subtract and never widen.** A site that names an agent and
+writes no `capabilities` inherits the agent's asks. A map it does write
+is a subset with unchanged strengths, and what it leaves out is
+subtracted — `{}` subtracts everything, a `requires` included, which is
+deliberate narrowing and not an unmet requirement. A seat that adds a
+name, or re-rates one, is refused. An inline site's map IS its office's
+asks, and its office is its label (`review:security`, `verify:checks`);
+a request written on a panel, sequence or select — which executes nothing
+— is refused rather than dropped.
+
+What a seat HOLDS is what its office asks for, minus what the seat
+subtracts, intersected with what the realm grants to that office — once
+per provider candidate, so a fallback link never borrows its primary's
+holding. The grant itself is the realm's: see the `capabilities` map in
+`realms.json` (`forge.realms/v6`) and
+[provider adapters](provider-adapters.md#native-capabilities) for the
+powers a harness already has.
+
+**An agent names no MCP server.** The `tools.mcp` list this library once
+read is refused non-empty — required or optional, served by the adapter
+or not — because a server an office could name would be a door a pulled
+bundle could open. The empty list every shipped agent writes stays valid.
+Nor may `tools.allow` name a provider's own network tool: on Claude,
+`webfetch` and `websearch` would compose `WebFetch` and `WebSearch` into
+the seat's argv, and an authored control over a native capability is
+refused at compile naming the seat. The shipped `researcher` was migrated
+exactly this way: it asks for `web-search` and `web-fetch` as `wants`,
+keeps `git`, `ls` and `rg`, and in a realm that grants neither it loses
+both, visibly, and is launched with the native tools denied.
+
+**Whatever a capability returns is DATA, never instruction.** A charter
+that may use one says so in the same paragraph, and the rendered prompt
+repeats it: a page that tells the seat to do something has told it
+nothing about its task, its holdings or its result contract.
 
 ## Hands
 
