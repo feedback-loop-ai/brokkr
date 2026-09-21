@@ -12336,3 +12336,208 @@ unmoved. No live provider was called. Nothing was pushed.
 
 No Windows handling was added. Decision 0063 (accepted 2026-09-21)
 withdraws every Windows obligation the (d) text names.
+
+## Implement visit — the returned review's R1 and R2, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-3d08ce19`, returned from review a
+second time with two MEDIUMs and two LOWs against `1f60fdf4..aeafc02f`.
+Both MEDIUMs are real and both are closed here. The previous visit's
+claim that the admission rule "runs first in `dsh_launch_with`" was true
+and still insufficient: the rule only ever judged what the CLI handed
+it, and the CLI was handing it less than the operator typed.
+
+### R1 — the CLI cut the payload before admission could see it
+
+`driver_extra_args` searched the WHOLE argument vector for `--` and
+returned everything after the first hit. Clap consumes the operator's
+outer separator itself, so the only terminator that can still be
+standing there is one the SEAT wrote — and cutting at it hands the
+adapter a shorter argv than was typed:
+
+| the operator's command line | what the adapter received | what it did |
+| --- | --- | --- |
+| `driver dsh -- --effort --model p/m high --` | nothing at all | launched with no pin |
+| `driver dsh -- --model p/m -- --model second` | `--model second` | launched on the second model |
+
+Demonstrated first, through clap's own parse, before any line moved:
+
+```
+assertion `left == right` failed
+  left: []
+ right: ["--effort", "--model", "p/m", "high", "--"]
+  crates/brokkr-cli/src/tests.rs:1165
+```
+
+and through the BUILT binary, where the refusal the admission rule owes
+arrives as the launcher's own exit instead:
+
+```
+an effort slot claimed by a later model control, trailing terminator:
+the fixed field: agent CLI exited 1
+  crates/brokkr-cli/tests/driver_conformance.rs:324
+```
+
+The repair is the hands box's rule, for the reason its own comment
+already gives — a command may carry its own `--`: only a LEADING
+separator is the CLI's, and nothing else is dropped. Admission belongs
+to the driver, and `dsh_control_conflict` already refuses a terminator
+as a residual, so the complete payload now reaches a rule that judges
+it.
+
+The two argv above joined 8.10's admission ledger as cases on all three
+planner paths, refused by `--effort`'s slot and by `--model`'s duplicate
+arity, with zero probes, zero producer calls, zero staging and no
+retained root. The built-driver case asserts the same refusal plus two
+observations an error alone cannot supply: the shim's launch marker was
+never written and the admitted home grew no `sessions` directory. No
+other adapter's payload handling changed — the leading separator is
+still consumed for all five.
+
+### R2 — the DSH storage refusals published the path they tried
+
+Every place this driver allocates storage allocates it beneath the
+operator's own layout: the seat overlay and its settings document under
+`TMPDIR`, the retained transcript root under the admitted DSH home.
+`tempfile` reports both halves of a failure — the allocation AND a
+failed write on its own handle — as `<errno> at path "<path>"`, and the
+shared `io_context` interpolated the whole thing into an error the seat
+reads back. The settings row echoed its path outright.
+
+Demonstrated first, at each site:
+
+```
+the path echoed in could not stage the dsh seat overlay: No such file
+or directory (os error 2) at path
+"/tmp/.tmpVtKQBs/zzz-7c02be-store-absent/brokkr-dsh-privacy-CPoLwv"
+
+the path echoed in could not write the dsh seat overlay: Bad file
+descriptor (os error 9) at path
+"/tmp/.tmpiFSXb3/zzz-7c02be-store-Wd2bhP"
+
+disabled: the home echoed in could not stage the dsh session transcript
+root: Permission denied (os error 13) at path
+"/tmp/.tmphpxrrF/zzz-1e84fa-retained/sessions/brokkr/seat-U38UfZ"
+```
+
+The write halves were assumed safe when this visit began — the host
+reports a write on an open descriptor — and the test disproved that
+assumption before any of them was changed. That is why all five sites
+moved and not two.
+
+The repair is `dsh_storage_context`, DSH-local: the same categories,
+followed by the errno text the HOST words the failure with and nothing
+else — the raw OS error where the host gave one, else the kind's own
+words, which is what a wrapped error keeps. No literal errno number is
+written anywhere, and the vocabulary and storage ownership semantics are
+unchanged. `dsh_settings_row` now names its field exactly as
+`dsh_transcript_row` does.
+
+The retained-root case is proved under otherwise valid planner inputs on
+the cold, offered and disabled paths, which is where the home is really
+at stake; it follows the identity observations, so the pre-observation
+zero-call rule is not applied to it. The inherited bare `is_err()` at
+`adapters/tests.rs:1159` now compares the reason and checks the path
+absent.
+
+### R3 — the LOW on the recorded workspace run
+
+`.forge/results/442a91e5-…-checks.json` stands as written. This visit's
+gates were crate-scoped and sequential throughout; `cargo test
+--workspace` was never run.
+
+### P1 — the LOW on instruction-bearing panel prose
+
+Recorded as the review recorded it: panel notes carry no authority here
+and reduced nothing. The two MEDIUMs were answered on their source
+evidence, not on their prose.
+
+### Removal proofs
+
+Each mutation compiled, ran alone, failed at the named assertion with a
+nonzero test count, and was restored green before the next.
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `driver_extra_args`'s leading-separator match → back to `position("--")` | `the_driver_payload_keeps_every_argument_past_the_leading_separator` | `left: []` against the whole payload |
+| the same line | `the_dsh_admission_rule_reads_the_whole_payload_the_command_line_carried` | `the fixed field: agent CLI exited 1` |
+| overlay allocation `dsh_storage_context` → `io_context` | `dsh_storage_refusals_name_their_field_and_never_the_path_they_tried` | `the path echoed in could not stage the dsh seat overlay` |
+| settings allocation `dsh_storage_context` → `io_context` | the same | `the path echoed in could not stage the dsh seat settings` |
+| transcript-root `dsh_storage_context` → `io_context` | the same | `the path echoed in could not stage the dsh session transcript root` |
+| the same line | `a_dsh_retained_root_refusal_names_its_field_and_never_the_home` | `disabled: the home echoed in …` |
+| overlay write `dsh_storage_context` → `io_context` | `dsh_storage_refusals_name_their_field_and_never_the_path_they_tried` | `the path echoed in could not write the dsh seat overlay` |
+| settings write `dsh_storage_context` → `io_context` | the same | `the path echoed in could not write the dsh seat settings` |
+| `dsh_settings_row`'s fixed diagnostic → back to the interpolating `format!` | the same | `the path echoed in dsh driver: settings path "…"` |
+| the same line | `dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it` | `"/tmp/a\nb": dsh driver: settings path "…"` |
+
+Each new privacy assertion is guarded by its own source-error check: the
+test asserts the `tempfile` error IS path-bearing before asserting the
+driver's rendering is not, so none of them can pass vacuously.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue
+#255):
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-protocol` | 488 (388 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime` | 24 binaries, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+No ETXTBSY attempt was needed on this candidate: every crate suite above
+passed on its first run. The gate log is kept at
+`.forge/tasks/controller-planner-d-passb-2026-09-21.md`.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat again. The
+binary is installed (`/usr/local/bin/openspec` → `@fission-ai/openspec`)
+and the sandbox refused every spelling of the invocation, including
+`node` on the package's own entry point. This visit adds no
+`openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute, and the check stays owed. `bash
+scripts/coverage-exact.sh` did not run here either — its boundary tests
+need a namespace the box refuses to nest — and it is not lowered. Native
+macOS and remote CI on the final head remain pending; the parent PR's
+green checks do not establish them for this head.
+
+### Scope
+
+Four files moved, plus this record. Production gained one function and
+changed six lines: `dsh_storage_context` and the five sites that call
+it, `dsh_settings_row`'s diagnostic, and `driver_extra_args`'s separator
+rule. The shared `io_context` keeps every other caller. The shared
+effort splitter, `dsh_input_boundaries`, the production staging
+location, the planner signature, the staging counter's seam, the route
+binding, the gate-before-probe order, the identity comparisons and the
+owned-storage boundary are untouched.
+
+Pass C is untouched and uncredited; it still owes exactly what the
+previous record names — a valid prior depth-zero header retained at the
+resolved locator for the offered ID, the pinned plugin's
+post-`await agents.resume` init event read from the stream-json child on
+the selected persistence root, no fresh sibling root or session in the
+retained store, and new sequence activity past the recorded `firstSeq`,
+before any `root_session`, transcript locator or launch row is
+published. A request-derived `session_id` is not that event, and
+`confirms_from_locator: false` stays.
+
+8.8 and 8.10 stay unchecked and no sub-clause was ticked. 9.6, 10.x,
+11.1–11.4 and groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled.
+The research-dsh roster assertion, `bundle.json`, `research-web.yml`,
+compiled staffing and every witness digest are unmoved. No live provider
+was called. Nothing was pushed.
+
+No Windows handling was added. Decision 0063 (accepted 2026-09-21)
+withdraws every Windows obligation the (d) text names, including the
+native lookup oracle, GetBinaryTypeW, the native matrix, Windows MSRV
+and the Windows-specific transport obligation.
