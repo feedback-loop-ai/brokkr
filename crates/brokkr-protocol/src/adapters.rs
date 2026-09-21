@@ -4348,10 +4348,8 @@ impl DshRootWatch {
         emit: &mut impl FnMut(&Value),
     ) {
         let locator = self.locator.clone();
-        self.transcript.record(&locator, session_meta, emit);
-        if let Some(address) = session_meta.get("transcript") {
-            hold.address(address.clone());
-        }
+        let address = self.transcript.record(&locator, session_meta, emit);
+        hold.address(address);
     }
 
     /// The child named a session. A DIFFERENT one settles at once —
