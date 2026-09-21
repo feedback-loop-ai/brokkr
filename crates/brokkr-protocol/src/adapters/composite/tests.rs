@@ -2707,7 +2707,12 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
 
     // Direct env: established under its own name, selected as the file
     // it canonically is and invoked as it was spelled. Its version is
-    // the availability control, and the invocation answers as native.
+    // the availability control, and the invocation answers as native —
+    // whatever native answers. GNU and uutils env print a version; Apple's
+    // env has no `--version`, prints its usage and exits 1, and that
+    // failed probe is the native result the invocation has to preserve
+    // (review of run `e291e076`). The status, stdout and stderr are
+    // compared, never assumed.
     let direct = select_in(ENV_REFERENCE, path(&a)).unwrap();
     assert_eq!(
         direct.path,
@@ -2720,11 +2725,12 @@ fn the_selected_invocation_is_not_replaced_by_its_canonical_target() {
         .invocation
         .command()
         .arg("--version")
+        .env("PATH", &a)
         .output()
         .unwrap();
-    assert!(control.status.success(), "{control:?}");
-    assert_eq!(invoked.status, control.status);
+    assert_eq!(invoked.status, control.status, "{control:?}");
     assert_eq!(invoked.stdout, control.stdout);
+    assert_eq!(invoked.stderr, control.stderr);
 
     // An admitted launcher that reads the path it was run by, behind a
     // symlink: identity is the target, the invocation is the candidate
@@ -2871,6 +2877,14 @@ fn the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained() {
              carrying an implicit key past YAML's implicit-key lookahead limit of 1,024 \
              characters",
         ),
+        (
+            format!(
+                "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9{}:\n    resolution: {{integrity: sha512-DEBUG}}\n",
+                " ".repeat(1014)
+            ),
+            "pnpm lock is unreadable: a package key that is an implicit key past YAML's \
+             implicit-key lookahead limit of 1,024 characters",
+        ),
     ] {
         fs::write(&lock, body).unwrap();
         let refusal = DshPrepared::admit(invoked.clone(), install.seams.clone()).unwrap_err();
@@ -2915,12 +2929,20 @@ fn the_pnpm_lock_is_admitted_before_any_probe_and_composed_as_retained() {
         assert_eq!(selection.admission, Err(refusal));
     }
     // A dangling lock is LOCATED: the name is there and cannot be read.
-    fs::remove_file(&lock).unwrap();
-    std::os::unix::fs::symlink(profile.join("no-such-lock"), &lock).unwrap();
-    assert!(matches!(
-        DshPrepared::admit(invoked.clone(), install.seams.clone()),
-        Err(DshUnprepared::Refused { .. })
-    ));
+    // The link is staged where the platform has one to stage; the
+    // admission and retention facts around it hold on every host.
+    #[cfg(unix)]
+    {
+        fs::remove_file(&lock).unwrap();
+        std::os::unix::fs::symlink(profile.join("no-such-lock"), &lock).unwrap();
+        let dangling = fs::metadata(&lock).unwrap_err();
+        assert_eq!(
+            DshPrepared::admit(invoked.clone(), install.seams.clone()).unwrap_err(),
+            DshUnprepared::Refused {
+                cause: CompositeError::PnpmLock(format!("{}: {dangling}", lock.display())),
+            }
+        );
+    }
 
     // A lock, or a profile, that was never FOUND is the independent
     // fact: the invocation stays beside the cause, for the version alone.
@@ -4283,6 +4305,60 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             child.len()
         );
     }
+    // The same bound on the OTHER route that admits a key of the
+    // document's choosing, the `packages:` heading (review of run
+    // `e291e076`, R3). The heading trims its pre-colon padding before it
+    // reads the scalar, so `debug@2.6.9` behind 1,014 spaces — a
+    // 1,025-character span — read as the valid control's composite. Each
+    // padded spelling decodes to the control's own key, so every admitted
+    // one IS the control; the unpadded long version is another package
+    // and only has to be read.
+    let heading = |key: &str| {
+        format!(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  {key}:\n    resolution: {{integrity: sha512-X}}\n"
+        )
+    };
+    let padded = |key: &str, span: usize| format!("{key}{}", " ".repeat(span - key.len()));
+    let versioned = |span: usize| format!("debug@2.6.9-{}", "k".repeat(span - 12));
+    for (key, admitted) in [
+        (padded("debug@2.6.9", 1024), Some(true)),
+        (padded("debug@2.6.9", 1025), None),
+        (padded("debug@2.6.9", 4096), None),
+        (padded("'debug@2.6.9'", 1024), Some(true)),
+        (padded("'debug@2.6.9'", 1025), None),
+        (padded("\"debug@2.6.9\"", 1024), Some(true)),
+        (padded("\"debug@2.6.9\"", 1025), None),
+        (versioned(1024), Some(false)),
+        (versioned(1025), None),
+        (format!("'{}'", versioned(1022)), Some(false)),
+        (format!("'{}'", versioned(1023)), None),
+    ] {
+        let observed = composite_over_pnpm(&install, &heading(&key));
+        let spelled = key.chars().count();
+        match admitted {
+            Some(control_key) => assert_eq!(
+                observed.unwrap().canonical == control.canonical,
+                control_key,
+                "{spelled} characters"
+            ),
+            None => assert_eq!(
+                refused(observed),
+                "pnpm lock is unreadable: a package key that is an implicit key past YAML's \
+                 implicit-key lookahead limit of 1,024 characters",
+                "{spelled} characters"
+            ),
+        }
+    }
+    // Trailing padding AFTER the heading's colon is not the key's span.
+    let trailing = format!(
+        "lockfileVersion: '9.0'\n\npackages:\n\n  {}:{}\n    resolution: {{integrity: sha512-X}}\n",
+        padded("debug@2.6.9", 1024),
+        " ".repeat(64)
+    );
+    assert_eq!(
+        composite_over_pnpm(&install, &trailing).unwrap().canonical,
+        control.canonical
+    );
     // A key repeated in ANOTHER block is another key: two importers each
     // with `dependencies`, two records each with `cpu`, two
     // `peerDependenciesMeta` children each with `optional` — the shape

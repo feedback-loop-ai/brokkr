@@ -2237,6 +2237,11 @@ const IMPLICIT_KEY_REFUSAL: &str =
     "a line under the package child 'peerDependencies' carrying an implicit key past YAML's \
      implicit-key lookahead limit of 1,024 characters";
 
+/// The same bound where a `packages:` heading is the implicit key.
+const HEADING_KEY_REFUSAL: &str =
+    "a package key that is an implicit key past YAML's implicit-key lookahead limit of 1,024 \
+     characters";
+
 /// F5 (review 2026-09-20), SECURITY. The pnpm syntax rules through the
 /// BUILT doctor over a complete installation: every malformed spelling
 /// the review reproduced refuses by the pnpm component and a named
@@ -2571,6 +2576,26 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             ),
             IMPLICIT_KEY_REFUSAL,
         ),
+        // R3, the `packages:` heading (review of run `e291e076`): the
+        // chief's reproduction — `debug@2.6.9` and 1,014 spaces before
+        // its colon, a 1,025-character span that kept the control's
+        // composite with both probes run — and its quoted spelling.
+        (
+            format!(
+                "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9{}:\n    resolution: \
+                 {{integrity: sha512-D}}\n",
+                " ".repeat(1014)
+            ),
+            HEADING_KEY_REFUSAL,
+        ),
+        (
+            format!(
+                "lockfileVersion: '9.0'\n\npackages:\n\n  'debug@2.6.9'{}:\n    resolution: \
+                 {{integrity: sha512-D}}\n",
+                " ".repeat(1012)
+            ),
+            HEADING_KEY_REFUSAL,
+        ),
     ] {
         // The probes FIRST: a lock that fails admission runs neither DSH
         // nor Node, and a refusal printed after a probe would hide that.
@@ -2647,6 +2672,23 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             child.len()
         );
     }
+    // The heading's own controls: the 1,024-character spans the chief
+    // measured as valid, plain and quoted, decode to the control's key
+    // and are the control's digest with both probes run.
+    for heading in [
+        format!("debug@2.6.9{}", " ".repeat(1013)),
+        format!("'debug@2.6.9'{}", " ".repeat(1011)),
+    ] {
+        let body = format!(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  {heading}:\n    resolution: {{integrity: \
+             sha512-D}}\n"
+        );
+        assert!(
+            run(&body).contains(&format!("composite {digest} ")),
+            "a {}-character heading",
+            heading.chars().count()
+        );
+    }
     // And the valid nested `snapshots` body a real lock carries — a
     // mapping block, a dedent back to its parent, a sequence block
     // beside it and a sibling record — is still read, and still
@@ -2720,8 +2762,9 @@ fn bounded(
 /// native env leaves no marker either way, so the no-probe half of this
 /// claim is the selection's — `DshUnselected` holds no invocation, and
 /// `a_failed_selection_probes_nothing_and_carries_its_cause` panics on any
-/// probe of one. Direct `/usr/bin/env` keeps its native version as the
-/// availability control and is no readable composite; an admitted
+/// probe of one. Direct `/usr/bin/env` keeps its native result as the
+/// availability control — its version where the host's env has one, a
+/// failed probe where it has none — and is no readable composite; an admitted
 /// launcher that prints the path it was run by shows the selected
 /// candidate, and not its canonical target, is what doctor runs.
 #[test]
@@ -2737,16 +2780,26 @@ fn a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected() {
     let search = a.display().to_string();
 
     // The control's own answer, natively: what a canonical-target probe
-    // would have printed for the aliases too.
+    // would have printed for the aliases too. It is the HOST's answer and
+    // is read, never assumed: GNU and uutils env print a version, while
+    // Apple's env has no `--version`, prints its usage to stderr and
+    // exits 1 — a failed probe doctor has to preserve as native gave it
+    // (review of run `e291e076`).
     let direct = spawn(Command::new(ENV).arg("--version").current_dir(cwd)).unwrap();
-    assert!(direct.status.success(), "{direct:?}");
-    let env_version = String::from_utf8_lossy(&direct.stdout)
-        .lines()
-        .next()
-        .unwrap()
-        .trim()
-        .to_string();
-    assert!(!env_version.is_empty());
+    let env_version = direct.status.success().then(|| {
+        let line = String::from_utf8_lossy(&direct.stdout)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        assert!(!line.is_empty(), "{direct:?}");
+        line
+    });
+    eprintln!(
+        "R2 native direct env: status {:?}, version {env_version:?}",
+        direct.status
+    );
 
     let refusal = format!(
         "the DSH layout is unreadable: {}: the selected invocation is the platform's env utility \
@@ -2788,24 +2841,38 @@ fn a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected() {
             )),
             "{form}: {line}"
         );
-        assert!(
-            !line.contains(&env_version),
-            "{form}: env's version is not DSH's availability: {line}"
-        );
+        if let Some(env_version) = &env_version {
+            assert!(
+                !line.contains(env_version),
+                "{form}: env's version is not DSH's availability: {line}"
+            );
+        }
     }
 
-    // Direct env: available, by its own version, and no DSH composite.
+    // Direct env is selected and probed as native runs it, and doctor's
+    // line is native's result. Where env answers, it is available by its
+    // own version and is no DSH composite; where env has no `--version`,
+    // the failed probe is reported as the selected binary not answering —
+    // with no selection cause, because the selection succeeded.
     let line = dsh_line(&stdout_of(
         doctor(cwd)
             .env("PATH", &search)
             .env("BROKKR_DSH_BIN", ENV)
             .env("DSH_HOME", &home),
     ));
-    assert!(
-        line.starts_with(&format!("ok       dsh: {env_version} · serves")),
-        "{line}"
-    );
-    assert!(line.contains("· composite unreadable: "), "{line}");
+    match &env_version {
+        Some(env_version) => {
+            assert!(
+                line.starts_with(&format!("ok       dsh: {env_version} · serves")),
+                "{line}"
+            );
+            assert!(line.contains("· composite unreadable: "), "{line}");
+        }
+        None => assert!(
+            line.starts_with(&format!("warn     dsh: binary '{ENV}' not found — ")),
+            "{line}"
+        ),
+    }
 
     // An admitted alias: the launcher prints the path it was run by.
     let launcher = stage_executable(&cwd.join("lib"), "launcher.sh", "#!/bin/sh\necho \"$0\"\n");

@@ -925,6 +925,30 @@ fn split_flow_entry(field: &str) -> Option<(&str, &str)> {
 /// admits where it admits a key without reading it.
 const IMPLICIT_KEY_LOOKAHEAD: usize = 1024;
 
+/// Refuse an implicit block-mapping key whose colon sits past YAML's
+/// lookahead. `spelled` is the key AS SPELLED, from its first character to
+/// the colon: quotes and the padding before the colon included, the
+/// indentation, the colon and the value not. It is counted in characters
+/// and before anything is trimmed or decoded, so neither padding nor
+/// quoting hides an over-limit key.
+///
+/// The bound belongs to every route that admits a key of the document's
+/// own choosing. It guarded the ignored bodies alone, and a `packages:`
+/// heading — which trims its pre-colon padding before it reads the scalar
+/// — admitted `debug@2.6.9` behind 1,014 spaces as the valid control's
+/// composite (review of run `e291e076`, R3). The top-level keys and the
+/// package children are compared whole against closed lists of short
+/// names, so no over-limit spelling of one can be admitted.
+fn implicit_key_lookahead(spelled: &str) -> Result<(), String> {
+    match spelled.chars().nth(IMPLICIT_KEY_LOOKAHEAD) {
+        Some(_) => Err(
+            "an implicit key past YAML's implicit-key lookahead limit of 1,024 characters"
+                .to_string(),
+        ),
+        None => Ok(()),
+    }
+}
+
 /// One member of an ignored body whose SYNTAX was admitted: what the
 /// structure rule (`IgnoredBody`) still needs to know about the line.
 enum Member<'a> {
@@ -970,20 +994,12 @@ fn pnpm_ignored_line(text: &str) -> Result<Member<'_>, String> {
         .ok_or_else(|| format!("the line '{text}', which is not a mapping entry"))?;
     // An implicit block key is found by LOOKAHEAD, and YAML bounds that
     // lookahead: the colon sits within 1,024 characters of the key's
-    // first (YAML 1.2.2 §8.2.2, productions 192–193 through 154–155). The
-    // span is the key AS SPELLED — its quotes and the padding before the
-    // colon included, the indentation, the colon and the value not — and
-    // it is counted in characters before anything is trimmed or decoded,
-    // so neither padding nor quoting hides an over-limit key. A reader
-    // without the bound read a 1,025-character `peerDependencies` key as
-    // the valid control's composite (review of run `124cca78`, R3). The
-    // bound is on the key alone: a long value or a long line is YAML.
-    if key.chars().nth(IMPLICIT_KEY_LOOKAHEAD).is_some() {
-        return Err(
-            "an implicit key past YAML's implicit-key lookahead limit of 1,024 characters"
-                .to_string(),
-        );
-    }
+    // first (YAML 1.2.2 §8.2.2, productions 192–193 through 154–155). A
+    // reader without the bound read a 1,025-character `peerDependencies`
+    // key as the valid control's composite (review of run `124cca78`,
+    // R3). The bound is on the key alone: a long value or a long line is
+    // YAML.
+    implicit_key_lookahead(key)?;
     // The padding between a plain key and its colon belongs to the
     // separator, not the key: `react : b` spells the key `react` (YAML
     // 1.2.2 §7.10.3, a plain scalar ends before its trailing white
@@ -1521,11 +1537,18 @@ fn pnpm_dependencies(lock: &str, local: &[&str]) -> Result<Vec<String>, Composit
         if indent == 2 {
             flush(entry.take(), &mut triples)?;
             block = None;
-            let key = line
+            let key = trimmed
                 .trim_end_matches(' ')
                 .strip_suffix(':')
                 .ok_or_else(|| bad("a package key is not colon-terminated"))?;
-            let key = pnpm_scalar(key.trim_matches(' '))
+            // The heading is an implicit key, and its lookahead is asked
+            // of the span as spelled — before the padding between the key
+            // and its colon is trimmed away below, which is what hid it.
+            // A heading this reader admits has no other colon-and-space,
+            // so the span up to its final colon is the key's own.
+            implicit_key_lookahead(key)
+                .map_err(|why| bad(&format!("a package key that is {why}")))?;
+            let key = pnpm_scalar(key.trim_end_matches(' '))
                 .ok_or_else(|| bad("a malformed package key"))?
                 .text();
             // A key that is itself a mapping — `a@1: {}` reaches this
