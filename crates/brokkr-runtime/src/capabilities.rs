@@ -1563,13 +1563,17 @@ impl Authority {
                     lists.allow.extend(selected.allow.iter().cloned());
                     lists.deny.extend(selected.deny.iter().cloned());
                 }
+                // The refusal carries its own warrant: who measured that
+                // the power cannot be removed, and over what — so an
+                // operator can tell a finding about one CLI version from a
+                // law about the provider.
                 (Disposition::Unsupported(reason), _) => {
                     return Err(format!(
                         "{who}: provider '{provider}' cannot switch off its native capability \
-                         '{}', which this seat does not hold ({reason}); an ungranted native \
-                         capability that cannot be disabled cannot be seated in this realm \
-                         (decision 0065 ruling 4)",
-                        native.capability
+                         '{}', which this seat does not hold ({reason}; evidence: {}, scope: {}); \
+                         an ungranted native capability that cannot be disabled cannot be seated \
+                         in this realm (decision 0065 ruling 4)",
+                        native.capability, native.evidence.source, native.evidence.scope
                     ))
                 }
                 (Disposition::Unmeasured(reason), _) => {

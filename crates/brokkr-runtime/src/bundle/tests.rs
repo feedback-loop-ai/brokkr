@@ -192,9 +192,9 @@ fn a_generated_validator_is_refused_on_a_harness_whose_native_power_cannot_be_sw
         compile(adapters.path()).unwrap_err().to_string(),
         "bundle: seat 'verify:dialect-verify' (office 'verify:dialect-verify') in realm \
          '<unmapped>': provider 'exec' cannot switch off its native capability 'ambient-net', \
-         which this seat does not hold (the child inherits the host network); an ungranted \
-         native capability that cannot be disabled cannot be seated in this realm (decision \
-         0065 ruling 4)"
+         which this seat does not hold (the child inherits the host network; evidence: a test, \
+         scope: a test); an ungranted native capability that cannot be disabled cannot be \
+         seated in this realm (decision 0065 ruling 4)"
     );
     // The control: the same bundle under the shipped adapters compiles,
     // and the generated site carries its explicit empty outcome.
