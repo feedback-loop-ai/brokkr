@@ -3689,6 +3689,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
         &root,
         &root.join("recipes/triage"),
         &json!({"bundle_name":"unadopted"}),
+        &root,
     )
     .is_ok());
 
@@ -3719,13 +3720,16 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let manifest = world
         .pinned(&json!({"bundle_name":"triage"}), Some(&root))
         .unwrap();
-    let bundle = compile_from_manifest(&root, &root.join("recipes/triage"), &manifest).unwrap();
+    let bundle =
+        compile_from_manifest(&root, &root.join("recipes/triage"), &manifest, &root).unwrap();
     assert_eq!(bundle.manifest["bundle_name"], "triage");
-    assert!(compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest).is_err());
+    assert!(
+        compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest, &root).is_err()
+    );
 
     let mut broken = manifest;
     broken["realms"]["sha256"] = json!("0".repeat(64));
-    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken).is_err());
+    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken, &root).is_err());
 
     let mut no_dialect = map;
     no_dialect["realms"][0]

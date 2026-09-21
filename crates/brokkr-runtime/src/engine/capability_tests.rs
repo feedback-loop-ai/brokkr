@@ -223,6 +223,91 @@ fn a_run_starts_only_under_the_grants_its_bundle_was_compiled_under() {
     assert_eq!(runs(), 1);
 }
 
+/// The fence reaches the BYTES behind the grants (design D7): a run is not
+/// journaled against an abstract definition or a tool dialect that has
+/// already moved since the compile, because no resume could reproduce it.
+/// Read beside the map — or, with no map, under the operated repository,
+/// never beside the recipe.
+#[test]
+fn a_run_starts_only_over_the_definition_and_dialect_bytes_it_was_compiled_against() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let definition = "capabilities/web-search.json";
+    let dialect = "dialects/tools/codex-native-search.json";
+    let plant = |root: &Path, relative: &str, bytes: &str| {
+        std::fs::create_dir_all(root.join(relative).parent().unwrap()).unwrap();
+        std::fs::write(root.join(relative), bytes).unwrap();
+    };
+    let pinned = |relative: &str, bytes: &str| {
+        json!({"source": relative, "sha256": brokkr_core::canonical::sha256_bytes(bytes.as_bytes())})
+    };
+    let compiled = |realm: &str| {
+        let mut bundle = bundle(dir.path(), single_body(vec!["driver".into()]));
+        bundle.manifest["capabilities"] = json!({
+            "realm": realm, "grants": {},
+            "definitions": {"web-search": pinned(definition, "D")},
+            "dialects": {"codex-native-search": pinned(dialect, "T")},
+        });
+        bundle
+    };
+    let start = |bundle: Bundle, world: Option<crate::realms::World>| {
+        let store = Store::open(&dir.path().join("forge.db")).unwrap();
+        Engine::start_in_world(store, bundle, "feature", Some(repo.clone()), world)
+            .map(|_| ())
+            .map_err(|refusal| refusal.to_string())
+    };
+    let runs = || {
+        Store::open(&dir.path().join("forge.db"))
+            .unwrap()
+            .list_runs()
+            .unwrap()
+            .len()
+    };
+    let refusal = |input: &str, problem: &str| {
+        format!(
+            "this bundle's capabilities were compiled against '{input}', which {problem} in the \
+             operator configuration this run is started with; a run pins the abstract \
+             definitions and tool dialects its holdings came from, so recompile in this world \
+             (decision 0065 ruling 8)"
+        )
+    };
+    let world = || Some(world_granting(dir.path(), &repo, json!({})));
+    // Beside the map: a definition that was never there, then one whose
+    // bytes moved, then the dialect's — each by its own relative name.
+    plant(dir.path(), dialect, "T");
+    assert_eq!(
+        start(compiled("private"), world()),
+        Err(refusal(definition, "is missing"))
+    );
+    plant(dir.path(), definition, "D ");
+    assert_eq!(
+        start(compiled("private"), world()),
+        Err(refusal(definition, "has changed since"))
+    );
+    plant(dir.path(), definition, "D");
+    plant(dir.path(), dialect, "t");
+    assert_eq!(
+        start(compiled("private"), world()),
+        Err(refusal(dialect, "has changed since"))
+    );
+    assert_eq!(runs(), 0, "a refused start writes no run");
+    // With no map the root is the OPERATED repository: the very files that
+    // satisfy a mapped start, lying beside the recipe, satisfy nothing.
+    plant(dir.path(), dialect, "T");
+    assert_eq!(
+        start(compiled("<unmapped>"), None),
+        Err(refusal(definition, "is missing"))
+    );
+    assert_eq!(runs(), 0);
+    plant(&repo, definition, "D");
+    plant(&repo, dialect, "T");
+    assert_eq!(start(compiled("<unmapped>"), None), Ok(()));
+    // And the mapped start over unmoved bytes starts.
+    assert_eq!(start(compiled("private"), world()), Ok(()));
+    assert_eq!(runs(), 2);
+}
+
 /// A resume is refused by the existing manifest-mismatch door, and the
 /// reason NAMES capabilities (decision 0065 ruling 8): which pinned record
 /// moved — never "engine or contract version" — and, for a run pinned
