@@ -13206,3 +13206,183 @@ Nothing was pushed.
 
 Pass D and 9.6 still owe exactly what the section above names; this visit
 opened neither, and opened no part of 10.x, 11.x or groups 14–15.
+
+## Pass C, the second returned review — R1 and SEC-1 (2026-09-21)
+
+Run `dsh-launch-planner-issue-226-tas-ed4ff1bc` returned from review a
+second time with two surviving MEDIUM findings against the four commits
+`a760322e..1374515b`: one correctness finding and one security residual.
+No high or critical finding and no specification defect was established,
+and D1's independent staging observation and D2's rename repair were
+confirmed addressed and are not reopened here. This visit answers both.
+**8.8 and 8.10 remain unticked.**
+
+### R1 (MEDIUM) — the confirmed launch addressed no reusable root
+
+`settle` recorded the transcript and then confirmed the launch, and
+`LaunchHold::publish` built a fresh `harness-started` row carrying
+`root_session` and nothing else. Two rows, two facts. The engine reads a
+DSH offer's three coordinates off ONE checkpoint — `eligible_offer` in
+`crates/brokkr-runtime/src/engine/resume.rs` takes `persistence_locator`
+and `persistence_home` from the same row that carried the root, and
+borrows neither from a neighbour — so a launch this driver confirmed
+published a root whose address was not on it, and `owned_dsh_root`
+declined the NEXT offer as `unverified-harness` for want of a locator.
+A confirmed DSH launch could therefore never establish a reusable root,
+which is exactly the atomic association design D6 requires.
+
+The repair is one seam on the hold and one hand-over beside it:
+
+- `LaunchHold::address` retains the exact transcript object the
+  invocation admitted and recorded — handed over, never composed a
+  second time — and `publish` writes it onto the launch row INSIDE the
+  `confirmed` arm. No root, no address: a row that confirms nothing
+  offers nothing to rejoin, so a locator on it would address a session
+  nobody established.
+- `DshRootWatch::record_locator` hands that object over at both call
+  sites, so the cold route's pre-spawn locator and the warm route's
+  held one reach the hold by the same path. The cold arm matters most:
+  a seat's FIRST qualified launch is cold, and the root it confirms is
+  what the next attempt is offered.
+- Claude and codex supply none and are untouched. Their session
+  identifier IS their locator (`confirms_from_locator`), so their root
+  already carries the whole address; DSH is the one built-in provider
+  that needs both coordinates. The v5 checkpoint shape already admits
+  `transcript` on any step, so no contract moved and no frozen byte was
+  touched.
+
+Failing first, then removal-proved:
+
+- `a_qualified_dsh_child_confirms_the_root_and_folds_current_only`
+  (`adapters/tests.rs`) now asserts the launch row carries the exact
+  admitted transcript — `kind`, `locator` and the admitted `home` — and
+  then proves the address is USABLE rather than merely present: the
+  three coordinates off that one row are handed back as the owned
+  target a later attempt would carry, and production's own
+  `owned_dsh_root` re-admits the same retained store at boundary 28,
+  the work this invocation left behind. The case now runs under
+  `ADAPTER_ENV` with `DSH_HOME` set to its tempdir, so the locator it
+  records resolves back to the planted store rather than to the
+  operator's home.
+- `a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms`
+  asserts the same association on the COLD confirmed row.
+- `a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation`
+  asserts the other side: a launch row with no `root_session` carries no
+  `transcript` either.
+- Removal proofs: dropping the `row.insert("transcript", …)` inside the
+  confirmed arm fails both positive cases at "the launch row carries the
+  exact admitted transcript" and "the cold launch row carries the
+  address its root was opened at", `left: Null`. Dropping only the
+  hand-over in `record_locator` fails the same two, identically.
+  Restored, green.
+
+The runtime consumer half needed no change and is not re-proved here:
+`a_stamped_row_is_offered_only_to_its_own_site_owner_and_persistent_root`
+already pins that the locator and home travel off the same checkpoint as
+the root, that a row without them offers the provider ID alone, and that
+an older row's home is never borrowed.
+
+### SEC-1 (MEDIUM, security residual) — uncertainty before the init event
+
+`refuse_work_before_confirmation` asked only whether it could SEE work:
+it kept the roots whose boundary it could read and refused on an advance.
+A reading that could read nothing therefore refused nothing. The boundary
+reader deliberately refuses a file whose last row is half-written — a
+truncated tail is not a lower maximum to report — so a child could append
+a partial work row, let the hold's one pre-init reading fall on it,
+complete the row, and only then emit the init event. `settle` found all
+four facts in agreement, confirmed `Resumed`, published the locator, the
+launch row and `root_session`, and folded the work in front of the
+confirmation: pre-init work adopted contrary to D7, and `run_seat`'s
+unsettled-result guard walked straight past. Reproduced before the
+repair, as the reviewer described: `left: Resumed, right: Unconfirmed`.
+
+The repair states the reading as what it has to PROVE rather than what it
+has to catch: the offered root stands exactly where the plan left it — a
+store this driver can census, exactly one depth-zero header naming the
+offer, a boundary the reader accepts whole, and nothing past the recorded
+one. Anything else is a reading that could not rule out work in front of
+the confirmation, and it latches `settled` without releasing the hold, so
+the attempt stays permanently `Unconfirmed`. Uncertainty latches exactly
+as observed work does, and no later readable snapshot cures it, because
+the snapshot that could have refused is the one already taken.
+
+`dsh_uncertainty_before_the_init_event_is_never_cured_by_a_later_reading`
+(`adapters/tests.rs`) drives four cases through production's own
+`invoke_dsh_launch` over a synthetic child and no installed provider.
+Each disturbs the offered root while the hold is closed, then restores
+it, advances it past `firstSeq` and emits the init event naming the
+offer, so the snapshot the confirmation arrives with agrees completely:
+a half-written trailing row (both endings — a clean exit and an otherwise
+valid delivered result file); a root moved aside so it cannot be
+censused; and a second depth-zero header naming the offer, planted
+BEHIND the boundary so ambiguity is the only thing the reading can
+object to. Every case asserts `Unconfirmed`, no launch row, no
+`root_session`, no locator, no checkpoint that `begins_work`,
+`refusal: None` — no cold replacement is authorized — and the delivered
+file retained for diagnosis.
+
+The staging is honest about its one timing dependency and is recorded
+rather than hidden. The child's stdout line is what drives the driver's
+pre-init reading and a one-second wait is what keeps that reading on the
+disturbed store; there is no handshake, because the driver has no
+observable side effect for a shim to wait on. A reading that arrives
+LATE instead sees the advance the restoration leaves behind and refuses
+on that, so with the repair in place every case can only ever end
+unconfirmed — the wait decides which refusal the case proves, never
+whether it refuses. It is the removal direction that depends on the
+timing.
+
+Removal proof, one clause at a time by running each case first under the
+restored permissive predicate: the half-written row (clean) fails
+`left: Resumed`; the store it cannot census fails; the second header
+fails; the half-written row with a delivered result fails. Restored,
+green; the whole DSH suite is 104 cases and the protocol crate 397 + 99 +
+1 doc, 0 failed.
+
+### Gates, this visit
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-store --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-protocol --all-features --locked` | 497 (397 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-view --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-bridge --all-features --locked` | 0 failed |
+| `cargo test -p brokkr-cli --all-features --locked` | 32 binaries, 0 failed (driver conformance 24/24) |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+| `git diff --check` | clean |
+
+`openspec validate --all --strict` COULD NOT RUN in this seat again:
+both spellings, the bare `openspec` and `npx @fission-ai/openspec@1.12.0`,
+were refused before execution. This visit adds no `openspec/specs` delta
+and touches only this tasks file under `openspec/`; that is not a
+substitute and the check stays owed. `bash scripts/coverage-exact.sh` did
+not run here either — its boundary tests need a namespace the box refuses
+to nest — and it is not lowered. Native macOS and remote CI on the final
+head remain pending until their own results exist.
+
+### Scope, this visit
+
+Two files, plus this record: `crates/brokkr-protocol/src/adapters.rs` and
+its test module. Production changed in one crate and in three places:
+`LaunchHold`'s `address` field, its setter and the insertion inside
+`publish`'s confirmed arm; `record_locator`'s hand-over at both call
+sites; and `refuse_work_before_confirmation`'s single unmoved-or-refuse
+predicate. Pass B's admission, the exact-root latch, the `may_fold` gate,
+`confirms_from_locator: false`, the bounded storage reads, the private
+diagnostics and the generic terminal guard are untouched, and the claude,
+codex, LaneTally and exec arms have no behavioural diff. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays disabled;
+no live provider was called; no new digest producer and no new public
+planner seam was added; no Windows handling was added (decision 0063).
+Nothing was pushed.
+
+Pass D and 9.6 still owe exactly what the two sections above name; this
+visit opened neither, and opened no part of 10.x, 11.x or groups 14–15.
