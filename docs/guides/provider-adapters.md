@@ -419,6 +419,102 @@ network, so no seat can run a live astra smith; the first one — cargo
 and git through the box on codex, a real commit, verify passing — is the
 controller's measurement after the change lands, and is pending.
 
+## Native capabilities
+
+A harness may carry powers of its own that no box confines, because the
+PROVIDER runs them: Codex's server-side web search returns inside the
+model's response, so a box with `network: false` neither sees nor stops
+it. Decision 0065 ruling 4 rules them off until a realm lists them, and
+the adapter is where a harness's own powers are declared — each with how
+it is switched ON and how it is switched OFF, or `unsupported` with the
+measured reason, in the form `tool_permissions` already uses.
+
+```json
+"native_capabilities": {
+  "known": {
+    "web-search": {
+      "capability": "web-search",
+      "tools": ["web_search"],
+      "on":  { "default": "codex-cli 0.154.0 cold `codex exec` has server-side web search ON with no flag …" },
+      "off": { "argv": ["-c", "web_search=\"disabled\""] },
+      "restrictions": { "unsupported": "no native transport for a restriction … has been established" },
+      "evidence": { "source": "…", "scope": "codex-cli 0.154.0, cold `codex exec` only …", "limitations": ["…"] },
+      "authored": { "flags": ["--search"], "config_flags": ["-c", "--config"], "config_keys": ["web_search", "…"] }
+    }
+  }
+}
+```
+
+The key (`web-search`) is what a provider-native tool dialect's
+`adapter_key` names; `capability` is the abstraction it realises and
+`tools` the harness's own tool names. Each of `on` and `off` is exactly
+one **disposition**:
+
+| Disposition | Meaning |
+|---|---|
+| `{"argv": […]}` | Non-empty argv that switches it. |
+| `{"default": "<reason>"}` | Nothing to write: this IS the harness's measured default. |
+| `{"selection": {"include": […], "allow": […], "deny": […]}}` | Contributions to the harness's own tool lists; the adapter's sibling `selection` names the three list flags and separators. |
+| `{"unsupported": "<measured reason>"}` | Measured: it cannot be switched this way. |
+| `{"unmeasured": "<reason>"}` | Nobody has measured whether it can. |
+
+A declaration missing a half, a reason, or carrying two variants is
+refused at load, as is an empty argv or a selection control with no list
+flags to express it. `restrictions` says whether a grant's restriction
+object can reach the harness at all: `unsupported` with its reason, or an
+argv template carrying exactly one `{restrictions_json}` slot, filled with
+the canonical JSON of the whole validated object as one argument value —
+never shell text. `evidence` keeps a declared mechanism apart from a live
+result: its `scope` and `limitations` are printed by `brokkr doctor`
+beside the control, and a green argv test upgrades neither. `authored`
+names the arguments a SEAT might write that would contend with the
+managed control; one that does is refused at compile and again before the
+spawn, naming the control and the capability and copying no value — two
+controls are never ordered against each other.
+
+**The whole inventory may instead be `{"unmeasured": "<reason>"}`**, and
+an adapter written before the ruling reads that way too, with the
+absence as its reason. Unmeasured is not an empty inventory: nothing can
+be granted through it and no native denial is claimed for it.
+
+What the compiler does with a declaration, per seat and per provider
+candidate, independently of anything the office asks:
+
+- a native power the seat HOLDS — asked for, granted to its office by the
+  realm through a dialect bound to this provider and key — is switched ON;
+- one it does not hold is switched OFF, whether it asked for nothing, lost
+  a want, fell outside the grant's offices or subtracted it;
+- one whose OFF is `unsupported` **refuses compilation** in a realm that
+  has not granted it to that seat: a harness that cannot be told to stay
+  quiet cannot be seated there, and a `wants` does not excuse it;
+- a whole-set switch cannot admit a proper subset of a dialect's tools,
+  and a grant whose restriction the harness cannot express is refused for
+  a `requires` and dropped — with the capability OFF — for a `wants`. The
+  restriction is never discarded to make the grant usable.
+
+The resolved controls ride the driver input (`native_controls`) the
+engine writes, and the adapter composes them into the final argv: last on
+a cold Codex command, before the session and stdin positionals on an
+eligible `exec resume` (an AUTHORED `-c` still turns a rejoin cold), and
+folded ONCE into a Claude seat's own `--tools`, `--allowedTools` and
+`--disallowedTools` so the hands fragment's empty tool list gains exactly
+what is held while `mcp__brokkr__workspace` and `--strict-mcp-config`
+stay. A model site the engine computed no authority for is refused
+before any provider work rather than launched on the harness's defaults.
+
+### What the five shipped adapters say today
+
+| Adapter | Native capabilities | What is established, and what is not |
+|---|---|---|
+| `codex` | `web-search` → `web_search`; ON is the cold default, OFF is `-c web_search="disabled"` | Measured by the controller on codex-cli 0.154.0, **cold `codex exec` only** (`.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`). Unmeasured: whether OFF or ON holds on a RESUMED session (the pair is composed there all the same), any `web_search` value other than `"disabled"`, the interactive `--search` flag under `exec`, other versions, profile and `config.toml` precedence, and whether an ambient MCP server in the operator's codex configuration is excluded. It is one measured capability, not an exhaustive inventory. |
+| `claude` | `web-search` → `WebSearch`, `web-fetch` → `WebFetch`; ON admits the tool to the seat's lists, OFF denies it by name | Adapter data and argv composition only. That a boxed seat's empty `--tools` list under `--strict-mcp-config` leaves no native tool is a declaration, not a live measurement; ON beside the hands tool and OFF on an unboxed seat are both unmeasured live. |
+| `dsh` | `unmeasured` | `mcp` and `tool_permissions` being unsupported shows only that Brokkr cannot narrow dsh's tools. It does not show dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
+| `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
+| `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
+
+Every "unmeasured" above is the controller's to measure, and
+`brokkr doctor` prints each beside the realm it matters to.
+
 ## Resume — what has been measured, per named shape
 
 A work site's retry is offered the session that site's own earlier

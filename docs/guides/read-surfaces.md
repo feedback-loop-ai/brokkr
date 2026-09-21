@@ -92,6 +92,57 @@ fault, but never a pin that matched. `--json` carries the same three
 words beside each consuming realm, so a script branches on a value
 rather than on prose.
 
+### `brokkr doctor` — what each realm grants, and what it denies
+
+A seat holds a capability beyond its hands only where the realm it runs
+in lists it (`forge.realms/v6`, decision 0065). The grant lives in
+`realms.json`, the operator's file, and nowhere else:
+
+```json
+"capabilities": {
+  "web-search": { "dialect": "codex-native-search",
+                  "offices": ["review-security", "researcher"] }
+}
+```
+
+Each entry picks the tool dialect under `dialects/tools/` that serves the
+capability in this realm, may narrow the dialect's `tools` to a subset,
+may scope the grant to named `offices` — an agent's name, or an inline
+site's label — and may carry the dialect's own restriction keys, which
+the dialect's schema defines and the engine passes through without
+interpreting. Leaving `offices` out reaches every office that asks; `[]`
+reaches none. A realm that lists nothing grants nothing, and so does
+every map older than v6: there is no grandfathering. A grant through an
+`mcp` dialect is refused until decision 0065's slice two builds its
+broker.
+
+`brokkr doctor` reads every realm under ITS OWN grants and then names,
+per realm, every native capability an installed harness declares that the
+realm has not granted — so the day a harness loses a power it used without
+anyone's permission is loud, not discovered later:
+
+```
+ok       capabilities brokkr: grants nothing; every native capability is governed by the no-grant default — switched off, or the seat is refused
+warn     capabilities brokkr native codex 'web-search': NOT granted here: every seat on codex is launched with it switched off by the adapter's declared control · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
+warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed
+```
+
+The lines keep four things apart: a power that is switched off by a
+declared control, one that **cannot** be switched off (seating that
+harness there without the grant refuses compilation), one whose OFF
+nobody has measured, and a harness whose whole native inventory is
+unmeasured. A same-name grant bound to another provider covers nothing of
+this one's, a scoped grant is printed with its scope, and an empty scope
+never reads as "all". A realm whose grants do not validate — a missing
+definition, a dialect asserting other classes, an `mcp` grant — is one
+failing line, and the native lines under it still print. A map that
+cannot be read leaves authority UNKNOWN: nothing is assumed granted.
+Nothing is run to say any of this — no model request, search, fetch or
+server — and a harness whose binary is absent gets no native line,
+because nothing was observed about it here. A declared control is adapter
+data: its evidence scope and open limitations are printed beside it, and
+a passing argv test upgrades neither.
+
 ### `brokkr runs` — the fleet
 
 One clamped line per run, newest first.
