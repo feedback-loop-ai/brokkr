@@ -7156,7 +7156,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Glibc,
             "metadata",
-            Errno::NOENT
+            Errno::NOENT,
+            Position::Searched
         )),
         "passed (false): No such file or directory (os error 2)"
     );
@@ -7165,7 +7166,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Glibc,
             "access",
-            Errno::ACCESS
+            Errno::ACCESS,
+            Position::Searched
         )),
         "passed (true): is not executable by this process"
     );
@@ -7174,7 +7176,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Glibc,
             "metadata",
-            Errno::ACCESS
+            Errno::ACCESS,
+            Position::Searched
         )),
         "passed (true): Permission denied (os error 13)"
     );
@@ -7191,7 +7194,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Glibc,
             "metadata",
-            Errno::LOOP
+            Errno::LOOP,
+            Position::Searched
         )),
         format!(
             "refused: the DSH layout is unreadable: /nowhere/dsh: a symlink loop stops the \
@@ -7204,7 +7208,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Glibc,
             "access",
-            Errno::IO
+            Errno::IO,
+            Position::Searched
         )),
         "refused: the DSH layout is unreadable: /nowhere/dsh: access answers Input/output error \
          (os error 5), on which the platform's lookup stops"
@@ -7214,16 +7219,74 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Apple,
             "metadata",
-            Errno::LOOP
+            Errno::LOOP,
+            Position::Searched
         )),
         format!("passed (false): {}", rendered(Errno::LOOP))
+    );
+    // The same Apple arm at a DIRECT name: the continuation has no next
+    // entry to continue to, so the loop is the stop it is and carries
+    // the name every library's terminal loop carries. The libraries
+    // whose search already stops on ELOOP answer this identically,
+    // which is the point — one rule, one reason, every platform.
+    for library in [Library::Apple, Library::Glibc, Library::Musl] {
+        assert_eq!(
+            describe(lookup_failure(
+                candidate,
+                library,
+                "metadata",
+                Errno::LOOP,
+                Position::Direct
+            )),
+            format!(
+                "refused: the DSH layout is unreadable: /nowhere/dsh: a symlink loop stops the \
+                 lookup: {}",
+                rendered(Errno::LOOP)
+            ),
+            "{library:?} names a direct name's terminal loop"
+        );
+    }
+    // And nothing else about a direct name's refusal moves: a continued
+    // errno keeps the operation's own answer, and a stop keeps its own
+    // words, exactly as at a searched candidate.
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Apple,
+            "metadata",
+            Errno::NOENT,
+            Position::Direct
+        )),
+        "passed (false): No such file or directory (os error 2)"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "access",
+            Errno::ACCESS,
+            Position::Direct
+        )),
+        "passed (true): is not executable by this process"
+    );
+    assert_eq!(
+        describe(lookup_failure(
+            candidate,
+            Library::Glibc,
+            "access",
+            Errno::IO,
+            Position::Direct
+        )),
+        "refused: the DSH layout is unreadable: /nowhere/dsh: access answers Input/output error \
+         (os error 5), on which the platform's lookup stops"
     );
     assert_eq!(
         describe(lookup_failure(
             candidate,
             Library::Apple,
             "metadata",
-            Errno::IO
+            Errno::IO,
+            Position::Searched
         )),
         "refused: the DSH layout is unreadable: /nowhere/dsh: metadata answers Input/output \
          error (os error 5), and that arm of Apple's posix_spawnp switch is not pinned by this \
@@ -7234,7 +7297,8 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
             candidate,
             Library::Unestablished,
             "metadata",
-            Errno::NOENT
+            Errno::NOENT,
+            Position::Searched
         )),
         "refused: the DSH layout is unreadable: /nowhere/dsh: metadata answers No such file or \
          directory (os error 2), and this target's native program lookup rule is not established"
@@ -7339,6 +7403,98 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     assert_eq!(captured.operation, Operation::Spawn);
     assert_eq!(captured.for_env().operation, Operation::Exec);
     assert_eq!(captured.for_env().entries, captured.entries);
+}
+
+/// A DIRECT name whose own path is a symlink loop is refused by the
+/// NAMED cause on every library's arm, because a direct name has no
+/// next candidate for a continuation to reach.
+///
+/// The platform-qualified ELOOP rule is a rule about a SEARCH: glibc's
+/// `posix/execvpe.c` stops on ELOOP, Apple's `sys/posix_spawn.c` breaks
+/// to the next entry (D10, controller correction 2026-09-20). Read as a
+/// rule about a CANDIDATE instead, it made the Apple arm render a direct
+/// `./dsh` that is a self-symlink as the bare errno while glibc and musl
+/// named the loop — one refusal reported two ways, and the matrix's
+/// terminal-ELOOP naming failed on macOS for that reason alone (PR
+/// #311's macOS leg, 2026-09-21, cell n1-l4).
+///
+/// The Apple arm is INJECTED here, so the branch is proved on this host.
+/// That is not native macOS evidence: the matrix's own run on that host
+/// supplies it, and this test stands beside the per-library lookup table
+/// as a translated-source check.
+#[cfg(unix)]
+#[test]
+fn a_direct_names_symlink_loop_is_named_on_every_librarys_arm() {
+    let root = FixtureRoot::new();
+    let a = root.path().join("a");
+    let b = root.path().join("b");
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n");
+    // `a/dsh -> dsh`: the candidate's last component resolves to itself,
+    // so the loop is the kernel's answer to this fixture and not a
+    // condition the resolver invented.
+    let looped = a.join("dsh");
+    std::os::unix::fs::symlink("dsh", &looped).unwrap();
+    let native = fs::metadata(&looped).unwrap_err();
+    assert_eq!(
+        errno_of(&native),
+        Some(rustix::io::Errno::LOOP),
+        "the fixture is a loop this host's kernel answers ELOOP for: {native}"
+    );
+
+    let search = |library: Library, operation: Operation| Search {
+        entries: OsString::from(format!("{}:{}", a.display(), b.display())),
+        default: false,
+        library,
+        operation,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    // ELOOP's NUMBER is the host's — 40 under Linux, 62 under Darwin —
+    // so the expected rendering is built from the same constant the
+    // kernel just answered rather than from Darwin's integer spelled out
+    // in a test that runs on Linux.
+    let named = format!(
+        "the DSH layout is unreadable: {}: a symlink loop stops the lookup: {}",
+        looped.display(),
+        std::io::Error::from_raw_os_error(rustix::io::Errno::LOOP.raw_os_error())
+    );
+    let direct = looped.display().to_string();
+    for library in [Library::Apple, Library::Glibc, Library::Musl, LIBRARY] {
+        for operation in [Operation::Exec, Operation::Spawn] {
+            assert_eq!(
+                refused(lookup_in(
+                    &direct,
+                    &search(library, operation),
+                    &mut Vec::new()
+                )),
+                named,
+                "{library:?} under {operation:?} names a direct name's terminal loop"
+            );
+        }
+    }
+
+    // And the SEARCHED controls do not move: Apple's switch still walks
+    // past the loop at A to the runnable B, and glibc's still stops
+    // there, by the same named cause the direct name now carries.
+    for operation in [Operation::Exec, Operation::Spawn] {
+        assert_eq!(
+            lookup_in("dsh", &search(Library::Apple, operation), &mut Vec::new())
+                .unwrap()
+                .path,
+            real.canonicalize().unwrap(),
+            "Apple's search continues past ELOOP to the next entry"
+        );
+        assert_eq!(
+            refused(lookup_in(
+                "dsh",
+                &search(Library::Glibc, operation),
+                &mut Vec::new()
+            )),
+            named,
+            "glibc's search stops at the loop"
+        );
+    }
 }
 
 /// A native image's loader is read as the kernel reads it, from the
@@ -7797,15 +7953,34 @@ fn the_plugin_walk_refuses_a_name_that_is_not_utf8() {
                 Some(rustix::io::Errno::ILSEQ),
                 "a filesystem that refuses the name refuses it as an encoding error: {error}"
             );
-            // And it really refused: nothing of that name was left behind
-            // for the walk to have met.
-            assert!(
-                raw.symlink_metadata().is_err(),
-                "the refused name left no entry"
+            // And it really refused: the name is ABSENT, by that exact
+            // cause. `is_err()` would have been satisfied by any other
+            // answer — a denial, an I/O fault — and so would have proved
+            // nothing about whether the entry was made (review of run
+            // `d462f720`). The directory's exact membership says the
+            // same thing from the walk's own side: one entry, the one
+            // this test made.
+            let left = raw.symlink_metadata().err().unwrap_or_else(|| {
+                panic!("the refused name left an entry behind: {}", raw.display())
+            });
+            assert_eq!(
+                left.kind(),
+                std::io::ErrorKind::NotFound,
+                "the refused name left no entry: {left}"
+            );
+            let mut names: Vec<std::ffi::OsString> = fs::read_dir(dir.path())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            names.sort();
+            assert_eq!(
+                names,
+                vec![std::ffi::OsString::from("LICENSE")],
+                "the directory holds the one made name"
             );
             let digests =
                 plugin_file_digests("plugin", dir.path(), &["LICENSE"], &read_dir_entries).unwrap();
-            assert_eq!(digests.len(), 1, "the directory holds the one made name");
+            assert_eq!(digests.len(), 1, "the walk reads that one name");
             eprintln!(
                 "the walker's non-UTF-8 refusal is PENDING on {}: the filesystem answered {error} \
                  to the fixture's creation",

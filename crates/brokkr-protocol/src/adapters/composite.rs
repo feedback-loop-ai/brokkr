@@ -2742,6 +2742,31 @@ fn step(library: Library, errno: rustix::io::Errno) -> Result<Step, &'static str
     }
 }
 
+/// Where the candidate the lookup failed at sits in the platform's
+/// attempt sequence.
+///
+/// A SEARCHED name's candidate is one of several: the library's switch
+/// decides whether the next entry is tried, and that switch is
+/// per-library — glibc stops on ELOOP, Apple's `posix_spawnp` walks
+/// past it to the next entry (D10, controller correction 2026-09-20).
+/// A DIRECT name — one containing `/` — is the only candidate there is.
+/// `execve` answers for the path as spelled and no search switch runs
+/// at all, so its failure is TERMINAL on every platform.
+///
+/// The distinction is carried because applying the search's
+/// continuation rule to a direct name rendered one rule two ways: on
+/// the Apple arm `./dsh`, a self-symlink, refused with the bare
+/// `Too many levels of symbolic links` while glibc and musl named the
+/// loop (PR #311's macOS leg, 2026-09-21, matrix cell n1-l4).
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Position {
+    /// One entry of a search, with a next entry to walk to.
+    Searched,
+    /// The single candidate a name containing `/` names.
+    Direct,
+}
+
 /// The errno an I/O error carries, or none for a failure the platform
 /// answered before it asked the kernel (a NUL in a path).
 #[cfg(unix)]
@@ -2761,12 +2786,19 @@ fn errno_of(error: &std::io::Error) -> Option<rustix::io::Errno> {
 /// where the switch remembers it. A stop is a refusal by cause, and so
 /// is an errno the library's pinned arms do not name: nothing is walked
 /// past on a guess (design D10, third hold).
+///
+/// `position` is what the continuation means here. A continuation with
+/// nothing to continue TO is a stop, so a DIRECT name whose own path is
+/// a symlink loop is refused by the named cause on every platform —
+/// the naming belongs to the terminal loop, not to the library whose
+/// search happens to stop on it.
 #[cfg(unix)]
 fn lookup_failure(
     candidate: &Path,
     library: Library,
     operation: &str,
     errno: rustix::io::Errno,
+    position: Position,
 ) -> Candidate {
     let error = std::io::Error::from_raw_os_error(errno.raw_os_error());
     let refuse = |why: String| {
@@ -2776,6 +2808,16 @@ fn lookup_failure(
         )))
     };
     match step(library, errno) {
+        // The loop is the one cause a stop NAMES, and a direct name's
+        // loop is a stop wherever it is met: Apple's switch would walk
+        // to a next entry that does not exist. Every other continued
+        // errno keeps the operation's own answer here, which is the
+        // word-for-word refusal a direct name has always carried.
+        Ok(Step::Continue { .. })
+            if position == Position::Direct && errno == rustix::io::Errno::LOOP =>
+        {
+            Candidate::Refused(stop_cause(candidate, operation, errno))
+        }
         Ok(Step::Continue { denied }) => Candidate::Passed {
             why: match (operation, denied) {
                 ("access", true) => "is not executable by this process".to_string(),
@@ -2978,7 +3020,7 @@ impl Search {
                         self.refuse_working_directory(command, &candidate, how)
                     ));
                 }
-                match classify_in(&candidate, self, chain) {
+                match classify_in(&candidate, self, chain, Position::Searched) {
                     Candidate::Admitted(selected) => ControlFlow::Break(Ok(selected)),
                     Candidate::Passed { why, denied: true } => {
                         exhausted.denied.get_or_insert((candidate, why));
@@ -3212,8 +3254,14 @@ fn default_search_path_from(
 /// the child stops and refusing where this resolver cannot prove what
 /// the child would do. `chain` is the scripts whose interpreters are
 /// being followed to reach this candidate, so a loop is a named refusal.
+/// `position` says whether a next entry exists to walk past this one to.
 #[cfg(unix)]
-fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -> Candidate {
+fn classify_in(
+    candidate: &Path,
+    search: &Search,
+    chain: &mut Vec<(u64, u64)>,
+    position: Position,
+) -> Candidate {
     let refuse = |why: String| {
         Candidate::Refused(CompositeError::Config(format!(
             "{}: {why}",
@@ -3230,7 +3278,9 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
         Ok(metadata) => metadata,
         Err(error) => {
             return match errno_of(&error) {
-                Some(errno) => lookup_failure(candidate, search.library, "metadata", errno),
+                Some(errno) => {
+                    lookup_failure(candidate, search.library, "metadata", errno, position)
+                }
                 None => refuse(format!("the lookup cannot be proved: {error}")),
             }
         }
@@ -3244,7 +3294,7 @@ fn classify_in(candidate: &Path, search: &Search, chain: &mut Vec<(u64, u64)>) -
         return passed("is not a regular file".to_string(), true);
     }
     if let Err(errno) = effective_exec_access(candidate) {
-        return lookup_failure(candidate, search.library, "access", errno);
+        return lookup_failure(candidate, search.library, "access", errno, position);
     }
     let (node, head) = match loading_obstruction(candidate, metadata.len(), search, chain) {
         Ok(loading) => loading,
@@ -3841,7 +3891,7 @@ fn lookup_in(
     chain: &mut Vec<(u64, u64)>,
 ) -> Result<Selected, CompositeError> {
     if is_explicit_path(command) {
-        return match classify_in(Path::new(command), search, chain) {
+        return match classify_in(Path::new(command), search, chain, Position::Direct) {
             Candidate::Admitted(selected) => Ok(selected),
             Candidate::Passed { why, .. } => {
                 Err(CompositeError::Config(format!("{command}: {why}")))
