@@ -39,6 +39,13 @@ adapter keys and SHALL NOT themselves confer authorization.
 - **WHEN** an adapter lists supported web-search and a dialect binds it but the realm grants nothing
 - **THEN** the seat receives its OFF control rather than its ON control
 
+#### Scenario: CQ1 dropping a restricted want composes denial
+
+- **WHEN** a valid native grant has a schema-valid restriction its selected provider binding cannot express and the seat only wants the capability
+- **THEN** the capability is dropped with the complete CQ1 compatibility notice and the final argv uses its supported native OFF control
+- **AND** neither its ON control nor an unrestricted replacement is composed; a measured unsupported OFF still refuses independently
+- **AND** a grant unused after asks, subtraction or scope likewise composes only native OFF, without evaluating an unused ON/restriction configuration
+
 ### Requirement: Codex web-search OFF uses the controller's measured fragment
 
 adapters/codex.json SHALL declare web-search with the OFF argv pair "-c",

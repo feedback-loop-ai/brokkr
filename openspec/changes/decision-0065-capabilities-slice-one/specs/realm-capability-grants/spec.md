@@ -13,7 +13,10 @@ capabilities map. Each entry SHALL select a tool dialect, with optional
 tools subset, offices scope and dialect-defined restriction keys. Existing
 versions v1–v5 SHALL keep loading and grant no capabilities. Missing map,
 missing capabilities and an empty capabilities map SHALL all grant nothing.
-The repository's own realms.json SHALL remain without grants.
+The repository's own realms.json SHALL remain without grants. Abstract
+capabilities/ definitions SHALL be separate operator data under the lookup
+rules in tool-dialect-contract; their presence SHALL NOT constitute a realm
+grant or require changing a legacy map's frozen schema.
 
 #### Scenario: Every older version denies by absence
 
@@ -105,10 +108,30 @@ site label so several seats hiring one office remain distinguishable.
 ### Requirement: Restrictions are validated, carried and pinned without engine interpretation
 
 The realm's restriction values SHALL be validated against its chosen dialect's
-schema and passed through unchanged as structured data to that binding and
-the capability manifest. Reserved keys SHALL retain their engine-defined
-meaning. Invalid values or a native binding unable to express an admitted
-restriction SHALL refuse rather than ignore it or claim it was enforced.
+schema and preserved unchanged as structured data in the pinned realm grant.
+For a held capability the binding's configuration and capability record SHALL
+carry those values unchanged. Reserved keys SHALL retain their engine-defined
+meaning. The compiler SHALL distinguish grant validity from the serving
+provider's ability to enforce a valid grant; it SHALL NOT drop a restriction
+while retaining the capability.
+
+All selected-realm grants SHALL pass structural, reference, class-consistency,
+tool-subset and restriction-schema validation before seat compatibility is
+resolved. Invalid restrictions SHALL refuse compilation irrespective of asks,
+strength or office scope. The MCP slice-two refusal and reserved-hands refusal
+also SHALL apply independently of demand. These realm-wide refusals SHALL NOT
+be converted to optional drops.
+
+After valid native grants are established, inability to express a restriction
+SHALL make the binding unusable for that provider candidate. A remaining
+requires SHALL refuse; a wants SHALL be dropped with its full compatibility
+reason in manifest notices and the native capability SHALL remain OFF. A
+grant unused after asks, subtraction and office scope SHALL stay pinned but
+inactive; native ON/restriction composition SHALL not be required for that
+unused binding. Known native OFF checks SHALL still run independently for
+every serving candidate: an unsupported OFF control SHALL refuse even where
+a wants could otherwise drop or a grant is unused. Successful cases SHALL
+never launch an unrestricted version of the rejected binding.
 
 #### Scenario: A valid restriction survives each boundary
 
@@ -116,11 +139,41 @@ restriction SHALL refuse rather than ignore it or claim it was enforced.
 - **THEN** resolution, the binding's configuration and the manifest carry that value unchanged
 - **AND** changing the restriction changes the manifest digest
 
-#### Scenario: Schema acceptance is not native enforcement
+#### Scenario: CQ1 a required inexpressible restriction refuses
 
-- **WHEN** a restriction validates but its native binding cannot express it
-- **THEN** compilation refuses naming the realm, capability, dialect and unsupported restriction
-- **AND** the capability is not launched unrestricted
+- **GIVEN** private grants web-search to researcher through native dialect search-native with schema-valid allow.hosts and the test-native adapter cannot express allow.hosts but can switch web-search OFF
+- **WHEN** seat research requires web-search
+- **THEN** compilation refuses "seat 'research' (office 'researcher') in realm 'private': requires capability 'web-search' through dialect 'search-native', but provider 'test-native' cannot express restriction 'allow.hosts'; the capability cannot be held under this grant"
+- **AND** no seat launches and the restriction is not removed to make the grant usable
+
+#### Scenario: CQ1 an optional inexpressible restriction drops with OFF
+
+- **GIVEN** exactly the same valid grant, dialect, provider and supported OFF control as the preceding scenario
+- **WHEN** research instead wants web-search
+- **THEN** compilation succeeds without that holding and records "seat 'research' (office 'researcher') in realm 'private': dropped wanted capability 'web-search' through dialect 'search-native' because provider 'test-native' cannot express restriction 'allow.hosts'; native capability remains OFF"
+- **AND** the final argv contains the adapter's OFF disposition, never an unrestricted ON disposition
+- **AND** the manifest retains the grant's original restriction as realm context, and the prompt explains the lost capability without claiming the restriction was enforced on an enabled tool
+
+#### Scenario: CQ1 an unused inexpressible grant stays inactive
+
+- **GIVEN** exactly the same valid grant, dialect, provider and supported OFF control as the preceding scenarios
+- **WHEN** no seat asks for web-search or every asking seat subtracts it
+- **THEN** compilation succeeds without a holding or native ON/restriction configuration for that entry
+- **AND** all serving test-native seats receive OFF and the unchanged restriction remains pinned in realm context
+- **AND** no optional restriction-compatibility notice is invented for a nonexistent or subtracted ask
+- **AND** if a remaining ask is instead excluded by office scope, requires refuses for scope and wants records its scope-drop notice before restriction compatibility is relevant
+
+#### Scenario: CQ1 invalid restrictions refuse before optionality
+
+- **WHEN** allow.hosts in any of those three cases has a value forbidden by search-native's schema
+- **THEN** compilation refuses naming private, web-search, search-native and the complete allow.hosts schema violation even for wants or an unused grant
+- **AND** no compatibility drop substitutes for the invalid-grant refusal
+
+#### Scenario: CQ1 impossible OFF overrides an optional drop or unused grant
+
+- **WHEN** the optional or unused case instead has web-search OFF declared unsupported with a measured reason
+- **THEN** compilation refuses with the complete native-denial reason naming research, private, web-search, test-native and its measured OFF limitation
+- **AND** an existing realm grant cannot authorize a capability that the seat does not effectively hold
 
 ### Requirement: Realm context is resolved before capability authorization
 
@@ -157,3 +210,16 @@ the run or spawning any seat.
 - **WHEN** a bundle compiled for one capability grant context is started with an operated realm whose capability grants differ
 - **THEN** start refuses the inconsistent capability authority before creating a run or spawning a seat
 - **AND** a matching context starts under its compiled holdings
+
+## Decisions
+
+CQ1 replaces the earlier unconditional native-restriction refusal with a
+validation/compatibility distinction. Ruling 5's unusable requires/wants
+semantics govern a valid native binding: dropping the whole optional
+capability with OFF preserves every restriction and grants less power.
+Discarding a restriction and launching unrestricted is refused. Refusing
+all optional or unused valid grants solely for an inexpressible restriction
+is also rejected because neither grants an unrestricted capability. Invalid
+grant data, unbuilt kinds and impossible native denial remain independent
+refusals. This does not relax existing local tool-permission restrictions,
+which constrain the continuing seat rather than an optional capability.

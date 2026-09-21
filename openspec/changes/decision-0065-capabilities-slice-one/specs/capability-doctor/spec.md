@@ -12,7 +12,12 @@ tool dialects and office scope. It SHALL distinguish unrestricted requesting
 office scope from an explicit office list or empty scope, and say when a realm
 grants nothing. It SHALL show narrowed tools and restrictions without exposing
 secret values. Reporting SHALL use that realm's own data, not the realm of
-the current working directory for all rows.
+the current working directory for all rows. Abstract class definitions SHALL
+be resolved from the same explicit operator definition context as compilation.
+A definition SHALL not be reported as a grant; a missing or conflicting
+required definition SHALL be reported as invalid metadata with its source and
+capability, rather than a provider-availability or ordinary no-grant result.
+Independent realm and native-inventory reporting SHALL continue where possible.
 
 #### Scenario: Neighboring realms keep different grants
 
@@ -30,6 +35,18 @@ the current working directory for all rows.
 
 - **WHEN** doctor runs in a repository without a realms map
 - **THEN** it reports that no capability grants are declared and native capabilities are governed by the no-grant default
+
+#### Scenario: CQ2 definitions do not become grants in doctor
+
+- **WHEN** operator-library-docs has a valid reads/egress operator definition and private grants nothing
+- **THEN** private still reports no grants, without an invented dialect or holding
+- **AND** a library request missing that definition or a selected dialect asserting conflicting classes instead reports the named metadata defect while preserving independent native-denial and unmeasured-inventory lines
+
+#### Scenario: CQ1 a declared restriction is not a claim of usable authority
+
+- **WHEN** a valid native grant contains a restriction its binding cannot express
+- **THEN** doctor shows the grant, dialect, scope and restriction as declared, and names the binding's restriction incompatibility without claiming it can run unrestricted
+- **AND** if reporting a resolved seat, it reports the requires refusal, wants drop with OFF, or unused inactive grant according to CQ1 rather than converting that grant to a holding
 
 ### Requirement: Installed native capabilities absent from grants are explicit
 
