@@ -1,56 +1,432 @@
 # Tasks: Same-instance session resumption and durable progress (#226)
 
-Current tasks visit, 2026-09-21: **the final targeted DSH composite R1–R4
-repair**, run `dsh-composite-identity-issue-226-e291e076`. Adopt every commit
-on `slice-dsh-composite-b` through design HEAD
-`136f918305d4f75ccb5f6148527291323c0fa187`, including commissioned baseline
-`81d7fe87`, proposal/specification `be8cd9d8`, the clean resolver port and
-its narrowings. Proposal **AT**, AS1's five added scenarios and the current
-D6/D10/D11 design precede this breakdown. No `returned_from` is supplied;
-the commission carries chief run `124cca78`'s four findings. No earlier
-artifact must change before an honest breakdown can be drafted.
+Current tasks visit, 2026-09-21: **8.8(d), Pass C, the three surviving
+MEDIUMs R1–R3**, run `dsh-launch-planner-issue-226-tas-bff4c1e2`.
+Adopt every commit on `slice-dsh-planner-d` (PR #313) through commissioned
+`5dc0f4f3`, specification `cd384791` and design
+`6b817cad508662623bf5d8b18c60ba3b3153cefa`. Proposal **AU**, the amended
+LE1/LE3/LE5 and AS4 deltas, and design **D7/D10/D11** precede this breakdown.
+No `returned_from` is supplied; the commission supplies the final chief's
+R1–R3. Predecessor `dsh-launch-planner-issue-226-tas-ed4ff1bc` remains parked
+`REVIEW-REFORGE-EXHAUSTED-MEDIUM` for the operator. No upstream artifact
+must change before this plan can be executed.
 
-Only **8.8(a)–(c)** and exactly **R1–R4** are commissioned. Execute the
-unchecked repair clauses below in numbered order. The native cursor walk,
-reached-cwd barrier, existing causes, fixed rc.2 inputs, sole producer and
-sound earlier repairs are adopted. Prior proofs remain attributed history;
-new guards, invocation carriage and pre-probe admission need their own tests
-and removal/restoration evidence. This plan supersedes the previous
-verification-only visit; dated accounts remain history.
+Execute only new clauses **8.8.9.1–8.8.15.1**, in printed order. They are
+subtasks of the still-open 8.8(d)/8.10 acceptance, not new whole-change work.
+The earlier composite breakdown and dated delivery records below are adopted
+history and remaining debt, not instructions to repeat or broaden this visit.
+The prior 104 DSH protocol and 24 built-driver passes do not prove R1–R3.
+Preserve Pass B admission, D1's independently observed staging, D2's rename
+staging after the writer is reaped without retry, same-checkpoint root/address
+publication, the pre-init unreadability latch and every inherited guard.
 
-All fourteen local addresses and their **5 complete / 9 pending** states are
-preserved. All 101 change-wide addresses remain **84 complete / 17 pending**:
-**115 numbered rows, 89 complete / 26 pending** in total. With 18 retained
-historical checkbox rows, the file remains **133 checkbox rows, 105 complete /
-28 pending**. No checkbox changes in this tasks phase. **8.8 stays unchecked**.
-The five capability deltas have **20 requirements / 224 scenarios**; specify
-already authored the five new scenarios.
+Entry inventory, counted from the file rather than its stale opening summary:
+**133 checkbox rows, 108 checked / 25 unchecked**; of these **115 numbered
+rows, 92 checked / 23 unchecked**, plus 18 historical checkbox rows. This
+breakdown adds **19 unchecked numbered rows**, yielding **152 checkbox rows,
+108 checked / 44 unchecked** and **134 numbered rows, 92 checked / 42
+unchecked**. All inherited checkbox states and addresses remain unchanged.
+The five deltas retain **20 requirements / 236 scenarios**. **8.8, 8.10 and
+9.6 stay unchecked**, including after this bounded repair is delivered.
 
-Every local task serves **safety / AS1 — Resume support is measured per
-adapter and execution shape**, in the
-[safety delta](specs/adapter-resume-safety/spec.md#requirement-as1-resume-support-is-measured-per-adapter-and-execution-shape).
-Scenario bindings appear below. Change-wide requirement citations and archive
-ordering are preserved. This is a breakdown checkpoint, not implementation
-completion, a council verdict or acceptance of debt.
+Only `tasks.md` is a tracked output of this phase. Implementation belongs in
+`crates/brokkr-protocol/src/adapters.rs` and `adapters/tests.rs`; retain the
+existing `crates/brokkr-cli/tests/driver_conformance.rs` coverage. A change to
+that suite must prove a distinct inherited observation, not build a new
+qualified provider installation. No new production file, dependency, schema,
+public seam, provider call, qualification, digest, route enablement or release.
+`contracts/`, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` stay byte-identical;
+**0056 stays proposed and the DSH route stays disabled**.
 
-Keep `contracts/`, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
-`reference/`, `extensions/dsh/` and `docs/decisions/` byte-identical to the
-adopted head; **0056 stays proposed**. Part **(d)**, **8.10**, **9.6**,
-**10.6–10.8**, **11.1–11.4** and **groups 14–15** are excluded. No planner
-completion, new crate/dependency, public resolver, YAML AST, identity format,
-persisted field, production trial execution or installation change follows.
-Production repair stays in the existing Rust protocol and doctor surfaces
-and their tests. Use owned harmless fixtures and isolated child environments;
-`.forge/` is evidence, never identity input.
+Hosts are Linux and macOS. Every remaining native-Windows lookup/matrix,
+doctor, `GetBinaryTypeW`, Windows MSRV and Windows CI obligation in this
+ledger is **withdrawn by decision 0063**, not pending; dated actual executions
+remain historical facts. Native macOS, applicable MSRV/source-pin/Node debt
+and final-head remote evidence keep their existing owners without widening
+this repair. Canonicalize temporary roots, use host `io::Error` errno text,
+and echo no option, value, model, ID, path or malformed bytes in diagnostics.
 
-Native macOS/Windows/MSRV, immutable Apple/env source pins and the retained-
-Node absent-PATH positive/removals remain pending under their existing owners,
-without becoming new work in this final repair. Capable-host exact coverage
-and final-head remote CI retain their own pending results. The change is
-already active, so no reopen is needed. The dialect archive/fold remains the
-final whole-change operation in group 15; this partial slice performs none.
+Pass D's composite/containment/retained-storage matrix, 9.6, 10.x, 11.x and
+whole-change groups 14–15 remain outside scope. The change is already active;
+no reopen is needed. Its dialect archive/fold remains the final whole-change
+operation under group 15, after the other obligations; this partial repair
+neither archives nor folds unfinished deltas into living truth.
 
 ## Decisions
+
+Adopt AU and D7's existing `DshRootWatch`/`LaunchHold` representation. One
+absorbing refusal transition sets `settled` without `released`; mismatch
+keeps its distinct terminal outcome. One required-store observation rule
+serves both sides of matching init. Retain the immutable pre-spawn census,
+exactly one offered header and its canonical address, and counted
+`(header ID, canonical PathBuf)` occurrences. Require current occurrences to
+fit within the baseline counts; removing an unrelated baseline sibling alone
+is allowed. Neither unique-ID sets, pair sets, total counts, refreshed
+baselines nor whole-store equality implements that rule.
+
+Decode an event before observing its associated store so a valid matching
+init is processed first. Malformed pre-init output and pending line-read
+failure permanently refuse an offered invocation. Malformed post-init output
+while pending still requires observation, but readable consistent evidence
+may wait or confirm. Cold noise behavior is preserved. Every exit from `new`,
+`named`, `settle`, the pre-init helper, stream decode/read and final drain must
+have D7's explicit pending/refused/mismatch/confirmed disposition.
+
+Use the private invocation seam selected by D7: production `run_seat`
+delegates to its same body with the existing `invoke`, while tests invoke
+real synthetic `DshLaunch` children through that body. Keep prompt/binding
+setup, checkpoint buffering, delivered-file detection and the actual terminal
+guard. Add a per-invocation observer of completed production observations.
+Acknowledge a transient only after the decision and all required reads, on
+all outcomes, including pending under removal. For decode/read errors witness
+the completed stream observation. No second census, sleep-only witness,
+global observer, fake `Invocation`, public bypass or diagnostic checkpoint.
+These are adopted design choices; no new ambiguity or semantic decision is
+introduced. An earlier-artifact counterexample must return `upstream`.
+
+**Proof contract for every contrary-evidence child case below.** Run separate
+clean-exit and valid-delivered-result endings through the shared terminal body.
+Require `Failed`, `result: None`, and the exact error
+`provider never confirmed the offered session; refusing to accept the invocation`.
+Assert no checkpoint carries `root_session`, any transcript locator/address or
+`launch`, no held work checkpoint or successful session-finished path escapes,
+and exactly one child runs with no cold replacement. Retain the delivered
+file for diagnosis. Ordinary wire `Accepted` is not successful-work acceptance
+and retains its existing ordering. Mismatch controls assert the distinct
+existing different-session reason. Assert reasons, never bare `is_err()`.
+
+For **each new regression and each ending**, record the applicable compiling
+production mutation, exact command/filter, nonzero selected test count,
+intended failed behavioral assertion, exact restoration and green rerun.
+Keep observation/acknowledgment active under removal so a repaired store can
+reach later false confirmation; a timeout does not prove refusal. Where
+cardinality and identity guards overlap, isolate and disclose the joint
+semantic protection removed. Positive/comparison controls need applicable
+removal evidence too. Compile errors, fixture failures, unrelated guards,
+sleeps, zero-test filters or historical removals supply no proof. Restore each
+mutation before the next; commit none. Tasks name verification below, and the
+delivery account must replace planned proof descriptions with actual evidence.
+
+Requirement references used in every current checkbox resolve to these exact
+owning requirements:
+
+- [LE1 — Every model adapter reports actual launch outcomes][LE1].
+- [LE2 — Launch evidence stays within a versioned closed vocabulary][LE2].
+- [LE3 — Launch reporting preserves first-work acceptance and refusal semantics][LE3].
+- [LE5 — Launch conformance covers every site and historical compatibility][LE5].
+- [AS4 — A refused resume permits only one proven pre-work cold replacement][AS4].
+- [PM1 — Task progress is persisted when work is completed][PM1].
+- [PM4 — Task completion does not stand in for delivery proof][PM4].
+
+[LE1]: specs/adapter-launch-evidence/spec.md#requirement-le1-every-model-adapter-reports-actual-launch-outcomes
+[LE2]: specs/adapter-launch-evidence/spec.md#requirement-le2-launch-evidence-stays-within-a-versioned-closed-vocabulary
+[LE3]: specs/adapter-launch-evidence/spec.md#requirement-le3-launch-reporting-preserves-first-work-acceptance-and-refusal-semantics
+[LE5]: specs/adapter-launch-evidence/spec.md#requirement-le5-launch-conformance-covers-every-site-and-historical-compatibility
+[AS4]: specs/adapter-resume-safety/spec.md#requirement-as4-a-refused-resume-permits-only-one-proven-pre-work-cold-replacement
+[PM1]: specs/sdd-progress-markers/spec.md#requirement-pm1-task-progress-is-persisted-when-work-is-completed
+[PM4]: specs/sdd-progress-markers/spec.md#requirement-pm4-task-completion-does-not-stand-in-for-delivery-proof
+
+## 8.8.9. Establish real terminal and observation proofs
+
+- [ ] 8.8.9.1 Add D7's private `run_seat` invocation seam and extend the existing
+      `dsh_stream_launch`/`invoke_dsh_launch` test helpers to return the actual
+      wire results and checkpoints from one real child. Verify ordinary
+      confirmed warm and qualified cold controls through the shared terminal
+      body, including the exact root/address on one checkpoint and location /
+      launch / current-work order. Preserve existing built-driver D1/deadline
+      cases; no synthetic terminal implementation or qualified install fixture.
+      Prove the controls' publication/terminal assertions by applicable removal
+      and restored rerun. **Requirements: [LE1], [LE3], [LE5].**
+- [ ] 8.8.9.2 Add the per-invocation completed-observation seam and bounded
+      child/parent acknowledgment described under Decisions. Retain immutable
+      actual census/read/stream facts before the child may restore or advance;
+      notify on all completed outcomes, not only in the refusal branch. Verify
+      a consistent pending-to-confirmed child observes both snapshots in order
+      and reaps cleanly; that same witness remains operational when the
+      later refusal mutations leave an observation pending. Record exact
+      observed facts, not a separate walk or child-created proof marker.
+      **Requirements: [LE1], [LE5].**
+
+## 8.8.10. Repair the shared watcher rule and retained identity
+
+- [ ] 8.8.10.1 Centralize the absorbing refusal transition and initialize it
+      when an offered launch lacks `first_seq`, a successful baseline census
+      or exactly one baseline offered header. Retain the complete baseline
+      and offered canonical address; never replace missing history later.
+      Audit `named` and settled outcomes so init, EOF or delivery cannot reset
+      refused/mismatched/confirmed state. Verify focused state transitions and
+      baseline-repair controls with applicable compiling removals, restoring
+      the repair green. **Requirements: [LE1], [LE3].**
+- [ ] 8.8.10.2 Replace both ID-set reductions with counted pair containment
+      over the bounded reader's admitted `(ID, PathBuf)` occurrences. Check
+      current offered-header cardinality first, then its retained address,
+      then current counts against immutable baseline counts. Keep duplicate
+      canonical occurrences visible; a changed identity/address or excess
+      occurrence refuses, while an unrelated old sibling's disappearance
+      alone does not. Refresh comments and verify focused new-address,
+      equal-pair multiplicity, equal-total replacement and old-sibling-removal
+      controls with applicable removals/restoration. Preserve containment,
+      budgets, delegated-header exclusion and whole-walk errors. **Requirements:
+      [LE1], [LE5].**
+- [ ] 8.8.10.3 Unify pre-init and post-init store evaluation using those retained
+      facts and one offered-sequence read per observation. Census/read failure,
+      missing/ambiguous/replaced header and new/excess entry refuse on either
+      side of init. Before init, `last > first_seq` refuses; after init only
+      readable consistent `last <= first_seq` waits, and `last > first_seq`
+      confirms. Retire the weaker pre-init predicate or delegate it entirely.
+      Verify each former early return against D7's disposition table with
+      focused controls/removals. Preserve `record_locator` -> `hold.address`
+      -> root/launch confirmation -> drain, `may_fold` and final-drain guards.
+      **Requirements: [LE1], [LE3], [AS4].**
+
+## 8.8.11. Give every stream exit the same refusal boundary
+
+- [ ] 8.8.11.1 Refuse malformed pre-init output even with no observed sequence
+      advance, before its current `continue`; refuse pending line-read errors
+      before `break`. Keep cold malformed/non-UTF-8 behavior and settled states.
+      Process valid init before its store observation and allow valid non-init
+      JSON to reach the shared rule. Verify decode-before-advance and pending
+      line-read failure on both endings using completed-stream acknowledgments,
+      repaired otherwise-confirming stores and the proof contract; each removal
+      must fail the intended terminal assertion, not time out. **Requirements:
+      [LE1], [LE2], [LE3], [LE5].**
+- [ ] 8.8.11.2 On malformed post-init output while pending, apply the common
+      store observation before skipping without blanket JSON refusal. Verify
+      consistent noise can still confirm, and a contradictory census consumed
+      on that malformed line remains refused after restoration, on both
+      endings. Remove only the observation-before-skip protection while keeping
+      witness acknowledgment active; require the terminal assertion to fail,
+      then restore green. Verify EOF/post-wait settlement and drain cannot
+      reverse any absorbing outcome. **Requirements: [LE1], [LE3], [LE5].**
+
+## 8.8.12. Prove each surviving finding independently on both endings
+
+- [ ] 8.8.12.1 Prove **R1**: baseline `session-1`/27, append `assistant/message`
+      28, emit non-JSON and then matching init, with no valid pre-init event
+      that could trigger another guard. Execute both exact LE1 scenarios
+      **R1 Malformed pre-init work with clean exit** and **with delivered
+      result**, asserting the entire proof contract. Remove malformed pre-init
+      refusal and observe each terminal/publication assertion fail; restore
+      and rerun both green. Keep 8.8.11.1's no-advance case distinct so a
+      store-only check cannot stand in for the rule. **Requirements: [LE1],
+      [LE3], [LE5], [AS4].**
+- [ ] 8.8.12.2 Prove **R2**: matching init arrives with fresh `session-9` and
+      offer still at 27. Witness the completed contradictory production census
+      before permitting deletion; then advance offer to 28 and emit another
+      event. Establish that the repaired final store satisfies every positive
+      confirmation fact. Execute LE1's **R2 An observed fresh sibling disappears
+      with clean exit** and **with delivered result**, asserting the proof
+      contract and observed sibling. Remove only the permanent contradiction
+      transition, retaining observations/acknowledgments; each ending must
+      reach later false confirmation and fail the intended assertion. Restore
+      and rerun green. **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [ ] 8.8.12.3 Prove **R3** separately: baseline has `session-9` under `--old--`;
+      retain it and add the same ID under `--new--`, keeping exactly one
+      offered `session-1`, advanced from 27 to 28, and valid matching init.
+      Execute LE1's **R3 A new storage entry reuses an existing sibling ID with
+      clean exit** and **with delivered result**, asserting the proof contract
+      and two admitted addresses. Mutate counted containment to the former
+      ID-only comparison; both endings must lose their claimed refusal / no
+      publication assertion. Restore green; no transient R2 case or Pass D
+      storage-admission matrix substitutes. **Requirements: [LE1], [LE3],
+      [LE5], [AS4].**
+
+## 8.8.13. Close the bounded rule audit and preservation controls
+
+- [ ] 8.8.13.1 Prove LE1's **Post-init offered-header contradictions cannot be
+      restored away**: observe missing and ambiguous offered headers after
+      matching init, then restore uniqueness and advance. Use only baseline
+      storage addresses for ambiguity, with the offered sequence otherwise
+      nonconfirming, and assert the completed cardinality observation on both
+      endings. Apply the proof contract and isolate/disclose overlapping
+      cardinality/identity protection in removals so another guard cannot
+      provide the claimed refusal. Restore all four cases green.
+      **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [ ] 8.8.13.2 Prove LE1's **Required post-init evidence cannot become readable
+      later to cure refusal**: independently fail the census and offered
+      sequence read after init, witness each actual failed observation, then
+      repair the store to permit confirmation. Also drive missing boundary,
+      failed baseline census, missing baseline header and ambiguous baseline
+      later made unique through real children. Run both endings, with named
+      terminal/no-publication assertions and applicable guard removals that
+      permit later false confirmation. Restore green; pre-init partial-tail
+      evidence remains independently covered. **Requirements: [LE1], [LE3],
+      [LE5], [AS4].**
+- [ ] 8.8.13.3 Prove LE1's **A fresh sibling observed before init also latches
+      refusal** on valid non-init JSON with the offered sequence unchanged.
+      Acknowledge that census, remove the sibling, then supply matching init
+      and activity. Run both endings under the proof contract and remove the
+      pre-init contradiction protection to expose later false confirmation.
+      Retain valid-JSON pre-init work and unreadable/partial-tail controls;
+      replace sleep-only causal evidence for any transient case newly credited
+      here. Restore green. **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [ ] 8.8.13.4 Prove the remaining identity comparisons through focused child
+      exchanges: an additional admitted alias repeats the exact canonical
+      `(ID, file)` occurrence; separately, a replacement changes a retained
+      address while unique IDs and total entry count remain unchanged. On
+      both endings witness the consumed occurrence/address evidence and
+      assert the proof contract. Use applicable pair-set/occurrence-reuse and
+      equal-total/identity mutations, disclosing overlapping offered-address
+      protection where applicable. Restore green. These compare the admitted
+      census and add no Pass D containment or inode-identity matrix.
+      **Requirements: [LE1], [LE3], [LE5], [AS4].**
+- [ ] 8.8.13.5 Complete LE1's **A consistent pending rejoin can still confirm**
+      and **Cold stream noise keeps its existing behavior** using the same
+      terminal route: valid pre-init noise, unchanged unrelated sibling,
+      delayed activity, ordinary init consumed after its current activity was
+      already stored, and removal of an unrelated baseline sibling alone.
+      Retain post-init consistent-noise, cold malformed/non-UTF-8 and mismatch
+      controls, distinct mismatch reason, root/address re-admission, D1, D2
+      and real deadline/cancel coverage. Verify one correctly ordered launch
+      for positives, exact reasons for refusals and no replacement; run
+      applicable removals on new assertions to exclude unconditional refusal
+      or whole-census equality. **Requirements: [LE1], [LE3], [LE5], [AS4].**
+
+## 8.8.14. Validate the restored repair, sequentially
+
+- [ ] 8.8.14.1 Audit every D7 transition/early return and both census conversions
+      against a task -> scenario -> actual test/ending -> mutation -> failed
+      assertion -> restored pass ledger. Require all six headline proofs and
+      every additional rule/control above; retain observed transient facts
+      alongside them. Run the restored focused DSH protocol cases and existing
+      built-driver conformance suite, recording exact commands, nonzero test
+      counts and actual outcomes. Inspect the diff to ensure no mutation,
+      admission relaxation, diagnostic leak or rename retry survives.
+      **Requirements: [LE1], [LE3], [LE5], [AS4], [PM4].**
+- [ ] 8.8.14.2 On the restored candidate run each D11 gate separately, in order:
+      `cargo fmt --all -- --check`;
+      `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`;
+      `cargo test -p brokkr-core --all-features --locked`, followed by the same
+      crate-scoped command for `brokkr-store`, `brokkr-protocol`,
+      `brokkr-runtime`, `brokkr-view`, `brokkr-bridge`, then `brokkr-cli`,
+      completing each before starting the next;
+      `openspec validate --all --strict`;
+      `cargo run --locked -p brokkr-cli -- compile --bundle bundles/self`;
+      `cargo run --locked -p brokkr-cli -- compile --bundle bundles/verify`.
+      Record command, revision and result; tick only when all these checks
+      execute green. An unavailable tool is not a pass. The recipe's separate
+      workspace verify exec remains required by its design, not a smith-selected
+      command or finding. **Requirements: [LE5], [PM4].**
+- [ ] 8.8.14.3 Prepare the unchanged external exact-coverage handoff for the
+      candidate: `bash scripts/coverage-exact.sh` on CI/a host that can create
+      the boundary namespace. Verify no pin, gate, exclusion, denominator or
+      test-selection change; CI, release admission and local coverage still
+      consume `rust-nightly-version.txt`. Record revision/environment and actual
+      covered/total lines, branches and functions when supplied, otherwise
+      explicitly pending/unavailable. Likewise retain native macOS and final-head
+      remote results as pending until observed. This task verifies preparation
+      and truthful handoff only; its tick is not a green coverage or remote gate.
+      **Requirements: [LE5], [PM4].**
+
+## 8.8.15. Record this slice and commit its reviewed bytes
+
+- [ ] 8.8.15.1 After the scoped implementation/proofs and local gates above pass,
+      record actual R1–R3 delivery, per-ending removal results, restored test
+      results and external pending evidence. Tick each finished scoped task
+      beside its evidence, preserving open whole-task 8.8/8.10/9.6 and all
+      excluded groups. Pass D still owes composite/doctor/adaptation drift,
+      worked lock-dialect vectors, byte order/equality, containment and retained
+      storage; 9.6 still owes cold/warm retained-store integration, historical /
+      current multi-message/tool/retry intervals, output/tool/target filtering,
+      usage deduplication, per-message versus cumulative accounting, omission
+      of unattributable totals and legacy compatibility. No latch proof credits
+      those debts. Verify `git diff --check`, strict active-change validation,
+      requirement/checkbox inventory and only intended Rust/test/task changes,
+      with all frozen surfaces unchanged, 0056 proposed and DSH disabled. Tick
+      this artifact-readiness clause before the commit; then commit the exact
+      staged repair and ledger using the repository's message style, verify
+      the commit and clean worktree, and hand off its hash without another
+      tracked write. Do not report delivery before that commit or represent
+      pending external gates as passed. Never push. **Requirements: [LE5],
+      [PM1], [PM4].**
+
+The final whole-change archive/fold remains group 15's last operation, after
+all of its prerequisites; it is not an action or completion claim of 8.8.15.
+
+## Tasks-phase validation — Pass C R1–R3, 2026-09-21
+
+Adopted design `6b817cad`, specification `cd384791` and every commit through
+commissioned `5dc0f4f3` on `slice-dsh-planner-d`. Read the dialect manifest,
+its tasks/return/archive instructions and rendered tasks instructions through
+workspace hands. D7's current Open Questions contain no unresolved behavior
+choice. Source tracing covers the malformed-line skip/read-error break, both
+census reductions, pre-init predicate, post-init early returns, fold gates,
+terminal guard and existing child helpers. No upstream amendment is needed.
+
+The current breakdown orders proof seams, immutable latch/census, stream
+handling, each headline repair's terminal proof, remaining rule controls,
+sequential gates and the scoped commit. The scenario coverage is explicit:
+
+| LE1 acceptance | Current task coverage |
+|---|---|
+| R1 malformed pre-init work, clean exit and delivered result | 8.8.11.1, 8.8.12.1 |
+| R2 observed fresh sibling disappears, clean exit and delivered result | 8.8.10.3, 8.8.12.2 |
+| R3 new storage entry reuses sibling ID, clean exit and delivered result | 8.8.10.2, 8.8.12.3 |
+| Post-init offered-header contradictions cannot be restored away | 8.8.13.1 |
+| Required post-init evidence cannot become readable later to cure refusal | 8.8.10.1, 8.8.13.2 |
+| A fresh sibling observed before init also latches refusal | 8.8.13.3 |
+| Malformed pre-init evidence is not a pending warm observation | 8.8.11.1 |
+| A consistent pending rejoin can still confirm | 8.8.9.2, 8.8.13.5 |
+| Cold stream noise keeps its existing behavior | 8.8.9.1, 8.8.13.5 |
+
+D7's additional pending read-error/post-init noise, immutable-baseline,
+address replacement and equal-pair multiplicity controls belong to
+8.8.10.1–8.8.11.2 and 8.8.13.2/8.8.13.4. LE3's terminal/privacy rule and
+AS4's no-replacement rule apply to every contrary-evidence exchange. LE5's
+actual observation and per-ending removal evidence is required throughout;
+8.8.14.1 reconciles the final evidence, not just a table of planned tests.
+PM1/PM4 keep progress, candidate validation and external evidence distinct.
+
+Validation performed by this tasks seat:
+
+- `openspec validate --all --strict`: **exit 0, 15 passed / 0 failed**.
+  Strict active-change validation also passes. Existing informational
+  archive-readiness notices for adapter-resume-safety and sdd-progress-markers
+  remain whole-change archive debt; no archive, delta-kind change or living
+  truth edit belongs to this slice. OpenSpec's complete planning status does
+  not report the implementation complete.
+- `git diff --check` and the artifact/requirement audit pass. Of **743 tracked
+  files**, only `tasks.md` changes; the other **742** preserve their entry
+  hashes, including production/tests, proposal/design, all five deltas and
+  every frozen surface. All inherited task addresses/states are preserved;
+  **19 new tasks are unchecked**, for **152 checkbox rows (108 checked /
+  44 unchecked)**, **134 numbered rows** and **270 Markdown headings**.
+  Every new checkbox cites requirements with resolving links and names its
+  verification. The deltas still contain **20 requirements / 236 scenarios**.
+  Whole-change groups 10, 11, 14 and 15 are byte-identical; 8.8/8.10/9.6
+  remain open. Decision 0056 stays proposed and DSH stays disabled.
+- Fresh fmt, locked all-target/all-feature clippy, seven separate locked
+  all-feature crate suites in order, and both bundle compile attempts each
+  exit **127**, `cargo: command not found`. No Rust command executed, no
+  removal ran, and no Rust gate is green evidence from this visit. The smith
+  attempted no workspace-suite command; the recipe's own verify exec remains
+  required and is not a finding.
+- Exact coverage is external/pending because this box cannot create the
+  required boundary namespace. Current covered/total lines, branches and
+  functions are **unavailable**, not inherited or adjusted totals. The exact
+  script/gate is unchanged; CI, release admission and coverage consume
+  `rust-nightly-version.txt`. Native macOS and final-head remote results are
+  pending until their actual results exist; Windows obligations are withdrawn
+  by 0063.
+
+Run-local command logs, entry hashes and the structural audit are under
+`.forge/validation/dsh-bff4c1e2-tasks/`; they are not committed artifacts.
+Delivered by this phase: the ordered requirement-linked breakdown and the
+narrow 8.8(d)/8.10/9.6/history reconciliation. Pending: Rust repair, all new
+child/removal proofs, green executable gates and external evidence. Pass D
+and 9.6 retain all obligations named above. This is a **drafted tasks
+artifact**, not implementation completion or clearance of the predecessor's
+park. The phase commit contains only this file; the required result and
+post-commit hash evidence are written through workspace hands outside tracked
+artifacts.
+
+## Historical composite decisions and execution clauses
+
+The following composite scope, task states, verification commands and dated
+records are retained under their original owners. The current R1–R3 plan above
+supersedes conflicting visit-relative instructions, retries and Windows debt;
+it does not reopen composite work or claim its pending evidence passed.
 
 Adopt **AT** and **D10, Final R1–R4 council reconciliation**. R1 consumes
 supported structural ASCII separation before scalar admission. R3 bounds raw
@@ -101,7 +477,7 @@ recorded for the operator's debt ruling, without further repair, self-granted
 waiver or another automatic reforge assignment. No clause licenses work beyond
 R1–R4.
 
-### Execution order and requirement coverage
+### Historical composite execution order and requirement coverage
 
 Preserved clauses constrain the work; they do not assign old mutations again.
 Broad task owners remain unchecked for inherited pending evidence even after
@@ -196,8 +572,9 @@ do not narrow full acceptance to earn a tick. AS1 names the requirement above.
   differential matrix and independent inventory in
   `native_executable_resolution_matches_command_matrix` and
   `terminal_path_lengths_refuse_before_doctor_probe`; no cursor rewrite,
-  matrix expansion or old-removal replay follows. Native macOS/Windows matrix,
-  GetBinaryTypeW, Windows MSRV and source-pin cells retain their original
+  matrix expansion or old-removal replay follows. Native Windows matrix,
+  doctor/GetBinaryTypeW and Windows MSRV are withdrawn by decision 0063.
+  Native macOS matrix and applicable source-pin cells retain their original
   pending acceptance — safety / AS1: Resume support is measured per adapter
   and execution shape.
 
@@ -3628,12 +4005,14 @@ saved for the phase commit.
       it, keep the wrapper and its capture marker, gate the planner
       separately and never substitute plain Claude to make resume
       work — safety / AS1, evidence / LE4.
-- [ ] 8.8 Current final targeted repair is only R1–R4 within (a)–(c),
-      in the ordered local groups 8.8.1–8.8.8 above under proposal AT and
-      the current D10 sitting. Historical closure claims do not discharge
-      these four findings or erase inherited evidence debts. The remaining
-      text records whole-change acceptance, including excluded (d), not this
-      slice's execution order. This checkbox remains open.
+- [ ] 8.8 Current repair is only R1–R3 in (d), Pass C, under proposal AU
+      and design D7/D10/D11. Execute local groups 8.8.9–8.8.15 above; adopt
+      the prior composite, Pass B and Pass C commits and proofs. Historical
+      closure claims neither discharge these three findings nor erase
+      inherited debt. The remaining text records whole-change acceptance;
+      it does not commission live qualification, Pass D or enablement here.
+      This whole-task checkbox remains open — evidence / LE1, LE3, LE5;
+      safety / AS4.
       After 1.1, 6.4, 11.5 and 13.1 establish the corrected disabled
       truth and 10.7's live half commits the adaptation, implement 10.3's
       forward-pinned DSH route for N1's resolved official core,
@@ -3893,8 +4272,9 @@ saved for the phase commit.
       the overlay's and the fetch grant is the composed profile's own (decision
       0044 ruling 5's erratum). Do not move the roster assertion, `bundle.json`,
       `research-web.yml`, compiled staffing or research-dsh witness digest.
-      The remaining launch half of (d) belongs to Pass C, after B; preserve its
-      inherited partial implementation without extending or crediting it here.
+      Pass C's delivered launch half and subsequent repairs are adopted
+      history. Current AU/D7 repair clauses 8.8.9.1–8.8.15.1 alone are
+      commissioned here; they enforce invocation-wide refusal before release.
       Confirm the launched root before publishing: do not treat the
       plugin's request-derived `session_id` value by itself as
       confirmation. Require a valid prior depth-zero header retained at
@@ -3907,11 +4287,22 @@ saved for the phase commit.
       model-recall device (design D6): it is never planted in a prompt or
       read at run time, and this run-time confirmation names only the
       mechanically observable header, init event, sibling-root and
-      sequence facts above. A missing or different root, whether followed
-      by a clean child exit
-      or by a delivered result file, remains failed or indeterminate
-      under D7: it publishes no `root_session`, no `transcript` locator
-      and no launch row, and authorizes no cold replacement by itself.
+      sequence facts above. Retain the immutable pre-spawn census of admitted
+      `(header ID, canonical file)` occurrences, exactly one baseline offered
+      header and its address; require current counted occurrences to fit the
+      baseline without collapsing IDs, addresses or multiplicity. Run one
+      observation rule before and after matching init: missing baseline or
+      failed required evidence, missing/ambiguous/replaced offered headers,
+      fresh/excess entries, pre-init work, malformed pre-init output and pending
+      stream-read failure permanently refuse. Only readable consistent waiting
+      is retryable; later init, repaired storage, EOF or delivery never cures
+      refusal. Preserve post-init consistent-noise and cold behavior. R1–R3
+      end failed with LE3's exact unconfirmed-session reason on both endings,
+      no accepted result, root, locator, launch or work publication and no cold
+      replacement; retain delivery on disk. A different-root mismatch keeps
+      its distinct existing reason. Verify the six headline child proofs,
+      completed-observation witnesses and all D7 rule controls/removals through
+      the real terminal body under the current numbered clauses.
       Never forward the launcher's TUI example, treat the retained
       directory as a provider handle, alter the live global pin/profile, add
       an SDK runner or admit hands. If 10.7 demonstrates that the documented
@@ -3968,10 +4359,12 @@ saved for the phase commit.
       turns out to need durable intent, return to design for its
       representation rather than widening a start payload — site / SR3,
       site / SR5.
-- [ ] 8.10 This whole-change acceptance remains pending and is not a new
-      implementation task in CODEX, END TO END. Reuse its landed Codex test
-      seams under 11.1; do not repeat AA's production repairs or open C/D
-      — safety / AS1, AS2; site / SR1; evidence / LE5.
+- [ ] 8.10 This whole-change acceptance remains pending. For the current
+      AU/D7 Pass C repair, execute only 8.8.9.1–8.8.15.1: R1–R3 plus the
+      bounded watcher-rule controls, both terminal endings, completed production
+      observations, independent compiling removals and positive/cold preservation
+      — evidence / LE1, LE3, LE5; safety / AS4. Do not repeat adopted Codex or
+      Pass B work, open Pass D's unrelated matrix or tick this whole task.
       Earlier THE PROOFS scope: execute only AA/D10's two items in clauses 1–6
       below: six wrapped/unwrapped compiled Codex gate decisions and supported
       exact-root exchanges, then `bundle.rs`'s two reachable refusal tests and
@@ -4019,9 +4412,9 @@ saved for the phase commit.
       acceptance detail under safety / AS1, AS2, AS3 and AS4, site / SR1, SR2,
       SR3 and SR5, and evidence / LE1, LE2, LE3, LE4 and LE5. The following
       Pass B breakdown is inherited acceptance,
-      not work to repeat; C/D paragraphs remain pending and unscheduled.
-      Verify each applicable case alongside its 8.8(d) implementation before
-      advancing; the full 8.10 checkbox still awaits C/D.
+      not work to repeat. Only AU's Pass C repair is scheduled by the
+      current clauses; Pass D remains pending and unscheduled. Verify each
+      current case alongside 8.8(d); full 8.10 remains unchecked.
       First repair R2 in `engine/resume_tests.rs::dsh_model_driver`: use
       `serde_json` to serialize one complete checkpoint-data JSONL row per
       declared invocation, including that invocation's ID, into a temporary
@@ -4038,7 +4431,8 @@ saved for the phase commit.
       `an_offered_dsh_start_carries_the_recorded_home_at_the_single_site` and
       `an_offered_dsh_start_carries_the_recorded_home_at_the_panel_member` on
       their actual temporary homes. This is portable transport evidence;
-      native Windows/macOS evidence stays pending controller CI (site / SR2,
+      native macOS evidence stays pending controller CI; native Windows
+      proof is withdrawn by decision 0063 (site / SR2,
       site / SR3, site / SR5, safety / AS2, evidence / LE2).
       Then prove the originating-home carrier in
       `crates/brokkr-runtime/src/engine/resume.rs`'s existing
@@ -4233,8 +4627,14 @@ saved for the phase commit.
       `crates/brokkr-cli/tests/driver_conformance.rs` is added only if it proves
       a distinct planner observation; no child-confirmation acceptance is added
       in B (safety / AS1, safety / AS2, safety / AS3, evidence / LE1).
-      Pass C, after B, owns the following DSH stream-json confirmation cases
-      design D6 and D7 name; do not implement or credit them in B. Each uses a
+      Preserve the following delivered Pass C confirmation cases and
+      repair only AU/D7's remaining rule under 8.8.9.1–8.8.15.1. The current
+      proofs require actual synthetic children through production terminal
+      handling, the immutable address/occurrence census, permanent refusal,
+      both endings with exact LE3 reasons and no publication/replacement,
+      completed-observation acknowledgment for transient evidence and each
+      regression/ending's compiling removal/restoration. D7's additional
+      watcher controls do not open Pass D. Each inherited case uses a
       captured synthetic child transcript with no installed provider: a post-`await agents.resume`
       init event confirming the offered root, no fresh sibling
       root/session and new sequence activity past the recorded
@@ -4370,7 +4770,10 @@ saved for the phase commit.
       fall back to legacy fields to evade confirmation — site / SR3,
       evidence / LE4.
 - [ ] 9.6 After 8.8 and 8.10, extend the existing accounting and compatibility
-      tests with the selected DSH route. The current operator-ruling slice's
+      tests with the selected DSH route. AU's current R1–R3 latch repair
+      establishes publication timing only and discharges none of this task's
+      accounting/compatibility acceptance. It remains unchecked and outside
+      the current slice. The historical operator-ruling slice's
       low-1 clause below verifies only the adopted sequence-zero fix
       and its actual planner-to-drain input (evidence / LE4). It is authorized
       before those whole-task dependencies finish, leaves 9.6 unticked and
@@ -12738,6 +13141,13 @@ No live provider was called. No Windows handling was added (decision
 
 ## Pass C — the launch-root confirmation (2026-09-21)
 
+Historical delivery account from the predecessor, retained as evidence of
+what that visit built and tested. Its whole-Pass-C closure and ID-set census
+claims below are superseded by AU/D7 and current clauses 8.8.9.1–8.8.15.1.
+The four facts now require an immutable admitted address/header-occurrence
+baseline and permanent refusal of contrary or unreadable pending evidence;
+the six R1–R3 terminal proofs and bounded rule controls remain to be delivered.
+
 Run `dsh-launch-planner-issue-226-tas-ed4ff1bc`, on `slice-dsh-planner-d`
 over Pass B's judged tree. This visit delivers 8.8(d)'s remaining launch
 half and the 8.10 cases assigned to it, plus the two landing debts D1 and
@@ -12863,6 +13273,11 @@ child init event.
   one launch row `cold` carrying `resume_refusal: unsupported-resume`
   and no `root_session`, and a succeeded result — so the decline really
   does buy one independently safe cold launch and no recursion.
+
+For the current repair, D7's private real-invocation seam supersedes
+this historical division: every new contrary-evidence proof must reach the
+actual `run_seat` guard and exact terminal diagnostic. No installed provider
+is needed and hold-state assertions alone do not satisfy LE5.
 
 The shared `run_seat` terminal guard that refuses an unsettled launch end
 to end is unchanged and still proven by
