@@ -24,7 +24,7 @@ fn adapters_root() -> PathBuf {
 /// list` set, and the reason the library is one file per agent.
 #[test]
 fn list_lists_every_agent_and_warns_without_aborting() {
-    assert!(list(&library_root()).is_ok());
+    assert!(list(&library_root(), &workspace()).is_ok());
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("agents");
@@ -41,11 +41,14 @@ fn list_lists_every_agent_and_warns_without_aborting() {
         .unwrap(),
     )
     .unwrap();
-    assert!(list(&root).is_ok(), "one broken file never aborts");
+    assert!(
+        list(&root, dir.path()).is_ok(),
+        "one broken file never aborts"
+    );
 
     // A missing library is an error for `list`: the operator asked for a
     // library that is not there, and silence would be the wrong answer.
-    assert!(list(&dir.path().join("absent")).is_err());
+    assert!(list(&dir.path().join("absent"), dir.path()).is_err());
 }
 
 /// AC-10: `show` prints the definition as written plus the per-entry
@@ -53,7 +56,13 @@ fn list_lists_every_agent_and_warns_without_aborting() {
 /// from the data it prints.
 #[test]
 fn show_prints_the_definition_and_its_per_entry_resolution() {
-    assert!(show("chief-architect", &library_root(), &adapters_root()).is_ok());
+    assert!(show(
+        "chief-architect",
+        &library_root(),
+        &adapters_root(),
+        &workspace()
+    )
+    .is_ok());
 
     let walked = walk(
         &Library::load(&library_root()).unwrap(),
@@ -79,7 +88,7 @@ fn show_prints_the_definition_and_its_per_entry_resolution() {
 /// obvious rather than guessable.
 #[test]
 fn show_names_the_known_set_for_an_unknown_agent() {
-    let error = show("nobody", &library_root(), &adapters_root()).unwrap_err();
+    let error = show("nobody", &library_root(), &adapters_root(), &workspace()).unwrap_err();
     let message = error.to_string();
     assert!(
         message.contains("agent 'nobody' is not in the library"),
@@ -88,11 +97,18 @@ fn show_names_the_known_set_for_an_unknown_agent() {
     assert!(message.contains("chief-architect"), "{message}");
 
     let dir = tempfile::tempdir().unwrap();
-    assert!(show("x", &dir.path().join("absent"), &adapters_root()).is_err());
+    assert!(show(
+        "x",
+        &dir.path().join("absent"),
+        &adapters_root(),
+        dir.path()
+    )
+    .is_err());
     assert!(show(
         "chief-architect",
         &library_root(),
-        &dir.path().join("absent")
+        &dir.path().join("absent"),
+        &workspace()
     )
     .is_err());
 }
@@ -156,7 +172,58 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
     assert_eq!(resolution["chain"][1]["status"], "unmapped");
     assert!(resolution["chain"][1]["provider"].is_null());
     // Even blocked, `show` prints the whole picture rather than refusing.
-    assert!(show("tester", &library, &adapters).is_ok());
+    assert!(show("tester", &library, &adapters, dir.path()).is_ok());
+}
+
+/// Decision 0065, CQ2: `show` prints what the compiler would resolve, and
+/// the compiler refuses an ask the operator has not defined — so `show`
+/// refuses it too, whole, and `list` keeps listing past it. The shipped
+/// library lints clean under the repository's own `capabilities/`, which
+/// the two `is_ok()` calls above already hold.
+#[test]
+fn an_ask_the_operator_has_not_defined_is_a_lint_problem_not_a_parse_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let library = dir.path().join("agents");
+    std::fs::create_dir_all(library.join("charters")).unwrap();
+    std::fs::write(library.join("charters/c.md"), "# c\n").unwrap();
+    std::fs::write(
+        library.join("scout.json"),
+        serde_json::to_vec(&json!({
+            "description": "a scout",
+            "charter": "charters/c.md",
+            "models": ["opus"],
+            "capabilities": {"web-search": "wants"},
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        show("scout", &library, &adapters_root(), dir.path())
+            .unwrap_err()
+            .to_string(),
+        "agent 'scout': capability 'web-search' has no abstract definition at \
+         'capabilities/web-search.json' in the operator configuration; declare its classes \
+         before requesting it"
+    );
+    assert!(
+        list(&library, dir.path()).is_ok(),
+        "a warning, not an abort"
+    );
+
+    // The operator's definitions failing to load is the operator's error
+    // on both verbs, naming the file.
+    std::fs::create_dir_all(dir.path().join("capabilities")).unwrap();
+    std::fs::write(dir.path().join("capabilities/broken.json"), "{").unwrap();
+    for refused in [
+        list(&library, dir.path()),
+        show("scout", &library, &adapters_root(), dir.path()),
+    ] {
+        let message = refused.unwrap_err().to_string();
+        assert!(
+            message.starts_with("'capabilities/broken.json': "),
+            "{message}"
+        );
+    }
 }
 
 /// A chain whose links are all unavailable has no choice to report, and

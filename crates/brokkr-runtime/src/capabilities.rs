@@ -422,6 +422,27 @@ impl Definitions {
             )
         })
     }
+
+    /// Semantic library lint: every capability every loaded agent asks for
+    /// resolves to one of THESE definitions — the operator's, never the
+    /// library's own directory and never a built-in catalogue. Parsing the
+    /// request map is syntax and is not this; a name nobody defined is a
+    /// problem whether the agent `wants` or `requires` it, and whichever
+    /// seat might later subtract it. One line per missing definition, in
+    /// library order, so a reader repairs the whole library at once.
+    pub fn lint(&self, library: &crate::Library) -> Vec<String> {
+        library
+            .agents()
+            .flat_map(|agent| {
+                let who = format!("agent '{}'", agent.name);
+                agent
+                    .capabilities
+                    .keys()
+                    .filter_map(|name| self.require(&who, name).err())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
 }
 
 /// The one implementation kind a tool dialect binds (ruling 2).
