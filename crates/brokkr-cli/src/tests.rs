@@ -1139,27 +1139,35 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
 }
 
 /// The complete payload the operator's command line carries reaches the
-/// adapter, so the driver's own admission rule judges all of it.
+/// DSH adapter, so the driver's own admission rule judges all of it.
 ///
-/// Only the LEADING separator is the CLI's: clap consumes the outer `--`
-/// itself, so any `--` still standing in the collected arguments is a
-/// residual argument the seat wrote — one the DSH admission rule refuses
-/// as the option terminator (proposed decision 0056 rulings 4 and 6).
-/// Cutting the payload at it instead handed the adapter a SHORTER argv
-/// than the operator typed: `-- --effort --model p/m high --` arrived
-/// empty and launched with no pin at all, and
-/// `-- --model p/m -- --model second` arrived as the second pair and
-/// launched on it. The rule is the hands box's, for the same reason: a
-/// command may carry its own `--`.
+/// Clap consumes the outer `--` itself, so any `--` still standing in the
+/// collected arguments is a residual argument the seat wrote — one the DSH
+/// admission rule refuses as the option terminator (proposed decision 0056
+/// rulings 4 and 6), before any route read, version probe or launch.
+///
+/// Two deletions have each handed that adapter a SHORTER argv than the
+/// operator typed. Searching the whole vector cut the payload at an
+/// INTERIOR terminator: `-- --effort --model p/m high --` arrived empty
+/// and launched with no pin at all, and `-- --model p/m -- --model second`
+/// arrived as the second pair and launched on it. Deleting the HEAD token
+/// then made `brokkr driver dsh -- --` and
+/// `brokkr driver dsh -- -- --model p/m` admissible for the same reason:
+/// the terminator the adapter was supposed to refuse never arrived. The
+/// DSH payload is now handed over whole; the four long-standing adapters
+/// keep the head normalisation their own suites measure.
 #[test]
-fn the_driver_payload_keeps_every_argument_past_the_leading_separator() {
+fn the_driver_payload_keeps_every_argument_the_dsh_command_line_carried() {
+    use brokkr_protocol::adapters::AdapterKind;
     use clap::Parser;
     let payload = |line: &[&str]| -> Vec<String> {
         match Cli::try_parse_from(line)
             .expect("a driver command line")
             .command
         {
-            Cmd::Driver(DriverArgs { args, .. }) => driver_extra_args(args),
+            Cmd::Driver(DriverArgs { kind, args }) => {
+                driver_payload(AdapterKind::parse(&kind).expect("a known driver"), args)
+            }
             _ => panic!("driver"),
         }
     };
@@ -1173,6 +1181,13 @@ fn the_driver_payload_keeps_every_argument_past_the_leading_separator() {
         payload(&["brokkr", "driver", "dsh", "--", "--model", "p/m", "--", "--model", "second",]),
         ["--model", "p/m", "--", "--model", "second"]
     );
+    // A residual terminator at the HEAD of the collected payload — the
+    // two command lines the deletion made admissible — survives too.
+    assert_eq!(payload(&["brokkr", "driver", "dsh", "--", "--"]), ["--"]);
+    assert_eq!(
+        payload(&["brokkr", "driver", "dsh", "--", "--", "--model", "p/m"]),
+        ["--", "--model", "p/m"]
+    );
     // The ordinary payload is unchanged, with or without the operator's
     // separator.
     assert_eq!(
@@ -1180,20 +1195,57 @@ fn the_driver_payload_keeps_every_argument_past_the_leading_separator() {
         ["--model", "p/m"]
     );
     assert_eq!(
-        payload(&["brokkr", "driver", "claude", "--model", "opus"]),
-        ["--model", "opus"]
-    );
-    // A leading separator that reached the collected arguments — two
-    // spellings of the same boundary — is still the CLI's own.
-    assert_eq!(
-        driver_extra_args(vec!["--".into(), "--model".into(), "p/m".into()]),
+        payload(&["brokkr", "driver", "dsh", "--model", "p/m"]),
         ["--model", "p/m"]
     );
     assert_eq!(
-        driver_extra_args(vec!["before".into(), "--".into(), "after".into()]),
+        payload(&["brokkr", "driver", "claude", "--model", "opus"]),
+        ["--model", "opus"]
+    );
+    // The four long-standing adapters are untouched by the DSH repair:
+    // each still drops one head token and keeps every other, and the
+    // ordinary payload never carried one to drop.
+    for kind in [
+        AdapterKind::Claude,
+        AdapterKind::Lanetally,
+        AdapterKind::Codex,
+        AdapterKind::Exec,
+    ] {
+        assert_eq!(
+            driver_payload(kind, vec!["--".into(), "--model".into(), "p/m".into()]),
+            ["--model", "p/m"],
+            "{kind:?}"
+        );
+        assert_eq!(
+            driver_payload(kind, vec!["before".into(), "--".into(), "after".into()]),
+            ["before", "--", "after"],
+            "{kind:?}"
+        );
+        assert_eq!(
+            driver_payload(kind, vec!["plain".into()]),
+            ["plain"],
+            "{kind:?}"
+        );
+    }
+    // The DSH arm keeps the same three vectors whole.
+    assert_eq!(
+        driver_payload(
+            AdapterKind::Dsh,
+            vec!["--".into(), "--model".into(), "p/m".into()]
+        ),
+        ["--", "--model", "p/m"]
+    );
+    assert_eq!(
+        driver_payload(
+            AdapterKind::Dsh,
+            vec!["before".into(), "--".into(), "after".into()]
+        ),
         ["before", "--", "after"]
     );
-    assert_eq!(driver_extra_args(vec!["plain".into()]), vec!["plain"]);
+    assert_eq!(
+        driver_payload(AdapterKind::Dsh, vec!["plain".into()]),
+        ["plain"]
+    );
 }
 
 #[test]

@@ -307,86 +307,480 @@ fn the_dsh_admission_rule_reads_the_whole_payload_the_command_line_carried() {
             "--model",
         ),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        let dsh_home = tempfile::tempdir().unwrap();
-        // The marker is the launch: an admission refusal never spawns, so
-        // its absence is the observation an error alone cannot supply.
-        let marker = dir.path().join("dsh-was-launched");
-        let shim = make_shim(
-            dir.path(),
-            &format!("#!/bin/sh\n: > {}\nexit 1\n", marker.display()),
-        );
-        let out = drive_dsh(&argv, &shim, dir.path(), dsh_home.path());
-        let result = out.last().unwrap();
-        assert_eq!(result["type"], "result", "{case}: {result}");
-        assert_eq!(result["status"], "failed", "{case}: {result}");
-        let error = result["error"].as_str().unwrap_or_default();
+        let fixture = DshFixture::new();
+        let seen = fixture.observe(DshPath::Disabled, &argv, None);
+        let error = seen.error();
         assert!(error.contains(field), "{case}: the fixed field: {error}");
-        assert!(
-            !out.iter().any(|message| message["type"] == "checkpoint"),
-            "{case}: a refusal before any provider work checkpoints nothing: {out:?}"
-        );
-        assert!(!marker.exists(), "{case}: no child was launched");
-        assert!(
-            !dsh_home.path().join("sessions").exists(),
-            "{case}: no retained root was created"
-        );
+        seen.assert_no_provider_work(case);
     }
 }
 
-/// One DSH start over the built binary with a caller-owned harness home,
-/// so a refusal's own evidence — no child, no retained root — is
-/// observable after the driver exits.
-fn drive_dsh(extra: &[&str], shim: &Path, workdir: &Path, dsh_home: &Path) -> Vec<Value> {
-    let operator_home = tempfile::tempdir().unwrap();
-    let result_path = workdir.join("results/fx.json");
-    let input = json!({
-        "feature": "admission", "phase": "intake", "seat": "intake",
-        "role_path": workdir.join("missing-role.md"),
-        "workdir": workdir,
-        "result_path": result_path,
-        "allowed_results": ["resolved"], "context": {},
-    });
-    let messages = [
-        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
-               "engine_version": "test"}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
-               "effect_id": "fx", "attempt_id": "a1", "seat": "intake",
-               "input": input}),
-        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
-    ];
-    let mut child = Command::new(brokkr_bin())
-        .arg("driver")
-        .arg("dsh")
-        .arg("--")
-        .args(extra)
-        // Pinned at the shim, and the newer spelling removed, for the
-        // reason `drive` states: no conformance run may reach a real dsh.
-        .env_remove("BROKKR_DSH_BIN")
-        .env("FORGE_DSH_BIN", shim)
-        .env("HOME", operator_home.path())
-        .env("DSH_HOME", dsh_home)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    for message in &messages {
-        writeln!(stdin, "{message}").unwrap();
+/// A residual `--` is refused wherever it stands, on every launch path,
+/// before any provider work — through the BUILT binary (R1).
+///
+/// Clap consumes the outer separator, so every terminator below is one the
+/// seat wrote. While the CLI deleted a LEADING one after clap had already
+/// taken the boundary, `brokkr driver dsh -- --` and
+/// `brokkr driver dsh -- -- --model <id>` reached admission with that token
+/// gone and were ADMITTED: each launched a child, staged an overlay,
+/// allocated a retained root and checkpointed. The adapter could only
+/// refuse what it received. The interior and trailing spellings — which the
+/// CLI never touched — refused all along, and the two orderings are held
+/// side by side here so a repair that fixed one position cannot pass.
+///
+/// The last two cases are the ordering proof: a route overlay is BOUND in
+/// the input and its file is absent, so an argv that reaches route
+/// resolution refuses by the route's own words. The terminator must refuse
+/// first from either position, so neither case may name the route at all.
+#[test]
+fn a_residual_terminator_refuses_on_every_dsh_path_wherever_it_stands() {
+    for path in [DshPath::Disabled, DshPath::EnabledCold, DshPath::Offered] {
+        for (case, argv, route) in [
+            ("a bare terminator alone", vec!["--"], None),
+            (
+                "a leading terminator before an admissible pin",
+                vec!["--", "--model", DSH_PIN],
+                None,
+            ),
+            (
+                "an interior terminator between admissible controls",
+                vec!["--model", DSH_PIN, "--", "--effort", "medium"],
+                None,
+            ),
+            (
+                "a trailing terminator behind admissible controls",
+                vec!["--model", DSH_PIN, "--effort", "medium", "--"],
+                None,
+            ),
+            (
+                "a leading terminator with a bound, absent route overlay",
+                vec!["--", "--model", DSH_PIN, "--patch", BOUND_ROUTE],
+                Some(BOUND_ROUTE),
+            ),
+            (
+                "a trailing terminator with a bound, absent route overlay",
+                vec!["--model", DSH_PIN, "--patch", BOUND_ROUTE, "--"],
+                Some(BOUND_ROUTE),
+            ),
+        ] {
+            let label = format!("{path:?}/{case}");
+            let fixture = DshFixture::new();
+            let seen = fixture.observe(path, &argv, route);
+            let error = seen.error();
+            assert!(
+                error.contains(TERMINATOR_REASON),
+                "{label}: the fixed option-terminator reason: {error}"
+            );
+            // The route read is downstream of admission: a bound overlay
+            // whose file is absent must never get to say so.
+            assert!(
+                !error.contains("route_overlay"),
+                "{label}: the terminator refuses before route resolution: {error}"
+            );
+            fixture.assert_echoes_nothing(&label, error);
+            seen.assert_no_provider_work(&label);
+        }
     }
-    drop(stdin);
-    let out = child.wait_with_output().unwrap();
+}
+
+/// The three launch paths the terminator proof runs on are the ones it
+/// names: the same fixtures, with an admissible payload, actually reach
+/// the provider work the refusals above are measured by its absence.
+///
+/// Each path is identified by an observation only that path produces. A
+/// closed gate probes no version at all. An open one probes it and ships
+/// the cold route, because the fixture's declared wrapper digest is not
+/// the composite this host computes. An open gate handed a session back
+/// declines it in the launch row's own words. Without this, the refusals
+/// above would pass over a fixture that refused for some unrelated reason.
+#[test]
+fn the_dsh_launch_paths_the_terminator_proof_runs_on_are_the_ones_it_names() {
+    let admissible = ["--model", DSH_PIN, "--effort", "medium"];
+
+    let fixture = DshFixture::new();
+    let cold = fixture.observe(DshPath::Disabled, &admissible, None);
     assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        cold.probes.is_empty(),
+        "a closed gate probes no version: {:?}",
+        cold.probes
     );
-    let _ = std::fs::remove_file(&result_path);
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+    cold.assert_provider_work("disabled");
+    assert!(
+        cold.launch_row("disabled").get("resume_refusal").is_none(),
+        "no offer, no refusal: {:?}",
+        cold.out
+    );
+
+    let fixture = DshFixture::new();
+    let warm = fixture.observe(DshPath::EnabledCold, &admissible, None);
+    assert_eq!(
+        warm.probes.len(),
+        1,
+        "an open gate probes the core version once: {:?}",
+        warm.probes
+    );
+    warm.assert_provider_work("enabled-cold");
+    let row = warm.launch_row("enabled-cold");
+    assert_eq!(row["launch"], "cold", "{row}");
+    assert!(
+        row.get("resume_refusal").is_none(),
+        "no offer, no refusal: {row}"
+    );
+
+    let fixture = DshFixture::new();
+    let offered = fixture.observe(DshPath::Offered, &admissible, None);
+    assert_eq!(
+        offered.probes.len(),
+        1,
+        "an open gate probes the core version once: {:?}",
+        offered.probes
+    );
+    offered.assert_provider_work("offered");
+    let row = offered.launch_row("offered");
+    assert_eq!(row["launch"], "cold", "{row}");
+    assert_eq!(
+        row["resume_refusal"], "unverified-harness",
+        "the offer reached the gate and was declined: {row}"
+    );
+}
+
+/// The model pin every admissible DSH payload here carries, and the route
+/// value the ordering cases bind. Neither may appear in a refusal.
+const DSH_PIN: &str = "deepseek/deepseek-v4-flash";
+const BOUND_ROUTE: &str = "bound-route.yml";
+/// The version the owned shim answers a probe with, and the identity the
+/// enabled fixtures declare, so the gate opens on a reachable version.
+const DSH_SHIM_VERSION: &str = "0.1.5-rc.1";
+/// A well-formed wrapper digest no host's composite equals, so an open
+/// gate probes the version and then ships the cold route.
+const DECLARED_DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+/// The bound route overlay's manifest digest. The file is never created,
+/// so this value is only ever reached by an argv that got past admission.
+const BOUND_DIGEST: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+/// The fixed category `dsh_control_conflict` returns for a residual `--`,
+/// in the sentence the adapter builds around it.
+const TERMINATOR_REASON: &str = "carry the option terminator, which the engine owns";
+/// The session a fixture offers back on the offered path.
+const DSH_OFFER: &str = "session-0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+/// Which launch path a DSH fixture selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DshPath {
+    /// The shipped shape: no resume assessment on the input at all, so the
+    /// gate is closed and no version is ever probed.
+    Disabled,
+    /// A supported assessment naming the identity the owned shim answers
+    /// with: the gate opens, the version is probed, and the launch is cold
+    /// because the declared wrapper digest is not this host's composite.
+    EnabledCold,
+    /// The same open gate with a session offered back before the start.
+    Offered,
+}
+
+/// One temporary root, canonicalized once, with its lifetime owner kept
+/// beside it.
+///
+/// Every path a fixture derives — workdir, shim, logs, `DSH_HOME`, the
+/// operator's `HOME` — comes off the canonical form. macOS puts the system
+/// temporary directory under `/var`, which is a symlink to `/private/var`,
+/// so a raw `TempDir` path and the path the driver canonicalizes are two
+/// different STRINGS for one directory: containment checks, recorded-home
+/// comparisons and "this path never appears" assertions would all be
+/// measuring the wrong spelling. The owner is returned because dropping it
+/// removes the directory.
+fn canonical_root() -> (tempfile::TempDir, PathBuf) {
+    let owner = tempfile::tempdir().unwrap();
+    let path = std::fs::canonicalize(owner.path()).expect("a temporary root canonicalizes");
+    (owner, path)
+}
+
+/// What one DSH start actually did to the world: the protocol stream, and
+/// the filesystem evidence an error message cannot supply.
+struct DshObservations {
+    out: Vec<Value>,
+    /// One line per `--version` probe the driver ran.
+    probes: Vec<String>,
+    /// One line per child the driver launched. A LINE, not the argv: the
+    /// dsh adapter hands the seat's prompt over as an argv element, and a
+    /// prompt carries newlines, so an argv echo could not be counted.
+    launches: Vec<String>,
+    /// The overlay bytes a launched child was actually handed by `--patch`.
+    overlay: String,
+    /// The seat roots retained under the admitted harness home.
+    retained_roots: Vec<PathBuf>,
+}
+
+impl DshObservations {
+    fn error(&self) -> &str {
+        let result = self.out.last().expect("a result");
+        assert_eq!(result["type"], "result", "{result}");
+        assert_eq!(result["status"], "failed", "{result}");
+        result["error"].as_str().unwrap_or_default()
+    }
+
+    /// The whole provider-observation set, absent. An admission refusal
+    /// reaches none of them, so each absence is a separate fact the error
+    /// text alone could not establish.
+    fn assert_no_provider_work(&self, label: &str) {
+        assert!(
+            self.probes.is_empty(),
+            "{label}: no version was probed: {:?}",
+            self.probes
+        );
+        assert!(
+            self.launches.is_empty(),
+            "{label}: no child was launched: {:?}",
+            self.launches
+        );
+        assert!(
+            self.overlay.is_empty(),
+            "{label}: no overlay was staged: {:?}",
+            self.overlay
+        );
+        assert!(
+            self.retained_roots.is_empty(),
+            "{label}: no root was retained: {:?}",
+            self.retained_roots
+        );
+        assert!(
+            !self
+                .out
+                .iter()
+                .any(|message| message["type"] == "checkpoint"),
+            "{label}: a refusal before any provider work checkpoints nothing: {:?}",
+            self.out
+        );
+    }
+
+    /// The same set, present: what an ADMITTED payload does on this
+    /// fixture, so the absences above measure a refusal and not a fixture
+    /// that could never have reached the provider.
+    fn assert_provider_work(&self, label: &str) {
+        assert_eq!(
+            self.launches.len(),
+            1,
+            "{label}: one child was launched: {:?}",
+            self.launches
+        );
+        assert!(
+            self.overlay.contains("root:"),
+            "{label}: the child was handed the staged overlay: {:?}",
+            self.overlay
+        );
+        assert_eq!(
+            self.retained_roots.len(),
+            1,
+            "{label}: one root was retained: {:?}",
+            self.retained_roots
+        );
+    }
+
+    fn launch_row(&self, label: &str) -> &Value {
+        let row = self
+            .out
+            .iter()
+            .find(|message| {
+                message["type"] == "checkpoint" && message["data"]["step"] == "harness-started"
+            })
+            .unwrap_or_else(|| panic!("{label}: one launch row: {:?}", self.out));
+        &row["data"]
+    }
+}
+
+/// One DSH start over the built binary with caller-owned, canonicalized
+/// roots and an owned harmless shim, so a refusal's own evidence — no
+/// probe, no child, no staged overlay, no retained root — is observable
+/// after the driver exits.
+struct DshFixture {
+    _workdir: tempfile::TempDir,
+    _dsh_home: tempfile::TempDir,
+    _operator_home: tempfile::TempDir,
+    _evidence: tempfile::TempDir,
+    workdir: PathBuf,
+    dsh_home: PathBuf,
+    operator_home: PathBuf,
+    shim: PathBuf,
+    probe_log: PathBuf,
+    launch_log: PathBuf,
+    overlay_log: PathBuf,
+}
+
+impl DshFixture {
+    fn new() -> Self {
+        let (workdir_owner, workdir) = canonical_root();
+        let (dsh_home_owner, dsh_home) = canonical_root();
+        let (operator_home_owner, operator_home) = canonical_root();
+        let (evidence_owner, evidence) = canonical_root();
+        let probe_log = evidence.join("probes");
+        let launch_log = evidence.join("launches");
+        let overlay_log = evidence.join("overlay");
+        // Harmless by construction: it answers a version probe, records
+        // what it was asked and what `--patch` handed it, and fails. It
+        // never reaches a provider, and a real dsh is unreachable from
+        // here — both spellings of the binary override are pinned at it.
+        let shim = make_shim(
+            &evidence,
+            &format!(
+                "#!/bin/sh\n\
+                 case \"$1\" in --version) printf 'probe\\n' >> '{probes}'; \
+                 printf '{version}\\n'; exit 0 ;; esac\n\
+                 printf 'launch\\n' >> '{launches}'\n\
+                 prev=\n\
+                 for a in \"$@\"; do\n\
+                 \x20 [ \"$prev\" = --patch ] && cat \"$a\" >> '{overlay}'\n\
+                 \x20 prev=$a\n\
+                 done\n\
+                 exit 1\n",
+                probes = probe_log.display(),
+                launches = launch_log.display(),
+                overlay = overlay_log.display(),
+                version = DSH_SHIM_VERSION,
+            ),
+        );
+        Self {
+            _workdir: workdir_owner,
+            _dsh_home: dsh_home_owner,
+            _operator_home: operator_home_owner,
+            _evidence: evidence_owner,
+            workdir,
+            dsh_home,
+            operator_home,
+            shim,
+            probe_log,
+            launch_log,
+            overlay_log,
+        }
+    }
+
+    /// Drive one start on the given path with the given payload, and read
+    /// back everything it touched.
+    fn observe(&self, path: DshPath, extra: &[&str], route: Option<&str>) -> DshObservations {
+        let mut resume_context = serde_json::Map::new();
+        if path != DshPath::Disabled {
+            resume_context.insert(
+                "assessment".into(),
+                json!({"headless-work": {
+                    "status": "supported",
+                    "identity": {
+                        "version": DSH_SHIM_VERSION,
+                        "applies_to": DSH_SHIM_VERSION,
+                        "wrapper_digest": DECLARED_DIGEST,
+                    },
+                    "classes": ["work"],
+                    "boundaries": ["not applicable"],
+                    "hands": "none",
+                    "evidence": {"interface": "fixture", "accounting": "fixture"},
+                }}),
+            );
+        }
+        if let Some(value) = route {
+            resume_context.insert(
+                "route_overlay".into(),
+                json!({"value": value, "digest": BOUND_DIGEST}),
+            );
+        }
+        let input = json!({
+            "feature": "admission", "phase": "intake", "seat": "intake",
+            "role_path": self.workdir.join("missing-role.md"),
+            "workdir": self.workdir,
+            "result_path": self.workdir.join("results/fx.json"),
+            "allowed_results": ["resolved"], "context": {},
+            // The engine's own facts for an inline no-hands site, which
+            // the gate requires before it will open (design D10 F1).
+            "boundary": "not applicable",
+            "hands": "none",
+            "resume_context": Value::Object(resume_context),
+        });
+        let mut messages = vec![json!({"proto": "forge-driver/v1", "msg_id": "m1",
+                                       "type": "hello", "engine_version": "test"})];
+        if path == DshPath::Offered {
+            messages.push(
+                json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "resume",
+                                 "effect_id": "fx", "attempt_id": "a1",
+                                 "session_ref": DSH_OFFER}),
+            );
+        }
+        messages.push(
+            json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "start",
+                             "effect_id": "fx", "attempt_id": "a1", "seat": "intake",
+                             "input": input}),
+        );
+        messages.push(json!({"proto": "forge-driver/v1", "msg_id": "m4", "type": "shutdown"}));
+
+        let mut child = Command::new(brokkr_bin())
+            .arg("driver")
+            .arg("dsh")
+            .arg("--")
+            .args(extra)
+            // Pinned at the shim, and the newer spelling removed, for the
+            // reason `drive` states: no conformance run may reach a real
+            // dsh.
+            .env_remove("BROKKR_DSH_BIN")
+            .env("FORGE_DSH_BIN", &self.shim)
+            .env("HOME", &self.operator_home)
+            .env("DSH_HOME", &self.dsh_home)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for message in &messages {
+            writeln!(stdin, "{message}").unwrap();
+        }
+        drop(stdin);
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        DshObservations {
+            out: String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect(),
+            probes: log_lines(&self.probe_log),
+            launches: log_lines(&self.launch_log),
+            overlay: std::fs::read_to_string(&self.overlay_log).unwrap_or_default(),
+            retained_roots: match std::fs::read_dir(self.dsh_home.join("sessions").join("brokkr")) {
+                Ok(entries) => entries.map(|entry| entry.unwrap().path()).collect(),
+                Err(_) => Vec::new(),
+            },
+        }
+    }
+
+    /// A refusal names its fixed category and nothing of the seat's own
+    /// argv or of this machine: no model, no route value, no session id,
+    /// no path — and no long-option spelling at all, which is the bound
+    /// that covers the refused token itself and every control beside it
+    /// (AS3; tasks 8.8(d)/8.10).
+    fn assert_echoes_nothing(&self, label: &str, error: &str) {
+        let roots = [
+            &self.workdir,
+            &self.dsh_home,
+            &self.operator_home,
+            &self.shim,
+        ]
+        .map(|path| path.to_string_lossy().into_owned());
+        for secret in [DSH_PIN, BOUND_ROUTE, DSH_OFFER, "--"]
+            .map(str::to_string)
+            .into_iter()
+            .chain(roots)
+        {
+            assert!(
+                !error.contains(&secret),
+                "{label}: the diagnostic echoes {secret:?}: {error}"
+            );
+        }
+    }
+}
+
+/// One log file's lines, empty when the shim never wrote it.
+fn log_lines(path: &Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .map(|text| text.lines().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 #[test]

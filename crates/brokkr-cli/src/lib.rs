@@ -744,23 +744,46 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
 
 use boundary::refuse_unboxable;
 
-/// The payload a driver's own admission rule judges: everything the
-/// operator's command line carried past the boundary, complete.
+/// The payload the LONG-STANDING adapters (claude, lanetally, codex,
+/// exec) receive: everything the operator's command line carried past
+/// the boundary, less one leading `--`.
 ///
-/// Only the LEADING separator is ours — the hands box's rule, for the
-/// same reason (a command may carry its own `--`). Clap consumes the
-/// outer `--` itself, so any terminator still standing here is an
-/// argument the SEAT wrote, and an adapter that refuses it (dsh does,
-/// as the option terminator) can only refuse what it receives.
-/// Searching the whole vector instead cut the payload at that inner
-/// terminator and handed the adapter a shorter argv than was typed:
-/// `-- --effort --model p/m high --` arrived EMPTY and launched with no
-/// pin, and `-- --model p/m -- --model second` arrived as the second
-/// pair alone. Nothing is dropped here now; admission is the driver's.
+/// Clap consumes the outer separator itself, so a `--` still standing at
+/// the head of the collected arguments is NOT that boundary — it is a
+/// second terminator the seat wrote. Dropping it is therefore a
+/// normalisation, not a boundary; it is kept here only because these four
+/// adapters have shipped with it, and their conformance suites measure
+/// that behaviour. Searching the whole vector instead cut the payload at
+/// an INTERIOR terminator and handed the adapter a shorter argv than was
+/// typed: `-- --effort --model p/m high --` arrived EMPTY and launched
+/// with no pin, and `-- --model p/m -- --model second` arrived as the
+/// second pair alone. Nothing but that one head token is dropped.
+///
+/// The dsh arm does not come through here at all — see `driver_payload`.
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
     match args.first().map(String::as_str) {
         Some("--") => args[1..].to_vec(),
         _ => args,
+    }
+}
+
+/// The payload one named driver's own admission rule judges.
+///
+/// DSH opts OUT of the head normalisation above: its admission rule reads
+/// EVERY token exactly as the operator's command line carried it — leading,
+/// interior and trailing alike — because a residual `--` is an argument the
+/// seat wrote and the adapter refuses it, as the option terminator, before
+/// any route read, version probe or launch (proposed decision 0056 rulings
+/// 4 and 6). While the head token was deleted here, `brokkr driver dsh --
+/// --` and `brokkr driver dsh -- -- --model p/m` reached the adapter with
+/// that terminator gone and were ADMITTED — they launched a child, staged
+/// an overlay and allocated a retained root. An adapter can only refuse
+/// what it receives. The other four keep their shipped behaviour, measured
+/// by their own tests, rather than moving under a dsh repair.
+fn driver_payload(kind: brokkr_protocol::adapters::AdapterKind, args: Vec<String>) -> Vec<String> {
+    match kind {
+        brokkr_protocol::adapters::AdapterKind::Dsh => args,
+        _ => driver_extra_args(args),
     }
 }
 
@@ -2776,7 +2799,7 @@ fn run_with(
                     "unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec"
                 )
             })?;
-            let extra = driver_extra_args(args);
+            let extra = driver_payload(kind, args);
             brokkr_protocol::adapters::serve(kind, extra)?;
             Ok(ExitCode::SUCCESS)
         }
