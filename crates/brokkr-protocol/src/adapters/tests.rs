@@ -1155,11 +1155,17 @@ fn dsh_effort_rides_the_seat_settings_document_and_needs_a_model_beside_it() {
         sealed.contains("could not write the dsh seat settings"),
         "{sealed}"
     );
+    // The reason, not `is_err()`: a settings path that spans a line is
+    // refused by the field that owns it, and the path itself stays out of
+    // the diagnostic (privacy is asserted whole in
+    // `dsh_storage_refusals_name_their_field_and_never_the_path_they_tried`).
     for bad in ["/tmp/a\nb", "/tmp/a\rb"] {
+        let refused = dsh_settings_row(std::path::Path::new(bad)).unwrap_err();
         assert!(
-            dsh_settings_row(std::path::Path::new(bad)).is_err(),
-            "{bad:?}"
+            refused.contains("settings path") && refused.contains("spans more than one line"),
+            "{bad:?}: {refused}"
         );
+        assert!(!refused.contains("/tmp/a"), "{bad:?}: {refused}");
     }
     assert!(dsh_settings_row(std::path::Path::new("/tmp/it's"))
         .unwrap()
@@ -8506,6 +8512,24 @@ fn dsh_residual_and_joined_controls_refuse_before_any_observation() {
                 Field("--patch"),
                 pinned(&["--patch", "--effort=high", &patch_value]),
             ),
+            // The COMPLETE payload the CLI hands this driver. The
+            // operator's outer `--` is clap's own; an inner one stays in
+            // the argv as a residual, and everything behind it is still
+            // the seat's. These two are the exact argv the returned
+            // review reproduced through the built driver: while the CLI
+            // cut the payload at that inner terminator, the first
+            // launched with no pin at all and the second launched on the
+            // second model. Now the whole argv reaches this rule.
+            (
+                "effort claiming a later model control, trailing terminator",
+                Field("--effort"),
+                raw(&["--effort", "--model", MARK, "high", "--"]),
+            ),
+            (
+                "a second model behind an inner terminator",
+                Field("--model"),
+                raw(&["--model", "deepseek-v4-flash", "--", "--model", MARK]),
+            ),
         ]
     };
 
@@ -8687,6 +8711,224 @@ fn a_dsh_transcript_root_refusal_names_its_field_and_never_the_root() {
         );
     }
 
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
+}
+
+/// A REAL path-bearing allocation failure: `tempfile` wraps the host's
+/// own errno with the directory it tried, so every refusal built from
+/// one carries that directory unless the diagnostic keeps it out. The
+/// error is the host's, never a literal errno number.
+fn absent_tempfile_error(absent: &Path) -> std::io::Error {
+    tempfile::Builder::new()
+        .prefix("brokkr-dsh-privacy-")
+        .tempfile_in(absent)
+        .expect_err("an absent directory cannot take a temporary file")
+}
+
+/// Every DSH storage refusal names its own field or category and the
+/// host's errno text, and never the path it tried.
+///
+/// These are the seat's own overlay, its settings document and its
+/// retained transcript root — all three composed beneath the operator's
+/// `TMPDIR` or admitted DSH home. `tempfile` reports an allocation
+/// failure with the directory it attempted, so passing that error
+/// through the shared `io_context` published the whole path into a
+/// `Result.error` the seat reads: the harness layout, the home's name
+/// and whatever the operator's temporary root is called. The settings
+/// row's one-line requirement echoed its path outright.
+///
+/// The source error is asserted path-bearing FIRST, so these privacy
+/// assertions cannot pass on an error that never carried a path. The
+/// write halves carry no path of their own — the host reports a failed
+/// write on an open descriptor — and are asserted to prove it rather
+/// than assumed (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
+#[cfg(unix)]
+#[test]
+fn dsh_storage_refusals_name_their_field_and_never_the_path_they_tried() {
+    const MARK: &str = "zzz-7c02be-store";
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let absent = root.join(format!("{MARK}-absent"));
+    let source = absent_tempfile_error(&absent);
+    assert!(
+        source.to_string().contains(MARK),
+        "the source error must carry the path it tried: {source}"
+    );
+    // The errno text this host words a failure with, taken from its own
+    // `io::Error` rather than assembled from a number.
+    let errno = |error: &std::io::Error| std::io::Error::from(error.kind()).to_string();
+    let absent_errno = errno(&source);
+
+    let private = |refused: &str, field: &str, errno: &str| {
+        assert!(
+            refused.contains(field),
+            "the fixed field {field}: {refused}"
+        );
+        assert!(!refused.contains(MARK), "the path echoed in {refused}");
+        assert!(
+            !refused.contains(root.to_str().unwrap()),
+            "the temporary root echoed in {refused}"
+        );
+        assert!(refused.contains(errno), "the host's errno text: {refused}");
+    };
+
+    // The one per-seat overlay's own allocation.
+    private(
+        &dsh_seat_overlay_in(None, None, &root, None, None, || {
+            Err(absent_tempfile_error(&absent))
+        })
+        .unwrap_err(),
+        "could not stage the dsh seat overlay",
+        &absent_errno,
+    );
+    // The settings document beside it.
+    private(
+        &dsh_effort_settings_in("dashscope/qwen3.8-max", "high", || {
+            Err(absent_tempfile_error(&absent))
+        })
+        .unwrap_err(),
+        "could not stage the dsh seat settings",
+        &absent_errno,
+    );
+    // The retained transcript root under the admitted home.
+    private(
+        &dsh_transcript_root_in(|| Err(absent_tempfile_error(&absent))).unwrap_err(),
+        "could not stage the dsh session transcript root",
+        &absent_errno,
+    );
+
+    // A RAW host error keeps the host's own words, `(os error n)` and
+    // all: that is the arm a `tempfile`-wrapped error cannot reach,
+    // because the wrapper is a custom error with no raw code of its own.
+    // std reports a failed open without the path, so this one was never
+    // the disclosure — it is here to prove the rendering is the host's
+    // and not this driver's paraphrase.
+    let raw = std::fs::File::open(&absent).expect_err("an absent path cannot be opened");
+    assert!(raw.raw_os_error().is_some(), "a raw host errno: {raw}");
+    assert!(!raw.to_string().contains(MARK), "std adds no path: {raw}");
+    let refused =
+        dsh_transcript_root_in(|| Err(std::fs::File::open(&absent).unwrap_err())).unwrap_err();
+    private(
+        &refused,
+        "could not stage the dsh session transcript root",
+        &raw.to_string(),
+    );
+
+    // The settings row's one-line requirement: the field, never the
+    // path, exactly as the transcript row's is.
+    for line in ['\n', '\r'] {
+        let bad = root.join(format!("{MARK}{line}second"));
+        let refused = dsh_settings_row(&bad).unwrap_err();
+        assert!(
+            refused.contains("settings path") && refused.contains("spans more than one line"),
+            "the fixed field: {refused}"
+        );
+        assert!(!refused.contains(MARK), "the path echoed in {refused}");
+    }
+
+    // The write halves are path-bearing too, which is why they are
+    // asserted rather than assumed: `tempfile` wraps a failed write on
+    // its own handle with the file it holds, so a sealed handle reports
+    // the staged path exactly as a failed allocation reports the
+    // directory.
+    let readonly = || -> std::io::Result<tempfile::NamedTempFile> {
+        let staged = tempfile::Builder::new()
+            .prefix(&format!("{MARK}-"))
+            .tempfile_in(&root)?;
+        let (_, path) = staged.into_parts();
+        let opened = std::fs::File::open(&path)?;
+        Ok(tempfile::NamedTempFile::from_parts(opened, path))
+    };
+    let sealed = readonly()
+        .and_then(|mut file| std::io::Write::write_all(&mut file, b"x").map(|()| file))
+        .expect_err("a read-only handle cannot take bytes");
+    assert!(
+        sealed.to_string().contains(MARK),
+        "the source write error must carry the path it holds: {sealed}"
+    );
+    let sealed_errno = errno(&sealed);
+    private(
+        &dsh_seat_overlay_in(None, None, &root, None, None, readonly).unwrap_err(),
+        "could not write the dsh seat overlay",
+        &sealed_errno,
+    );
+    private(
+        &dsh_effort_settings_in("dashscope/qwen3.8-max", "high", readonly).unwrap_err(),
+        "could not write the dsh seat settings",
+        &sealed_errno,
+    );
+}
+
+/// The retained root the seat writes its transcript under is allocated
+/// beneath the ADMITTED DSH home, so a failure there is a real
+/// path-bearing one on the cold, offered and disabled planner paths
+/// alike — and it happens under otherwise valid planner inputs, after
+/// the identity observations, which is why the zero-call rule does not
+/// apply to it. The refusal names its field; the home stays the
+/// operator's (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
+#[cfg(unix)]
+#[test]
+fn a_dsh_retained_root_refusal_names_its_field_and_never_the_home() {
+    use std::os::unix::fs::PermissionsExt;
+    const MARK: &str = "zzz-1e84fa-retained";
+
+    let _guard = ADAPTER_ENV.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join(MARK);
+    // The base exists as a directory, so `create_dir_all` succeeds and the
+    // per-seat allocation inside it is what the host refuses — with the
+    // path it tried in the error.
+    let base = home.join("sessions").join("brokkr");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let source = absent_tempfile_error(&base);
+    assert!(
+        source.to_string().contains(MARK),
+        "the source error must carry the home it tried: {source}"
+    );
+
+    let prior_home = std::env::var_os("DSH_HOME");
+    std::env::set_var("DSH_HOME", &home);
+    let marker = root.join("m-retained");
+    let shim = dsh_recording_version_shim(&root, "dsh-retained", "0.1.5-rc.1", &marker);
+    let shim_text = shim.to_string_lossy().into_owned();
+    let digest = "b".repeat(64);
+    let enabled = dsh_enabled_input("0.1.5-rc.1", &digest, &root);
+    let disabled = json!({"workdir": root});
+    let workdir = root.to_str().unwrap();
+
+    for (path, input, session) in [
+        ("disabled", disabled, None),
+        ("offered", enabled.clone(), Some("session-1")),
+        ("cold", enabled, None),
+    ] {
+        reset_dsh_staging_calls();
+        let error = dsh_launch_with(&shim_text, &[], workdir, session, &input, || {
+            Ok(synthetic_dsh_composite(&digest))
+        })
+        .err()
+        .unwrap_or_else(|| panic!("{path}: a root that cannot be allocated must refuse the seat"));
+        assert!(
+            error.contains("could not stage the dsh session transcript root"),
+            "{path}: the fixed field: {error}"
+        );
+        assert!(!error.contains(MARK), "{path}: the home echoed in {error}");
+        assert!(
+            !error.contains(root.to_str().unwrap()),
+            "{path}: the root path echoed in {error}"
+        );
+        // The refusal precedes staging: the root is settled before the
+        // one overlay is composed.
+        assert_eq!(dsh_staging_calls(), 0, "{path}: no staged overlay");
+    }
+
+    // Writable again, so the fixture's own directory can be reaped.
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
     match prior_home {
         Some(value) => std::env::set_var("DSH_HOME", value),
         None => std::env::remove_var("DSH_HOME"),

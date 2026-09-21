@@ -281,6 +281,114 @@ fn dsh_refusal_has_no_machine_readable_shape_and_stays_mid_session() {
     assert_accepted_failure(&out, "dsh");
 }
 
+/// The DSH admission rule judges the WHOLE payload the operator's
+/// command line carried, through the built binary.
+///
+/// Clap consumes the outer `--` itself, so a terminator still standing in
+/// the collected arguments is one the seat wrote. While the CLI cut the
+/// payload at that inner terminator, these two argv reached the adapter
+/// SHORTER than they were typed and launched: the first arrived empty and
+/// launched with no pin at all, and the second arrived as its second
+/// `--model` pair and launched on that model. Both are refused now — by
+/// the field that owns the slot and by the duplicate-model arity — with
+/// no child launched and no retained root created under the admitted
+/// home (safety / AS3, evidence / LE2; tasks 8.8(d)/8.10).
+#[test]
+fn the_dsh_admission_rule_reads_the_whole_payload_the_command_line_carried() {
+    for (case, argv, field) in [
+        (
+            "an effort slot claimed by a later model control, trailing terminator",
+            vec!["--effort", "--model", "p/m", "high", "--"],
+            "--effort",
+        ),
+        (
+            "a second model behind an inner terminator",
+            vec!["--model", "p/m", "--", "--model", "second"],
+            "--model",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let dsh_home = tempfile::tempdir().unwrap();
+        // The marker is the launch: an admission refusal never spawns, so
+        // its absence is the observation an error alone cannot supply.
+        let marker = dir.path().join("dsh-was-launched");
+        let shim = make_shim(
+            dir.path(),
+            &format!("#!/bin/sh\n: > {}\nexit 1\n", marker.display()),
+        );
+        let out = drive_dsh(&argv, &shim, dir.path(), dsh_home.path());
+        let result = out.last().unwrap();
+        assert_eq!(result["type"], "result", "{case}: {result}");
+        assert_eq!(result["status"], "failed", "{case}: {result}");
+        let error = result["error"].as_str().unwrap_or_default();
+        assert!(error.contains(field), "{case}: the fixed field: {error}");
+        assert!(
+            !out.iter().any(|message| message["type"] == "checkpoint"),
+            "{case}: a refusal before any provider work checkpoints nothing: {out:?}"
+        );
+        assert!(!marker.exists(), "{case}: no child was launched");
+        assert!(
+            !dsh_home.path().join("sessions").exists(),
+            "{case}: no retained root was created"
+        );
+    }
+}
+
+/// One DSH start over the built binary with a caller-owned harness home,
+/// so a refusal's own evidence — no child, no retained root — is
+/// observable after the driver exits.
+fn drive_dsh(extra: &[&str], shim: &Path, workdir: &Path, dsh_home: &Path) -> Vec<Value> {
+    let operator_home = tempfile::tempdir().unwrap();
+    let result_path = workdir.join("results/fx.json");
+    let input = json!({
+        "feature": "admission", "phase": "intake", "seat": "intake",
+        "role_path": workdir.join("missing-role.md"),
+        "workdir": workdir,
+        "result_path": result_path,
+        "allowed_results": ["resolved"], "context": {},
+    });
+    let messages = [
+        json!({"proto": "forge-driver/v1", "msg_id": "m1", "type": "hello",
+               "engine_version": "test"}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m2", "type": "start",
+               "effect_id": "fx", "attempt_id": "a1", "seat": "intake",
+               "input": input}),
+        json!({"proto": "forge-driver/v1", "msg_id": "m3", "type": "shutdown"}),
+    ];
+    let mut child = Command::new(brokkr_bin())
+        .arg("driver")
+        .arg("dsh")
+        .arg("--")
+        .args(extra)
+        // Pinned at the shim, and the newer spelling removed, for the
+        // reason `drive` states: no conformance run may reach a real dsh.
+        .env_remove("BROKKR_DSH_BIN")
+        .env("FORGE_DSH_BIN", shim)
+        .env("HOME", operator_home.path())
+        .env("DSH_HOME", dsh_home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for message in &messages {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = std::fs::remove_file(&result_path);
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
 #[test]
 fn exec_refusal_is_the_scripts_own_failure_not_a_provider_refusal() {
     let dir = tempfile::tempdir().unwrap();

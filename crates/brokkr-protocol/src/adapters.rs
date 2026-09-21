@@ -4463,6 +4463,32 @@ fn dsh_model_row(model: &str) -> Result<String, String> {
     ))
 }
 
+/// A DSH storage refusal: its own fixed category, and the errno text the
+/// HOST words the failure with — never the path that was tried.
+///
+/// The shared `io_context` interpolates the whole `io::Error`, and every
+/// place this driver allocates storage allocates it beneath the operator's
+/// own layout: the seat overlay and its settings document under `TMPDIR`,
+/// the retained transcript root under the admitted DSH home. `tempfile`
+/// reports a failed allocation as `<errno> at path "<directory>"`, so
+/// passing that error through published the operator's temporary root or
+/// harness home into a `Result.error` the seat reads back (AS3;
+/// tasks 8.8(d)/8.10).
+///
+/// The errno arrives from the host's own `std::io::Error` rather than as a
+/// literal number: the raw OS error where the host gave one, else the
+/// kind's own words, which is what a wrapped error keeps. The categories
+/// are unchanged — this replaces only what follows them.
+fn dsh_storage_context<T>(result: std::io::Result<T>, context: &str) -> Result<T, String> {
+    result.map_err(|error| {
+        let errno = match error.raw_os_error() {
+            Some(code) => std::io::Error::from_raw_os_error(code),
+            None => std::io::Error::from(error.kind()),
+        };
+        format!("{context}: {errno}")
+    })
+}
+
 /// The root over an injected creator, so the one way staging can fail
 /// is reachable from a test without a full disk — and without a test
 /// moving the harness home out from under every other test in the
@@ -4470,7 +4496,7 @@ fn dsh_model_row(model: &str) -> Result<String, String> {
 fn dsh_transcript_root_in(
     create: impl FnOnce() -> std::io::Result<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf, String> {
-    io_context(create(), "could not stage the dsh session transcript root")
+    dsh_storage_context(create(), "could not stage the dsh session transcript root")
 }
 
 /// The overlay row that points dsh's session persistence at this seat's
@@ -4773,8 +4799,11 @@ fn dsh_seat_overlay_in(
         body.push_str(&dsh_model_row(model)?);
     }
     body.push_str(&rows);
-    let mut patch = io_context(create(), "could not stage the dsh seat overlay")?;
-    io_context(
+    let mut patch = dsh_storage_context(create(), "could not stage the dsh seat overlay")?;
+    // The write carries a path too: `tempfile` wraps a failed write on its
+    // own handle with the file it holds, so this half is as path-bearing
+    // as the allocation above.
+    dsh_storage_context(
         patch.write_all(body.as_bytes()),
         "could not write the dsh seat overlay",
     )?;
@@ -4801,7 +4830,7 @@ fn dsh_effort_settings_in(
     let Some(effort) = effort_token(effort) else {
         return Err("dsh driver: the pinned effort is not one bounded word".to_string());
     };
-    let mut file = io_context(create(), "could not stage the dsh seat settings")?;
+    let mut file = dsh_storage_context(create(), "could not stage the dsh seat settings")?;
     let body = format!(
         "# Written by `brokkr driver dsh` for one seat: the effort pin, in the\n\
          # settings section dsh reads over its composition. The composition\n\
@@ -4813,7 +4842,7 @@ fn dsh_effort_settings_in(
          \x20 reasoningEffort: '{}'\n",
         effort.replace('\'', "''")
     );
-    io_context(
+    dsh_storage_context(
         file.write_all(body.as_bytes()),
         "could not write the dsh seat settings",
     )?;
@@ -4830,9 +4859,15 @@ fn dsh_effort_settings_in(
 fn dsh_settings_row(path: &std::path::Path) -> Result<String, String> {
     let path = path.to_string_lossy();
     if path.contains('\n') || path.contains('\r') {
-        return Err(format!(
-            "dsh driver: settings path {path:?} spans more than one line"
-        ));
+        // The field, never the path — the transcript row's rule, for the
+        // same reason: this document is staged beneath the operator's own
+        // temporary root, so echoing its path hands the seat that root's
+        // name in a `Result.error` it can read (AS3; tasks 8.8(d)/8.10).
+        return Err(
+            "dsh driver: the seat's settings path spans more than one line, so it cannot be \
+             written as one overlay scalar"
+                .to_string(),
+        );
     }
     Ok(format!(
         "# Written by `brokkr driver dsh` for one seat: the settings document\n\

@@ -1138,13 +1138,66 @@ fn bridge_command_covers_credentials_one_shot_and_bounded_follow() {
     server.join().unwrap();
 }
 
+/// The complete payload the operator's command line carries reaches the
+/// adapter, so the driver's own admission rule judges all of it.
+///
+/// Only the LEADING separator is the CLI's: clap consumes the outer `--`
+/// itself, so any `--` still standing in the collected arguments is a
+/// residual argument the seat wrote — one the DSH admission rule refuses
+/// as the option terminator (proposed decision 0056 rulings 4 and 6).
+/// Cutting the payload at it instead handed the adapter a SHORTER argv
+/// than the operator typed: `-- --effort --model p/m high --` arrived
+/// empty and launched with no pin at all, and
+/// `-- --model p/m -- --model second` arrived as the second pair and
+/// launched on it. The rule is the hands box's, for the same reason: a
+/// command may carry its own `--`.
 #[test]
-fn state_constructor_keeps_the_running_cursor_shape_explicit() {
+fn the_driver_payload_keeps_every_argument_past_the_leading_separator() {
+    use clap::Parser;
+    let payload = |line: &[&str]| -> Vec<String> {
+        match Cli::try_parse_from(line)
+            .expect("a driver command line")
+            .command
+        {
+            Cmd::Driver(DriverArgs { args, .. }) => driver_extra_args(args),
+            _ => panic!("driver"),
+        }
+    };
+    // An inner terminator, and a control standing in another control's
+    // value slot behind it: every token survives to the adapter.
+    assert_eq!(
+        payload(&["brokkr", "driver", "dsh", "--", "--effort", "--model", "p/m", "high", "--",]),
+        ["--effort", "--model", "p/m", "high", "--"]
+    );
+    assert_eq!(
+        payload(&["brokkr", "driver", "dsh", "--", "--model", "p/m", "--", "--model", "second",]),
+        ["--model", "p/m", "--", "--model", "second"]
+    );
+    // The ordinary payload is unchanged, with or without the operator's
+    // separator.
+    assert_eq!(
+        payload(&["brokkr", "driver", "dsh", "--", "--model", "p/m"]),
+        ["--model", "p/m"]
+    );
+    assert_eq!(
+        payload(&["brokkr", "driver", "claude", "--model", "opus"]),
+        ["--model", "opus"]
+    );
+    // A leading separator that reached the collected arguments — two
+    // spellings of the same boundary — is still the CLI's own.
+    assert_eq!(
+        driver_extra_args(vec!["--".into(), "--model".into(), "p/m".into()]),
+        ["--model", "p/m"]
+    );
     assert_eq!(
         driver_extra_args(vec!["before".into(), "--".into(), "after".into()]),
-        vec!["after"]
+        ["before", "--", "after"]
     );
     assert_eq!(driver_extra_args(vec!["plain".into()]), vec!["plain"]);
+}
+
+#[test]
+fn state_constructor_keeps_the_running_cursor_shape_explicit() {
     let state = RunState {
         run_id: "run".into(),
         seq: 0,

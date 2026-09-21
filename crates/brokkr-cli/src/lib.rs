@@ -744,11 +744,23 @@ fn hands(command: HandsCommand) -> anyhow::Result<ExitCode> {
 
 use boundary::refuse_unboxable;
 
+/// The payload a driver's own admission rule judges: everything the
+/// operator's command line carried past the boundary, complete.
+///
+/// Only the LEADING separator is ours — the hands box's rule, for the
+/// same reason (a command may carry its own `--`). Clap consumes the
+/// outer `--` itself, so any terminator still standing here is an
+/// argument the SEAT wrote, and an adapter that refuses it (dsh does,
+/// as the option terminator) can only refuse what it receives.
+/// Searching the whole vector instead cut the payload at that inner
+/// terminator and handed the adapter a shorter argv than was typed:
+/// `-- --effort --model p/m high --` arrived EMPTY and launched with no
+/// pin, and `-- --model p/m -- --model second` arrived as the second
+/// pair alone. Nothing is dropped here now; admission is the driver's.
 fn driver_extra_args(args: Vec<String>) -> Vec<String> {
-    if let Some(index) = args.iter().position(|arg| arg == "--") {
-        args[index + 1..].to_vec()
-    } else {
-        args
+    match args.first().map(String::as_str) {
+        Some("--") => args[1..].to_vec(),
+        _ => args,
     }
 }
 
