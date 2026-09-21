@@ -5178,6 +5178,153 @@ fn dsh_work_before_the_init_event_is_never_adopted_by_it() {
     }
 }
 
+/// The same interleaving, with the pre-confirmation reading left
+/// UNCERTAIN rather than advanced — the half a later reading used to
+/// cure.
+///
+/// A child can present its confirmation with a store that agrees with it
+/// completely and still have denied the one reading that could have
+/// refused it: disturb the offered root while the hold is closed — a
+/// half-written trailing row, which the boundary reader refuses whole
+/// rather than reporting a lower maximum
+/// (`dsh_stored_sequences_decline_instead_of_reporting_a_partial_maximum`);
+/// a root that is not there to be censused; a second depth-zero header
+/// naming the offer — then restore it, advance it and emit the init
+/// event.
+///
+/// Before the repair each of those readings was dropped rather than
+/// latched: the pre-init observation asked only whether it could SEE work,
+/// so a reading that could see nothing refused nothing, and the init
+/// behind it confirmed, published the locator, the launch row and
+/// `root_session`, and folded the work in front of it — adopting
+/// pre-confirmation work contrary to D7 and walking past `run_seat`'s
+/// unsettled-result guard.
+///
+/// An unobserved fact is never a satisfied one. A reading that cannot
+/// prove the offered root unmoved latches exactly as observed work does,
+/// and no later readable snapshot cures it. Both endings — a clean exit
+/// and an otherwise valid delivered result file — stay failed or
+/// indeterminate and authorize no cold replacement (task 8.8(d), Pass C;
+/// design D7).
+#[cfg(unix)]
+#[test]
+fn dsh_uncertainty_before_the_init_event_is_never_cured_by_a_later_reading() {
+    // Each case disturbs the offered root so the driver's pre-init
+    // reading cannot prove it unmoved, then puts the store back and
+    // advances it — the snapshot the init event arrives with agrees
+    // completely, and it is the earlier one that already refused.
+    //
+    // (case, what a pre-init reading cannot do, whether a result lands)
+    let cases: [(&str, bool); 4] = [
+        ("a half-written trailing row", false),
+        ("a half-written trailing row", true),
+        ("a store it cannot census", false),
+        ("a second header naming the offer", false),
+    ];
+    for (index, (case, delivers)) in cases.into_iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("seat");
+        plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        if case.starts_with("a second header") {
+            // Planted BEHIND the offered boundary, so the ambiguity is
+            // the only thing a pre-init reading can object to: neither
+            // header has moved past `firstSeq` yet.
+            plant_dsh_session(dir.path(), "seat", "--other--", "session-1", 5);
+        }
+        let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+        let result = dir.path().join("result.json");
+        let work = "printf '{\"type\":\"assistant/message\",\"seq\":28,\"data\":{\"message\":\
+                    {\"source\":{\"model\":\"deepseek-flash\"}},\"usage\":{\"inputTokens\":5,\
+                    \"outputTokens\":2}}}'";
+        // The stdout line is what drives the driver's pre-init reading,
+        // and the wait is what keeps that reading on the disturbed store.
+        // A reading that arrives late instead sees the advance the
+        // restoration leaves behind and refuses on that, so every case
+        // here can only ever end unconfirmed — the wait decides WHICH
+        // refusal it proves, never whether it refuses.
+        let (disturb, restore) = match case {
+            // Appended without its terminating newline: the boundary
+            // reader refuses a half-written tail whole rather than
+            // reporting a lower maximum, and the child's own newline is
+            // what completes it into the advance.
+            "a half-written trailing row" => (
+                format!("{work} >> '{file}'\n", file = file.display()),
+                format!("printf '\\n' >> '{file}'\n", file = file.display()),
+            ),
+            // The retained root is not there to be walked at all.
+            "a store it cannot census" => (
+                format!("mv '{root}' '{root}.away'\n", root = root.to_string_lossy()),
+                format!(
+                    "mv '{root}.away' '{root}'\n{work} >> '{file}'\nprintf '\\n' >> '{file}'\n",
+                    root = root.to_string_lossy(),
+                    file = file.display()
+                ),
+            ),
+            // Two depth-zero headers name the offer, so which root the
+            // plan selected is no longer a fact this reading holds.
+            _ => (
+                String::new(),
+                format!(
+                    "rm -rf '{other}'\n{work} >> '{file}'\nprintf '\\n' >> '{file}'\n",
+                    other = root.join("--other--").to_string_lossy(),
+                    file = file.display()
+                ),
+            ),
+        };
+        let mut body = format!(
+            "#!/bin/sh\n\
+             {disturb}\
+             printf '{{\"type\":\"system\",\"subtype\":\"other\"}}\\n'\n\
+             sleep 1\n\
+             {restore}"
+        );
+        if delivers {
+            body.push_str(&format!(
+                "printf '{{\"result\":\"delivered\"}}' > '{result}'\n",
+                result = result.display()
+            ));
+        }
+        body.push_str(
+            "printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n\
+             printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}\\n'\n",
+        );
+        let shim = executable(dir.path(), &format!("dsh-uncertain-{index}"), &body);
+        let (invocation, emitted) = run_dsh_stream(
+            dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+            dir.path(),
+        );
+        let ending = if delivers { "with a result" } else { "clean" };
+        let label = format!("{case}, {ending}");
+        assert_eq!(
+            invocation.launch,
+            LaunchTerminal::Unconfirmed,
+            "{label}: a restored store does not cure the reading that refused"
+        );
+        assert!(
+            launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty(),
+            "{label}: no launch row, no root_session and no locator: {emitted:?}"
+        );
+        assert!(
+            !emitted
+                .iter()
+                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            "{label}: and the work in front of the init event is never folded: {emitted:?}"
+        );
+        assert!(
+            invocation.refusal.is_none(),
+            "{label}: and no cold replacement is authorized"
+        );
+        if delivers {
+            assert!(
+                std::fs::metadata(&result).is_ok(),
+                "{label}: the delivered file is retained for diagnosis and is \
+                 not this attempt's accepted work"
+            );
+        }
+    }
+}
+
 /// The same terminal rule for the OTHER unsettled shape: an init event
 /// naming a different root, followed by an otherwise valid delivered
 /// result file, is a mismatch and never an accepted successful launch.
@@ -5430,10 +5577,20 @@ fn a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing() {
 /// that gained no sibling session. Only then does the driver publish the
 /// locator, the launch row and `root_session` — in that order and once —
 /// and it counts only the current event.
+///
+/// The confirmed launch also has to leave a root the NEXT attempt can
+/// rejoin, so the address it published is fed straight back into
+/// production's own admission reader here (design D6).
 #[cfg(unix)]
 #[test]
 fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
+    let _guard = ADAPTER_ENV.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
+    let prior_home = std::env::var_os("DSH_HOME");
+    // The admitted home IS the tempdir, so the locator this launch
+    // records resolves back to the planted store: the round trip below
+    // reads the same address a later attempt would be handed.
+    std::env::set_var("DSH_HOME", dir.path());
     let root = dir.path().join("seat");
     plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
     let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
@@ -5463,6 +5620,45 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
     assert_eq!(rows[0]["root_session"]["id"], "session-1");
     assert_eq!(rows[0]["root_session"]["harness_version"], "0.1.5-rc.1");
     assert_eq!(rows[0]["root_session"]["wrapper_digest"], "a".repeat(64));
+    // D6's atomic association, and what makes this launch REUSABLE: the
+    // locator and the home are published on the SAME checkpoint as the
+    // root they address, and are the exact admitted transcript this
+    // invocation recorded — not a second address composed here.
+    //
+    // The engine reads a DSH offer's three coordinates off one row and
+    // one row only (`engine::resume::eligible_offer`, pinned by the
+    // runtime's `a_stamped_row_is_offered_only_to_its_own_site_owner_\
+    // and_persistent_root`), so a launch row carrying `root_session`
+    // alone hands a two-coordinate planner an address it must decline as
+    // `unverified-harness` — a confirmed launch that establishes no
+    // reusable root, which is exactly what D6 forbids.
+    let address = transcript_rows(&emitted)[0]["transcript"].clone();
+    assert_eq!(address["kind"], "dsh-session");
+    assert_eq!(address["locator"], "seat");
+    assert_eq!(address["home"], dir.path().to_string_lossy().as_ref());
+    assert_eq!(
+        rows[0]["transcript"], address,
+        "the launch row carries the exact admitted transcript"
+    );
+    // And the address is USABLE, not merely present: the three
+    // coordinates off this one row, handed back as the owned target a
+    // later attempt would carry, re-admit the same retained store
+    // through production's own reader — at the boundary this invocation
+    // left behind, so the next rejoin folds past its own work.
+    let offered = json!({
+        "resume_context": {"owned_target": {
+            "provider_id": rows[0]["root_session"]["id"].clone(),
+            "persistence_locator": rows[0]["transcript"]["locator"].clone(),
+            "persistence_home": rows[0]["transcript"]["home"].clone(),
+        }}
+    });
+    let (rejoined, boundary) = owned_dsh_root(dir.path(), &offered, "session-1", &dsh_session_file)
+        .expect("the published address re-admits its own root");
+    assert_eq!(rejoined, root);
+    assert_eq!(
+        boundary, 28,
+        "the current work is the next offer's baseline"
+    );
     // D7's order: the held location fact, then the launch row, then the
     // first work checkpoint.
     let order: Vec<&str> = emitted
@@ -5475,6 +5671,11 @@ fn a_qualified_dsh_child_confirms_the_root_and_folds_current_only() {
     assert_eq!(invocation.session_meta["num_turns"], 1);
     assert_eq!(invocation.session_meta["input_tokens"], 5);
     assert_eq!(invocation.session_meta["output_tokens"], 2);
+
+    match prior_home {
+        Some(value) => std::env::set_var("DSH_HOME", value),
+        None => std::env::remove_var("DSH_HOME"),
+    }
 }
 
 /// A qualified stream-json launch whose stdout carries a line the plugin's
@@ -5529,6 +5730,16 @@ fn a_qualified_stream_json_launch_skips_a_malformed_line_and_still_confirms() {
         .find(|row| row["step"] == "harness-started")
         .expect("the confirmed launch publishes its row");
     assert_eq!(row["launch"], "cold");
+    // A seat's FIRST qualified launch is this one, and the root it
+    // confirms here is what the next attempt is offered. So the cold row
+    // carries the same atomic association a warm row does: the exact
+    // admitted transcript beside the root it addresses (design D6).
+    assert_eq!(row["root_session"]["id"], "session-1");
+    assert_eq!(
+        row["transcript"], invocation.session_meta["transcript"],
+        "the cold launch row carries the address its root was opened at"
+    );
+    assert_eq!(row["transcript"]["locator"], "seat");
 }
 
 /// The same qualified dispatch when the child never names a root: the init
@@ -5586,6 +5797,14 @@ fn a_qualified_stream_json_launch_finishes_its_held_row_without_a_confirmation()
         .find(|row| row["step"] == "harness-started")
         .expect("the held launch row is flushed even without a confirmation");
     assert_eq!(row["launch"], "cold");
+    // The address is published with the root it addresses or not at all:
+    // a launch row that confirms no root offers nothing to rejoin, so a
+    // locator on it would be an address with no session behind it.
+    assert!(row.get("root_session").is_none());
+    assert!(
+        row.get("transcript").is_none(),
+        "no root, no address: {row}"
+    );
 }
 
 /// A stdout line that is not valid UTF-8 is a read error, not a JSON line to

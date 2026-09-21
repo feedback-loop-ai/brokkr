@@ -712,6 +712,11 @@ struct LaunchHold {
     published: bool,
     /// The root the provider actually named, once it has.
     confirmed: Option<RootSession>,
+    /// The transcript address the confirmed root was opened at, for the
+    /// launch row itself. A provider whose session identifier IS its
+    /// locator (claude, codex) needs none: the root already carries the
+    /// whole address. DSH needs both coordinates, so it supplies one.
+    address: Option<Value>,
     outcome: Option<Confirmation>,
     /// Whether any row this invocation emitted proved the harness began
     /// work (decision 0053's own predicate). Ruling 8's replacement is
@@ -726,9 +731,26 @@ impl LaunchHold {
             plan,
             published: false,
             confirmed: None,
+            address: None,
             outcome: None,
             began_work: false,
         }
+    }
+
+    /// The address a root confirmed by this launch can be rejoined at:
+    /// the exact transcript object the invocation admitted and recorded,
+    /// handed over rather than composed a second time here.
+    ///
+    /// Design D6 wants the association ATOMIC. The engine reads a
+    /// two-coordinate offer — the provider id, the persistence locator
+    /// and the persistence home — off ONE checkpoint and never one field
+    /// per row (`engine::resume::eligible_offer`), because two rows are
+    /// two facts and a locator borrowed from a neighbour addresses a
+    /// session nobody established. So the launch row that publishes
+    /// `root_session` publishes the address beside it, and a launch that
+    /// confirms nothing publishes neither.
+    fn address(&mut self, transcript: Value) {
+        self.address = Some(transcript);
     }
 
     /// The one door every emitted row passes through, so that the
@@ -841,6 +863,14 @@ impl LaunchHold {
         }
         if let Some(root) = &self.confirmed {
             row.insert("root_session".into(), root.value());
+            // The address travels with the root it addresses, on this
+            // row, or not at all: a confirmed launch whose locator and
+            // home sit on a neighbouring row offers a planner that needs
+            // all three coordinates nothing it may use, and the next
+            // attempt declines an offer this one earned (design D6).
+            if let Some(address) = &self.address {
+                row.insert("transcript".into(), address.clone());
+            }
         }
         // A refusal reason names a declined OFFER, so it appears exactly
         // beside the cold launch that decline produced. No offer, no
@@ -3830,15 +3860,15 @@ fn invoke_dsh_launch(
     // plugin opens instead of rejoining the offered one is visible as a
     // session that was not there (task 8.8(d), Pass C).
     let mut watch = DshRootWatch::new(&launch, transcript);
+    let mut hold = LaunchHold::new("deepseek", launch.plan());
     // The retained locator is published before anything spawns, exactly as
     // before; `run_seat` holds it until a turn begins (decision 0053). A
     // REJOIN holds it instead: an attempt that never confirms the offered
     // root publishes no locator either, because the row would address a
     // session this driver cannot say it was in (design D7).
     if !watch.confirming() {
-        watch.record_locator(&mut session_meta, emit);
+        watch.record_locator(&mut hold, &mut session_meta, emit);
     }
-    let mut hold = LaunchHold::new("deepseek", launch.plan());
     // The shipped cold route confirms nothing, so its one launch row is
     // published before the spawn — exactly where it always was, and the
     // only reason a spawn failure still flushes the held rows. The
@@ -4163,14 +4193,23 @@ impl DshRootWatch {
         !self.confirming() || self.released
     }
 
-    /// Publish the retained locator row.
+    /// Publish the retained locator row, and hand the launch hold the
+    /// exact address it recorded. DSH is the one built-in provider whose
+    /// session identifier is not its own locator: a root is rejoinable
+    /// only through the retained directory it was opened in, so the
+    /// launch row that confirms the root carries that address on the same
+    /// row (design D6).
     fn record_locator(
         &mut self,
+        hold: &mut LaunchHold,
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Value),
     ) {
         let locator = self.locator.clone();
         self.transcript.record(&locator, session_meta, emit);
+        if let Some(address) = session_meta.get("transcript") {
+            hold.address(address.clone());
+        }
     }
 
     /// The child named a session. A DIFFERENT one settles at once —
@@ -4248,13 +4287,16 @@ impl DshRootWatch {
         self.settled = true;
         self.released = true;
         // D7's order: the held location fact, then the launch row, then
-        // the first work checkpoint the drain behind this call emits.
-        self.record_locator(session_meta, emit);
+        // the first work checkpoint the drain behind this call emits. The
+        // launch row carries that same address, so the root and the two
+        // coordinates a rejoin needs are one checkpoint (design D6).
+        self.record_locator(hold, session_meta, emit);
         hold.confirm(&offered, emit);
     }
 
-    /// Sequence activity in the offered root observed BEFORE the plugin's
-    /// init event named it, which permanently refuses the rejoin.
+    /// Sequence activity — or an unreadable store — in the offered root
+    /// observed BEFORE the plugin's init event named it, which
+    /// permanently refuses the rejoin.
     ///
     /// The pinned plugin emits its init event immediately after
     /// `await agents.resume` — ahead of the session's first current turn
@@ -4266,23 +4308,40 @@ impl DshRootWatch {
     /// locator, no launch row and no `root_session`, and authorizing no
     /// cold replacement.
     ///
-    /// A store this driver cannot census, or an offer admitted without a
-    /// prior boundary, observes nothing here — an unobserved fact is
-    /// never a satisfied one, and both of those already withhold the
-    /// confirmation in `settle` above.
+    /// UNCERTAINTY latches exactly as observed work does. A store this
+    /// driver cannot census while the hold is closed, an offered root
+    /// that is no longer exactly one depth-zero header, and a boundary
+    /// the reader refuses — a half-written trailing row is refused whole,
+    /// never reported as a lower maximum — are each a reading that could
+    /// not rule out work in front of the confirmation. Dropping them
+    /// would let the child complete that row, emit its init event, and
+    /// present a store that now agrees with it: the refusal has to
+    /// survive every later readable snapshot, because the snapshot that
+    /// could have refused is the one already taken.
+    ///
+    /// An offer admitted without a prior boundary observes nothing here;
+    /// `settle` above already withholds that confirmation for want of
+    /// fact 1, and there is no baseline to call anything activity past.
     fn refuse_work_before_confirmation(&mut self) {
         let (Some(offered), Some(first_seq)) = (self.offered.clone(), self.first_seq) else {
             return;
         };
-        let Ok(sessions) = dsh_depth_zero_sessions(&self.root) else {
-            return;
-        };
-        let advanced = sessions
-            .iter()
-            .filter(|(id, _)| *id == offered)
-            .filter_map(|(_, file)| dsh_session_last_seq(file))
-            .any(|last| last > first_seq);
-        if advanced {
+        // One rule, stated as what this reading has to PROVE: the offered
+        // root still stands exactly where the plan left it — a store this
+        // driver can census, exactly one depth-zero header naming the
+        // offer, a boundary the reader accepts whole, and nothing past
+        // the recorded one. Anything else is a reading that could not
+        // rule out work in front of the confirmation, and it refuses.
+        let unmoved = dsh_depth_zero_sessions(&self.root).is_ok_and(|sessions| {
+            let mut named = sessions.iter().filter(|(id, _)| *id == offered);
+            match (named.next(), named.next()) {
+                (Some((_, file)), None) => {
+                    dsh_session_last_seq(file).is_some_and(|last| last <= first_seq)
+                }
+                _ => false,
+            }
+        });
+        if !unmoved {
             self.settled = true;
         }
     }
