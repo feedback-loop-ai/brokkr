@@ -250,9 +250,7 @@ impl SiteAsks {
         site: Option<&Value>,
     ) -> Result<SiteAsks, String> {
         let what = format!("seat '{label}'");
-        let written = site
-            .map(|raw| parse_requests(&what, raw))
-            .transpose()?;
+        let written = site.map(|raw| parse_requests(&what, raw)).transpose()?;
         let Some((office, office_asks)) = agent else {
             return Ok(SiteAsks {
                 label: label.to_string(),
@@ -312,7 +310,9 @@ fn read_document(root: &Path, relative: &str) -> Result<Option<(Value, String)>,
     let Ok(canonical) = path.canonicalize() else {
         return Ok(None);
     };
-    let inside = root.canonicalize().is_ok_and(|root| canonical.starts_with(root));
+    let inside = root
+        .canonicalize()
+        .is_ok_and(|root| canonical.starts_with(root));
     if !inside {
         return Err(format!(
             "'{relative}' resolves outside the operator configuration directory"
@@ -366,7 +366,10 @@ impl Definitions {
         let mut stems: Vec<String> = entries
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
             .filter_map(|path| Some(path.file_stem()?.to_str()?.to_string()))
             .collect();
         stems.sort();
@@ -421,7 +424,10 @@ impl Definitions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialectKind {
     /// A capability a harness already has, addressed through its adapter.
-    Native { provider: String, adapter_key: String },
+    Native {
+        provider: String,
+        adapter_key: String,
+    },
     /// An MCP server. Whole as data; refused as a grant until slice two.
     Mcp,
     /// Reserved: decision 0043's workspace tool, which does not move.
@@ -538,7 +544,9 @@ impl ToolDialect {
             .cloned()
             .unwrap_or_else(|| json!({"type": "object", "additionalProperties": false}));
         if let Some(fault) = embedded_schema_fault(&restrictions) {
-            return Err(format!("tool dialect '{source}' restriction schema {fault}"));
+            return Err(format!(
+                "tool dialect '{source}' restriction schema {fault}"
+            ));
         }
         jsonschema::draft7::new(&restrictions).map_err(|error| {
             format!("tool dialect '{source}' restriction schema is not valid draft-07: {error}")
@@ -560,7 +568,10 @@ impl ToolDialect {
             kind,
             tools: strings("tools").unwrap_or_default(),
             classes: strings("classes"),
-            egress: value["egress"].as_str().unwrap_or("uncontracted").to_string(),
+            egress: value["egress"]
+                .as_str()
+                .unwrap_or("uncontracted")
+                .to_string(),
             seat_composed: value["sends"]["seat_composed"] == json!(true),
             restrictions,
             source,
@@ -980,8 +991,9 @@ impl Authority {
                     Definition::source_of(capability)
                 )
             })?;
-            let dialect = ToolDialect::load(&context.root, &grant.dialect)
-                .map_err(|problem| format!("realm '{realm}': capability '{capability}': {problem}"))?;
+            let dialect = ToolDialect::load(&context.root, &grant.dialect).map_err(|problem| {
+                format!("realm '{realm}': capability '{capability}': {problem}")
+            })?;
             if dialect.serves != *capability {
                 return Err(format!(
                     "realm '{realm}' grants capability '{capability}' through dialect '{}', \
@@ -1031,10 +1043,7 @@ impl Authority {
                     provider,
                     adapter_key,
                 } => {
-                    bindings.insert(
-                        capability.clone(),
-                        (provider.clone(), adapter_key.clone()),
-                    );
+                    bindings.insert(capability.clone(), (provider.clone(), adapter_key.clone()));
                 }
                 DialectKind::Mcp => {
                     return Err(format!(
@@ -1161,9 +1170,7 @@ impl Authority {
         let (bound, adapter_key) = &self.bindings[capability];
         if bound != provider {
             return Err(through(
-                format!(
-                    "provider '{provider}' cannot carry a binding to provider '{bound}'"
-                ),
+                format!("provider '{provider}' cannot carry a binding to provider '{bound}'"),
                 true,
             ));
         }
@@ -1212,9 +1219,7 @@ impl Authority {
             }
             Disposition::Unmeasured(reason) => {
                 return Err(through(
-                    format!(
-                        "provider '{provider}' declares its ON control unmeasured ({reason})"
-                    ),
+                    format!("provider '{provider}' declares its ON control unmeasured ({reason})"),
                     true,
                 ))
             }

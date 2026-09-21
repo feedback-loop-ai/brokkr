@@ -164,9 +164,11 @@ fn a_request_map_is_two_words_and_every_other_value_is_refused_not_dropped() {
 
 #[test]
 fn a_seat_inherits_subtracts_and_never_adds_or_re_rates() {
-    let office =
-        parse_requests("agent 'researcher'", &json!({"web-search": "wants", "library-docs": "requires"}))
-            .unwrap();
+    let office = parse_requests(
+        "agent 'researcher'",
+        &json!({"web-search": "wants", "library-docs": "requires"}),
+    )
+    .unwrap();
     let agent = Some(("researcher", &office));
     // Omission inherits.
     let inherited = SiteAsks::of("research", agent, None).unwrap();
@@ -174,8 +176,12 @@ fn a_seat_inherits_subtracts_and_never_adds_or_re_rates() {
     assert_eq!(inherited.asks, office);
     assert!(inherited.subtracted.is_empty());
     // An explicit subset subtracts what it leaves out.
-    let narrowed =
-        SiteAsks::of("research", agent, Some(&json!({"library-docs": "requires"}))).unwrap();
+    let narrowed = SiteAsks::of(
+        "research",
+        agent,
+        Some(&json!({"library-docs": "requires"})),
+    )
+    .unwrap();
     assert_eq!(narrowed.asks.len(), 1);
     assert_eq!(narrowed.subtracted, ["web-search"]);
     // An empty map subtracts everything — a requires included, deliberately.
@@ -211,9 +217,16 @@ fn a_seat_inherits_subtracts_and_never_adds_or_re_rates() {
 #[test]
 fn definitions_load_from_the_operators_directory_and_a_missing_one_is_empty() {
     let root = TempDir::new().unwrap();
-    assert_eq!(Definitions::load(root.path()).unwrap(), Definitions::default());
+    assert_eq!(
+        Definitions::load(root.path()).unwrap(),
+        Definitions::default()
+    );
     define(root.path(), "operator-library-docs", &["reads", "egress"]);
-    std::fs::write(root.path().join("capabilities/README.md"), "not a definition").unwrap();
+    std::fs::write(
+        root.path().join("capabilities/README.md"),
+        "not a definition",
+    )
+    .unwrap();
     let definitions = Definitions::load(root.path()).unwrap();
     let definition = definitions.get("operator-library-docs").unwrap();
     assert_eq!(definition.classes, ["reads", "egress"]);
@@ -222,7 +235,9 @@ fn definitions_load_from_the_operators_directory_and_a_missing_one_is_empty() {
     assert_eq!(definition.sha256, sha256_bytes(&bytes));
     assert!(definitions.get("web-search").is_none());
     assert_eq!(
-        definitions.require("agent 'researcher'", "web-search").unwrap_err(),
+        definitions
+            .require("agent 'researcher'", "web-search")
+            .unwrap_err(),
         "agent 'researcher': capability 'web-search' has no abstract definition at \
          'capabilities/web-search.json' in the operator configuration; declare its classes \
          before requesting it"
@@ -333,7 +348,10 @@ fn mcp_dialect(name: &str, connection: Value) -> Value {
 #[test]
 fn every_kind_loads_as_data_and_nothing_is_executed_or_contacted() {
     let root = TempDir::new().unwrap();
-    dialect(root.path(), &native_dialect("search-native", "web-search", &["lookup"]));
+    dialect(
+        root.path(),
+        &native_dialect("search-native", "web-search", &["lookup"]),
+    );
     let native = ToolDialect::load(root.path(), "search-native").unwrap();
     assert_eq!(
         native.kind,
@@ -353,7 +371,10 @@ fn every_kind_loads_as_data_and_nothing_is_executed_or_contacted() {
     // A binary that does not exist and a host that does not resolve: both
     // connection forms are read as data.
     for (name, connection) in [
-        ("docs-stdio", json!({"argv": ["/nonexistent/docs-mcp", "--stdio"]})),
+        (
+            "docs-stdio",
+            json!({"argv": ["/nonexistent/docs-mcp", "--stdio"]}),
+        ),
         ("docs-url", json!({"url": "https://docs.invalid/mcp"})),
     ] {
         dialect(root.path(), &mcp_dialect(name, connection));
@@ -438,7 +459,10 @@ fn a_dialect_outside_the_contract_is_refused_naming_the_file_and_the_field() {
     );
     assert_eq!(
         mcp(&|d| d["connection"] = json!({"url": "https://user:hunter2@docs.invalid/mcp"})),
-        at("/connection/url", "/properties/connection/properties/url/pattern")
+        at(
+            "/connection/url",
+            "/properties/connection/properties/url/pattern"
+        )
     );
     assert_eq!(
         mcp(&|d| {
@@ -452,7 +476,10 @@ fn a_dialect_outside_the_contract_is_refused_naming_the_file_and_the_field() {
         }),
         at("", "/required")
     );
-    assert_eq!(mcp(&|d| d["token"] = json!("hunter2")), at("", "/additionalProperties"));
+    assert_eq!(
+        mcp(&|d| d["token"] = json!("hunter2")),
+        at("", "/additionalProperties")
+    );
     assert_eq!(
         mcp(&|d| d["secrets"] = json!(["hunter2"])),
         at("/secrets/0", "/properties/secrets/items/pattern")
@@ -507,7 +534,10 @@ fn a_restriction_schema_stays_inside_its_file_and_off_the_engines_keys() {
         "type": "object", "properties": {"allow": {"$ref": "#/definitions/hosts"}}
     }))
     .unwrap();
-    assert_eq!(local.restrictions["properties"]["allow"]["$ref"], "#/definitions/hosts");
+    assert_eq!(
+        local.restrictions["properties"]["allow"]["$ref"],
+        "#/definitions/hosts"
+    );
     assert_eq!(
         violation(&json!({"type": "no-such-type"}), &json!({})).is_err(),
         true
@@ -523,14 +553,20 @@ fn a_native_declaration_states_both_halves_or_says_why_it_cannot() {
         NativeInventory::Unmeasured(ABSENT_ASSESSMENT.to_string())
     );
     assert_eq!(
-        NativeInventory::parse("adapter 'dsh'", Some(&json!({"unmeasured": "never probed"})))
-            .unwrap(),
+        NativeInventory::parse(
+            "adapter 'dsh'",
+            Some(&json!({"unmeasured": "never probed"}))
+        )
+        .unwrap(),
         NativeInventory::Unmeasured("never probed".to_string())
     );
     let NativeInventory::Known { known, selection } = switchable() else {
         panic!("a known inventory");
     };
-    assert_eq!(known["web-search"].on, Disposition::Argv(vec!["--search-on".into()]));
+    assert_eq!(
+        known["web-search"].on,
+        Disposition::Argv(vec!["--search-on".into()])
+    );
     assert_eq!(known["web-search"].authored.flags, ["--search"]);
     assert_eq!(selection.unwrap().deny.flag, "--deny");
 
@@ -556,7 +592,10 @@ fn a_native_declaration_states_both_halves_or_says_why_it_cannot() {
     };
     broke(
         entry(&|raw| {
-            raw["known"]["web-search"].as_object_mut().unwrap().remove("off");
+            raw["known"]["web-search"]
+                .as_object_mut()
+                .unwrap()
+                .remove("off");
         }),
         "",
         "required",
@@ -572,8 +611,9 @@ fn a_native_declaration_states_both_halves_or_says_why_it_cannot() {
         "minItems",
     );
     broke(
-        entry(&|raw| raw["known"]["web-search"]["off"] =
-            json!({"argv": ["--off"], "unsupported": "both"})),
+        entry(&|raw| {
+            raw["known"]["web-search"]["off"] = json!({"argv": ["--off"], "unsupported": "both"})
+        }),
         "/off",
         "maxProperties",
     );
@@ -588,7 +628,10 @@ fn a_native_declaration_states_both_halves_or_says_why_it_cannot() {
         "adapter 'test-native' 'native_capabilities' key 'web-search' uses a selection \
          control, but the adapter declares no 'selection' list flags to express it with"
     );
-    for (template, slots) in [(json!(["--restrict"]), 0), (json!(["{restrictions_json}", "x{restrictions_json}"]), 2)] {
+    for (template, slots) in [
+        (json!(["--restrict"]), 0),
+        (json!(["{restrictions_json}", "x{restrictions_json}"]), 2),
+    ] {
         assert_eq!(
             entry(&|raw| raw["known"]["web-search"]["restrictions"] = json!({"argv": template})),
             format!(
@@ -606,11 +649,17 @@ fn every_grant_is_judged_before_any_seat_and_a_bad_one_is_never_an_optional_drop
     let root = cq1_root();
     let grant = |extra: Value| {
         let mut grant = json!({"dialect": "search-native"});
-        grant.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        grant
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         json!({"web-search": grant})
     };
     assert_eq!(
-        refusal(root.path(), json!({"web-fetch": {"dialect": "search-native"}})),
+        refusal(
+            root.path(),
+            json!({"web-fetch": {"dialect": "search-native"}})
+        ),
         "realm 'private': capability 'web-fetch' has no abstract definition at \
          'capabilities/web-fetch.json' in the operator configuration; declare its classes \
          before granting it"
@@ -622,7 +671,10 @@ fn every_grant_is_judged_before_any_seat_and_a_bad_one_is_never_an_optional_drop
     );
     define(root.path(), "web-fetch", &["reads", "egress"]);
     assert_eq!(
-        refusal(root.path(), json!({"web-fetch": {"dialect": "search-native"}})),
+        refusal(
+            root.path(),
+            json!({"web-fetch": {"dialect": "search-native"}})
+        ),
         "realm 'private' grants capability 'web-fetch' through dialect 'search-native', which \
          serves 'web-search'"
     );
@@ -634,7 +686,10 @@ fn every_grant_is_judged_before_any_seat_and_a_bad_one_is_never_an_optional_drop
     // CQ1: an invalid restriction refuses whatever any seat asks — even
     // for a grant scoped to no office at all.
     assert_eq!(
-        refusal(root.path(), grant(json!({"offices": [], "allow": {"hosts": "sourceware.org"}}))),
+        refusal(
+            root.path(),
+            grant(json!({"offices": [], "allow": {"hosts": "sourceware.org"}}))
+        ),
         "realm 'private' grants capability 'web-search' through dialect 'search-native' with \
          an invalid restriction at '/allow/hosts': it does not satisfy \
          '/properties/allow/properties/hosts/type'"
@@ -649,13 +704,19 @@ fn every_grant_is_judged_before_any_seat_and_a_bad_one_is_never_an_optional_drop
     reads_only["classes"] = json!(["reads"]);
     dialect(root.path(), &reads_only);
     assert_eq!(
-        refusal(root.path(), json!({"web-search": {"dialect": "reads-only", "offices": []}})),
+        refusal(
+            root.path(),
+            json!({"web-search": {"dialect": "reads-only", "offices": []}})
+        ),
         "realm 'private': capability 'web-search' in dialect 'reads-only' declares classes \
          [reads], conflicting with abstract definition 'capabilities/web-search.json' classes \
          [reads, egress]"
     );
     // A valid grant loads, the dialect's annotation compared as a SET.
-    let loaded = authority(root.path(), grant(json!({"allow": {"hosts": ["yaml.org"]}})));
+    let loaded = authority(
+        root.path(),
+        grant(json!({"allow": {"hosts": ["yaml.org"]}})),
+    );
     assert_eq!(loaded.dialects["web-search"].name, "search-native");
 }
 
@@ -664,7 +725,10 @@ fn an_mcp_grant_refuses_until_slice_two_even_unused_and_a_hands_grant_is_reserve
     let root = cq1_root();
     define(root.path(), "library-docs", &["reads", "egress"]);
     define(root.path(), "workspace", &["reads", "writes"]);
-    dialect(root.path(), &mcp_dialect("docs-mcp", json!({"argv": ["/nonexistent/docs-mcp"]})));
+    dialect(
+        root.path(),
+        &mcp_dialect("docs-mcp", json!({"argv": ["/nonexistent/docs-mcp"]})),
+    );
     dialect(
         root.path(),
         &json!({"schema": "brokkr.tool-dialect/v1", "name": "hands", "serves": "workspace",
@@ -676,8 +740,14 @@ fn an_mcp_grant_refuses_until_slice_two_even_unused_and_a_hands_grant_is_reserve
                      decision 0065 slice two";
     // No seat has been looked at: a want, no ask, and an empty scope are
     // all the same refusal.
-    for grant in [json!({"dialect": "docs-mcp"}), json!({"dialect": "docs-mcp", "offices": []})] {
-        assert_eq!(refusal(root.path(), json!({"library-docs": grant})), slice_two);
+    for grant in [
+        json!({"dialect": "docs-mcp"}),
+        json!({"dialect": "docs-mcp", "offices": []}),
+    ] {
+        assert_eq!(
+            refusal(root.path(), json!({"library-docs": grant})),
+            slice_two
+        );
     }
     assert_eq!(
         refusal(root.path(), json!({"workspace": {"dialect": "hands"}})),
@@ -743,25 +813,38 @@ fn a_request_with_no_definition_is_invalid_before_optionality_or_subtraction() {
                    declare its classes before requesting it";
     for strength in ["requires", "wants"] {
         let site = asks(json!({"operator-library-docs": strength}));
-        assert_eq!(nothing.resolve(&site, &serving(&native)).unwrap_err(), missing);
+        assert_eq!(
+            nothing.resolve(&site, &serving(&native)).unwrap_err(),
+            missing
+        );
     }
     // Even an ask the seat subtracts must have been a valid one.
     let office = parse_requests("a", &json!({"operator-library-docs": "wants"})).unwrap();
-    let subtracted = SiteAsks::of("research", Some(("researcher", &office)), Some(&json!({}))).unwrap();
-    assert_eq!(nothing.resolve(&subtracted, &serving(&native)).unwrap_err(), missing);
+    let subtracted =
+        SiteAsks::of("research", Some(("researcher", &office)), Some(&json!({}))).unwrap();
+    assert_eq!(
+        nothing.resolve(&subtracted, &serving(&native)).unwrap_err(),
+        missing
+    );
     // Supplying the definition turns it into the ordinary outcomes, with
     // no dialect anywhere.
     define(root.path(), "operator-library-docs", &["reads", "egress"]);
     let defined = authority(root.path(), json!({}));
     assert_eq!(
         defined
-            .resolve(&asks(json!({"operator-library-docs": "requires"})), &serving(&native))
+            .resolve(
+                &asks(json!({"operator-library-docs": "requires"})),
+                &serving(&native)
+            )
             .unwrap_err(),
         "seat 'research' (office 'researcher') in realm 'private': requires capability \
          'operator-library-docs' but the realm does not grant it to this office"
     );
     let dropped = defined
-        .resolve(&asks(json!({"operator-library-docs": "wants"})), &serving(&native))
+        .resolve(
+            &asks(json!({"operator-library-docs": "wants"})),
+            &serving(&native),
+        )
         .unwrap();
     assert_eq!(
         dropped.notices[0].1,
@@ -841,7 +924,10 @@ fn a_held_capability_is_switched_on_and_is_fully_attributable() {
     assert_eq!(holding.classes, ["reads", "egress"]);
     assert_eq!(holding.dialect, "search-native");
     assert_eq!(holding.tools, ["lookup", "search"]);
-    assert_eq!(holding.dialect_sha256, granted.dialects["web-search"].sha256);
+    assert_eq!(
+        holding.dialect_sha256,
+        granted.dialects["web-search"].sha256
+    );
     assert_eq!(
         holding.definition_sha256,
         granted.definitions.get("web-search").unwrap().sha256
@@ -852,8 +938,11 @@ fn a_held_capability_is_switched_on_and_is_fully_attributable() {
     let manifest = outcome.manifest();
     assert_eq!(manifest["provider"], "test-native");
     assert_eq!(manifest["model"], "tn-1");
-    assert_eq!(manifest["native"], json!({"inventory": "known", "declaration": "d1ge57",
-                                          "on": ["web-search"], "off": []}));
+    assert_eq!(
+        manifest["native"],
+        json!({"inventory": "known", "declaration": "d1ge57",
+                                          "on": ["web-search"], "off": []})
+    );
     assert_eq!(manifest["held"]["web-search"]["restrictions"], json!({}));
     assert_eq!(
         outcome.prompt(),
@@ -874,7 +963,10 @@ fn a_held_capability_is_switched_on_and_is_fully_attributable() {
 #[test]
 fn provider_compatibility_cannot_expand_a_holding() {
     let root = cq1_root();
-    let granted = authority(root.path(), json!({"web-search": {"dialect": "search-native"}}));
+    let granted = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
     let site = asks(json!({"web-search": "requires"}));
     let wanting = asks(json!({"web-search": "wants"}));
     let head = "seat 'research' (office 'researcher') in realm 'private': requires capability \
@@ -884,7 +976,10 @@ fn provider_compatibility_cannot_expand_a_holding() {
 
     // Another provider is not a silent dialect substitution.
     let claude = switchable();
-    let other = Serving { provider: "claude", ..serving(&claude) };
+    let other = Serving {
+        provider: "claude",
+        ..serving(&claude)
+    };
     assert_eq!(
         refused(&other),
         format!("{head}provider 'claude' cannot carry a binding to provider 'test-native'{tail}")
@@ -927,13 +1022,19 @@ fn provider_compatibility_cannot_expand_a_holding() {
          nothing is claimed about what it can reach on its own"
     );
     // No adapter answers at all: an opaque driver.
-    let opaque = Serving { native: None, model: None, ..serving(&unmeasured) };
+    let opaque = Serving {
+        native: None,
+        model: None,
+        ..serving(&unmeasured)
+    };
     assert_eq!(
         refused(&opaque),
         format!("{head}no adapter declares provider 'test-native'{tail}")
     );
     let nothing = authority(root.path(), json!({}));
-    let outcome = nothing.resolve(&SiteAsks::of("s", None, None).unwrap(), &opaque).unwrap();
+    let outcome = nothing
+        .resolve(&SiteAsks::of("s", None, None).unwrap(), &opaque)
+        .unwrap();
     assert_eq!(
         outcome.manifest(),
         json!({"provider": "test-native", "held": {}, "not_held": {}, "notices": [],
@@ -945,7 +1046,10 @@ fn provider_compatibility_cannot_expand_a_holding() {
     let mut elsewhere = native_dialect("search-elsewhere", "web-search", &["lookup"]);
     elsewhere["adapter_key"] = json!("web-lookup");
     dialect(root.path(), &elsewhere);
-    let rebound = authority(root.path(), json!({"web-search": {"dialect": "search-elsewhere"}}));
+    let rebound = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-elsewhere"}}),
+    );
     assert_eq!(
         rebound.resolve(&site, &serving(&claude)).unwrap_err(),
         "seat 'research' (office 'researcher') in realm 'private': requires capability \
@@ -954,8 +1058,14 @@ fn provider_compatibility_cannot_expand_a_holding() {
          this grant"
     );
     // A tool the harness does not have.
-    dialect(root.path(), &native_dialect("search-crawl", "web-search", &["crawl"]));
-    let crawling = authority(root.path(), json!({"web-search": {"dialect": "search-crawl"}}));
+    dialect(
+        root.path(),
+        &native_dialect("search-crawl", "web-search", &["crawl"]),
+    );
+    let crawling = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-crawl"}}),
+    );
     assert_eq!(
         crawling.resolve(&site, &serving(&claude)).unwrap_err(),
         "seat 'research' (office 'researcher') in realm 'private': requires capability \
@@ -964,7 +1074,10 @@ fn provider_compatibility_cannot_expand_a_holding() {
     );
     // ON that cannot be switched, or that nobody measured.
     for (on, but) in [
-        (json!({"unsupported": "no flag"}), "provider 'test-native' cannot switch it on (no flag)"),
+        (
+            json!({"unsupported": "no flag"}),
+            "provider 'test-native' cannot switch it on (no flag)",
+        ),
         (
             json!({"unmeasured": "untried"}),
             "provider 'test-native' declares its ON control unmeasured (untried)",
@@ -984,7 +1097,10 @@ fn tool_narrowing_is_exact_or_the_binding_is_incompatible() {
     );
     let site = asks(json!({"web-search": "requires"}));
     // A whole-set switch would enable the excluded tool.
-    for on in [json!({"argv": ["--search-on"]}), json!({"default": "on by default"})] {
+    for on in [
+        json!({"argv": ["--search-on"]}),
+        json!({"default": "on by default"}),
+    ] {
         let native = test_native(on, json!({"argv": ["--off"]}), json!({"unsupported": "x"}));
         assert_eq!(
             narrowed.resolve(&site, &serving(&native)).unwrap_err(),
@@ -1013,9 +1129,15 @@ fn tool_narrowing_is_exact_or_the_binding_is_incompatible() {
     // Not held at all: the OFF selection denies both.
     let nothing = authority(root.path(), json!({}));
     let denied = nothing
-        .resolve(&SiteAsks::of("implement", None, None).unwrap(), &serving(&selecting))
+        .resolve(
+            &SiteAsks::of("implement", None, None).unwrap(),
+            &serving(&selecting),
+        )
         .unwrap();
-    assert_eq!(denied.controls()["selection"]["deny"], json!(["lookup", "search"]));
+    assert_eq!(
+        denied.controls()["selection"]["deny"],
+        json!(["lookup", "search"])
+    );
     assert_eq!(denied.controls()["selection"]["include"], json!([]));
 }
 
@@ -1114,13 +1236,21 @@ fn an_expressible_restriction_rides_one_typed_argument_unchanged() {
         json!({"allow": {"hosts": ["yaml.org", "sourceware.org"]}})
     );
     // No restriction, no transport argument.
-    let plain = authority(root.path(), json!({"web-search": {"dialect": "search-native"}}));
+    let plain = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
     assert_eq!(
         argv_of(&plain.resolve(&site, &serving(&carrying)).unwrap()),
         ["--search-on"]
     );
     assert_eq!(
-        restriction_names("", json!({"allow": {"hosts": [], "ports": {}}, "deny": 1}).as_object().unwrap()),
+        restriction_names(
+            "",
+            json!({"allow": {"hosts": [], "ports": {}}, "deny": 1})
+                .as_object()
+                .unwrap()
+        ),
         ["allow.hosts", "allow.ports", "deny"]
     );
 }
@@ -1164,7 +1294,10 @@ fn a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks(
         impossible(&implement, "implement", "implement")
     );
     // Held through the grant, the same harness seats: ON is its default.
-    let granted = authority(root.path(), json!({"web-search": {"dialect": "search-native"}}));
+    let granted = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
     let held = granted
         .resolve(&asks(json!({"web-search": "requires"})), &serving(&stuck))
         .unwrap();
@@ -1176,7 +1309,10 @@ fn a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks(
         json!({"unsupported": "x"}),
     );
     let outcome = nothing.resolve(&implement, &serving(&unknown)).unwrap();
-    assert_eq!(outcome.manifest()["native"]["unmeasured"], json!(["web-search"]));
+    assert_eq!(
+        outcome.manifest()["native"]["unmeasured"],
+        json!(["web-search"])
+    );
     assert_eq!(outcome.manifest()["native"]["off"], json!([]));
     assert_eq!(
         outcome.not_held["web-search"],
@@ -1199,8 +1335,15 @@ fn an_authored_native_control_is_refused_at_compile_naming_the_seat() {
     let root = cq1_root();
     let nothing = authority(root.path(), json!({}));
     let native = switchable();
-    let authored = ["--model".to_string(), "m".to_string(), "--search".to_string()];
-    let contending = Serving { authored: &authored, ..serving(&native) };
+    let authored = [
+        "--model".to_string(),
+        "m".to_string(),
+        "--search".to_string(),
+    ];
+    let contending = Serving {
+        authored: &authored,
+        ..serving(&native)
+    };
     assert_eq!(
         nothing
             .resolve(&SiteAsks::of("implement", None, None).unwrap(), &contending)
@@ -1216,38 +1359,70 @@ fn an_authored_native_control_is_refused_at_compile_naming_the_seat() {
 #[test]
 fn a_site_records_each_candidate_apart_and_serves_the_selected_one() {
     let root = cq1_root();
-    let granted = authority(root.path(), json!({"web-search": {"dialect": "search-native"}}));
+    let granted = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    );
     let site = asks(json!({"web-search": "wants"}));
     let native = switchable();
     let primary = granted.resolve(&site, &serving(&native)).unwrap();
     let fallback = granted
-        .resolve(&site, &Serving { provider: "claude", model: Some("opus"), ..serving(&native) })
+        .resolve(
+            &site,
+            &Serving {
+                provider: "claude",
+                model: Some("opus"),
+                ..serving(&native)
+            },
+        )
         .unwrap();
     let recorded = SiteCapabilities {
         asks: site,
         outcomes: vec![primary.clone(), fallback.clone()],
     };
     // The fallback never borrows the primary's holding.
-    assert_eq!(recorded.serving(Some(("test-native", "tn-1"))), Some(&primary));
+    assert_eq!(
+        recorded.serving(Some(("test-native", "tn-1"))),
+        Some(&primary)
+    );
     assert_eq!(recorded.serving(Some(("claude", "opus"))), Some(&fallback));
-    assert!(recorded.serving(Some(("claude", "opus"))).unwrap().held.is_empty());
+    assert!(recorded
+        .serving(Some(("claude", "opus")))
+        .unwrap()
+        .held
+        .is_empty());
     assert_eq!(recorded.serving(Some(("codex", "astra"))), None);
     assert_eq!(recorded.serving(None), Some(&primary));
     let manifest = recorded.manifest();
     assert_eq!(manifest["office"], "researcher");
     assert_eq!(manifest["asks"], json!({"web-search": "wants"}));
     assert_eq!(manifest["subtracted"], json!([]));
-    assert_eq!(manifest["candidates"][0]["held"]["web-search"]["dialect"], "search-native");
+    assert_eq!(
+        manifest["candidates"][0]["held"]["web-search"]["dialect"],
+        "search-native"
+    );
     assert_eq!(manifest["candidates"][1]["held"], json!({}));
     // The realm-wide half pins the grant, its definition and its dialect —
     // and a consulted definition no grant names.
     define(root.path(), "operator-library-docs", &["reads"]);
-    let consulted = authority(root.path(), json!({"web-search": {"dialect": "search-native"}}))
-        .manifest(&["operator-library-docs".to_string(), "undefined".to_string()]);
+    let consulted = authority(
+        root.path(),
+        json!({"web-search": {"dialect": "search-native"}}),
+    )
+    .manifest(&["operator-library-docs".to_string(), "undefined".to_string()]);
     assert_eq!(consulted["realm"], "private");
-    assert_eq!(consulted["grants"], json!({"web-search": {"dialect": "search-native"}}));
-    assert_eq!(consulted["dialects"]["search-native"]["kind"], "provider-native");
-    assert_eq!(consulted["dialects"]["search-native"]["serves"], "web-search");
+    assert_eq!(
+        consulted["grants"],
+        json!({"web-search": {"dialect": "search-native"}})
+    );
+    assert_eq!(
+        consulted["dialects"]["search-native"]["kind"],
+        "provider-native"
+    );
+    assert_eq!(
+        consulted["dialects"]["search-native"]["serves"],
+        "web-search"
+    );
     assert_eq!(
         consulted["definitions"]
             .as_object()
@@ -1280,18 +1455,41 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let definitions = Definitions::load(&workspace).unwrap();
     for name in ["web-search", "web-fetch"] {
-        assert_eq!(sorted(&definitions.get(name).unwrap().classes), ["egress", "reads"]);
+        assert_eq!(
+            sorted(&definitions.get(name).unwrap().classes),
+            ["egress", "reads"]
+        );
     }
     let adapters = crate::agents::Adapters::load(&workspace.join("adapters")).unwrap();
     let mut shipped: Vec<String> = std::fs::read_dir(workspace.join(DIALECTS_DIR))
         .unwrap()
-        .map(|entry| entry.unwrap().path().file_stem().unwrap().to_str().unwrap().to_string())
+        .map(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
         .collect();
     shipped.sort();
-    assert_eq!(shipped, ["claude-native-fetch", "claude-native-search", "codex-native-search"]);
+    assert_eq!(
+        shipped,
+        [
+            "claude-native-fetch",
+            "claude-native-search",
+            "codex-native-search"
+        ]
+    );
     for name in &shipped {
         let dialect = ToolDialect::load(&workspace, name).unwrap();
-        let DialectKind::Native { provider, adapter_key } = &dialect.kind else {
+        let DialectKind::Native {
+            provider,
+            adapter_key,
+        } = &dialect.kind
+        else {
             panic!("{name} is not provider-native");
         };
         let NativeInventory::Known { known, .. } = &adapters.adapter(provider).unwrap().native
@@ -1318,13 +1516,26 @@ fn the_shipped_operator_data_is_native_only_and_agrees_with_the_adapters() {
         search.evidence.source,
         ".forge/tasks/controller-codex-web-search-switch-2026-09-21.json"
     );
-    assert!(search.evidence.scope.starts_with("codex-cli 0.154.0, cold `codex exec` only"));
-    assert!(search.evidence.limitations.iter().any(|gap| gap.contains("RESUMED")));
+    assert!(search
+        .evidence
+        .scope
+        .starts_with("codex-cli 0.154.0, cold `codex exec` only"));
+    assert!(search
+        .evidence
+        .limitations
+        .iter()
+        .any(|gap| gap.contains("RESUMED")));
     // DSH, LaneTally and exec keep their own uncertainty.
     for (provider, phrase) in [
         ("dsh", "does not establish that dsh has no native egress"),
-        ("lanetally", "Claude's declarations and evidence are not inherited"),
-        ("exec", "cannot certify what an arbitrary child program reaches"),
+        (
+            "lanetally",
+            "Claude's declarations and evidence are not inherited",
+        ),
+        (
+            "exec",
+            "cannot certify what an arbitrary child program reaches",
+        ),
     ] {
         let NativeInventory::Unmeasured(reason) = &adapters.adapter(provider).unwrap().native
         else {

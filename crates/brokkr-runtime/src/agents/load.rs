@@ -591,10 +591,7 @@ fn contained(root: &Path, relative: &str, what: &str) -> Result<PathBuf, Library
     Ok(canonical)
 }
 
-fn parse_tools(
-    map: &Map<String, Value>,
-    what: &str,
-) -> Result<Option<Vec<String>>, LibraryError> {
+fn parse_tools(map: &Map<String, Value>, what: &str) -> Result<Option<Vec<String>>, LibraryError> {
     let Some(raw) = map.get("tools") else {
         return Ok(None);
     };
@@ -773,9 +770,8 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         brokkr_core::canonical::parse_strict(&text)
             .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
     }
-    let native =
-        crate::capabilities::NativeInventory::parse(&what, map.get("native_capabilities"))
-            .map_err(LibraryError::Invalid)?;
+    let native = crate::capabilities::NativeInventory::parse(&what, map.get("native_capabilities"))
+        .map_err(LibraryError::Invalid)?;
     let provider = string(map, "provider", &what)?;
     if provider != name {
         return invalid(format!(

@@ -287,7 +287,10 @@ fn an_agent_requests_capabilities_by_abstract_name() {
     let library = tree.library();
     let asks = &library.agent("tester").unwrap().capabilities;
     assert_eq!(asks["web-fetch"], crate::capabilities::Strength::Wants);
-    assert_eq!(asks["library-docs"], crate::capabilities::Strength::Requires);
+    assert_eq!(
+        asks["library-docs"],
+        crate::capabilities::Strength::Requires
+    );
 
     body["capabilities"] = json!({"web-fetch": {"dialect": "fetch-mcp"}});
     tree.write("agents/tester.json", &body);

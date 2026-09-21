@@ -129,10 +129,22 @@ fn every_authored_spelling_of_a_native_control_is_found_by_name() {
         (argv(&["--sandbox", "read-only", "--search"]), "--search"),
         (argv(&["--search=true"]), "--search"),
         (argv(&["-c", "web_search=\"live\""]), "-c web_search"),
-        (argv(&["--config=web_search=\"live\""]), "--config web_search"),
-        (argv(&["--config", "tools.web_search = true"]), "--config tools.web_search"),
-        (argv(&["--enable", "web_search_request"]), "--enable web_search_request"),
-        (argv(&["--disable=web_search_request"]), "--disable web_search_request"),
+        (
+            argv(&["--config=web_search=\"live\""]),
+            "--config web_search",
+        ),
+        (
+            argv(&["--config", "tools.web_search = true"]),
+            "--config tools.web_search",
+        ),
+        (
+            argv(&["--enable", "web_search_request"]),
+            "--enable web_search_request",
+        ),
+        (
+            argv(&["--disable=web_search_request"]),
+            "--disable web_search_request",
+        ),
         // The engine's own OFF pair, authored, is an authored control.
         (argv(&["-c", "web_search=\"disabled\""]), "-c web_search"),
     ] {
@@ -178,8 +190,14 @@ fn an_unrelated_value_is_never_read_as_a_control() {
 fn a_tool_list_that_admits_a_native_tool_is_an_authored_control() {
     let guards = [codex_guard(), claude_guard()];
     for (extra, written) in [
-        (argv(&["--allowedTools", "Bash(git:*),WebFetch"]), "--allowedTools WebFetch"),
-        (argv(&["--allowed-tools=WebFetch(domain:example.org)"]), "--allowed-tools WebFetch"),
+        (
+            argv(&["--allowedTools", "Bash(git:*),WebFetch"]),
+            "--allowedTools WebFetch",
+        ),
+        (
+            argv(&["--allowed-tools=WebFetch(domain:example.org)"]),
+            "--allowed-tools WebFetch",
+        ),
         (argv(&["--tools", "Read WebFetch"]), "--tools WebFetch"),
     ] {
         assert_eq!(
@@ -212,7 +230,11 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
     assert_eq!(
         apply_selection(
             &argv(&[
-                "--tools", "", "--strict-mcp-config", "--allowedTools", "mcp__brokkr__workspace"
+                "--tools",
+                "",
+                "--strict-mcp-config",
+                "--allowedTools",
+                "mcp__brokkr__workspace"
             ]),
             &selection
         ),
@@ -250,7 +272,11 @@ fn a_selection_folds_into_the_seats_own_lists_and_emits_each_flag_once() {
     // A dangling list flag is left for the arity refusal that follows.
     assert_eq!(
         apply_selection(&argv(&["--disallowedTools"]), &denied),
-        argv(&["--disallowedTools", "--disallowedTools", "WebSearch,WebFetch"])
+        argv(&[
+            "--disallowedTools",
+            "--disallowedTools",
+            "WebSearch,WebFetch"
+        ])
     );
     // A provider with no selection grammar is untouched.
     assert_eq!(

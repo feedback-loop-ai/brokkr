@@ -881,11 +881,11 @@ fn entry_for(
         };
     };
     let presence = availability.presence(&adapter.provider);
-    let (argv, effort, hands_fragment, gap) =
-        match compose(agent, adapter, model, concrete, boxed) {
-            Ok((argv, effort, hands_fragment)) => (argv, effort, hands_fragment, None),
-            Err(gap) => (Vec::new(), None, Vec::new(), Some(gap)),
-        };
+    let (argv, effort, hands_fragment, gap) = match compose(agent, adapter, model, concrete, boxed)
+    {
+        Ok((argv, effort, hands_fragment)) => (argv, effort, hands_fragment, None),
+        Err(gap) => (Vec::new(), None, Vec::new(), Some(gap)),
+    };
     ChainEntry {
         model: model.to_string(),
         effort,
