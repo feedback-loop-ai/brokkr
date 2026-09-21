@@ -4599,7 +4599,7 @@ itself (`safety / AS1`).
       controller blocker. Tick only when every missing axis has its own
       attributable observation and the Brokkr adapter normalization agrees —
       safety / AS1, safety / AS2, evidence / LE4.
-- [ ] 10.7 Qualify the forward-pinned DSH pair from 10.3 in an isolated
+- [x] 10.7 Qualify the forward-pinned DSH pair from 10.3 in an isolated
       worktree or task-owned profile, in two halves. **The live half runs
       first**, before 1.1, 6.4, 11.5 and 13.1: install the latest official
       core (`@deepseek-ai/dsh` 0.1.5-rc.1 at
@@ -4672,6 +4672,19 @@ itself (`safety / AS1`).
       the upstream observation artifact and Brokkr's matching adapter/shim
       assertions before ticking — safety / AS1, safety / AS2, safety / AS3,
       site / SR3, evidence / LE4.
+      **Recording step done by hand, 2026-09-21**, after run
+      `dsh-composite-identity-issue-226-e291e076` completed: the seventeen raw
+      inputs were re-measured on the retained home and are unchanged, and
+      `brokkr doctor` from this branch's release build, with `BROKKR_DSH_BIN`
+      and `DSH_HOME` on that home, reports plugin component
+      `074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5` and
+      canonical composite
+      `a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1`. Both
+      are appended as the dated entry `RECORDING_STEP_2026-09-21` in
+      `.forge/tasks/dsh-pair-qualification-015rc2.json`, and both equal the
+      values `composite/tests.rs` pins from the retained ground truth, so the
+      adapter's assertions and the live measurement agree. The declared
+      `wrapper_digest` remains 11.3's to write.
 - [x] 10.8 LaneTally proof: wrapper forwarding, the underlying Claude
       version, root confirmation, capture attribution and the applicable
       restrictions on resume. Unsupported hands stay unsupported — safety / AS1.
