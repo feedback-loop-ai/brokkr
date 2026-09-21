@@ -163,10 +163,13 @@ impl Operator {
         };
         let mut inline = json!({"results": ["complete"], "role": "roles/role.md",
             "driver": codex(&["--sandbox", "workspace-write"])});
+        // An inline seat with hands authors NO box tokens: a recipe's argv
+        // carries no capability server, the engine's own included (decision
+        // 0066 ruling 4). The boxed seat that does get the workspace server
+        // is the agent-backed one, whose adapter owns the fragment.
         let mut boxed = json!({"results": ["complete"], "role": "roles/role.md",
             "hands": {"kind": "workspace", "network": false, "binds": []},
-            "driver": codex(&["--sandbox", "read-only", "-c",
-                              "mcp_servers.brokkr.command=\"{brokkr}\""])});
+            "driver": codex(&["--sandbox", "read-only"])});
         let mut agent = json!({"results": ["complete"], "agent": "searcher"});
         let mut chain = json!({"results": ["complete"], "agent": "fallback"});
         if let Some(asks) = asks {
@@ -213,6 +216,12 @@ impl Operator {
 /// The argv the harness would be spawned with for one site and candidate:
 /// the compiled driver argv after `--`, and the input the engine writes.
 fn launch(bundle: &Bundle, label: &str, candidate: usize) -> Vec<String> {
+    try_launch(bundle, label, candidate)
+        .unwrap_or_else(|refusal| panic!("{label}[{candidate}] refused: {refusal}"))
+}
+
+/// [`launch`], with the driver's refusal where it refuses.
+fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
     let facts = &bundle.sites[label];
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
     let argv: Vec<String> = match facts.chain.get(candidate) {
@@ -229,7 +238,7 @@ fn launch(bundle: &Bundle, label: &str, candidate: usize) -> Vec<String> {
         true => brokkr_runtime::engine::BuiltBoundary::Namespace,
         false => brokkr_runtime::engine::BuiltBoundary::Harness,
     };
-    let argv = brokkr_runtime::engine::compose_site(
+    let spawn = brokkr_runtime::engine::compose_site(
         built,
         brokkr_runtime::SeatClass::Work,
         argv,
@@ -239,15 +248,17 @@ fn launch(bundle: &Bundle, label: &str, candidate: usize) -> Vec<String> {
         &[],
         "/w/result.json",
         None,
-    )
-    .argv;
+    );
+    let argv = &spawn.argv;
     let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-    let input = json!({"workdir": "/w", "native_controls": outcome.controls()});
+    // The plan AND the argv's two parts, each exactly as the engine writes
+    // it: the driver refuses a launch whose provenance it cannot reassemble.
+    let input = json!({"workdir": "/w", "seat": label, "native_controls": outcome.controls(),
+                       "launch_arguments": spawn.launch_arguments()});
     match outcome.provider.as_str() {
         "codex" => brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input),
         _ => brokkr_protocol::adapters::claude_command("claude", extra, None, &input),
     }
-    .unwrap_or_else(|refusal| panic!("{label}[{candidate}] refused: {refusal}"))
 }
 
 fn off_pairs(argv: &[String]) -> usize {
@@ -296,7 +307,7 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
             _ => panic!("{label} is a single seat"),
         },
     };
-    let argv = brokkr_runtime::engine::compose_site(
+    let spawn = brokkr_runtime::engine::compose_site(
         brokkr_runtime::engine::BuiltBoundary::Harness,
         brokkr_runtime::SeatClass::Work,
         argv,
@@ -306,13 +317,14 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
         &[],
         "/w/result.json",
         None,
-    )
-    .argv;
+    );
+    let argv = &spawn.argv;
     let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
     let input = json!({
         "workdir": "/w", "seat": label, "boundary": boundary, "hands": "none",
         "resume_context": {"assessment": assessment},
         "native_controls": outcome.controls(),
+        "launch_arguments": spawn.launch_arguments(),
     });
     brokkr_protocol::adapters::codex_command(
         shim.to_str().unwrap(),
@@ -754,14 +766,25 @@ fn a_recipe_defines_nothing_and_the_pinned_section_names_no_host_path_or_argv() 
             serde_json::from_slice(&std::fs::read(workspace().join(file)).unwrap()).unwrap();
         write(&operator.root().join("bundle"), file, &body);
     }
+    // The LIBRARY is judged first and whole (finding M3): every loaded
+    // agent that asks, in library order, before any seat is resolved.
     let bare = CapabilityContext::no_grants("private", elsewhere.path());
+    let undefined = |agent: &str| {
+        format!(
+            "agent '{agent}': capability 'web-search' has no abstract definition at \
+             'capabilities/web-search.json' in the operator configuration; declare its classes \
+             before requesting it"
+        )
+    };
     assert_eq!(
         operator
             .compile(&bare, Boundary::Namespace, wants.clone(), None)
             .unwrap_err(),
-        "bundle: seat 'agent' (office 'searcher') in realm 'private': capability 'web-search' \
-         has no abstract definition at 'capabilities/web-search.json' in the operator \
-         configuration; declare its classes before requesting it"
+        format!(
+            "bundle: {}; {}",
+            undefined("fallback"),
+            undefined("searcher")
+        )
     );
     // Nor can the recipe's copy stand in for a granted dialect.
     let mut borrowed = granted.clone();
@@ -796,11 +819,20 @@ fn a_recipe_defines_nothing_and_the_pinned_section_names_no_host_path_or_argv() 
     let denied = &section["sites"]["chain"]["candidates"][0]["native"];
     assert_eq!(denied["off"], json!(["web-fetch", "web-search"]));
     let text = section.to_string();
+    // Both spellings of every host root: the loaders canonicalise what they
+    // are given, and on macOS a temporary directory's canonical name
+    // (`/private/var/…`) is not its lexical one — a leak of the canonical
+    // path must not slip past a lexical needle.
+    let canonical = |path: &Path| path.canonicalize().unwrap().to_str().unwrap().to_string();
     for absent in [
         operator.root().to_str().unwrap(),
         elsewhere.path().to_str().unwrap(),
         workspace().to_str().unwrap(),
         std::env::temp_dir().to_str().unwrap(),
+        canonical(operator.root()).as_str(),
+        canonical(elsewhere.path()).as_str(),
+        canonical(&workspace()).as_str(),
+        canonical(&std::env::temp_dir()).as_str(),
         "web_search=",
         "--disallowedTools",
         "--model",
@@ -1399,4 +1431,566 @@ fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
         },
         Err(brokkr_runtime::bundle::CompileError::Invalid(_))
     ));
+}
+
+// ------------------------------------------------- decision 0066
+
+/// A copy of the shipped adapters a test may break one file of.
+fn copied_adapters() -> tempfile::TempDir {
+    let copied = tempfile::tempdir().unwrap();
+    for entry in std::fs::read_dir(workspace().join("adapters")).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            std::fs::copy(&path, copied.path().join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    copied
+}
+
+fn edit_adapter(root: &Path, provider: &str, edit: impl FnOnce(&mut Value)) {
+    let path = root.join(format!("{provider}.json"));
+    let mut adapter: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    edit(&mut adapter);
+    std::fs::write(path, serde_json::to_vec_pretty(&adapter).unwrap()).unwrap();
+}
+
+/// One work seat and nothing else that could open the adapters: an inline
+/// model driver with no asks, under a bare custom review gate.
+fn one_inline_seat(operator: &Operator, command: &[&str]) {
+    write(
+        operator.root(),
+        "solo/policy.json",
+        &json!({"phases": ["work", "review", "done"], "initial": "work", "terminal": ["done"],
+            "rules": [
+                {"id": "W", "from": "work", "result": "complete", "next": "review", "reason": "r"},
+                {"id": "R", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}),
+    );
+    std::fs::create_dir_all(operator.root().join("solo/roles")).unwrap();
+    std::fs::write(operator.root().join("solo/roles/role.md"), "# role\n").unwrap();
+    write(
+        operator.root(),
+        "solo/bundle.json",
+        &json!({"name": "solo", "policy": "policy.json", "seats": {
+            "work": {"results": ["complete"], "role": "roles/role.md",
+                     "driver": {"command": command}},
+            "review": {"results": ["clean"], "role": "roles/role.md",
+                       "driver": {"command": ["driver"]}}}}),
+    );
+}
+
+/// What compiling the solo bundle said, or the final argv of its work seat.
+fn solo(operator: &Operator, adapters: &Path, context: &CapabilityContext) -> String {
+    match solo_bundle(operator, adapters, context) {
+        Ok(bundle) => match try_launch(&bundle, "work", 0) {
+            Ok(argv) => format!("launched {argv:?}"),
+            Err(refusal) => format!("compiled, and the driver said: {refusal}"),
+        },
+        Err(refusal) => refusal,
+    }
+}
+
+fn solo_bundle(
+    operator: &Operator,
+    adapters: &Path,
+    context: &CapabilityContext,
+) -> Result<Bundle, String> {
+    Bundle::compile_with_capabilities(
+        &operator.root().join("solo"),
+        &operator.root().join("agents"),
+        adapters,
+        Some(context.realm.as_str()).filter(|realm| *realm != "<unmapped>"),
+        None,
+        Boundary::Harness,
+        context,
+    )
+    .map_err(|refusal| refusal.to_string())
+}
+
+const CODEX_SEAT: [&str; 10] = [
+    "{brokkr}",
+    "driver",
+    "codex",
+    "--",
+    "--model",
+    "gpt-6-astra",
+    "--effort",
+    "high",
+    "--sandbox",
+    "workspace-write",
+];
+
+/// Finding H1: DENIAL IS SOMETHING THE LAUNCH PROVES, NEVER SOMETHING
+/// ABSENCE IMPLIES. An inline Codex work seat that asks for nothing, in a
+/// realm that grants nothing, used to compile with NO search OFF whenever
+/// the adapter data was absent, legacy, emptied or unreadable — an
+/// unrelated broken adapter file was enough — because the load error was
+/// swallowed and "nothing declared" read as "nothing to deny". Every such
+/// state now refuses the seat, naming the site, the office, the realm, the
+/// provider, the capability and the ORIGINAL cause; and with valid data the
+/// same seat launches with the OFF pair, exactly once, last. The realm
+/// contexts are the ones every map version reduces to at the compiler: no
+/// map at all, a realm that grants nothing (what v1 to v5 mean, and v6 with
+/// the field omitted), and v6 with an explicit empty map.
+#[test]
+fn a_known_native_power_with_no_valid_denial_refuses_the_seat() {
+    let operator = Operator::new();
+    one_inline_seat(&operator, &CODEX_SEAT);
+    let contexts = [
+        CapabilityContext::no_grants("<unmapped>", operator.root()),
+        CapabilityContext::no_grants("private", operator.root()),
+        operator.context(json!({})),
+    ];
+    let refusal = |realm: &str, provider: &str, capability: &str, cause: &str| {
+        format!(
+            "bundle: seat 'work' (office 'work') in realm '{realm}': provider '{provider}' is \
+             known to carry native capability '{capability}', which this seat does not hold, \
+             and no valid control denies it: {cause}. A known native power is launched only \
+             with a delivered denial, never on what absence implies; repair the adapter data \
+             (decision 0066 ruling 1)"
+        )
+    };
+    let unloaded = |root: &Path| {
+        format!(
+            "the adapter data could not be loaded ({})",
+            brokkr_runtime::Adapters::load(root).unwrap_err()
+        )
+    };
+    let legacy = "its adapter declares its native capabilities unmeasured (the adapter declares \
+                  no native_capabilities assessment)";
+
+    for context in &contexts {
+        let realm = context.realm.as_str();
+        // The control: the shipped declaration delivers the denial.
+        let sound = solo(&operator, &workspace().join("adapters"), context);
+        assert!(sound.starts_with("launched "), "{realm}: {sound}");
+        assert!(
+            sound.ends_with(r#""-c", "web_search=\"disabled\""]"#),
+            "{realm}: {sound}"
+        );
+        assert_eq!(sound.matches("web_search").count(), 1, "{realm}: {sound}");
+
+        // No adapters root at all.
+        let absent = operator.root().join("no-adapters-here");
+        assert_eq!(
+            solo(&operator, &absent, context),
+            refusal(realm, "codex", "web-search", &unloaded(&absent))
+        );
+        // A root with no declaration for the provider.
+        let others = copied_adapters();
+        std::fs::remove_file(others.path().join("codex.json")).unwrap();
+        assert_eq!(
+            solo(&operator, others.path(), context),
+            refusal(
+                realm,
+                "codex",
+                "web-search",
+                "no adapter declares provider 'codex'"
+            )
+        );
+        // A declaration written before the ruling.
+        let older = copied_adapters();
+        edit_adapter(older.path(), "codex", |adapter| {
+            adapter
+                .as_object_mut()
+                .unwrap()
+                .remove("native_capabilities");
+        });
+        assert_eq!(
+            solo(&operator, older.path(), context),
+            refusal(realm, "codex", "web-search", legacy)
+        );
+        // An inventory declared unmeasured, and one emptied of the power.
+        let unmeasured = copied_adapters();
+        edit_adapter(unmeasured.path(), "codex", |adapter| {
+            adapter["native_capabilities"] = json!({"unmeasured": "nobody looked"});
+        });
+        assert_eq!(
+            solo(&operator, unmeasured.path(), context),
+            refusal(
+                realm,
+                "codex",
+                "web-search",
+                "its adapter declares its native capabilities unmeasured (nobody looked)"
+            )
+        );
+        let emptied = copied_adapters();
+        edit_adapter(emptied.path(), "codex", |adapter| {
+            adapter["native_capabilities"] = json!({"known": {}});
+        });
+        assert_eq!(
+            solo(&operator, emptied.path(), context),
+            refusal(
+                realm,
+                "codex",
+                "web-search",
+                "its adapter declares no native capability serving 'web-search'"
+            )
+        );
+        // An OFF control nobody measured.
+        let untried = copied_adapters();
+        edit_adapter(untried.path(), "codex", |adapter| {
+            adapter["native_capabilities"]["known"]["web-search"]["off"] =
+                json!({"unmeasured": "nobody has tried"});
+        });
+        assert_eq!(
+            solo(&operator, untried.path(), context),
+            refusal(
+                realm,
+                "codex",
+                "web-search",
+                "its OFF control is unmeasured (nobody has tried)"
+            )
+        );
+        // The provider's own file unreadable; then a SOUND one beside an
+        // unrelated broken neighbour, which is all it took.
+        let malformed = copied_adapters();
+        std::fs::write(malformed.path().join("codex.json"), "{not json").unwrap();
+        assert_eq!(
+            solo(&operator, malformed.path(), context),
+            refusal(realm, "codex", "web-search", &unloaded(malformed.path()))
+        );
+        let neighbour = copied_adapters();
+        std::fs::write(neighbour.path().join("broken.json"), "{not json").unwrap();
+        let said = solo(&operator, neighbour.path(), context);
+        assert_eq!(
+            said,
+            refusal(realm, "codex", "web-search", &unloaded(neighbour.path()))
+        );
+        assert!(
+            said.contains("broken.json"),
+            "the original cause is named: {said}"
+        );
+    }
+
+    // Claude's floor is both of its powers: a declaration that keeps one
+    // and omits the other refuses for the one it omits.
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+        ],
+    );
+    let half = copied_adapters();
+    edit_adapter(half.path(), "claude", |adapter| {
+        adapter["native_capabilities"]["known"]
+            .as_object_mut()
+            .unwrap()
+            .remove("web-fetch");
+    });
+    assert_eq!(
+        solo(&operator, half.path(), &contexts[1]),
+        refusal(
+            "private",
+            "claude",
+            "web-fetch",
+            "its adapter declares no native capability serving 'web-fetch'"
+        )
+    );
+    // DSH inherits nobody's floor: its declared uncertainty still seats.
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "dsh",
+            "--",
+            "--model",
+            "deepseek-v4-flash",
+            "--effort",
+            "high",
+        ],
+    );
+    let seated = solo_bundle(&operator, &workspace().join("adapters"), &contexts[1]).unwrap();
+    let outcome = &seated.sites["work"].capabilities.as_ref().unwrap().outcomes[0];
+    assert_eq!(outcome.controls()["inventory"], "unmeasured");
+    assert_eq!(outcome.controls()["harness"], "dsh");
+}
+
+/// Finding H1, agent-backed: the same law where the adapters were opened
+/// for an agent. Legacy metadata loads cleanly there — it is the inventory
+/// that reads unmeasured — and used to compile a Codex link with no OFF.
+#[test]
+fn an_agent_backed_link_on_legacy_adapter_data_refuses_too() {
+    let operator = Operator::new();
+    let older = copied_adapters();
+    edit_adapter(older.path(), "codex", |adapter| {
+        adapter
+            .as_object_mut()
+            .unwrap()
+            .remove("native_capabilities");
+    });
+    assert_eq!(
+        operator
+            .compile_against(
+                older.path(),
+                &operator.context(json!({})),
+                Boundary::Namespace,
+                None,
+                None
+            )
+            .unwrap_err(),
+        "bundle: seat 'agent' (office 'searcher') in realm 'private': provider 'codex' is known \
+         to carry native capability 'web-search', which this seat does not hold, and no valid \
+         control denies it: its adapter declares its native capabilities unmeasured (the adapter \
+         declares no native_capabilities assessment). A known native power is launched only \
+         with a delivered denial, never on what absence implies; repair the adapter data \
+         (decision 0066 ruling 1)"
+    );
+}
+
+/// Finding H2, the council's reproduction at the compiler: an unboxed
+/// inline seat that supplies a concrete server, under `grants: {}` and a
+/// perfectly sound inventory. Refused by name, at every site form, with no
+/// value copied — while the ENGINE's hands, in an agent-backed boxed seat
+/// of the same realm, reach the final command exactly as they did.
+#[test]
+fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still_launch() {
+    let operator = Operator::new();
+    let context = operator.context(json!({}));
+    let adapters = workspace().join("adapters");
+    let refusal = |site: &str, written: &str, provider: &str| {
+        format!(
+            "bundle: seat '{site}' (office '{site}') in realm 'private': its arguments carry \
+             '{written}', which configures a capability server or admits a server's tools for \
+             provider '{provider}'. A recipe's driver arguments are recipe data, and only the \
+             realm grants a capability (decision 0065 ruling 3); the workspace hands are the \
+             engine's own to compose and need no authored configuration (decision 0066 ruling 4)"
+        )
+    };
+    fn codex(extra: &[&'static str]) -> Vec<&'static str> {
+        [&CODEX_SEAT[..], extra].concat()
+    }
+    fn claude(extra: &[&'static str]) -> Vec<&'static str> {
+        const SEAT: [&str; 8] = [
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+        ];
+        [&SEAT[..], extra].concat()
+    }
+    for (command, written, provider) in [
+        (
+            codex(&[
+                "-c",
+                "mcp_servers.ungranted.command=\"npx\"",
+                "-c",
+                "mcp_servers.ungranted.args=[\"fetch-mcp\"]",
+            ]),
+            "-c mcp_servers",
+            "codex",
+        ),
+        (
+            codex(&["--config=mcp_servers={ungranted={command=\"npx\"}}"]),
+            "--config mcp_servers",
+            "codex",
+        ),
+        // Counterfeit hands: the engine's server name, authored.
+        (
+            codex(&["-c", "mcp_servers.brokkr.command=\"{brokkr}\""]),
+            "-c mcp_servers",
+            "codex",
+        ),
+        (
+            claude(&[
+                "--mcp-config",
+                "/etc/ungranted.json",
+                "--allowedTools",
+                "mcp__ungranted__fetch",
+            ]),
+            "--mcp-config",
+            "claude",
+        ),
+        (
+            claude(&["--allowedTools", "Bash(git:*),mcp__ungranted__fetch"]),
+            "--allowedTools mcp__*",
+            "claude",
+        ),
+        (claude(&["--allowed-tools=*"]), "--allowedTools *", "claude"),
+    ] {
+        one_inline_seat(&operator, &command);
+        assert_eq!(
+            solo(&operator, &adapters, &context),
+            refusal("work", written, provider),
+            "{command:?}"
+        );
+    }
+    // Nested: a panel member and a sequence step are sites like any other.
+    for (body, site) in [
+        (
+            json!({"results": ["complete"], "sequence": [
+            {"name": "first", "aggregate": "unanimous-pass", "panel": {
+                "member": {"role": "roles/role.md", "driver": {"command": codex(&[
+                    "-c", "mcp_servers.ungranted.command=\"npx\""])}},
+                "peer": {"role": "roles/role.md", "driver": {"command": ["driver"]}}}},
+            {"name": "second", "role": "roles/role.md", "driver": {"command": ["driver"]}}]}),
+            "work:first:member",
+        ),
+        (
+            json!({"results": ["complete"], "sequence": [
+            {"name": "before", "results": ["drafted"], "role": "roles/role.md",
+             "driver": {"command": ["driver"]}},
+            {"name": "step", "role": "roles/role.md", "driver": {"command": codex(&[
+                "-c", "mcp_servers.ungranted.command=\"npx\""])}}]}),
+            "work:step",
+        ),
+    ] {
+        one_inline_seat(&operator, &CODEX_SEAT);
+        let path = operator.root().join("solo/bundle.json");
+        let mut bundle: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        bundle["seats"]["work"] = body;
+        std::fs::write(&path, serde_json::to_vec(&bundle).unwrap()).unwrap();
+        assert_eq!(
+            solo(&operator, &adapters, &context),
+            refusal(site, "-c mcp_servers", "codex"),
+            "{site}"
+        );
+    }
+    // The engine's OWN hands, under the same empty grants: the agent-backed
+    // boxed Codex seat launches with the adapter's workspace server and the
+    // OFF pair last; the Claude primary of the chain keeps its strict MCP
+    // configuration and its one allowed workspace tool.
+    let bundle = operator
+        .compile(&context, Boundary::Namespace, None, None)
+        .unwrap();
+    let boxed = launch(&bundle, "agent", 0);
+    assert!(
+        boxed
+            .iter()
+            .any(|part| part.starts_with("mcp_servers.brokkr.command=")),
+        "{boxed:?}"
+    );
+    assert_eq!(&boxed[boxed.len() - 2..], OFF, "{boxed:?}");
+    assert_eq!(off_pairs(&boxed), 1, "{boxed:?}");
+    let primary = launch(&bundle, "chain", 0);
+    for kept in [
+        "--strict-mcp-config",
+        "--mcp-config",
+        "mcp__brokkr__workspace",
+    ] {
+        assert!(
+            primary.iter().any(|part| part.contains(kept)),
+            "{kept}: {primary:?}"
+        );
+    }
+    assert_eq!(
+        primary
+            .iter()
+            .filter(|part| *part == "--disallowedTools")
+            .count(),
+        1,
+        "{primary:?}"
+    );
+}
+
+/// Finding H3, the council's reproduction along the whole chain: Claude's
+/// search OFF declared as ARGV `--disallowedTools WebSearch`, its fetch OFF
+/// as a SELECTION. The compiler accepted both and the launch consumed only
+/// the selection, so search was recorded OFF and never denied. Both now
+/// reach the final command as ONE deny list under one flag — boxed beside
+/// the engine's hands, and unboxed — and a representation no launch
+/// consumes refuses at COMPILE, naming the site, the provider and the form.
+#[test]
+fn a_native_control_declared_as_argv_reaches_the_final_claude_command() {
+    let operator = Operator::new();
+    let context = operator.context(json!({}));
+    let mixed = copied_adapters();
+    edit_adapter(mixed.path(), "claude", |adapter| {
+        adapter["native_capabilities"]["known"]["web-search"]["off"] =
+            json!({"argv": ["--disallowedTools", "WebSearch"]});
+    });
+    // Boxed, the chain's Claude primary: the hands fragment intact, and the
+    // two denials in one list.
+    let bundle = operator
+        .compile_against(mixed.path(), &context, Boundary::Namespace, None, None)
+        .unwrap();
+    let primary = launch(&bundle, "chain", 0);
+    let deny = primary
+        .iter()
+        .position(|part| part == "--disallowedTools")
+        .unwrap();
+    assert_eq!(primary[deny + 1], "WebFetch,WebSearch", "{primary:?}");
+    assert_eq!(
+        primary
+            .iter()
+            .filter(|part| *part == "--disallowedTools")
+            .count(),
+        1,
+        "{primary:?}"
+    );
+    assert!(
+        primary.contains(&"mcp__brokkr__workspace".to_string()),
+        "{primary:?}"
+    );
+    // Unboxed and inline: the whole final command.
+    one_inline_seat(
+        &operator,
+        &[
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high",
+            "--permission-mode",
+            "acceptEdits",
+        ],
+    );
+    assert_eq!(
+        solo(&operator, mixed.path(), &context),
+        format!(
+            "launched {:?}",
+            [
+                "claude",
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--model",
+                "claude-opus-5",
+                "--effort",
+                "high",
+                "--permission-mode",
+                "acceptEdits",
+                "--disallowedTools",
+                "WebFetch,WebSearch"
+            ]
+        )
+    );
+    // A form no launch consumes is refused where it is compiled: Codex
+    // takes no tool selection.
+    let selecting = copied_adapters();
+    edit_adapter(selecting.path(), "codex", |adapter| {
+        let native = &mut adapter["native_capabilities"];
+        native["known"]["web-search"]["off"] =
+            json!({"selection": {"include": [], "allow": [], "deny": ["web_search"]}});
+        native["selection"] = json!({
+            "include": {"flag": "--tools", "separator": ","},
+            "allow": {"flag": "--allow", "separator": ","},
+            "deny": {"flag": "--deny", "separator": ","}});
+    });
+    one_inline_seat(&operator, &CODEX_SEAT);
+    assert_eq!(
+        solo(&operator, selecting.path(), &context),
+        "bundle: seat 'work' (office 'work') in realm 'private': the capability plan carries a \
+         tool selection for provider 'codex', which its launch does not consume; a control that \
+         cannot reach the final command is refused rather than recorded and dropped (decision \
+         0066 ruling 3)"
+    );
 }
