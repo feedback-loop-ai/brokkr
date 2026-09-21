@@ -11464,3 +11464,127 @@ outside-slice `brokkr-runtime` failures did not reproduce here.
   `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
   `reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
   decision 0056 keeps its `proposed` status. Nothing was pushed.
+
+## Implement visit — the direct name's symlink loop, 2026-09-21
+
+Run `dsh-composite-identity-issue-226-551ef2a7`, phase implement, on
+`slice-dsh-composite-b` at adopted head `a7c07cd1`. The LAST macOS cell of
+PR #311's 8.8(a)–(c) delivery. The previous visit's repair took the macOS
+leg from twelve failures to **373 passed, 1 failed**, with every other
+check passing; this visit answers that one. **8.8 stays unchecked** and no
+checkbox moved. The full account, with commands and logs, is
+`.forge/tasks/dsh-direct-eloop-evidence.md`.
+
+**There is no macOS host in this seat.** The only native observation is
+the CI excerpt in
+`.forge/tasks/controller-macos-ci-failures-pr311-pass2-2026-09-21.txt`,
+read first. It names `native_matrix.rs:751`, cell n1-l4, name `./dsh`,
+layout `A:B, A is a self-symlink (ELOOP)`: native failed with ELOOP and
+the resolver answered `Config("./dsh: Too many levels of symbolic links
+(os error 62)")` — the raw error, without the named reason the matrix
+requires whenever the terminal native errno is ELOOP.
+
+### The cause, and the rule it mistook
+
+`lookup_in` sends a name containing `/` through `classify_in`, whose
+metadata error reaches `lookup_failure`, which applied `step` — the C
+library's own continuation switch. glibc and musl answer `Stop` for
+ELOOP and reach `stop_cause`, which NAMES the loop; Apple's
+`sys/posix_spawn.c` answers `Continue`, so the candidate became
+`Candidate::Passed` carrying only the raw `io::Error` and the
+explicit-path arm wrapped that as `Config`.
+
+That switch is a rule about a SEARCH — whether the next PATH entry is
+tried. A direct name has no next entry: `execve` answers for the path as
+spelled and no library search runs at all. ELOOP on a direct name is
+therefore terminal on every platform, and the naming belongs to the
+terminal loop, not to the libraries whose search happens to stop on it.
+
+### The production change, and its bounds
+
+`composite.rs` gains a private `enum Position { Searched, Direct }`,
+carried by `classify_in` and `lookup_failure`; `Search::find` passes
+`Searched` and `lookup_in`'s explicit-path arm passes `Direct`. One
+guarded match arm: a `Step::Continue` at a `Direct` position with
+`Errno::LOOP` is `Candidate::Refused(stop_cause(…))`.
+
+Only the loop, and only at a direct name. Every library's `Stop` keeps
+its own words; every other continued errno at a direct name keeps the
+operation's own answer; every searched candidate is untouched, Apple's
+continuation past ELOOP to the next entry included. **Every Linux string
+is byte-identical** — on glibc and musl `step` never returns `Continue`
+for ELOOP, so the new arm is reachable on this host only through an
+injected `Library::Apple`, which the tests do drive.
+
+### Tests, and the removal proof
+
+Four rows join the per-library lookup table — the seam that already
+drives each library's switch here. `Position::Direct` + `Errno::LOOP`
+under Apple, glibc and musl all answer the identical named refusal; and
+`Direct` + ENOENT under Apple, + EACCES and + EIO under glibc answer
+exactly what they answered before, which is the guard against
+over-applying the change. A new Linux-runnable test,
+`a_direct_names_symlink_loop_is_named_on_every_librarys_arm`, plants a
+real `a/dsh -> dsh` self-symlink beside a runnable `b/dsh`, has the
+host's kernel confirm ELOOP for the fixture, then drives `lookup_in`
+with the DIRECT path under an injected Apple, glibc, musl and the
+compiled `LIBRARY`, each under both `Operation::Exec` and
+`Operation::Spawn` — asserting the whole reason, candidate and named
+cause included. ELOOP's number is the host's, so the expectation is
+built from `rustix::io::Errno::LOOP` through `io::Error` and never from
+Darwin's 62 written into a Linux test. The same test asserts the
+searched controls do not move: Apple still walks past the loop to B,
+glibc still stops there. `tests/native_matrix.rs` is unchanged.
+
+Removal, crate-scoped to `adapters::composite::`: **104 / 0** with the
+correction, **102 / 2** with the guard's condition forced false (a
+compiling mutation, the arm retained), **104 / 0** restored. The two
+failures are the two new assertions and their text is exactly the macOS
+symptom — `…/a/dsh: Too many levels of symbolic links` where
+`…/a/dsh: a symlink loop stops the lookup: …` is owed. Nothing else
+moved in either direction.
+
+### The LOW from run `d462f720`'s chief
+
+`the_plugin_walk_refuses_a_name_that_is_not_utf8` asserted
+`raw.symlink_metadata().is_err()`, which a denial or an I/O fault would
+satisfy as readily as absence. It now asserts the exact cause —
+`io::ErrorKind::NotFound`, with a named panic if the entry is there at
+all — and the directory's exact entry names, `["LICENSE"]`, compared
+whole. The test compiles on Linux and macOS. Its branch is the
+filesystem-REFUSAL arm, which only a filesystem that rejects the name at
+creation enters; Linux's tmpfs accepts it, so **the strengthened
+assertions are compiled here and await the macOS leg for execution**.
+
+### Gates
+
+`cargo fmt --all -- --check` clean; `cargo clippy --workspace
+--all-targets --all-features --locked -- -D warnings` clean; the seven
+crate suites each run on their own and each **ok, 0 failed**
+(`brokkr-protocol` 382 + 99 + 1); `cargo run --locked -p brokkr-cli --
+compile --bundle bundles/self` compiled. No boxed workspace sweep and no
+concurrent crate suites.
+
+Two required checks did NOT run and are not passes: `openspec validate
+--all --strict` was refused launch by this seat's sandbox under every
+spelling tried, and `bash scripts/coverage-exact.sh` was not run here.
+No file under `openspec/specs` moved and the coverage gate is unchanged
+and not lowered, but neither fact substitutes for the check. One
+intermittent failure was seen on the first `brokkr-protocol` run and is
+not this repair's: `hands::tests::the_network_prefix_is_eight_tokens_…`,
+a plant-then-exec race of the known ETXTBSY family (#255); it passes
+alone and on every rerun.
+
+### Awaiting the macOS leg
+
+The repaired head's own `test (macos-latest)` job — cell n1-l4 in both
+the `inherited` and `explicit` forms, and the remaining 373 staying
+green — and the non-UTF-8 test's filesystem-refusal arm. The injected
+Apple arm proves the resolver branch on Linux; it is not native macOS
+execution and does not replace one.
+
+Part (d), 8.10, 9.6, 10.6–10.8, 11.1–11.4, groups 14–15 were not
+touched. `contracts/`, `policy/phase-machine.json`, `policy/schemas/`,
+`fixtures/`, `reference/`, `extensions/dsh/` and `docs/decisions/` have
+no diff; decision 0056 keeps its `proposed` status. No delivery recipe
+was selected. Nothing was pushed.
