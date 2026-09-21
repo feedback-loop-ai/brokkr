@@ -29,7 +29,6 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
     matches!(
         (agent, tool),
         ("chief-architect", "git")
-            | ("implementer-engine", "cargo" | "git")
             | ("implementer-sdd", "cargo" | "git")
             | ("implementer", "cargo" | "git")
             | ("intake", "git")
@@ -226,6 +225,39 @@ fn tool_grants_keep_house_tools_explicit_and_effort_never_rises_on_fallback() {
             );
         }
     }
+}
+
+/// Issue #307 (operator rulings 2026-09-20 and 2026-09-21): the engine
+/// smith hires astra, then fable, both high, and its power is decision
+/// 0043's workspace box — no network, the Cargo home as a masked overlay
+/// and the toolchain read-only — never a tool list, which hands would
+/// leave dead on both providers. The boundary stays the realm's fact and
+/// the workdir stays the box's own mount, so neither is declared here.
+#[test]
+fn the_engine_smith_hires_astra_then_fable_through_workspace_hands() {
+    let agent = json(&workspace().join("agents/implementer-engine.json"));
+    assert_eq!(
+        agent,
+        serde_json::json!({
+            "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
+            "charter": "charters/implementer.md",
+            "models": ["astra", "fable"],
+            "efforts": {"astra": "high", "fable": "high"},
+            "hands": {
+                "kind": "workspace",
+                "network": false,
+                "binds": [
+                    {
+                        "path": "~/.cargo",
+                        "mode": "overlay",
+                        "mask": ["credentials.toml", "credentials"]
+                    },
+                    {"path": "~/.rustup", "mode": "ro"}
+                ]
+            },
+            "limits": {"max_attempts": 2, "timeout_seconds": 7200}
+        })
+    );
 }
 
 #[test]

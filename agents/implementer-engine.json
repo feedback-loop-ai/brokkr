@@ -2,19 +2,30 @@
   "description": "Engine-class implementer: builds core, store, contract, and policy work selected by triage.",
   "charter": "charters/implementer.md",
   "models": [
-    "fable",
-    "opus"
+    "astra",
+    "fable"
   ],
   "efforts": {
-    "fable": "high",
-    "opus": "high"
+    "astra": "high",
+    "fable": "high"
   },
-  "tools": {
-    "allow": [
-      "cargo",
-      "git"
-    ],
-    "mcp": []
+  "hands": {
+    "kind": "workspace",
+    "network": false,
+    "binds": [
+      {
+        "path": "~/.cargo",
+        "mode": "overlay",
+        "mask": [
+          "credentials.toml",
+          "credentials"
+        ]
+      },
+      {
+        "path": "~/.rustup",
+        "mode": "ro"
+      }
+    ]
   },
   "limits": {
     "max_attempts": 2,

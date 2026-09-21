@@ -208,3 +208,41 @@ Alternatives weighed:
   makes both seatable; it does not yet seat them.
 - `brokkr doctor` reports whether `bwrap` is present, since a bundle with
   hands cannot run without it.
+
+## Note — 2026-09-21, operator ruled on issue #307: the restriction is this box, not a command list
+
+Issue #307 seats Astra as the engine smith (`implementer-engine`: `astra`
+then `fable`, both `high`, the operator's 2026-09-20 chain ruling). Its
+first commission said the hands box would enforce the office's
+`["cargo", "git"]` allow-list. Triage showed that it does not: with hands
+declared the resolver never consults `tools.allow`, a `HandsSpec` carries
+only `network` and `binds`, and the hands tool runs the shell command it
+is given. That claim is **withdrawn**.
+
+The operator's 2026-09-21 ruling, recorded on the issue, answers both
+triage escalations and changes nothing above:
+
+- The restriction the engine smith owes is this decision's existing
+  workspace confinement — ruling 2's box: the empty root, the writable
+  workdir, the declared binds and the declared network. It is a
+  filesystem and network boundary and not a command allow-list. The
+  per-tool `["cargo", "git"]` list is not retained as a requirement, and
+  no per-tool enforcement contract — shell-command semantics, a
+  transport, native-tool bypass prevention — is authorized or designed.
+- A work seat on a provider whose `tool_permissions` is unsupported is
+  served through declared hands: under a boxed boundary (decision 0046)
+  it needs the agent's `hands` and the provider's `hands.workspace`. A
+  tool-listed seat with no hands keeps its existing refusal, word for
+  word.
+- `hands.harness.work` remains decision 0046's separate, unboxed path
+  under the `harness` boundary, judged on every link of the chain by the
+  rule that already exists. The two paths are not combined in one launch,
+  and no composition change is made.
+
+This note applies accepted semantics; it rules nothing new and this
+decision's status is unchanged. The consequences above stand as written,
+codex's read-only view of the host and provider egress included. What the
+slice establishes is that the ruling is expressible — compile admission
+and the composed launch, tested — not that it is proved: the first live
+astra smith, cargo and git through the box on codex with a real commit
+and verify passing, is the controller's measurement after it lands.

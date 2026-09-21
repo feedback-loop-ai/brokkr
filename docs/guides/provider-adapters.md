@@ -324,7 +324,8 @@ is the operator's, against the installed 2.1.x line (the transcript
 above records 2.1.251), because the implementing seat's tool grant is
 `cargo` and `git` and `claude` is not a command it may run. Until it is
 recorded every shipped bundle whose hands agent's chain reaches claude
-— every hands agent chains `opus` — refuses under `harness` naming
+— most hands agents chain `opus`, and the engine smith falls back to
+`fable` — refuses under `harness` naming
 `claude`, the member and the site; the record of which bundles those
 are is the pin test in
 `crates/brokkr-runtime/src/bundle/model_policy_tests.rs`. What is known
@@ -358,6 +359,65 @@ Of claude, codex and dsh, then, a `harness` gate stands on codex today
 and on claude once measured. A dsh work seat with hands may run under
 `open` at its harness's default; its gate refuses under `namespace`
 for the untrusted tier and under `harness` for the missing gate fragment.
+
+### A work seat on a provider with no per-tool flags
+
+A provider whose `tool_permissions` is unsupported — codex restricts by
+sandbox class, not by tool name — cannot be told an agent's
+`tools.allow`. A work seat that carries a tool list and declares **no**
+hands is therefore refused on it, in the resolver's own words: the
+restriction "cannot be expressed and the agent would run with MORE power
+than it declares". That refusal is unchanged, and no fallback link
+rescues the chain, because every mapped link is judged.
+
+Such a provider serves a work seat only through **declared hands**
+(decision [0043](../decisions/0043-the-hands-are-one-tool.md) ruling 2:
+the box replaces the tool list). Under the `namespace` boundary the seat
+compiles when the agent declares `hands` and the provider declares
+`hands.workspace`; a provider whose `hands` is absent or unsupported
+refuses it, and a declared `hands.harness.work` does not stand in. The
+engine smith, `implementer-engine`, is the shipped case (issue #307,
+operator rulings of 2026-09-20 and 2026-09-21): it hires `astra` then
+`fable`, both `high`, with no network, `~/.cargo` as an overlay with
+`credentials.toml` and `credentials` masked, and `~/.rustup` read-only.
+It carries no `tools` member, because hands would leave one dead on
+claude as well as on codex.
+
+As composed for codex, that launch is `--sandbox read-only` — the
+harness's native sandbox does not write — plus the `brokkr hands serve`
+MCP server registered with the run's workdir and exactly that spec, and
+the approval key above. The writable workspace is reached through the
+MCP hands tool and nowhere else in the argv: no `workspace-write`, no
+`hands.harness.work` fragment and no tool-list flag. On claude the same
+spec rides the `workspace` fragment unchanged, whose one `--allowedTools`
+value is `mcp__brokkr__workspace` — the grant of the hands tool itself,
+never a list of commands.
+
+What that confinement **is**: the box decision 0043 already builds — an
+empty root, the run's workdir mounted writable, the declared binds in
+their declared modes, and the declared network (here, none). What it is
+**not**: a command allow-list. Inside the box the hands tool runs the
+shell command it is given, so `cargo` and `git` are reachable because
+the toolchain is bound and the tree is writable, not because they are
+named; any other program the binds expose runs as well. The limits
+decision 0043 records stand too: codex's native read-only shell can
+still read the host outside the box, and the provider's own traffic is
+outside it. No per-tool, shell-command or transport enforcement is
+claimed here, and none is designed.
+
+The unboxed route is a separate case, not a second half of this one.
+Under `harness` no workspace tool is served; a work seat with hands
+needs `hands.harness.work` on **every** link of its chain (decision 0046
+rulings 1 and 4), the launch carries that fragment alone, and the hands
+stay on the record unenforced by Brokkr. A codex-only chain with the same
+hands compiles there; the shipped smith does not, refused at link 2
+because claude declares no `hands.harness.work`. The two paths are never
+combined in one launch.
+
+All of this is compile and composition evidence. A boxed seat has no
+network, so no seat can run a live astra smith; the first one — cargo
+and git through the box on codex, a real commit, verify passing — is the
+controller's measurement after the change lands, and is pending.
 
 ## Resume — what has been measured, per named shape
 

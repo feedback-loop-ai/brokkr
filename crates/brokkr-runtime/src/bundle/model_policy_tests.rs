@@ -4237,3 +4237,392 @@ fn an_exempted_inline_gate_merges_its_authorisation_with_its_exemption() {
         json!({"work": {"dsh": adapter_digest(&fixture, "dsh")}}),
     );
 }
+
+// ------------- issue #307: a work seat on a provider with no per-tool flags
+
+/// The shipped Codex fragments, written out here rather than read from
+/// `adapters/codex.json`: the matrix below is a fixture provider's, and
+/// the shipped file is composed for real in `engine/boundary_tests.rs`.
+const SMITH_WORKSPACE: [&str; 8] = [
+    "--sandbox",
+    "read-only",
+    "-c",
+    "mcp_servers.brokkr.command=\"{brokkr}\"",
+    "-c",
+    "mcp_servers.brokkr.args={hands_args_toml}",
+    "-c",
+    "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+];
+
+/// The capability error's fixed frame (`ResolveError::Capability`) around
+/// one reason, as the compiler prints it for the `work` seat.
+fn smith_gap(provider: &str, model: &str, reason: &str) -> String {
+    format!(
+        "bundle: seat 'work': agent 'smith' cannot be served by provider '{provider}' \
+         on model '{model}': {reason}. A capability the provider cannot express fails \
+         compilation here rather than degrading silently at run time"
+    )
+}
+
+/// A fixture Codex: trusted, effort-bearing, no per-tool flag, and the
+/// `hands` and `tool_permissions` declarations each case plants.
+fn smith_codex(tool_permissions: Value, hands: Option<Value>) -> Value {
+    let mut codex = adapter("codex", Some("trusted"), Some(false));
+    codex["models"] = json!({"astra": "gpt-6-astra"});
+    codex["judges"] = json!(["astra"]);
+    codex["model_flag"] = json!("--model");
+    codex["efforts"] = json!(["low", "medium", "high"]);
+    codex["effort_flag"] = json!("--effort");
+    codex["tool_permissions"] = tool_permissions;
+    if let Some(hands) = hands {
+        codex["hands"] = hands;
+    }
+    codex
+}
+
+fn smith_hands(work: Option<Value>) -> Value {
+    let mut hands = json!({"workspace": SMITH_WORKSPACE});
+    if let Some(work) = work {
+        hands["harness"] = json!({"work": work});
+    }
+    hands
+}
+
+/// The smith under test: a valid work-class agent on `models`, every link
+/// at high effort, listing Cargo and Git, with or without hands.
+fn write_smith(fixture: &Fixture, models: &[&str], hands: bool) {
+    std::fs::write(fixture.agents().join("charters/smith.md"), "# charter\n").unwrap();
+    let efforts: Map<String, Value> = models
+        .iter()
+        .map(|model| (model.to_string(), json!("high")))
+        .collect();
+    let mut body = json!({
+        "description": "a fixture engine smith",
+        "charter": "charters/smith.md",
+        "models": models,
+        "efforts": efforts,
+        "tools": {"allow": ["cargo", "git"], "mcp": []},
+    });
+    if hands {
+        body["hands"] = json!({"kind": "workspace", "network": false});
+    }
+    std::fs::write(
+        fixture.agents().join("smith.json"),
+        serde_json::to_string(&body).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Compile the smith's work seat against the fixture's canonical roots
+/// (decision 0063: a temporary root is canonicalised before use).
+fn compile_smith(fixture: &Fixture, boundary: Boundary) -> Result<Bundle, CompileError> {
+    fixture.compile_roots(
+        boxed_seat("smith", "work"),
+        &fixture.agents().canonicalize().unwrap(),
+        &fixture.adapters().canonicalize().unwrap(),
+        boundary,
+    )
+}
+
+fn smith_refusal(fixture: &Fixture, boundary: Boundary) -> String {
+    match compile_smith(fixture, boundary) {
+        Ok(_) => panic!("expected the smith to be refused under `{boundary}`"),
+        Err(error) => error.to_string(),
+    }
+}
+
+/// What `{brokkr}` expands to at compile: this engine's own executable.
+fn engine_exe() -> String {
+    std::env::current_exe()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn smith_candidates(bundle: &Bundle) -> &[Candidate] {
+    match &bundle.seats["work"].body {
+        SeatBody::Single { candidates, .. } => candidates,
+        other => panic!("the smith is a single seat: {other:?}"),
+    }
+}
+
+/// N0 (issue #307): the refusal that made the one-line roster edit fail.
+/// A work seat carrying a tool list, with NO hands, on a provider that
+/// cannot express one is refused in the existing words, and a valid later
+/// link cannot rescue the chain. One test per declaration shape, so each
+/// detects its own removal.
+fn assert_the_tool_list_refusal(declared: Value, reason: &str) {
+    let expected = smith_gap(
+        "codex",
+        "astra",
+        &format!(
+            "{reason}, so the agent's restriction to [\"cargo\", \"git\"] cannot be \
+             expressed and the agent would run with MORE power than it declares"
+        ),
+    );
+    let fixture = Fixture::new();
+    fixture.write_adapter(smith_codex(declared, Some(smith_hands(None))));
+    write_smith(&fixture, &["astra"], false);
+    assert_eq!(smith_refusal(&fixture, Boundary::Namespace), expected);
+
+    // A later link that CAN express the list does not rescue the chain:
+    // every mapped entry is judged, not just the chosen one.
+    let mut capable = adapter("capable", Some("trusted"), Some(false));
+    capable["models"] = json!({"able": "capable-1"});
+    capable["judges"] = json!(["able"]);
+    capable["model_flag"] = json!("--model");
+    capable["efforts"] = json!(["high"]);
+    capable["effort_flag"] = json!("--effort");
+    capable["tool_permissions"] = json!({
+        "flag": "--allowedTools",
+        "separator": ",",
+        "names": {"cargo": "Bash(cargo:*)", "git": "Bash(git:*)"},
+    });
+    fixture.write_adapter(capable);
+    write_smith(&fixture, &["astra", "able"], false);
+    assert_eq!(smith_refusal(&fixture, Boundary::Namespace), expected);
+}
+
+#[test]
+fn a_tool_listed_work_seat_without_hands_keeps_its_refusal_on_a_bare_unsupported_provider() {
+    assert_the_tool_list_refusal(
+        json!("unsupported"),
+        "the provider declares tool_permissions unsupported",
+    );
+}
+
+#[test]
+fn a_tool_listed_work_seat_without_hands_keeps_its_refusal_and_the_measured_reason() {
+    assert_the_tool_list_refusal(
+        json!({"unsupported": "restricts by sandbox class, not by tool name"}),
+        "the provider declares tool_permissions unsupported (restricts by sandbox class, not \
+         by tool name)",
+    );
+}
+
+/// N1: the same agent, tool list retained, compiles once it declares
+/// hands — decision 0043 ruling 2 replaces the list with the box, and the
+/// provider's `hands.workspace` is what says how.
+#[test]
+fn the_same_seat_with_hands_compiles_under_namespace_through_the_workspace_fragment() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(smith_codex(json!("unsupported"), Some(smith_hands(None))));
+    write_smith(&fixture, &["astra"], true);
+    let bundle = compile_smith(&fixture, Boundary::Namespace)
+        .expect("hands on a provider that declares hands.workspace replace the tool list");
+
+    assert_eq!(bundle.boundary, Boundary::Namespace);
+    assert_eq!(bundle.manifest["boundary"], json!({"work": "namespace"}));
+    assert_eq!(
+        bundle.hands["work"],
+        HandsSpec::parse(&json!({"kind": "workspace", "network": false})).unwrap()
+    );
+    let candidates = smith_candidates(&bundle);
+    assert_eq!(candidates.len(), 1);
+    let astra = &candidates[0];
+    assert_eq!(
+        (astra.provider.as_str(), astra.model.as_str()),
+        ("codex", "astra")
+    );
+    assert_eq!(astra.effort.as_deref(), Some("high"));
+    assert_eq!(astra.hands_fragment, SMITH_WORKSPACE);
+    let mut expected = vec![
+        "driver",
+        "codex",
+        "--",
+        "--model",
+        "gpt-6-astra",
+        "--effort",
+        "high",
+    ];
+    expected.extend(SMITH_WORKSPACE);
+    assert_eq!(astra.argv[0], engine_exe());
+    assert_eq!(
+        astra.argv[1..],
+        expected,
+        "no tool-list argument is generated"
+    );
+}
+
+/// N2: the hands-declaring agent is refused under `namespace` when the
+/// provider's whole `hands` capability is absent, bare or measured — one
+/// test per shape. `workspace: []` is a different, loadable declaration
+/// and deleting `workspace` alone is a loader error; neither is this.
+fn assert_the_missing_workspace_refusal(hands: Option<Value>, reason: &str) {
+    let fixture = Fixture::new();
+    fixture.write_adapter(smith_codex(json!("unsupported"), hands));
+    write_smith(&fixture, &["astra"], true);
+    assert_eq!(
+        smith_refusal(&fixture, Boundary::Namespace),
+        smith_gap(
+            "codex",
+            "astra",
+            &format!(
+                "{reason}, so the agent's hands cannot be put in the box and the agent would \
+                 run with the harness's own tools"
+            ),
+        ),
+    );
+}
+
+#[test]
+fn a_seat_with_hands_is_refused_under_namespace_when_the_provider_declares_no_hands_at_all() {
+    assert_the_missing_workspace_refusal(None, "the provider declares hands unsupported");
+}
+
+#[test]
+fn a_seat_with_hands_is_refused_under_namespace_when_the_provider_declares_hands_unsupported() {
+    assert_the_missing_workspace_refusal(
+        Some(json!("unsupported")),
+        "the provider declares hands unsupported",
+    );
+}
+
+#[test]
+fn a_seat_with_hands_is_refused_under_namespace_naming_the_providers_measured_reason() {
+    assert_the_missing_workspace_refusal(
+        Some(json!({"unsupported": "this harness serves no MCP tool"})),
+        "the provider declares hands unsupported (this harness serves no MCP tool)",
+    );
+}
+
+/// H3: the SHIPPED engine smith, seated alone against the shipped library
+/// and adapters. Under `namespace` it compiles to astra on codex, then
+/// fable on claude, both high; under `harness` the whole chain is judged
+/// and it is refused at link 2 — claude declares no `hands.harness.work`
+/// — although the Codex-only H1 below passes. Nothing drops the fallback
+/// or invents a writable Claude fragment to make it compile.
+#[test]
+fn the_shipped_engine_smith_is_refused_under_harness_at_its_claude_link() {
+    let fixture = Fixture::new();
+    let agents = workspace().join("agents");
+    let seat = boxed_seat("implementer-engine", "work");
+
+    let bundle = fixture
+        .compile_roots(
+            seat.clone(),
+            &agents,
+            &shipped_adapters(),
+            Boundary::Namespace,
+        )
+        .expect("the shipped engine smith compiles boxed");
+    let hires: Vec<(&str, &str, Option<&str>)> = smith_candidates(&bundle)
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.provider.as_str(),
+                candidate.model.as_str(),
+                candidate.effort.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        hires,
+        [
+            ("codex", "astra", Some("high")),
+            ("claude", "fable", Some("high"))
+        ]
+    );
+
+    let refusal = fixture
+        .compile_roots(seat, &agents, &shipped_adapters(), Boundary::Harness)
+        .map(drop)
+        .expect_err("claude declares no harness work fragment")
+        .to_string();
+    assert_eq!(
+        refusal,
+        "bundle: seat 'work' link 2 resolves to provider 'claude', which declares no \
+         `hands.harness.work` fragment: a capability gap — under the `harness` boundary a work \
+         seat with hands writes the tree only under the harness's own writable sandbox as the \
+         adapter addresses it (decision 0046 rulings 1 and 4)"
+    );
+}
+
+/// H1: the unboxed 0046 path is a separate case. Under `harness` the same
+/// agent on the same provider compiles because `hands.harness.work` is
+/// declared; H2 below refuses it where that member is missing, and
+/// `hands.workspace`, present throughout, never satisfies that rule.
+#[test]
+fn the_same_seat_under_harness_compiles_on_the_providers_work_fragment() {
+    let fixture = Fixture::new();
+    fixture.write_adapter(smith_codex(
+        json!("unsupported"),
+        Some(smith_hands(Some(json!(["--sandbox", "workspace-write"])))),
+    ));
+    write_smith(&fixture, &["astra"], true);
+    let bundle = compile_smith(&fixture, Boundary::Harness)
+        .expect("a work seat with hands on a provider that declares hands.harness.work");
+    assert_eq!(bundle.boundary, Boundary::Harness);
+    assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
+    assert_eq!(
+        bundle.hands["work"],
+        HandsSpec::parse(&json!({"kind": "workspace", "network": false})).unwrap()
+    );
+    let astra = &smith_candidates(&bundle)[0];
+    assert_eq!(
+        (astra.provider.as_str(), astra.model.as_str()),
+        ("codex", "astra")
+    );
+    assert_eq!(astra.effort.as_deref(), Some("high"));
+    assert_eq!(
+        astra.harness.work.as_deref(),
+        Some(&["--sandbox".to_string(), "workspace-write".to_string()][..])
+    );
+    assert!(
+        astra.hands_fragment.is_empty(),
+        "{:?}",
+        astra.hands_fragment
+    );
+    assert_eq!(astra.argv[0], engine_exe());
+    assert_eq!(
+        astra.argv[1..],
+        [
+            "driver",
+            "codex",
+            "--",
+            "--model",
+            "gpt-6-astra",
+            "--effort",
+            "high"
+        ],
+        "unboxed resolution appends neither the workspace fragment nor a tool list"
+    );
+}
+
+/// H2, one test per loadable shape: `hands.harness.work` absent, and
+/// declared as a measured gap. The bare string `"unsupported"` is not a
+/// case here — the loader refuses it first, asking for `work` as an array
+/// of strings — so it never reaches this rule.
+fn assert_the_missing_work_fragment_refusal(work: Option<Value>, gap: &str) {
+    let fixture = Fixture::new();
+    fixture.write_adapter(smith_codex(json!("unsupported"), Some(smith_hands(work))));
+    write_smith(&fixture, &["astra"], true);
+    assert_eq!(
+        smith_refusal(&fixture, Boundary::Harness),
+        format!(
+            "bundle: seat 'work' link 1 resolves to provider 'codex', which declares no \
+             `hands.harness.work` fragment{gap}: a capability gap — under the `harness` \
+             boundary a work seat with hands writes the tree only under the harness's own \
+             writable sandbox as the adapter addresses it (decision 0046 rulings 1 and 4)"
+        ),
+    );
+    // The rule is the harness boundary's alone: the same declarations
+    // compile boxed, and under `open` at the harness's default.
+    for boundary in [Boundary::Namespace, Boundary::Open] {
+        compile_smith(&fixture, boundary)
+            .unwrap_or_else(|e| panic!("{boundary} asks for no work fragment: {e}"));
+    }
+}
+
+#[test]
+fn the_same_seat_is_refused_under_harness_when_the_provider_declares_no_work_fragment() {
+    assert_the_missing_work_fragment_refusal(None, "");
+}
+
+#[test]
+fn the_same_seat_is_refused_under_harness_naming_the_measured_work_gap() {
+    assert_the_missing_work_fragment_refusal(
+        Some(json!({"unsupported": "no writable class was measured"})),
+        " (no writable class was measured)",
+    );
+}

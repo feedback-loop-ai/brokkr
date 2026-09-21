@@ -1670,6 +1670,128 @@ fn hands_replace_the_tool_list_with_the_adapters_fragment() {
     );
 }
 
+/// Issue #307, P1: a provider that CAN express the tool list still takes
+/// none of it from an agent with hands. The fixture maps Cargo and Git
+/// through the same `--allowedTools` spelling its workspace fragment uses
+/// for the one MCP grant, so the two grant sources are told apart by
+/// value and origin, not by flag name.
+#[test]
+fn hands_take_no_tool_grant_even_where_the_fragment_shares_the_tool_flag() {
+    let fragment = [
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{hands_mcp_json}",
+        "--allowedTools",
+        "mcp__brokkr__workspace",
+    ];
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &boxed_agent());
+    let mut claude = claude_body();
+    claude["hands"] = json!({"workspace": fragment});
+    tree.write("adapters/claude.json", &claude);
+    let resolution = resolved(&tree, &Availability::unspecified());
+    assert_eq!(resolution.candidates.len(), 2);
+    for (candidate, concrete, effort) in [
+        (&resolution.candidates[0], "claude-opus-5", "high"),
+        (&resolution.candidates[1], "claude-sonnet-5", "medium"),
+    ] {
+        assert_eq!(candidate.hands_fragment, fragment);
+        let mut expected = vec![
+            "{brokkr}", "driver", "claude", "--", "--model", concrete, "--effort", effort,
+        ];
+        expected.extend(fragment);
+        assert_eq!(candidate.argv, expected);
+        let grants: Vec<&String> = candidate
+            .argv
+            .iter()
+            .zip(candidate.argv.iter().skip(1))
+            .filter(|(flag, _)| *flag == "--allowedTools")
+            .map(|(_, value)| value)
+            .collect();
+        assert_eq!(grants, ["mcp__brokkr__workspace"], "{:?}", candidate.argv);
+        for retired in ["Bash(cargo:*)", "Bash(git:*)"] {
+            assert!(
+                !candidate.argv.iter().any(|part| part.contains(retired)),
+                "{retired} in {:?}",
+                candidate.argv
+            );
+        }
+    }
+}
+
+/// Issue #307's internal resolver control — not a loadable adapter file,
+/// because the loader requires `workspace` inside a `hands` object. With
+/// the parsed workspace capability gone and `hands.harness.work` still
+/// declared, boxed composition refuses on the missing workspace: harness
+/// support cannot rescue a namespace seat.
+#[test]
+fn harness_work_support_cannot_rescue_a_boxed_seat_without_a_workspace_fragment() {
+    let tree = Tree::new();
+    tree.write("agents/tester.json", &boxed_agent());
+    let mut claude = claude_body();
+    claude["tool_permissions"] = json!("unsupported");
+    claude["hands"] = json!({
+        "workspace": ["--mcp-config", "{hands_mcp_json}"],
+        "harness": {"work": ["--writable"]},
+    });
+    tree.write("adapters/claude.json", &claude);
+    let library = tree.library();
+    let agent = library.agent("tester").unwrap();
+    let mut adapter = tree.adapters().adapter("claude").unwrap().clone();
+    adapter.hands = None;
+    assert_eq!(
+        adapter.harness.work.as_deref(),
+        Some(&["--writable".to_string()][..]),
+        "the control retains the harness work fragment"
+    );
+
+    let refusal = compose(
+        agent,
+        &adapter,
+        "opus",
+        "claude-opus-5",
+        &mut Vec::new(),
+        true,
+    )
+    .expect_err("a boxed seat needs the workspace fragment")
+    .to_string();
+    assert_eq!(
+        refusal,
+        "agent 'tester' cannot be served by provider 'claude' on model 'opus': the provider \
+         declares hands unsupported, so the agent's hands cannot be put in the box and the \
+         agent would run with the harness's own tools. A capability the provider cannot \
+         express fails compilation here rather than degrading silently at run time"
+    );
+    // Unboxed, the same adapter composes and carries neither fragment nor
+    // tool list: the workspace requirement is the boxed path's alone.
+    let (argv, effort, hands_fragment) = compose(
+        agent,
+        &adapter,
+        "opus",
+        "claude-opus-5",
+        &mut Vec::new(),
+        false,
+    )
+    .expect("unboxed composition asks for no workspace fragment");
+    assert_eq!(
+        argv,
+        [
+            "{brokkr}",
+            "driver",
+            "claude",
+            "--",
+            "--model",
+            "claude-opus-5",
+            "--effort",
+            "high"
+        ]
+    );
+    assert_eq!(effort.as_deref(), Some("high"));
+    assert!(hands_fragment.is_empty());
+}
+
 #[test]
 fn hands_declarations_are_refused_where_malformed_and_named_where_refused() {
     let tree = Tree::new();
