@@ -111,6 +111,18 @@ pub enum EngineError {
         world_realm: String,
         world: String,
     },
+    /// The same door, for the bytes behind the grants (design D7): the
+    /// manifest pins every abstract definition and tool dialect the compile
+    /// consulted, by relative source and digest, and a resume must be able
+    /// to reproduce them. A run is not journaled against an input that has
+    /// already moved.
+    #[error(
+        "this bundle's capabilities were compiled against '{input}', which {problem} in the \
+         operator configuration this run is started with; a run pins the abstract definitions \
+         and tool dialects its holdings came from, so recompile in this world (decision 0065 \
+         ruling 8)"
+    )]
+    CapabilityInputMoved { input: String, problem: String },
     /// Decision 0046 ruling 6: `seatbelt` and `container` are named, pinned
     /// and admitted at compile, and built by slices (ii) and (iii). This
     /// engine composes nothing for either, and never simulates a boundary,
@@ -385,6 +397,16 @@ impl Engine {
                 world_realm: world_realm.to_string(),
                 world: Value::Object(world_grants).to_string(),
             });
+        }
+        // And the bytes those grants were judged against, read where the
+        // compile read them: beside the map, else under the operated
+        // repository (design D2).
+        let operator_root = match &world {
+            Some(world) => world.source.parent().map(PathBuf::from).unwrap_or_default(),
+            None => operated.clone(),
+        };
+        if let Some((input, problem)) = moved_capability_input(compiled, &operator_root) {
+            return Err(EngineError::CapabilityInputMoved { input, problem });
         }
         // Pinned for the same operated repository the fence judged, so a
         // run started from a mapped workspace with no `--repo` still
@@ -4652,6 +4674,31 @@ pub fn hands_command(
                 .replace("{brokkr}", &brokkr.to_string_lossy())
         })
         .collect()
+}
+
+/// The first abstract definition or tool dialect a compiled `capabilities`
+/// section pins that `root` no longer reproduces: its relative source, and
+/// whether it is missing or changed. The digest is over the file's raw
+/// bytes, exactly as the compile took it. `None` where every pin holds —
+/// which a section that consulted nothing trivially does.
+fn moved_capability_input(compiled: &Value, root: &Path) -> Option<(String, String)> {
+    ["definitions", "dialects"]
+        .into_iter()
+        .filter_map(|records| compiled.get(records)?.as_object())
+        .flat_map(Map::values)
+        .find_map(|record| {
+            let source = record["source"].as_str().unwrap_or_default();
+            let problem = match std::fs::read(root.join(source)) {
+                Ok(bytes)
+                    if record["sha256"] == json!(brokkr_core::canonical::sha256_bytes(&bytes)) =>
+                {
+                    None
+                }
+                Ok(_) => Some("has changed since"),
+                Err(_) => Some("is missing"),
+            };
+            Some((source.to_string(), problem?.to_string()))
+        })
 }
 
 fn manifest_diff(pinned: &Value, current: &Value) -> String {

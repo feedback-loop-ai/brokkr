@@ -1927,7 +1927,7 @@ fn compile_in_realm(
         Some(realm_name),
         dialect,
         boundary,
-        &capability_context(workspace, world, realm),
+        &capability_context(workspace, world, realm, repo),
     )?)
 }
 
@@ -1936,16 +1936,18 @@ fn compile_in_realm(
 /// never the recipe's home — and the directory the operator's abstract
 /// definitions and tool dialects live in. With a map that is the map
 /// file's own directory, by the rule every other map-relative name
-/// follows; without one it is the workspace, and the context grants
-/// nothing. A repository the map does not name grants nothing either.
+/// follows; without one it is the operated repository — what `--repo`
+/// names, else the workspace — and the context grants nothing. A
+/// repository the map does not name grants nothing either.
 fn capability_context(
     workspace: &std::path::Path,
     world: Option<&World>,
     realm: Option<&brokkr_core::realms::Realm>,
+    repo: &std::path::Path,
 ) -> brokkr_runtime::capabilities::CapabilityContext {
     let root = world
         .and_then(|world| workspace.join(&world.source).parent().map(PathBuf::from))
-        .unwrap_or_else(|| workspace.to_path_buf());
+        .unwrap_or_else(|| repo.to_path_buf());
     brokkr_runtime::capabilities::CapabilityContext {
         realm: realm.map_or(
             brokkr_runtime::capabilities::UNMAPPED.to_string(),
@@ -1962,9 +1964,20 @@ fn compile_from_manifest(
     workspace: &std::path::Path,
     dir: &std::path::Path,
     manifest: &Value,
+    repo: &std::path::Path,
 ) -> Result<Bundle> {
     let Some(world) = World::from_manifest(manifest)? else {
-        return compile_in(workspace, dir);
+        // A run that pinned no world stood in no realm and held no grant.
+        // Its definitions are re-read where they were read when it
+        // started: under the operated repository, never the recipe's home
+        // and never a map that has appeared in the workspace since.
+        return Ok(Bundle::compile_unmapped(
+            dir,
+            &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
+            &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+            brokkr_core::realms::Boundary::Namespace,
+            repo,
+        )?);
     };
     let realm_name = manifest
         .pointer("/realms/realm")
@@ -1997,8 +2010,31 @@ fn compile_from_manifest(
         Some(realm_name),
         dialect,
         boundary,
-        &capability_context(workspace, Some(&world), realm),
+        &capability_context(workspace, Some(&world), realm, repo),
     )?)
+}
+
+/// A resume whose pinned capability authority cannot be REPRODUCED here —
+/// a definition or a tool dialect that is gone, or no longer what the
+/// grant needs — is the run pinning a different bundle, and is refused
+/// through that door with capabilities named (decision 0065 ruling 8;
+/// design D7), not as a compile failure that reads like a broken recipe.
+/// Every other failure passes through untouched.
+fn unreproducible(run: &str, error: anyhow::Error) -> anyhow::Error {
+    match error.downcast_ref::<brokkr_runtime::bundle::CompileError>() {
+        Some(brokkr_runtime::bundle::CompileError::Capability(reason)) => {
+            brokkr_runtime::engine::EngineError::ManifestMismatch {
+                run_id: run.to_string(),
+                detail: format!(
+                    "capabilities differ: the capability authority the run was started under \
+                     cannot be reproduced here — {reason}; a grant, an abstract definition or a \
+                     tool dialect was removed or edited since the run started"
+                ),
+            }
+            .into()
+        }
+        _ => error,
+    }
 }
 
 fn run_with(
@@ -2230,7 +2266,9 @@ fn run_with(
                 workspace,
                 &recipes::resolve(bundle, recipe, &recipes_dir)?,
                 &manifest,
-            )?;
+                repo.as_deref().unwrap_or(workspace),
+            )
+            .map_err(|error| unreproducible(&run, error))?;
             refuse_unboxable(&bundle, &std::env::var_os("PATH").unwrap_or_default())?;
             let mut engine = Engine::resume(store, bundle, &run, repo)?;
             // Decision 0057, on decision 0046's Addendum's terms: a
@@ -2825,7 +2863,8 @@ fn run_with(
             // (decision 0065; design D2): beside the active map, else in
             // the workspace — wherever `--agents-dir` points the library.
             let world = World::discover(workspace, None)?;
-            let operator_root = capability_context(workspace, world.as_ref(), None).root;
+            let operator_root =
+                capability_context(workspace, world.as_ref(), None, workspace).root;
             match command {
                 AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
                 AgentsCmd::Show {

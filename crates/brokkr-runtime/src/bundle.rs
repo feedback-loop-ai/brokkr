@@ -33,6 +33,14 @@ pub const DRIVER_PROTOCOL: u32 = 1;
 pub enum CompileError {
     #[error("bundle: {0}")]
     Invalid(String),
+    /// A refusal by capability authority (decision 0065): a grant, an
+    /// abstract definition, a tool dialect or a seat's resolution. It
+    /// reads exactly as `Invalid` does; it is a variant of its own so that
+    /// `brokkr resume` can tell "the pinned authority cannot be
+    /// reproduced here" from any other compile failure and refuse through
+    /// the manifest-mismatch door with capabilities named (design D7).
+    #[error("bundle: {0}")]
+    Capability(String),
     #[error("bundle io: {0}")]
     Io(#[from] std::io::Error),
     #[error("bundle json: {0}")]
@@ -987,6 +995,29 @@ impl Bundle {
         adapters_root: &Path,
         boundary: Boundary,
     ) -> Result<Bundle, CompileError> {
+        Self::compile_unmapped(
+            dir,
+            library_root,
+            adapters_root,
+            boundary,
+            library_root.parent().unwrap_or(Path::new("")),
+        )
+    }
+
+    /// [`Bundle::compile_under`] with the operator's configuration
+    /// directory named rather than inferred (decision 0065; design D2):
+    /// without a map, the abstract definitions and tool dialects are read
+    /// under the OPERATED repository, which a `--repo` makes a different
+    /// directory from the one the library stands in. The context grants
+    /// nothing either way; the root only locates what a seat's ask is
+    /// checked against.
+    pub fn compile_unmapped(
+        dir: &Path,
+        library_root: &Path,
+        adapters_root: &Path,
+        boundary: Boundary,
+        operator_root: &Path,
+    ) -> Result<Bundle, CompileError> {
         let default_path = library_root
             .parent()
             .unwrap_or(Path::new(""))
@@ -1000,13 +1031,17 @@ impl Bundle {
         } else {
             None
         };
-        Self::compile_with_realm(
+        Self::compile_with_capabilities(
             dir,
             library_root,
             adapters_root,
             None,
             default.as_ref(),
             boundary,
+            &crate::capabilities::CapabilityContext::no_grants(
+                crate::capabilities::UNMAPPED,
+                operator_root,
+            ),
         )
     }
 
@@ -1080,9 +1115,12 @@ impl Bundle {
             // Every failure downstream of resolution on a composed
             // bundle is wrapped ONCE with the chain — one arm, rather
             // than teaching each lint about layers.
-            Err(error) => Err(match note {
-                Some(note) => CompileError::Invalid(format!("{error} ({note})")),
-                None => error,
+            Err(error) => Err(match (note, error) {
+                (Some(note), error @ CompileError::Capability(_)) => {
+                    CompileError::Capability(format!("{error} ({note})"))
+                }
+                (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
+                (None, error) => error,
             }),
         }
     }
@@ -1107,7 +1145,7 @@ impl Bundle {
         // two realm-wide refusals. None of them can become an optional
         // drop, because no ask has been read yet.
         let authority = crate::capabilities::Authority::load(capabilities.clone())
-            .map_err(CompileError::Invalid)?;
+            .map_err(CompileError::Capability)?;
         let config = &resolved.document;
         let name = resolved.name.clone();
         let description = config
@@ -3076,7 +3114,7 @@ fn site_capabilities(
         outcomes.push(
             authority
                 .resolve(&asks, serving)
-                .map_err(CompileError::Invalid)?,
+                .map_err(CompileError::Capability)?,
         );
     }
     Ok(crate::capabilities::SiteCapabilities { asks, outcomes })
