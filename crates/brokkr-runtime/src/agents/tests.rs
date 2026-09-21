@@ -254,16 +254,23 @@ fn an_agent_naming_an_mcp_server_is_refused_and_never_reaches_a_command_line() {
         tree.write("agents/tester.json", &body);
         // The adapter DOES map the server: the legacy map is no authority.
         tree.write("adapters/claude.json", &claude_body());
-        let problem = tree.library_error();
-        assert!(
-            problem.ends_with(
-                "'tools.mcp' names an MCP server; an agent no longer names one, because a \
-                 server an office could name would be a door a pulled bundle could open. \
-                 Request the capability by abstract name under 'capabilities' (\"requires\" or \
-                 \"wants\") and let realms.json grant it through a tool dialect (decision 0065 \
-                 rulings 1 and 3)"
-            ),
-            "{problem}"
+        // The WHOLE migration reason, agent and file named (SC7): a suffix
+        // would pass on a refusal that blamed the wrong definition.
+        let file = tree
+            .library_root()
+            .canonicalize()
+            .unwrap()
+            .join("tester.json");
+        assert_eq!(
+            tree.library_error(),
+            format!(
+                "agent 'tester' ({}) 'tools.mcp' names an MCP server; an agent no longer names \
+                 one, because a server an office could name would be a door a pulled bundle \
+                 could open. Request the capability by abstract name under 'capabilities' \
+                 (\"requires\" or \"wants\") and let realms.json grant it through a tool dialect \
+                 (decision 0065 rulings 1 and 3)",
+                file.display()
+            )
         );
     }
     let tree = ready();
