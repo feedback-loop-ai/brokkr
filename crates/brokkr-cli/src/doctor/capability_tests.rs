@@ -52,13 +52,29 @@ fn workspace_with(realms: Option<Value>) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     for (provider, declared) in [
-        ("codex", Some(native(json!({"argv": ["-c", "web_search=\"disabled\""]})))),
-        ("stuck", Some(native(json!({"unsupported": "9.9 has no switch for it"})))),
-        ("untried", Some(native(json!({"unmeasured": "nobody has tried"})))),
-        ("dsh", Some(json!({"unmeasured": "unsupported mcp proves no absence of native egress"}))),
+        (
+            "codex",
+            Some(native(json!({"argv": ["-c", "web_search=\"disabled\""]}))),
+        ),
+        (
+            "stuck",
+            Some(native(json!({"unsupported": "9.9 has no switch for it"}))),
+        ),
+        (
+            "untried",
+            Some(native(json!({"unmeasured": "nobody has tried"}))),
+        ),
+        (
+            "dsh",
+            Some(json!({"unmeasured": "unsupported mcp proves no absence of native egress"})),
+        ),
         ("older", None),
     ] {
-        write(root, &format!("adapters/{provider}.json"), &adapter(provider, declared));
+        write(
+            root,
+            &format!("adapters/{provider}.json"),
+            &adapter(provider, declared),
+        );
     }
     write(
         root,
@@ -66,7 +82,11 @@ fn workspace_with(realms: Option<Value>) -> tempfile::TempDir {
         &json!({"name": "web-search", "classes": ["reads", "egress"]}),
     );
     for (name, provider) in [("codex-native-search", "codex"), ("stuck-search", "stuck")] {
-        write(root, &format!("dialects/tools/{name}.json"), &native_dialect(name, provider));
+        write(
+            root,
+            &format!("dialects/tools/{name}.json"),
+            &native_dialect(name, provider),
+        );
     }
     if let Some(realms) = realms {
         write(
@@ -106,7 +126,13 @@ fn lines(dir: &Path, availability: &Availability) -> (bool, Vec<String>) {
         lines: Vec::new(),
     };
     let world = brokkr_runtime::realms::World::inspect(dir, None);
-    report_capabilities(&mut report, &world, dir, &dir.join("adapters"), availability);
+    report_capabilities(
+        &mut report,
+        &world,
+        dir,
+        &dir.join("adapters"),
+        availability,
+    );
     (report.healthy, report.lines)
 }
 
@@ -117,8 +143,11 @@ const EVIDENCE: &str =
 fn every_realm_reads_its_own_grants_and_its_neighbours_stay_out_of_it() {
     let dir = workspace_with(Some(json!([
         realm("private", None),
-        realm("public", Some(json!({"web-search": {
-            "dialect": "codex-native-search", "offices": ["researcher"]}}))),
+        realm(
+            "public",
+            Some(json!({"web-search": {
+            "dialect": "codex-native-search", "offices": ["researcher"]}}))
+        ),
     ])));
     let (healthy, lines) = lines(dir.path(), &installed(&["codex"]));
     assert!(healthy);
@@ -150,14 +179,23 @@ fn every_realm_reads_its_own_grants_and_its_neighbours_stay_out_of_it() {
 fn an_empty_scope_never_reads_as_all_and_a_restriction_is_not_usable_authority() {
     let grant = |extra: Value| {
         let mut grant = json!({"dialect": "codex-native-search"});
-        grant.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        grant
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         Some(json!({"web-search": grant}))
     };
     let dir = workspace_with(Some(json!([
         realm("all", grant(json!({}))),
-        realm("two", grant(json!({"offices": ["review-security", "researcher"]}))),
+        realm(
+            "two",
+            grant(json!({"offices": ["review-security", "researcher"]}))
+        ),
         realm("none", grant(json!({"offices": [], "tools": []}))),
-        realm("restricted", grant(json!({"allow": {"hosts": ["yaml.org"]}}))),
+        realm(
+            "restricted",
+            grant(json!({"allow": {"hosts": ["yaml.org"]}}))
+        ),
     ])));
     let (_, lines) = lines(dir.path(), &installed(&[]));
     assert_eq!(
@@ -188,8 +226,10 @@ fn installed_harnesses_are_told_apart_switchable_impossible_untried_and_unmeasur
         "private",
         Some(json!({"web-search": {"dialect": "stuck-search"}}))
     )])));
-    let (healthy, lines) =
-        lines(dir.path(), &installed(&["codex", "stuck", "untried", "dsh", "older"]));
+    let (healthy, lines) = lines(
+        dir.path(),
+        &installed(&["codex", "stuck", "untried", "dsh", "older"]),
+    );
     assert!(healthy);
     assert_eq!(
         lines[1..],
@@ -238,9 +278,11 @@ fn no_map_is_a_visible_denial_default_and_a_broken_map_is_unknown_authority() {
     assert!(healthy);
     assert_eq!(
         lines,
-        ["ok       capabilities <unmapped>: no realms map, so no capability grants are \
+        [
+            "ok       capabilities <unmapped>: no realms map, so no capability grants are \
           declared; every native capability is governed by the no-grant default — switched \
-          off, or the seat is refused"]
+          off, or the seat is refused"
+        ]
     );
     std::fs::write(dir.path().join("realms.json"), "not json").unwrap();
     let (_, lines) = self::lines(dir.path(), &installed(&["dsh"]));
@@ -264,10 +306,19 @@ fn no_map_is_a_visible_denial_default_and_a_broken_map_is_unknown_authority() {
 #[test]
 fn an_unbuilt_or_invalid_grant_is_one_failing_line_and_the_rest_still_prints() {
     let dir = workspace_with(Some(json!([
-        realm("broken", Some(json!({"library-docs": {"dialect": "docs-mcp"}}))),
-        realm("conflicting", Some(json!({"web-search": {"dialect": "reads-only"}}))),
+        realm(
+            "broken",
+            Some(json!({"library-docs": {"dialect": "docs-mcp"}}))
+        ),
+        realm(
+            "conflicting",
+            Some(json!({"web-search": {"dialect": "reads-only"}}))
+        ),
         realm("sound", None),
-        realm("unbuilt", Some(json!({"library-docs": {"dialect": "docs-mcp"}}))),
+        realm(
+            "unbuilt",
+            Some(json!({"library-docs": {"dialect": "docs-mcp"}}))
+        ),
     ])));
     let (healthy, first) = lines(dir.path(), &installed(&["dsh"]));
     assert!(!healthy);
@@ -354,7 +405,10 @@ fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
     );
     assert!(report.healthy);
     let rendered = report.render();
-    assert!(rendered.starts_with("ok       capabilities brokkr: grants nothing;"), "{rendered}");
+    assert!(
+        rendered.starts_with("ok       capabilities brokkr: grants nothing;"),
+        "{rendered}"
+    );
     for expected in [
         "warn     capabilities brokkr native codex 'web-search': NOT granted here: every seat \
          on codex is launched with it switched off by the adapter's declared control · \

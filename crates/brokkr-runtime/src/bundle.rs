@@ -3098,12 +3098,9 @@ fn record_capabilities(
         let agent = library
             .and_then(|library| library.agent(name))
             .expect("the seat loop resolved this agent reference");
-        let asks = crate::capabilities::SiteAsks::of(
-            what,
-            Some((name, &agent.capabilities)),
-            written,
-        )
-        .map_err(CompileError::Invalid)?;
+        let asks =
+            crate::capabilities::SiteAsks::of(what, Some((name, &agent.capabilities)), written)
+                .map_err(CompileError::Invalid)?;
         let chain = site_facts(sites, what).chain.clone();
         let site = site_capabilities(authority, adapters, asks, &chain, None, &[])?;
         let facts = site_facts(sites, what);
@@ -3149,7 +3146,11 @@ fn record_capabilities(
     }
     let mut nested: Vec<(String, &Value)> = Vec::new();
     if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
-        nested.extend(panel.iter().map(|(member, raw)| (format!("{what}:{member}"), raw)));
+        nested.extend(
+            panel
+                .iter()
+                .map(|(member, raw)| (format!("{what}:{member}"), raw)),
+        );
     }
     if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
         for (index, step) in sequence.iter().enumerate() {
@@ -3163,7 +3164,11 @@ fn record_capabilities(
     }
     if let Some(select) = raw.get("select").and_then(Value::as_object) {
         if let Some(cases) = select.get("cases").and_then(Value::as_object) {
-            nested.extend(cases.iter().map(|(case, raw)| (format!("{what}:{case}"), raw)));
+            nested.extend(
+                cases
+                    .iter()
+                    .map(|(case, raw)| (format!("{what}:{case}"), raw)),
+            );
         }
         if let Some(body) = select.get("default") {
             nested.push((format!("{what}:default"), body));

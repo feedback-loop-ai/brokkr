@@ -2678,6 +2678,32 @@ fn codex_launch(
     })
 }
 
+/// The command a Codex launch WOULD spawn for this driver argv and input,
+/// composed and refused exactly as a real launch is — the same function,
+/// read for its argv. It exists so the chain decision 0065 rests on can be
+/// proved end to end without a provider: a compiled seat's resolved
+/// native controls, handed over as the engine hands them, arriving in the
+/// harness's argv.
+pub fn codex_command(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    codex_launch(bin, extra, workdir, session, input).map(|plan| plan.command)
+}
+
+/// The same reading of a Claude launch.
+pub fn claude_command(
+    bin: &str,
+    extra: &[String],
+    session: Option<&str>,
+    input: &Value,
+) -> Result<Vec<String>, String> {
+    claude_launch(bin, extra, session, input, CLAUDE_SHAPE, None).map(|plan| plan.command)
+}
+
 /// Every claude flag that selects, copies or relocates a conversation.
 /// The first list takes a value, the second stands alone; both are read
 /// from the installed CLI's own help (2.1.266).

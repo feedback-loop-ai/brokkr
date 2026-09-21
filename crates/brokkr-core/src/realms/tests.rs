@@ -964,7 +964,11 @@ fn an_absent_and_an_empty_capabilities_map_both_grant_nothing() {
 #[test]
 fn capabilities_are_refused_under_every_older_version_even_written_empty() {
     for label in &SCHEMAS[..5] {
-        for written in [json!({}), json!(null), json!({"web-search": {"dialect": "d"}})] {
+        for written in [
+            json!({}),
+            json!(null),
+            json!({"web-search": {"dialect": "d"}}),
+        ] {
             let mut map: Value = serde_json::from_str(&v6(Some(written))).unwrap();
             map["schema"] = json!(label);
             assert_eq!(

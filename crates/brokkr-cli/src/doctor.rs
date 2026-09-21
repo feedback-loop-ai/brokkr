@@ -899,11 +899,10 @@ fn report_capabilities(
             for (key, native) in natives {
                 let capability = &native.capability;
                 let line = format!("{what} native {provider} '{capability}'");
-                let granted = authority
-                    .context
-                    .grants
-                    .get(capability)
-                    .filter(|_| authority.binding(capability) == Some((provider.as_str(), key)));
+                let granted =
+                    authority.context.grants.get(capability).filter(|_| {
+                        authority.binding(capability) == Some((provider.as_str(), key))
+                    });
                 let evidence = format!(
                     "evidence: {} · still unmeasured: {}",
                     native.evidence.scope,

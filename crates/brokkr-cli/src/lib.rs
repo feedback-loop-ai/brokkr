@@ -1982,9 +1982,10 @@ fn capability_context(
         .and_then(|world| workspace.join(&world.source).parent().map(PathBuf::from))
         .unwrap_or_else(|| workspace.to_path_buf());
     brokkr_runtime::capabilities::CapabilityContext {
-        realm: realm.map_or(brokkr_runtime::capabilities::UNMAPPED.to_string(), |realm| {
-            realm.name.clone()
-        }),
+        realm: realm.map_or(
+            brokkr_runtime::capabilities::UNMAPPED.to_string(),
+            |realm| realm.name.clone(),
+        ),
         grants: realm.map(|realm| realm.grants.clone()).unwrap_or_default(),
         root,
     }

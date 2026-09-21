@@ -13853,7 +13853,12 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
             "-c",
             "model_reasoning_effort=\"high\"",
         ]);
-        expected.extend(extra.iter().filter(|part| !["--effort", "high"].contains(&part.as_str())).cloned());
+        expected.extend(
+            extra
+                .iter()
+                .filter(|part| !["--effort", "high"].contains(&part.as_str()))
+                .cloned(),
+        );
         expected.extend(s(&CODEX_OFF));
         assert_eq!(denied.command, expected, "{case}: denied");
 
@@ -13861,7 +13866,10 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
         let held = codex_launch("codex", extra, "/w", None, &input).unwrap();
         expected.truncate(expected.len() - 2);
         assert_eq!(held.command, expected, "{case}: held");
-        assert!(!carries_off(&held.command), "{case}: held carries no OFF pair");
+        assert!(
+            !carries_off(&held.command),
+            "{case}: held carries no OFF pair"
+        );
     }
 }
 
@@ -13894,8 +13902,8 @@ fn an_eligible_codex_resume_reimposes_the_capability_control() {
         .collect();
         let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
         input["native_controls"] = plan;
-        let launch = codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input)
-            .unwrap();
+        let launch =
+            codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
         assert_eq!(launch.rejoining.as_deref(), Some(THREAD), "{case}");
         assert_eq!(launch.refusal, None, "{case}");
         assert_eq!(launch.sandbox.as_deref(), Some("workspace-write"), "{case}");
@@ -13937,8 +13945,7 @@ fn an_authored_config_still_turns_a_rejoin_cold_and_the_fallback_stays_denied() 
         .collect();
     let mut input = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
     input["native_controls"] = codex_denied();
-    let launch =
-        codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
+    let launch = codex_launch(shim.to_str().unwrap(), &extra, "/w", Some(THREAD), &input).unwrap();
     assert_eq!(launch.refusal, Some("incompatible-argv"));
     assert!(launch.rejoining.is_none());
     assert!(carries_off(&launch.command), "{:?}", launch.command);
@@ -13958,7 +13965,10 @@ fn an_authored_native_control_is_refused_whatever_the_seat_holds() {
             (s(&["--sandbox", "read-only", "--search"]), "--search"),
             (s(&["-c", "web_search=\"live\""]), "-c web_search"),
             (s(&["-c", "web_search=\"disabled\""]), "-c web_search"),
-            (s(&["--enable", "web_search_request"]), "--enable web_search_request"),
+            (
+                s(&["--enable", "web_search_request"]),
+                "--enable web_search_request",
+            ),
         ] {
             for session in [None, Some(THREAD)] {
                 let Err(error) = codex_launch("codex", &extra, "/w", session, &input) else {
@@ -13991,7 +14001,9 @@ fn a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouc
                    — everything is off until the realm lists it (decision 0065 ruling 4)";
     let missing = json!({"workdir": "/w", "native_controls": null});
     assert_eq!(
-        codex_launch("codex", &[], "/w", None, &missing).err().as_deref(),
+        codex_launch("codex", &[], "/w", None, &missing)
+            .err()
+            .as_deref(),
         Some(refusal)
     );
     assert_eq!(
@@ -14003,6 +14015,33 @@ fn a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouc
     let by_hand = json!({"workdir": "/w"});
     let launch = codex_launch("codex", &[], "/w", None, &by_hand).unwrap();
     assert_eq!(launch.command, ["codex", "exec", "--json", "-C", "/w"]);
+    // The public reading is the launch itself, refusals included.
+    assert_eq!(
+        codex_command("codex", &[], "/w", None, &by_hand).unwrap(),
+        launch.command
+    );
+    assert_eq!(
+        codex_command("codex", &[], "/w", None, &missing)
+            .err()
+            .as_deref(),
+        Some(refusal)
+    );
+    assert_eq!(
+        claude_command("claude", &[], None, &by_hand).unwrap(),
+        [
+            "claude",
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose"
+        ]
+    );
+    assert_eq!(
+        claude_command("claude", &[], None, &missing)
+            .err()
+            .as_deref(),
+        Some(refusal)
+    );
     assert_eq!(codex_managed(&by_hand), Vec::<String>::new());
     assert_eq!(codex_managed(&missing), Vec::<String>::new());
     let mut denied = by_hand.clone();
@@ -14050,7 +14089,13 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
         "--allowedTools",
         "mcp__brokkr__workspace",
     ]);
-    let head = s(&["claude", "-p", "--output-format", "stream-json", "--verbose"]);
+    let head = s(&[
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    ]);
     let launch = |extra: &[String], plan: Value| {
         let input = json!({"workdir": "/w", "native_controls": plan});
         claude_launch("claude", extra, None, &input, CLAUDE_SHAPE, None)
@@ -14059,7 +14104,10 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
             .to_vec()
     };
     assert_eq!(
-        launch(&boxed, claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"])),
+        launch(
+            &boxed,
+            claude_plan(&["WebSearch"], &["WebSearch"], &["WebFetch"])
+        ),
         s(&[
             "--permission-mode",
             "acceptEdits",
@@ -14077,7 +14125,11 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     // Neither held: the native list stays empty and both are denied.
     assert_eq!(
         launch(&boxed, claude_plan(&[], &[], &["WebSearch", "WebFetch"])),
-        [boxed.clone(), s(&["--disallowedTools", "WebSearch,WebFetch"])].concat()
+        [
+            boxed.clone(),
+            s(&["--disallowedTools", "WebSearch,WebFetch"])
+        ]
+        .concat()
     );
     // Both held.
     assert_eq!(
@@ -14099,16 +14151,33 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     );
     // Unboxed with a local restriction: the permission list is kept, no
     // tool list is invented, and the unheld tools are denied by name.
-    let unboxed = s(&["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git:*)"]);
+    let unboxed = s(&[
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Bash(git:*)",
+    ]);
     assert_eq!(
         launch(&unboxed, claude_plan(&[], &[], &["WebSearch", "WebFetch"])),
-        [unboxed.clone(), s(&["--disallowedTools", "WebSearch,WebFetch"])].concat()
+        [
+            unboxed.clone(),
+            s(&["--disallowedTools", "WebSearch,WebFetch"])
+        ]
+        .concat()
     );
     // An authored list that admits a native tool is a second authority
     // path, in either spelling, and is refused by name.
     for (extra, written, capability) in [
-        (s(&["--allowedTools", "Bash(git:*),WebFetch"]), "--allowedTools WebFetch", "web-fetch"),
-        (s(&["--allowed-tools=WebSearch"]), "--allowed-tools WebSearch", "web-search"),
+        (
+            s(&["--allowedTools", "Bash(git:*),WebFetch"]),
+            "--allowedTools WebFetch",
+            "web-fetch",
+        ),
+        (
+            s(&["--allowed-tools=WebSearch"]),
+            "--allowed-tools WebSearch",
+            "web-search",
+        ),
     ] {
         let input = json!({"workdir": "/w", "native_controls": claude_plan(&[], &[], &[])});
         assert_eq!(
