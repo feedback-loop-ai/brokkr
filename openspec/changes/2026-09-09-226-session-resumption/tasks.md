@@ -12156,3 +12156,183 @@ No Windows handling was added anywhere. Where the (d) text names a
 Windows obligation it is withdrawn by decision 0063 (accepted
 2026-09-21): the hosts are Linux and macOS. The new fixtures build on
 temporary roots and take no literal errno.
+
+## Implement visit — the returned review's R1–R4, 2026-09-21
+
+Run `dsh-launch-planner-issue-226-tas-3d08ce19`, returned from review
+with two MEDIUMs and two LOWs against `1f60fdf4..d7fe5e18`. The
+security residual is R1 and it is real: the previous visit's own claim
+that "the planner's order was already right" is withdrawn here.
+
+### R1 — sequential extraction dissolved the argv's own adjacency
+
+The three extractions run in sequence and each removes its flag WITH
+its value before the next one looks. So a control standing in a LATER
+control's value slot vanishes before that slot is read, and the
+positional text behind it slides into the emptied slot:
+
+| the seat's argv | what admission made of it |
+| --- | --- |
+| `--effort --model p/m high` | model `p/m`, effort `high` — both invented |
+| `--patch --model p/m <path>` | model `p/m`, overlay `<path>` |
+| `--model p/m --patch --effort high <path>` | effort `high`, overlay `<path>` |
+| `--model p/m --patch --effort=high <path>` | the same, joined spelling |
+
+None of those argv offers an effort level or an overlay path. Every
+one was admitted past the admission rule and refused only later, by
+the route read — which is exactly what Pass B's first paragraph
+forbids, and the review reproduced all four through the built driver
+on the disabled, cold and offered paths.
+
+Demonstrated here before any line moved, with the four cases added to
+8.10's ledger:
+
+```
+disabled/effort claiming a later model control: the admission refusal
+precedes the route read: refusing to invoke the dsh driver: the route
+overlay binding disagrees with the `--patch` value
+  adapters/tests.rs:8541
+```
+
+The repair is `dsh_input_boundaries`, a DSH-LOCAL pass over the argv
+the seat actually wrote, run first in `dsh_launch_with`. It walks once:
+`--model`, `--patch` and `--effort` each claim the one part after
+them, and a claimed slot holding a flag-shaped token is refused by the
+field that owns the slot. An EMPTY slot is not its business — a bare
+`--model` or `--patch` is still refused by arity in its own splitter,
+and a bare `--effort` still stays in the argv as the residual the
+shared splitter declines to drop in silence, so the inherited reasons
+for those are unchanged.
+
+Why one pass over the original argv is sufficient: the only tokens an
+earlier splitter removes are a flag and the value adjacent to it, and
+every such flag is itself flag-shaped. A later control's occupant can
+therefore only be dissolved if it is flag-shaped, which is precisely
+what this pass refuses. The occupant can never be consumed as a
+preceding `--model`'s id either, because that would require `--model`
+to sit where `--patch`/`--effort` sits.
+
+The shared `split_effort` is NOT touched: it keeps its behaviour for
+codex and every other adapter, and no other arm calls this pass.
+
+### R2 — the transcript-root refusal published the operator's home
+
+`dsh_transcript_row` interpolated the whole root into its LF/CR
+refusal. That root is composed beneath the admitted DSH home, so the
+diagnostic handed the seat the home's name and the harness layout in a
+`Result.error` it can read. Demonstrated first:
+
+```
+disabled: the home echoed in dsh driver: transcript root
+"/tmp/.tmpKCVDn0/zzz-4a0e13-home\nline/sessions/brokkr/seat-vJlncI"
+spans more than one line
+  adapters/tests.rs:8683
+```
+
+The message is now fixed and names its field only. The inherited
+assertion at `adapters/tests.rs:1061` still passes unchanged; the
+inherited `is_err()` helper beside `dsh_transcript_row` now compares
+the exact reason and checks the path absent.
+
+### R3 — the new fixtures now derive from a canonicalized root
+
+`dsh_residual_and_joined_controls_refuse_before_any_observation` and
+`both_dsh_effort_spellings_are_admitted_and_stage_one_overlay`
+canonicalize the temporary root once and derive `DSH_HOME`, the
+workdir and the shim from it. On macOS `/var` reaches the temporary
+directory through `/private/var`, and the admission comparisons these
+fixtures drive read those as two paths. No native macOS failure is
+claimed; this is the rule, applied.
+
+### R4 — the recorded `cargo test --workspace` attempt
+
+`.forge/results/20687277-…-checks.json` stands as written: it records
+an attempt this commission's #255 restriction forbids, and erasing it
+would hide that. This visit's gates were crate-scoped and sequential
+throughout, as the table below shows.
+
+### Removal proofs
+
+| Broken line | Failing test | Assertion |
+| --- | --- | --- |
+| `dsh_input_boundaries(extra)?` → `let _ = dsh_input_boundaries(extra)` | `dsh_residual_and_joined_controls_refuse_before_any_observation` | `disabled/effort claiming a later model control: the admission refusal precedes the route read` |
+| `dsh_transcript_row`'s fixed diagnostic back to the interpolating `format!` | `a_dsh_transcript_root_refusal_names_its_field_and_never_the_root` | `disabled: the home echoed in …` |
+
+Both restored; both green after.
+
+### Gates
+
+Crate-scoped and sequential, never `cargo test --workspace` (issue
+#255):
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| `cargo test -p brokkr-core` | 86, 0 failed |
+| `cargo test -p brokkr-store` | 64, 0 failed |
+| `cargo test -p brokkr-protocol` | 486 (386 + 99 + 1 doc), 0 failed |
+| `cargo test -p brokkr-runtime` | 534 across 24 binaries, 0 failed |
+| `cargo test -p brokkr-view` | 243, 0 failed |
+| `cargo test -p brokkr-bridge` | 13, 0 failed |
+| `cargo test -p brokkr-cli` | 32 binaries, 0 failed |
+| `compile --bundle bundles/self` | compiled |
+| `compile --bundle bundles/verify` | compiled |
+
+Two `-p brokkr-protocol` attempts FAILED before the green one above,
+both on issue #255's ETXTBSY and neither on anything this visit wrote.
+The first showed 63 failures, every one of them a poisoned
+`ADAPTER_ENV` acquired after some other thread panicked. The second is
+kept whole at
+`.forge/tasks/controller-etxtbsy-protocol-2026-09-21.log`, and names
+the root directly:
+
+```
+adapters::composite::tests::spawn_node_runtime_reads_one_version_line_and_refuses_the_rest
+left: "the DSH layout is unreadable: node --version: Text file busy (os error 26)"
+```
+
+A single-threaded run (`-- --test-threads=1`, 386 passed) and two more
+ordinary runs are green, which is the #255 signature. The failed
+attempts are recorded, not erased.
+
+`openspec validate --all --strict` COULD NOT RUN in this seat: the
+sandbox refused the invocation under every spelling tried. This visit
+adds no `openspec/specs` delta and touches only this tasks file under
+`openspec/`; that is not a substitute for the check, and it stays
+owed. `bash scripts/coverage-exact.sh` did not run here either — its
+boundary tests need a namespace the box refuses to nest — and it is
+not lowered. Native macOS and remote CI on the final head remain
+pending; the parent PR's green checks do not establish them for this
+head.
+
+### Scope
+
+Two files moved, both under `crates/brokkr-protocol/src/`, plus this
+record. Production gained one function and two lines that call or
+replace something: `dsh_input_boundaries`, its call site, and
+`dsh_transcript_row`'s diagnostic. The shared effort splitter, the
+production staging location, the planner signature, the staging
+counter's seam, the route binding, the gate-before-probe order, the
+identity comparisons and the owned-storage boundary are untouched.
+
+Pass C is untouched and uncredited; it still owes everything the
+previous record names — a valid prior depth-zero header retained at
+the resolved locator for the offered ID, the pinned plugin's
+post-`await agents.resume` init event read from the stream-json child
+on the selected persistence root, no fresh sibling root or session in
+the retained store, and new sequence activity past the recorded
+`firstSeq`, before any `root_session`, transcript locator or launch
+row is published. A request-derived `session_id` is not that event.
+
+8.8 and 8.10 stay unchecked and no sub-clause was ticked. 9.6, 10.x,
+11.1–11.4 and groups 14–15 were not touched. `contracts/`,
+`policy/phase-machine.json`, `policy/schemas/`, `fixtures/`,
+`reference/`, `extensions/dsh/` and `docs/decisions/` have no diff;
+decision 0056 keeps its `proposed` status; the DSH route stays
+disabled. The research-dsh roster assertion, `bundle.json`,
+`research-web.yml`, compiled staffing and every witness digest are
+unmoved. No live provider was called. Nothing was pushed.
+
+No Windows handling was added. Decision 0063 (accepted 2026-09-21)
+withdraws every Windows obligation the (d) text names.
