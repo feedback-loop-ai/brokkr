@@ -22,10 +22,13 @@ use serde_json::{json, Map, Value};
 
 mod composite;
 mod route_overlay;
+// Design D6 (b) seals the producer: the seams, the structured
+// observation, its error and the one entry point. Every parser, hasher,
+// serializer and injected helper stays private to `composite`, so no
+// caller can supply an already-computed component or composite value.
 pub use composite::{
-    canonical_composite, dsh_composite, dsh_composite_with, npm_dependencies, npm_name,
-    plugin_component, plugin_file_digests, pnpm_dependencies, spawn_node_runtime, CompositeError,
-    DshComposite, DshSeams, NodeRuntime, EXTENSION_FILES, PLUGIN_FILES,
+    dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
+    DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
 
 use crate::dsh_sandbox;
@@ -3544,8 +3547,8 @@ fn dsh_launch_with(
                     observed = Some(version.clone());
                     if &version == applies_to {
                         if let Ok(value) = composite() {
-                            if value.canonical == declared {
-                                digest = Some(value.canonical.clone());
+                            if value.canonical() == declared {
+                                digest = Some(value.canonical().to_string());
                                 qualified = true;
                             }
                         }

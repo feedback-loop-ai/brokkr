@@ -29,8 +29,11 @@ implementation and deterministic tests. LaneTally SHALL be assessed independentl
 
 The DSH minimum SHALL qualify the latest official core release,
 `@deepseek-ai/dsh` 0.1.5-rc.1 at `183f08e9c6dde7e36cd2318eaee70b0da08fb35e`,
-or the release that resolution at qualification time selects in its place,
-together with a repository-owned adaptation of the `dsh-plugin-cli-session`
+or the release that resolution at qualification time selects in its place. The
+2026-09-19 resolution exercised that rule and selected `@deepseek-ai/dsh`
+0.1.5-rc.2 with registry integrity
+`sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`.
+It SHALL be qualified together with a repository-owned adaptation of the `dsh-plugin-cli-session`
 0.2.0 extension at `0f487e74c81ed102c6899440d9f5d65e8e9eabda`. Resolution SHALL
 happen once, before the qualifying seat installs or verifies the core it
 measures, and SHALL select the version the registry's `latest` dist-tag names.
@@ -102,8 +105,8 @@ profiles and credentials, and other runs byte-unchanged, proven by snapshots
 taken before and after.
 
 At run time the DSH adapter SHALL resolve its executable through its existing
-seam (`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then `dsh` on PATH) and its DSH
-home as the shipped driver already does (`$DSH_HOME` when set and non-empty,
+seam (`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then native lookup of `dsh`) and
+its DSH home as the shipped driver already does (`$DSH_HOME` when set and non-empty,
 otherwise `$HOME/.dsh`), and SHALL launch that home's admitted `headless`
 profile. Before provider work it SHALL recompute the composite identity of that
 executable, the Node runtime and resolved dependencies it loads, the installed
@@ -112,6 +115,302 @@ it with the qualified composite. Only a match SHALL take an eligible offer or
 construct the plugin's `--new` and `--session` launches. A mismatch or an
 unreadable identity SHALL decline any offer as `unverified-harness`, run the
 shipped cold invocation unchanged and record no offerable root.
+
+Executable resolution SHALL follow the running platform's native program lookup
+rule for the same program name, cwd and child environment, subject to the
+working-directory refusal and D10's named pre-probe refusal for an unprovable
+interpreter/loader outcome below. Absent PATH is not a policy exception. On
+Unix a program is a path if and only if its spelling contains `/`; backslash is an ordinary
+filename byte. A drive-like spelling, extension or space SHALL NOT make a
+bare Unix name a direct path. Windows SHALL use Windows' native rule, including
+its native path and executable-name treatment, with no inferred Unix behavior.
+Nothing SHALL be selected that native lookup would not have executed, and
+nothing native lookup would have executed SHALL be silently replaced by a
+later candidate. A program name containing NUL SHALL refuse with NUL named
+before lookup or any probe. This discipline SHALL apply to both DSH and Node,
+including explicit overrides and the already-selected executable passed to the
+composite producer.
+
+The following reconciled rule SHALL govern search-derived cwd candidates:
+equality with native is necessary — nothing is selected that native would not execute — and not sufficient: a candidate in the working directory (an empty PATH entry, or the implicit cwd iteration glibc produces after an oversized skip) is NEVER selected and NEVER skipped past.
+
+When the next native search candidate is cwd, resolution SHALL refuse with
+`the platform's search would fall into the working directory`. Where native
+would stop at that candidate, resolution SHALL instead preserve that terminal
+cause, including glibc ELOOP for a cwd self-symlink. The absence of a runnable
+cwd candidate SHALL NOT permit advancing to a later entry; native continuation
+to B in that case does not waive this refusal. No DSH or Node version probe
+SHALL run after selection refuses. An earlier successful non-cwd candidate or
+terminal failure SHALL retain its outcome without reaching a later cwd entry.
+Explicit paths SHALL retain their separate native direct-path meaning; this
+refusal governs the search's cwd iteration, not deliberate direct-path controls.
+
+Bare-name Unix lookup SHALL distinguish absent PATH from a present PATH with
+an empty entry. Absent PATH SHALL follow the running platform's native default
+search semantics, including success when that search finds the name; absence
+alone SHALL NOT imply NotFound, require refusal or insert cwd into the search.
+A universal guessed default directory list SHALL NOT replace the platform's
+rule. Explicit empty entries SHALL retain their native cwd meaning at their
+position in the search and SHALL trigger the cwd refusal when reached.
+Present-empty PATH SHALL NOT inherit the absent PATH default. This rule applies
+equally to arbitrary primary/legacy DSH binary overrides and the Node lookup. A successful selection SHALL identify exactly
+the executable native `std::process::Command::new(name)` runs under the same
+conditions; native NotFound SHALL refuse without a probe target. A no-match
+refusal with PATH absent SHALL name the unsuccessful native default search;
+`PATH is absent` alone SHALL NOT establish failure. Ordinary provable positive
+cases that reach no forbidden cwd iteration SHALL NOT be silently refused
+or substituted, including default-search successes. The comparison SHALL use
+real native children with distinct harmless identities, not metadata, permissions, a manifest version or injected
+success as a lookup oracle. An absent-PATH matrix containing only names absent
+from the platform default search SHALL NOT establish equality.
+
+The ordered candidate byte strings SHALL match those the running platform
+would try up to successful selection or named refusal. No normalization of
+separators, skipped delimiter revisits or component-only reconstruction SHALL
+change that sequence. In particular a nonempty PATH component already ending
+in `/` SHALL retain the additional separator native candidate construction
+appends, including at full-path length boundaries.
+
+For glibc lookup, a pre-execution component skip SHALL occur only when the
+native buffer-size check would skip that component, using the actual directory,
+separator and program byte lengths and the native construction bounds. It
+SHALL NOT be inferred from a metadata ENAMETOOLONG. The implicit empty
+iteration after an oversized non-final component SHALL remain the next
+candidate and SHALL take the cwd refusal; skipping the component SHALL NOT
+mean advancing directly to the following nonempty directory. After attempted
+execution, the native continuation set SHALL be exactly EACCES, ENOENT, ESTALE, ENOTDIR,
+ENODEV and ETIMEDOUT; EACCES SHALL be remembered and reported if search ends
+without success. Without a remembered denial, exhaustion SHALL retain the
+platform's final cause and responsible candidate rather than relabel every
+non-denial failure as NotFound. A terminal cause SHALL take precedence over
+an earlier denial. Every other returned errno SHALL be terminal, including
+ENAMETOOLONG, ELOOP, EIO and EINVAL. Source revision and line citations SHALL
+support each implemented rule; adding an errno because it appears harmless
+SHALL NOT be permitted. Proposal AR records the current source boundary
+and literal-port constraint, superseding AP's incomplete candidate account.
+This is a lookup contract, not permission to execute candidates in production.
+
+Apple SHALL retain its own execution-error continuation and length handling,
+including ELOOP continuation, with the actual native Command invocation and
+nested interpreter operation deciding which lookup path applies. Outer
+spawn-based lookup SHALL NOT replace the exec-based walk used by env's nested
+Node search. Error accumulation SHALL respect the operation's prerequisites,
+including a successful stat where native requires it before remembering EACCES.
+At a cwd iteration that native would continue past, the cwd refusal still
+applies; a nonterminal Apple ELOOP SHALL NOT be called terminal by analogy to
+glibc. Its absent-PATH default SHALL be `/usr/bin:/bin`,
+not the wider `confstr(_CS_PATH)` value. This default SHALL NOT be applied to
+all BSD or non-Linux targets: FreeBSD's ordinary native default is
+`/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin`, in that order.
+Every claimed target SHALL follow its own source-backed rule; source/table
+evidence SHALL remain distinct from native execution evidence. The glibc
+six-boundary expectations below SHALL NOT be asserted as universal Unix rules.
+
+Every differential cell and its removal-of-component control SHALL actually
+invoke native `std::process::Command` with a harmless sentinel under the same
+cwd and child environment as resolution, in both inherited-environment and
+explicit-child-environment invocation forms. Each form SHALL assert exact
+identity or specific native cause together with the applicable refusal; a
+logged result or oracle invocation count alone SHALL NOT establish comparison.
+The two forms SHALL NOT be assumed equivalent on a platform without evidence.
+No cell SHALL pass or count as proved without that oracle, including direct paths, NUL, long names and D10 exceptions.
+Native-success evidence SHALL identify the exact executed canonical file;
+native-error evidence SHALL retain its specific cause. Resolver and doctor execution markers SHALL
+be separate from oracle markers. Every refused cell SHALL first assert no
+doctor execution markers from cwd, a later candidate or Node, so a later
+composite refusal cannot conceal a probe. Missing-cwd continuation and runnable
+cwd success SHALL be recorded as policy refusals, not native equality passes.
+Unavailable fixtures/native hosts SHALL be recorded as pending evidence and SHALL NOT count as passing cells.
+
+Where the native outcome cannot be established without executing a candidate,
+resolution SHALL take D10's pre-probe refusal with the obstructing candidate
+and specific cause named, before probing that executable. A DSH selection
+refusal SHALL prevent both DSH and Node probes; Node selection likewise SHALL
+refuse before its own probe. This refusal SHALL be reported distinctly from
+native NotFound and SHALL NOT count as an equality pass when a native control
+runs a later candidate. PATH absence by itself SHALL NOT count as an
+interpreter/loader obstruction.
+Metadata/access success, a readable shebang interpreter, or a non-shebang
+native image alone SHALL NOT
+prove loader success. Missing interpreters, interpreter chains with missing
+loaders and native images with missing dynamic loaders SHALL NOT authorize
+selecting the obstructing entry or silently guessing a later entry. A terminal
+native lookup error SHALL preserve its cause and never authorize continuation.
+The env interpreter SHALL be recognized by the actual interpreter the platform
+would execute, including aliases, symlinks and same-file hard links. Neither
+its spelled nor canonical basename SHALL establish its identity. Unestablished
+interpreter semantics SHALL take a cause-bearing D10 refusal before a probe,
+not bypass the Node check. The platform's env file SHALL be established only
+under the name `env`: an invocation of the same file under any other name
+SHALL be refused as unestablished, because the utilities installed as a file
+named `env` disagree on what another name runs and the file does not say
+which is installed. The name `env` SHALL be established of the file that
+runs as well as of the invoked path: the interpreter's resolved file SHALL
+itself be named `env` or SHALL be the file the platform's env reference
+resolves to, and a same-bytes copy running under another own name through a
+symlink named `env` SHALL be refused naming that file, because the utilities
+disagree on a name that differs from the executable's own; an interpreter
+whose path no longer resolves SHALL be refused by that cause, never
+established on its metadata. Native argument treatment and retained Node
+selection SHALL follow that established interpreter; a multicall alias's own
+native result SHALL be measured in tests, never assumed equivalent from its
+spelling.
+Resolution SHALL introduce no candidate trial execution or resolver subprocess.
+Explicit binary overrides SHALL retain precedence and no fallback to another
+installation; a platform-native explicit path does not require PATH to select
+that executable. A successful selection SHALL be reused for the version and
+composite observations without retrying the original bare name.
+
+One Rust function beside the DSH planner SHALL be the only producer of the
+plugin component and canonical composite. For the plugin component it SHALL
+read exactly `LICENSE`, `README.md`, `cordis.patch.yml`, `lib/index.js`,
+`lib/startup.js` and `package.json` beneath the installed plugin directory,
+sort those relative path bytes, serialize each as `<relative
+path>\0<file SHA-256>\n`, and SHA-256 the concatenation. A missing file, a
+symlink or an extra entry SHALL make the component unreadable and name the
+drifted path. The sole exception is a direct, real, non-symlink
+`node_modules/` directory beneath the plugin root, whose packages already
+enter dependency identity; the producer SHALL neither hash its entries as
+plugin files nor silently ignore any other entry, including an empty directory
+or a deeper `node_modules/` under an unexpected directory. Unrepresentable
+path names and special entries SHALL be reason-bearing unreadable outcomes;
+lossy path conversion SHALL NOT merge distinct entries.
+
+The same function SHALL serialize the composite as fixed `<component>\0<value>\n`
+lines in this order: `core` with the core name, version and registry integrity;
+`node`; one `dependency` for each normalized lock-metadata name/version/integrity
+triple; `plugin`; `plugin-patch`; `profile-patch`; one `profile-bundle` for each
+manifest bundle in declared order; `profile-patch-reload`; `home-patch` with the
+home-level `cordis.patch.yml` SHA-256 or `absent`; and `extension` only when the
+conditional extension is named among those bundles. Dependency triples SHALL
+be deduplicated only when all three complete values are equal and SHALL then be
+sorted by their serialized value bytes. Different versions or integrities SHALL
+remain distinct. Only the core's exact own hidden-lock entry and the plugin's
+local-tarball entry SHALL be excluded; the conditional extension's local entry
+SHALL be excluded only when its installed bytes supply the `extension` line.
+Same-named registry entries SHALL remain dependency inputs. No other component,
+including `cordis.yml`, raw profile `package.json`, `pnpm-workspace.yaml`, any
+`.env` layer, persisted state or per-seat overlay, SHALL enter the composite.
+Any lock entry without registry integrity and any source field that is empty,
+mistyped, contains NUL or LF, or contains whitespace including space, tab or CR
+SHALL make the identity unreadable with the responsible component named.
+One returned observation SHALL derive repeated uses of each identity-bearing
+source from the same read, including the hidden lock and plugin patch; it
+SHALL NOT contradict itself by reopening a source within that observation.
+The identity-bearing launcher head inspected at selection SHALL remain the
+source of its first-line identity through the version probe and composition.
+Reopening the launcher after a probe SHALL NOT replace those bytes, even when
+the probe rewrites the file into the otherwise admitted env-node form. The
+actual retained Node identity SHALL likewise be the runtime consumed by the
+composite observation; the launcher's independent env search or printed
+runtime path SHALL NOT substitute for evidence about that retained identity.
+This requirement adds no atomic snapshot or continuous verification guarantee.
+
+For npm metadata the producer SHALL read only the core root's
+`node_modules/.package-lock.json`; it SHALL NOT fall back to a root lock. It
+SHALL consume every complete `node_modules/<package>` group in a lock key from
+left to right, treating the slash within `@scope/name` as part of one package,
+then use only the final complete package spelling and the version and integrity
+from that same entry. It SHALL ignore an optional `name` field and reject a
+malformed intermediate or terminal group, and a missing, mistyped or invalid
+version. The pnpm metadata SHALL come only from the headless profile's
+`pnpm-lock.yaml`, parsed by the fail-closed line reader without a YAML crate.
+The raw file SHALL be at most 8,388,608 bytes. The reader SHALL consume at most
+8,388,609 bytes so a file that grows after a metadata check cannot bypass the
+bound. Exactly 8,388,608 bytes SHALL reach grammar validation; any additional
+byte SHALL refuse before dependency normalization with `pnpm lock exceeds
+8388608-byte limit`. The total byte cap is the sole size bound; there is no
+separate line, line-length or entry-count limit. Equivalent npm and pnpm triples
+SHALL produce identical value bytes.
+
+The admitted pnpm grammar SHALL preserve scalar types and field separation.
+The lockfile header, outer mappings and inner resolution fields SHALL validate
+their admitted separators before removing structural bytes. Missing separation
+in `lockfileVersion:9.0` or `resolution:{integrity: sha512-X}` SHALL refuse.
+Every plain flow field, including an ignored field such as `tarball`, SHALL
+refuse colon-space syntax such as `tarball: x: y`; an ignored value SHALL NOT
+hide a malformed document. An identity-bearing string field SHALL NOT accept
+an unquoted null, boolean or number as a string, or repair missing colon
+separation or unsupported flow punctuation into a value. Its refusal SHALL
+name the pnpm component and syntax or type cause. Properly separated plain or
+quoted version-9 headers and admitted quoted/plain field controls SHALL remain
+readable, including supported colon-without-space URL values.
+
+Ignored pnpm values, blocks and sections SHALL undergo syntax admission before
+their dependency semantics are discarded. Invalid control bytes, malformed
+scalar/collection syntax and unterminated quotes in ignored package children,
+peerDependencies or snapshots SHALL refuse with pnpm, field/context and cause
+named. Empty flow collections and a legal trailing comma remain admitted
+controls; leading or doubled separators and completely empty flow members
+SHALL NOT be removed to manufacture valid input. Unsupported ignored-body
+syntax SHALL refuse explicitly rather than being skipped. Ignored block
+admission SHALL preserve indentation, parent value type and collection kind:
+a scalar SHALL NOT acquire nested children, and mapping and sequence members
+SHALL NOT be mixed at the same collection level. Valid nested blocks within
+the admitted subset SHALL remain readable. This requirement
+SHALL NOT widen the bounded closed grammar or normalize identity bytes.
+
+Only grammar-admitted structural ASCII separation outside scalar data may be
+consumed as formatting. Identity-bearing scalar bytes SHALL NOT be trimmed or
+normalized before validation, whether plain or quoted. Leading or trailing
+U+00A0 in plain integrity SHALL reach the identity-whitespace refusal, just as
+it does within quotes, with `integrity carries whitespace` named. Unicode
+whitespace SHALL NOT become structural padding or be erased before quote
+recognition; no whitespace-bearing identity can acquire the valid control's
+readable composite. Existing empty, NUL and all-whitespace refusals remain.
+
+Each decoded mapping key within `packages` SHALL occur at most once, including
+excluded local records. A repeated key SHALL refuse with that decoded key named
+before record exclusion or legitimate complete-triple deduplication; order,
+identical values and different quoted spellings SHALL NOT cure the repetition.
+
+The canonical executable SHALL be the selected core package's `bin.dsh`, whose
+resolved relative path is `node_modules/@deepseek-ai/dsh/lib/bin.js` and whose
+first line is exactly `#!/usr/bin/env node`. The selected core's own hidden-lock
+entry SHALL supply its version and match the core package's version. `node`
+SHALL identify the runtime native child lookup would execute in the child
+environment, including native default search when PATH is absent, subject to
+the same named pre-probe refusal for unprovable selection, and be observed
+through `node --version` as one non-empty record with at most its single output
+terminator; trimming SHALL NOT repair whitespace inside the version value. Only
+`<home>/profiles/headless/package.json` SHALL supply the non-empty string-array
+`bundles` and `patchReload` (`live` or `startup`); no other profile is searched.
+Bundle resolution SHALL preserve the provider loader's order. The producer
+SHALL canonicalize the complete profile directory once for containment while
+retaining the original profile path as the lookup anchor. It SHALL judge each
+first-hit canonical bundle directory against the canonical core root or
+canonical profile boundary, with the plugin and conditional extension inside
+the profile. A boundary or candidate that cannot be canonicalized, or a first
+hit outside those roots, SHALL be unreadable. It SHALL NOT compare raw paths,
+use string prefixes, fall back after canonicalization failure or search past an
+outside first hit. A symlinked home that resolves to the same contained profile
+SHALL produce the same identity.
+
+The existing `brokkr doctor` DSH line SHALL resolve the adapter's executable
+and home seams once and use that same resolution for both the DSH version probe
+and the sole composite producer. The executable precedence SHALL be
+`BROKKR_DSH_BIN`, then `FORGE_DSH_BIN`, then native lookup of `dsh`, with the
+adapter's existing home resolution. It SHALL NOT pair a PATH version with an
+override-selected composite or silently retry another installation when the
+selected executable fails. It SHALL report the canonical digest and plugin
+component, or the named unreadable component, and state whether the canonical
+digest equals, differs from or has no declared `wrapper_digest`. The result is
+informational while no `supported` shape declares a digest. Once a supported
+shape declares one, difference or unreadability SHALL be a warning. This probe
+SHALL read no credential or settings file and SHALL spawn only the existing
+`dsh` and `node` version probes. An executable-selection refusal SHALL be
+reported by reason before probing any candidate, including for an unmeasured
+shape with no declared digest. Home availability SHALL NOT establish executable
+selection. Combined seam resolution succeeds only when both executable
+selection and home resolution succeed. An independently safe selected executable
+may still report its version beside a home/composite refusal; failed selection
+SHALL provide no probe target even when a home exists. Every rendered
+selected-binary value and unreadable reason SHALL escape terminal control
+characters, including on the binary-not-found path, without injecting a new
+line or terminal command. If the required plugin manifest is absent and no
+candidate resolves under the existing lookup order, the refusal SHALL identify
+both the plugin bundle and `package.json`; a later legitimate candidate remains
+eligible when the earlier manifest is truly absent.
 
 The qualified composite SHALL be the value of an optional `wrapper_digest`
 member of the declaration's measured identity form, beside `version` and
@@ -220,9 +519,12 @@ version. Under this preservation ruling, the Claude `boxed-workspace`,
 DSH `headless-work` and LaneTally
 `wrapper-work-site` declarations SHALL explicitly identify themselves as this
 case and retain their unmeasured status, identities, evidence and scope. Claude's
-partial probes do not establish complete restriction enforcement; DSH's isolated
-pair lacks complete admission and composite proof; LaneTally lacks independent
-wrapper qualification. This ruling enables none of these three rejoins.
+partial probes do not establish complete restriction enforcement; DSH's live
+isolated pair qualifies core/plugin continuity, current restriction precedence
+and attributable per-message accounting but still lacks completed digest
+recording, matching adapter/shim assertions, planner acceptance and end-to-end
+admission; LaneTally lacks independent wrapper qualification. This ruling
+enables none of these three rejoins.
 
 Preservation SHALL NOT bypass identity, boundary, hands or accounting checks.
 The observed executable identity SHALL still match declared applicability and,
@@ -377,16 +679,479 @@ read as history, not as a current claim.
 - **AND** nothing is installed into that home, and whether the operator deploys the pair there is recorded as an operator ruling rather than assumed
 
 #### Scenario: The declaration pins the qualified composite
-- **GIVEN** 10.7's qualification of the adapted pair on core 0.1.5-rc.1 passes and the delivered Rust canonicalization computes the qualified composite's digest over the task-owned home
+- **GIVEN** 10.7's qualification of the adapted pair on resolved core 0.1.5-rc.2 passes and the delivered Rust canonicalization computes the qualified composite's digest over the task-owned home
 - **WHEN** 11.3 enables the DSH `headless-work` shape
-- **THEN** the same declaration edit that sets `supported` writes that digest as `identity.wrapper_digest` beside `version` and `applies_to` `0.1.5-rc.1`, in `adapters/dsh.json` and its packaged or scaffolded equivalents
+- **THEN** the same declaration edit that sets `supported` writes that digest as `identity.wrapper_digest` beside `version` and `applies_to` `0.1.5-rc.2`, in `adapters/dsh.json` and its packaged or scaffolded equivalents
 - **AND** a later DSH seat compares its probed version with `applies_to` and its recomputed composite with that digest, and on an offer also compares both with the values the originating root recorded; a confirmed root records the observed digest in `root_session.wrapper_digest`
 - **AND** the digest does not change when the same composite is deployed in another home or when the per-seat overlay differs
 
+#### Scenario: The canonical rc.2 fixture reproduces the measured locator set end to end
+- **GIVEN** the retained canonical installation uses core `@deepseek-ai/dsh` 0.1.5-rc.2 with integrity `sha512-8Xc8hCQHcIWRmTCVU/xZdp6/qMsWMeAd2ObChKDEsfhUPJFXx6H0lgeb1DxUMD86HZrrVN+1bCvn1ppjZ/fOxw==`, executable `node_modules/@deepseek-ai/dsh/lib/bin.js` beginning `#!/usr/bin/env node`, Node `v22.23.2`, and the six installed plugin files whose bytes reproduce the preinstall record's SHA-256 values
+- **AND** its profile declares bundles `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`, `dsh-plugin-cli-session` in that order with `patchReload: startup`, uses the measured 217-byte profile patch and has no home-level patch
+- **AND** the first two bundles resolve under the core root at `node_modules/@deepseek-ai/dsh-base` and `node_modules/@deepseek-ai/dsh-headless`, each at 0.1.5-rc.2, while the plugin resolves under the profile at `node_modules/dsh-plugin-cli-session`, at 0.2.0, as a real directory with no nested `node_modules/`
+- **AND** the fixture retains the canonical reinstall's byte-exact 311,184-byte hidden npm lock with SHA-256 `b84bac2d866224a997be29811dc71bde6013dbc6e2adf8c1e77523e6f05a3847`, the 1,982-byte pnpm lock with SHA-256 `4708752f0463211bf25d470fc26befa49748707b9c12fae7b4f2544e02b21055`, and the profile-patch bytes that reproduce SHA-256 `ef189a8c27db6d63930aa3046a3040482e952eafcb7487c644d508e8d461f027`; the earlier 277-byte pnpm lock with SHA-256 `54265d3b5db4b7368bccd8ddf26c5a1ca68f308016d0cd0f0b21660e89d1c8e0` describes the superseded `link:` install and is not fixture ground truth
+- **AND** authoring copies the full measured lock and patch bytes and measured expectations into literal test-source constants, preserving line endings and final newlines, then tests materialize the fixed locators under temporary roots using the unchanged committed plugin files
+- **WHEN** the sole Rust producer reads those files and directories through D6's fixed locators
+- **THEN** it reproduces the retained installation's complete normalized dependency values, first-hit bundle resolutions at both anchors, plugin and patch components and canonical composite from that fixture
+- **AND** tests neither read `.forge/` at runtime nor include it as a build input; they do not regenerate the measured bytes, replace the full lock with excerpts, or substitute a derived triple list for the producer's lock input
+- **AND** the expected component and composite are recorded only from that producer; no test helper, fixture generator, prose calculation or synthetic value is a second producer
+- **AND** a separate layout case admits a direct, real, non-symlink plugin `node_modules/` directory as the sole extra entry, matching the earlier measured working shape without claiming it exists in the corrected canonical tree
+
+#### Scenario: Hashes and dimensions do not substitute for measured fixture inputs
+- **GIVEN** a handoff retains only lock hashes and dimensions and the profile-patch hash, but omits lock bodies, complete normalized dependency triples, resolved bundle targets or profile-patch bytes
+- **WHEN** the task 8.8(a)–(c) implementation handoff is evaluated
+- **THEN** the measured fixture requirement is unsatisfied because the sole producer cannot reproduce the retained dependency set, bundle resolution, profile-patch component or canonical composite from those observations
+- **AND** synthetic lock entries, bundle directories or profile-patch bytes may prove isolated grammar and rejection behavior but SHALL NOT be asserted as the canonical rc.2 fixture or as its composite ground truth
+- **AND** the controller SHALL retain the canonical locator bytes and resolution layout, or an equivalent complete ground-truth fixture, before design, tasks or implementation resumes; no provider or retained-home remeasurement is delegated to a boxed seat
+- **AND** task 8.8 remains unchecked, including after its later digest implementation, until part (d) and the owned 8.10 cases also complete
+
+#### Scenario: Retained raw bytes close the evidence parks without runtime evidence access
+- **GIVEN** the canonical reinstall's raw-byte/layout addendum retains the complete pnpm lock, profile patch, four dependency triples and two-anchor bundle layout, and the retained-hidden-lock addendum points to the complete 311,184-byte npm lock with its recorded SHA-256
+- **WHEN** authoring verifies those input bytes and embeds them and their measured expectations as literal test-source constants
+- **THEN** the missing-length and missing-input blockers are resolved without a provider, registry or retained-home remeasurement, and the measured rc.2 fixture requirement remains unchanged
+- **AND** a derived dependency list is only an independent expectation for comparison; the sole producer still reads the complete hidden lock through its declared locator
+- **AND** the earlier hash-only fixture narrowing is superseded in the dependent design and task breakdown before implementation; the existing producer is the only source of either digest, and the declaration remains disabled without a `wrapper_digest`
+- **AND** this closes evidence availability only: Rust assertions, compiling removal proofs, local gates, external exact coverage, 10.7's retained-home recording, part (d), 8.10 and the 8.8 checkbox remain pending
+
+#### Scenario: The measured dependency set distinguishes complete triples from package names
+- **GIVEN** the literal canonical hidden lock has 522 entries, all carrying integrity, including exact key `node_modules/@deepseek-ai/dsh` at 0.1.5-rc.2 with the selected core's integrity
+- **AND** the literal pnpm lock contains the four registry triples below and the excluded local entry `dsh-plugin-cli-session@file:../../../pack/dsh-plugin-cli-session-0.2.0.tgz`
+- **WHEN** the sole producer normalizes both locks, excludes only the exact core and local-tarball records, deduplicates equal complete triples and sorts their value bytes
+- **THEN** the npm input contributes 521 post-exclusion entries, 501 unique complete triples and 489 distinct names, preserving all twelve names whose versions or integrities differ
+- **AND** pnpm contributes exactly the four complete triples below, three equal to npm triples, yielding exactly 502 combined dependency values in bytewise order
+- **AND** full ordered-value equality with the embedded measured expectations is asserted alongside counts; neither 521 undeduplicated values nor 489 name-deduplicated values satisfies the claim, and no core or local-tarball record leaks into the dependency lines
+
+| pnpm package | Version | Registry integrity |
+|---|---|---|
+| `@deepseek-ai/cosmokit` | `1.8.3` | `sha512-qBo+ronVM6Eu2WNVJXi8JcMiqZ19T9BRIpV+5qJUFPXjGH/Z0QKcQMC/IZJ7L394YTOtJgcovbk9qP0w2GsBXQ==` |
+| `@deepseek-ai/schemastery` | `3.18.1` | `sha512-Qn0FCSwCQnpnj6SB31I6i2sIKgKWnkbJM8O0EU91Gv2UsYVvtZTl6IA0sCwk2e2MZf5S8w5hpq9QkeVvK9qwxg==` |
+| `@standard-schema/spec` | `1.1.0` | `sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==` |
+| `commander` | `15.0.0` | `sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==` |
+
+#### Scenario: The rc.2 qualification already proves restriction precedence after restoration
+- **GIVEN** the live rc.2 cold/warm qualification restored the cold session's private nonce and the complete plugin CLI exposes no model, effort, sandbox, tool or persistence-root override
+- **AND** a current model patch on resume selected `deepseek-v4-pro`, removing that patch restored the profile's `deepseek-flash`, and a deliberately invalid current model reached the provider's model-name refusal
+- **AND** resumed `--workdir` was refused before launch without creating another root, while an unknown profile selector was refused without falling back
+- **WHEN** the DSH evidence account is evaluated for task 8.8's digest slice and task 10.7's remaining acceptance
+- **THEN** current restriction precedence is measured for the qualified rc.2 pair and is consumed without another provider probe
+- **AND** task 10.7 still owes the post-8.8 doctor recording and matching Brokkr adapter/shim assertions; this evidence neither completes 10.7 nor authorizes planner behavior, 8.10 cases or the 8.8 checkbox
+
+#### Scenario: A stale proposed decision blocks the rc.2 digest implementation
+- **GIVEN** AS1, D6, task 8.8 and the controller records select `@deepseek-ai/dsh` 0.1.5-rc.2 with its recorded registry integrity and measured continuity, restriction precedence and current-sequence accounting
+- **AND** proposed decision 0056 ruling 5 and its consequence still select rc.1 and describe those measured rc.2 facts as outstanding
+- **WHEN** the task 8.8(a)–(c) implementation handoff is evaluated
+- **THEN** proposed 0056 does not yet agree with the evidence and SHALL NOT be treated as the governing rc.2 decision text
+- **AND** the decision-owning upstream office SHALL amend ruling 5 and its consequence to record rc.2 and the measured facts, preserve rc.1 as dated history, retain `Status: proposed`, and reconcile D10 before implementation proceeds
+- **AND** the amendment SHALL keep digest recording, matching adapter/shim assertions, planner admission and end-to-end enablement pending and SHALL require no provider remeasurement
+
+#### Scenario: The amended proposed decision reopens only the digest slice
+- **GIVEN** proposed decision 0056 carries its dated 2026-09-19 note selecting `@deepseek-ai/dsh@0.1.5-rc.2` with the recorded registry integrity, preserving rc.1 as history and consuming the measured continuity, restriction-precedence and current-sequence-accounting facts
+- **AND** D10 withdraws its earlier claim that this amendment already existed and agrees that the declared composite remains unproved, the route remains `unmeasured` and disabled, no `wrapper_digest` is set, and decision 0056 remains `proposed`
+- **WHEN** the returned task 8.8(a)–(c) implementation handoff is evaluated on that amended head
+- **THEN** the stale-decision blocker is resolved and the loader, sole digest producer and doctor work SHALL proceed without repeating the registry, provider or retained-home measurements
+- **AND** planner behavior, 8.10's remaining cases, the retained-home doctor recording, the declaration pin, end-to-end enablement and the 8.8 checkbox SHALL remain pending
+
+#### Scenario: The pnpm reader has one exact raw-byte bound
+- **GIVEN** otherwise valid lockfile-9.0 bytes padded with grammar-accepted blank lines to exactly 8,388,608 bytes, and the same bytes followed by one additional byte
+- **WHEN** the sole producer reads each `pnpm-lock.yaml`
+- **THEN** the exact-boundary file reaches dependency parsing, while the 8,388,609-byte file is refused before normalization with `pnpm lock exceeds 8388608-byte limit`
+- **AND** the read itself consumes no more than 8,388,609 bytes, a metadata race cannot admit a larger file, and no separate line, line-length or entry-count limit changes the outcome
+- **AND** the controller's byte-exact measurements show that the corrected 1,982-byte rc.2 pnpm lock and 311,184-byte hidden npm lock fit the bound, closing the earlier live-size evidence return without changing the cap
+
+#### Scenario: The loader admits a measured composite pin only
+- **GIVEN** otherwise valid measured and unknown resume identities
+- **WHEN** their declarations are loaded and the selected assessment is carried into a private start context
+- **THEN** a measured identity may omit `wrapper_digest` or carry exactly 64 lowercase hexadecimal characters, and the carried assessment preserves that exact optional member
+- **AND** uppercase, short, long or non-hexadecimal values are refused at load with the `wrapper_digest` grammar named, while the unknown identity refuses `wrapper_digest` as an unknown key and still admits `unknown` alone
+
+#### Scenario: Lock whitespace and malformed package groups are unreadable
+- **GIVEN** otherwise valid npm or pnpm lock metadata whose package, version or integrity field is separately changed to contain a space, tab, carriage return, NUL or line feed, or whose nested npm key has a malformed intermediate package group before a valid terminal group
+- **WHEN** the composite producer normalizes dependencies
+- **THEN** every variant is unreadable with the dependency field or malformed path named, before any digest can be compared
+- **AND** an assertion of `is_err()` alone does not prove the refusal; the test asserts the exact reason, while the complete 8.10 rejection-vector ledger remains pending its own task
+
+#### Scenario: Doctor reports every declared-digest disposition through DSH seams
+- **GIVEN** the DSH binary is available and the adapter's seam resolution yields either a readable composite or a named unreadable component
+- **WHEN** `brokkr doctor` renders the existing `dsh` line for an unmeasured shape with no digest, a supported shape with an equal digest, a supported shape with a different digest, and a supported shape whose composite is unreadable
+- **THEN** the line respectively reports `no declared wrapper_digest`, a match, a difference naming the declaration, or `composite unreadable` naming the component
+- **AND** the first two are informational, the latter two warn only for the supported declared shape, and no credential or settings file is read
+- **AND** only the DSH and Node version probes are spawned and the guide's doctor sample uses the same wording
+
+#### Scenario: Doctor version and composite follow the same selected DSH installation
+- **GIVEN** primary-override, legacy-override and PATH installations have distinguishable sentinel versions and distinct readable composite inputs
+- **WHEN** the primary and legacy overrides are both set, then only the legacy override is set, then neither is set
+- **THEN** the DSH report's version and composite both describe respectively the primary, legacy and PATH installation, using the same resolved home and the child PATH's Node version
+- **AND** the test asserts both the reported version and the corresponding producer-derived composite on each real provider-line path; changing just one half back to the bare binary makes that paired assertion fail
+- **AND** if the selected executable's version probe fails while a PATH binary remains available, doctor reports the selected failure without silently reporting the other installation
+- **AND** no credential/settings read or subprocess beyond the selected DSH and Node version probes is needed for this diagnostic, and the guide sample follows the same wording
+
+#### Scenario: Absent PATH refuses before doctor can execute a cwd sentinel
+- **GIVEN** a real executable `dsh` in a temporary cwd prints `SECURITY_CWD_SENTINEL_9f3`, no DSH binary override is set, the child environment has no PATH, native default search has no `dsh`, and the shipped DSH declaration is unmeasured with no `wrapper_digest`
+- **WHEN** the built doctor and a native Rust `Command::new("dsh").arg("--version")` control are invoked with the same cwd and environment
+- **THEN** doctor reports a DSH selection refusal naming the unsuccessful native default search and its `PATH is absent` context, its output does not contain the sentinel, and the controlled native child returns `NotFound`
+- **AND** with PATH explicitly `/usr/bin:/bin` and no DSH installed there the sentinel remains unexecuted; removing cwd `dsh` while keeping PATH absent still produces the named default-search no-match refusal
+- **AND** with the sentinel executable present, the same doctor regression test fails specifically at its no-sentinel assertion on the adopted pre-fix execution path; after exact restoration of the repair it passes both that assertion and the default-search no-match reason assertion
+- **AND** removing only the fixture or supplying explicit PATH is a separate control, not a substitute for that production regression proof; failure only at a newly required reason assertion does not prove sentinel execution
+- **AND** environment changes are confined to child processes and no installed provider, global home or frozen fixture supplies this test
+
+#### Scenario: Unix backslashes never confer direct-path authority
+- **GIVEN** a temporary Unix cwd contains an executable literally named `C:\Tools\dsh.exe` printing `SECURITY_BACKSLASH_CWD_SENTINEL_9f3`, the primary DSH override spells that exact name, no file by that name exists in the native default search, and the shipped declaration is unmeasured
+- **WHEN** the built doctor and native `Command::new(name)` control use that cwd first with PATH absent and then with PATH set to directories containing no such file
+- **THEN** native lookup returns NotFound in both layouts, doctor refuses before any probe, and neither doctor output nor an execution marker records the cwd sentinel
+- **AND** the absent-PATH refusal names the unsuccessful native default search with `PATH is absent` as context; the populated-PATH refusal identifies the unsuccessful lookup without converting the backslashes to separators
+- **AND** placing a distinct file with that literal name in a PATH directory selects that native PATH identity, while a `/`-containing explicit path to the cwd file exercises the separate direct-path control
+- **AND** removing the cwd fixture is a separate negative control; restoring backslash-as-separator classification must make the present-fixture no-execution assertion and differential matrix fail, then exact restoration passes both
+
+#### Scenario: Program lookup is proved against the platform by a complete differential matrix
+- **GIVEN** isolated layouts with distinct harmless sentinel identities for every candidate, and the following program-name and layout axes
+- **WHEN** every name is crossed with every layout and a real native `Command::new(name)` child is compared with resolution under identical cwd and environment
+- **THEN** each ordinary native-success cell that reaches no forbidden cwd iteration, including absent-PATH cells, identifies exactly the file native lookup ran; native failures outside the separately asserted cwd/D10 refusals preserve their specific cause without a probe target; success booleans or matching generic version strings cannot prove selected identity
+- **AND** unprovable obstruction cells record the actual native result separately and assert the named D10 refusal with zero resolver/doctor probes; this loader exception is not native NotFound or an equality pass, and PATH absence alone cannot invoke it
+- **AND** a NUL-bearing name is refused with NUL named before any filesystem lookup or probe, and the native control returns invalid input without executing a sentinel
+- **AND** every cell invokes its own native Command oracle, including direct-path, NUL, overlong-name and removed-component controls; a missing oracle or unavailable prerequisite leaves evidence pending and cannot be counted as a pass
+- **AND** each inherited and explicit child-environment form asserts its own identity or raw errno/cause and applicable refusal, never only logs an outcome; at the next cwd candidate resolution refuses by the named cwd reason or the native terminal cause, even when cwd is missing and native continues to B
+- **AND** other terminal native errors retain a cause-bearing refusal and never authorize a later candidate
+- **AND** the same table executes on Windows with native executable sentinels and native fixture paths; names or layouts the platform cannot admit retain their observed native refusal rather than being relabelled, omitted or claimed from Unix evidence
+- **AND** the absent-PATH cells include the native default-search positive scenario below for DSH overrides and Node, alongside cwd-only sentinel negatives; an all-negative oracle cannot establish equality or justify unconditional absent-PATH refusal
+- **AND** slash-containing explicit paths still occupy every matrix cell and preserve their native direct-path behavior regardless of which PATH layout surrounds them; ordinary successful controls prevent blanket refusal from satisfying the table
+
+| Axis | Required members |
+|---|---|
+| Program name | `dsh`; `./dsh`; `../dsh`; an absolute temporary path corresponding to `/abs/dsh`; literal `C:\Tools\dsh.exe`; `dsh.exe`; a name containing a space; a name containing NUL |
+| Layout / environment | file in cwd with PATH pointing elsewhere; file in a PATH directory; PATH absent with cwd file present; PATH containing an empty entry; PATH A:B with obstructed A and runnable B |
+| Empty-entry variants | separately identified `PATH=""`, `:B`, `A::B` and `A:` cells crossed with runnable/looping/missing cwd candidates, plus earlier successful-A controls; refusal when cwd is reached, never selection or skipping |
+| Obstruction variants | missing shebang interpreter; executable interpreter whose own loader is missing; native image with missing dynamic loader; platform-qualified self-symlink (glibc terminal, Apple continuation) and ordinary non-executable continuation controls |
+| Lookup boundaries, each an identified cell | PATH component lengths 255, 256, 300, 4095, 4096 and 5000 ASCII bytes ahead of B; 4095/4096/5000 each crossed with runnable/looping/missing cwd, in both Command forms; trailing-separator full-candidate bounds with A present/absent; regular-file and nonexistent components; overlong bare and explicit names; same-fixture component and one-slash removal controls |
+| Default-search controls | add a bare name native default search actually executes (`sh` is the observed Unix positive), primary and legacy DSH overrides using that name, and the real Node lookup; compare absent PATH, present-empty PATH, explicit PATH and same-name cwd decoys without reducing the commissioned eight-name cross-product |
+| Platform | native Linux/glibc, macOS and Windows execution, with target/libc/compiler recorded; any other claimed target needs its own native evidence, not inferred Unix behavior |
+
+#### Scenario: Absent PATH preserves a native default-search success for DSH and Node
+- **GIVEN** a Unix platform whose native default search excludes the temporary cwd and where a real Rust native child executes a harmless bare name with PATH removed, not emptied (`sh` is the observed positive control), and isolated cwd layouts distinguish that default-search identity from a same-name cwd decoy
+- **WHEN** the differential test compares native lookup and executable resolution with PATH absent, first with that name as the primary DSH override and then as the legacy override with the primary unset
+- **THEN** each ordinary provable selection equals the exact native default-search identity; neither unconditional `PATH is absent` refusal nor execution of a cwd decoy passes, and the unrelated provider/composite qualification remains independent of this lookup proof
+- **AND** the Node side exercises its actual `node` lookup with PATH absent, including a real native-positive default-search control, and identifies exactly the runtime that native `Command::new("node")` executes when DSH was safely selected by an explicit path; a DSH or shell result alone cannot prove Node, and version text alone cannot prove selected identity
+- **AND** the Node positive asserts successful native exit and compares canonical `process.execPath` with the actual retained Node path consumed by the composite, and that same observation produces a readable composite; a launcher's independently resolved `process.execPath`, matching version text or `ok dsh` prefix is insufficient
+- **AND** a compiling mutation retaining a distinct wrong Node fails that retained-identity/composite assertion while the native child still succeeds; a separate mutation restoring unconditional absent-PATH refusal fails the Node positive itself, with exact restoration and green reruns for both
+- **AND** adding a same-name cwd decoy preserves the native default-search identity and does not execute that decoy; absence alone neither inserts cwd nor permits refusal of that ordinary native success
+- **AND** with PATH present but empty and no same-name cwd file, native lookup returns NotFound; restoring the cwd decoy makes native lookup execute that decoy, but in both fixtures resolution refuses with `the platform's search would fall into the working directory` and doctor leaves no execution marker, without falling back to absent-PATH default search
+- **AND** explicit PATH gives an independent positive identity control; the commissioned cwd-only `dsh` and literal backslash sentinels remain negative controls when absent from native default search, and platform-native explicit paths remain selectable without PATH
+- **AND** a compiling mutation restoring unconditional absent-PATH refusal makes `absent_path_default_search_matches_native_dsh_and_node` fail its selected-identity assertion while the native positive still executes, and exact restoration passes; removing such a guard is not a required refusal failure under the controller's withdrawn exception
+- **AND** the separate S1/S1b removal tests still fail specifically on execution of the cwd sentinel when their unsafe behavior is restored; a reason assertion alone does not discharge that proof
+- **AND** unavailable default-search positives or native Windows execution are recorded as pending platform evidence, never replaced by injected results, guessed search directories, passing skips or tests containing only native misses; fixtures do not modify the operator's installed programs, global environment or provider home
+- **AND** D10's concrete loader obstruction retains its named pre-probe refusal, never an explanation for PATH absence alone or an equality pass; ordinary positive cells still require exact native-selected identity
+
+#### Scenario: Explicit empty PATH entries and explicit overrides retain their meaning
+- **GIVEN** controlled executable names in cwd and a later PATH directory, plus distinct primary and legacy explicit override paths
+- **WHEN** PATH is present but empty, or contains an explicit empty entry among its directories
+- **THEN** cwd lookup has its native meaning at that entry's position and is not classified as absent PATH; if reached, resolution and doctor refuse with `the platform's search would fall into the working directory`, or the native terminal cause there, and neither select cwd nor continue beyond it
+- **AND** an earlier successful non-cwd candidate remains selectable; all refused cells leave no doctor execution marker, including with no cwd executable and a runnable later candidate
+- **AND** primary then legacy override precedence remains unchanged, an absolute explicit override can be selected with PATH absent, and a failed explicit override never falls back to a PATH decoy
+- **AND** version and composite never describe different installations, including when a safe version probe succeeds but home resolution fails
+
+#### Scenario: An interior empty PATH entry refuses at cwd
+- **GIVEN** `A::B`, A contains no candidate and B/dsh is runnable, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: A trailing colon refuses at cwd
+- **GIVEN** `A:`, A contains no candidate, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: A leading colon refuses before a later candidate
+- **GIVEN** `:B`, B/dsh is runnable, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: Present-empty PATH refuses at cwd
+- **GIVEN** `PATH=""`, there is no default-path substitution, and separately identified runnable, self-symlink and absent cwd/dsh variants
+- **WHEN** each variant invokes an inherited and an explicit child-environment native Command oracle in both named matrix/doctor regressions
+- **THEN** each form asserts its own exact native identity or cause, while resolution refuses on reaching cwd with `the platform's search would fall into the working directory`, or by the native terminal cause there (ELOOP/40 for the glibc loop)
+- **AND** doctor leaves no cwd, later-candidate or Node execution marker in any refused variant; missing cwd never permits search to continue, and native results remain separately recorded
+
+#### Scenario: A successful earlier candidate ends search before cwd
+- **GIVEN** PATH `A::B` or `A:`, harmless runnable A/dsh, and separately competing, looping and absent cwd/dsh fixtures
+- **WHEN** each layout is compared with its own native oracle in both Command forms
+- **THEN** resolution and doctor select the exact A identity native runs, without reaching the later cwd entry; a blanket rejection of any PATH containing an empty component fails this positive
+
+#### Scenario: Native candidate construction preserves the extra trailing separator
+- **GIVEN** a glibc fixture whose existing A directory spelling is padded with trailing `/` bytes to 4092 bytes before `:B`, with A/dsh separately present or absent and B/dsh runnable
+- **WHEN** both named matrix/doctor regressions compare inherited and explicit child-environment native Command outcomes for `dsh`
+- **THEN** native construction appends its additional slash and returns ENAMETOOLONG/36; resolution refuses by that cause and doctor leaves no A, B, cwd or Node marker, rather than inspecting a normalized 4095-byte path
+- **AND** removing exactly one trailing slash from that same fixture makes a fresh oracle and doctor select identical A when present or identical B when A/dsh is absent; adding one slash to the original fixture retains terminal refusal
+- **AND** a compiling mutation normalizing the additional separator fails the cause/no-marker assertion; exact restoration reruns green
+
+#### Scenario: Bare-name lookup preserves native continuation and terminal errors
+- **GIVEN** PATH is A:B, neither binary override is set, and B/dsh is a working executable with a distinguishable sentinel identity
+- **WHEN** A/dsh separately has a nonexistent shebang interpreter, an executable interpreter whose own loader is missing, or a missing native dynamic loader
+- **THEN** real native controls record the B identity they execute, while doctor takes D10's named pre-probe refusal identifying A and the unproved interpreter/loader cause, without executing either candidate
+- **AND** the refusal is not a generic selected-binary NotFound after probing A, and is not reported as equality with the native B result
+- **AND** replacing A with a self-referential symlink makes the native control behave as the running platform's own search does — on Linux (glibc `execvp`, measured 2026-09-20) the search stops with ELOOP and resolution refuses by that cause without probing B; on macOS (Apple libc `exec.c` and `posix_spawn.c`) the search continues to B and resolution selects exactly what that native control runs — and the differential test asserts the running platform's outcome, never a fixed "Unix" one
+- **AND** an ordinary non-executable A followed by runnable B remains a positive continuation control, and supported explicit native-image/interpreter cases identify exactly what their native controls run
+- **AND** restoring unconditional native-image admission or one-level interpreter metadata admission fails the relevant named-cause/no-probe assertion; restoring error-erasing continuation fails the terminal-error assertion
+
+#### Scenario: A 255-byte PATH component has its own native oracle
+- **GIVEN** a disposable glibc layout with PATH equal to 255 ASCII `x` bytes followed by `:B`, no such component, and a harmless B/dsh sentinel
+- **WHEN** native Command, resolution and built doctor observe the same name, cwd and child environment
+- **THEN** the native child succeeds at B and resolution/doctor select that exact identity, with separate oracle/doctor markers
+- **AND** removing only the component retains B in a separately invoked native-oracle control
+
+#### Scenario: A 256-byte PATH component preserves terminal ENAMETOOLONG
+- **GIVEN** the same glibc layout with a 256-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup returns ENAMETOOLONG, resolution refuses by that cause before any probe, and doctor leaves no B execution marker
+- **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
+
+#### Scenario: A 300-byte PATH component preserves terminal ENAMETOOLONG
+- **GIVEN** the same glibc layout with a 300-byte ASCII component before runnable B
+- **WHEN** native Command, resolution and built doctor each observe that layout
+- **THEN** native lookup returns ENAMETOOLONG, resolution refuses by that cause before any probe, and doctor leaves no B execution marker
+- **AND** removing only the component makes the separately invoked native control and doctor execute the same B identity
+
+#### Scenario: A 4095-byte PATH component preserves terminal ENAMETOOLONG
+- **GIVEN** separate glibc layouts with a 4095-byte ASCII `x` component before runnable B, crossed with cwd/dsh a competing executable, a self-symlink, or absent
+- **WHEN** every cell in `native_executable_resolution_matches_command_matrix` and `terminal_path_lengths_refuse_before_doctor_probe` invokes its own inherited and explicit child-environment native Command control and compares resolution/doctor
+- **THEN** native lookup returns ENAMETOOLONG/36 before reaching cwd in each cell, resolution refuses by that cause, and doctor leaves no cwd, B or Node execution marker
+- **AND** removing only the component and its delimiter from each same fixture leaves cwd unchanged and makes a fresh native control and doctor select the exact same B identity in both forms
+
+#### Scenario: A 4096-byte PATH component exercises the native pre-buffer skip
+- **GIVEN** a glibc layout with PATH equal to 4096 ASCII `x` bytes followed by `:B`, competing harmless cwd/dsh and B/dsh sentinels, and separate oracle/doctor markers
+- **WHEN** both named matrix/doctor regressions invoke inherited and explicit child-environment native Command controls for that cell
+- **THEN** each native control runs the exact cwd/dsh identity after the pre-buffer skip, while resolution refuses with `the platform's search would fall into the working directory`, never selecting cwd or B
+- **AND** doctor leaves no cwd, B or Node execution marker; markers are checked before report text and a later unreadable composite cannot hide execution
+- **AND** removing only the oversized component and its delimiter from the same fixture, with cwd/dsh unchanged, makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 4096-byte skip reaches a terminal cwd self-symlink
+- **GIVEN** the 4096-byte glibc component followed by `:B`, runnable B/dsh, and cwd/dsh a self-symlink
+- **WHEN** both named regressions invoke their own native Command oracle in each invocation form, alongside resolution and built doctor
+- **THEN** both native forms return ELOOP/40 without executing a sentinel, resolution refuses by that same terminal cause, and doctor leaves no cwd, B or Node marker
+- **AND** removing only the oversized component and delimiter preserves the cwd loop and makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 4096-byte skip refuses even with no cwd executable
+- **GIVEN** the 4096-byte glibc component followed by `:B`, runnable B/dsh, and no cwd/dsh
+- **WHEN** both named regressions run each native Command form and compare resolution and doctor
+- **THEN** native lookup passes the missing cwd candidate and runs B, while resolution refuses with `the platform's search would fall into the working directory` before advancing to B
+- **AND** doctor leaves no execution marker, including B or Node; this policy refusal is recorded separately from native success and is not an equality pass
+- **AND** removing only the oversized component and delimiter keeps cwd absent and makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 5000-byte PATH component exercises the native pre-buffer skip
+- **GIVEN** a glibc layout with PATH equal to 5000 ASCII `x` bytes followed by `:B`, competing harmless cwd/dsh and B/dsh sentinels, and separate oracle/doctor markers
+- **WHEN** both named matrix/doctor regressions invoke inherited and explicit child-environment native Command controls for that cell
+- **THEN** each native control runs the exact cwd/dsh identity after the pre-buffer skip, while resolution refuses with `the platform's search would fall into the working directory`, never selecting cwd or B
+- **AND** doctor leaves no cwd, B or Node execution marker; markers are checked before report text and a later unreadable composite cannot hide execution
+- **AND** removing only the oversized component and its delimiter from the same fixture, with cwd/dsh unchanged, makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 5000-byte skip reaches a terminal cwd self-symlink
+- **GIVEN** the 5000-byte glibc component followed by `:B`, runnable B/dsh, and cwd/dsh a self-symlink
+- **WHEN** both named regressions invoke their own native Command oracle in each invocation form, alongside resolution and built doctor
+- **THEN** both native forms return ELOOP/40 without executing a sentinel, resolution refuses by that same terminal cause, and doctor leaves no cwd, B or Node marker
+- **AND** removing only the oversized component and delimiter preserves the cwd loop and makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: A 5000-byte skip refuses even with no cwd executable
+- **GIVEN** the 5000-byte glibc component followed by `:B`, runnable B/dsh, and no cwd/dsh
+- **WHEN** both named regressions run each native Command form and compare resolution and doctor
+- **THEN** native lookup passes the missing cwd candidate and runs B, while resolution refuses with `the platform's search would fall into the working directory` before advancing to B
+- **AND** doctor leaves no execution marker, including B or Node; this policy refusal is recorded separately from native success and is not an equality pass
+- **AND** removing only the oversized component and delimiter keeps cwd absent and makes fresh native controls and doctor select the exact same B identity in both forms
+
+#### Scenario: An overlong program name is measured rather than labelled a miss
+- **GIVEN** an overlong bare program name and an explicit-path spelling of it in an owned temporary layout
+- **WHEN** each spelling is passed to its own native Command oracle and resolver under identical context
+- **THEN** each native error is matched by a specific pre-probe refusal, including ENAMETOOLONG where returned, with no sentinel execution or invented ordinary NotFound
+- **AND** the 300-byte glibc bare-name controls separately use a missing directory, a regular file as PATH component, and an existing directory, asserting each native cause (the commissioned observations are ENOENT/2, ENOTDIR/20 and ENAMETOOLONG/36 respectively), in both invocation forms
+- **AND** no universal pre-search NAME_MAX refusal may replace those distinct results; a valid-length name supplies an independently invoked positive native identity control, and component-length continuation cannot stand in for either long-name oracle
+
+#### Scenario: Continuation causes and permission accumulation follow the native target
+- **GIVEN** distinct sentinels and PATH layouts containing a regular-file component, a nonexistent component, non-executable A before B, and permission-denied entries with no later runnable candidate
+- **WHEN** every layout is compared with its own native Command oracle
+- **THEN** ENOENT and ENOTDIR continuation reach the same B identity, and remembered EACCES is reported when no candidate runs rather than downgraded to NotFound
+- **AND** glibc permits no post-execution continuation beyond EACCES, ENOENT, ESTALE, ENOTDIR, ENODEV and ETIMEDOUT; ENAMETOOLONG, ELOOP, EIO, EINVAL and other errors remain terminal
+- **AND** unit checks for rare errno branches carry source citations but do not count as native differential cells or waive their oracle calls
+- **AND** independent compiling mutations restoring direct advance to B after an oversized skip, removing cwd refusal, or weakening terminal ENAMETOOLONG/ELOOP handling fail the named cause/identity/no-marker assertions in `native_executable_resolution_matches_command_matrix` and `terminal_path_lengths_refuse_before_doctor_probe`; removing the actual buffer skip independently fails the expected cwd refusal or ELOOP cause by inventing ENAMETOOLONG
+- **AND** each implementation mutation is named and exactly restored before a green rerun; same-fixture component removal is a separate oracle control and cannot substitute for removal of enforcement
+
+#### Scenario: Exhausted search preserves the last cause and denial precedence
+- **GIVEN** glibc layouts with only a regular-file PATH component, missing then regular-file components, the reverse order, and permission-denied entries followed by a miss or terminal error
+- **WHEN** each layout invokes its own native Command oracle in both forms and resolution/doctor observes the same context
+- **THEN** the first two non-denial layouts preserve ENOTDIR/20 and the reversed layout preserves ENOENT/2, with the responsible final candidate named; no generic not-on-PATH message erases the distinction
+- **AND** remembered EACCES wins over subsequent misses at exhaustion while a terminal cause wins over remembered denial; every refusal leaves no doctor marker
+- **AND** independently erasing the final cause, removing remembered EACCES or weakening terminal precedence fails its named cause assertion; each compiling mutation is exactly restored and rerun green
+
+#### Scenario: Apple lookup is established on Apple rather than inferred from glibc
+- **GIVEN** the six component-length cells, self-symlink A before runnable B, absent PATH, and explicit paths on native macOS
+- **WHEN** every cell actually invokes the same native Command form as the resolver context and macOS CI records target and compiler
+- **THEN** each form asserts its own exact native identity or specific cause and applicable cwd/loader refusal, including ELOOP continuation for non-cwd candidates, without imposing glibc's thresholds or error wording or treating Apple lookup APIs as interchangeable
+- **AND** absent lookup uses `/usr/bin:/bin`; a discriminating default-search regression distinguishes the additional system directories in confstr's wider value, since a shared `sh` positive cannot prove their exclusion
+- **AND** the platform-default test preserves FreeBSD's separately sourced directory order instead of applying Apple's constant to it; a claimed FreeBSD native result needs its own execution evidence
+- **AND** an explicit env-node launcher with an oversized component before B/node exercises env's execvp walk separately from the outer Command spawn path, and inaccessible-parent exhaustion exercises the native successful-stat condition before remembered EACCES
+- **AND** a source-only check or logged oracle cannot establish either operation; each actually executed cell asserts its qualified native outcome and zero forbidden markers
+- **AND** missing native macOS or other target evidence remains pending; restoring the wrong target's default, ELOOP rule or outer-spawn rule for nested env fails its named discriminating check
+
+#### Scenario: Selected invocation is not replaced by its canonical target
+- **GIVEN** the platform's env utility is reached through an owned symlink named `dsh`, separately by searched name and absolute alias, and direct `/usr/bin/env` is the control
+- **WHEN** native version invocation and DSH selection/doctor observation are compared under the same child environment
+- **THEN** the unestablished other-name invocation refuses by a cause naming the selected invocation and env dispatch, before any DSH or Node probe; no doctor execution marker or successful canonical-target version is produced
+- **AND** the native result is recorded separately for both alias forms; a native name-mismatch exit with no stdout cannot become successful availability by executing the canonical target under its own name
+- **AND** direct `/usr/bin/env` retains its native version outcome as the availability control, without being declared a readable DSH composite
+- **AND** admitted launcher invocations retain their native invocation semantics and their canonical file identity separately, use the already-selected candidate without another bare-name search, and preserve existing valid launcher-alias controls
+
+#### Scenario: Interpreter aliases cannot bypass the Node obstruction refusal
+- **GIVEN** disposable env and env-alias symlinks plus `tools/env` and `tools/uu_env` hard links verified to share device/inode, obstructed A/node and distinct runnable B/node
+- **WHEN** `an_env_argument_is_selected_as_the_kernel_hands_it_to_env` invokes a native Command control for each spelling and the built doctor observes the same chain
+- **THEN** every supported alias whose native control reaches B takes the same cause-bearing D10 refusal identifying A's obstruction, with zero doctor markers and the native result recorded separately
+- **AND** changing only the interpreter spelling never turns the unproved Node chain into probe authority; an unestablished or alias-sensitive invocation reports its actual native outcome and named refusal without fabricating a positive
+- **AND** the same-file `uu_env`, `myenv`, `env-alias` and `link_env` spellings are each refused as an invocation not established without executing the utility, with the native outcome recorded beside the refusal and never counted: on a uutils host the same-file `uu_env` runs B natively, and on an installed-as-`env` multicall — a stand-in dispatching on `argv[0]`, and busybox copied to `env` where the host has it — the same layout runs no program, so no file-derived rule may admit it
+- **AND** removing only A/node gives independently invoked native and doctor positive controls for the same B identity under the `env`-named spellings (the reference, a symlink named `env`, a byte-for-byte copy named `env`, a symlink named `env` to that copy and a hard link named `env` of it), and a valid non-obstructed chain remains admitted
+- **AND** a symlink named `env` to the copy's `uu_env` or `ls` hard link — spelled `env`, the platform's env by every byte, running as a file whose own name is not `env` — is refused naming the file that runs, with zero doctor markers and the native outcome recorded beside it and never counted (this uutils host refuses it as a utility-name violation; an installed-as-`env` stand-in dispatching on the invoked name runs B through the same layout); a stand-in the injected reference itself resolves to, under an own name that is not `env` and invoked through a symlink named `env`, is established and natively B; an interpreter whose path no longer resolves to a file is refused by that cause on its inspected metadata
+- **AND** restoring spelled-or-canonical-basename recognition, restoring same-file admission under another name, or restoring admission on the invoked name alone without the file that runs, in a compiling mutation fails the hard-link no-probe/cause assertion; exact restoration reruns green alongside the existing symlink controls
+
+#### Scenario: An env launcher without a nonblank program refuses before probing
+- **GIVEN** separate owned launchers whose established env shebang is bare or has only spaces/tabs after the interpreter, and a terminating `#!/usr/bin/env sh` launcher as control
+- **WHEN** the executable is selected for the composite producer or observed by doctor
+- **THEN** both missing-program forms refuse with the launcher, env interpreter and absent nonblank program named, without supplying a probe target or producing any DSH/Node execution marker
+- **AND** an external timeout needed to stop recursive native self-execution is recorded as native evidence, never as a successful doctor refusal; doctor must return the named refusal without starting that loop
+- **AND** the established `env sh` control retains its ordinary terminating native version behavior, while measured `env node` and retained-Node controls remain valid under their existing rules
+
+#### Scenario: Ignored pnpm syntax is admitted through the producer and built doctor
+- **GIVEN** a readable synthetic installation with separately malformed plain tarball NUL/BEL, quoted tarball NUL, checksum colon-space/NUL, unterminated deprecated quote or engines flow map
+- **WHEN** each lock is observed through the sole producer and `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor`
+- **THEN** it refuses with pnpm, the field/context and syntax cause named, never yielding the valid control's readable composite
+- **AND** valid ignored scalar/collection fields, admitted URLs, separator and plain/quoted NBSP controls retain their specified outcomes; ignored dependency semantics do not exempt syntax
+
+#### Scenario: Flow-value separator padding cannot hide opening syntax
+- **GIVEN** otherwise readable installations separately add `engines: {node:  *missing}`, `engines: {node:  &}` or `engines: {node:  %bad}`, with one-space and further supported separator-padding variants
+- **WHEN** their pnpm locks are admitted through the sole producer and built doctor
+- **THEN** each malformed value refuses with pnpm, engines/member context and the malformed scalar-opening cause named, produces no composite and leaves no DSH or Node execution marker
+- **AND** scalar opening syntax is judged after all admitted structural separation, so changing only separator padding cannot turn a refused alias, anchor or reserved indicator into scalar content
+- **AND** `engines: {node: 22}` and `engines: {node:    22}` remain readable and preserve the same control composite; quoted controls and identity-bearing whitespace rules remain unchanged
+
+#### Scenario: Ignored collections and bodies cannot erase malformed members
+- **GIVEN** separate locks with `cpu: [,x64]`, `cpu: [x64,,arm64]`, `engines: {,node: 22}`, `engines: {node: 18,,npm: 9}`, `engines: {,}`, and unterminated quotes inside peerDependencies or snapshots bodies
+- **WHEN** `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` and the built-doctor ignored-value test observe each lock through complete installed locators
+- **THEN** each refuses with pnpm, field/body context and its syntax cause, without producing the valid control's composite
+- **AND** valid sequences, empty collections and a legal trailing comma remain readable, as do admitted well-formed ignored bodies; unsupported bodies refuse explicitly instead of being skipped
+- **AND** separately restoring empty-member elision, ignored-body bypass, control-byte bypass or an existing ignored-scalar guard bypass causes its named reason/readability assertion to fail in a compiling removal, then exact restoration passes
+
+#### Scenario: Ignored pnpm blocks cannot discard parent and collection structure
+- **GIVEN** otherwise readable installations separately add a nested mapping below scalar `peerDependencies.react`, mapping and sequence siblings at the same ignored-body level, or `snapshots` containing scalar `foo: 1` with a more-indented `bar: 2` child
+- **WHEN** `missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason` and `ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor` observe each full locator layout
+- **THEN** each refuses with pnpm, the responsible body/field and scalar-parent or mixed-collection cause named, without producing the valid control's composite
+- **AND** valid nested peerDependenciesMeta and snapshots mapping controls within the admitted subset remain readable, alongside the existing flow-member, control-byte, quote and scalar controls
+- **AND** independently removing parent-type or collection-kind enforcement in compiling mutations fails the corresponding named reason/readability assertion; exact restoration reruns green, and a per-line quote check cannot substitute for either structural proof
+
+#### Scenario: Implicit ignored block keys obey YAML lookahead
+- **GIVEN** otherwise readable pnpm locks separately contain a peerDependencies implicit block key of 1,024 or 1,025 ASCII characters followed by `: a`
+- **WHEN** the sole producer and built doctor admit each lock
+- **THEN** the 1,025-character spelling refuses with pnpm, peerDependencies and the implicit-key lookahead limit of 1,024 characters named, produces no composite and leaves no DSH or Node execution marker
+- **AND** the 1,024-character control stays readable with the same composite as the valid ignored-body control
+- **AND** the limit governs implicit block-key syntax rather than whole lines or values; admitted long scalar values and the existing total raw-file bound retain their rules
+
+#### Scenario: Implicit-key lookahead includes raw spelling and pre-colon separation
+- **GIVEN** separate ignored block entries have 1,023 key characters plus one pre-colon space, 1,024 key characters plus one pre-colon space, and quoted keys with respectively 1,022 and 1,023 content characters plus their two quote delimiters
+- **WHEN** the pnpm reader admits the implicit key before discarding separation or decoding its scalar
+- **THEN** the 1,024-character spans remain readable, and the 1,025-character spans refuse by the named implicit-key lookahead cause through producer and built doctor, with no composite or DSH/Node execution marker
+- **AND** the span counts Unicode characters in key spelling and pre-colon separation, excluding indentation, colon and value; an otherwise admitted 1,024-character multibyte key is not refused merely because its UTF-8 byte length exceeds 1,024
+- **AND** trimmed or decoded length cannot hide over-limit syntax, and no blanket line/value cap or additional YAML construct is introduced
+
+#### Scenario: Composition retains the launcher head inspected before the probe
+- **GIVEN** a shell launcher that prints `v22.23.2` and rewrites itself to the env-node shebang, an otherwise identical non-rewriting control, and a valid env-node launcher
+- **WHEN** `the_composite_reuses_the_launcher_head_selection_inspected` and `the_composite_reuses_the_launcher_head_doctor_selected` observe their version and composite
+- **THEN** both shell launchers refuse by the originally inspected first-line cause while the valid env-node control remains readable
+- **AND** a compiling mutation restoring the post-probe reread fails that precise refusal/composite assertion, and exact restoration reruns green; retaining only the Node path cannot substitute for retaining these bytes
+
+#### Scenario: Delivery evidence distinguishes executed positives from pending platforms
+- **GIVEN** the completed specification or source/tests for 8.8(a)–(c), with only some native environments available
+- **WHEN** the candidate delivery record is updated
+- **THEN** each actual execution records revision, command, exit status, target and compiler, and Windows matrix/doctor/GetBinaryTypeW/MSRV, macOS lookup/loading, and absent-PATH Node-positive/removal obligations stay pending until they really run
+- **AND** source inspection, cross-compilation, a passing NotFound branch, skipped cells and historical results do not certify a positive, a platform or the final PR head
+- **AND** independent scalar-guard, remembered-denial and home-premise removal obligations remain pending until their own intended failed assertions and exact-restored passes are recorded; historical or unrelated mutations do not discharge them
+- **AND** the existing task addresses and excluded work remain unchanged and 8.8 remains unchecked
+
+#### Scenario: Fresh exact coverage cannot be replaced by retained perfect reports
+- **GIVEN** historical complete coverage and a failed exact-coverage run precede the current candidate
+- **WHEN** the exact-coverage gate prescribed by the current change's planning artifacts runs on the actual candidate with its pinned compiler and fresh unique instrumentation build
+- **THEN** the record states that run's actual covered/total source-line, branch and function integers, revision, command and exit status, with the fresh reports retained
+- **AND** only nonzero literal 100% equality on all three axes satisfies coverage; retained profiles, a hand-transcribed equivalent, reduced denominators, ignored failures or rounded percentages cannot replace the unchanged gate
+- **AND** inability to obtain a report is recorded with unavailable counts, and a namespace-blocked or failed run remains pending/failed until capable-host or CI evidence exists; no unavailable result is invented
+
+#### Scenario: Missing pnpm field separation and unsupported flow syntax refuse by reason
+- **GIVEN** an otherwise readable installed composite separately changes the lock header to `lockfileVersion:9.0`, the package child to `resolution:{integrity: sha512-X}`, or the resolution to `resolution: {integrity: sha512-X, tarball: x: y}`
+- **WHEN** the sole producer reads each lock through the profile locator
+- **THEN** each input refuses before normalization, naming the pnpm component and respectively the header separation, outer resolution separation or tarball unsupported-flow cause; none produces the valid control's readable composite
+- **AND** the original `integrity:sha512-X` and plain `integrity: sha512-X[one]` cases continue to refuse by their specific missing-separation or unsupported-flow cause
+- **AND** properly separated plain and quoted version-9 headers, `resolution: {integrity: sha512-X}`, supported quoted field controls and supported colon-without-space URL values remain readable
+- **AND** separately removing header separation, outer separation or plain colon-space syntax protection fails its producer-facing reason-bearing regression, with each exact restoration passing; an inner-integrity-only check cannot discharge the outer or ignored-field cases
+
+#### Scenario: Plain and quoted integrity retain their Unicode whitespace bytes
+- **GIVEN** the same readable installed composite separately adds U+00A0 before or after plain `sha512-X`, or before or after that value inside each supported quote form
+- **WHEN** the sole producer reads each otherwise valid pnpm lock
+- **THEN** every variant refuses with `pnpm lock`, the package and `integrity carries whitespace` named, and none yields the unpadded control's composite
+- **AND** grammar-admitted ASCII spacing outside the scalar and unpadded plain/quoted controls remain readable; U+00A0 outside a quote is not converted into admitted padding
+- **AND** restoring Unicode trimming before scalar validation makes the plain-edge regression fail, while exact restoration of identity-byte preservation passes both plain and quoted cases
+
+#### Scenario: Executable selection and home availability are independent requirements
+- **GIVEN** isolated deterministic combinations of a safely selectable executable or failed selection, and an available home or missing home
+- **WHEN** the adapter resolves its seams and doctor reports that observation
+- **THEN** combined seam resolution succeeds only with both a selected executable and a home; a failed selection with a home still refuses by selection cause and never probes
+- **AND** a safely selected executable with no home can report its version beside the named home/composite refusal, preserving the same selected identity
+- **AND** under child HOME=/tmp, PATH=/usr/bin:/bin with no DSH there and DSH_HOME, BROKKR_DSH_BIN and FORGE_DSH_BIN unset, the test asserts the selection refusal instead of equating home presence with success
+- **AND** assertions are isolated from the test runner's installed providers and environment; restoring the home-only success assumption fails the commissioned control without weakening production selection
+
+#### Scenario: Pnpm identity strings preserve the distinction from typed scalars
+- **GIVEN** an otherwise readable composite with `resolution.integrity` separately set to plain `null`, `~`, `true` or `42`, in each admitted block or flow representation
+- **WHEN** the sole producer reads the lock
+- **THEN** each plain typed scalar refuses with the pnpm component, integrity field and non-string or unsupported-scalar cause named
+- **AND** the corresponding supported quoted string is a readable string control, including `'null'`; plain null cannot share its readable identity
+- **AND** admitted lockfile-version syntax, including its existing plain and quoted version forms, still passes, and restoring string coercion fails the reason-bearing controls
+
+#### Scenario: Duplicate decoded pnpm package keys refuse before triple normalization
+- **GIVEN** a valid pnpm package record followed by an identical record, a conflicting-integrity record in either order, or an equivalent quoted/unquoted spelling of the same decoded package key
+- **WHEN** the sole producer reads each installed lock, including a repeated local-tarball key otherwise excluded from dependency identity
+- **THEN** every repetition refuses with a repeated-package-key reason naming the decoded key, before exclusions or complete-triple deduplication can hide it
+- **AND** distinct valid records across the two locks still deduplicate equal complete triples and retain triples with different versions or integrities
+- **AND** removing duplicate-key rejection makes the repeated-record assertion fail; reversed conflicting records producing an equal digest is evidence of the defect, not a positive deduplication control
+- **AND** every mapping scope the grammar admits without reading refuses a repeated decoded key by its responsible scope — a flow map (`engines: {node: 1, 'node': 2}`), a block under a package child (`peerDependencies` naming `react` twice), an ignored section body at any depth (`snapshots` dependencies naming `ms` twice, a record heading twice, `settings` naming a key twice) and a package child spelled twice (`cpu`) — through the sole producer and the built doctor, never yielding the valid control's composite
+- **AND** one key in two sibling blocks is two keys: `optional` under two `peerDependenciesMeta` children and `dependencies` under two importers stay readable at the control's digest, and disabling each scope's guard in a compiling mutation makes that scope's accepted-vector and control-digest assertions fail
+- **AND** keys are compared as YAML compares them, by node and not by text: the padding before a plain key's colon is the separator's, so `react :` beside `react:` repeats; a plain key that spells a typed scalar (`11`/`0xB`, `true`/`True`, `null`/`~`, a lone `42`) is refused by its cause — a number, a boolean or a null and not a string — before any comparison, in a flow map, under a package child and in a section body alike, never yielding the valid control's composite; and a plain `true` beside a quoted `'true'` is refused by that same cause rather than diagnosed as a repeat
+- **AND** the keys YAML keeps apart stay readable at the control's digest: a plain `react` beside a quoted `'react '`, a single padded `react :`, and the quoted `'true'`/`'True'` and `'11'`/`'0xB'` spellings, which are two string keys each; disabling the typed-key refusal or restoring the untrimmed key in a compiling mutation makes the `{11: 1, 0xB: 2}` and padded-`react` accepted-vector and control-digest assertions fail
+
+#### Scenario: Plugin expectations are recorded from the sole producer
+- **GIVEN** an exact plugin input set with its source bytes identified and a fixed expected component recorded from the sole producer at an identified revision
+- **WHEN** the plugin component and canonical composite assertions run for measured or synthetic layouts
+- **THEN** expectations are literals with that provenance, and no test helper, fixture generator or prose calculation reconstructs either serialization or hashes its concatenation as a competing oracle
+- **AND** independent per-file input hashes remain permitted, while changed file bytes, removed required files and altered production path ordering still fail their named behavioral or compiling-removal assertions
+- **AND** restoration of the independent test serializer fails an explicit source-conformance check; comparing two calls to the producer alone does not establish the expected byte format
+
+#### Scenario: A nonexistent override cannot inject terminal control bytes through doctor
+- **GIVEN** a nonexistent explicit DSH binary override contains a newline followed by ANSI clear-screen bytes
+- **WHEN** the built doctor renders its binary-not-found diagnostic
+- **THEN** the selected value is escaped using the established terminal-safe convention and remains recognizable, while its raw newline and ANSI sequence cannot create an injected line or terminal command in stdout
+- **AND** the test asserts the escaped value and absence of the raw injected sequence; removing safe rendering fails that assertion
+
+#### Scenario: Removing only the plugin manifest names the drifted file
+- **GIVEN** a complete temporary installed plugin layout with only `package.json` removed and no later resolving copy of that bundle
+- **WHEN** the sole producer reads the installed composite and doctor reports its refusal
+- **THEN** the unreadable reason names both `dsh-plugin-cli-session` and `package.json`, rather than only saying the bundle does not resolve
+- **AND** a positive control with a truly absent earlier manifest and a valid later hit retains the established lookup order; an unreadable or outside first hit is still a refusal and never falls through
+- **AND** removing the missing-filename context makes the producer-facing reason assertion fail while restoring it passes; a private file-set helper alone does not prove the installed lookup path
+
+#### Scenario: Digest acceptance is proved by removal without completing the planner
+- **GIVEN** tests for the loader grammar and exact selected-assessment carriage into the private start context, six-file membership and bytes, complete dependency parsing and whitespace, fixed locators and exclusions, canonical containment, the measured rc.2 fixture, every doctor disposition, the paired version/composite seam assertions, the first hold's seven obligations, all five second-hold findings, AO's native-positive controls and AP's third-hold R1–R7/prior F1–F9 obligations and AR's fourth-hold reconciliation covered above
+- **WHEN** each responsible production check or emitted element is removed in a compiling mutation and then exactly restored
+- **THEN** the named test fails at the exact claimed assertion, including the drifted file, component or refusal reason, and its restored rerun passes
+- **AND** a compilation failure, unrelated earlier failure, bare `is_err()`, count without value equality or composite compared only with itself is not removal evidence
+- **AND** delivery additionally requires every validation obligation prescribed by the current change's planning artifacts and applicable house rules, including the fresh literal exact-coverage requirement above; concrete commands and the candidate checklist remain in the proposal and task breakdown under PM4, and retained instrumentation or historical failures supply no current exemption
+- **AND** those proofs deliver task 8.8(a)–(c) only; `dsh_launch`/`dsh_launch_with`, planner production behavior, 8.10's remaining cases and the 8.8 checkbox remain pending
+
 #### Scenario: npm nested and scoped keys produce reproducible dependency values
 - **GIVEN** a hidden npm lock with no `name` fields, including `node_modules/debug`, nested `node_modules/parent/node_modules/debug`, scoped-parent/unscoped-child entries and `node_modules/a/node_modules/@parent/b/node_modules/@scope/child` with version and integrity distinct from shallower `@scope/child` entries
+- **AND** the full measured rc.2 lock retains `node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler`, `node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers` and `node_modules/@anthropic-ai/sdk`
 - **WHEN** qualification and runtime compute the same composite through the delivered Rust canonicalization
-- **THEN** the key is parsed left to right through every package group, preserving the slash inside each scoped package; each dependency value uses only the terminal package name and that entry's exact `version` and `integrity`, joined by single ASCII spaces, with no parent path or optional `name` field supplying a value
+- **THEN** those measured keys produce respectively `@smithy/node-http-handler`, `@aws-sdk/token-providers` and `@anthropic-ai/sdk` with the exact version and integrity from each entry
+- **AND** the key is parsed left to right through every package group, preserving the slash inside each scoped package; each dependency value uses only the terminal package name and that entry's exact `version` and `integrity`, joined by single ASCII spaces, with no parent path or optional `name` field supplying a value
 - **AND** the hidden lock is the only npm source, without a root-lock fallback, and three or more package groups obey the same rule as shallow entries
 - **AND** identical complete triples produce one dependency line, different versions or integrities remain distinct, and equivalent npm and pnpm entries yield identical value bytes before bytewise sorting
 - **AND** malformed paths, including a malformed intermediate group before a valid terminal package, or missing, mistyped or invalid version fields make the identity unreadable and an offer declines as `unverified-harness`; the name is never guessed from a URL or another entry

@@ -14,7 +14,7 @@ machine, and refuses to guess about the rest:
 $ brokkr doctor
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       codex: codex-cli 0.153.2 · serves astra, luna, sol, terra
-ok       dsh: 0.1.5-rc.1 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro · composite b2777e9a69a8b11c274c85811d55aaaf725ed4244b86956fdb2df50488b4477c plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
+ok       dsh: 0.1.5-rc.2 · serves flash, flash-experiment, glm, muse, muse-contributor, pro, qwen-flash, qwen-max, qwen-plus, qwen36-flash, qwen37-max, spark-flash, studio-flash, studio-pro · composite a64fcd6d048603ecb1767b229fa0fb6a30d9ae7cda92a47cdc82360d9ee3ddd1 plugin 074d1b111148cd3f1770a5afc23e1589fbef61cc940c49385e97da8117e2eda5 (no declared wrapper_digest)
 warn     lanetally: binary 'claude-lanetally' not found — seats resolving to this provider will fail to spawn …
 ok       boundaries: namespace (bubblewrap 0.11.0) · harness · open offered; seatbelt built by slice (ii) of decision 0046 ruling 6 (sandbox-exec not on PATH); container built by slice (iii) (docker found)
 ```
@@ -31,6 +31,88 @@ decline. It reads package metadata, the profile manifest, lock, plugin
 and patch files and spawns only the `dsh` and `node` version probes; it
 opens no seat's gate and grants no exemption from the current-restriction
 proof.
+
+The **version and the composite come from one resolved installation.**
+The seam is resolved once and the `--version` probe runs on the
+executable it selected, so a `BROKKR_DSH_BIN` override moves both halves
+of the line together. Until task 8.8(c) closed this, doctor probed the
+bare declared `dsh` on `PATH` while the composite followed the override,
+and the line could report a version from one install beside a digest from
+another. An executable the seam selected that does not answer is reported
+as missing by that name; no `PATH` decoy is tried in its place, and no
+composite is computed for an installation this machine could not reach. A
+failed `$DSH_HOME` is the other way round: it is a named composite
+failure that leaves the version visible, never evidence that the binary
+is missing.
+
+Resolving the seam once means resolving it the way the child would —
+the platform's rule and nothing else. On Unix a program is a path if and
+only if it contains `/`; a backslash, a drive-like spelling, an extension
+or a space is an ordinary filename byte, so an override spelled
+`C:\Tools\dsh.exe` is a NAME searched on `PATH`, never a file in the
+working directory. A bare name is searched along `PATH` under the
+spawning rules: an entry that is empty names the working directory, and a
+candidate that is present but not executable is walked past rather than
+taken — so a non-executable `A/dsh` sitting ahead of a real `B/dsh`
+cannot pair B's version with A's digest. With no `PATH` in the
+environment at all, the C library's own default search path is consulted,
+exactly as `execvp` does: a name that sits there is selected, a name that
+does not is reported as missing from that default search, and the
+working directory is never searched. On Windows the search is the one
+the standard library's `Command` runs. The line then names the FILE the
+search chose, not the word that was looked up; a name that resolves to
+nothing keeps its declared spelling, so a missing provider still reports
+what was looked for.
+
+One thing is refused rather than guessed: a candidate whose loading
+prerequisite cannot be established without executing it. A script naming
+an interpreter that is missing, an interpreter whose own dynamic loader is
+missing, or a native image whose loader is missing is walked past by the
+kernel at `exec`, so a spawning child would run the next entry; doctor
+does not run either. It refuses at that candidate, names the missing
+interpreter or loader, and probes nothing, because a version probe that
+discovered the obstruction first would already have executed a guess.
+
+The executable is run as the search found it — the candidate path, under
+the name that was looked up — and never as the canonical file behind it:
+the file is the installation's identity, and the invocation is what a
+child of Brokkr would actually run. A `dsh` that is the platform's `env`
+utility under another name is refused at selection for that reason,
+because what `env` does under a name that is not its own differs between
+implementations and is not established without executing it. So is an
+`env` launcher whose `#!` line names no program: the kernel hands `env`
+the launcher itself, which would run it again without end.
+
+Where the composite cannot be read, the line says which component
+refused and keeps the declaration context without inventing a comparison:
+
+```
+warn     dsh: 0.1.5-rc.2 · serves … · composite unreadable: the DSH layout is unreadable: bundle 'dsh-plugin-cli-session' does not resolve: no package.json found (declared wrapper_digest <digest>; comparison unavailable)
+```
+
+The home's profile and pnpm lock are read BEFORE anything is executed. A
+lock that is there and is refused — malformed, over the size bound, not a
+document YAML reads — stops the line before the version probe and before
+the Node probe, so neither program runs for it. The executable was
+selected and is not missing, and the line says exactly that:
+
+```
+warn     dsh: binary '<selected path>' selected and not probed · serves … · composite unreadable: pnpm lock is unreadable: pnpm lock exceeds 8388608-byte limit (declared wrapper_digest <digest>; comparison unavailable)
+```
+
+A home, profile or lock that is not found at all is a different fact: the
+executable's availability does not depend on it, so the version is still
+reported beside the reason no composite could be read.
+
+The digests in the sample above are the **measured-fixture** values: what
+the sole Rust producer computes over the recorded rc.2 inputs — the
+311,184-byte hidden npm lock, the 1,982-byte profile pnpm lock, the
+217-byte profile patch and the six committed plugin files — materialized
+at D6's locators in
+`crates/brokkr-protocol/src/adapters/composite/tests.rs`. They are a
+fixture result, not a reading of a retained home: task 10.7's doctor
+recording on the live pair, and the `wrapper_digest` declaration that
+would follow it, are both still pending.
 
 The `boundaries` line (decision
 [0046](../decisions/0046-the-boundary-is-named.md) ruling 2) names what

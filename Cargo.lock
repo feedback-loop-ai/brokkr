@@ -361,6 +361,7 @@ name = "brokkr-protocol"
 version = "0.10.0"
 dependencies = [
  "hex",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

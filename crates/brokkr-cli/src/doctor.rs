@@ -9,7 +9,10 @@ use std::process::Command;
 use std::time::Duration;
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::{dsh_composite, DshComposite, DshSeams};
+use brokkr_protocol::adapters::{
+    dsh_composite_prepared, DshComposite, DshInvocation, DshPrepared, DshSeams, DshSelection,
+    DshUnprepared, DshUnselected,
+};
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
@@ -168,41 +171,97 @@ impl Surface {
     }
 }
 
-/// How doctor reads the DSH composite: a warning flag and the detail
-/// appended to the provider's line. Injected so the shipped tests build
-/// synthetic homes instead of resolving the operator's real one.
-type CompositeProbe = fn(&Adapter) -> (bool, String);
+/// What doctor observed of one provider's binary: the executable it
+/// actually looked for, the version that executable answered with, and
+/// the provider-specific suffix its line carries.
+struct Observed {
+    /// The executable probed. For every provider but DSH this is the
+    /// declared `adapter.binary`; for DSH it is what the adapter's own
+    /// seam selected, which is the whole of the 8.8(c) correction.
+    binary: String,
+    version: Option<String>,
+    warning: bool,
+    suffix: String,
+    /// Why no executable was selected, when selection itself failed:
+    /// the cause rides beside the declared spelling into the
+    /// unavailable line, so an absent `PATH` is reported as an absent
+    /// `PATH` rather than as a binary nobody looked for (security hold
+    /// 2026-09-20, S1). `None` for every probe that had an executable.
+    cause: Option<String>,
+}
+
+/// How doctor reads the DSH provider line: one seam resolution, the
+/// version of THAT executable, and the composite over the same seams.
+/// Injected so the shipped tests build synthetic homes instead of
+/// resolving the operator's real one.
+type CompositeProbe = fn(&Adapter, fn(&str) -> Option<String>) -> Observed;
 
 /// The composite's canonical digest and plugin component, as the detail
 /// line and the qualification record both need them. Named rather than
 /// inline so a unit test can read the mapping without a DSH install; the
-/// real `dsh_composite_line` reaches it only through the real seams.
+/// real `dsh_provider_line` reaches it only through the real seams.
 fn composite_identity(composite: DshComposite) -> (String, String) {
-    (composite.canonical, composite.plugin)
+    (
+        composite.canonical().to_string(),
+        composite.plugin().to_string(),
+    )
 }
 
-/// The composite detail for the DSH provider line (task 8.8(c)): the
-/// digest the adapter's own seam resolution reads, or the component that
-/// made it unreadable, and whether it equals, differs from or has no
-/// declared `wrapper_digest`. The detail is informational while no
-/// `supported` shape declares one; it is a warning when a supported
-/// shape's composite differs or is unreadable.
-fn dsh_composite_line(adapter: &Adapter) -> (bool, String) {
-    dsh_composite_line_with(adapter, || {
-        DshSeams::resolve()
-            .and_then(|seams| dsh_composite(&seams))
+/// The DSH provider line (task 8.8(c)).
+///
+/// The version and the composite must describe ONE installation. Before
+/// this correction doctor probed the bare declared `adapter.binary` on
+/// PATH while the composite followed the adapter's seam, so a
+/// `BROKKR_DSH_BIN` override produced a version from the PATH install
+/// beside a digest from the overridden one (measured both ways,
+/// 2026-09-19). Both halves now come from one `DshSeams::selected`, and
+/// nothing is probed unless that selection SUCCEEDED: the first routing
+/// through the seam probed the declared spelling after a failed lookup,
+/// which under an absent `PATH` executed a `dsh` sitting in the working
+/// directory (security hold 2026-09-20, S1).
+///
+/// The report's ordinary probe runs a NAME, and is not used here: DSH is
+/// probed as the INVOCATION its selection carries (`invocation_version`).
+fn dsh_provider_line(adapter: &Adapter, _: fn(&str) -> Option<String>) -> Observed {
+    dsh_provider_line_probing(adapter, invocation_version)
+}
+
+/// `dsh_provider_line` over an injected version probe and the real seams.
+fn dsh_provider_line_probing(
+    adapter: &Adapter,
+    probe: fn(&DshInvocation) -> Option<String>,
+) -> Observed {
+    dsh_provider_line_with(adapter, probe, DshSeams::selected, |prepared| {
+        dsh_composite_prepared(prepared)
             .map(composite_identity)
             .map_err(|error| error.to_string())
     })
 }
 
-/// `dsh_composite_line` over an injected composite producer, so the
-/// success arm is a plain test without a real DSH install and its node
-/// probe. Production reaches it only through the real seams.
-fn dsh_composite_line_with(
+/// The version of a SELECTED executable, asked as native asks it: the
+/// candidate the seam's search found, under the name it was looked up
+/// by. Probing the canonical target instead reported `env`'s version for
+/// a `dsh` symlinked to it, where native exits 1 on the name mismatch
+/// (review of run `124cca78`, R2). Nothing is searched for again: the
+/// invocation's program is a path.
+fn invocation_version(invocation: &DshInvocation) -> Option<String> {
+    let out = invocation.command().arg("--version").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(safe_line(&out.stdout))
+}
+
+/// `dsh_provider_line` over an injected seam resolver and composite
+/// producer, so every disposition is a plain test without a real DSH
+/// install and its node probe. Production reaches it only through the
+/// real seams.
+fn dsh_provider_line_with(
     adapter: &Adapter,
-    probe: impl FnOnce() -> Result<(String, String), String>,
-) -> (bool, String) {
+    probe: impl Fn(&DshInvocation) -> Option<String>,
+    selected: impl FnOnce() -> Result<DshSelection, DshUnselected>,
+    composite: impl FnOnce(&DshPrepared) -> Result<(String, String), String>,
+) -> Observed {
     // The DSH work shape's name, one spelling in Rust so the guide
     // sample and this line cannot drift apart silently.
     const DSH_SHAPE: &str = "headless-work";
@@ -212,19 +271,88 @@ fn dsh_composite_line_with(
         ResumeIdentity::Unknown { .. } => None,
     });
     let supported = shape.is_some_and(|shape| shape.status == ResumeStatus::Supported);
-    match probe() {
-        Ok((digest, plugin)) => {
-            composite_detail(declared.as_deref(), supported, Ok((&digest, &plugin)))
+    // One resolution of both seams, matched BEFORE anything is probed.
+    // A failed selection has no executable: the declared spelling and
+    // the cause go to the report, and neither DSH nor Node is spawned.
+    // A failed home leaves a successful selection intact: it is a named
+    // composite failure, not evidence that the binary is missing.
+    let DshSelection {
+        executable: binary,
+        admission,
+    } = match selected() {
+        Ok(selection) => selection,
+        Err(DshUnselected { declared, cause }) => {
+            return Observed {
+                binary: declared,
+                version: None,
+                warning: false,
+                suffix: String::new(),
+                cause: Some(cause.to_string()),
+            };
         }
-        Err(error) => composite_detail(declared.as_deref(), supported, Err(&error)),
+    };
+    // The home's profile and pnpm lock were admitted with the selection,
+    // BEFORE this point, and the admission is what holds the invocation.
+    // A located lock that failed it leaves nothing to probe: the refusal
+    // is reported beside the declaration, with no version, and neither
+    // DSH nor Node runs for a lock YAML refuses (R1, R3). A home that was
+    // never located is a different fact — the executable's availability
+    // does not depend on it — so its invocation is still asked.
+    let (invocation, prepared) = match admission {
+        Ok(prepared) => (prepared.invocation().clone(), Ok(prepared)),
+        Err(DshUnprepared::Unlocated { invocation, cause }) => (invocation, Err(cause.to_string())),
+        Err(DshUnprepared::Refused { cause }) => {
+            let cause = cause.to_string();
+            let (warning, suffix) = composite_detail(declared.as_deref(), supported, Err(&cause));
+            return Observed {
+                binary,
+                version: None,
+                warning,
+                suffix,
+                cause: None,
+            };
+        }
+    };
+    let version = probe(&invocation);
+    if version.is_none() {
+        // The executable doctor selected did not answer. Nothing the
+        // composite could say describes an installation this report
+        // reached, and a PATH decoy is never tried in its place.
+        return Observed {
+            binary,
+            version,
+            warning: false,
+            suffix: String::new(),
+            cause: None,
+        };
+    }
+    let identity = prepared.and_then(|prepared| composite(&prepared));
+    let (warning, suffix) = match &identity {
+        Ok((digest, plugin)) => {
+            composite_detail(declared.as_deref(), supported, Ok((digest, plugin)))
+        }
+        Err(error) => composite_detail(declared.as_deref(), supported, Err(error)),
+    };
+    Observed {
+        binary,
+        version,
+        warning,
+        suffix,
+        cause: None,
     }
 }
 
-/// The pure classifier behind `dsh_composite_line`, so every disposition
+/// The pure classifier behind `dsh_provider_line`, so every disposition
 /// is a plain test: informational while no `supported` shape declares a
 /// digest; a warning flag only when one does and the composite differs
 /// or is unreadable. The `Ok` pair carries the canonical composite and
 /// the plugin component, both of which the qualification record needs.
+///
+/// An unreadable composite has no equality result, so it reports neither
+/// `matches` nor `differs`. It keeps the declaration context all the
+/// same: whether a digest was declared is a fact doctor knows even when
+/// it could not read the installation to compare against (design D10's
+/// doctor state decision).
 fn composite_detail(
     declared: Option<&str>,
     supported: bool,
@@ -245,10 +373,21 @@ fn composite_detail(
                 format!("composite {digest} plugin {plugin} ({detail})"),
             )
         }
-        Err(error) => (
-            supported && declared.is_some(),
-            format!("composite unreadable: {error}"),
-        ),
+        Err(error) => {
+            let detail = match declared {
+                Some(declared) => {
+                    format!("declared wrapper_digest {declared}; comparison unavailable")
+                }
+                None => "no declared wrapper_digest".to_string(),
+            };
+            // The reason came from a filesystem, a lock file or a child
+            // process, so it is output doctor did not author.
+            let reason = Safe::new(error).as_str().to_string();
+            (
+                supported && declared.is_some(),
+                format!("composite unreadable: {reason} ({detail})"),
+            )
+        }
     }
 }
 
@@ -277,13 +416,29 @@ fn probe_providers(
             true => "serves no abstract model yet".to_string(),
             false => format!("serves {}", models.join(", ")),
         };
-        match probe(&adapter.binary) {
+        // DSH resolves its own executable through the adapter seam, so
+        // its version and its composite describe one installation; every
+        // other provider keeps the declared name and the bare probe.
+        let observed = match adapter.provider.as_str() {
+            "dsh" => composite(adapter, probe),
+            _ => Observed {
+                binary: adapter.binary.clone(),
+                version: probe(&adapter.binary),
+                warning: false,
+                suffix: String::new(),
+                cause: None,
+            },
+        };
+        let Observed {
+            binary,
+            version,
+            warning,
+            suffix,
+            cause,
+        } = observed;
+        match version {
             Some(version) => {
                 availability.record(&adapter.provider, Presence::Available);
-                let (warning, suffix) = match adapter.provider.as_str() {
-                    "dsh" => composite(adapter),
-                    _ => (false, String::new()),
-                };
                 let detail = match suffix.is_empty() {
                     true => format!("{version} · {serves}"),
                     false => format!("{version} · {serves} · {suffix}"),
@@ -294,6 +449,19 @@ fn probe_providers(
                     report.ok(&adapter.provider, detail);
                 }
             }
+            // Selected, and deliberately NOT probed: the refusal that
+            // stopped the probe rides in the suffix. It is not a missing
+            // binary, and saying so would send an operator holding a
+            // malformed pnpm lock to reinstall an executable that is
+            // there; nothing is recorded about an availability that was
+            // never asked.
+            None if !suffix.is_empty() => {
+                let binary = Safe::new(&binary).as_str().to_string();
+                report.warn(
+                    &adapter.provider,
+                    format!("binary '{binary}' selected and not probed · {serves} · {suffix}"),
+                );
+            }
             None => {
                 availability.record(&adapter.provider, Presence::Unavailable);
                 // The advice, where the operator wrote one, comes from
@@ -303,12 +471,23 @@ fn probe_providers(
                     Some(hint) => format!(" ({hint})"),
                     None => String::new(),
                 };
+                // The binary is an operator's override or a seam's
+                // selection and the cause came from a filesystem lookup:
+                // neither is output doctor authored, so both go through
+                // `Safe` at this, their only interpolation. Rendered raw,
+                // a nonexistent override carrying a newline and a
+                // clear-screen sequence reached the terminal verbatim
+                // (security hold 2026-09-20, S2).
+                let binary = Safe::new(&binary).as_str().to_string();
+                let cause = match cause {
+                    Some(cause) => format!(": {}", Safe::new(&cause).as_str()),
+                    None => String::new(),
+                };
                 report.warn(
                     &adapter.provider,
                     format!(
-                        "binary '{}' not found — seats resolving to this provider \
-                         will fail to spawn{hint} · {serves}",
-                        adapter.binary
+                        "binary '{binary}' not found{cause} — seats resolving to this \
+                         provider will fail to spawn{hint} · {serves}"
                     ),
                 );
             }
@@ -516,7 +695,7 @@ pub fn doctor(
                 &workspace,
             )
         }),
-        dsh_composite_line,
+        dsh_provider_line,
     );
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
@@ -732,8 +911,14 @@ fn report_realm_dialects(
 /// for the DSH composite reader, so a report is assembled without a
 /// provider home on disk.
 #[cfg(test)]
-fn no_composite(_: &Adapter) -> (bool, String) {
-    (false, String::new())
+fn no_composite(adapter: &Adapter, probe: fn(&str) -> Option<String>) -> Observed {
+    Observed {
+        binary: adapter.binary.clone(),
+        version: probe(&adapter.binary),
+        warning: false,
+        suffix: String::new(),
+        cause: None,
+    }
 }
 
 /// The machine's report in no realm: what every unit test asks, and
