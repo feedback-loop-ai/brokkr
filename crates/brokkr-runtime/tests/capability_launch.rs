@@ -254,6 +254,76 @@ fn off_pairs(argv: &[String]) -> usize {
     argv.windows(2).filter(|pair| *pair == OFF).count()
 }
 
+const THREAD: &str = "0198c0de-5e55-7000-8000-000000000001";
+
+/// A stand-in `codex` that answers the version probe with the version the
+/// shipped assessment is qualified against, and nothing else: composing a
+/// launch runs no model. Staged beside its name and renamed in, so the
+/// file is never open for writing when it is executed.
+#[cfg(unix)]
+fn codex_reporting(dir: &Path, version: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let staged = dir.join("codex.staged");
+    std::fs::write(
+        &staged,
+        format!("#!/bin/sh\nprintf 'codex-cli {version}\\n'\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let shim = dir.join("codex");
+    std::fs::rename(&staged, &shim).unwrap();
+    shim
+}
+
+/// The argv of an ACTUAL rejoin of one compiled Codex site: the same
+/// composition [`launch`] makes, with what the engine writes for a site
+/// whose session is offered — the site's confinement markers exactly as
+/// `mark_hands` states them, the resume assessment the bundle COMPILED for
+/// the site (the shipped adapter's, never a test's), and the capability
+/// plan its outcome resolved to.
+#[cfg(unix)]
+fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
+    let facts = &bundle.sites[label];
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[0];
+    let (argv, assessment, boundary) = match facts.chain.first() {
+        Some(link) => (link.argv.clone(), link.resume.value(), "harness"),
+        None => match &bundle.seats[label].body {
+            SeatBody::Single { command, .. } => (
+                command.clone(),
+                facts.inline_resume.clone().expect("an inline codex seat"),
+                "not applicable",
+            ),
+            _ => panic!("{label} is a single seat"),
+        },
+    };
+    let argv = brokkr_runtime::engine::compose_site(
+        brokkr_runtime::engine::BuiltBoundary::Harness,
+        brokkr_runtime::SeatClass::Work,
+        argv,
+        bundle.hands.get(label),
+        facts.chain.first(),
+        Path::new("/w"),
+        &[],
+        "/w/result.json",
+        None,
+    )
+    .argv;
+    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
+    let input = json!({
+        "workdir": "/w", "seat": label, "boundary": boundary, "hands": "none",
+        "resume_context": {"assessment": assessment},
+        "native_controls": outcome.controls(),
+    });
+    brokkr_protocol::adapters::codex_command(
+        shim.to_str().unwrap(),
+        extra,
+        "/w",
+        Some(THREAD),
+        &input,
+    )
+    .unwrap_or_else(|refusal| panic!("{label} refused: {refusal}"))
+}
+
 /// The seat's own controls survive beside the managed one.
 fn assert_intact(argv: &[String], label: &str) {
     for expected in [
@@ -388,6 +458,68 @@ fn a_codex_seat_that_holds_search_is_launched_without_the_off_pair() {
              cannot carry a binding to provider 'codex'; native capability remains OFF"
         );
         assert!(chain.outcomes[1].notices.is_empty());
+    }
+}
+
+/// Ruling 5's launch on the RESUME argv, from compiled seats rather than a
+/// hand-written plan: an inline and an agent-backed unboxed Codex work
+/// seat, each way round, offered the session they opened. What comes back
+/// is an actual `exec resume` — the offered thread, the stdin positional,
+/// the re-imposed sandbox class and effort — and it carries the OFF pair
+/// exactly when the seat does not hold search, placed before the two
+/// positionals. A cold fallback would have no `resume` in it and fails
+/// here; it is never counted as this proof. The assessment is the shipped
+/// adapter's, so the eligibility being exercised is production's.
+///
+/// Composition evidence only: whether a RESUMED codex session honours the
+/// switch is unmeasured and owed to the controller.
+#[cfg(unix)]
+#[test]
+fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_round() {
+    let operator = Operator::new();
+    let shim = codex_reporting(operator.root(), "0.154.0");
+    let shim_path = shim.to_str().unwrap().to_string();
+    for (case, context, denied) in [
+        (
+            "denied",
+            CapabilityContext::no_grants("private", operator.root()),
+            true,
+        ),
+        (
+            "held",
+            operator.context(json!({"web-search": {"dialect": "codex-native-search"}})),
+            false,
+        ),
+    ] {
+        let bundle = operator
+            .compile(
+                &context,
+                Boundary::Harness,
+                Some(json!({"web-search": "wants"})),
+                None,
+            )
+            .unwrap();
+        for label in ["inline", "agent"] {
+            let argv = rejoin(&bundle, label, &shim);
+            let mut expected = vec![
+                shim_path.clone(),
+                "exec".into(),
+                "resume".into(),
+                "--json".into(),
+                "-c".into(),
+                "sandbox_mode=\"workspace-write\"".into(),
+                "-c".into(),
+                "model_reasoning_effort=\"high\"".into(),
+                "--model".into(),
+                "gpt-6-astra".into(),
+            ];
+            if denied {
+                expected.extend(OFF.map(String::from));
+            }
+            expected.extend([THREAD.to_string(), "-".to_string()]);
+            assert_eq!(argv, expected, "{case} {label}: the whole resumed argv");
+            assert_eq!(off_pairs(&argv), usize::from(denied), "{case} {label}");
+        }
     }
 }
 
