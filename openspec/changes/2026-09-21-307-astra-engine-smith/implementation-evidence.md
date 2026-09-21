@@ -169,6 +169,19 @@ passed unedited.
 | `openspec archive 2026-09-21-307-astra-engine-smith --yes` (task 8.1) | **not run — pending**, for the same reason, and because the fold waits on tasks 7.3 and 7.4. |
 | `bash scripts/coverage-exact.sh` | **not run — pending.** This seat's permission layer declined the script (it needs an approval a non-interactive seat cannot receive), and its commands were not replayed by hand around that refusal. |
 
+The gate's *measurement* was reproduced with the commands the script itself
+runs, which this seat may run because they are plain `cargo`: on revision
+`1f2ace94` with a clean tree, `cargo +nightly-2026-09-05 llvm-cov clean
+--workspace`, then `cargo +nightly-2026-09-05 llvm-cov --workspace
+--all-features --locked --branch --json`, then `llvm-cov report --branch
+--lcov`. Every test passed under instrumentation. The script's harness-leak
+`jq` check answered `true`, and the LCOV tallied by the script's own rule
+(every `DA` and `BRDA` record hit; functions deduplicated by file and `FN`
+start line) gave **lines 32530/32530, branches 5466/5466, functions
+3161/3161**. That is a reproduction by this seat, not the script's run and
+not its `coverage-summary.json` artifact, so task 7.3 is still not ticked on
+it; the authoritative run remains the host's or CI's.
+
 On coverage, as description only: every Rust line this slice adds or removes
 sits in a path the script itself classes as test harness
 (`tests.rs`, `*_tests.rs`, `tests/`), which its production report excludes;
