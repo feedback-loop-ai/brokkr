@@ -303,6 +303,25 @@ fn an_invalid_definition_is_refused_naming_the_file_and_the_closed_vocabulary() 
     );
 }
 
+/// The default `agents` library root has the EMPTY path for a parent, and
+/// the empty path does not canonicalize: read as "nothing is inside it",
+/// every definition of an operator standing in their own configuration
+/// directory was refused as an escape. The empty root is the directory the
+/// caller stands in — here the crate's, whose embedded contract is a JSON
+/// document at a known relative path.
+#[test]
+fn an_empty_root_is_the_directory_the_caller_stands_in() {
+    let (contract, digest) = read_document(Path::new(""), "src/tool-dialect.v1.schema.json")
+        .unwrap()
+        .expect("the crate's embedded contract is readable from its own directory");
+    assert_eq!(contract["title"], "Brokkr tool dialect v1");
+    assert_eq!(
+        digest,
+        sha256_bytes(include_bytes!("../tool-dialect.v1.schema.json"))
+    );
+    assert_eq!(read_document(Path::new(""), "src/absent.json"), Ok(None));
+}
+
 #[cfg(unix)]
 #[test]
 fn a_definition_cannot_be_read_from_outside_the_operators_directory() {
@@ -1011,6 +1030,20 @@ fn provider_compatibility_cannot_expand_a_holding() {
     assert_eq!(
         dropped.manifest()["native"],
         json!({"inventory": "unmeasured", "reason": "never probed", "declaration": "d1ge57"})
+    );
+    // Nor does a binding to ANOTHER provider make an unmeasured one deny
+    // anything: the mismatch loses the want, and the notice claims an OFF
+    // only where this candidate's own plan composed one (NC5) — which is
+    // what a dsh or LaneTally link beside a Codex grant is.
+    let elsewhere = Serving {
+        provider: "dsh",
+        ..serving(&unmeasured)
+    };
+    assert_eq!(
+        granted.resolve(&wanting, &elsewhere).unwrap().notices[0].1,
+        "seat 'research' (office 'researcher') in realm 'private': dropped wanted capability \
+         'web-search' through dialect 'search-native' because provider 'dsh' cannot carry a \
+         binding to provider 'test-native'; no native denial is claimed"
     );
     assert_eq!(
         dropped.controls(),

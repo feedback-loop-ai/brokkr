@@ -306,6 +306,10 @@ impl SiteAsks {
 /// inside `root` after symlinks resolve. `Ok(None)` is a file that is
 /// not there.
 fn read_document(root: &Path, relative: &str) -> Result<Option<(Value, String)>, String> {
+    // An EMPTY root is the directory the caller stands in — what the
+    // default `agents` library root's parent is — and an empty path does
+    // not canonicalize; an absolute root replaces the `.` it is joined to.
+    let root = &Path::new(".").join(root);
     let path = root.join(relative);
     let Ok(canonical) = path.canonicalize() else {
         return Ok(None);
@@ -935,11 +939,12 @@ impl SiteCapabilities {
 }
 
 /// Why an ask is not held. `through` names the dialect once a grant was
-/// found; `denied` says whether a native OFF stands behind the loss.
+/// found. Whether a native OFF stands behind the loss is NOT decided
+/// here: only the candidate's native plan knows what was switched off, and
+/// a provider whose inventory is unmeasured denies nothing it can show.
 struct Cause {
     through: Option<String>,
     but: String,
-    denied: bool,
 }
 
 /// The dotted paths of a restriction object's leaves: `allow.hosts`.
@@ -1138,11 +1143,7 @@ impl Authority {
         capability: &str,
         serving: &Serving<'_>,
     ) -> Result<(Holding, String), Cause> {
-        let bare = |but: String| Cause {
-            through: None,
-            but,
-            denied: true,
-        };
+        let bare = |but: String| Cause { through: None, but };
         let Some(grant) = self.context.grants.get(capability) else {
             return Err(bare("the realm does not grant it to this office".into()));
         };
@@ -1157,97 +1158,78 @@ impl Authority {
             }));
         }
         let dialect = &self.dialects[capability];
-        let through = |but: String, denied: bool| Cause {
+        let through = |but: String| Cause {
             through: Some(dialect.name.clone()),
             but,
-            denied,
         };
         let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
         if tools.is_empty() {
-            return Err(through("the realm's grant admits no tool".into(), true));
+            return Err(through("the realm's grant admits no tool".into()));
         }
         let provider = serving.provider;
         let (bound, adapter_key) = &self.bindings[capability];
         if bound != provider {
-            return Err(through(
-                format!("provider '{provider}' cannot carry a binding to provider '{bound}'"),
-                true,
-            ));
+            return Err(through(format!(
+                "provider '{provider}' cannot carry a binding to provider '{bound}'"
+            )));
         }
         let known = match serving.native {
             Some((NativeInventory::Known { known, .. }, _)) => known,
             Some((NativeInventory::Unmeasured(reason), _)) => {
-                return Err(through(
-                    format!(
-                        "provider '{provider}' declares its native capabilities unmeasured \
-                         ({reason})"
-                    ),
-                    false,
-                ))
+                return Err(through(format!(
+                    "provider '{provider}' declares its native capabilities unmeasured \
+                     ({reason})"
+                )))
             }
             None => {
-                return Err(through(
-                    format!("no adapter declares provider '{provider}'"),
-                    false,
-                ))
+                return Err(through(format!(
+                    "no adapter declares provider '{provider}'"
+                )))
             }
         };
         let Some(native) = known
             .get(adapter_key)
             .filter(|native| native.capability == capability)
         else {
-            return Err(through(
-                format!(
-                    "provider '{provider}' declares no native capability '{adapter_key}' \
-                     serving it"
-                ),
-                true,
-            ));
+            return Err(through(format!(
+                "provider '{provider}' declares no native capability '{adapter_key}' serving it"
+            )));
         };
         if let Some(tool) = tools.iter().find(|tool| !native.tools.contains(tool)) {
-            return Err(through(
-                format!("provider '{provider}' native '{adapter_key}' has no tool '{tool}'"),
-                true,
-            ));
+            return Err(through(format!(
+                "provider '{provider}' native '{adapter_key}' has no tool '{tool}'"
+            )));
         }
         match &native.on {
             Disposition::Unsupported(reason) => {
-                return Err(through(
-                    format!("provider '{provider}' cannot switch it on ({reason})"),
-                    true,
-                ))
+                return Err(through(format!(
+                    "provider '{provider}' cannot switch it on ({reason})"
+                )))
             }
             Disposition::Unmeasured(reason) => {
-                return Err(through(
-                    format!("provider '{provider}' declares its ON control unmeasured ({reason})"),
-                    true,
-                ))
+                return Err(through(format!(
+                    "provider '{provider}' declares its ON control unmeasured ({reason})"
+                )))
             }
             // A whole-set switch cannot admit a proper subset: it would
             // enable a tool the realm excluded.
             Disposition::Argv(_) | Disposition::Default(_) if tools.len() < native.tools.len() => {
-                return Err(through(
-                    format!(
-                        "provider '{provider}' switches native '{adapter_key}' on as a whole \
-                         and cannot admit only [{}] of its tools [{}]",
-                        tools.join(", "),
-                        native.tools.join(", ")
-                    ),
-                    true,
-                ))
+                return Err(through(format!(
+                    "provider '{provider}' switches native '{adapter_key}' on as a whole and \
+                     cannot admit only [{}] of its tools [{}]",
+                    tools.join(", "),
+                    native.tools.join(", ")
+                )))
             }
             _ => {}
         }
         if !grant.restrictions.is_empty() {
             if let Transport::Unsupported(_) = native.restrictions {
                 let names = restriction_names("", &grant.restrictions);
-                return Err(through(
-                    format!(
-                        "provider '{provider}' cannot express restriction '{}'",
-                        names.join("', '")
-                    ),
-                    true,
-                ));
+                return Err(through(format!(
+                    "provider '{provider}' cannot express restriction '{}'",
+                    names.join("', '")
+                )));
             }
         }
         let definition = &self.definitions.0[capability];
@@ -1274,7 +1256,7 @@ impl Authority {
         let mut held = BTreeMap::new();
         let mut keys: BTreeMap<String, String> = BTreeMap::new();
         let mut not_held = BTreeMap::new();
-        let mut notices = Vec::new();
+        let mut dropped: Vec<(String, String, String)> = Vec::new();
         for name in &site.subtracted {
             not_held.insert(
                 name.clone(),
@@ -1306,24 +1288,38 @@ impl Authority {
                             ),
                         });
                     }
-                    let tail = match (&cause.through, cause.denied) {
-                        (None, _) => "",
-                        (Some(_), true) => "; native capability remains OFF",
-                        (Some(_), false) => "; no native denial is claimed",
-                    };
-                    notices.push((
-                        capability.clone(),
-                        format!(
-                            "{who}: dropped wanted capability '{capability}'{through} because \
-                             {}{tail}",
-                            cause.but
-                        ),
-                    ));
+                    // `through` is empty where no grant was found at all.
+                    dropped.push((capability.clone(), through, cause.but.clone()));
                     not_held.insert(capability.clone(), cause.but);
                 }
             }
         }
         let native = self.native_plan(&who, serving, &held, &keys, &mut not_held)?;
+        // A notice claims a native OFF only where THIS candidate's plan
+        // composed one for a native power serving the capability. A
+        // provider whose inventory or OFF control is unmeasured denies
+        // nothing it can show, whatever else lost it the capability — a
+        // binding to another provider included (ruling 4; NC5).
+        let switched_off = |capability: &str| match (&native, serving.native) {
+            (NativePlan::Known { off, .. }, Some((NativeInventory::Known { known, .. }, _))) => {
+                off.iter().any(|key| known[key].capability == capability)
+            }
+            _ => false,
+        };
+        let notices = dropped
+            .into_iter()
+            .map(|(capability, through, but)| {
+                let tail = match (through.is_empty(), switched_off(&capability)) {
+                    (true, _) => "",
+                    (false, true) => "; native capability remains OFF",
+                    (false, false) => "; no native denial is claimed",
+                };
+                let message = format!(
+                    "{who}: dropped wanted capability '{capability}'{through} because {but}{tail}"
+                );
+                (capability, message)
+            })
+            .collect();
         Ok(Outcome {
             provider: serving.provider.to_string(),
             model: serving.model.map(str::to_string),

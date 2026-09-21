@@ -193,6 +193,27 @@ fn a_run_starts_only_under_the_grants_its_bundle_was_compiled_under() {
     };
     assert!(refusal.to_string().contains("grants ({})"), "{refusal}");
     assert_eq!(runs(), 0);
+    // A NEIGHBOURING realm's identical grant is not this realm's: the
+    // bundle names the realm it was resolved in, and the same map of
+    // grants under another name is another office-holder's permission.
+    let mut neighbour = compiled_under(grant.clone());
+    neighbour.manifest["capabilities"]["realm"] = json!("public");
+    let Err(refusal) = start(
+        neighbour,
+        Some(world_granting(dir.path(), &repo, grant.clone())),
+    ) else {
+        panic!("a neighbouring realm's grant must refuse");
+    };
+    assert_eq!(
+        refusal.to_string(),
+        "this bundle was compiled under the capabilities realm 'public' grants \
+         ({\"web-search\":{\"dialect\":\"codex-native-search\",\"offices\":[\"researcher\"]}}), \
+         and the world it is started with resolves realm 'private' granting \
+         {\"web-search\":{\"dialect\":\"codex-native-search\",\"offices\":[\"researcher\"]}} \
+         for the operated repository; a seat holds only what the realm it runs in \
+         grants, so recompile in this world (decision 0065 ruling 3)"
+    );
+    assert_eq!(runs(), 0);
     // The same context starts, under its compiled holdings.
     start(
         compiled_under(grant.clone()),
@@ -200,4 +221,56 @@ fn a_run_starts_only_under_the_grants_its_bundle_was_compiled_under() {
     )
     .unwrap();
     assert_eq!(runs(), 1);
+}
+
+/// A resume is refused by the existing manifest-mismatch door, and the
+/// reason NAMES capabilities (decision 0065 ruling 8): which pinned record
+/// moved — never "engine or contract version" — and, for a run pinned
+/// before the ruling, that history is not rewritten to make it resumable.
+#[test]
+fn a_resume_whose_capability_authority_moved_is_refused_by_name() {
+    let pinned = json!({"files": {}, "capabilities": {
+        "realm": "private",
+        "grants": {"web-search": {"dialect": "codex-native-search"}},
+        "definitions": {"web-search": {"sha256": "aa"}},
+        "dialects": {"codex-native-search": {"sha256": "bb"}},
+        "sites": {},
+    }});
+    let moved = |record: &str, to: Value| {
+        let mut current = pinned.clone();
+        current["capabilities"][record] = to;
+        manifest_diff(&pinned, &current)
+    };
+    let reason = |records: &str| {
+        format!(
+            "capabilities differ: the run's pinned {records} no longer match what the bundle \
+             compiles to here — a grant, an abstract definition, a tool dialect or an adapter's \
+             native declaration was added, removed or edited since the run started"
+        )
+    };
+    // A grant added to today's map, a definition's bytes, a dialect's.
+    assert_eq!(moved("grants", json!({})), reason("grants"));
+    assert_eq!(
+        moved("definitions", json!({"web-search": {"sha256": "cc"}})),
+        reason("definitions")
+    );
+    assert_eq!(moved("dialects", json!({})), reason("dialects"));
+    // An adapter's native declaration rides each site's candidate record.
+    assert_eq!(moved("sites", json!({"work": {}})), reason("sites"));
+    let mut both = pinned.clone();
+    both["capabilities"]["realm"] = json!("public");
+    both["capabilities"]["grants"] = json!({});
+    assert_eq!(manifest_diff(&pinned, &both), reason("realm, grants"));
+    // A run pinned before the ruling has no such section at all.
+    assert_eq!(
+        manifest_diff(&json!({"files": {}}), &pinned),
+        "capabilities differ: the run was pinned before decision 0065 and records no \
+         capability authority, which every bundle compiled now carries; a historical run is \
+         never rewritten to resume under authority it was not started with"
+    );
+    // And the older doors still answer first and last.
+    assert_eq!(
+        manifest_diff(&json!({"engine": "old"}), &json!({"engine": "new"})),
+        "non-file manifest fields differ (engine or contract version)"
+    );
 }

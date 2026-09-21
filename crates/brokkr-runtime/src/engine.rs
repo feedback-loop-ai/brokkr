@@ -369,16 +369,18 @@ impl Engine {
             .flat_map(|realm| &realm.grants)
             .map(|(capability, grant)| (capability.clone(), grant.value()))
             .collect();
-        // What is compared is the GRANTS, which is the authority: a bundle
-        // that records none was compiled under none.
+        // What is compared is the realm and its GRANTS, which is the
+        // authority: a bundle that records none was compiled under none,
+        // and a neighbouring realm granting the very same map is still a
+        // different office-holder's permission, not this one's.
         let compiled = &bundle.manifest["capabilities"];
         let compiled_grants = compiled.get("grants").cloned().unwrap_or_else(|| json!({}));
-        if compiled_grants != json!(world_grants) {
+        let compiled_realm = compiled["realm"]
+            .as_str()
+            .unwrap_or(crate::capabilities::UNMAPPED);
+        if compiled_grants != json!(world_grants) || compiled_realm != world_realm {
             return Err(EngineError::CapabilityMismatch {
-                compiled_realm: compiled["realm"]
-                    .as_str()
-                    .unwrap_or(crate::capabilities::UNMAPPED)
-                    .to_string(),
+                compiled_realm: compiled_realm.to_string(),
                 compiled: compiled_grants.to_string(),
                 world_realm: world_realm.to_string(),
                 world: Value::Object(world_grants).to_string(),
@@ -4690,6 +4692,30 @@ fn manifest_diff(pinned: &Value, current: &Value) -> String {
             current
                 .get("boundary")
                 .map_or("no boundary".to_string(), Value::to_string)
+        );
+    }
+    // So is capability authority (decision 0065 ruling 8): a run resumes
+    // only under the grants, definitions, dialects and native declarations
+    // it was started with, and the refusal names capabilities and says
+    // which record moved. A run pinned before the ruling carries no such
+    // section, and is never rewritten to resume under authority it was not
+    // started with.
+    if pinned.get("capabilities") != current.get("capabilities") {
+        let Some(was) = pinned.get("capabilities") else {
+            return "capabilities differ: the run was pinned before decision 0065 and records no \
+                    capability authority, which every bundle compiled now carries; a historical \
+                    run is never rewritten to resume under authority it was not started with"
+                .to_string();
+        };
+        let moved: Vec<&str> = ["realm", "grants", "definitions", "dialects", "sites"]
+            .into_iter()
+            .filter(|record| was.get(record) != current.pointer(&format!("/capabilities/{record}")))
+            .collect();
+        return format!(
+            "capabilities differ: the run's pinned {} no longer match what the bundle compiles \
+             to here — a grant, an abstract definition, a tool dialect or an adapter's native \
+             declaration was added, removed or edited since the run started",
+            moved.join(", ")
         );
     }
     "non-file manifest fields differ (engine or contract version)".to_string()

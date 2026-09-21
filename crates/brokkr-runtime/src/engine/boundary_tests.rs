@@ -100,6 +100,14 @@ fn boxed_bundle(dir: &Path, boundary: Boundary, command: Vec<String>) -> Bundle 
     bundle
 }
 
+/// The same bundle, compiled in `realm` and granted nothing: the start
+/// fence reads the realm a bundle was resolved in beside the boundary it
+/// was compiled under (decision 0065 ruling 3).
+fn compiled_in(realm: &str, mut bundle: Bundle) -> Bundle {
+    bundle.manifest["capabilities"] = json!({"realm": realm, "grants": {}});
+    bundle
+}
+
 fn store_at(dir: &Path) -> Store {
     Store::open(&dir.join("forge.db")).unwrap()
 }
@@ -161,7 +169,10 @@ fn the_engine_starts_a_run_only_under_the_boundary_its_bundle_was_compiled_under
     // its `run/started` manifest's `boundary` map says so.
     let started = Engine::start_in_world(
         store_at(dir.path()),
-        boxed_bundle(dir.path(), Boundary::Harness, command.clone()),
+        compiled_in(
+            "app",
+            boxed_bundle(dir.path(), Boundary::Harness, command.clone()),
+        ),
         "f",
         Some(work.clone()),
         Some(world(dir.path(), Some("harness"))),
@@ -183,7 +194,7 @@ fn the_engine_starts_a_run_only_under_the_boundary_its_bundle_was_compiled_under
     std::fs::write(&here, map.to_string()).unwrap();
     let started = Engine::start_in_world(
         store_at(dir.path()),
-        boxed_bundle(dir.path(), Boundary::Open, command),
+        compiled_in("here", boxed_bundle(dir.path(), Boundary::Open, command)),
         "f",
         None,
         Some(World::load(&here).unwrap()),
@@ -279,7 +290,7 @@ fn a_boundary_this_engine_does_not_build_refuses_at_every_entry_before_any_row()
     plain.boundary = Boundary::Seatbelt;
     Engine::start_in_world(
         store_at(dir.path()),
-        plain,
+        compiled_in("app", plain),
         "f",
         Some(work),
         Some(world(dir.path(), Some("seatbelt"))),
