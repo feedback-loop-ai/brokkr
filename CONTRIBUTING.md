@@ -106,7 +106,7 @@ Removal is blocked while Boa stays pinned at `=0.21.1` for the MSRV and
 the exact-served-code proof; this admission is revisited when Boa's icu
 range admits the newer normalizer.
 
-Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the nine exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; the verify seat runs them, so contributors do not need to.
+Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the eight exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; the verify seat runs them, so contributors do not need to.
 
 Contributions are dual licensed under Apache-2.0 OR MIT unless you say
 otherwise.

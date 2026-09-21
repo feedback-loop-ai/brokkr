@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Open a pull request in a sibling channel repository (the homebrew tap,
-# the scoop bucket) carrying one rendered file.
+# Open a pull request in a sibling channel repository (the homebrew
+# tap) carrying one rendered file.
 #
 #   BROKKR_TAP_TOKEN=… bash packaging/open-channel-pr.sh \
 #        --token-env BROKKR_TAP_TOKEN --repo <owner/name> \

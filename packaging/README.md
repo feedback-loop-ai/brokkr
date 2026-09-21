@@ -3,7 +3,7 @@
 One build per platform, in the release workflow, attested there. Every
 channel below hands a user *those bytes*: the `.deb` and `.rpm` are made
 by nfpm out of the binary the tarball leg already packaged, the apt and
-dnf repositories serve those package files, and homebrew, scoop and nix
+dnf repositories serve those package files, and homebrew and nix
 carry digests rendered from the release's own `SHA256SUMS`. Nothing in
 this directory builds a second binary, and nothing computes a digest of
 its own.
@@ -30,7 +30,7 @@ row through that last step.
 | `cargo binstall` | **live from v0.9.1** — the `crates` job publishes the seven crates in dependency order at each tag with `CARGO_REGISTRY_TOKEN`; v0.9.0 put up six and could not package brokkr-cli (#207) | the binstall metadata is resolved against the release matrix in CI; the job's order and its loud skip are pinned by `packaging.rs` |
 | nix flake | live from v0.9.0 — the release renders the digests and opens their pull request through the App | `nix flake check` in CI |
 | homebrew tap | **live from v0.9.0** — the release opens the tap pull request with `BROKKR_TAP_TOKEN`; the operator merges it | the render is tested in CI; the pull request is real |
-| scoop bucket | **live from v0.9.0** — same, with `BROKKR_BUCKET_TOKEN` | same |
+| scoop bucket | **retired at decision 0063** — served v0.9.0 through the last release before it; Windows is not a host, and WSL2 takes the Linux channels | — |
 
 The machinery landed at v0.6.0 with no live channel behind it; v0.9.0
 was the first release to carry the packages, the signed site, the tap,
@@ -76,8 +76,8 @@ when the run goes red. What is missing is the apt and dnf site, not the
 artifacts every other channel serves.
 
 The key's passphrase reaches gpg on stdin (`--passphrase-fd 0`) and the
-key block the same way, and the tap and bucket tokens are passed to
-`packaging/open-channel-pr.sh` by the *name* of their variable
+key block the same way, and the tap token is passed to
+`packaging/open-channel-pr.sh` by the *name* of its variable
 (`--token-env`). None of the three is ever an argument: arguments are
 readable from the runner's process table while the command runs.
 
@@ -92,22 +92,24 @@ so `apt-get install brokkr` and `apt-get upgrade` get the latest, and
 older versions are not kept. A cumulative pool across releases is a
 named follow-up below.
 
-### 3. The tap and the bucket
+### 3. The tap
 
-Two sibling repositories, created by the operator on 2026-09-02:
+One sibling repository, created by the operator on 2026-09-02:
 
 - `feedback-loop-ai/homebrew-tap`, file `Formula/brokkr.rb` — installs
   as `brew install feedback-loop-ai/tap/brokkr`
-- `feedback-loop-ai/scoop-bucket`, file `bucket/brokkr.json` — installs
-  after `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket`
 
-and two repository secrets holding a fine-grained token with
+and one repository secret holding a fine-grained token with
 `contents: write` and `pull requests: write` **on that repository only**:
 
 - `BROKKR_TAP_TOKEN`
-- `BROKKR_BUCKET_TOKEN`
 
-Until each is set the corresponding release step logs a warning and does
+The scoop bucket (`feedback-loop-ai/scoop-bucket`) was the second such
+repository. Decision 0063 retired it: the release no longer builds a
+Windows archive, the bucket carries a retirement note, and
+`BROKKR_BUCKET_TOKEN` is no longer read by any workflow.
+
+Until the token is set the release step logs a warning and does
 nothing — it never fails the release, and it never pretends it bumped a
 channel it did not.
 
@@ -201,17 +203,16 @@ reads the release's attested manifest and rewrites, in place:
 
 - `flake.nix` — version and the four unix tarball digests
 - `packaging/homebrew/brokkr.rb` — the same four
-- `packaging/scoop/brokkr.json` — version and the windows zip digest
 
 The rule is one line: a line whose trailing comment names an artifact
 gets that artifact's digest; a line tagged `# brokkr-version` gets the
 version.
 
-The two templates bound for sibling repositories are rendered on the
+The template bound for the sibling repository is rendered on the
 runner and never committed here: `packaging/open-channel-pr.sh` refuses
 to open a pull request carrying the placeholder, and the test suite
-asserts the sixty-four zeros are still in the tap formula and the scoop
-manifest, so neither can be published out of band.
+asserts the sixty-four zeros are still in the tap formula, so it
+cannot be published out of band.
 
 `flake.nix` is the exception, and deliberately: `nix profile install
 github:feedback-loop-ai/brokkr` reads the *default branch*, so the flake
@@ -230,9 +231,8 @@ packaging/nfpm-version.txt    the pinned nfpm both workflows install
 packaging/apt/build-repo.sh   pool + dists + Packages(.gz) + Release
 packaging/rpm/build-repo.sh   per-$basearch tree + repodata + brokkr.repo
 packaging/bump-from-sums.sh   renders the channel templates from SHA256SUMS
-packaging/open-channel-pr.sh  opens the tap/bucket pull request
+packaging/open-channel-pr.sh  opens the tap pull request
 packaging/homebrew/brokkr.rb  formula template
-packaging/scoop/brokkr.json   manifest template
 packaging/pages/index.html    the Pages site's front door
 packaging/aur/PKGBUILD        sketch only — see out of scope
 flake.nix                     repo root; fetches the release tarball

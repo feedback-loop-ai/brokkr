@@ -1,6 +1,6 @@
 # 0063 — Windows is not a host: Brokkr runs on Linux and macOS, and a Windows machine reaches it through WSL
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
 ## Context

@@ -51,10 +51,10 @@ not current-version references to replace.
     {"repository": "feedback-loop-ai/.github", "path": "profile/README.md", "project_url": "https://github.com/feedback-loop-ai/brokkr", "apply": "after verified publication"}
   ],
   "channels": [
-    {"name": "GitHub release", "evidence": "Five platform archives, Linux deb/rpm packages, SHA256SUMS and signed build provenance."},
+    {"name": "GitHub release", "evidence": "Four platform archives, Linux deb/rpm packages, SHA256SUMS and signed build provenance."},
     {"name": "crates.io", "evidence": "All seven workspace crates serve the new version."},
     {"name": "apt and rpm", "evidence": "The signed Pages repositories index the new packages."},
-    {"name": "Homebrew, Scoop and Nix", "evidence": "The generated channel PRs are merged and their versions and digests match the release manifest."}
+    {"name": "Homebrew and Nix", "evidence": "The generated channel PRs are merged and their versions and digests match the release manifest."}
   ],
   "extensions": [
     {"name": "workflow toolchain agreement", "instructions": "Check that CI, release admission and local coverage select the same pinned compiler.", "evidence": "Both workflows and coverage-exact.sh consume rust-nightly-version.txt."},

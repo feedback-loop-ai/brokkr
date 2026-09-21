@@ -2,7 +2,7 @@
 
 This repository's engine forges its own changes and reviews them
 adversarially. The bar for a human contribution is the bar the machine
-is already held to — nine required checks, none of them a percentage you
+is already held to — eight required checks, none of them a percentage you
 can nudge. This document is the whole walk from `git clone` to a green
 pull request, with every command written out.
 
@@ -14,7 +14,7 @@ ever looks at it.
 
 - [What you need installed](#what-you-need-installed)
 - [Fork, clone, branch](#fork-clone-branch)
-- [The nine checks](#the-nine-checks)
+- [The eight checks](#the-eight-checks)
 - [The pre-flight: let the machine review you first](#the-pre-flight-let-the-machine-review-you-first)
 - [The coverage gate, practically](#the-coverage-gate-practically)
 - [Commits, signing, and how your PR actually lands](#commits-signing-and-how-your-pr-actually-lands)
@@ -27,7 +27,7 @@ ever looks at it.
 
 The engine is Rust-only (decision
 [0009](../decisions/0009-rust-only.md)): no Python, no Node, no
-toolchain beyond cargo for the ordinary path. Three of the nine checks —
+toolchain beyond cargo for the ordinary path. Three of the eight checks —
 the MSRV, the coverage gate and the licence gate — need something beyond
 a stable toolchain.
 
@@ -76,9 +76,9 @@ Two habits from the house flow that transfer directly:
   that adds behaviour and no test fails the coverage gate anyway (see
   below), so this is not a style preference.
 
-## The nine checks
+## The eight checks
 
-All nine are required jobs in
+All eight are required jobs in
 [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml). They run on every
 pull request. This is the full list, in CI's own order:
 
@@ -88,11 +88,10 @@ pull request. This is the full list, in CI's own order:
 | 2 | `format, clippy, contracts` | `quality` | `cargo fmt`, `cargo clippy`, two `compile --bundle` runs |
 | 3 | `test (ubuntu-latest)` | `engine` | `cargo test --workspace --all-features --locked` |
 | 4 | `test (macos-latest)` | `engine` | — (your machine is one OS) |
-| 5 | `test (windows-latest)` | `engine` | — (your machine is one OS) |
-| 6 | `exact coverage gate` | `coverage` | `bash scripts/coverage-exact.sh` |
-| 7 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
-| 8 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
-| 9 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli` |
+| 5 | `exact coverage gate` | `coverage` | `bash scripts/coverage-exact.sh` |
+| 6 | `dependency licenses (cargo-deny)` | `license-compliance` | `cargo deny check licenses` |
+| 7 | `RustSec dependency audit` | `dependency-audit` | — (CI-only; see below) |
+| 8 | `release binary artifact` | `release-binary` | `cargo build --release --locked -p brokkr-cli` |
 
 The sections below are in a different order on purpose: run them from
 the repository root in the order written, cheapest refusal first, so a
@@ -287,9 +286,10 @@ test`-only path that hid a warning.
 Be honest with yourself about these two, and say so in the pull request
 if you think they are at risk:
 
-- **The three-OS matrix.** Checks 3–5 are the same command on Ubuntu,
-  macOS and Windows. You ran one. Path separators, line endings and
-  anything touching the filesystem are where this bites. Note that
+- **The two-OS matrix.** Checks 3–4 are the same command on Ubuntu
+  and macOS. You ran one. Anything touching the filesystem or the
+  platform's process lookup is where this bites. Windows is not a host
+  (decision [0063](../decisions/0063-windows-is-not-a-host.md)); WSL2 is Linux. Note that
   [`.gitattributes`](../../.gitattributes) normalises every text file to LF in
   the working tree on every platform, precisely because bundle digests
   are taken over file bytes — so do not "fix" a line ending.
@@ -352,7 +352,7 @@ decision 0051 you do not have to run it yourself to propose the branch:
 light `brokkr run --recipe landing --repo . --feature "landing: <what
 the branch is>"` on it. A gate of seconds reads the branch's class
 against `.github/delivery-classes.json`; prose goes straight to the
-review seat, code goes through the verifier first — the same nine
+review seat, code goes through the verifier first — the same eight
 checks, boxed — and a failure or a finding above low comes back to an
 implement seat commissioned by that finding, twice at most. A clean
 judgment ships: the anchor carries the branch's patch map, and the

@@ -96,7 +96,6 @@ jobs:
           - { os: macos-latest,     target: aarch64-apple-darwin,      name: brokkr-macos-arm64 }
           # macos-13 (Intel runners) is retired: cross-compile from arm64.
           - { os: macos-latest,     target: x86_64-apple-darwin,       name: brokkr-macos-x86_64, cross: true }
-          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    name: brokkr-windows-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -107,20 +106,12 @@ jobs:
       - run: cargo build --release --locked -p brokkr-cli --target ${{ matrix.target }}
       # brokkr is the binary, and now the only one: the `forge` shim rode
       # along for one release (decision 0019 ruling 9) and is dropped.
-      - name: package (unix)
-        if: runner.os != 'Windows'
+      - name: package
         run: |
           mkdir -p dist
           tar czf "dist/${{ matrix.name }}.tar.gz" -C "target/${{ matrix.target }}/release" brokkr
           cd dist
           shasum -a 256 "${{ matrix.name }}.tar.gz" > "${{ matrix.name }}.tar.gz.sha256"
-      - name: package (windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "target/${{ matrix.target }}/release/brokkr.exe" -DestinationPath "dist/${{ matrix.name }}.zip"
-          (Get-FileHash "dist/${{ matrix.name }}.zip" -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.name }}.zip" | Out-File -Encoding ascii "dist/${{ matrix.name }}.zip.sha256"
       # The .deb and the .rpm are made from the binary the tarball leg
       # just packaged — nfpm never compiles — so every channel carries
       # one build, and both land in `dist/` before the attest step below
@@ -313,7 +304,7 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
-  # Homebrew, scoop and nix all read their digests from the release's own
+  # Homebrew and nix both read their digests from the release's own
   # attested SHA256SUMS — never from a second download of their own.
   channels:
     name: bump downstream channels
@@ -331,12 +322,12 @@ jobs:
           gh release download "${GITHUB_REF_NAME}" --pattern SHA256SUMS --dir .
           bash packaging/bump-from-sums.sh --version "${GITHUB_REF_NAME#v}" --sums SHA256SUMS
           rm SHA256SUMS
-      # The tap and the bucket live in sibling repositories that a
-      # workflow token cannot reach. Each step is skipped — loudly, not
+      # The tap lives in a sibling repository that a
+      # workflow token cannot reach. The step is skipped — loudly, not
       # silently — until the bench provisions its token; see
       # packaging/README.md.
       #
-      # These read the files the bump just rendered, so they run before
+      # It reads the file the bump just rendered, so it runs before
       # `create-pull-request`, which moves the working tree through its
       # own branch to build the flake's pull request. Ordering them this
       # way means no one has to know whether that action puts an
@@ -354,20 +345,6 @@ jobs:
             --repo "${GITHUB_REPOSITORY_OWNER}/homebrew-tap" \
             --source packaging/homebrew/brokkr.rb \
             --destination Formula/brokkr.rb \
-            --version "${GITHUB_REF_NAME#v}"
-      - name: open the scoop bucket pull request
-        env:
-          BROKKR_BUCKET_TOKEN: ${{ secrets.BROKKR_BUCKET_TOKEN }}
-        run: |
-          if [ -z "${BROKKR_BUCKET_TOKEN}" ]; then
-            echo "::warning::BROKKR_BUCKET_TOKEN is not set — the scoop bucket was not bumped for ${GITHUB_REF_NAME}"
-            exit 0
-          fi
-          bash packaging/open-channel-pr.sh \
-            --token-env BROKKR_BUCKET_TOKEN \
-            --repo "${GITHUB_REPOSITORY_OWNER}/scoop-bucket" \
-            --source packaging/scoop/brokkr.json \
-            --destination bucket/brokkr.json \
             --version "${GITHUB_REF_NAME#v}"
       # The enterprise prevents GITHUB_TOKEN from opening pull requests, and
       # create-pull-request cannot use its bot-signing path with a PAT. Mint a

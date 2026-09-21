@@ -46,10 +46,6 @@ pkg-url = "{ repo }/releases/download/v{ version }/brokkr-macos-arm64.tar.gz"
 [package.metadata.binstall.overrides."x86_64-apple-darwin"]
 pkg-url = "{ repo }/releases/download/v{ version }/brokkr-macos-x86_64.tar.gz"
 
-[package.metadata.binstall.overrides."x86_64-pc-windows-msvc"]
-pkg-url = "{ repo }/releases/download/v{ version }/brokkr-windows-x86_64.zip"
-pkg-fmt = "zip"
-
 [dependencies]
 brokkr-core = { workspace = true }
 brokkr-bridge = { workspace = true }
