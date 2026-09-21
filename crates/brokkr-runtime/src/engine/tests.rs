@@ -4633,7 +4633,7 @@ fn resume_carries_no_world_where_the_run_had_none_and_refuses_a_broken_pin() {
 /// answering with a fixed result. `driver_command` above is enough when
 /// only the outcome matters; a sequence's later step is judged by what
 /// it was TOLD, so this one keeps the evidence.
-fn capturing_driver_command(
+pub(super) fn capturing_driver_command(
     effect_id: &str,
     attempt_id: &str,
     capture: &Path,

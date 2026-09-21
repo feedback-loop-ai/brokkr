@@ -730,6 +730,86 @@ fn every_authority_axis_moves_the_manifest_digest_and_identical_inputs_do_not() 
     assert_eq!(digest(&nothing, wants), dropped);
 }
 
+/// What the `capabilities` section is made of, and what it is not (design
+/// D7). A RECIPE cannot define or grant: a definition and a dialect copied
+/// into the bundle's own directory satisfy nothing, because the operator's
+/// directory is the only place either is read. And the section pins
+/// authority by relative source and digest — no host path, no expanded
+/// argv, no temp directory — so the same authority compiles to the same
+/// identity on any machine.
+#[test]
+fn a_recipe_defines_nothing_and_the_pinned_section_names_no_host_path_or_argv() {
+    let operator = Operator::new();
+    let wants = Some(json!({"web-search": "wants"}));
+    let granted = operator.context(json!({"web-search": {"dialect": "codex-native-search"}}));
+
+    // The operator's directory holds NO definition; the recipe brings its
+    // own copy of both files. The ask is still undefined.
+    let elsewhere = tempfile::tempdir().unwrap();
+    for file in [
+        "capabilities/web-search.json",
+        "dialects/tools/codex-native-search.json",
+    ] {
+        let body: Value =
+            serde_json::from_slice(&std::fs::read(workspace().join(file)).unwrap()).unwrap();
+        write(&operator.root().join("bundle"), file, &body);
+    }
+    let bare = CapabilityContext::no_grants("private", elsewhere.path());
+    assert_eq!(
+        operator
+            .compile(&bare, Boundary::Namespace, wants.clone(), None)
+            .unwrap_err(),
+        "bundle: seat 'agent' (office 'searcher') in realm 'private': capability 'web-search' \
+         has no abstract definition at 'capabilities/web-search.json' in the operator \
+         configuration; declare its classes before requesting it"
+    );
+    // Nor can the recipe's copy stand in for a granted dialect.
+    let mut borrowed = granted.clone();
+    borrowed.root = elsewhere.path().to_path_buf();
+    assert_eq!(
+        operator
+            .compile(&borrowed, Boundary::Namespace, wants.clone(), None)
+            .unwrap_err(),
+        "bundle: realm 'private': capability 'web-search' has no abstract definition at \
+         'capabilities/web-search.json' in the operator configuration; declare its classes \
+         before granting it"
+    );
+
+    // Under the operator's own directory it compiles, holding the grant.
+    let bundle = operator
+        .compile(&granted, Boundary::Namespace, wants, None)
+        .unwrap();
+    let section = &bundle.manifest["capabilities"];
+    assert_eq!(
+        section["definitions"]["web-search"]["source"],
+        "capabilities/web-search.json"
+    );
+    assert_eq!(
+        section["dialects"]["codex-native-search"]["source"],
+        "dialects/tools/codex-native-search.json"
+    );
+    // A held site records the plan by native KEY; the argv that plan
+    // expands to belongs to the launch and is not in the manifest.
+    let held = &section["sites"]["inline"]["candidates"][0];
+    assert_eq!(held["held"]["web-search"]["dialect"], "codex-native-search");
+    assert_eq!(held["native"]["on"], json!(["web-search"]));
+    let denied = &section["sites"]["chain"]["candidates"][0]["native"];
+    assert_eq!(denied["off"], json!(["web-fetch", "web-search"]));
+    let text = section.to_string();
+    for absent in [
+        operator.root().to_str().unwrap(),
+        elsewhere.path().to_str().unwrap(),
+        workspace().to_str().unwrap(),
+        std::env::temp_dir().to_str().unwrap(),
+        "web_search=",
+        "--disallowedTools",
+        "--model",
+        "{brokkr}",
+    ] {
+        assert!(!text.contains(absent), "the section carries '{absent}'");
+    }
+}
+
 /// Ruling 8, one axis at a time and apart from the rest: a RESTRICTION's
 /// value is identity even where it is inactive — Codex declares no
 /// restriction transport, so the want is dropped whole (CQ1) and the
