@@ -4,14 +4,13 @@
 #   bash packaging/bump-from-sums.sh --version 0.6.0 --sums <path> [--root <dir>]
 #
 # Every digest a downstream channel publishes comes from this one file —
-# the aggregate manifest the release attests — so homebrew, scoop and nix
+# the aggregate manifest the release attests — so homebrew and nix
 # point at the same bytes the tarball path does. No channel computes its
 # own hash, and nothing here downloads anything.
 #
 # Files rewritten in place:
 #   flake.nix                     (version + the four unix tarballs)
 #   packaging/homebrew/brokkr.rb  (version + the four unix tarballs)
-#   packaging/scoop/brokkr.json   (version + the windows zip)
 #
 # The rule for the tagged files is one line: a line ending in a comment
 # that names an artifact has its 64-hex-digit string replaced by that
@@ -44,17 +43,11 @@ case "$version" in
   v*) die "--version takes the number without its leading v: ${version#v}" ;;
 esac
 
-ARTIFACTS="brokkr-linux-x86_64.tar.gz brokkr-linux-aarch64.tar.gz brokkr-macos-arm64.tar.gz brokkr-macos-x86_64.tar.gz brokkr-windows-x86_64.zip"
+ARTIFACTS="brokkr-linux-x86_64.tar.gz brokkr-linux-aarch64.tar.gz brokkr-macos-arm64.tar.gz brokkr-macos-x86_64.tar.gz"
 
 digest_of() {
-  # The windows sidecar is written by PowerShell's `Out-File`, so its one
-  # line ends CRLF, and `cat *.sha256 > SHA256SUMS` keeps those bytes.
-  # `sha256sum -c` strips the carriage return and stays green, so the
-  # manifest ships with it; awk splits on spaces and tabs only, which
-  # would leave the CR stuck to the file name and hide the windows asset
-  # from every channel that reads this file.
   awk -v want="$1" '
-    { name = $NF; sub(/\r$/, "", name); sub(/^\*/, "", name) }
+    { name = $NF; sub(/^\*/, "", name) }
     name == want { print $1; found = 1; exit }
     END { if (!found) exit 1 }
   ' "$sums"
@@ -109,19 +102,5 @@ render_tagged() {
 
 render_tagged "$root/flake.nix"
 render_tagged "$root/packaging/homebrew/brokkr.rb"
-
-# JSON carries no comments, so the scoop manifest is rewritten by key:
-# one "version", one download URL, one "hash".
-manifest="$root/packaging/scoop/brokkr.json"
-[ -f "$manifest" ] || die "no such file: $manifest"
-windows_digest="$(digest_of brokkr-windows-x86_64.zip)"
-# The autoupdate block keeps scoop's own `$version` placeholder, so the
-# URL rewrite skips any line that carries it.
-sed -E \
-  -e "s|\"version\": \"[^\"]*\"|\"version\": \"${version}\"|" \
-  -e "/[\$]version/!s|/download/v[^/]*/brokkr-windows|/download/v${version}/brokkr-windows|" \
-  -e "s|\"hash\": \"[0-9a-f]{64}\"|\"hash\": \"${windows_digest}\"|" \
-  "$manifest" >"$manifest.bumped"
-mv "$manifest.bumped" "$manifest"
 
 printf 'bump-from-sums: rendered v%s from %s\n' "$version" "$sums"

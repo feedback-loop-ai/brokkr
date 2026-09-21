@@ -50,10 +50,11 @@ together.
 | apt | `sudo apt-get install brokkr` | live from v0.9.0 — a signed repository on GitHub Pages, after the one-time keyring and source lines below |
 | dnf | `sudo dnf install brokkr` | live from v0.9.0 — same site, same signature, after the one-time repo file |
 | brew | `brew install feedback-loop-ai/tap/brokkr` | live from v0.9.0 — the release bumps the tap and the operator merges it |
-| scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | live from v0.9.0 — the release bumps the bucket and the operator merges it |
+
+On Windows, use WSL2: it is Linux, and every Linux row above serves it (decision [0063](../decisions/0063-windows-is-not-a-host.md)).
 
 Every row above was exercised by a real release: v0.9.0 (2026-09-05)
-lit the apt and dnf site, the tap, the bucket and the flake, and v0.9.1
+lit the apt and dnf site, the tap and the flake, and v0.9.1
 (2026-09-06) put the seven crates on crates.io. Each channel serves the
 same attested assets as the tarball. The apt and dnf rows need their
 one-time setup lines (the keyring and the sources entry, or the repo
@@ -63,7 +64,7 @@ The rest of this step is the tarball path, which needs none of that.
 
 Grab the archive for your platform from the
 [latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
-(linux x86_64/aarch64, macOS arm64/x86_64, windows x86_64), verify it
+(linux x86_64/aarch64, macOS arm64/x86_64), verify it
 against the release's `SHA256SUMS`, then unpack:
 
 ```
@@ -94,7 +95,7 @@ word existed, is `namespace`: decision 0043's empty-root box built by
 bubblewrap 0.10 or newer on `PATH` (`bwrap --version`), on Linux and
 WSL2. That boundary is never simulated: a run under it refuses at start
 when bubblewrap is unavailable, naming the seats that need it. A realm
-on macOS or Windows declares `"boundary": "harness"` today, under
+on macOS declares `"boundary": "harness"` today, under
 `forge.realms/v4`, and then Brokkr builds no box at all: a model gate
 is judged under the harness's own sandbox as the adapter's
 `hands.harness` fragment addresses it, an exec gate runs the bundle's
@@ -652,10 +653,6 @@ Neither number is a claim about your machine. Run the script.
 - **A Looper-dispatched run (`--dispatch`) cannot adopt agents and
   carries no realms map.** The v2 manifest lineage would silently drop
   both, so the engine refuses instead.
-- **Secrets-store permission enforcement is Unix-only.** `brokkr
-  secrets` creates the store `0600` and refuses to read one whose
-  permissions are broader, but that check is `#[cfg(unix)]`. On Windows
-  the store is written without an equivalent guard.
 - **Column alignment is byte-based.** Colour follows `NO_COLOR` and
   `TERM`, width follows `COLUMNS`; without a Unicode-width dependency,
   CJK and emoji columns misalign in the readouts.
@@ -668,7 +665,7 @@ One native binary — no Python, no Node, no services.
 
 **Install from a release.** Grab the archive for your platform from the
 [latest release](https://github.com/feedback-loop-ai/brokkr/releases/latest)
-(linux x86_64/aarch64, macOS arm64/x86_64, windows x86_64), verify it
+(linux x86_64/aarch64, macOS arm64/x86_64), verify it
 against the release's `SHA256SUMS`, then unpack:
 
 ```

@@ -4,7 +4,7 @@
 # and SSH key (aur.archlinux.org accepts pushes from a registered
 # maintainer, not from a workflow token), so nothing in CI touches this
 # file. `sha256sums` below are placeholders in the same sense as the
-# homebrew and scoop templates: rendered from the release's attested
+# homebrew template: rendered from the release's attested
 # SHA256SUMS before a push, never by hand.
 #
 # Maintainer: feedback-loop-ai <valentin@cmd.bg>

@@ -8,7 +8,7 @@
 [![clippy · -D warnings](https://img.shields.io/badge/clippy%20%C2%B7%20--D%20warnings-orange)](.github/workflows/ci.yml)
 [![coverage · literal 100%](https://img.shields.io/badge/coverage%20%C2%B7%20literal%20100%25-brightgreen)](scripts/coverage-exact.sh)
 [![deps · permissive-only](https://img.shields.io/badge/deps%20%C2%B7%20permissive--only-brightgreen)](deny.toml)
-[![platforms](https://img.shields.io/badge/linux%20x86__64%2Faarch64%20%C2%B7%20macos%20x86__64%2Farm64%20%C2%B7%20windows-blue)](https://github.com/feedback-loop-ai/brokkr/releases/latest)
+[![platforms](https://img.shields.io/badge/linux%20x86__64%2Faarch64%20%C2%B7%20macos%20x86__64%2Farm64-blue)](https://github.com/feedback-loop-ai/brokkr/releases/latest)
 [![rust](https://img.shields.io/badge/rust-1.88%2B-orange)](Cargo.toml)
 
 **Coordination tools help agents work together. Brokkr proves what they did.**
@@ -31,7 +31,8 @@ Pick one channel. Each row is the channel's published command; the availability 
 | apt (repository configured) | `sudo apt-get install brokkr` | live from v0.9.0 — a signed repository on GitHub Pages; the one-time keyring and source lines are in [packaging/README.md](packaging/README.md) |
 | dnf (repository configured) | `sudo dnf install brokkr` | live from v0.9.0 — same site, same signature; the repo file is in [packaging/README.md](packaging/README.md) |
 | Homebrew | `brew install feedback-loop-ai/tap/brokkr` | live from v0.9.0 — the tap is bumped by the release and merged by the operator |
-| Scoop | `scoop bucket add brokkr https://github.com/feedback-loop-ai/scoop-bucket && scoop install brokkr` | live from v0.9.0 — the bucket is bumped by the release and merged by the operator |
+
+On Windows, use WSL2: it is Linux, and every Linux row above serves it (decision [0063](docs/decisions/0063-windows-is-not-a-host.md)).
 
 ## 60-second bootstrap
 

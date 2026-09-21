@@ -554,11 +554,10 @@ skipped Rust test prints `ok`, so CI's Linux legs set
 rather than skips. Set it locally to check that a proof really ran.
 
 The runner is served on Linux, and its tests are compiled and run on
-every operating system CI covers — so what those tests may ASSUME about a
-host is only what they asked it. A path is absolute because the operating
-system says so, not because it starts with a slash: Windows calls
-`/usr/bin/bwrap` relative, so the fixtures spell an absolute path the way
-the host spells one. A mount's argv is joined with the host's own
+every operating system CI covers — Linux and macOS (decision 0063) — so
+what those tests may ASSUME about a host is only what they asked it. A
+path is absolute because the operating system says so, so the fixtures
+spell an absolute path the way the host spells one. A mount's argv is joined with the host's own
 separator, so an expected bind is built by joining, never by gluing a `/`
 into the middle of a path. And where a proof genuinely needs a Unix
 artifact — the shim that makes one promotion step refuse is a POSIX shell

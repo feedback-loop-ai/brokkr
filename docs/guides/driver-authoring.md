@@ -772,12 +772,10 @@ treated as a defect by your own test (the engine will fail the attempt),
 and an abandoned attempt after `accepted` must produce the park you
 expect rather than a silent success.
 
-**One honest limit: this suite is `#![cfg(unix)]`.** It does not compile
-or run on Windows, because its shims are `/bin/sh` scripts. Windows
-driver conformance is therefore **not verified by CI today**. The engine
-itself is tested on Windows in the `engine` job; the driver-adapter
-conformance layer specifically is not. If you are writing a Windows
-driver, you are the first line of testing for it.
+**This suite is `#![cfg(unix)]`**, because its shims are `/bin/sh`
+scripts. That covers every host: Linux and macOS are the hosts, and on
+Windows a driver runs under WSL2, which is Linux (decision
+[0063](../decisions/0063-windows-is-not-a-host.md)).
 
 ## Wiring it into a bundle
 

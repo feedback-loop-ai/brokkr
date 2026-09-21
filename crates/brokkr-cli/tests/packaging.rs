@@ -1,7 +1,7 @@
 //! Every distribution channel serves the release's own artifacts.
 //!
 //! The claim these tests defend is provenance: apt, dnf, cargo-binstall,
-//! homebrew, scoop and nix all hand a user bytes that came out of one
+//! homebrew and nix all hand a user bytes that came out of one
 //! attested build, named by one matrix in `release.yml`. So the tests
 //! read that matrix and hold every channel's configuration against it,
 //! and they run the repository-building scripts for real rather than
@@ -155,14 +155,12 @@ fn release_artifacts() -> BTreeMap<String, String> {
             }
         }
         let (target, name) = (target.expect("a target"), name.expect("a name"));
-        let suffix = if target.contains("windows") {
-            ".zip"
-        } else {
-            ".tar.gz"
-        };
-        artifacts.insert(target, format!("{name}{suffix}"));
+        // Decision 0063: Linux and macOS are the hosts, so every release
+        // asset is a gzipped tar and no leg builds for Windows.
+        assert!(!target.contains("windows"), "{target}");
+        artifacts.insert(target, format!("{name}.tar.gz"));
     }
-    assert_eq!(artifacts.len(), 5, "{artifacts:?}");
+    assert_eq!(artifacts.len(), 4, "{artifacts:?}");
     artifacts
 }
 
@@ -186,17 +184,12 @@ fn binstall_overrides() -> BTreeMap<String, String> {
 
 /// binstall's substitution, as far as our templates use it.
 fn resolve(template: &str, target: &str, version: &str, repository: &str) -> String {
-    let suffix = if target.contains("windows") {
-        ".zip"
-    } else {
-        ".tar.gz"
-    };
     template
         .replace("{ repo }", repository)
         .replace("{ version }", version)
         .replace("{ target }", target)
         .replace("{ name }", "brokkr")
-        .replace("{ archive-suffix }", suffix)
+        .replace("{ archive-suffix }", ".tar.gz")
 }
 
 /// Part 4. Every target the release builds for has a binstall override,
@@ -226,11 +219,12 @@ fn binstall_resolves_to_the_artifact_the_release_matrix_publishes() {
         manifest.contains(r#"bin-dir = "{ bin }{ binary-ext }""#),
         "{manifest}"
     );
-    // The windows asset is a zip; every other one a gzipped tar.
-    assert_eq!(
-        manifest.matches(r#"pkg-fmt = "zip""#).count(),
-        1,
-        "{manifest}"
+    // Every asset is a gzipped tar: no override carries a format of its
+    // own, and none names a Windows target (decision 0063).
+    assert!(!manifest.contains("pkg-fmt = \"zip\""), "{manifest}");
+    assert!(
+        overrides.keys().all(|target| !target.contains("windows")),
+        "{overrides:?}"
     );
 }
 
@@ -395,25 +389,26 @@ fn the_release_workflow_keeps_secret_values_off_the_process_table() {
         "{workflow}"
     );
 
-    for secret in ["BROKKR_TAP_TOKEN", "BROKKR_BUCKET_TOKEN"] {
-        assert!(
-            workflow.contains(&format!("--token-env {secret}")),
-            "{secret} is not passed by name"
-        );
-        assert!(
-            !workflow.contains(&format!("--token \"${{{secret}}}\"")),
-            "{secret}'s value is still an argument"
-        );
-    }
+    // The bucket token left with the scoop channel (decision 0063).
+    assert!(!workflow.contains("BROKKR_BUCKET_TOKEN"), "{workflow}");
+    let secret = "BROKKR_TAP_TOKEN";
+    assert!(
+        workflow.contains(&format!("--token-env {secret}")),
+        "{secret} is not passed by name"
+    );
+    assert!(
+        !workflow.contains(&format!("--token \"${{{secret}}}\"")),
+        "{secret}'s value is still an argument"
+    );
 }
 
-/// The order of the `channels` job is load-bearing. Both sibling-repo
-/// steps read files the bump rendered into the working tree, and
+/// The order of the `channels` job is load-bearing. The sibling-repo
+/// step reads a file the bump rendered into the working tree, and
 /// `create-pull-request` moves that tree through a branch of its own to
 /// build the flake's pull request — it is told to commit `flake.nix`
 /// alone, and what it does with the other rendered files in passing is
 /// its business, not something a release should depend on. Render,
-/// publish the siblings, then hand the tree to the action.
+/// publish the sibling, then hand the tree to the action.
 #[test]
 fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
     let workflow = read(".github/workflows/release.yml");
@@ -429,12 +424,13 @@ fn the_channel_steps_read_the_rendered_tree_before_the_action_moves_it() {
 
     let bump = at("bash packaging/bump-from-sums.sh");
     let tap = at("--repo \"${GITHUB_REPOSITORY_OWNER}/homebrew-tap\"");
-    let bucket = at("--repo \"${GITHUB_REPOSITORY_OWNER}/scoop-bucket\"");
     let app_token = at("actions/create-github-app-token@v3");
     let action = at("peter-evans/create-pull-request@v7");
 
-    assert!(bump < tap && bump < bucket, "{channels}");
-    assert!(tap < app_token && bucket < app_token, "{channels}");
+    assert!(bump < tap, "{channels}");
+    assert!(tap < app_token, "{channels}");
+    // The scoop bucket is retired (decision 0063): no step reaches it.
+    assert!(!channels.contains("scoop"), "{channels}");
     assert!(app_token < action, "{channels}");
 
     for contract in [
@@ -851,11 +847,7 @@ fn the_bump_script_renders_every_channel_from_one_manifest() {
     }
     let work = tempfile::tempdir().expect("a temporary directory");
     let root = work.path().join("tree");
-    for relative in [
-        "flake.nix",
-        "packaging/homebrew/brokkr.rb",
-        "packaging/scoop/brokkr.json",
-    ] {
+    for relative in ["flake.nix", "packaging/homebrew/brokkr.rb"] {
         let destination = root.join(relative);
         std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
         std::fs::copy(workspace().join(relative), &destination).expect("a copy");
@@ -889,23 +881,15 @@ fn the_bump_script_renders_every_channel_from_one_manifest() {
             .arg(&root))
     };
     bump();
-    let rendered: Vec<String> = [
-        "flake.nix",
-        "packaging/homebrew/brokkr.rb",
-        "packaging/scoop/brokkr.json",
-    ]
-    .iter()
-    .map(|relative| std::fs::read_to_string(root.join(relative)).expect("a rendered file"))
-    .collect();
+    let rendered: Vec<String> = ["flake.nix", "packaging/homebrew/brokkr.rb"]
+        .iter()
+        .map(|relative| std::fs::read_to_string(root.join(relative)).expect("a rendered file"))
+        .collect();
     bump();
 
-    for (index, relative) in [
-        "flake.nix",
-        "packaging/homebrew/brokkr.rb",
-        "packaging/scoop/brokkr.json",
-    ]
-    .iter()
-    .enumerate()
+    for (index, relative) in ["flake.nix", "packaging/homebrew/brokkr.rb"]
+        .iter()
+        .enumerate()
     {
         let text = std::fs::read_to_string(root.join(relative)).expect("a rendered file");
         assert_eq!(text, rendered[index], "{relative} is not idempotent");
@@ -916,32 +900,11 @@ fn the_bump_script_renders_every_channel_from_one_manifest() {
         );
     }
 
-    let (flake, formula, manifest_json) = (&rendered[0], &rendered[1], &rendered[2]);
+    let (flake, formula) = (&rendered[0], &rendered[1]);
     for (artifact, digest) in &digests {
-        if artifact.ends_with(".zip") {
-            assert!(
-                manifest_json.contains(digest),
-                "{artifact}: {manifest_json}"
-            );
-            assert!(
-                !flake.contains(digest),
-                "{artifact} does not belong in the flake"
-            );
-        } else {
-            assert!(flake.contains(digest), "{artifact}: {flake}");
-            assert!(formula.contains(digest), "{artifact}: {formula}");
-        }
+        assert!(flake.contains(digest), "{artifact}: {flake}");
+        assert!(formula.contains(digest), "{artifact}: {formula}");
     }
-    // Scoop's autoupdate keeps its own placeholder; the rendered URL is
-    // the concrete one.
-    assert!(
-        manifest_json.contains("/download/v9.9.9/brokkr-windows-x86_64.zip"),
-        "{manifest_json}"
-    );
-    assert!(
-        manifest_json.contains("/download/v$version/brokkr-windows-x86_64.zip"),
-        "{manifest_json}"
-    );
 }
 
 /// The bump script refuses a manifest that is missing an artifact rather
@@ -976,68 +939,6 @@ fn the_bump_script_refuses_an_incomplete_manifest() {
     );
 }
 
-/// The manifest a release actually publishes is not written by one tool.
-/// The four unix sidecars come from `shasum` on a unix runner; the
-/// windows one comes from PowerShell's `Out-File`, which ends its line
-/// the way Windows does — CRLF — and `cat *.sha256 > SHA256SUMS` keeps
-/// those bytes exactly. `sha256sum -c` strips the carriage return, so
-/// the publish job stays green and the manifest ships with it in place.
-/// Anything that splits that line on whitespace alone keeps the CR on
-/// the *file name*, and would then refuse the release's own complete
-/// manifest as incomplete — after `publish` succeeded, with every
-/// downstream channel left unrendered.
-#[test]
-fn the_bump_script_reads_the_manifest_the_windows_leg_actually_writes() {
-    if !usable(&["bash", "awk", "sed"]) {
-        return;
-    }
-    let work = tempfile::tempdir().expect("a temporary directory");
-    let root = work.path().join("tree");
-    for relative in [
-        "flake.nix",
-        "packaging/homebrew/brokkr.rb",
-        "packaging/scoop/brokkr.json",
-    ] {
-        let destination = root.join(relative);
-        std::fs::create_dir_all(destination.parent().expect("a parent")).expect("a directory");
-        std::fs::copy(workspace().join(relative), &destination).expect("a copy");
-    }
-
-    let mut manifest = String::new();
-    let mut windows_digest = String::new();
-    for (index, artifact) in release_artifacts().into_values().enumerate() {
-        let digit = char::from_digit(index as u32 + 1, 10).expect("a digit");
-        let digest: String = std::iter::repeat_n(digit, 64).collect();
-        // Byte for byte what `cat`ting the five sidecars together gives.
-        let ending = if artifact.ends_with(".zip") {
-            windows_digest = digest.clone();
-            "\r\n"
-        } else {
-            "\n"
-        };
-        manifest.push_str(&format!("{digest}  {artifact}{ending}"));
-    }
-    let sums = work.path().join("SHA256SUMS");
-    std::fs::write(&sums, &manifest).expect("a manifest");
-
-    run(Command::new("bash")
-        .arg(workspace().join("packaging/bump-from-sums.sh"))
-        .arg("--version")
-        .arg("9.9.9")
-        .arg("--sums")
-        .arg(&sums)
-        .arg("--root")
-        .arg(&root));
-
-    let scoop = std::fs::read_to_string(root.join("packaging/scoop/brokkr.json"))
-        .expect("a rendered manifest");
-    assert!(scoop.contains(&windows_digest), "{scoop}");
-    assert!(
-        !scoop.contains('\r'),
-        "a carriage return reached the manifest"
-    );
-}
-
 /// The flake's `sha256 = "…"; # <artifact>` lines, as the artifact each
 /// is tagged with and the digest it currently carries, in file order.
 fn flake_digests(flake: &str) -> Vec<(String, String)> {
@@ -1056,9 +957,9 @@ fn flake_digests(flake: &str) -> Vec<(String, String)> {
 /// from this repository by hand and pass for a real one, and each
 /// template names exactly the artifacts the release matrix builds.
 ///
-/// The tap and the bucket are rendered on a runner and pushed to sibling
-/// repositories, so the copies here must stay unrendered — a real digest
-/// in either is a formula somebody could publish out of band. `flake.nix`
+/// The tap is rendered on a runner and pushed to a sibling repository,
+/// so the copy here must stay unrendered — a real digest in it is a
+/// formula somebody could publish out of band. `flake.nix`
 /// is the one template a release renders *back into this repository*: the
 /// `channels` job opens that pull request, and `nix profile install
 /// github:…` reads the default branch, so the flake is meant to end up
@@ -1072,21 +973,17 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
 
     let flake = read("flake.nix");
     let formula = read("packaging/homebrew/brokkr.rb");
-    let scoop = read("packaging/scoop/brokkr.json");
 
     assert_eq!(formula.matches(placeholder).count(), 4, "{formula}");
-    assert_eq!(scoop.matches(placeholder).count(), 1, "{scoop}");
+    // Decision 0063 retired the scoop bucket with the Windows archive.
+    assert!(!workspace().join("packaging/scoop").exists());
 
     let digests = flake_digests(&flake);
     let mut tagged: Vec<&str> = digests.iter().map(|(tag, _)| tag.as_str()).collect();
     tagged.sort_unstable();
-    let mut unix: Vec<&str> = artifacts
-        .iter()
-        .map(String::as_str)
-        .filter(|artifact| !artifact.ends_with(".zip"))
-        .collect();
-    unix.sort_unstable();
-    assert_eq!(tagged, unix, "{flake}");
+    let mut built: Vec<&str> = artifacts.iter().map(String::as_str).collect();
+    built.sort_unstable();
+    assert_eq!(tagged, built, "{flake}");
 
     for (tag, digest) in &digests {
         assert_eq!(digest.len(), 64, "{tag}: {digest}");
@@ -1107,20 +1004,17 @@ fn the_committed_channel_templates_are_unrendered_and_name_the_real_artifacts() 
     assert!(rendered == 0 || rendered == 4, "{flake}");
 
     for artifact in &artifacts {
-        let windows = artifact.ends_with(".zip");
-        assert_eq!(flake.contains(artifact), !windows, "{artifact}");
-        assert_eq!(formula.contains(artifact), !windows, "{artifact}");
-        assert_eq!(scoop.contains(artifact), windows, "{artifact}");
+        assert!(flake.contains(artifact), "{artifact}");
+        assert!(formula.contains(artifact), "{artifact}");
     }
 
     // One binary, in every channel (decision 0019 ruling 9).
     assert!(formula.contains(r#"bin.install "brokkr""#), "{formula}");
-    assert!(scoop.contains(r#""bin": "brokkr.exe""#), "{scoop}");
     assert!(
         flake.contains(r#"install -Dm755 brokkr "$out/bin/brokkr""#),
         "{flake}"
     );
-    for template in [&flake, &formula, &scoop] {
+    for template in [&flake, &formula] {
         assert!(!template.contains("bin/forge"), "{template}");
     }
 }
@@ -1155,7 +1049,6 @@ fn the_install_surfaces_carry_the_manager_matrix() {
             "apt-get install brokkr",
             "dnf install brokkr",
             "cargo binstall brokkr-cli",
-            "scoop install brokkr",
             "nix profile install",
             "tar xzf",
         ] {
@@ -1169,6 +1062,10 @@ fn the_install_surfaces_carry_the_manager_matrix() {
         // label that once marked an unexercised channel is gone — a
         // channel is never written as both live and unfinished.
         assert!(install.contains("live from v0.9."), "{install}");
+        // Decision 0063: Windows is not a host. The surface says where a
+        // Windows user goes instead, and offers no Windows channel.
+        assert!(install.contains("WSL2"), "{install}");
+        assert!(!install.contains("scoop install"), "{install}");
         assert!(!install.contains("wired at the bench"), "{install}");
     }
     // The forward note about the bootstrap spine resolved itself: the
