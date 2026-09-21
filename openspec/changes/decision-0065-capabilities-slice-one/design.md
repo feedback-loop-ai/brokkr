@@ -416,6 +416,40 @@ Alternatives rejected: pin only holdings or `realms.capabilities`, use a
 chain-wide union, snapshot all dialects, or omit empty authority to preserve
 old hashes. Each loses required facts or invents unnecessary storage.
 
+Two choices made while building this, recorded here because they read
+differently from the text above:
+
+- **The operator source context is not repeated inside the section.**
+  `capabilities.realm` stays the operated realm's name. The source context a
+  resume needs is already pinned, once, where the world is: the run
+  manifest's `realms.source` (its directory is the operator's) for any run
+  started under a map, named or not naming the repository; and for a run that
+  pinned no world, the operated repository the verb is given. A second copy
+  inside the section would be a second thing to keep equal to the first, and
+  a host path besides, which this section never carries. Proved through the
+  binary: a map-only edit lends a resume nothing, an unmapped run keeps the
+  operated repository as its root after a map appears, and a repository the
+  map does not name reads the map's directory.
+- **The `capabilities/` exclusion from the bundle file walk is by name at a
+  bundle's top level, exactly as `dialects/` and `realms.json` already are
+  (decision 0042), not conditional on the bundle root being the operator
+  root.** The condition would have to reach `compose::resolve`, which is a
+  pure function of recipe sources and whose ancestor digests are pinned
+  witnesses; teaching it the operator's directory would make a recipe's
+  identity depend on where it was compiled from. What the condition was
+  for still holds and is proved: a definition or dialect copied into a
+  recipe defines and grants nothing, an unconsulted definition moves no
+  digest, and a pinned script may not live under an excluded name. A
+  recipe that keeps unrelated files under a top-level `capabilities/` has
+  them unpinned, as it already would under `dialects/`; that is decision
+  0042's property, one name wider, and is the reviewer's to weigh.
+
+A resume that cannot reproduce its pinned authority fails inside the
+compile (a granted dialect is gone) before any manifest exists to compare.
+That failure is typed — `CompileError::Capability`, which reads exactly as
+`Invalid` does — so the verb can send it through the manifest-mismatch
+refusal with capabilities named, rather than reporting a broken recipe.
+
 ### D8. Explain declarations, holdings and evidence from the resolved facts
 
 Doctor shares definition/grant validation and native assessment helpers,

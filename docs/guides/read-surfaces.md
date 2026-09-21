@@ -116,6 +116,19 @@ every map older than v6: there is no grandfathering. A grant through an
 `mcp` dialect is refused until decision 0065's slice two builds its
 broker.
 
+The abstract definitions (`capabilities/`) and the tool dialects
+(`dialects/tools/`) are the operator's, and are read from one place:
+beside the active map, or — with no map at all — under the operated
+repository, which is what `--repo` names. Never the recipe's own
+directory: a definition copied into a recipe defines nothing. A
+repository the map does not name stands in no realm and is granted
+nothing, whatever its neighbours hold. `run` and `rerun` authorise
+against the map as it stands; a run is not started over a definition or a
+dialect that has moved since its bundle compiled. `resume` stands on what
+the run pinned — a grant added to the map since is not borrowed — and one
+whose pinned definitions or dialects can no longer be reproduced is
+refused as pinning a different bundle, with capabilities named.
+
 `brokkr doctor` reads every realm under ITS OWN grants and then names,
 per realm, every native capability an installed harness declares that the
 realm has not granted — so the day a harness loses a power it used without

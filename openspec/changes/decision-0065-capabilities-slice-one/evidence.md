@@ -79,6 +79,76 @@ with no unhit `DA` and no unhit `BRDA` record. It is not candidate-bound
 evidence: it shares no unique target
 directory and did not run the script's function check.
 
+## Second visit — the returned finding (tree from `b2cb8430`)
+
+The first visit returned `broken` with fifteen tasks open. This visit owned
+that finding. Twelve of the fifteen were within a seat's control and are now
+done and ticked; three are not, for the same reason as before, and stay open
+(see the last section). Nothing below claims a live provider result.
+
+What was built, as distinct from only tested:
+
+| Task | Built |
+| --- | --- |
+| 2.2 | Without a map the operator's directory is the OPERATED repository (`--repo`), not the workspace, on `run`, `rerun` and an unmapped `resume`; `Bundle::compile_unmapped` names the root rather than inferring it from the library's parent. |
+| 6.3 | `start_in_world` refuses, before `create_run`, a bundle whose pinned definition or dialect bytes are missing or changed (`EngineError::CapabilityInputMoved`), read beside the map or under the operated repository. `start` delegates to it; `start_with_dispatch` already refuses the `capabilities` key before any row. |
+| 6.4 | A resume whose pinned authority cannot be reproduced — it fails INSIDE the compile, so no manifest exists to compare — leaves through the manifest-mismatch refusal with capabilities named. `CompileError::Capability` reads exactly as `Invalid` does and survives the composed-bundle chain note. |
+| 2.4 | `embedded_schema_fault` judged reserved keys at every depth, so a dialect's own nested `allow.tools` was falsely refused, and it missed `dependencies`, `patternProperties`, local references and another draft's `$schema`. It now follows only what describes the grant's top level, refuses a dangling local reference, and ignores a `$ref` spelled inside data. An `mcp` launch may reference only the secrets its dialect declares — judged as text through the house `{{secret:NAME}}` scanner, no store opened, no argument echoed. A pattern is judged by the same validator that later reads it, so no regex dependency was added. |
+| 4.5 | The impossible-OFF refusal names its evidence source and scope beside the reason. |
+
+Found while proving, each a gap a green suite was hiding:
+
+- The adapter loader's repeated-key refusal (`agents/load.rs`) had NO test:
+  removing it failed none of 473. One same-line closure kept line coverage
+  at 100% over it.
+- Passing `None` at the sequence step's `mark_capabilities` handed a DSH
+  fallback its Codex primary's plan, and failed none of 475.
+- My own first verb test could not tell a resume that read the wrong root
+  from one that read the right one, because a decoy definition lay in both;
+  removing the decoy before the resume made mutation R2 fail where it should.
+
+### Removal experiments of this visit
+
+Same discipline as above: one mutation at a time, the named test run and the
+failure READ, the mutation reverted; `git diff` on the mutated file was empty
+afterwards and the suites re-ran green.
+
+| # | Mutation (production) | Intended assertion | Observed |
+| --- | --- | --- | --- |
+| S1 | start fence looks at an empty section | `a_run_starts_only_over_the_definition_and_dialect_bytes_…` | FAILED at its first full-reason equality (`Ok(())` where "is missing" was demanded); the other three engine capability tests stayed green |
+| R1 | unmapped root reverts to the workspace | `an_unmapped_run_reads_and_keeps_the_operated_repository_…` | FAILED at the run that must refuse; the other verb tests green |
+| R2 | an unmapped RESUME reads the workspace | same test | FAILED at the resume, with the mismatch refusal — reachable only after the decoy was removed |
+| R3 | resume reads today's map, not the run's pin | the map-only-edit test and the unmapped test | both FAILED — and even mutated the engine REFUSED (`pinned grants, dialects, sites no longer match`) rather than borrowing the grant: the manifest comparison is a second line behind the pinned world |
+| R4 | the mismatch-door mapping dropped | `a_resume_that_cannot_reproduce_its_pinned_inputs_…` | FAILED at the dialect-gone case, showing the bare compile error the door replaces |
+| C1 | reserved-key walk stops following composition and references | `a_restriction_schema_stays_inside_its_file_…` | FAILED (only that test) at the `allOf` case |
+| C2 | declared-secret comparison admits every name | `an_mcp_launch_names_only_the_secrets_…` | FAILED (only that test) at `OTHER_KEY` |
+| L1 | adapter loader's repeated-key refusal disabled | `a_native_declaration_with_a_repeated_key_…` | FAILED (only that test; 473 others green) |
+| A1 | a written subset is ignored (the seat keeps its office's asks) | `an_office_is_inherited_subset_and_emptied_…` | FAILED at `judges:subset`: held `web-search`, **0 OFF pairs where 1 was demanded**; the cold denial matrix failed with it |
+| E1 | evidence source and scope swapped | `a_native_power_that_cannot_be_switched_off_…` | FAILED (only that test), on distinct source and scope values |
+| D1 | sequence step ignores the selected link | `every_nested_dispatch_hands_its_driver_…` | FAILED at the fallback: the Codex OFF plan where DSH's unmeasured plan was demanded |
+| — | class lists compared as written, not as sets | (a check that an EXISTING claim was proved) | ten tests FAILED: class-order equality was already well exercised |
+
+### Gates as run by this visit
+
+| Gate | Result |
+| --- | --- |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` | clean |
+| crate suites, crate-scoped, all seven | green — with one event stated plainly: the FIRST `brokkr-protocol` run of this visit reported 68 failures in `adapters::tests`; the crate is untouched by this visit, and two immediate reruns with no change between were 410/410 and then 410 + 99 + 1 green. The shape matches issue #255 (one ETXTBSY panic poisoning a shared mutex), but the first run's root panic was not captured, so its cause is not asserted here. |
+| `cargo test --workspace --all-features --locked --no-fail-fast` | green: 77 test binaries `ok`, none otherwise (counted, because silence is also what a timeout prints) |
+| `compile --bundle bundles/self` and `bundles/verify` | both compile, each carrying the `capabilities` section |
+| witness and compose pins | unmoved: nothing this visit changed enters a manifest |
+| `openspec validate --all --strict --no-interactive` | **NOT RUN — declined to this seat again**, piped and bare. Not retried under another spelling: the refusal is a permission boundary, not an obstacle. |
+| `bash scripts/coverage-exact.sh` | **NOT RUN — declined to this seat again.** Pending, as task 11.4 words it. |
+
+Seat-side coverage DIAGNOSTIC over the final tree, not the gate: `cargo
++nightly-2026-09-05 llvm-cov --workspace --all-features --locked --branch
+--lcov`, read with whole-record matches: 34,437 `DA` records, none unhit;
+5,670 `BRDA` records, none with a zero or `-` taken count. It did not run
+the script's function check (source functions keyed by file and start line),
+shares no candidate-bound target directory, and is not offered as 11.4's
+evidence.
+
 ## Owed to the controller (unmeasured; nothing here discharges them)
 
 - Codex 0.154.0: whether OFF holds, and whether a held seat has search ON, on
@@ -102,7 +172,14 @@ directory and did not run the script's function check.
   documented at the top of `native_controls.rs`; stated here so nobody reads
   a by-hand Codex run as denied.
 
-## Not finished (for the next visit; see tasks.md for the unticked rows)
+## What the first visit left open (kept as written; each answered by the second)
+
+Every bullet but the last is closed by the second visit's section above. One
+is closed by a recorded refusal rather than by building it: 6.1's conditional
+file-walk exclusion (design D7, final paragraphs). The `(provider, model)`
+collision was answered by proof, not by re-keying: two links sharing a pair
+carry equal outcomes, because authored argv can refuse a compile and cannot
+alter an outcome.
 
 - 1.4 / 6.4: the v11 `capabilities.realm` is a bare name with no relative
   operator source context, so resume re-reads definitions and dialects beside
@@ -136,3 +213,25 @@ directory and did not run the script's function check.
   name; no test for "no absolute roots or expanded argv in the section".
 - 11.3, 11.4, 12.1: blocked on `openspec` and the coverage script as above;
   the change is therefore NOT archived.
+
+## Not finished after the second visit
+
+Three tasks, all for one reason: the commands they consist of are declined to
+this seat, on both visits. None is within a re-run's control unless the seat's
+grants change; all three are one host session's work.
+
+- **11.3** — its cargo half is done (both bundles compile; `git diff --check`
+  clean). `openspec validate --all --strict --no-interactive` is NOT run.
+  This visit edited `design.md` and `tasks.md` of the change, so that
+  validation is owed over those edits in particular.
+- **11.4** — `bash scripts/coverage-exact.sh`, candidate-bound, outside the
+  box. NOT run. The diagnostic above is not it.
+- **12.1** — `openspec archive decision-0065-capabilities-slice-one --yes`,
+  the six spec folds and their `## Provenance` lines. NOT run; it is ordered
+  after 11.3 and 11.4 and the change is NOT archived. The branch's commits
+  are `wip:` checkpoints, left unsquashed for the same reason.
+
+Two things a reviewer should weigh, stated rather than buried:
+
+- 6.1 is ticked against a recorded deviation, not against its letter.
+- The flake in the first `brokkr-protocol` run is unexplained by this visit.
