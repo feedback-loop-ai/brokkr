@@ -55,8 +55,12 @@ asks later subtracted, against that one definition set. Compilation SHALL
 also resolve every grant in the selected realm, including unused grants.
 Missing class metadata SHALL refuse before requires/wants resolution, even
 without a selected dialect; optionality SHALL NOT forgive an invalid abstract
-request. Request syntax parsing alone SHALL NOT count as successful semantic
-library lint.
+request. Compilation SHALL perform that semantic lint over every agent in a
+library it loads, not only agents referenced by an executable seat. An unreferenced
+agent's invalid request SHALL refuse with its agent name, capability and
+complete definition cause before any seat launches. This does not require
+loading unrelated libraries. Request syntax parsing alone or a separate CLI
+readout SHALL NOT count as successful semantic library lint during compile.
 
 Every serving dialect loaded for those grants SHALL agree with the abstract
 class set; any class annotation it declares SHALL be an equality assertion,
@@ -82,8 +86,22 @@ SHALL NOT remove egress or writes from the abstraction to widen eligibility.
 
 - **WHEN** the preceding example omits operator-library-docs.json while retaining its request, with no selected dialect and no grant
 - **THEN** semantic library lint refuses "agent 'researcher': capability 'operator-library-docs' has no abstract definition at 'capabilities/operator-library-docs.json' in the operator configuration; declare its classes before requesting it"
-- **AND** compilation refuses "seat 'research' (office 'researcher') in realm 'private': capability 'operator-library-docs' has no abstract definition at 'capabilities/operator-library-docs.json' in the operator configuration; declare its classes before requesting it" rather than emitting a normal missing-grant drop
+- **AND** compilation of that loaded agent library refuses the same complete agent-lint diagnostic before seat resolution rather than emitting a normal missing-grant drop
 - **AND** an inline site's missing definition likewise refuses naming its site, capability and expected definition, for either requires or wants and even if later subtraction would remove an inherited ask
+
+#### Scenario: M3 an unseated loaded agent cannot hide an undefined request
+
+- **GIVEN** a loaded library contains a valid seated worker and unreferenced agent researcher requesting undefined operator-library-docs
+- **WHEN** the bundle compiles in its explicit operator context
+- **THEN** compilation refuses "agent 'researcher': capability 'operator-library-docs' has no abstract definition at 'capabilities/operator-library-docs.json' in the operator configuration; declare its classes before requesting it"
+- **AND** requires, wants and later-subtracted requests obey the same semantic refusal
+- **AND** declaring the valid definition restores compilation without granting or inventing a seat holding for the unreferenced agent
+
+#### Scenario: M3 loaded-library validation is a compiler obligation
+
+- **WHEN** only the compile-time semantic library check is removed for the preceding unseated case
+- **THEN** its complete agent-named refusal assertion fails even though standalone CLI lint remains intact
+- **AND** restoring compile-time lint restores the pass; a malformed unrelated fixture cannot satisfy the expected cause
 
 #### Scenario: CQ2 rejects conflicting implementation metadata
 
@@ -113,7 +131,7 @@ SHALL NOT remove egress or writes from the abstraction to widen eligibility.
 #### Scenario: Legacy denial needs no inferred abstract definition
 
 - **WHEN** the operated realm at any supported version grants no capabilities, its loaded agents and inline sites declare no requests, and its definition directory is absent
-- **THEN** it still loads and known native capabilities still receive their adapter-declared OFF controls or the existing impossible-OFF refusal
+- **THEN** it still loads and known native capabilities still receive valid adapter-declared OFF controls or a complete native-denial refusal, including absent, legacy, unreadable or unmeasured required control data
 - **AND** no capability is held or assigned invented classes, and an unmeasured native inventory stays unmeasured
 
 ### Requirement: Dialects describe their disclosure using the existing egress vocabulary
@@ -209,3 +227,11 @@ ungranted names unclassifiable and permits an implementation swap to change
 the abstraction. Request strengths remain requires/wants. The JSON example
 fixes the definition source and minimum data; additional wire layout is
 subsequent design work within these semantics.
+
+M3 closes the distinction between having a lint helper and invoking it during
+compilation. The semantic input is the entire loaded library, not the subset
+of agents that happen to be seated. The earlier CQ2 example's seat-level
+missing-definition error is superseded for agent libraries by the same named
+agent-lint error compilation must now emit first; inline sites retain their
+site-specific diagnostics. This ordering keeps the requirements coherent and
+does not broaden class or grant authority.

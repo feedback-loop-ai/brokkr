@@ -17,6 +17,13 @@ and reject concrete-grant data or request-side class overrides. Missing
 abstract metadata SHALL be an invalid declaration before requires/wants
 resolution, not an optional capability gap. Absence SHALL mean no requests for
 an inline site and inheritance for a site naming an agent.
+Request sources SHALL reject duplicate capability names and repeated
+`capabilities` fields from original source bytes before ordinary map
+conversion, inheritance, selection or composition can overwrite an earlier
+value. This applies to agent files and every direct/nested executable body
+in each loaded recipe layer, including data later overridden or subtracted.
+The complete diagnostic SHALL name the source, repeated key and source
+location; duplicate values are invalid even when equal.
 
 #### Scenario: A new name is a request rather than an implicit grant
 
@@ -30,6 +37,24 @@ an inline site and inheritance for a site naming an agent.
 - **WHEN** an agent or site supplies required, optional, true, null or a concrete dialect object as a request value
 - **THEN** it refuses with the declaration, capability and the requires/wants vocabulary
 - **AND** the erroneous request cannot be silently dropped
+
+#### Scenario: M2 duplicate strength cannot become a weaker request
+
+- **WHEN** original agent or inline seat JSON writes `"capabilities":{"web-search":"requires","web-search":"wants"}`, reverses those strengths, or repeats an equal strength
+- **THEN** loading or compilation refuses the duplicate web-search key with the entire source/key/location diagnostic
+- **AND** no optional drop, later map value or first-value preference replaces that syntax refusal
+
+#### Scenario: M2 repeated maps cannot erase an earlier requirement
+
+- **WHEN** an agent or site repeats its `capabilities` field, including an earlier required map followed by `{}`
+- **THEN** it refuses the repeated capabilities field from source bytes with the complete diagnostic before semantic resolution
+
+#### Scenario: M2 nested and composed request sources remain strict
+
+- **WHEN** either duplicate form appears independently in a panel member, sequence step, selected-case body, nested body, leaf layer or inherited ancestor later overridden by the leaf
+- **THEN** every case refuses the repeated key in its original source and location rather than validating only the surviving flattened map
+- **AND** equivalent valid unique-key inputs retain omission, inheritance and subtraction behavior
+- **AND** removing source-byte duplicate enforcement makes those exact refusal assertions fail; restoration passes
 
 ### Requirement: A seat can subtract but cannot widen its office
 
@@ -116,8 +141,9 @@ follow the CQ1 requires/wants/unused precedence in that delta. A granted but
 incompatible requires SHALL refuse with seat, realm, capability, dialect,
 provider and cause. An incompatible wants SHALL
 be dropped with that complete reason in manifest notices, leaving the native
-capability OFF subject to the independent impossible-denial refusal. Every
-executable fallback candidate SHALL be checked and pinned against these rules; choosing
+capability OFF subject to independent valid-denial requirements. Known
+unheld native power with absent, unsupported or unmeasured OFF authority
+SHALL still refuse. Every executable fallback candidate SHALL be checked and pinned against these rules; choosing
 another candidate SHALL NOT grant a capability from an unrelated provider,
 realm or office.
 
@@ -155,8 +181,23 @@ realm or office.
 #### Scenario: Provider compatibility is proved by removal
 
 - **WHEN** the provider/dialect compatibility check is removed independently for the requires and wants cases
-- **THEN** the requires test fails at its full refusal-text assertion and the wants test fails at its exact drop-notice assertion
+- **THEN** the requires test fails at its full refusal-text assertion and the independently runnable wants test reaches and fails its exact drop-notice assertion without executing an earlier required-refusal assertion
 - **AND** restoring the check restores both results
+
+#### Scenario: M4 optional provider compatibility proof is independent
+
+- **GIVEN** a wants-only case with valid metadata, a mismatched provider binding and supported native OFF
+- **WHEN** provider compatibility enforcement itself is removed while optional-notice recording and OFF composition are unchanged
+- **THEN** the test reaches and fails its full expected provider-mismatch notice equality without any required case preceding it
+- **AND** restoring compatibility enforcement restores that exact notice and the pass
+
+#### Scenario: M4 optional restriction compatibility proof is independent
+
+- **GIVEN** a separate wants-only CQ1 case with a schema-valid inexpressible restriction and supported native OFF
+- **WHEN** restriction compatibility enforcement itself is removed while notice recording and OFF composition are unchanged
+- **THEN** the test reaches and fails its exact CQ1 restriction-drop notice equality without any required-refusal assertion preceding it
+- **AND** restoring the check restores the exact notice and the pass
+- **AND** both experiments record mutation, test name, intended assertion, observed failure and restored pass; a required-case failure, fallback holding check or different notice/OFF mutation is insufficient
 
 ### Requirement: An impossible native denial is a compile refusal
 
@@ -164,8 +205,10 @@ For each known native capability of a serving provider, the compiler SHALL
 consult its native-control declaration even when the office requests nothing
 and even when hands has network false. A native capability whose OFF control
 is declared unsupported with a measured reason SHALL make seating on that
-provider refuse when the capability is ungranted. An unheld capability SHALL
-NOT be left on merely because the realm grants it to someone else or the
+provider refuse when the capability is unheld. Missing, legacy or unreadable
+metadata and unmeasured OFF SHALL likewise refuse for a known unheld power
+without a valid delivered denial plan; declaring uncertainty is not permission
+to launch. An unheld capability SHALL NOT be left on merely because the realm grants it to someone else or the
 seat subtracted it. Unsupported OFF SHALL NOT become an optional-drop path.
 
 #### Scenario: Native default power is checked without a request
@@ -239,8 +282,10 @@ longer enable anything without a realm grant.
 
 ### Requirement: Refusal proofs assert the full reason
 
-Tests of capability compilation SHALL assert the complete diagnostic and
-complete optional notice, including every required identity and cause.
+Each commissioned finding SHALL first have a regression that fails on the
+delivered implementation at its intended assertion, then a repair and an
+independent removal/restoration proof. Tests of capability compilation SHALL
+assert the complete diagnostic and complete optional notice, including every required identity and cause.
 Assertions that merely test is_err(), success/failure status or an isolated
 substring SHALL NOT constitute the commissioned refusal proof. Removal
 experiments SHALL restore the implementation and demonstrate a final pass;
@@ -252,3 +297,31 @@ proof.
 - **WHEN** a missing-grant case instead fails for an invalid model or malformed unrelated input
 - **THEN** the expected full capability diagnostic does not match and the test fails
 - **AND** the case passes only when it reaches the intended named authorization refusal
+
+#### Scenario: The three earlier removal-found gaps stay closed
+
+- **WHEN** adapter duplicate-key enforcement, sequence fallback plan selection and unmapped resume root selection are independently removed
+- **THEN** their existing regressions still fail at the intended full duplicate diagnostic, selected fallback provider plan and operated-root identity assertions respectively
+- **AND** the sequence case includes DSH fallback after Codex primary, and the resume case removes the workspace decoy before testing
+- **AND** all mutations are restored and the regressions pass before completion is claimed
+
+#### Scenario: macOS canonical fixture roots preserve exact diagnostics
+
+- **WHEN** the repeated-native-key/uncomposable-selection regression creates its temporary fixture on Linux or macOS, including a system temp root reached through a path alias
+- **THEN** it canonicalizes that root once at creation and derives fixture paths and the complete expected diagnostic from the same root
+- **AND** the `/var` versus `/private/var` spelling difference cannot fail the diagnostic equality or be hidden by weakening it to a substring
+- **AND** new slice-one tests are checked for the same root-construction habit; no expected temp path is constructed by gluing a host prefix
+- **AND** Linux and macOS executions are reported only when actually observed
+
+## Decisions
+
+M2 applies D3's already declared strictness to request source bytes; map-level
+validation is rejected because it cannot recover overwritten authority.
+M3's loaded-library semantic lint is required before site resolution, including
+unseated requests; optionality cannot forgive a malformed abstract declaration.
+M4 rejects the prior task 9.1 completion claim for optional compatibility
+removal: required failures cannot prove later assertions ran. The two optional
+experiments above must stand alone with their intended failure and restored
+pass recorded. The macOS correction preserves exact diagnostic equality by
+fixing fixture identity, not by changing refusal semantics or inventing a
+temporary pathname. These tests belong to the owning suites, not fixtures/.

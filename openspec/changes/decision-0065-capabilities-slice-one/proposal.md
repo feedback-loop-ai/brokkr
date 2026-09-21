@@ -1,5 +1,6 @@
 Status: proposed specification of accepted decision 0065, slice one.
-Authority: operator ruling and controller-adopted cut, 2026-09-21.
+Authority: accepted decision 0065 and operator security-hold repair commission.
+Repair specification: proposed; council finding H4 retains spec_defect=true.
 Change: decision-0065-capabilities-slice-one.
 
 ## Why
@@ -8,7 +9,9 @@ Codex can search from the provider's servers even when a seat's workspace has
 no network; existing realms neither authorize nor disclose that egress.
 Accepted decision 0065 makes capabilities the realm's to grant, with no
 grandfathering, and the operator has admitted closing this defect as the
-highest-priority first slice.
+highest-priority first slice. The delivered head f0264a9b remains under the
+council security hold: four HIGH fail-open findings, four MEDIUM findings,
+and one macOS diagnostic test failure now bound this repair.
 
 ## What Changes
 
@@ -34,7 +37,9 @@ highest-priority first slice.
   unmeasured reasons. Ship provider-native dialect files only. Codex denial
   composes the measured -c web_search="disabled" on cold and eligible resume
   argv, boxed and unboxed, without weakening resume eligibility or its config
-  guard. A native capability that cannot be disabled refuses when ungranted.
+  guard. A known unheld native capability requires a valid delivered denial
+  plan or a named refusal, including absent, legacy, unreadable and unmeasured
+  required control data.
 - Report grants, dialects, office scope, ungranted installed native
   capabilities and measurement gaps per realm in doctor. Render each seat's
   held and not-held capabilities; capability results are DATA, never
@@ -45,6 +50,15 @@ highest-priority first slice.
   or realm grants, including unused realm grants, move the bundle identity.
   Re-pin witness, compose and affected charter digests only from actual bytes
   and compiles, with history reasons.
+- Repair authored capability-server configuration bypasses without changing
+  engine-owned hands, and ensure every accepted native argv/selection/
+  restriction control reaches the final serving command.
+- Refuse active charter and policy inputs under excluded file trees, including
+  inherited layers; preserve identity for all permitted active inputs.
+- Reject duplicate request keys from source bytes, lint unseated loaded agents,
+  and make doctor reflect the actual OFF disposition for seats left unheld.
+  Require independent optional compatibility-removal proofs and canonical
+  fixture roots for complete portable diagnostic assertions.
 - Define the complete mcp kind in the schema, but refuse every realm grant
   selecting it with a reason naming the absent second slice.
 
@@ -76,17 +90,28 @@ Implementation will touch Rust realm representation, agent/adapter loaders,
 bundle resolution, launch/prompt integration and doctor under crates/, plus
 adapters/, affected agents/charters, new capabilities/ and dialects/tools/
 data, additive contracts and focused operator guides. The expected files and existing proof
-suites are inventoried in .forge/tasks/0065-capabilities-slice-one.md.
+suites are inventoried in .forge/tasks/0065-capabilities-slice-one.md; the
+repair surfaces are bounded by .forge/tasks/0065-slice-one-security-hold-repair.md.
 No dependency is proposed; any later addition needs a stated justification.
 Supported hosts remain Linux and macOS under decision 0063.
 
-This returned specify visit adopts decision-0065-capabilities-slice-one and
-amends only this proposal and its six specification deltas, in that order.
-Design, tasks, code, new contracts and digest updates are subsequent
-artifacts/work, not claims made by this draft. The checkout
-already names slice-0065-capabilities; this return starts at e40a716a, the
-initial specification commit on top of 5347c667, which accepts 0065. The
-existing accepted decision is adopted as authority, not re-authored or demoted; any additional semantic ruling needs a separate proposed decision.
+This repair specify visit adopts `decision-0065-capabilities-slice-one` on
+`slice-0065-capabilities` at `f0264a9b`, preserving every existing commit and
+draft PR #319. It amends this proposal first, then the six existing deltas;
+no new change or replacement implementation is created. The previous specify,
+design and implementation visits are historical context, not repair evidence.
+Accepted decision 0065 remains accepted; the repair's semantic decisions must
+also be recorded in a separate **proposed** decision before implementation.
+
+The repair is limited to H1–H4, M1–M4 and the macOS fixture-root failure.
+The table below binds those findings to observable scenarios. Subsequent
+design/tasks artifacts must reconcile these corrections before implementation:
+D7's active-input exclusion and task 6.1's recorded deviation are rejected;
+D3 includes source-byte request duplicates; tasks 3.1 and 9.1 need the missing
+loaded-library and independent optional proofs. Existing checked boxes and
+historical evidence do not establish those repairs. The rendered specify step
+owns proposal/specs only; design, tasks, the proposed repair decision, code,
+new tests, measurements and evidence remain subsequent phase work.
 
 ## Decisions
 
@@ -101,9 +126,10 @@ Answers and reasoned refutations of specification ambiguities are encoded as
 scenarios in the owning deltas: a realm grant alone is not a seat holding;
 an optional MCP grant still refuses; a native adapter key is not a grant;
 DSH/LaneTally unknown inventories are not empty inventories; and a composed
-Codex resume control is not live proof. This return answers clarify findings
-CQ1 and CQ2 below and in the owning scenarios; no council positions were
-supplied. The accepted decision and controller cut remain unchanged.
+Codex resume control is not live proof. The earlier clarification answered
+CQ1 and CQ2 below. This repair adopts the chief's complete reconciliation in `.forge/tasks/council-ruling-3c72a18a.md`,
+including each named panel attribution; it is not a new council-design visit.
+The accepted decision and controller cut remain unchanged.
 
 An explicit capabilities map on an agent-backed seat is the requested subset
 of its office's map; omission inherits, and an empty map subtracts everything.
@@ -156,6 +182,48 @@ policy/phase-machine.json, policy/schemas/, fixtures/, reference/, extensions/,
 the event-envelope schema and issue-226 task ledger remain untouched.
 Existing contract versions and historical evidence remain byte-for-byte.
 
+### Security-hold repair decisions and finding ownership
+
+| Finding | Adopted correction and owning delta |
+| --- | --- |
+| H1 — adversarial F1, correctness C1, security S2, spec-compliance R1 | `native-capability-controls`: recognized providers cannot turn lost adapter data into permission to launch. Empty asks/grants and old realms still require final OFF or named refusal. Audit every swallowed error that gates denial. |
+| H2 — security S1 | `realm-capability-grants`: authored MCP server/config/tool permissions cannot supply authority, including Codex config, Claude/LaneTally arguments and DSH patch equivalents. Preserve hands by engine provenance. |
+| H3 — adversarial F2, correctness C2, spec-compliance R3 | `native-capability-controls`: every accepted argv, selection and restriction transport reaches the final command, or compilation refuses its representation. Selection-only success is rejected. |
+| H4 — adversarial F3, correctness C3, security S3, spec-compliance R2 | `capability-manifest-and-prompts`: HIGH, **spec_defect=true**. No active charter or policy may be unpinned. Adopt refusal of active inputs under excluded trees; prove standalone and inherited cases. D7's deviation and task 6.1's completion basis are invalid. |
+| M1 — adversarial F4, correctness C4, spec-compliance R4 | `capability-doctor`: matching grants do not bypass OFF assessment for seats left unheld; unsupported/unmeasured reasons cannot become a promise of denial. |
+| M2 — correctness C5, spec-compliance R5 | `seat-capability-resolution`: reject duplicate request names and repeated capabilities fields from source bytes, before map conversion or composition loses them. |
+| M3 — spec-compliance R6 | `tool-dialect-contract`: compilation semantically lints every agent in a loaded library, including unseated agents, before optionality or subtraction can hide undefined requests. |
+| M4 — spec-compliance R7 | `seat-capability-resolution`: independent optional tests must fail at exact notices when provider/restriction compatibility itself is removed. Historical M3/M4 required failures and M6/M8 mutations do not supply that proof. |
+| macOS CI | `seat-capability-resolution`: canonicalize temporary roots at fixture creation and derive complete diagnostic expectations from them; sweep the slice's new tests for the same assumption. |
+
+H1 and H3 implement one rule: denial is a launch property. A successful
+unmeasured plan for a provider already known to have the unheld power is
+refused. An unknown inventory remains an honest uncertainty, never a claim
+of denial or a way to erase a known capability. Declared control composition
+and live provider enforcement remain distinct evidence.
+
+For H2, rejecting a realm's MCP dialect is insufficient: recipe-authored
+passthrough is a separate authority path. Engine-owned hands remain admitted
+by provenance, never by a server name an author can copy. An equivalent
+configuration door whose authority cannot be constrained is refused. This
+repair does not claim to settle ambient-MCP measurement.
+
+For H4, choose refusal of active charter/policy inputs under excluded trees
+rather than making every unconsulted operator definition incidental bundle
+identity. D7's composition-purity argument does not justify omitting active
+bytes: a recipe-local refusal needs no operator directory, preserves pure
+composition, and is compatible with the existing pinned-script fence. This
+corrects the specification first; design D7 and task 6.1 must carry the same
+rule before code repair. All resulting witness changes require actual compiles
+and appended reasons; previous measured digests remain historical facts.
+
+No finding is dismissed or averaged down. The HIGH identity finding remains
+a specification defect even though one panel rated its impact MEDIUM.
+Do not archive or fold: task 12.1 stays open pending council re-judgment,
+overriding its old archive instruction. Passing validation does not lift the
+security hold. Issue #255 / PR #313's Text-file-busy flake, slices two/three,
+new grants, dependency upgrades and release work are outside this repair.
+
 ## Evidence and delivery obligations
 
 Read decision 0065 in full beside 0043, 0046, 0036, 0012 and 0016; README,
@@ -182,20 +250,26 @@ Implementation acceptance includes full reason/notice assertions and removal
 proofs for compiler enforcement, boxed/unboxed Codex cold and eligible resume
 argv in both grant states, strict library/schema tests, per-realm doctor and
 prompt tests, and actual grant/dialect/restriction digest movement. Each
-removal proof must fail at the intended assertion, then pass with enforcement
-restored; a compile error or unrelated failure is not proof.
+finding first needs a failing regression on the delivered code, then a repair,
+then an independent removal proof that fails at the intended assertion and
+passes with enforcement restored; a compile error or unrelated failure is
+not proof.
 
 Required validation remains cargo fmt --all -- --check; cargo clippy
 --workspace --all-targets --all-features --locked -- -D warnings; each of the
 seven crate suites, crate-scoped; cargo test --workspace and the all-features
 locked workspace suite; the bundles/self compile and every re-pinned compile;
 openspec validate --all --strict; and the unchanged literal-100% exact coverage
-gate, including every added production line. Host/CI coverage evidence remains
-pending until it exists where nested boundaries can execute. Notes describe
+gate, including every added production line. Record candidate-bound source-line,
+branch and function covered/total counts separately; no unavailable count is
+100%. Preserve the three earlier removal-found regressions: adapter duplicate
+keys, sequence fallback receiving its own provider plan, and unmapped resume
+using the operated root with the workspace decoy removed. Host/CI coverage
+evidence remains pending until it exists where nested boundaries can execute. Notes describe
 observations and never waive, instruct or substitute for a gate. There is no
 release, publication, profile update or push in this commission.
 
-## Specification validation
+## Historical specification validation
 
 The initial specify visit passed strict validation of this change and
 openspec validate --all --strict --no-interactive: 16 items passed, zero
@@ -223,3 +297,25 @@ also stopped at cargo with exit 127. No Rust, compile or coverage pass is
 claimed. No implementation, provider measurement, dependency change or digest
 re-pin is performed by this specification return; all controller measurement
 obligations above remain outstanding.
+
+## Repair specification validation
+
+This visit changes only the proposal and six specification deltas. No repair
+regression, code fix, mutation experiment, host result or new digest is claimed
+by these artifacts. The repair's required failing/restored evidence remains
+owed before implementation completion. Strict validation of this amended change
+and `openspec validate --all --strict --no-interactive` passed: **16 items,
+zero failures**. `git diff --check` is clean. Existing informational issue-226
+archive notices and long-requirement notices are not validation failures;
+the unrelated artifacts were not changed.
+
+Formatting, clippy, all seven crate-scoped suites, both workspace test commands
+and self/verify compiles were attempted through workspace hands and could not
+start because `cargo` is absent from PATH. `bash scripts/coverage-exact.sh`
+was authorized and attempted; it stopped at line 33 with `cargo: command not
+found`, exit 127. The three current coverage results are **source lines:
+unavailable; branches: unavailable; functions: unavailable**. No covered/total
+counts or percentages were produced, and no prior report is substituted.
+These are environment limits, not observed Rust failures or passing gates.
+Linux/macOS repair-suite and final implementation coverage evidence remains
+pending. No archive was run; task 12.1 stays open for council re-judgment.

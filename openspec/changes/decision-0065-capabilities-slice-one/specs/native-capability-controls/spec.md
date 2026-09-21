@@ -33,6 +33,7 @@ adapter keys and SHALL NOT themselves confer authorization.
 - **WHEN** an older third-party adapter has no native capability assessment
 - **THEN** its native inventory is reported as unmeasured because the declaration is absent
 - **AND** absence neither grants a capability nor establishes verified native denial
+- **AND** a recognized provider already known to have an unheld native capability refuses compilation unless a valid denial plan can still be established and delivered
 
 #### Scenario: An adapter declaration is not a grant
 
@@ -45,6 +46,40 @@ adapter keys and SHALL NOT themselves confer authorization.
 - **THEN** the capability is dropped with the complete CQ1 compatibility notice and the final argv uses its supported native OFF control
 - **AND** neither its ON control nor an unrestricted replacement is composed; a measured unsupported OFF still refuses independently
 - **AND** a grant unused after asks, subtraction or scope likewise composes only native OFF, without evaluating an unused ON/restriction configuration
+
+### Requirement: Known native powers require a valid delivered denial or refusal
+
+For every recognized provider known to have a native capability, compilation
+SHALL establish a valid control plan for each unheld capability or refuse
+before launch. Missing computed authority, absent or legacy assessments,
+unreadable/malformed adapter data, unmeasured OFF and errors erased on any
+security-relevant load path SHALL NOT become a successful no-control plan.
+An adapter's omission SHALL NOT erase an already known native power. Refusals
+SHALL name the seat, realm, provider, known capability and the complete cause,
+including the failing source and load reason when applicable. No requests,
+empty grants, an unused grant or legacy realm data SHALL bypass this check.
+The final launch boundary SHALL refuse missing or undeliverable managed
+controls rather than accept a plan that merely calls denial unmeasured.
+
+#### Scenario: H1 missing Codex adapter data cannot restore default search
+
+- **GIVEN** an inline Codex work seat requests nothing in a realm granting nothing
+- **WHEN** its adapter root is absent, the root contains no Codex declaration, the declaration predates native metadata, or it omits the known web-search power from its inventory
+- **THEN** each case either produces the exact final `-c`, `web_search="disabled"` pair from a valid engine plan or refuses with the complete missing-denial cause naming the seat, realm, codex and web-search
+- **AND** no case launches with only an unmeasured record or no native control
+- **AND** absence of an operator definition directory does not relax denial
+
+#### Scenario: H1 a load failure remains a failure of denial authority
+
+- **WHEN** the same no-ask seat encounters unreadable or malformed Codex adapter data, or an unrelated malformed adapter makes loading the adapter library fail
+- **THEN** compilation refuses with the full source/load cause and the affected seat, realm, codex and web-search denial context unless valid independently loaded denial authority remains available
+- **AND** an ignored load error cannot produce a launch without OFF
+
+#### Scenario: H1 legacy realms and unmeasured OFF have no exemption
+
+- **WHEN** the absent, legacy and malformed adapter cases are repeated without a realm map and with each supported v1–v5 realm, or a known native power explicitly declares OFF unmeasured
+- **THEN** each unheld known power still requires delivered OFF or the complete named refusal
+- **AND** an empty holding or a manifest notice alone cannot make the seat launchable
 
 ### Requirement: Codex web-search OFF uses the controller's measured fragment
 
@@ -144,7 +179,10 @@ mcp and tool_permissions do not establish absence of native egress.
 LaneTally SHALL declare native inventory/controls unmeasured because they have
 not been verified through that wrapper. Unmeasured declarations SHALL NOT
 authorize a holding or claim verified denial; they SHALL remain distinct from
-a known capability with a measured unsupported OFF control.
+a known capability with a measured unsupported OFF control. Neither
+unmeasured state SHALL permit a provider already known to have an unheld
+native capability to launch without a valid denial plan; the refusal above
+applies independently of whether the uncertainty was explicitly declared.
 
 #### Scenario: Claude admits only held native tools beside hands
 
@@ -169,7 +207,43 @@ a known capability with a measured unsupported OFF control.
 
 - **WHEN** a seat requires a capability whose selected native binding has unmeasured controls
 - **THEN** compilation refuses naming the seat, realm, capability, provider and unmeasured reason
-- **AND** if the request is wants it is dropped with that reason, without claiming the provider has been proven to deny all native egress
+- **AND** if the request is wants it is dropped with that reason only when independent native denial remains valid; a known unheld native capability with unmeasured OFF refuses compilation instead
+- **AND** no successful optional drop claims that an unknown inventory has been proven free of native egress
+
+### Requirement: Every accepted native control reaches the final command
+
+Every accepted native argv disposition, selection contribution and restriction
+transport SHALL be represented in the final serving command after hands,
+local permissions and boundary composition. A representation that cannot be
+safely composed for that provider SHALL refuse during compilation, naming the
+seat, realm, capability, provider and unsupported representation or conflict.
+Successful compilation SHALL NOT record OFF, ON or an enforced restriction
+that the launch drops. Controls SHALL compose once, preserving current
+restriction arity, duplicate checks, strict MCP and engine-owned hands.
+
+#### Scenario: H3 Claude argv denial is executable denial
+
+- **GIVEN** Claude web-search OFF is declared as argv `["--disallowedTools", "WebSearch"]` instead of a selection contribution
+- **WHEN** an unheld seat compiles and its actual cold or eligible resumed command is assembled
+- **THEN** the final command denies WebSearch with that disposition composed into the authoritative tool lists, or compilation has already refused that representation with the complete reason
+- **AND** accepting the declaration and emitting only selection is a test failure
+- **AND** existing hands and local restrictions remain present without conflicting duplicate flags
+
+#### Scenario: H3 a held restriction survives final composition
+
+- **GIVEN** a synthetic supported native grant has a schema-valid nonempty restriction and a declared argv transport, with a supported ON disposition
+- **WHEN** a Claude seat holds it and reaches final command construction
+- **THEN** the command contains both the accepted ON control and the exact encoded restriction value, or compilation refuses the representation before claiming a holding
+- **AND** the original structured restriction remains pinned, and the native capability cannot launch unrestricted
+- **AND** rejecting a supported test representation is not evidence that its transport was composed
+
+#### Scenario: H1 through H3 cover every serving path
+
+- **WHEN** denial/admission, authored-configuration and accepted-control regressions exercise inline and agent-backed work/gate seats, primary and fallback links, panel members, sequence steps and selected/inherited bodies, boxed and unboxed, cold and eligible resumed
+- **THEN** every supported path asserts the exact final command and effective ON/OFF/restriction disposition, while an unsupported path asserts its complete refusal
+- **AND** the actual resume assertions verify the offered session and resumed command; boxed ineligible cold fallback stays a separate case
+- **AND** an always-OFF mutation fails authorized ON assertions, and removing a delivered argv or restriction fragment fails its own final-command assertion
+- **AND** this matrix tests the current gate launch paths without implementing slice-two gate capability policy
 
 ### Requirement: Denial and admission have removal proofs and bounded live claims
 
@@ -198,3 +272,14 @@ These tests SHALL NOT substitute for a live provider measurement.
 - **WHEN** deterministic controls pass but no new controller measurements are supplied
 - **THEN** delivery notes still list Codex live resumed denial and enablement, explicit ON values and other versions, Claude live controls, DSH native inventory/controls and LaneTally native inventory/controls as unmeasured and owed to the controller
 - **AND** no failed, absent or unrun live check is described as passed
+
+## Decisions
+
+H1 and H3 are adopted as one launch invariant. An unmeasured record describes
+knowledge; it is not a valid replacement for mandatory denial of a known
+power. The historical distinction between unknown inventory and impossible
+OFF remains useful for reporting, but neither may swallow a required control.
+Selection-only composition is rejected because the accepted contract also
+admits argv dispositions and restriction transports. Tests prove the final
+command or full compile refusal, not only a resolver plan. Live Codex resume,
+Claude, DSH and LaneTally evidence remains separately unmeasured.

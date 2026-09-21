@@ -90,6 +90,54 @@ Identical inputs SHALL produce identical canonical manifests and digests.
 - **THEN** the corresponding single-axis identity assertion fails
 - **AND** restoring the contribution restores the pass
 
+### Requirement: Active instructions and policy cannot escape bundle identity
+
+Every active input that changes a seat's instructions or a run's governing
+policy SHALL participate in bundle identity or be refused before use. In
+this repair, compilation SHALL refuse charter/role and policy references
+under trees excluded from incidental bundle walking, including top-level
+`capabilities/`, in both standalone and inherited/composed recipes. This rule
+SHALL apply to each declaring layer and to normalized and canonical targets,
+so path aliases cannot disguise an excluded input. Refusals SHALL identify
+the source/layer, site when applicable, active input kind, relative path and
+the reason that excluded active bytes cannot be omitted from bundle identity.
+
+The existing pinned-script refusal SHALL remain. A genuinely unconsulted
+operator definition SHALL remain outside identity; an active charter or policy
+SHALL NOT be classified as such a definition merely by directory name.
+Ordinary permitted active inputs SHALL retain their byte pins, and changing
+each SHALL change the manifest digest. Existing start/resume integrity
+checks SHALL not admit excluded active inputs through a later reread.
+
+#### Scenario: H4 a standalone excluded charter refuses
+
+- **GIVEN** a standalone recipe's otherwise valid seat references `capabilities/reviewer.md` as its role
+- **WHEN** it compiles, first with the original charter and then with different instruction bytes
+- **THEN** both compilations refuse with the complete role/source/site/path and excluded-input identity reason
+- **AND** moving the charter to a permitted pinned path restores compilation; changing only its bytes then changes the manifest digest
+- **AND** identical permitted inputs produce identical digests
+
+#### Scenario: H4 a standalone excluded policy refuses
+
+- **GIVEN** a standalone recipe declares `capabilities/policy.json` as its otherwise valid policy
+- **WHEN** it compiles, first with the original policy and then with an independently valid changed ruling
+- **THEN** both compilations refuse with the complete policy/source/path and excluded-input identity reason
+- **AND** the same two policies at a permitted pinned path produce distinct manifest digests
+
+#### Scenario: H4 inherited active inputs obey their declaring layer
+
+- **WHEN** an otherwise valid composed recipe inherits an ancestor charter under that ancestor's `capabilities/`, and independently an ancestor policy under that directory
+- **THEN** each case refuses before launch, naming the actual declaring ancestor and active input rather than only the leaf recipe
+- **AND** changing each excluded input independently still refuses; relocating it to a permitted pinned path and changing its bytes moves the ancestor identity and final composed manifest digest
+- **AND** a nested or aliased path cannot hide the same excluded target, and identical allowed compositions remain stable
+
+#### Scenario: H4 protected identity survives removal and resume
+
+- **WHEN** the excluded-role and excluded-policy enforcement is removed separately
+- **THEN** each standalone and inherited full-refusal assertion fails for the now-accepted unpinned input, and passes again when enforcement is restored
+- **AND** start/resume tests refuse a changed permitted pinned active input or a newly excluded reference instead of launching with fresh unpinned bytes
+- **AND** independent controls retain the script fence and show an unused operator definition does not change identity
+
 ### Requirement: Prompt capability statements reflect the serving seat's pinned holdings
 
 Every rendered seat prompt SHALL name its held capabilities and its relevant
@@ -155,6 +203,9 @@ final implementation. The witness and compose history blocks SHALL append
 decision 0065 slice one and the concrete reason for each identity movement:
 native-control adapter data, abstract requests/charters, capability records,
 grant context, consulted abstract definitions or dialect bytes as applicable.
+For the H4 repair, reasons SHALL identify the active-input identity correction
+and any role/policy relocation that changed a witness; excluded inputs SHALL
+not be assigned fabricated successful compile digests.
 Existing historical reasons SHALL remain historical; unaffected pins SHALL not be fabricated or churned.
 
 #### Scenario: Every changed pin has an observed source
@@ -168,6 +219,8 @@ Existing historical reasons SHALL remain historical; unaffected pins SHALL not b
 - **WHEN** the implementation is evaluated for completion
 - **THEN** the existing crate-scoped suites, workspace suites, self-bundle compile, formatting, strict clippy, strict all-item OpenSpec validation and literal-100% exact coverage retain their required status
 - **AND** unavailable host or live-provider evidence is reported as pending with its actual limitation, never inferred from a different passing check
+- **AND** final-head exact coverage reports source lines, branches and functions as separate covered/total counts with literal nonzero 100% equality; stale reports and unrun counts do not establish a pass
+- **AND** task 12.1 remains open and the change is not archived before council re-judgment, regardless of local validation results
 
 ### Requirement: Slice-one records do not claim later-slice behavior
 
@@ -182,3 +235,15 @@ weakening existing hands, boundary, egress or secret-binding checks.
 - **WHEN** slice-one artifacts and delivery notes are read
 - **THEN** they identify those later behaviors as slice two or three
 - **AND** they claim only native controls, declared grants, compile enforcement and the manifests/prompts/doctor surfaces proved by this slice
+
+## Decisions
+
+H4 remains HIGH and **spec_defect=true**. This requirement rejects design
+D7's recorded by-name exclusion as sufficient protection and task 6.1's
+completion on that basis. The repair chooses refusal of active inputs under
+excluded trees; the next design/task revisions must replace their contrary
+allowance before implementation. The refusal preserves pure recipe composition
+without operator-directory coupling and keeps unconsulted definitions out of
+identity. A pinned-script check alone is not evidence about charter or policy
+bytes. No historical witness value or prior measurement is rewritten as a
+repair result; affected pins come from actual final compiles.

@@ -21,7 +21,7 @@ grant or require changing a legacy map's frozen schema.
 #### Scenario: Every older version denies by absence
 
 - **WHEN** each valid forge.realms/v1 through forge.realms/v5 map is loaded and a Codex seat compiles against its realm
-- **THEN** the map loads with no capability grants and the seat's web-search is composed OFF
+- **THEN** the map loads with no capability grants and the seat's web-search is composed OFF if a valid denial plan exists; otherwise seating Codex refuses with the complete native-denial cause
 - **AND** no migration or historical use grants it implicitly
 
 #### Scenario: Absence and an explicit empty map are equivalent
@@ -66,6 +66,54 @@ named compile refusal. Recipe composition SHALL NOT manufacture realm data.
 
 - **WHEN** realm private grants web-search using a dialect whose serves is web-fetch
 - **THEN** compilation refuses naming private, web-search, the dialect and its actual serves value
+
+### Requirement: Authored provider configuration cannot supply capability authority
+
+A recipe-authored driver command or passthrough SHALL NOT configure a
+capability server, authorize its concrete tools or replace engine-owned MCP
+configuration. Compilation SHALL refuse Codex `mcp_servers` configuration
+(including descendant keys and whole-table assignments), Claude and
+Claude-compatible LaneTally `--mcp-config` and `mcp__*` allowed-tool entries,
+and equivalent adapter configuration paths. Supported split/equal and alias
+spellings SHALL enforce the same rule using argument positions. Final launch
+assembly SHALL retain the authored-versus-managed distinction. Diagnostics
+SHALL identify the source/site, provider, offending control and realm-only
+authority reason without echoing server credentials or payload values.
+
+An authored DSH `--patch` or equivalent overlay SHALL refuse if it carries
+capability/server configuration or cannot be proven confined to its existing
+permitted non-capability purpose. Unreadable or unrecognized overlays SHALL
+not pass through on trust. Engine-owned hands configuration, including its
+server and allowed workspace tool, SHALL retain decision 0043 behavior under
+empty grants; copying its name or bytes SHALL NOT confer engine provenance.
+This refusal SHALL apply independently of native inventory metadata and the
+slice-two MCP grant fence. Ambient configuration measurement stays separate.
+
+#### Scenario: H2 Codex server config is refused under empty grants
+
+- **WHEN** an unboxed inline seat with no grants authors `-c mcp_servers.docs.command=...`, a whole `mcp_servers` table or an equivalent supported config spelling
+- **THEN** compilation refuses the complete authored-server authority reason naming that site, codex and configuration key before any provider or server launch
+- **AND** boxed, nested, composed and fallback forms receive the same authority refusal with their own source/site
+
+#### Scenario: H2 Claude and LaneTally cannot author an MCP door
+
+- **WHEN** a recipe supplies `--mcp-config` or an allowed-tools list admitting `mcp__docs__lookup`, their supported aliases/equal spellings, or both
+- **THEN** Claude and the Claude-compatible LaneTally path refuse the full realm-only configuration reason even with no duplicate or arity error
+- **AND** a claimed `mcp__brokkr__workspace` name in authored data does not escape that refusal
+
+#### Scenario: H2 DSH overlays cannot widen tool authority
+
+- **WHEN** a DSH site supplies `--patch` pointing to an overlay configuring a capability server/tool, or an overlay whose permitted scope cannot be established
+- **THEN** it refuses with the complete site/provider/overlay-control cause before forwarding or staging that authored configuration
+- **AND** the existing validated route-only overlay and engine-owned model, transcript, sandbox and effort composition keep their allowed behavior
+- **AND** any other equivalent passthrough without a sound provenance check is explicitly refused, not reported as harmless because its inventory is unmeasured
+
+#### Scenario: H2 engine-owned hands remain usable
+
+- **WHEN** otherwise valid seats with grants `{}` receive engine-generated hands configuration on the supported adapters
+- **THEN** their exact final commands retain the existing hands server, workspace permission and strict configuration behavior alongside native denial
+- **AND** identical-looking recipe-authored configuration is refused because its provenance differs
+- **AND** inert argument values that only resemble a control are not interpreted as authored control positions
 
 ### Requirement: Office scopes and tool subsets only narrow a grant
 
@@ -129,8 +177,9 @@ reason in manifest notices and the native capability SHALL remain OFF. A
 grant unused after asks, subtraction and office scope SHALL stay pinned but
 inactive; native ON/restriction composition SHALL not be required for that
 unused binding. Known native OFF checks SHALL still run independently for
-every serving candidate: an unsupported OFF control SHALL refuse even where
-a wants could otherwise drop or a grant is unused. Successful cases SHALL
+every serving candidate: an unsupported or unmeasured OFF for a known native
+capability, or missing required denial authority, SHALL refuse even where a
+wants could otherwise drop or a grant is unused. Successful cases SHALL
 never launch an unrestricted version of the rejected binding.
 
 #### Scenario: A valid restriction survives each boundary
@@ -223,3 +272,10 @@ is also rejected because neither grants an unrestricted capability. Invalid
 grant data, unbuilt kinds and impossible native denial remain independent
 refusals. This does not relax existing local tool-permission restrictions,
 which constrain the continuing seat rather than an optional capability.
+
+H2 adopts security S1's distinction between a realm MCP grant and an authored
+provider configuration. Closing only the former leaves recipe data as a
+second grant source. Provenance preserves hands without a forgeable server-name
+exception. DSH's existing constrained route patch is not carte blanche for a
+capability overlay; equivalent doors must be constrained or refused. This
+repair adds no MCP broker and supplies no new ambient-MCP guarantee.

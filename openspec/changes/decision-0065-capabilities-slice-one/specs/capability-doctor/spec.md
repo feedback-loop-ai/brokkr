@@ -57,6 +57,14 @@ scope SHALL NOT be described as universal native authorization. Doctor SHALL
 distinguish an available declared OFF control from a measured impossible OFF
 control and include the unsupported reason and compile consequence. It SHALL
 not equate a missing provider binary with an installed denied capability.
+A matching grant SHALL NOT bypass OFF assessment for seats without an
+effective holding, including empty/scoped grants, empty tools, unused grants
+and subtracted requests. Unsupported OFF SHALL report the compile refusal
+with its measured reason; unmeasured OFF SHALL retain its reason and claim
+no denial. For a known unheld native capability, an unmeasured or unavailable
+mandatory OFF plan SHALL report the same refusal consequence as compilation.
+Only a valid composable OFF disposition SHALL justify saying an unheld seat
+is launched with the capability switched off, within its evidence scope.
 
 #### Scenario: Codex default search is made visible
 
@@ -80,6 +88,24 @@ not equate a missing provider binary with an installed denied capability.
 - **WHEN** the same provider is absent from the supplied availability facts
 - **THEN** doctor reports provider absence using the existing availability behavior
 - **AND** it does not claim to have observed its native capability state on this host
+
+#### Scenario: M1 a matching scoped grant cannot imply denial elsewhere
+
+- **WHEN** a valid grant matches an installed provider/key but names only researcher, leaving another seat without a holding
+- **THEN** doctor names the grant and office scope and independently reports supported OFF, unsupported OFF with compile refusal, or unmeasured OFF with its reason and no denial claim
+- **AND** the unsupported and unmeasured cases never print that every other seat is switched off
+
+#### Scenario: M1 empty and unused grants retain the OFF consequence
+
+- **WHEN** the matching grant has `offices: []`, has `tools: []`, is not requested, or has been subtracted by the seat
+- **THEN** each case reports the correct OFF disposition for the unheld capability, including compile refusal whenever a known power cannot receive valid denial
+- **AND** tests independently assert each complete report line for supported, unsupported and unmeasured OFF, not merely the grant description
+
+#### Scenario: M1 reporting cannot survive removal of its disposition check
+
+- **WHEN** a matching grant is made to bypass the OFF assessment in an isolated removal experiment
+- **THEN** the scoped, empty and unused unsupported/unmeasured report assertions fail at their exact expected lines
+- **AND** restoration passes while the supported control still reports declared denial within its actual evidence scope
 
 ### Requirement: Unknown inventories and live-control gaps remain unmeasured
 
@@ -128,3 +154,12 @@ provider availability/version inspection SHALL not count as capability proof.
 - **WHEN** tests supply installed/absent provider facts and two realm maps with known, unsupported and unmeasured native declarations
 - **THEN** assertions verify the complete relevant lines, scope and reasons for each realm
 - **AND** no live provider response is required or claimed by the test
+
+## Decisions
+
+M1 adopts the council's finding that grant presence says nothing about denial
+for seats outside the holding. Doctor must use the same disposition semantics
+as launch: an unsupported or unmeasured OFF cannot become a success sentence
+through the matching-grant branch. Unknown inventory remains different from
+known unmeasured OFF, and declared control composition remains different from
+live enforcement evidence.
