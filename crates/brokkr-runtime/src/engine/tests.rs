@@ -2172,6 +2172,25 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         .contains("stderr tail"));
 }
 
+/// Give an operated repository the operator's abstract definitions. A
+/// compile that loads the shipped library consults the definitions every
+/// loaded agent names (decision 0065; design D3) and pins them, and the
+/// start fence reads those pins under the OPERATED repository — so a test
+/// that compiles against the workspace and starts somewhere else has to
+/// stand where a real operated repository stands: beside its definitions.
+fn carry_definitions(operated: &Path) {
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../capabilities");
+    std::fs::create_dir_all(operated.join("capabilities")).unwrap();
+    for entry in std::fs::read_dir(shipped).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            operated.join("capabilities").join(entry.file_name()),
+        )
+        .unwrap();
+    }
+}
+
 fn git_commit(repo: &Path, message: &str) -> String {
     if !repo.join(".git").exists() {
         assert!(Command::new("git")
@@ -4876,6 +4895,7 @@ fn compiled_triage_engine() -> (tempfile::TempDir, Engine) {
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
     std::fs::create_dir(&work).unwrap();
+    carry_definitions(&work);
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let engine = Engine::start(store, bundle, "compiled SDD proof", Some(work)).unwrap();
     (dir, engine)
@@ -5383,6 +5403,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5426,6 +5447,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5474,6 +5496,7 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -5548,6 +5571,7 @@ fn docs_only_review_commits_are_classified_and_never_claimed() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5596,6 +5620,7 @@ fn the_docs_class_is_read_at_the_entry_head_and_not_from_the_tree() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);
@@ -5670,6 +5695,7 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
+    carry_definitions(&repo);
     git_commit(&repo, "base");
     let entered = commit_file(&repo, CLASSES, DOCS_CLASS, "classes");
     let mut engine = engine_in(dir.path(), None, &repo);

@@ -155,7 +155,16 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
             )));
         }
         let file = dir.join("bundle.json");
-        let document: Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
+        // Read STRICTLY from the layer's own bytes (decision 0065, design
+        // D3): a seat's capability requests are written here, and an
+        // ordinary JSON map keeps the last copy of a repeated key — so a
+        // `"requires"` followed by a `"wants"` under one name, or a second
+        // `capabilities` field, would weaken a requirement before any
+        // validation saw it. Every layer is read this way, so a leaf that
+        // replaces a seat cannot hide what its ancestor wrote twice.
+        let parsed = brokkr_core::canonical::parse_strict(&std::fs::read_to_string(&file)?)
+            .map_err(|problem| invalid(format!("{}: {problem}", file.display())))?;
+        let document: Map<String, Value> = serde_json::from_value(parsed)?;
         let name = document
             .get("name")
             .and_then(Value::as_str)

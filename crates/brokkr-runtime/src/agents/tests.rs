@@ -3,14 +3,29 @@ use std::path::Path;
 
 /// A throwaway library + adapters tree. Every test writes exactly the
 /// data it is about, so a rejection message can be asserted verbatim.
+///
+/// The tree is REACHED THROUGH A SYMLINK on every host, and `root` is that
+/// alias canonicalised once, here. The loaders canonicalise what they are
+/// given, so a diagnostic names the canonical place; macOS hands out
+/// temporary directories under `/var`, itself a link to `/private/var`,
+/// and an expectation glued from the lexical path passes on Linux and
+/// fails there. With the alias the same habit fails on Linux too. Every
+/// write and every expected path is derived from `root`.
 struct Tree {
-    dir: tempfile::TempDir,
+    /// Held for its drop: the directory lives as long as the fixture.
+    _guard: tempfile::TempDir,
+    root: PathBuf,
 }
 
 impl Tree {
     fn new() -> Tree {
+        let guard = tempfile::tempdir().unwrap();
+        std::fs::create_dir(guard.path().join("real")).unwrap();
+        let alias = guard.path().join("alias");
+        std::os::unix::fs::symlink("real", &alias).unwrap();
         let tree = Tree {
-            dir: tempfile::tempdir().unwrap(),
+            root: alias.canonicalize().unwrap(),
+            _guard: guard,
         };
         std::fs::create_dir_all(tree.library_root().join("charters")).unwrap();
         std::fs::create_dir_all(tree.adapters_root()).unwrap();
@@ -19,23 +34,23 @@ impl Tree {
     }
 
     fn library_root(&self) -> PathBuf {
-        self.dir.path().join("agents")
+        self.root.join("agents")
     }
 
     fn adapters_root(&self) -> PathBuf {
-        self.dir.path().join("adapters")
+        self.root.join("adapters")
     }
 
     fn write(&self, relative: &str, body: &Value) {
         std::fs::write(
-            self.dir.path().join(relative),
+            self.root.join(relative),
             serde_json::to_vec_pretty(body).unwrap(),
         )
         .unwrap();
     }
 
     fn raw(&self, relative: &str, body: &str) {
-        std::fs::write(self.dir.path().join(relative), body).unwrap();
+        std::fs::write(self.root.join(relative), body).unwrap();
     }
 
     fn library(&self) -> Library {
@@ -314,6 +329,83 @@ fn an_agent_requests_capabilities_by_abstract_name() {
         .unwrap()
         .capabilities
         .is_empty());
+}
+
+/// Finding M2: an agent's requests are read from its SOURCE BYTES. An
+/// ordinary JSON map keeps the last copy of a repeated key, so
+/// `"web-search": "requires"` followed by `"web-search": "wants"` loaded as
+/// a want — a requirement weakened before any validation saw it. Every
+/// repetition is refused where the file is read: either strength order, an
+/// equal repetition, and a second `capabilities` field, a later `{}`
+/// included. The fixtures are raw text, because `json!` would erase the
+/// duplicate before the reader met it.
+#[test]
+fn a_request_key_written_twice_in_an_agent_source_is_refused_from_its_bytes() {
+    let tree = Tree::new();
+    let path = tree.library_root().join("tester.json");
+    let agent = |capabilities: &str| {
+        format!(
+            "{{\"description\": \"a test agent\", \"charter\": \"charters/c.md\", \
+             \"models\": [\"opus\"], \"efforts\": {{\"opus\": \"high\"}}, {capabilities}}}"
+        )
+    };
+    // The control: the same document with each key once loads, and the
+    // requirement is a requirement.
+    tree.raw(
+        "agents/tester.json",
+        &agent(r#""capabilities": {"web-search": "requires"}"#),
+    );
+    assert_eq!(
+        tree.library().agent("tester").unwrap().capabilities["web-search"],
+        crate::capabilities::Strength::Requires
+    );
+    for (capabilities, key) in [
+        (
+            r#""capabilities": {"web-search": "requires", "web-search": "wants"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "wants", "web-search": "requires"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "requires", "web-search": "requires"}"#,
+            "web-search",
+        ),
+        (
+            r#""capabilities": {"web-search": "requires"}, "capabilities": {}"#,
+            "capabilities",
+        ),
+        (
+            r#""capabilities": {}, "capabilities": {"web-search": "requires"}"#,
+            "capabilities",
+        ),
+    ] {
+        let text = agent(capabilities);
+        tree.raw("agents/tester.json", &text);
+        // Each second copy is the LAST entry of its object, and the parser
+        // closes that object before it reports: it stands past the inner
+        // map's brace for a repeated name, past the document's own for a
+        // repeated field.
+        let column = match key {
+            "capabilities" => text.len(),
+            _ => text.len() - 1,
+        };
+        // What loading said, or what it loaded: a reader that keeps the last
+        // copy fails HERE, showing the strength it kept.
+        let said = match Library::load(&tree.library_root()) {
+            Ok(library) => format!("loaded {:?}", library.agent("tester").unwrap().capabilities),
+            Err(refusal) => refusal.to_string(),
+        };
+        assert_eq!(
+            said,
+            format!(
+                "{}: key '{key}' is written twice at line 1 column {column}",
+                path.display()
+            ),
+            "{capabilities}"
+        );
+    }
 }
 
 // ------------------------------------------------------- honesty rules
@@ -969,7 +1061,7 @@ fn the_library_loader_names_the_file_and_the_key_it_refuses() {
 #[test]
 fn a_charter_outside_the_library_root_is_refused() {
     let tree = Tree::new();
-    std::fs::write(tree.dir.path().join("escape.md"), "# outside\n").unwrap();
+    std::fs::write(tree.root.join("escape.md"), "# outside\n").unwrap();
     let mut body = agent_body();
     body["charter"] = json!("../escape.md");
     tree.write("agents/tester.json", &body);
@@ -1001,11 +1093,11 @@ fn unparseable_and_missing_trees_are_refused_by_name() {
     assert!(tree.library_error().contains("tester.json"));
 
     let missing = Tree::new();
-    let message = Library::load(&missing.dir.path().join("absent"))
+    let message = Library::load(&missing.root.join("absent"))
         .unwrap_err()
         .to_string();
     assert!(message.contains("agent library"), "{message}");
-    let message = Adapters::load(&missing.dir.path().join("absent"))
+    let message = Adapters::load(&missing.root.join("absent"))
         .unwrap_err()
         .to_string();
     assert!(message.contains("adapters"), "{message}");

@@ -88,6 +88,19 @@ fn read_json(path: &Path) -> Result<Value, LibraryError> {
         .map_err(|e| LibraryError::Invalid(format!("{}: {e}", path.display())))
 }
 
+/// An agent's source, read STRICTLY from its bytes (decision 0065, design
+/// D3): the file is where an office's capability requests are written, and
+/// an ordinary JSON map keeps the last copy of a repeated key — so
+/// `"requires"` followed by `"wants"` under one name, or a second
+/// `capabilities` field, would weaken a requirement before any validation
+/// saw it. A key written twice anywhere in the document is refused here,
+/// naming the file, the key and where the parser stood.
+fn read_request_source(path: &Path) -> Result<Value, LibraryError> {
+    let text = std::fs::read_to_string(path)?;
+    brokkr_core::canonical::parse_strict(&text)
+        .map_err(|problem| LibraryError::Invalid(format!("{}: {problem}", path.display())))
+}
+
 fn object<'a>(value: &'a Value, what: &str) -> Result<&'a Map<String, Value>, LibraryError> {
     match value.as_object() {
         Some(map) => Ok(map),
@@ -483,7 +496,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     if !valid_name(name) {
         return invalid(format!("{what}: the file name must match {NAME_GRAMMAR}"));
     }
-    let source = read_json(path)?;
+    let source = read_request_source(path)?;
     let map = object(&source, &what)?;
     only_keys(
         map,

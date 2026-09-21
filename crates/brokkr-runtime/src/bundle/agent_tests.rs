@@ -700,3 +700,131 @@ fn a_refusal_inside_a_panel_member_propagates_out_of_its_step() {
     });
     assert!(error(fixture.compile(config)).contains("is not in the library"));
 }
+
+/// An agent no seat names, asking for `asks`.
+fn unseated(asks: Value) -> Value {
+    json!({"description": "an office no seat of this bundle names",
+           "charter": "charters/work.md", "models": ["opus"],
+           "efforts": {"opus": "high"}, "capabilities": asks})
+}
+
+/// The operator's definition of `name`, beside the fixture's library.
+fn define(fixture: &AgentFixture, name: &str, classes: Value) {
+    std::fs::create_dir_all(fixture.dir.path().join("capabilities")).unwrap();
+    fixture.write(
+        &format!("capabilities/{name}.json"),
+        json!({"name": name, "classes": classes}),
+    );
+}
+
+/// Finding M3: a compile that LOADS a library lints every agent in it, not
+/// only the ones a seat names (CQ2; decision 0065 ruling 1). The capability
+/// walk resolves seated references, so a valid seated worker used to hide
+/// an unseated researcher asking for a capability nobody defined — and the
+/// CLI readouts were the only callers of the definition lint. The refusal
+/// is the lint's own sentence, for a want as much as a requirement, and it
+/// reaches through a composed recipe exactly as it reaches a plain one.
+#[test]
+fn an_unseated_loaded_agent_with_an_undefined_request_refuses_the_compile() {
+    for strength in ["requires", "wants"] {
+        let fixture = AgentFixture::new();
+        define(&fixture, "web-search", json!(["reads", "egress"]));
+        // The control: the same library compiles while every loaded
+        // agent's request is defined — the unseated one's included.
+        fixture.write(
+            "agents/researcher.json",
+            unseated(json!({"web-search": strength})),
+        );
+        fixture
+            .compile(fixture.config())
+            .unwrap_or_else(|error| panic!("{strength}: {error}"));
+        fixture.write(
+            "agents/researcher.json",
+            unseated(json!({"web-search": strength, "library-docs": strength})),
+        );
+        let expected = "bundle: agent 'researcher': capability 'library-docs' has no abstract \
+                        definition at 'capabilities/library-docs.json' in the operator \
+                        configuration; declare its classes before requesting it";
+        // What the compile said, or that it compiled: a compile that lints
+        // seated agents only fails HERE.
+        let said = |compiled: Result<Bundle, CompileError>| match compiled {
+            Ok(bundle) => format!("compiled '{}'", bundle.name),
+            Err(refusal) => refusal.to_string(),
+        };
+        assert_eq!(
+            said(fixture.compile(fixture.config())),
+            expected,
+            "{strength}"
+        );
+        // Composed: the seat that opens the library is an ancestor's, and
+        // the refusal is the same sentence inside the note every composed
+        // compile failure carries.
+        let derived = fixture.dir.path().join("derived");
+        std::fs::create_dir_all(&derived).unwrap();
+        std::fs::write(
+            derived.join("bundle.json"),
+            serde_json::to_vec(&json!({"name": "derived", "extends": "bundle"})).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            said(Bundle::compile_with(
+                &derived,
+                &fixture.library(),
+                &fixture.adapters()
+            )),
+            format!("bundle: {expected} (composed: derived -> fixture)"),
+            "composed, {strength}"
+        );
+    }
+    // A bundle that names no agent never opens the library, so a broken
+    // agent in it is not this compile's to refuse.
+    let fixture = AgentFixture::new();
+    fixture.write(
+        "agents/researcher.json",
+        unseated(json!({"library-docs": "requires"})),
+    );
+    let mut config = fixture.config();
+    config["seats"]["work"] = config["seats"]["review"].clone();
+    config["seats"]["work"]["results"] = json!(["complete"]);
+    fixture.compile(config).unwrap();
+}
+
+/// Finding M3's identity half (design D3): the lint CONSULTS the
+/// definition an unseated agent names, so that definition is pinned — an
+/// edit to its bytes moves the bundle's identity — while a definition no
+/// loaded agent and no grant names stays outside it.
+#[test]
+fn a_definition_only_an_unseated_agent_names_is_pinned_and_an_unconsulted_one_is_not() {
+    let fixture = AgentFixture::new();
+    define(&fixture, "web-search", json!(["reads", "egress"]));
+    define(&fixture, "unasked", json!(["reads"]));
+    fixture.write(
+        "agents/researcher.json",
+        unseated(json!({"web-search": "wants"})),
+    );
+    let compiled = || fixture.compile(fixture.config()).unwrap();
+    assert_eq!(
+        compiled().manifest["capabilities"]["definitions"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["web-search"]
+    );
+    let before = compiled().manifest_digest();
+    assert_eq!(
+        before,
+        compiled().manifest_digest(),
+        "identical inputs, identical identity"
+    );
+    // The unconsulted definition's bytes are not identity.
+    define(&fixture, "unasked", json!(["reads", "egress"]));
+    assert_eq!(before, compiled().manifest_digest());
+    // The consulted one's are: the same classes, whitespace alone.
+    std::fs::write(
+        fixture.dir.path().join("capabilities/web-search.json"),
+        "{\"name\": \"web-search\", \"classes\": [\"reads\", \"egress\"]}\n\n",
+    )
+    .unwrap();
+    assert_ne!(before, compiled().manifest_digest());
+}

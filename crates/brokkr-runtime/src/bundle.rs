@@ -1264,6 +1264,27 @@ impl Bundle {
                 egress_minimum,
             }),
         };
+        // Decision 0065 ruling 1 (CQ2; design D3): a library this compile
+        // LOADED is linted whole, before any seat is resolved or subtracts
+        // anything — every agent in it, seated or not, asks only for what
+        // the operator defined. The capability walk below resolves seated
+        // references alone, so without this a valid seated worker hides an
+        // unseated office's undefined request. A library no seat opens is
+        // not loaded to be linted. What the lint consulted is pinned: the
+        // names ride into the manifest's definitions beside the seats' own.
+        let library_asks: Vec<String> = match agents.as_ref().and_then(|a| a.library.as_ref()) {
+            None => Vec::new(),
+            Some(library) => {
+                let problems = authority.definitions.lint(library);
+                if !problems.is_empty() {
+                    return Err(CompileError::Capability(problems.join("; ")));
+                }
+                library
+                    .agents()
+                    .flat_map(|agent| agent.capabilities.keys().cloned())
+                    .collect()
+            }
+        };
 
         // The dialect's `verify` wrapper, applied only AFTER the authoring
         // census below (design D10 F2). Wrapping renames the wrapped seat's
@@ -1754,6 +1775,7 @@ impl Bundle {
             .values()
             .filter_map(|facts| facts.capabilities.as_ref())
             .flat_map(|site| site.asks.asks.keys().chain(&site.asks.subtracted).cloned())
+            .chain(library_asks)
             .collect();
         let mut capability_record = authority.manifest(&consulted);
         capability_record["sites"] = Value::Object(capability_sites);

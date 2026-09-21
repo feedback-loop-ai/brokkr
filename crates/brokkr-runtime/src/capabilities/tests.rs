@@ -1143,15 +1143,123 @@ fn a_held_capability_is_switched_on_and_is_fully_attributable() {
     );
 }
 
+/// The world the three provider-compatibility proofs share: `web-search`
+/// granted through `search-native`, which binds provider `test-native`.
+fn bound_to_test_native(root: &Path) -> Authority {
+    authority(root, json!({"web-search": {"dialect": "search-native"}}))
+}
+
+/// Provider compatibility, the OPTIONAL half, on its own (finding M4): a
+/// want bound to another provider is lost with its exact notice. The first
+/// substantive assertion is the WHOLE notice vector, and nothing required
+/// runs before it — so removing the compatibility check itself fails here,
+/// at this equality, rather than at a requirement's refusal somewhere
+/// above. The fixture is otherwise valid: the serving provider can deny its
+/// own search, so the only thing between this want and a holding is the
+/// check under proof.
 #[test]
-fn provider_compatibility_cannot_expand_a_holding() {
+fn provider_compatibility_drops_a_want_with_its_exact_notice() {
     let root = cq1_root();
-    let granted = authority(
-        root.path(),
-        json!({"web-search": {"dialect": "search-native"}}),
-    );
-    let site = asks(json!({"web-search": "requires"}));
+    let granted = bound_to_test_native(root.path());
     let wanting = asks(json!({"web-search": "wants"}));
+    let claude = switchable();
+    let other = Serving {
+        provider: "claude",
+        ..serving(&claude)
+    };
+    let dropped = granted.resolve(&wanting, &other).unwrap();
+    assert_eq!(
+        dropped.notices,
+        [(
+            "web-search".to_string(),
+            "seat 'research' (office 'researcher') in realm 'private': dropped wanted \
+             capability 'web-search' through dialect 'search-native' because provider 'claude' \
+             cannot carry a binding to provider 'test-native'; native capability remains OFF"
+                .to_string()
+        )]
+    );
+    assert!(dropped.held.is_empty());
+    assert_eq!(argv_of(&dropped), ["--search-off"]);
+
+    // An unmeasured inventory cannot satisfy a want, and claims no denial.
+    let unmeasured = NativeInventory::Unmeasured("never probed".into());
+    let dropped = granted.resolve(&wanting, &serving(&unmeasured)).unwrap();
+    assert_eq!(
+        dropped.notices,
+        [(
+            "web-search".to_string(),
+            "seat 'research' (office 'researcher') in realm 'private': dropped wanted \
+             capability 'web-search' through dialect 'search-native' because provider \
+             'test-native' declares its native capabilities unmeasured (never probed); no \
+             native denial is claimed"
+                .to_string()
+        )]
+    );
+    assert_eq!(
+        dropped.manifest()["native"],
+        json!({"inventory": "unmeasured", "reason": "never probed", "declaration": "d1ge57"})
+    );
+    // Nor does a binding to ANOTHER provider make an unmeasured one deny
+    // anything: the mismatch loses the want, and the notice claims an OFF
+    // only where this candidate's own plan composed one (NC5) — which is
+    // what a dsh or LaneTally link beside a Codex grant is.
+    let elsewhere = Serving {
+        provider: "dsh",
+        ..serving(&unmeasured)
+    };
+    assert_eq!(
+        granted.resolve(&wanting, &elsewhere).unwrap().notices,
+        [(
+            "web-search".to_string(),
+            "seat 'research' (office 'researcher') in realm 'private': dropped wanted \
+             capability 'web-search' through dialect 'search-native' because provider 'dsh' \
+             cannot carry a binding to provider 'test-native'; no native denial is claimed"
+                .to_string()
+        )]
+    );
+    assert_eq!(
+        dropped.controls(),
+        json!({"inventory": "unmeasured", "reason": "never probed"})
+    );
+    assert_eq!(
+        dropped.prompt()["native"],
+        "Provider 'test-native' declares its native capabilities unmeasured (never probed); \
+         nothing is claimed about what it can reach on its own"
+    );
+}
+
+/// Provider compatibility, the UNUSED half: a grant bound to another
+/// provider is inactive for a seat that asks for nothing. No notice is
+/// invented for an ask that does not exist, nothing is switched on, and the
+/// serving provider's own search is denied all the same.
+#[test]
+fn provider_compatibility_leaves_an_unused_grant_idle() {
+    let root = cq1_root();
+    let granted = bound_to_test_native(root.path());
+    let claude = switchable();
+    let other = Serving {
+        provider: "claude",
+        ..serving(&claude)
+    };
+    let office = parse_requests("a", &json!({"web-search": "wants"})).unwrap();
+    for site in [
+        SiteAsks::of("research", Some(("researcher", &office)), Some(&json!({}))).unwrap(),
+        SiteAsks::of("implement", None, None).unwrap(),
+    ] {
+        let idle = granted.resolve(&site, &other).unwrap();
+        assert_eq!(idle.notices, Vec::<(String, String)>::new());
+        assert!(idle.held.is_empty());
+        assert_eq!(argv_of(&idle), ["--search-off"]);
+    }
+}
+
+/// Provider compatibility, the REQUIRED half: every way a binding cannot
+/// be carried refuses a requirement with its complete reason.
+#[test]
+fn provider_compatibility_refuses_a_requirement() {
+    let root = cq1_root();
+    let granted = bound_to_test_native(root.path());
+    let site = asks(json!({"web-search": "requires"}));
     let head = "seat 'research' (office 'researcher') in realm 'private': requires capability \
                 'web-search' through dialect 'search-native', but ";
     let tail = "; the capability cannot be held under this grant";
@@ -1167,15 +1275,8 @@ fn provider_compatibility_cannot_expand_a_holding() {
         refused(&other),
         format!("{head}provider 'claude' cannot carry a binding to provider 'test-native'{tail}")
     );
-    let dropped = granted.resolve(&wanting, &other).unwrap();
-    assert_eq!(
-        dropped.notices[0].1,
-        "seat 'research' (office 'researcher') in realm 'private': dropped wanted capability \
-         'web-search' through dialect 'search-native' because provider 'claude' cannot carry \
-         a binding to provider 'test-native'; native capability remains OFF"
-    );
 
-    // An unmeasured inventory cannot satisfy a request, and claims no denial.
+    // An unmeasured inventory cannot satisfy a request.
     let unmeasured = NativeInventory::Unmeasured("never probed".into());
     assert_eq!(
         refused(&serving(&unmeasured)),
@@ -1183,40 +1284,6 @@ fn provider_compatibility_cannot_expand_a_holding() {
             "{head}provider 'test-native' declares its native capabilities unmeasured (never \
              probed){tail}"
         )
-    );
-    let dropped = granted.resolve(&wanting, &serving(&unmeasured)).unwrap();
-    assert_eq!(
-        dropped.notices[0].1,
-        "seat 'research' (office 'researcher') in realm 'private': dropped wanted capability \
-         'web-search' through dialect 'search-native' because provider 'test-native' declares \
-         its native capabilities unmeasured (never probed); no native denial is claimed"
-    );
-    assert_eq!(
-        dropped.manifest()["native"],
-        json!({"inventory": "unmeasured", "reason": "never probed", "declaration": "d1ge57"})
-    );
-    // Nor does a binding to ANOTHER provider make an unmeasured one deny
-    // anything: the mismatch loses the want, and the notice claims an OFF
-    // only where this candidate's own plan composed one (NC5) — which is
-    // what a dsh or LaneTally link beside a Codex grant is.
-    let elsewhere = Serving {
-        provider: "dsh",
-        ..serving(&unmeasured)
-    };
-    assert_eq!(
-        granted.resolve(&wanting, &elsewhere).unwrap().notices[0].1,
-        "seat 'research' (office 'researcher') in realm 'private': dropped wanted capability \
-         'web-search' through dialect 'search-native' because provider 'dsh' cannot carry a \
-         binding to provider 'test-native'; no native denial is claimed"
-    );
-    assert_eq!(
-        dropped.controls(),
-        json!({"inventory": "unmeasured", "reason": "never probed"})
-    );
-    assert_eq!(
-        dropped.prompt()["native"],
-        "Provider 'test-native' declares its native capabilities unmeasured (never probed); \
-         nothing is claimed about what it can reach on its own"
     );
     // No adapter answers at all: an opaque driver.
     let opaque = Serving {
@@ -1338,14 +1405,23 @@ fn tool_narrowing_is_exact_or_the_binding_is_incompatible() {
     assert_eq!(denied.controls()["selection"]["include"], json!([]));
 }
 
-#[test]
-fn cq1_an_inexpressible_restriction_refuses_a_requirement_drops_a_want_and_idles_unused() {
-    let root = cq1_root();
-    let restricted = authority(
-        root.path(),
+/// The CQ1 realm: `web-search` granted to the researcher alone, under a
+/// restriction `test-native` declares no transport for.
+fn cq1_restricted(root: &Path) -> Authority {
+    authority(
+        root,
         json!({"web-search": {"dialect": "search-native", "offices": ["researcher"],
                               "allow": {"hosts": ["sourceware.org", "yaml.org"]}}}),
-    );
+    )
+}
+
+/// CQ1, the REQUIRED half: a requirement under a restriction the provider
+/// cannot express is refused with its complete reason, and scope exclusion
+/// is judged before restriction compatibility.
+#[test]
+fn cq1_an_inexpressible_restriction_refuses_a_requirement() {
+    let root = cq1_root();
+    let restricted = cq1_restricted(root.path());
     let native = switchable();
     assert_eq!(
         restricted
@@ -1355,6 +1431,28 @@ fn cq1_an_inexpressible_restriction_refuses_a_requirement_drops_a_want_and_idles
          'web-search' through dialect 'search-native', but provider 'test-native' cannot \
          express restriction 'allow.hosts'; the capability cannot be held under this grant"
     );
+    assert_eq!(
+        restricted
+            .resolve(
+                &SiteAsks::of("implement", None, Some(&json!({"web-search": "requires"}))).unwrap(),
+                &serving(&native)
+            )
+            .unwrap_err(),
+        "seat 'implement' (office 'implement') in realm 'private': requires capability \
+         'web-search' but the realm grants it only to offices [researcher], not to this office"
+    );
+}
+
+/// CQ1, the OPTIONAL half, on its own (finding M4): a want under an
+/// inexpressible restriction is lost with its exact notice, and the native
+/// power stays OFF — never an unrestricted ON. The first substantive
+/// assertion is the WHOLE notice vector and no requirement is resolved
+/// before it, so removing restriction compatibility itself fails here.
+#[test]
+fn cq1_an_inexpressible_restriction_drops_a_want_with_its_exact_notice() {
+    let root = cq1_root();
+    let restricted = cq1_restricted(root.path());
+    let native = switchable();
     let dropped = restricted
         .resolve(&asks(json!({"web-search": "wants"})), &serving(&native))
         .unwrap();
@@ -1378,32 +1476,30 @@ fn cq1_an_inexpressible_restriction_refuses_a_requirement_drops_a_want_and_idles
         "provider 'test-native' cannot express restriction 'allow.hosts'; native capability \
          remains OFF"
     );
-    // Unused: no ask, or an ask subtracted — inactive, OFF, and no notice
-    // is invented for an ask that does not exist.
+}
+
+/// CQ1, the UNUSED half: no ask, or an ask subtracted — the restricted
+/// grant is inactive, the native power is OFF, no notice is invented for an
+/// ask that does not exist, and the restriction stays pinned as written.
+#[test]
+fn cq1_an_inexpressible_restriction_idles_an_unused_grant() {
+    let root = cq1_root();
+    let restricted = cq1_restricted(root.path());
+    let native = switchable();
     let office = parse_requests("a", &json!({"web-search": "wants"})).unwrap();
     for site in [
         SiteAsks::of("research", Some(("researcher", &office)), Some(&json!({}))).unwrap(),
         SiteAsks::of("implement", None, None).unwrap(),
     ] {
         let idle = restricted.resolve(&site, &serving(&native)).unwrap();
-        assert!(idle.held.is_empty() && idle.notices.is_empty());
+        assert_eq!(idle.notices, Vec::<(String, String)>::new());
+        assert!(idle.held.is_empty());
         assert_eq!(argv_of(&idle), ["--search-off"]);
     }
     // The inactive restriction stays in realm context, exactly as written.
     assert_eq!(
         restricted.manifest(&[])["grants"]["web-search"]["allow"],
         json!({"hosts": ["sourceware.org", "yaml.org"]})
-    );
-    // Scope exclusion precedes restriction compatibility.
-    assert_eq!(
-        restricted
-            .resolve(
-                &SiteAsks::of("implement", None, Some(&json!({"web-search": "requires"}))).unwrap(),
-                &serving(&native)
-            )
-            .unwrap_err(),
-        "seat 'implement' (office 'implement') in realm 'private': requires capability \
-         'web-search' but the realm grants it only to offices [researcher], not to this office"
     );
 }
 

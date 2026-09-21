@@ -1326,3 +1326,115 @@ fn a_bases_directory_name_and_declared_name_are_both_recorded() {
         .expect("the renamed base is in the chain");
     assert_eq!(base_layer.reached_as.as_deref(), Some("innocuous"));
 }
+
+/// Finding M2: a recipe layer's requests are read from its SOURCE BYTES.
+/// An ordinary JSON map keeps the last copy of a repeated key, so a
+/// requirement written before a want under one name — or a second
+/// `capabilities` field, a later `{}` included — reached the capability
+/// pass already weakened. Each repetition is refused where the layer is
+/// read, at every site form and in an ancestor whose seat a leaf replaces,
+/// naming the layer's file, the key and where the parser stood. The
+/// fixtures are raw text: `json!` would erase the duplicate first.
+#[test]
+fn a_request_key_written_twice_in_a_recipe_layer_is_refused_from_its_bytes() {
+    // One seat body with `ASKS` where its requests are written, always
+    // followed by another member, so the parser stands just past the
+    // second copy's value in every form.
+    const SINGLE: &str = r#"{ASKS,"results":["complete"],"role":"roles/role.md","driver":{"command":["./drive","plain"]}}"#;
+    let forms = [
+        ("an ordinary seat", SINGLE.to_string()),
+        (
+            "a panel member",
+            r#"{"results":["complete"],"panel":{"one":SINGLE},"aggregate":"unanimous-pass"}"#
+                .replace("SINGLE", SINGLE),
+        ),
+        (
+            "a sequence step",
+            r#"{"results":["complete"],"sequence":[SINGLE]}"#.replace("SINGLE", SINGLE),
+        ),
+        (
+            "a selected case",
+            r#"{"results":["complete"],"select":"strategy","cases":{"engine":SINGLE}}"#
+                .replace("SINGLE", SINGLE),
+        ),
+    ];
+    // What is written, the key refused, and the second copy with its value.
+    let repetitions = [
+        (
+            r#""capabilities":{"web-search":"requires","web-search":"wants","web-fetch":"wants"}"#,
+            "web-search",
+            r#""web-search":"wants""#,
+        ),
+        (
+            r#""capabilities":{"web-search":"wants","web-search":"requires","web-fetch":"wants"}"#,
+            "web-search",
+            r#""web-search":"requires""#,
+        ),
+        (
+            r#""capabilities":{"web-search":"requires","web-search":"requires","web-fetch":"wants"}"#,
+            "web-search",
+            r#","web-search":"requires""#,
+        ),
+        (
+            r#""capabilities":{"web-search":"requires"},"capabilities":{}"#,
+            "capabilities",
+            r#""capabilities":{}"#,
+        ),
+        (
+            r#""capabilities":{},"capabilities":{"web-search":"requires"}"#,
+            "capabilities",
+            r#","capabilities":{"web-search":"requires"}"#,
+        ),
+    ];
+    let once = r#""capabilities":{"web-search":"requires","web-fetch":"wants"}"#;
+    let review =
+        r#"{"results":["clean"],"role":"roles/role.md","driver":{"command":["./drive","plain"]}}"#;
+    let bundle = |work: &str| {
+        r#"{"name":"base","policy":"policy.json","seats":{"work":WORK,"review":REVIEW}}"#
+            .replace("WORK", work)
+            .replace("REVIEW", review)
+    };
+    for (form, body) in &forms {
+        for (asks, key, second) in repetitions {
+            for inherited in [false, true] {
+                let library = Library::new();
+                let written = library.recipe("base", &base_bundle(), Some(&base_policy()));
+                let text = bundle(&body.replace("ASKS", asks));
+                std::fs::write(written.join("bundle.json"), &text).unwrap();
+                // Inherited: the leaf REPLACES the seat, and the ancestor's
+                // bytes are refused all the same — an override hides nothing.
+                let leaf = match inherited {
+                    false => written.clone(),
+                    true => library.recipe(
+                        "derived",
+                        &derived(json!({"override": {"seats": ["work"]},
+                                        "seats": {"work": seat(vec!["complete"])}})),
+                        None,
+                    ),
+                };
+                let column = text.rfind(second).unwrap() + second.len();
+                // What composing said, or what it composed: a reader that
+                // keeps the last copy fails HERE, showing what it kept.
+                let said = match resolve(&leaf) {
+                    Ok(resolved) => format!("composed {}", resolved.seats["work"]),
+                    Err(refusal) => refusal.to_string(),
+                };
+                assert_eq!(
+                    said,
+                    format!(
+                        "bundle: {}: key '{key}' is written twice at line 1 column {column}",
+                        written.join("bundle.json").display()
+                    ),
+                    "{form}, inherited: {inherited}, {asks}"
+                );
+                // The control: the same layer with each key once composes.
+                std::fs::write(
+                    written.join("bundle.json"),
+                    bundle(&body.replace("ASKS", once)),
+                )
+                .unwrap();
+                resolve(&leaf).unwrap_or_else(|error| panic!("{form}: {error}"));
+            }
+        }
+    }
+}
