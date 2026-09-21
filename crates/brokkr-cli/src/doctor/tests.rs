@@ -2956,11 +2956,33 @@ fn the_dsh_probe_runs_the_selected_invocation_and_not_its_canonical_target() {
     let (bin, lib) = (dir.path().join("bin"), dir.path().join("lib"));
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(&lib).unwrap();
-    // Staged beside the target and renamed in, so no write descriptor on
-    // the launcher is open when it is executed (#255).
+    // Staged beside the target by a CHILD, reaped, then renamed in (#255).
+    // The rename alone is not enough: `execve` refuses with ETXTBSY while
+    // the inode's write count is above zero, `rename` moves the inode with
+    // that count, and any sibling test thread's fork inherits this
+    // process's open descriptors until it execs. Bytes written by a child
+    // leave no write descriptor of ours on the inode. The protocol crate
+    // measured it (`composite/tests.rs`, `stage_executable`): staging from
+    // this process was refused 471 times in 4000 rounds, from a child 0.
+    // This test was refused exactly so inside a loaded verify box.
     let stage = |name: &str, body: &str| {
+        use std::io::Write;
         let staged = lib.join(format!(".{name}.staging"));
-        std::fs::write(&staged, body).unwrap();
+        let mut writer = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("cat > \"$0\"")
+            .arg(&staged)
+            .env("PATH", "/usr/bin:/bin")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        writer
+            .stdin
+            .take()
+            .expect("piped")
+            .write_all(body.as_bytes())
+            .unwrap();
+        assert!(writer.wait().unwrap().success(), "staging {name}");
         std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::rename(&staged, lib.join(name)).unwrap();
         lib.join(name)
