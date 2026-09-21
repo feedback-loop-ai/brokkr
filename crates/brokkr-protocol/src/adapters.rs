@@ -3989,10 +3989,28 @@ fn invoke_dsh_stream_json(
         };
         fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
         // Every drain is preceded by the settle that could release the
-        // hold, so a confirmed rejoin's locator and launch rows reach the
-        // journal BEFORE the work row the same sequence activity produces
-        // (design D7's order; task 7.4).
+        // hold, and NO drain happens while the hold is still closed. That
+        // is both halves of design D7's order: a confirmed rejoin's
+        // locator and launch rows reach the journal before the first work
+        // row (task 7.4), and an unconfirmed one publishes no work row at
+        // all — a fold running ahead of the confirmation would address a
+        // session this driver cannot yet name, and an append landing
+        // between the settle and the drain would put it there anyway.
         watch.settle(hold, session_meta, emit);
+        if watch.may_fold() {
+            drain_dsh_transcript(
+                &mut tail,
+                &launch.root,
+                launch.first_seq,
+                &mut turns,
+                session_meta,
+                emit,
+            );
+        }
+    }
+    let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    watch.settle(hold, session_meta, emit);
+    if watch.may_fold() {
         drain_dsh_transcript(
             &mut tail,
             &launch.root,
@@ -4002,16 +4020,6 @@ fn invoke_dsh_stream_json(
             emit,
         );
     }
-    let status = io_context(child.wait(), "agent CLI did not conclude")?;
-    watch.settle(hold, session_meta, emit);
-    drain_dsh_transcript(
-        &mut tail,
-        &launch.root,
-        launch.first_seq,
-        &mut turns,
-        session_meta,
-        emit,
-    );
     finish_dsh(session_meta, status.code().unwrap_or(-1), stderr_thread)
 }
 
@@ -4066,10 +4074,20 @@ fn fold_dsh_stream_event(
 /// (design D6): it is never planted in a prompt and never read here.
 ///
 /// Until all four agree this publishes nothing at all — no transcript
-/// locator, no launch row and no `root_session` — so a missing or
-/// different root followed by a clean exit, or by an otherwise valid
-/// delivered result file, stays failed or indeterminate under D7 and
-/// authorizes no cold replacement by itself.
+/// locator, no launch row, no `root_session` AND no folded work row — so
+/// a missing or different root followed by a clean exit, or by an
+/// otherwise valid delivered result file, stays failed or indeterminate
+/// under D7 and authorizes no cold replacement by itself.
+///
+/// The work row is the half the ordering turns on. The fold reads the
+/// retained store, which the child is writing as the stream is read, so
+/// leaving it ungated would let a child drain its work into the journal
+/// while the hold was still closed and then emit the init event behind
+/// it — publishing the locator and launch row AFTER their own work rows,
+/// and returning a confirmed rejoin built on work that was never
+/// confirmed. `may_fold` withholds the fold until the hold releases, and
+/// `refuse_work_before_confirmation` makes an observed pre-confirmation
+/// sequence permanent.
 struct DshRootWatch {
     /// The exact root this launch was built to rejoin. `None` is a cold
     /// launch, which has no offer to confirm and publishes as it always
@@ -4092,8 +4110,13 @@ struct DshRootWatch {
     /// Whether the child's init event named the offered root.
     named_the_offer: bool,
     /// Latched once the outcome is settled: a confirmation publishes once,
-    /// and a mismatch is not revisited by a later reading.
+    /// and a mismatch — or work observed ahead of the confirmation — is
+    /// not revisited by a later reading.
     settled: bool,
+    /// Latched only by the settle that released the hold. A rejoin folds
+    /// its transcript from here and never before: until this is true the
+    /// driver cannot say which session a work row would belong to.
+    released: bool,
 }
 
 impl DshRootWatch {
@@ -4119,6 +4142,7 @@ impl DshRootWatch {
             transcript,
             named_the_offer: false,
             settled: false,
+            released: false,
         }
     }
 
@@ -4127,6 +4151,16 @@ impl DshRootWatch {
     /// exactly as it always has.
     fn confirming(&self) -> bool {
         self.offered.is_some()
+    }
+
+    /// Whether the retained transcript may be folded into the journal yet.
+    /// A cold launch always may. A rejoin may only once its confirmation
+    /// released the hold: work published before that would name a session
+    /// this driver has not established it is in, and would reach the
+    /// journal ahead of the locator and launch rows D7 orders in front of
+    /// it.
+    fn may_fold(&self) -> bool {
+        !self.confirming() || self.released
     }
 
     /// Publish the retained locator row.
@@ -4166,7 +4200,11 @@ impl DshRootWatch {
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Value),
     ) {
-        if self.settled || !self.named_the_offer {
+        if self.settled {
+            return;
+        }
+        if !self.named_the_offer {
+            self.refuse_work_before_confirmation();
             return;
         }
         let Some(offered) = self.offered.clone() else {
@@ -4208,10 +4246,45 @@ impl DshRootWatch {
             return;
         }
         self.settled = true;
+        self.released = true;
         // D7's order: the held location fact, then the launch row, then
         // the first work checkpoint the drain behind this call emits.
         self.record_locator(session_meta, emit);
         hold.confirm(&offered, emit);
+    }
+
+    /// Sequence activity in the offered root observed BEFORE the plugin's
+    /// init event named it, which permanently refuses the rejoin.
+    ///
+    /// The pinned plugin emits its init event immediately after
+    /// `await agents.resume` — ahead of the session's first current turn
+    /// — so activity that precedes it was not produced by a rejoin this
+    /// driver has confirmed. D7 refuses to accept work from before the
+    /// confirmation, and an init event arriving afterwards cannot adopt
+    /// it retroactively: latching `settled` here without releasing the
+    /// hold leaves the attempt permanently `Unconfirmed`, publishing no
+    /// locator, no launch row and no `root_session`, and authorizing no
+    /// cold replacement.
+    ///
+    /// A store this driver cannot census, or an offer admitted without a
+    /// prior boundary, observes nothing here — an unobserved fact is
+    /// never a satisfied one, and both of those already withhold the
+    /// confirmation in `settle` above.
+    fn refuse_work_before_confirmation(&mut self) {
+        let (Some(offered), Some(first_seq)) = (self.offered.clone(), self.first_seq) else {
+            return;
+        };
+        let Ok(sessions) = dsh_depth_zero_sessions(&self.root) else {
+            return;
+        };
+        let advanced = sessions
+            .iter()
+            .filter(|(id, _)| *id == offered)
+            .filter_map(|(_, file)| dsh_session_last_seq(file))
+            .any(|last| last > first_seq);
+        if advanced {
+            self.settled = true;
+        }
     }
 }
 

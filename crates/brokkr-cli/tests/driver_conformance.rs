@@ -483,6 +483,110 @@ fn dsh_overlay_staging_is_observed_without_any_child_execution() {
     assert_eq!(refused.out.last().expect("a result")["status"], "failed");
 }
 
+/// 8.10's deadline case at the seam that actually owns termination: the
+/// runtime's own watchdog, killing the real built DSH driver's process
+/// tree while its launch rows are still held.
+///
+/// Design D7 adopts no asynchronous cancel protocol — `serve_io` invokes
+/// synchronously and the watchdog owns process termination — so this IS
+/// what cancelling or timing out a running DSH seat does to it. The shim
+/// answers the version probe, records its launch, and then `exec`s a
+/// stall, so the deadline expires with the driver mid-invocation and its
+/// pre-session rows still buffered (decision 0053).
+///
+/// What must survive: the attempt is a determinate deadline failure and
+/// says so on the report rather than only in its prose, NOTHING the
+/// driver was holding is flushed as a fabricated launch row, locator or
+/// `root_session`, and exactly one child was ever launched — the adapter
+/// spends no cold replacement on a killed attempt.
+///
+/// The adapter-side half — the stream-json launch hold itself never
+/// releasing under a timer-driven kill — is proved in `brokkr-protocol`'s
+/// `a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing`,
+/// because the qualified route is reachable only over an injected
+/// composite and no test here installs a provider.
+#[test]
+fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
+    use brokkr_protocol::process::{DriverProcess, SpawnEnv};
+    use brokkr_protocol::AttemptOutcome;
+    use std::time::{Duration, Instant};
+
+    let fixture = DshFixture::stalling();
+    let env: std::collections::BTreeMap<String, String> = [
+        ("PATH", "/usr/bin:/bin"),
+        ("HOME", fixture.operator_home.to_str().unwrap()),
+        ("DSH_HOME", fixture.dsh_home.to_str().unwrap()),
+        ("TMPDIR", fixture.staging.to_str().unwrap()),
+        ("FORGE_DSH_BIN", fixture.binary.to_str().unwrap()),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .collect();
+    let command = vec![
+        brokkr_bin().to_string(),
+        "driver".into(),
+        "dsh".into(),
+        "--".into(),
+        "--model".into(),
+        DSH_PIN.into(),
+    ];
+    // Long enough that the probe, the composite read and the staging all
+    // complete first, so the kill lands on the stalled child and not on
+    // the planner.
+    let deadline = Duration::from_secs(4);
+    let started = Instant::now();
+    let report = DriverProcess::spawn(
+        &command,
+        &fixture.workdir,
+        Some(deadline),
+        &SpawnEnv::Exactly(env),
+    )
+    .unwrap()
+    .run_attempt(
+        "test",
+        "fx",
+        "a1",
+        "intake",
+        fixture.start_input(DshPath::EnabledCold, None),
+        |_| {},
+    );
+    let elapsed = started.elapsed();
+
+    assert!(
+        matches!(&report.outcome, AttemptOutcome::Failed { error } if error.contains("deadline")),
+        "{:?}",
+        report.outcome
+    );
+    assert!(
+        report.deadline_killed,
+        "the watchdog's kill is on the report, not only in its prose"
+    );
+    assert!(
+        elapsed < deadline + Duration::from_secs(20),
+        "the kill unblocks the harness inside the deadline and a bounded \
+         margin, took {elapsed:?}"
+    );
+    // The driver really did reach the provider before it was killed, so
+    // the absences below measure a held launch and not a start that never
+    // got that far.
+    assert_eq!(
+        fixture.launches().len(),
+        1,
+        "exactly one child was launched, and no replacement followed it"
+    );
+    assert_eq!(fixture.probes().len(), 1, "one version probe");
+    // And nothing it was holding escaped: decision 0053 buffers the
+    // pre-session rows until the first turn, the stalled child produced
+    // none, and a deadline kill does not flush them.
+    assert!(!report.accepted, "the killed attempt never accepted");
+    assert!(
+        report.checkpoints.is_empty(),
+        "no launch row, no root_session and no transcript locator were \
+         fabricated out of a killed attempt: {:?}",
+        report.checkpoints
+    );
+}
+
 /// The model pin every admissible DSH payload here carries, and the route
 /// value the ordering cases bind. Neither may appear in a refusal.
 const DSH_PIN: &str = "deepseek/deepseek-v4-flash";
@@ -692,7 +796,7 @@ const STAGING_STAMP: &str = "199001010000";
 
 impl DshFixture {
     fn new() -> Self {
-        Self::pointed_at(None)
+        Self::pointed_at(None, "exit 1\n")
     }
 
     /// The same fixture with no reachable `dsh` at all: the driver still
@@ -700,10 +804,17 @@ impl DshFixture {
     /// followed by cleanup with no child execution — the one shape a log
     /// written by a launched shim can never report.
     fn without_a_provider() -> Self {
-        Self::pointed_at(Some("dsh-does-not-exist"))
+        Self::pointed_at(Some("dsh-does-not-exist"), "exit 1\n")
     }
 
-    fn pointed_at(missing: Option<&str>) -> Self {
+    /// The same fixture whose launched shim never returns. `exec` puts the
+    /// stall in the process the driver holds, so a deadline kill reaching
+    /// the driver's tree reaches it too.
+    fn stalling() -> Self {
+        Self::pointed_at(None, "exec sleep 120\n")
+    }
+
+    fn pointed_at(missing: Option<&str>, ending: &str) -> Self {
         let (workdir_owner, workdir) = canonical_root();
         let (dsh_home_owner, dsh_home) = canonical_root();
         let (operator_home_owner, operator_home) = canonical_root();
@@ -728,7 +839,7 @@ impl DshFixture {
                  \x20 [ \"$prev\" = --patch ] && cat \"$a\" >> '{overlay}'\n\
                  \x20 prev=$a\n\
                  done\n\
-                 exit 1\n",
+                 {ending}",
                 probes = probe_log.display(),
                 launches = launch_log.display(),
                 overlay = overlay_log.display(),
@@ -782,9 +893,18 @@ impl DshFixture {
         std::fs::metadata(&self.staging).unwrap().mtime() > stamped_year_1990
     }
 
-    /// Drive one start on the given path with the given payload, and read
-    /// back everything it touched.
-    fn observe(&self, path: DshPath, extra: &[&str], route: Option<&str>) -> DshObservations {
+    /// The launches and probes the owned shim recorded, readable without
+    /// driving a whole `observe`.
+    fn launches(&self) -> Vec<String> {
+        log_lines(&self.launch_log)
+    }
+
+    fn probes(&self) -> Vec<String> {
+        log_lines(&self.probe_log)
+    }
+
+    /// The seat input one DSH start carries on the given path.
+    fn start_input(&self, path: DshPath, route: Option<&str>) -> Value {
         let mut resume_context = serde_json::Map::new();
         if path != DshPath::Disabled {
             resume_context.insert(
@@ -821,6 +941,13 @@ impl DshFixture {
             "hands": "none",
             "resume_context": Value::Object(resume_context),
         });
+        input
+    }
+
+    /// Drive one start on the given path with the given payload, and read
+    /// back everything it touched.
+    fn observe(&self, path: DshPath, extra: &[&str], route: Option<&str>) -> DshObservations {
+        let input = self.start_input(path, route);
         let mut messages = vec![json!({"proto": "forge-driver/v1", "msg_id": "m1",
                                        "type": "hello", "engine_version": "test"})];
         if path == DshPath::Offered {
@@ -930,18 +1057,36 @@ fn exec_refusal_is_the_scripts_own_failure_not_a_provider_refusal() {
 }
 
 fn make_shim(dir: &Path, body: &str) -> PathBuf {
+    make_named_shim(dir, "shim", body)
+}
+
+/// The house fix for #255, both halves. The shim is installed by RENAME
+/// from a temporary sibling, so the pathname anything execs never names a
+/// partially written file — and there is no retry loop. And the sibling's
+/// bytes are written by a CHILD, so this process never holds a write
+/// descriptor on the inode the rename delivers: `exec` refuses a file any
+/// process still holds open for writing, `rename` moves the inode with
+/// that write count intact, and a forked child inherits this thread's
+/// descriptor until it execs. Both facts are measured in
+/// `brokkr-protocol`'s own
+/// `a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none`.
+fn make_named_shim(dir: &Path, name: &str, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
-    let path = dir.join("shim");
-    // The bytes are written by a CHILD, so this process never holds a
-    // write descriptor on the inode that is about to be exec'd. `exec`
-    // refuses a file any process still holds open for writing, and a
-    // forked child inherits this thread's descriptor until it execs.
-    // Staging beside the target and renaming in does NOT cure that:
-    // `rename` moves the inode, write count and all (#255).
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STAGED: AtomicU64 = AtomicU64::new(0);
+    let path = dir.join(name);
+    // Short and unique within this run rather than derived from the
+    // destination's name, so a fixture probing a length bound can never
+    // fail on the staging name instead of on its own subject.
+    let staging = dir.join(format!(
+        ".stage-{}-{}",
+        std::process::id(),
+        STAGED.fetch_add(1, Ordering::Relaxed)
+    ));
     let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg("cat > \"$0\"")
-        .arg(&path)
+        .arg(&staging)
         .env("PATH", "/usr/bin:/bin")
         .stdin(Stdio::piped())
         .spawn()
@@ -953,9 +1098,10 @@ fn make_shim(dir: &Path, body: &str) -> PathBuf {
         .write_all(body.as_bytes())
         .unwrap();
     assert!(child.wait().unwrap().success(), "the shim is staged");
-    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::set_permissions(&staging, permissions).unwrap();
+    std::fs::rename(&staging, &path).expect("the staged shim is renamed into place");
     path
 }
 

@@ -480,25 +480,46 @@ fn run_seat_covers_absent_input_and_unparseable_result_evidence() {
     ));
 }
 
+/// The staging sibling's own name: short, unique within this run, and
+/// derived from NOTHING about the destination.
+///
+/// The composite matrix probes the layout's own length bounds, so some of
+/// its destinations reach `NAME_MAX` exactly; a staging name built by
+/// decorating the destination's would be the one name in that directory
+/// which could not be created, and the fixture would fail as
+/// `ENAMETOOLONG` rather than as the layout under test.
+#[cfg(unix)]
+pub(crate) fn staging_name() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STAGED: AtomicU64 = AtomicU64::new(0);
+    format!(
+        ".stage-{}-{}",
+        std::process::id(),
+        STAGED.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 #[cfg(unix)]
 fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
-    // The bytes are written by a CHILD, so this process never holds a
-    // write descriptor on the inode that is about to be exec'd. `exec`
-    // refuses a file any process still holds open for writing with
-    // ETXTBSY, and a suite this parallel forks constantly: a child forked
-    // between this thread's open and close inherits the descriptor and
-    // holds it until it execs. Staging beside the target and renaming in
-    // does NOT cure that — `rename` moves the inode, write count and all
-    // — which is measured in `composite::tests`'s own
-    // `a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none`
-    // and is why there is no retry loop here (#255).
+    let staging = dir.join(staging_name());
+    // The house fix for #255, both halves. The shim is installed by
+    // RENAME from a temporary sibling, so the pathname anything execs
+    // never names a partially written file — and there is no retry loop.
+    // And the sibling's bytes are written by a CHILD, so this process
+    // never holds a write descriptor on the inode the rename delivers:
+    // `exec` refuses with ETXTBSY while an inode's write count is above
+    // zero, `rename` moves the inode with that count intact, and a suite
+    // this parallel forks constantly — a child forked between this
+    // thread's open and close inherits the descriptor and holds it until
+    // it execs. Both facts are measured in `composite::tests`'s own
+    // `a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none`.
     let mut child = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg("cat > \"$0\"")
-        .arg(&path)
+        .arg(&staging)
         .env("PATH", "/usr/bin:/bin")
         .stdin(std::process::Stdio::piped())
         .spawn()
@@ -516,9 +537,13 @@ fn executable(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathB
         path.display()
     );
     // `chmod` opens nothing: only a WRITE descriptor is what exec counts.
-    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    // The mode is set on the sibling, so the destination is complete and
+    // executable the instant it exists.
+    let mut permissions = std::fs::metadata(&staging).unwrap().permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::set_permissions(&staging, permissions).unwrap();
+    std::fs::rename(&staging, &path)
+        .unwrap_or_else(|error| panic!("installing {}: {error}", path.display()));
     path
 }
 
@@ -5052,10 +5077,102 @@ fn the_dsh_launch_hold_needs_every_confirmation_before_it_publishes() {
             "{case}: dsh classifies no machine session rejection, so ruling 8's \
              single replacement is never authorized"
         );
+        assert!(
+            !emitted
+                .iter()
+                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            "{case}: and no work row either — an unconfirmed rejoin's fold \
+             would address a session this driver cannot name: {emitted:?}"
+        );
         if delivers {
             assert!(
                 std::fs::metadata(&result).is_ok(),
                 "{case}: the delivered file is retained for diagnosis"
+            );
+        }
+    }
+}
+
+/// The interleaving an event-by-event fold makes reachable, and the one
+/// D7's ordering exists to forbid: sequence activity that lands in the
+/// offered root BEFORE the plugin's init event names it.
+///
+/// The pinned plugin emits its init event immediately after
+/// `await agents.resume`, ahead of the session's first current turn, so
+/// activity that precedes it was not produced by a rejoin this driver has
+/// confirmed — and an init event arriving afterwards cannot adopt it
+/// retroactively. Before the repair, the first folded line drained that
+/// work into the journal with the hold still closed, and the later init
+/// then published the locator, the launch row and `root_session` BEHIND
+/// its own work rows and returned `Resumed`, walking straight past
+/// `run_seat`'s unsettled-result guard.
+///
+/// The attempt latches unconfirmed instead: the fold publishes nothing at
+/// all while the hold is closed, and a hold closed by pre-confirmation
+/// work never opens again — whether the child exits clean or leaves an
+/// otherwise valid delivered result behind (task 8.8(d), Pass C; design
+/// D7).
+#[cfg(unix)]
+#[test]
+fn dsh_work_before_the_init_event_is_never_adopted_by_it() {
+    for delivers in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("seat");
+        plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+        let result = dir.path().join("result.json");
+        let mut body = format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"assistant/message\",\"seq\":28,\"data\":{{\"message\":\
+             {{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\
+             \"outputTokens\":2}}}}}}\\n' >> '{file}'\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"other\"}}\\n'\n",
+            file = file.display()
+        );
+        if delivers {
+            body.push_str(&format!(
+                "printf '{{\"result\":\"delivered\"}}' > '{result}'\n",
+                result = result.display()
+            ));
+        }
+        // The init event the whole sequence was staged to launder: it
+        // names the offered root exactly, and every other observation
+        // agrees with it.
+        body.push_str(
+            "printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n\
+             printf '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\
+             \"session_id\":\"session-1\"}\\n'\n",
+        );
+        let shim = executable(dir.path(), &format!("dsh-prework-{delivers}"), &body);
+        let (invocation, emitted) = run_dsh_stream(
+            dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
+            dir.path(),
+        );
+        let label = if delivers { "with a result" } else { "clean" };
+        assert_eq!(
+            invocation.launch,
+            LaunchTerminal::Unconfirmed,
+            "{label}: the later init event adopts none of the work ahead of it"
+        );
+        assert!(
+            launch_rows(&emitted).is_empty() && transcript_rows(&emitted).is_empty(),
+            "{label}: no launch row, no root_session and no locator: {emitted:?}"
+        );
+        assert!(
+            !emitted
+                .iter()
+                .any(|row| begins_work(row["step"].as_str().unwrap_or_default())),
+            "{label}: and no work row was drained before the hold released: {emitted:?}"
+        );
+        assert!(
+            invocation.refusal.is_none(),
+            "{label}: and no cold replacement is authorized"
+        );
+        if delivers {
+            assert!(
+                std::fs::metadata(&result).is_ok(),
+                "{label}: the delivered file is retained for diagnosis and is \
+                 not this attempt's accepted work"
             );
         }
     }
@@ -5149,32 +5266,104 @@ fn dsh_stderr_prose_and_a_nonzero_exit_start_no_cold_replacement() {
     );
 }
 
-/// A cancellation or deadline kill landing while the launch hold is still
-/// open fabricates nothing: the hold never releases, no confirmed-session
-/// checkpoint is written, and no replacement starts. The shim terminates
-/// its own process group the way the outer watchdog's kill reaches the
-/// driver — after the init event, before any sequence activity.
+/// A deadline expiring — or a cancellation arriving — while the launch
+/// hold is still open fabricates nothing: the hold never releases, no
+/// confirmed-session checkpoint is written, and no replacement starts
+/// (8.10's cancellation/deadline case; design D7).
+///
+/// The kill is EXTERNAL and timer-driven, not the shim's own `kill $$`: a
+/// watchdog thread waits out a real deadline and then kills the provider
+/// child, which is what the runtime's own process-tree kill reaches when
+/// a DSH seat exceeds its deadline or the run is cancelled
+/// (`process::kill_driver`; design D7 keeps termination there and adds no
+/// asynchronous cancel protocol). The child publishes its pid and then
+/// `exec`s its stall, so the kill lands on the process holding the
+/// stream, exactly as the tree kill does.
+///
+/// The moment it lands is pinned by construction: the init event has been
+/// read (the hold is open, waiting on the retained store) and the store
+/// has not moved past the offered boundary, so the hold is provably still
+/// closed when the child dies. The engine-level half — `deadline_killed`
+/// and the driver's held checkpoints — is proved over the real watchdog
+/// and the built driver in `brokkr-cli`'s
+/// `a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement`.
 #[cfg(unix)]
 #[test]
-fn a_dsh_kill_inside_the_open_launch_hold_fabricates_nothing() {
+fn a_dsh_deadline_kill_inside_the_open_launch_hold_fabricates_nothing() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("seat");
     plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+    let file = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+    let pidfile = dir.path().join("child.pid");
     let shim = executable(
         dir.path(),
-        "dsh-killed",
-        "#!/bin/sh\n\
-         printf '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}\\n'\n\
-         kill -TERM $$\n\
-         sleep 5\n",
+        "dsh-stalled",
+        &format!(
+            "#!/bin/sh\n\
+             printf '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}}\\n'\n\
+             printf '%s\\n' \"$$\" > '{pidfile}.tmp'\n\
+             mv '{pidfile}.tmp' '{pidfile}'\n\
+             exec sleep 120\n",
+            pidfile = pidfile.display()
+        ),
     );
+
+    // The watchdog: the deadline is measured from here, and the kill is
+    // delivered to the child rather than requested of it.
+    let deadline = Duration::from_millis(250);
+    let killed = std::sync::Arc::new(AtomicBool::new(false));
+    let watchdog = {
+        let killed = std::sync::Arc::clone(&killed);
+        let pidfile = pidfile.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(60) {
+                if let Ok(pid) = std::fs::read_to_string(&pidfile) {
+                    let pid = pid.trim().to_string();
+                    if !pid.is_empty() {
+                        if let Some(remaining) = deadline.checked_sub(started.elapsed()) {
+                            std::thread::sleep(remaining);
+                        }
+                        let status = std::process::Command::new("/bin/sh")
+                            .arg("-c")
+                            .arg(format!("kill -KILL {pid}"))
+                            .status()
+                            .expect("the host signals a process");
+                        killed.store(status.success(), Ordering::SeqCst);
+                        return;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })
+    };
+
     let (invocation, emitted) = run_dsh_stream(
         dsh_stream_launch(&shim, &root, Some("session-1"), Some(27)),
         dir.path(),
     );
+    watchdog.join().unwrap();
+    assert!(
+        killed.load(Ordering::SeqCst),
+        "the watchdog's deadline really expired and really killed the child"
+    );
     assert_eq!(
         invocation.exit_code, -1,
         "a signalled child reports no exit code of its own"
+    );
+    // The hold was genuinely OPEN at the moment of the kill: the init
+    // event had been read, and the one fact it was still waiting on —
+    // sequence activity past the offered boundary — had not arrived.
+    assert_eq!(
+        invocation.session_meta["session_id"], "session-1",
+        "the init event was read before the kill landed"
+    );
+    assert_eq!(
+        dsh_session_last_seq(&file),
+        Some(27),
+        "and the offered root never moved past its recorded boundary"
     );
     assert_eq!(invocation.launch, LaunchTerminal::Unconfirmed);
     assert!(
@@ -5188,6 +5377,51 @@ fn a_dsh_kill_inside_the_open_launch_hold_fabricates_nothing() {
         "and no confirmed-session checkpoint: {emitted:?}"
     );
     assert!(invocation.refusal.is_none(), "and no replacement starts");
+}
+
+/// The cancellation half at the seam that actually carries it. `serve_io`
+/// invokes synchronously and the runtime watchdog owns termination
+/// (design D7's own adopted row), so a `cancel` is answered on the
+/// message loop: the DSH driver replies `Cancelled` and stops. It
+/// launches nothing, publishes no launch row, no `root_session` and no
+/// transcript locator, and starts no replacement — and no start ever ran,
+/// so the loop cannot have left a half-published launch behind it.
+///
+/// The in-flight case is the kill above, because that is what cancelling
+/// a running DSH seat actually does to it.
+#[test]
+fn a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing() {
+    let hello = serde_json::to_string(&Message::new(Body::Hello {
+        engine_version: "test".into(),
+    }))
+    .unwrap();
+    let cancel = serde_json::to_string(&Message::new(Body::Cancel {
+        effect_id: "fx".into(),
+    }))
+    .unwrap();
+    let mut output = Vec::new();
+    serve_io(
+        AdapterKind::Dsh,
+        &[],
+        format!("{hello}\n{cancel}\n").as_bytes(),
+        &mut output,
+    )
+    .unwrap();
+    let messages: Vec<Message> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(matches!(messages[0].body, Body::Capabilities { .. }));
+    assert!(matches!(
+        messages[1].body,
+        Body::Cancelled { ref effect_id } if effect_id == "fx"
+    ));
+    assert_eq!(
+        messages.len(),
+        2,
+        "and nothing else: no checkpoint, no launch row, no result: {messages:?}"
+    );
 }
 
 /// The DSH arm of LE1/LE3, confirmed: a synthetic child emits the

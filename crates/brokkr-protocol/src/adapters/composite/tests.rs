@@ -53,34 +53,42 @@ fn spawn_retrying_etxtbsy(command: &mut std::process::Command) -> std::process::
     panic!("the child test binary stayed busy");
 }
 
-/// Write an executable file THIS PROCESS NEVER OPENS FOR WRITING, because
-/// that is the only property `execve` actually cares about (#255).
+use crate::adapters::tests::staging_name;
+
+/// Install an executable shim the house way (#255): write a TEMPORARY
+/// SIBLING beside the destination, close it, then `rename` it into place
+/// before anything execs that pathname. No retry loop and no sleep.
 ///
-/// `execve` refuses with ETXTBSY while the inode's write count is above
-/// zero. A fork inherits every open descriptor and holds it until the
-/// child execs, so a shim written on one thread can be refused on another
-/// for as long as some sibling's fork is in flight — and this suite forks
+/// The rename is the installation rule: the destination pathname never
+/// names a partially written file, so a concurrent `exec` of it either
+/// finds nothing or finds the complete shim. But the rename alone is not
+/// the whole of #255, and the reason is measured in
+/// `a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none`
+/// below: `execve` refuses with ETXTBSY while the inode's write count is
+/// above zero, and `rename` moves the INODE, write count and all — so a
+/// destination renamed in from a staging file THIS process wrote
+/// inherits exactly that descriptor. A fork inherits every open
+/// descriptor and holds it until it execs, and this suite forks
 /// constantly.
 ///
-/// Staging beside the destination and renaming in does NOT cure that:
-/// `rename` moves the INODE, write count and all, so the destination
-/// inherits exactly the descriptor the staging file carried. Measured on
-/// this host with eight forking threads and 4000 rounds: writing in place
-/// refused 436 times, staging-and-renaming refused 471, and writing the
-/// bytes from a CHILD — leaving this process with no descriptor for any
-/// fork to inherit — refused 0. So the bytes are written by `/bin/sh`,
-/// which every shim here already depends on for its own shebang, and this
-/// process only reaps it. No retry and no sleep: the race has nowhere
-/// left to happen.
+/// So the staging sibling's bytes are written by a CHILD — `/bin/sh`,
+/// which every shim here already depends on for its own shebang — and
+/// that child is reaped before the rename. The inode that arrives at the
+/// destination carries no write descriptor of this process's for any
+/// sibling thread's fork to have inherited. Measured on this host with
+/// eight forking threads and 4000 rounds: writing in place refused 436
+/// times, staging-and-renaming from this process refused 471, and
+/// staging from a child refused 0.
 #[cfg(unix)]
 fn stage_executable(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
+    let staging = dir.join(staging_name());
     let mut child = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg("cat > \"$0\"")
-        .arg(&path)
+        .arg(&staging)
         // The staging child's own PATH, never the caller's: the native
         // matrix runs its cells under a PATH it composes itself, and a
         // fixture that cannot be written there would fail as a missing
@@ -102,8 +110,11 @@ fn stage_executable(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
         path.display()
     );
     // `chmod` opens nothing, so the mode is the parent's to set: only the
-    // WRITE descriptor is what `execve` counts.
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    // WRITE descriptor is what `execve` counts. It is set on the sibling,
+    // so the destination is complete and executable the instant it exists.
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::rename(&staging, &path)
+        .unwrap_or_else(|error| panic!("installing {}: {error}", path.display()));
     path
 }
 
@@ -2407,45 +2418,67 @@ fn global_folders_reads_node_path_home_and_the_runtime_prefix() {
 /// The mechanism behind #255, proved rather than argued, so the staging
 /// helper above cannot quietly regress to a form that does not cure it.
 ///
-/// `execve` refuses while the inode's write count is above zero. `rename`
-/// moves the INODE: a destination renamed in from a staging file inherits
-/// exactly the staging file's open write descriptor, so staging-and-
-/// renaming is not the cure it was taken for. The helper's product, whose
-/// bytes this process never opened for writing, execs.
+/// The helper's product — installed by `rename` from a sibling whose
+/// bytes a CHILD wrote — execs. That is the assertion both supported
+/// hosts carry (decision 0063), and it is what every fixture in this file
+/// depends on.
+///
+/// The Linux half measures WHY the rename alone is not the cure it was
+/// taken for: `execve` refuses while the inode's write count is above
+/// zero, and `rename` moves the INODE, so a destination renamed in from a
+/// staging file this process still holds open inherits exactly that
+/// descriptor. Apple's `exec_check_permissions` does not apply the
+/// writer-count check at all, so that errno is a Linux mechanism fact and
+/// is asserted only where it holds — never as a portable expectation the
+/// macOS leg would have to fail.
 #[cfg(unix)]
 #[test]
 fn a_renamed_shim_inherits_its_writer_and_a_staged_one_carries_none() {
-    use std::io::Write;
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let body = b"#!/bin/sh\nexit 0\n";
-    let staging = dir.path().join(".probe.staging");
-    let renamed = dir.path().join("probe-renamed");
-    let mut held = fs::File::create(&staging).unwrap();
-    held.write_all(body).unwrap();
-    held.flush().unwrap();
-    fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
-    fs::rename(&staging, &renamed).unwrap();
-    // The descriptor is still open on the same inode, and the rename did
-    // nothing about it.
-    let refused = std::process::Command::new(&renamed).output().unwrap_err();
-    assert_eq!(
-        refused.raw_os_error(),
-        Some(26),
-        "a renamed shim whose writer is still open is Text file busy: {refused}"
-    );
-    // Closing it here proves nothing further: a fork of ANOTHER thread
-    // may still be carrying the same descriptor, which is exactly why a
-    // shim this process wrote can never be relied on to exec.
-    drop(held);
-    // The helper's product carries no descriptor of this process's at
-    // all, so there is none for any fork to have inherited.
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let staging = dir.path().join(".probe.staging");
+        let renamed = dir.path().join("probe-renamed");
+        let mut held = fs::File::create(&staging).unwrap();
+        held.write_all(body).unwrap();
+        held.flush().unwrap();
+        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::rename(&staging, &renamed).unwrap();
+        // The descriptor is still open on the same inode, and the rename
+        // did nothing about it.
+        let refused = std::process::Command::new(&renamed).output().unwrap_err();
+        assert_eq!(
+            refused.raw_os_error(),
+            Some(26),
+            "a renamed shim whose writer is still open is Text file busy: {refused}"
+        );
+        // Closing it here proves nothing further: a fork of ANOTHER
+        // thread may still be carrying the same descriptor, which is
+        // exactly why a shim this process wrote can never be relied on
+        // to exec.
+        drop(held);
+    }
+    // The helper's product is installed by rename AND carries no
+    // descriptor of this process's at all, so there is none for any fork
+    // to have inherited.
     let staged = stage_executable(dir.path(), "probe-staged", body);
     assert!(std::process::Command::new(&staged)
         .output()
         .unwrap()
         .status
         .success());
+    let left: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .filter(|name| name.to_string_lossy().starts_with(".stage-"))
+        .collect();
+    assert!(
+        left.is_empty(),
+        "the temporary sibling was renamed into place, not left beside it: {left:?}"
+    );
 }
 
 #[cfg(unix)]
