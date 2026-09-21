@@ -2856,13 +2856,18 @@ fn run_with(
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Agents { command } => {
+            // Semantic lint reads the OPERATOR's capability definitions
+            // (decision 0065; design D2): beside the active map, else in
+            // the workspace — wherever `--agents-dir` points the library.
+            let world = World::discover(workspace, None)?;
+            let operator_root = capability_context(workspace, world.as_ref(), None).root;
             match command {
-                AgentsCmd::List { agents_dir } => agents::list(&agents_dir)?,
+                AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
                 AgentsCmd::Show {
                     name,
                     agents_dir,
                     adapters_dir,
-                } => agents::show(&name, &agents_dir, &adapters_dir)?,
+                } => agents::show(&name, &agents_dir, &adapters_dir, &operator_root)?,
             }
             Ok(ExitCode::SUCCESS)
         }

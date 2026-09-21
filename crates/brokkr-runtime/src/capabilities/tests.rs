@@ -244,6 +244,58 @@ fn definitions_load_from_the_operators_directory_and_a_missing_one_is_empty() {
     );
 }
 
+/// CQ2 at the library: parsing a request map is syntax, and lint is the
+/// question parsing cannot answer — does the OPERATOR define this name?
+/// Asked of every loaded agent, for a want as for a requirement, against
+/// the operator's directory and never the library's own.
+#[test]
+fn semantic_library_lint_resolves_every_agents_asks_against_the_operators_definitions() {
+    let root = TempDir::new().unwrap();
+    let agents = root.path().join("agents");
+    std::fs::create_dir_all(agents.join("charters")).unwrap();
+    std::fs::write(agents.join("charters/c.md"), "# charter\n").unwrap();
+    let agent = |name: &str, capabilities: Value| {
+        write(
+            &agents,
+            &format!("{name}.json"),
+            &json!({"description": "d", "charter": "charters/c.md", "models": ["m"],
+                    "capabilities": capabilities}),
+        );
+    };
+    agent(
+        "researcher",
+        json!({"operator-library-docs": "wants", "web-search": "requires"}),
+    );
+    agent("reviewer", json!({}));
+    agent("scout", json!({"web-search": "wants"}));
+    // A definition in the LIBRARY's directory is not the operator's.
+    define(&agents, "web-search", &["reads"]);
+    let library = crate::Library::load(&agents).unwrap();
+    let missing = |agent: &str, name: &str| {
+        format!(
+            "agent '{agent}': capability '{name}' has no abstract definition at \
+             'capabilities/{name}.json' in the operator configuration; declare its classes \
+             before requesting it"
+        )
+    };
+    assert_eq!(
+        Definitions::load(root.path()).unwrap().lint(&library),
+        [
+            missing("researcher", "operator-library-docs"),
+            missing("researcher", "web-search"),
+            missing("scout", "web-search"),
+        ]
+    );
+    // Defined by the operator, the same library lints clean — with no
+    // dialect, grant or provider anywhere: a definition enables nothing.
+    define(root.path(), "operator-library-docs", &["reads", "egress"]);
+    define(root.path(), "web-search", &["reads", "egress"]);
+    assert_eq!(
+        Definitions::load(root.path()).unwrap().lint(&library),
+        Vec::<String>::new()
+    );
+}
+
 #[test]
 fn an_invalid_definition_is_refused_naming_the_file_and_the_closed_vocabulary() {
     let tail = "; a definition is exactly a name and a non-empty set of classes from reads, \

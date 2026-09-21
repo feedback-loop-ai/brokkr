@@ -12,6 +12,7 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 use brokkr_runtime::agents::{report, ChainEntry, Presence, Report};
+use brokkr_runtime::capabilities::Definitions;
 use brokkr_runtime::{Adapters, Availability, Library};
 use serde_json::{json, Value};
 
@@ -66,11 +67,20 @@ fn resolution_value(walked: &Report) -> Value {
     })
 }
 
+/// The operator's abstract capability definitions (decision 0065 ruling
+/// 1), read from the operator's configuration directory — never from the
+/// library's own, which an `--agents-dir` override may point anywhere.
+fn definitions(operator_root: &Path) -> Result<Definitions> {
+    Definitions::load(operator_root).map_err(anyhow::Error::msg)
+}
+
 /// One tab-separated line per agent — `name ⇥ chain ⇥ description` — and
-/// a warning line per definition that does not parse. Nothing aborts the
-/// listing.
-pub fn list(library_root: &Path) -> Result<()> {
-    let (library, problems) = Library::scan(library_root)?;
+/// a warning line per definition that does not parse, and per capability
+/// an agent asks for that the operator has not defined: semantic lint,
+/// which parsing the request map alone is not. Nothing aborts the listing.
+pub fn list(library_root: &Path, operator_root: &Path) -> Result<()> {
+    let (library, mut problems) = Library::scan(library_root)?;
+    problems.extend(definitions(operator_root)?.lint(&library));
     for problem in &problems {
         println!("warning: {problem}");
     }
@@ -86,9 +96,20 @@ pub fn list(library_root: &Path) -> Result<()> {
 }
 
 /// The definition as written, plus its per-entry resolution. An unknown
-/// name errors naming the known set, so the next command is obvious.
-pub fn show(name: &str, library_root: &Path, adapters_root: &Path) -> Result<()> {
+/// name errors naming the known set, so the next command is obvious. A
+/// library asking for a capability the operator has not defined is
+/// refused as a library that does not load is: `show` prints what the
+/// compiler would resolve, and the compiler refuses that ask.
+pub fn show(
+    name: &str,
+    library_root: &Path,
+    adapters_root: &Path,
+    operator_root: &Path,
+) -> Result<()> {
     let library = Library::load(library_root)?;
+    if let Some(problem) = definitions(operator_root)?.lint(&library).first() {
+        bail!("{problem}");
+    }
     let adapters = Adapters::load(adapters_root)?;
     let walked = match report(&library, &adapters, &Availability::unspecified(), name) {
         Ok(walked) => walked,
