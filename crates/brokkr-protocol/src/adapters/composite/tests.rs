@@ -3698,11 +3698,68 @@ fn missing_pnpm_field_separation_and_unsupported_flow_syntax_refuse_by_reason() 
             "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      a: '1'\n    peerDependencies:\n      b: '2'\n".to_string(),
             "a repeated package child 'peerDependencies'",
         ),
+        // R2, second sitting: keys are compared as YAML compares them —
+        // by node, not by text. The padding before a plain key's colon
+        // is the separator's (`react : b` spells `react`), and a plain
+        // key that spells a typed scalar (`11`/`0xB`, `true`/`True`,
+        // `null`/`~`) is refused by that cause before any comparison,
+        // because this grammar resolves no type and a text set called
+        // each pair two keys — and called plain `true` and quoted
+        // `'true'`, which ARE two keys, one.
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      react: '>=16'\n      react : '>=17'\n".to_string(),
+            "a line under the package child 'peerDependencies' carrying the entry 'react' at 6 \
+             spaces, which repeats a key of its block",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    engines: {11: 1, 0xB: 2}\n".to_string(),
+            "a package child 'engines' carrying the flow map '{11: 1, 0xB: 2}' with the key \
+             '11', which is a number and not a string",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      true: a\n      True: b\n".to_string(),
+            "a line under the package child 'peerDependencies' carrying the key 'true', which \
+             is a boolean and not a string",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\nsettings:\n  null: a\n  ~: b\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n".to_string(),
+            "a line in section 'settings' carrying the key 'null', which is a null and not a \
+             string",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    engines: {true: a, 'true': b}\n".to_string(),
+            "a package child 'engines' carrying the flow map '{true: a, 'true': b}' with the \
+             key 'true', which is a boolean and not a string",
+        ),
+        (
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {integrity: sha512-X}\n    peerDependencies:\n      42: a\n".to_string(),
+            "a line under the package child 'peerDependencies' carrying the key '42', which is \
+             a number and not a string",
+        ),
     ] {
         assert_eq!(
             refused_vector(composite_over_pnpm(&install, &lock), &lock),
             format!("pnpm lock is unreadable: {reason}"),
             "{lock:?}"
+        );
+    }
+    // The keys YAML keeps apart stay apart and readable: a plain
+    // `react` beside a quoted `'react '` (the quote keeps its space), a
+    // single padded key, and the quoted spellings of typed scalars,
+    // which are strings — two of them.
+    for child in [
+        "peerDependencies:\n      react: a\n      'react ': b",
+        "peerDependencies:\n      react : '>=16'",
+        "engines: {'true': a, 'True': b}",
+        "engines: {'11': 1, '0xB': 2}",
+    ] {
+        let lock = format!(
+            "lockfileVersion: '9.0'\n\npackages:\n\n  debug@2.6.9:\n    resolution: {{integrity: sha512-X}}\n    {child}\n"
+        );
+        assert_eq!(
+            composite_over_pnpm(&install, &lock).unwrap().canonical,
+            control.canonical,
+            "{child:?}"
         );
     }
     // A key repeated in ANOTHER block is another key: two importers each
@@ -5476,6 +5533,45 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             interpreter.file_name().unwrap().to_str().unwrap()
         )
     };
+    // The second sitting's R1 (review of run `124cca78`): the name
+    // `env` is asked of the path the kernel invokes AND of the file that
+    // runs. A symlink NAMED `env` to the copy's `uu_env` or `ls` hard
+    // link is spelled `env`, is the platform's env by every byte, and on
+    // this uutils host exits 1 with the utility's own `Security
+    // violation` (argv[0] `env` against executable name `uu_env`) while
+    // busybox installed as `env` would dispatch on `argv[0]` and run it:
+    // the implementations disagree, and the resolver refuses it naming
+    // the file that runs. The same symlink to the copy NAMED `env`, and
+    // a hard link named `env` of the copy, run `env` everywhere and are
+    // established.
+    let ls = tools.join("ls");
+    fs::hard_link(&copied_env, &ls).unwrap();
+    let renamed = dir.path().join("renamed");
+    fs::create_dir_all(&renamed).unwrap();
+    let renamed_env = renamed.join("env");
+    std::os::unix::fs::symlink(&uu_env, &renamed_env).unwrap();
+    let renamed_ls = dir.path().join("renamed-ls");
+    fs::create_dir_all(&renamed_ls).unwrap();
+    let renamed_ls_env = renamed_ls.join("env");
+    std::os::unix::fs::symlink(&ls, &renamed_ls_env).unwrap();
+    let viacopy = dir.path().join("viacopy");
+    fs::create_dir_all(&viacopy).unwrap();
+    let viacopy_env = viacopy.join("env");
+    std::os::unix::fs::symlink(&copied_env, &viacopy_env).unwrap();
+    let hard = dir.path().join("hard");
+    fs::create_dir_all(&hard).unwrap();
+    let hard_env = hard.join("env");
+    fs::hard_link(&copied_env, &hard_env).unwrap();
+    let runs_as = |interpreter: &Path, runs: &Path| {
+        format!(
+            "the DSH layout is unreadable: {}: its #! interpreter '{}' is the platform's env \
+             utility invoked under the name 'env' but running as the file '{}', whose own name \
+             is not env, a dispatch this resolver does not establish without executing it",
+            a.join("dsh").display(),
+            interpreter.display(),
+            fs::canonicalize(runs).unwrap().display()
+        )
+    };
     eprintln!(
         "R1: this host's env resolves to {}",
         fs::canonicalize(&env_binary).unwrap().display()
@@ -5516,9 +5612,13 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         (&link_env, unestablished(&link_env)),
         (&alias, unestablished(&alias)),
         (&myenv, unestablished(&myenv)),
+        (&renamed_env, runs_as(&renamed_env, &uu_env)),
+        (&renamed_ls_env, runs_as(&renamed_ls_env, &ls)),
         (&env_binary, obstruction(&env_binary)),
         (&linked_env, obstruction(&linked_env)),
         (&copied_env, obstruction(&copied_env)),
+        (&viacopy_env, obstruction(&viacopy_env)),
+        (&hard_env, obstruction(&hard_env)),
     ] {
         stage_executable(
             &a,
@@ -5563,12 +5663,20 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // resolver still refuses it, because the same layout runs nothing
     // under busybox (below), and the file does not say which it is.
     fs::remove_file(a.join("node")).unwrap();
-    let established = [&env_binary, &linked_env, &copied_env];
+    let established = [
+        &env_binary,
+        &linked_env,
+        &copied_env,
+        &viacopy_env,
+        &hard_env,
+    ];
     let other_names = [
         (&uu_env, unestablished(&uu_env)),
         (&alias, unestablished(&alias)),
         (&myenv, unestablished(&myenv)),
         (&link_env, unestablished(&link_env)),
+        (&renamed_env, runs_as(&renamed_env, &uu_env)),
+        (&renamed_ls_env, runs_as(&renamed_ls_env, &ls)),
     ];
     for interpreter in established {
         stage_executable(
@@ -5690,6 +5798,70 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         refused(lookup_in("dsh", &injected(&bb_env), &mut Vec::new())),
         unestablished(&bb_uu_env)
     );
+    // The second sitting's two cells on the stand-in. A symlink NAMED
+    // `env` to `bb/uu_env`: the stand-in dispatches on the name it is
+    // invoked under, so natively it runs `env` and reaches B — where
+    // uutils under the same layout refused (above). The implementations
+    // disagree, so the resolver refuses, naming the file that runs; the
+    // native positive is recorded, never counted.
+    let bb_link = tools.join("bb-link");
+    fs::create_dir_all(&bb_link).unwrap();
+    let bb_link_env = bb_link.join("env");
+    std::os::unix::fs::symlink(&bb_uu_env, &bb_link_env).unwrap();
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", bb_link_env.display()).as_bytes(),
+    );
+    assert_eq!(
+        native_control(
+            &bb_link_env,
+            "installed-as-env stand-in through a symlink named env to uu_env, valid chain"
+        ),
+        "MARK:b-node",
+        "the stand-in dispatches on the name it is invoked under"
+    );
+    assert_eq!(
+        refused(lookup_in("dsh", &injected(&bb_env), &mut Vec::new())),
+        runs_as(&bb_link_env, &bb_uu_env)
+    );
+    // And the platform's OWN installed file under an own name that is
+    // not `env` — a `multicall` the reference itself resolves to, as
+    // `/usr/bin/env -> /bin/busybox` — invoked through a symlink named
+    // `env`: the file that runs is the path the reference resolves to,
+    // which the platform runs `env` through under this name by its own
+    // construction. Established, and natively B.
+    let multicall = stage_executable(
+        &bb,
+        "multicall",
+        format!(
+            "#!/bin/sh\ncase \"${{0##*/}}\" in\n  env) exec {ENV_REFERENCE} \"$@\" ;;\n  *) \
+             printf 'multicall: applet %s not found\\n' \"${{0##*/}}\" >&2; exit 127 ;;\nesac\n"
+        )
+        .as_bytes(),
+    );
+    let bbm = dir.path().join("bbm");
+    fs::create_dir_all(&bbm).unwrap();
+    let bbm_env = bbm.join("env");
+    std::os::unix::fs::symlink(&multicall, &bbm_env).unwrap();
+    stage_executable(
+        &a,
+        "dsh",
+        format!("#!{} node\n", bbm_env.display()).as_bytes(),
+    );
+    assert_eq!(
+        native_control(
+            &bbm_env,
+            "installed multicall through a symlink named env, valid chain"
+        ),
+        "MARK:b-node"
+    );
+    let selected = lookup_in("dsh", &injected(&multicall), &mut Vec::new()).unwrap();
+    assert_eq!(
+        selected.node,
+        Some(b.join("node").canonicalize().unwrap()),
+        "the platform's own installed file is established under the name env"
+    );
 
     // The same layout on the real thing, where this host has busybox:
     // copied to `env`, hard-linked as `uu_env`. Under `env` a program
@@ -5768,6 +5940,44 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         format!("#!{} node\n", other.display()).as_bytes(),
     );
     assert_eq!(select_in("dsh", path).unwrap().node, None);
+}
+
+/// The invocation is established by the file that RUNS, and an
+/// interpreter whose path no longer resolves to one — its inspected
+/// metadata is the reference's, its path is gone — is refused by that
+/// cause, never established on the metadata alone (review of run
+/// `124cca78`, R1, second sitting).
+#[cfg(unix)]
+#[test]
+fn an_env_invocation_needs_the_file_that_runs() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let reference = dir.path().join("env");
+    fs::write(&reference, b"#!/bin/sh\nexec \"$@\"\n").unwrap();
+    fs::set_permissions(&reference, fs::Permissions::from_mode(0o755)).unwrap();
+    let search = Search {
+        entries: OsString::new(),
+        default: false,
+        library: LIBRARY,
+        operation: Operation::Exec,
+        env_reference: reference.clone(),
+    };
+    // The reference's own metadata, presented as a path named `env`
+    // that does not exist: `is_env` is true of the device and inode,
+    // the name is `env`, and the file that runs cannot be resolved.
+    let gone = dir.path().join("gone").join("env");
+    let error = fs::canonicalize(&gone).unwrap_err();
+    assert_eq!(
+        env_program(
+            &gone,
+            &fs::metadata(&reference).unwrap(),
+            b" node",
+            &search,
+            &mut Vec::new()
+        ),
+        Err(format!("cannot be resolved to the file that runs: {error}"))
+    );
 }
 
 /// `env` identity is a fact about FILES: device and inode against the

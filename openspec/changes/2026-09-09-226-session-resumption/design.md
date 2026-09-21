@@ -2536,6 +2536,41 @@ on `argv[0]` (unconditional) and, where the host has `/usr/bin/busybox`, the
 real thing; removal E5 restores the admission and fails the `tools/uu_env`
 cause assertion in the protocol regression and the doctor line assertion.
 
+*Answered on the second return (2026-09-21, review of run `124cca78`, R1
+MEDIUM, security, second sitting; refines the `env`-name rule above).* The
+name `env` was asked of one path where the platform asks it of two. The
+kernel hands the utility the `#!` path as `argv[0]`; uutils then checks that
+name against the name of the FILE THAT RUNS — `/proc/self/exe`, the path the
+symlinks resolved to — and refuses a mismatch (`Security violation: Requested
+utility `env` does not match executable name`), while busybox and GNU dispatch
+on `argv[0]` alone. The chief's counterexample: a symlink NAMED `env` to a
+same-bytes copy named `uu_env` or `ls` is spelled `env`, is the platform's
+env by every byte, and exits 1 natively with no stdout on this uutils host,
+while the delivered resolver established it and doctor went on to its
+version probe. The same symlink to a copy NAMED `env`, and a hard link named
+`env` of any of them, run `env` under every implementation. The rule is
+therefore: the invocation is established only where the file that runs —
+`canonicalize(interpreter)` — is itself named `env`, or IS the path the
+platform's reference resolves to, which the platform runs `env` through
+under this name by its own construction (`/usr/bin/env -> /bin/busybox`); a
+same-bytes copy under another own name is one named refusal (`is the
+platform's env utility invoked under the name 'env' but running as the file
+'<runs>', whose own name is not env, a dispatch this resolver does not
+establish without executing it`), and an interpreter whose path no longer
+resolves is refused by that cause on the metadata alone, never established.
+A reference whose own path cannot be resolved offers no second path to match
+and leaves the own-name rule alone, which admits nothing the rule would not.
+Supported platform-env links are preserved: the reference, a symlink named
+`env` to it, a copy named `env`, a symlink named `env` to that copy and a hard
+link named `env` all reach A's obstruction and, with A gone, B's node. The
+tests carry the disagreement: the installed-as-`env` stand-in through a
+symlink named `env` to its `uu_env` hard link natively runs B (dispatch on
+the name invoked) and is refused, and a `multicall` stand-in the injected
+reference itself resolves to, invoked through a symlink named `env`, is
+established and natively B. Removal E6 restores admission on the invoked
+name alone and fails the `renamed/env` cause assertion in the protocol
+regression and the doctor line assertion; trial execution stays forbidden.
+
 For ignored pnpm bodies, extend the existing closed scanner with a private
 indentation/container stack, field/body context and scalar/container kind.
 Reject children of scalars, mapping/sequence sibling switches and dedents that
@@ -2565,6 +2600,35 @@ No YAML dependency, grammar expansion, bound or identity change follows;
 `resolution` keeps its own repeat refusal. Removals D1–D3 disable each guard
 in turn and each fails its own accepted-vector assertion in the producer and
 its own control-digest assertion through the built doctor.
+
+*Answered on the second return (2026-09-21, review of run `124cca78`, R2
+MEDIUM, security, second sitting; refines the decoded-key rule above).* The
+guards compared key TEXT where YAML compares key NODES — tag and canonical
+value (YAML 1.2.2 §3.2.1.3): `11` and `0xB` are one integer key, `true` and
+`True` one boolean, `null` and `~` one null, a padded `react :` is the key
+`react` (the space belongs to the separator, §7.10.3), while a plain `true`
+and a quoted `'true'` are a boolean and a string — two keys. The text set
+admitted each of the first four pairs at the valid control's composite where
+the independent YAML parser refuses `DUPLICATE_KEY`, and refused the last
+pair as a repeat. This grammar resolves no scalar type and adds no YAML
+implementation, so the rule is the fail-closed one: a plain key that spells
+a typed scalar — `typed_plain_scalar`, the same closed lexical rule the
+`integrity` field applies — is refused by that cause before any comparison
+(`the flow map '{11: 1, 0xB: 2}' with the key '11', which is a number and
+not a string`; `the key 'true', which is a boolean and not a string` under
+its package child or section), and the padding before a plain key's colon is
+trimmed as the separator's before the key is decoded, so `react : b` beside
+`react: a` repeats. The keys that remain — plain strings and quoted strings
+— are equal exactly when their decoded text is; a quoted `'react '` keeps
+its space and stays a second key, and the quoted `'true'`/`'True'` and
+`'11'`/`'0xB'` spellings are two string keys each, readable at the control's
+digest. The producer this grammar reads quotes any key that would resolve to
+another type, so no measured lock loses admission. `mapping_key` is the one
+decoder both the flow-map and the ignored-body guards consume. Removal D4
+disables the typed-key refusal and fails the `{11: 1, 0xB: 2}`
+accepted-vector assertion in the producer and the control-digest assertion
+through the built doctor; removal D5 restores the untrimmed key and fails the
+padded `react :` pair the same way.
 
 Retain `Selected { path, node, head }` through `DshSeams`; composition consumes
 the same pre-probe head and selected Node. Preserve both self-rewriting-launcher

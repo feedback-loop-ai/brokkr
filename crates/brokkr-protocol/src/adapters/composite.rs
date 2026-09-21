@@ -732,6 +732,32 @@ fn flow_scalar(value: &str) -> Result<Scalar<'_>, FlowFault> {
     }
 }
 
+/// The DECODED key of a mapping entry this grammar admits without
+/// reading, which is a STRING key and nothing else.
+///
+/// YAML compares keys as nodes — tag and canonical value, not spelling
+/// (YAML 1.2.2 §3.2.1.3) — so `11` and `0xB` are one integer key spelled
+/// twice, `true` and `True` one boolean, `null` and `~` one null, while a
+/// plain `true` and a quoted `'true'` are a boolean and a string, two
+/// keys. A set of key TEXT admitted each of the first three repeats at
+/// the valid control's composite and refused the last pair as a repeat
+/// (review of run `124cca78`, R2, second sitting). This grammar resolves
+/// no scalar type; a plain key that spells a typed scalar is therefore
+/// refused by that cause, never compared, and the keys that remain — plain
+/// strings and quoted strings — are equal exactly when their decoded text
+/// is. The producer this grammar reads quotes any key that would resolve
+/// to another type, so no measured lock loses admission.
+fn mapping_key(scalar: Scalar<'_>) -> Result<&str, String> {
+    if let Scalar::Plain(text) = scalar {
+        if let Some(kind) = typed_plain_scalar(text) {
+            return Err(format!(
+                "the key '{text}', which is {kind} and not a string"
+            ));
+        }
+    }
+    Ok(scalar.text())
+}
+
 /// Admit the SYNTAX of an inline value this grammar recognizes and does
 /// NOT read.
 ///
@@ -798,10 +824,14 @@ fn pnpm_ignored(value: &str) -> Result<(), String> {
                         let Ok(key) = flow_scalar(key.trim_end_matches(' ')) else {
                             return Err(format!("the malformed flow member '{field}'"));
                         };
-                        if !keys.insert(key.text()) {
+                        // A string key, or a typed one refused by its
+                        // cause before any comparison (R2, second
+                        // sitting): `{11: 1, 0xB: 2}` is not two keys.
+                        let key = mapping_key(key)
+                            .map_err(|why| format!("the flow map '{value}' with {why}"))?;
+                        if !keys.insert(key) {
                             return Err(format!(
-                                "the flow map '{value}' with the repeated key '{}'",
-                                key.text()
+                                "the flow map '{value}' with the repeated key '{key}'"
                             ));
                         }
                         member
@@ -911,10 +941,18 @@ fn pnpm_ignored_line(text: &str) -> Result<Member<'_>, String> {
     }
     let (key, rest) = split_mapping_key(text)
         .ok_or_else(|| format!("the line '{text}', which is not a mapping entry"))?;
+    // The padding between a plain key and its colon belongs to the
+    // separator, not the key: `react : b` spells the key `react` (YAML
+    // 1.2.2 §7.10.3, a plain scalar ends before its trailing white
+    // space), and a reader that kept the space read `react: a` beside it
+    // as two keys at the valid control's composite (review of run
+    // `124cca78`, R2, second sitting). A quoted key keeps every byte
+    // inside its quotes: `'react '` and `react` stay two keys.
+    let key = key.trim_end_matches(' ');
     let key_text = pnpm_scalar(key)
-        .map(Scalar::text)
-        .filter(|key| !key.is_empty())
-        .ok_or_else(|| format!("the malformed key '{key}'"))?;
+        .filter(|key| !key.text().is_empty())
+        .ok_or_else(|| format!("the malformed key '{key}'"))
+        .and_then(mapping_key)?;
     match pnpm_separated(rest) {
         Ok(Separated::Block) => Ok(Member::Entry {
             key: key_text,
@@ -3189,6 +3227,28 @@ fn same_bytes(left: &mut impl Read, right: &mut impl Read, len: u64) -> Result<b
 /// the name `env` is refused as an impostor. Neither refusal is
 /// `Ok(None)` admission (design D10, third and fourth holds; review of
 /// run `124cca78`, R1).
+///
+/// The name `env` is asked of two paths, not one. The kernel hands the
+/// utility the `#!` path as `argv[0]`; uutils then checks that name
+/// against the name of the FILE THAT RUNS — `/proc/self/exe`, the path
+/// the symlinks resolved to — and refuses a mismatch (`Security
+/// violation: Requested utility `env` does not match executable name`),
+/// while busybox and GNU dispatch on `argv[0]` alone. So a symlink NAMED
+/// `env` to a same-bytes copy named `uu_env` or `ls` is spelled `env`,
+/// is the platform's env by every byte, and still runs nothing on this
+/// host — the chief's R1 counterexample of the second sitting — where the
+/// same symlink to a copy named `env`, or a hard link named `env` of any
+/// of them, runs `env` under every implementation. The invocation is
+/// therefore established only where the file that runs is itself named
+/// `env`, or IS the platform's own installed file — the path the
+/// reference resolves to, which the platform runs `env` through under
+/// this name by its own construction (busybox installed as
+/// `/usr/bin/env -> /bin/busybox`). A copy under another own name is
+/// refused as a dispatch the implementations disagree on; establishing
+/// it by executing the utility stays forbidden (design D10). A reference
+/// whose own path cannot be resolved offers no second path to match and
+/// leaves the own-name rule alone, which admits nothing the rule above
+/// would not.
 #[cfg(unix)]
 fn env_program(
     interpreter: &Path,
@@ -3216,6 +3276,23 @@ fn env_program(
             ))
         }
         (true, true) => {}
+    }
+    // The file that RUNS: the path the interpreter's symlinks resolve
+    // to, whose own name uutils checks `argv[0]` against. It is named
+    // `env`, or it is the platform's own installed file; otherwise the
+    // implementations disagree and nothing is established.
+    let runs = std::fs::canonicalize(interpreter)
+        .map_err(|error| format!("cannot be resolved to the file that runs: {error}"))?;
+    let installed = std::fs::canonicalize(&search.env_reference).ok();
+    if runs.file_name() != Some(std::ffi::OsStr::new("env"))
+        && installed.as_deref() != Some(runs.as_path())
+    {
+        return Err(format!(
+            "is the platform's env utility invoked under the name 'env' but running as the \
+             file '{}', whose own name is not env, a dispatch this resolver does not establish \
+             without executing it",
+            runs.display()
+        ));
     }
     let is_blank = |byte: &u8| *byte == b' ' || *byte == b'\t';
     let arguments = match arguments.iter().position(|byte| !is_blank(byte)) {

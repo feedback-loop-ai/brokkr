@@ -1013,6 +1013,32 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
             interpreter.file_name().unwrap().to_str().unwrap()
         )
     };
+    // R1, second sitting: a symlink NAMED `env` to the copy's `uu_env`
+    // hard link is spelled `env` and is the platform's env by every
+    // byte, and this host's uutils refuses it (`argv[0]` `env` against
+    // executable name `uu_env`, exit 1, no stdout) where busybox
+    // installed as `env` would run it: the implementations disagree,
+    // so doctor refuses it naming the file that runs and probes nothing.
+    // The same symlink to the copy NAMED `env` runs `env` everywhere and
+    // is established.
+    let renamed = cwd.join("renamed");
+    std::fs::create_dir_all(&renamed).unwrap();
+    let renamed_env = renamed.join("env");
+    std::os::unix::fs::symlink(&uu_env, &renamed_env).unwrap();
+    let viacopy = cwd.join("viacopy");
+    std::fs::create_dir_all(&viacopy).unwrap();
+    let viacopy_env = viacopy.join("env");
+    std::os::unix::fs::symlink(&copied_env, &viacopy_env).unwrap();
+    let runs_as = |interpreter: &Path, runs: &Path| {
+        format!(
+            "{}: its #! interpreter '{}' is the platform's env utility invoked under the name \
+             'env' but running as the file '{}', whose own name is not env, a dispatch this \
+             resolver does not establish without executing it",
+            launchers.join("dsh").display(),
+            interpreter.display(),
+            std::fs::canonicalize(runs).unwrap().display()
+        )
+    };
     eprintln!(
         "R1: this host's env resolves to {}",
         std::fs::canonicalize(&env_binary).unwrap().display()
@@ -1070,9 +1096,11 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
         (&link_env, unestablished(&link_env)),
         (&alias, unestablished(&alias)),
         (&myenv, unestablished(&myenv)),
+        (&renamed_env, runs_as(&renamed_env, &uu_env)),
         (&env_binary, obstruction(&env_binary)),
         (&linked_env, obstruction(&linked_env)),
         (&copied_env, obstruction(&copied_env)),
+        (&viacopy_env, obstruction(&viacopy_env)),
         (&impostor, impostor_refusal.clone()),
     ] {
         stage_executable(
@@ -1115,12 +1143,13 @@ fn an_env_argument_is_selected_as_the_kernel_hands_it_to_env() {
     // `uu_env`: recorded, never counted, because the same layout runs
     // nothing under busybox and the file does not say which it is.
     std::fs::remove_file(nodes_a.join("node")).unwrap();
-    let established = [&env_binary, &linked_env, &copied_env];
+    let established = [&env_binary, &linked_env, &copied_env, &viacopy_env];
     let mut refused = vec![
         (&uu_env, unestablished(&uu_env)),
         (&alias, unestablished(&alias)),
         (&myenv, unestablished(&myenv)),
         (&link_env, unestablished(&link_env)),
+        (&renamed_env, runs_as(&renamed_env, &uu_env)),
     ];
     for (round, interpreter) in established.into_iter().enumerate() {
         stage_executable(
@@ -2392,6 +2421,46 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
             "a line in section 'snapshots' carrying the entry 'ms' at 6 spaces, which repeats a \
              key of its block",
         ),
+        // R2, second sitting: the chief's four YAML-equal pairs that a
+        // text comparison called two keys — a padded `react :`, the
+        // integers `11`/`0xB`, the booleans `true`/`True`, the nulls
+        // `null`/`~` — each retained the control's composite; and the
+        // pair it called one key, plain `true` and quoted `'true'`,
+        // which are two. Padding is the separator's; a typed plain key
+        // is refused by its cause before any comparison.
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 react: a\n      react : b\n"
+            ),
+            "a line under the package child 'peerDependencies' carrying the entry 'react' at 6 \
+             spaces, which repeats a key of its block",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\n    engines: {{11: 1, 0xB: 2}}\n"),
+            "a package child 'engines' carrying the flow map '{11: 1, 0xB: 2}' with the key '11', \
+             which is a number and not a string",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    peerDependencies:\n      \
+                 true: a\n      True: b\n"
+            ),
+            "a line under the package child 'peerDependencies' carrying the key 'true', which is \
+             a boolean and not a string",
+        ),
+        (
+            format!("{package}    resolution: {{integrity: sha512-D}}\nsettings:\n  null: a\n  ~: b\n"),
+            "a line in section 'settings' carrying the key 'null', which is a null and not a \
+             string",
+        ),
+        (
+            format!(
+                "{package}    resolution: {{integrity: sha512-D}}\n    engines: {{true: a, 'true': b}}\n"
+            ),
+            "a package child 'engines' carrying the flow map '{true: a, 'true': b}' with the key \
+             'true', which is a boolean and not a string",
+        ),
     ] {
         let line = run(&body);
         assert!(
@@ -2420,6 +2489,12 @@ fn ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor() {
         // One key in two sibling blocks is two keys (R2's control).
         "peerDependenciesMeta:\n      react:\n        optional: true\n      '@scope/peer':\n        \
          optional: true",
+        // The keys YAML keeps apart (R2, second sitting): a quoted key
+        // keeps its space, a single padded key is its own key, and the
+        // quoted spellings of typed scalars are strings — two of them.
+        "peerDependencies:\n      react: a\n      'react ': b",
+        "peerDependencies:\n      react : '>=16'",
+        "engines: {'true': a, 'True': b}",
     ] {
         let body = format!("{package}    resolution: {{integrity: sha512-D}}\n    {child}\n");
         assert!(
