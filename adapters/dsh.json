@@ -3,10 +3,12 @@
   "trust_tier": "untrusted",
   "binding_grant": false,
   "routes": {
-    "spark": "local"
+    "spark": "local",
+    "spark-glm": "local"
   },
   "credentials": {
     "spark": "SPARK_API_KEY",
+    "spark-glm": "SPARK_API_KEY",
     "meta": "OPENROUTER_API_KEY",
     "meta-contributor": "OPENROUTER_API_KEY"
   },
@@ -21,6 +23,8 @@
     "flash": "deepseek-v4-flash",
     "flash-experiment": "deepseek-v4.1-flash-expires-on-0910",
     "glm": "dashscope/glm-5.2",
+    "glm-flash": "spark-glm/GLM-5.3-Flash-EXL3",
+    "glm53": "dashscope/glm-5.3",
     "muse": "meta/meta/muse-spark-1.3",
     "muse-contributor": "meta-contributor/meta/muse-spark-1.3-contributor",
     "pro": "deepseek-v4-pro",
@@ -31,6 +35,7 @@
     "qwen37-max": "dashscope/qwen3.7-max",
     "spark-flash": "spark/qwen3.8-flash",
     "studio-flash": "dashscope/deepseek-v4-flash-0731",
+    "studio-flash41": "dashscope/deepseek-v4.1-flash",
     "studio-pro": "dashscope/deepseek-v4-pro"
   },
   "judges": [],
@@ -43,7 +48,8 @@
   ],
   "effort_flag": "--effort",
   "effortless_routes": {
-    "spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level tried (low, none — runs task-framing-doctor-warns-when-a-088cb62b, task-framing-doctor-warns-when-a-b2b4fdc4, 2026-09-11); seats on this route pin no effort and record not applicable (decision 0035 addendum 2026-09-11)"
+    "spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level tried (low, none — runs task-framing-doctor-warns-when-a-088cb62b, task-framing-doctor-warns-when-a-b2b4fdc4, 2026-09-11); seats on this route pin no effort and record not applicable (decision 0035 addendum 2026-09-11)",
+    "spark-glm": "dsh 0.1.5-rc.1 refuses reasoningEffort on spark-glm/GLM-5.3-Flash-EXL3 (low — UNSUPPORTED_REASONING_EFFORT, measured 2026-09-16); the model entry states no reasoningEfforts so the lane materialises as non-reasoning, seats on this route pin no effort and record not applicable (decision 0035 addendum 2026-09-11)"
   },
   "tool_permissions": "unsupported",
   "mcp": "unsupported",

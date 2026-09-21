@@ -199,6 +199,11 @@ fn workspace() -> PathBuf {
 /// `recipes/triage` and `recipes/gpt-flash`. The other six are unchanged;
 /// their measured digests below are the copies of that edit's actual
 /// compiles, never recomputed guesses.
+/// The 2026-09-21 roster addition moves the three bundles whose sites
+/// resolve through `adapters/dsh.json`: the adapter gains the `spark-glm`
+/// local route with its `glm-flash` alias (ruled 2026-09-16) and the
+/// Model Studio aliases `glm53` and `studio-flash41`, and an adapter
+/// declaration is bundle data. The other seven are unchanged.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
@@ -214,7 +219,7 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/night-shift",
-        "3017f4f22d623faca6051ef18354b8bd027c5b1467cb32919fdb762fd8e6823e",
+        "cce3966a4c3dbf90b394f73c49b28e4337407696efab697c2d96c1fead2aea10",
     ),
     (
         "recipes/wager-harness",
@@ -230,11 +235,11 @@ const WITNESSES: [(&str, &str); 10] = [
     ),
     (
         "recipes/research-dsh",
-        "40b00b75be7a56be2c9e0f3860ef46fb7c87034c7d945292e62a8237c1d06635",
+        "0c24d23b3c48a0b9b1102be3ba8c3676058106de06cec028d76ae3980cbfad0b",
     ),
     (
         "recipes/gpt-flash",
-        "aa8b6eb56fcdd9cac2600a6c96d8a6b08fab6b1ce091e2464054c4b8ebac0b1c",
+        "f53241869ec9fbd0eafc5c32b743ddeb3396b9fd9f96c76e1f31de4470727f3b",
     ),
     (
         "bundles/verify",
