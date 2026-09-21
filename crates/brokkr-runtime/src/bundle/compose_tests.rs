@@ -1066,22 +1066,37 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
 /// pins the codex adapter declaration its seats resolve, so the measured
 /// declaration edit moves their composed identity. `recipes/fast` and
 /// `bundles/verify` keep their digests.
+/// Decision 0065 slice one moves all four, for two reasons each one can
+/// be checked against. Every compiled manifest now carries the REQUIRED
+/// `capabilities` section (run-manifest v11): the operated realm, its
+/// grants — none here — and per executable site the office, its asks and
+/// one outcome per provider candidate, with the native powers composed
+/// off. "This realm grants nothing and this seat holds nothing" is part
+/// of what a bundle IS, so a bundle that now says it is a different
+/// bundle. And every adapter these bundles pin gained its
+/// `native_capabilities` declaration — Codex's measured OFF switch,
+/// Claude's two tools, `unmeasured` for dsh, LaneTally and exec — which is
+/// adapter data and rides the declaration digest as `resume` does.
+/// Composition still moves none of them: an ancestor layer holds no
+/// capability and its own digest carries no such section. The values
+/// below are the actual compiles of the final tree, never recomputed
+/// guesses.
 const UNCOMPOSED: [(&str, &str); 4] = [
     (
         "recipes/fast",
-        "a3e7ded619b34de0c0da1c77e75fbae7802e9849e65219ae80716ddf3dd80585",
+        "dcc9f956b41dc00a150b668c2a95914aab13886d8aab0e864e284203374e0061",
     ),
     (
         "recipes/panel-review",
-        "29ed04f988e3e1f656f2cb716e50930054070dd7d83cae08322e5c83b8e5dc8f",
+        "4cc63d625718edd6bfb908f0a8481e12a895df7e354a3c4a42cbe824d33a94bf",
     ),
     (
         "bundles/self",
-        "1dd39826fa6ee9c15006c721c55fa747733984ae95ea20223ab1cc4d6ff1f45b",
+        "0452044929a0cbb2136de74eed9933abefd26520aa765cb908949592f25a6b37",
     ),
     (
         "bundles/verify",
-        "0ce8628510a1c4d2b2e99c63883d536b58937fa0e43b311faecf4a43342fb4ac",
+        "3248ac9029564691afc50ef76969f01dafc646c2be9edf19aa18ddb9953d7af5",
     ),
 ];
 
@@ -1215,7 +1230,15 @@ fn a_composed_bundles_manifest_is_pinned() {
         // `design` and `feature` criteria are rewritten to the who-decides
         // cut, and the charter's bytes ride every route that seats it —
         // `night-shift` and `gpt-flash` move for the same reason.
-        "d95b41d920e0ca5db3012a4eae51449d16505733c4530a4eb83445dff36f336f",
+        // Decision 0065 slice one moves it again: the manifest gains the
+        // required `capabilities` section — no grant, and per site of
+        // every case body its office, its asks and each candidate's
+        // outcome — and the adapters its lanes pin gained their
+        // `native_capabilities` declarations. Its ancestor `fast` layer's
+        // own digest did not move: a layer holds no capability. This value
+        // agrees with the `recipes/triage` pin in `tests/witness_digests.rs`;
+        // both are the final tree's actual compile.
+        "357e1889fb211b27e203f3c7a5109dd9377d9e2f1dbe62d995e392fa06bb8602",
         "the five-phase SDD sequence and every resolved office are pinned"
     );
 

@@ -204,46 +204,67 @@ fn workspace() -> PathBuf {
 /// local route with its `glm-flash` alias (ruled 2026-09-16) and the
 /// Model Studio aliases `glm53` and `studio-flash41`, and an adapter
 /// declaration is bundle data. The other seven are unchanged.
+/// Decision 0065 slice one moves ALL ten, and each for reasons that can
+/// be read off its manifest. (1) Every compiled manifest gains the
+/// required `capabilities` section of run-manifest v11 — the operated
+/// realm, its grants (none), and per executable site the office, its asks
+/// and one outcome per provider candidate with the native controls
+/// composed for it — so a bundle that now states the authority it
+/// compiled under is a different bundle; this alone moves the gate-only
+/// `bundles/verify` and `recipes/preflight`. (2) Every adapter gained its
+/// `native_capabilities` declaration — `adapters/codex.json` the measured
+/// `-c web_search="disabled"` OFF switch, `adapters/claude.json` WebSearch
+/// and WebFetch, and `unmeasured` with its reason for dsh, LaneTally and
+/// exec — and an adapter declaration is bundle data every `drivers` and
+/// `agents` pin already witnesses. (3) `recipes/research` moves a third
+/// way: the researcher now ASKS for `web-search` and `web-fetch` as wants
+/// instead of naming Claude's tools, its charter says returned material is
+/// data, both wants are dropped in this realm with a recorded notice, and
+/// both consulted definitions are pinned. (4) `recipes/research-dsh` moves
+/// with the charter copy it holds equal to the library's, and with its
+/// README, which now says what decision 0065 makes of dsh's own web tools.
+/// The values below are the final tree's actual compiles, never
+/// recomputed guesses.
 const WITNESSES: [(&str, &str); 10] = [
     (
         "recipes/fast",
-        "a3e7ded619b34de0c0da1c77e75fbae7802e9849e65219ae80716ddf3dd80585",
+        "dcc9f956b41dc00a150b668c2a95914aab13886d8aab0e864e284203374e0061",
     ),
     (
         "recipes/node",
-        "90657517bcd4637c92b53ce393e17cb7effae88cb75d6b2fa9a8e5e8a45fae64",
+        "b20e648b338da91bb7296ad8c52e4962429b515498d254967efd561867cabed8",
     ),
     (
         "recipes/preflight",
-        "25841ed9f558a47e62bcad431fc405eb4a7b794f7546744d73ba4cf148464d76",
+        "451b90c7a17c51cb745ee8ea5c79a50ca603c6d3db047e0ae81a5177c61b29f4",
     ),
     (
         "recipes/night-shift",
-        "cce3966a4c3dbf90b394f73c49b28e4337407696efab697c2d96c1fead2aea10",
+        "f868685b4494f29d81d414f730a5ffaa38ba593dec1f01a46b288f58af15c007",
     ),
     (
         "recipes/wager-harness",
-        "85652a81d79810b3bc5a76138a2e547a323d05fe2ccbfd954c6f16d7dbe96ec4",
+        "0f13ccddf7221b9bc2f689be17dab3cc4b061a435160699a3e6035e2e5502c97",
     ),
     (
         "recipes/triage",
-        "d95b41d920e0ca5db3012a4eae51449d16505733c4530a4eb83445dff36f336f",
+        "357e1889fb211b27e203f3c7a5109dd9377d9e2f1dbe62d995e392fa06bb8602",
     ),
     (
         "recipes/research",
-        "bf5fafe1c0f988fd917db62c1c1267789aa1fec87e8e36e4c4136542d766de7a",
+        "cd9b978b95733549b953ca8b5b1d9643e4fc4dcd5ae11d98a665e7d8049661fc",
     ),
     (
         "recipes/research-dsh",
-        "0c24d23b3c48a0b9b1102be3ba8c3676058106de06cec028d76ae3980cbfad0b",
+        "22d9f849bd21b82170ae68b45e0683d78e830b971a27a9acd84019e9428dafbf",
     ),
     (
         "recipes/gpt-flash",
-        "f53241869ec9fbd0eafc5c32b743ddeb3396b9fd9f96c76e1f31de4470727f3b",
+        "9fa653f7032afdffd2cd02d7e2408f36e79533acabbaba7a719560cd977e4d8d",
     ),
     (
         "bundles/verify",
-        "0ce8628510a1c4d2b2e99c63883d536b58937fa0e43b311faecf4a43342fb4ac",
+        "3248ac9029564691afc50ef76969f01dafc646c2be9edf19aa18ddb9953d7af5",
     ),
 ];
 
@@ -318,11 +339,17 @@ fn pinned_bundles_keep_their_recorded_digest() {
 /// run-manifest/v9 — v8 plus the `boundary` map beside `hands`, present
 /// exactly with it. Every witness validates, and the ones that box
 /// something carry both keys over the same site labels.
+///
+/// Since decision 0065 the contract a compiled manifest claims is
+/// run-manifest/v11: v9's `hands`/`boundary` clauses carried forward
+/// unchanged, plus the REQUIRED `capabilities` section every compile now
+/// writes. The test keeps its name and its boundary assertions; the file
+/// it validates against is the version the manifests actually are.
 #[test]
 fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     let root = workspace();
     let schema: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("contracts/run-manifest.v9.schema.json")).unwrap(),
+        &std::fs::read(root.join("contracts/run-manifest.v11.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
