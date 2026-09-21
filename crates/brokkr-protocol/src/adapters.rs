@@ -3201,11 +3201,13 @@ fn dsh_session_file_reading(
 /// pairs in enumeration order.
 ///
 /// This is the one walk: `dsh_session_file_reading` filters it for the
-/// offered id, and Pass C's launch confirmation compares its id set with
-/// the set the store held before the child spawned, so a plugin that
-/// opened a FRESH sibling session instead of rejoining the offered one is
-/// visible as a session that was not there before (task 8.8(d); design
-/// D6/D7). Every containment, budget and header rule below is the
+/// offered id, and Pass C's launch confirmation counts its `(id, file)`
+/// occurrences against the ones the store held before the child spawned,
+/// so a plugin that opened a FRESH sibling session instead of rejoining
+/// the offered one is visible as an entry that was not there before —
+/// even when it reuses an id the store already held at another address
+/// (task 8.8(d); design D6/D7). Every occurrence is reported, repeated ids
+/// and repeated canonical addresses included. Every containment, budget and header rule below is the
 /// admission's own: a directory, file or header that cannot be admitted
 /// fails the whole walk rather than being skipped for a convenient match.
 fn dsh_depth_zero_sessions_reading(
@@ -3834,11 +3836,26 @@ fn invoke_dsh_with(
 /// install and its node probe. Production reaches it only through
 /// `dsh_launch`, which still performs every qualification check.
 fn invoke_dsh_launch(
+    launch: DshLaunch,
+    prompt: &str,
+    workdir: &str,
+    emit: &mut impl FnMut(&Value),
+    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+) -> Result<Invocation, String> {
+    invoke_dsh_launch_observed(launch, prompt, workdir, emit, wait, &mut |_| {})
+}
+
+/// `invoke_dsh_launch` with this ONE invocation's observer of the
+/// confirmation's completed observations. Production watches nothing; a
+/// test reads here exactly what the watcher consumed — never a second
+/// walk of its own — and only once the watcher has ruled on it.
+fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
     prompt: &str,
     workdir: &str,
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
     let transcript = Transcript::resolve(TranscriptKind::DshSession)?;
     let staged = launch.staged.take();
@@ -3891,6 +3908,7 @@ fn invoke_dsh_launch(
             &mut hold,
             &mut session_meta,
             emit,
+            observer,
         )
     } else {
         invoke_dsh_shipped(&command, workdir, &launch, wait, &mut session_meta, emit)
@@ -4007,17 +4025,42 @@ fn invoke_dsh_stream_json(
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
+    observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
     let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), &launch.facts)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     for line in std::io::BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
-        let Ok(event) = serde_json::from_str::<Value>(&line) else {
-            continue;
+        // EVERY exit from a line has a disposition (design D7). A line is
+        // decoded before the store behind it is observed, so a valid init
+        // event is heard first: the session's current activity may already
+        // be stored by the time this driver consumes the init that
+        // preceded it. A line that could not be read ends the stream, and
+        // one that is not JSON is skipped, exactly as before — but on a
+        // rejoin neither leaves without the watcher's ruling on it, and
+        // the settle behind the child's exit cannot rescue either.
+        let Ok(line) = line else {
+            watch.unread(DshStreamLine::Unreadable);
+            watch.settle(
+                DshStreamLine::Unreadable,
+                hold,
+                session_meta,
+                emit,
+                observer,
+            );
+            break;
         };
-        fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
+        let read = match serde_json::from_str::<Value>(&line) {
+            Ok(event) => {
+                fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
+                DshStreamLine::Event
+            }
+            Err(_) => {
+                watch.unread(DshStreamLine::Malformed);
+                DshStreamLine::Malformed
+            }
+        };
         // Every drain is preceded by the settle that could release the
         // hold, and NO drain happens while the hold is still closed. That
         // is both halves of design D7's order: a confirmed rejoin's
@@ -4026,8 +4069,8 @@ fn invoke_dsh_stream_json(
         // all — a fold running ahead of the confirmation would address a
         // session this driver cannot yet name, and an append landing
         // between the settle and the drain would put it there anyway.
-        watch.settle(hold, session_meta, emit);
-        if watch.may_fold() {
+        watch.settle(read, hold, session_meta, emit, observer);
+        if read == DshStreamLine::Event && watch.may_fold() {
             drain_dsh_transcript(
                 &mut tail,
                 &launch.root,
@@ -4039,7 +4082,9 @@ fn invoke_dsh_stream_json(
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
-    watch.settle(hold, session_meta, emit);
+    // A clean end of stream adds no confirmation fact and clears nothing:
+    // this settle reads the store only while the confirmation is pending.
+    watch.settle(DshStreamLine::End, hold, session_meta, emit, observer);
     if watch.may_fold() {
         drain_dsh_transcript(
             &mut tail,
@@ -4082,6 +4127,64 @@ fn fold_dsh_stream_event(
     watch.named(id, hold, emit);
 }
 
+/// Which reading of the stream-json child an observation sits behind. The
+/// watcher treats a line it could not decode differently on either side of
+/// the init event, so the kind travels with the observation it produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DshStreamLine {
+    /// A line that decoded as JSON, init event or not.
+    Event,
+    /// A line that is not JSON.
+    Malformed,
+    /// A line the reader could not return at all (non-UTF-8 stdout).
+    Unreadable,
+    /// The settle behind the child's exit.
+    End,
+}
+
+/// Where one observation left the confirmation (design D7's state table).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DshDisposition {
+    /// A cold launch: no offer, so nothing to confirm or to contradict.
+    Cold,
+    /// Readable, consistent evidence that is not yet all four facts.
+    Pending,
+    /// Permanently refused: this invocation can no longer confirm.
+    Refused,
+    /// The child named a different root.
+    Mismatched,
+    /// All four facts agreed and the hold released.
+    Confirmed,
+}
+
+/// One COMPLETED production observation: the exact census and boundary the
+/// watcher consumed, and the disposition it reached from them. The
+/// invocation's observer is handed it only after the decision and every
+/// read of that snapshot are done, on every outcome, so a child that waits
+/// on the observer cannot repair a store the watcher is still reading. A
+/// reading the watcher did not take — it had already settled, or the line
+/// itself refused — reports no census.
+#[derive(Debug, Clone, PartialEq)]
+struct DshObservation {
+    line: DshStreamLine,
+    census: Option<Vec<(String, std::path::PathBuf)>>,
+    last_seq: Option<u64>,
+    disposition: DshDisposition,
+}
+
+/// What the store the plan settled on held BEFORE the child spawned. It is
+/// read once and never refreshed: a later census cannot supply history the
+/// launch did not start with, and never becomes a new baseline.
+struct DshBaseline {
+    /// The boundary the prior depth-zero header produced (fact 1).
+    first_seq: u64,
+    /// The canonical address of the ONE header that named the offer.
+    offered_file: std::path::PathBuf,
+    /// Every admitted `(header id, canonical file)` occurrence, repeated
+    /// ids and repeated addresses included.
+    entries: Vec<(String, std::path::PathBuf)>,
+}
+
 /// The launch-root confirmation a DSH rejoin has to pass before ANYTHING
 /// about its session is published (task 8.8(d), Pass C; design D6/D7).
 ///
@@ -4091,17 +4194,28 @@ fn fold_dsh_stream_event(
 ///
 /// 1. a valid prior depth-zero header retained at the resolved locator for
 ///    the offered id — read BEFORE the spawn (it is what produced
-///    `first_seq`) and required to still be exactly one header there;
+///    `first_seq`) and required to still be exactly one header, at that
+///    same address;
 /// 2. the pinned plugin's post-`await agents.resume` init event, read from
 ///    the stream-json child, naming that same root;
-/// 3. no fresh sibling root or session in the retained store — a session
+/// 3. no fresh depth-zero storage entry in the retained store — an entry
 ///    the store did not hold before the spawn is the plugin opening a NEW
-///    session instead of rejoining the offered one;
+///    session instead of rejoining the offered one. Entries are counted by
+///    `(header id, canonical file)` occurrence and never by distinct id: a
+///    second `session-9` at a new address is a new session, whatever it
+///    calls itself;
 /// 4. new sequence activity past the recorded `firstSeq` in that same
 ///    root.
 ///
 /// Same-root nonce continuity is 10.7's probe-only model-recall device
 /// (design D6): it is never planted in a prompt and never read here.
+///
+/// Confirmation is a LATCH, not a predicate that may be asked again until
+/// it answers yes. Evidence that is readable and consistent but incomplete
+/// waits. Evidence that contradicts the offered root — or a required
+/// reading that could not be taken — refuses the invocation for good, on
+/// either side of the init event: no later store, init event, clean exit
+/// or delivered result file reopens it.
 ///
 /// Until all four agree this publishes nothing at all — no transcript
 /// locator, no launch row, no `root_session` AND no folded work row — so
@@ -4115,9 +4229,7 @@ fn fold_dsh_stream_event(
 /// while the hold was still closed and then emit the init event behind
 /// it — publishing the locator and launch row AFTER their own work rows,
 /// and returning a confirmed rejoin built on work that was never
-/// confirmed. `may_fold` withholds the fold until the hold releases, and
-/// `refuse_work_before_confirmation` makes an observed pre-confirmation
-/// sequence permanent.
+/// confirmed. `may_fold` withholds the fold until the hold releases.
 struct DshRootWatch {
     /// The exact root this launch was built to rejoin. `None` is a cold
     /// launch, which has no offer to confirm and publishes as it always
@@ -4126,27 +4238,28 @@ struct DshRootWatch {
     /// The retained root the plan settled on, and the only store this
     /// confirmation reads.
     root: std::path::PathBuf,
-    /// The boundary the prior depth-zero header produced before the child
-    /// spawned. Its absence beside an offer is missing fact 1, and no
-    /// later reading can supply it.
-    first_seq: Option<u64>,
-    /// The depth-zero session ids the retained store held before the child
-    /// spawned. `None` is a store this driver could not census, which is
-    /// fact 3 unobserved, not fact 3 satisfied.
-    prior: Option<std::collections::BTreeSet<String>>,
+    /// The pre-spawn store. Its absence beside an offer — no boundary, a
+    /// store this driver could not census, or anything but exactly one
+    /// header naming the offer — is missing fact 1, which no later reading
+    /// can supply: that launch is refused before it spawns.
+    baseline: Option<DshBaseline>,
     /// The locator row, held until confirmation on a rejoin.
     locator: String,
     transcript: Transcript,
     /// Whether the child's init event named the offered root.
     named_the_offer: bool,
     /// Latched once the outcome is settled: a confirmation publishes once,
-    /// and a mismatch — or work observed ahead of the confirmation — is
-    /// not revisited by a later reading.
+    /// and a refusal or a mismatch is not revisited by a later reading.
+    /// Nothing clears it.
     settled: bool,
-    /// Latched only by the settle that released the hold. A rejoin folds
-    /// its transcript from here and never before: until this is true the
-    /// driver cannot say which session a work row would belong to.
+    /// Latched only by the settle that released the hold, so `released`
+    /// implies `settled`. A rejoin folds its transcript from here and
+    /// never before: until this is true the driver cannot say which
+    /// session a work row would belong to.
     released: bool,
+    /// Whether the settled outcome is the hold's mismatch, which keeps its
+    /// own terminal reason.
+    mismatched: bool,
 }
 
 impl DshRootWatch {
@@ -4158,22 +4271,31 @@ impl DshRootWatch {
             .stream_json
             .then(|| launch.rejoining.clone())
             .flatten();
-        let prior = offered
-            .is_some()
-            .then(|| dsh_depth_zero_sessions(&launch.root).ok())
-            .flatten()
-            .map(|sessions| sessions.into_iter().map(|(id, _)| id).collect());
-        DshRootWatch {
+        let baseline = offered.as_deref().and_then(|offered| {
+            let first_seq = launch.first_seq?;
+            let entries = dsh_depth_zero_sessions(&launch.root).ok()?;
+            let offered_file = dsh_only_header(&entries, offered)?.clone();
+            Some(DshBaseline {
+                first_seq,
+                offered_file,
+                entries,
+            })
+        });
+        let mut watch = DshRootWatch {
             offered,
             root: launch.root.clone(),
-            first_seq: launch.first_seq,
-            prior,
+            baseline,
             locator: launch.locator.clone(),
             transcript,
             named_the_offer: false,
             settled: false,
             released: false,
+            mismatched: false,
+        };
+        if watch.confirming() && watch.baseline.is_none() {
+            watch.refuse();
         }
+        watch
     }
 
     /// Whether this launch is holding its locator and launch rows for a
@@ -4191,6 +4313,26 @@ impl DshRootWatch {
     /// it.
     fn may_fold(&self) -> bool {
         !self.confirming() || self.released
+    }
+
+    /// The ONE absorbing refusal: settled, never released. The hold keeps
+    /// no outcome, so the attempt ends `Unconfirmed` — no locator, no
+    /// launch row, no `root_session`, and no cold replacement authorized.
+    /// Every contradiction and every required reading that could not be
+    /// taken arrives here, and nothing leaves.
+    fn refuse(&mut self) {
+        self.settled = true;
+    }
+
+    /// Where the confirmation stands, for the observation that reports it.
+    fn disposition(&self) -> DshDisposition {
+        match (self.confirming(), self.settled, self.released) {
+            (false, ..) => DshDisposition::Cold,
+            (true, false, _) => DshDisposition::Pending,
+            (true, true, true) => DshDisposition::Confirmed,
+            (true, true, false) if self.mismatched => DshDisposition::Mismatched,
+            (true, true, false) => DshDisposition::Refused,
+        }
     }
 
     /// Publish the retained locator row, and hand the launch hold the
@@ -4215,7 +4357,8 @@ impl DshRootWatch {
     /// The child named a session. A DIFFERENT one settles at once —
     /// there is nothing left to wait for and nothing to publish, and the
     /// hold latches the mismatch — while the offered one still has to
-    /// survive the retained-store reads below.
+    /// survive the retained-store reads below. A settled watch hears
+    /// nothing: an init event cannot reset a refusal or a mismatch.
     fn named(&mut self, id: &str, hold: &mut LaunchHold, emit: &mut impl FnMut(&Value)) {
         if self.settled {
             return;
@@ -4223,128 +4366,174 @@ impl DshRootWatch {
         if self.offered.as_deref() != Some(id) {
             // A cold plan's own fresh root, or a rejoin's mismatch. The
             // hold decides which, and a mismatch publishes nothing.
-            hold.confirm(id, emit);
+            self.mismatched = hold.confirm(id, emit) == Confirmation::Mismatch;
             self.settled = true;
             return;
         }
         self.named_the_offer = true;
     }
 
-    /// Release the hold if — and only if — all four facts agree. Called
-    /// before every transcript drain, so the locator and launch rows reach
-    /// the journal ahead of the first work row (design D7's order).
+    /// One stream line the driver could not decode, or could not read at
+    /// all.
+    ///
+    /// Before the init event such a line is output this driver could not
+    /// read ahead of the confirmation. It may have been anything, and an
+    /// unread line is never a satisfied one: it refuses, whether or not
+    /// the store has visibly moved, because a store that has not moved YET
+    /// says nothing about what the child does behind the line. A line the
+    /// reader could not return at all refuses on either side of the init
+    /// event — the stream ends there, and the settle behind the child's
+    /// exit must not rescue what was never read. After the init event a
+    /// malformed line is noise that supplies no fact, and the settle
+    /// behind it still reads the store.
+    ///
+    /// A cold launch has no offer to contradict and keeps its noise
+    /// handling exactly as it was.
+    fn unread(&mut self, line: DshStreamLine) {
+        if self.settled || !self.confirming() {
+            return;
+        }
+        if line == DshStreamLine::Unreadable || !self.named_the_offer {
+            self.refuse();
+        }
+    }
+
+    /// Take one required-store observation, and release the hold if — and
+    /// only if — all four facts agree. Called before every transcript
+    /// drain, so the locator and launch rows reach the journal ahead of
+    /// the first work row (design D7's order). The observer is told what
+    /// the reading consumed once it is complete, on every outcome.
     fn settle(
         &mut self,
+        line: DshStreamLine,
         hold: &mut LaunchHold,
         session_meta: &mut Map<String, Value>,
         emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
     ) {
-        if self.settled {
-            return;
-        }
-        if !self.named_the_offer {
-            self.refuse_work_before_confirmation();
-            return;
-        }
-        let Some(offered) = self.offered.clone() else {
-            return;
+        let mut observation = DshObservation {
+            line,
+            census: None,
+            last_seq: None,
+            disposition: self.disposition(),
         };
-        // Fact 1, the half no later reading can supply: the prior
-        // depth-zero header this offer was admitted on.
-        let Some(first_seq) = self.first_seq else {
-            return;
+        let reading = match (&self.offered, &self.baseline) {
+            (Some(offered), Some(baseline)) if !self.settled => Some((
+                offered.clone(),
+                dsh_read_offered_store(
+                    &self.root,
+                    offered,
+                    baseline,
+                    self.named_the_offer,
+                    &mut observation,
+                ),
+            )),
+            _ => None,
         };
-        let Some(prior) = self.prior.clone() else {
-            return;
-        };
-        let Ok(sessions) = dsh_depth_zero_sessions(&self.root) else {
-            return;
-        };
-        // Fact 3: the store holds no session it did not hold before.
-        let present: std::collections::BTreeSet<String> =
-            sessions.iter().map(|(id, _)| id.clone()).collect();
-        if !present.is_subset(&prior) {
-            return;
-        }
-        // Fact 1 again, at the resolved locator: exactly one depth-zero
-        // header still names the offered id.
-        let mut named = sessions.iter().filter(|(id, _)| *id == offered);
-        let Some((_, file)) = named.next() else {
-            return;
-        };
-        if named.next().is_some() {
-            return;
-        }
-        // Fact 4: this root has moved past the boundary the offer was
-        // recorded with. A rejoin that added nothing has confirmed
-        // nothing.
-        let Some(last) = dsh_session_last_seq(file) else {
-            return;
-        };
-        if last <= first_seq {
-            return;
-        }
-        self.settled = true;
-        self.released = true;
-        // D7's order: the held location fact, then the launch row, then
-        // the first work checkpoint the drain behind this call emits. The
-        // launch row carries that same address, so the root and the two
-        // coordinates a rejoin needs are one checkpoint (design D6).
-        self.record_locator(hold, session_meta, emit);
-        hold.confirm(&offered, emit);
-    }
-
-    /// Sequence activity — or an unreadable store — in the offered root
-    /// observed BEFORE the plugin's init event named it, which
-    /// permanently refuses the rejoin.
-    ///
-    /// The pinned plugin emits its init event immediately after
-    /// `await agents.resume` — ahead of the session's first current turn
-    /// — so activity that precedes it was not produced by a rejoin this
-    /// driver has confirmed. D7 refuses to accept work from before the
-    /// confirmation, and an init event arriving afterwards cannot adopt
-    /// it retroactively: latching `settled` here without releasing the
-    /// hold leaves the attempt permanently `Unconfirmed`, publishing no
-    /// locator, no launch row and no `root_session`, and authorizing no
-    /// cold replacement.
-    ///
-    /// UNCERTAINTY latches exactly as observed work does. A store this
-    /// driver cannot census while the hold is closed, an offered root
-    /// that is no longer exactly one depth-zero header, and a boundary
-    /// the reader refuses — a half-written trailing row is refused whole,
-    /// never reported as a lower maximum — are each a reading that could
-    /// not rule out work in front of the confirmation. Dropping them
-    /// would let the child complete that row, emit its init event, and
-    /// present a store that now agrees with it: the refusal has to
-    /// survive every later readable snapshot, because the snapshot that
-    /// could have refused is the one already taken.
-    ///
-    /// An offer admitted without a prior boundary observes nothing here;
-    /// `settle` above already withholds that confirmation for want of
-    /// fact 1, and there is no baseline to call anything activity past.
-    fn refuse_work_before_confirmation(&mut self) {
-        let (Some(offered), Some(first_seq)) = (self.offered.clone(), self.first_seq) else {
-            return;
-        };
-        // One rule, stated as what this reading has to PROVE: the offered
-        // root still stands exactly where the plan left it — a store this
-        // driver can census, exactly one depth-zero header naming the
-        // offer, a boundary the reader accepts whole, and nothing past
-        // the recorded one. Anything else is a reading that could not
-        // rule out work in front of the confirmation, and it refuses.
-        let unmoved = dsh_depth_zero_sessions(&self.root).is_ok_and(|sessions| {
-            let mut named = sessions.iter().filter(|(id, _)| *id == offered);
-            match (named.next(), named.next()) {
-                (Some((_, file)), None) => {
-                    dsh_session_last_seq(file).is_some_and(|last| last <= first_seq)
+        if let Some((offered, reading)) = reading {
+            match reading {
+                DshDisposition::Pending => {}
+                DshDisposition::Confirmed => {
+                    self.settled = true;
+                    self.released = true;
+                    // D7's order: the held location fact, then the launch
+                    // row, then the first work checkpoint the drain behind
+                    // this call emits. The launch row carries that same
+                    // address, so the root and the two coordinates a
+                    // rejoin needs are one checkpoint (design D6).
+                    self.record_locator(hold, session_meta, emit);
+                    hold.confirm(&offered, emit);
                 }
-                _ => false,
+                _ => self.refuse(),
             }
-        });
-        if !unmoved {
-            self.settled = true;
+            observation.disposition = self.disposition();
         }
+        observer(&observation);
     }
+}
+
+/// The one required-store rule, on either side of the init event.
+///
+/// Each step is a reading that has to be TAKEN and has to AGREE. One that
+/// cannot be taken — a store this driver cannot census, a boundary the
+/// reader refuses whole rather than reporting a lower maximum — refuses
+/// exactly as a contradiction does. Dropping it would let the child finish
+/// the row, put the store back and present a snapshot that agrees, when the
+/// snapshot that could have refused is the one already taken.
+///
+/// 1. The complete admitted census.
+/// 2. Exactly one current header naming the offer, at the address the
+///    baseline retained for it. Cardinality comes first, so an ambiguous
+///    offer is refused as ambiguous and never resolved to its first match.
+/// 3. Every current `(id, file)` occurrence consumes one baseline
+///    occurrence of its own. A new address, a new identity at an old
+///    address or one occurrence too many refuses; an unrelated old sibling
+///    that is gone does not, because the rule is containment and not
+///    whole-store equality.
+/// 4. The offered sequence, read once. Before the init event, activity
+///    past the boundary is work no confirmed rejoin produced — the pinned
+///    plugin emits its init event immediately after `await agents.resume`,
+///    ahead of the session's first current turn — and the init event
+///    behind it cannot adopt it. After the init event it is fact 4.
+fn dsh_read_offered_store(
+    root: &std::path::Path,
+    offered: &str,
+    baseline: &DshBaseline,
+    named_the_offer: bool,
+    observation: &mut DshObservation,
+) -> DshDisposition {
+    let Ok(sessions) = dsh_depth_zero_sessions(root) else {
+        return DshDisposition::Refused;
+    };
+    observation.census = Some(sessions.clone());
+    let Some(file) = dsh_only_header(&sessions, offered) else {
+        return DshDisposition::Refused;
+    };
+    if *file != baseline.offered_file {
+        return DshDisposition::Refused;
+    }
+    if !dsh_census_within(&sessions, &baseline.entries) {
+        return DshDisposition::Refused;
+    }
+    observation.last_seq = dsh_session_last_seq(file);
+    let Some(last) = observation.last_seq else {
+        return DshDisposition::Refused;
+    };
+    match (last > baseline.first_seq, named_the_offer) {
+        (false, _) => DshDisposition::Pending,
+        (true, true) => DshDisposition::Confirmed,
+        (true, false) => DshDisposition::Refused,
+    }
+}
+
+/// The address of the ONE header in a census that names `id`, or `None`
+/// when there is none or more than one. An ambiguous id is never resolved
+/// to whichever occurrence the enumeration happened to reach first.
+fn dsh_only_header<'a>(
+    census: &'a [(String, std::path::PathBuf)],
+    id: &str,
+) -> Option<&'a std::path::PathBuf> {
+    let mut named = census.iter().filter(|(header, _)| header == id);
+    match (named.next(), named.next()) {
+        (Some((_, file)), None) => Some(file),
+        _ => None,
+    }
+}
+
+/// Whether every `(header id, canonical file)` occurrence in `current`
+/// consumes an occurrence of its own in `baseline`: sub-multiset
+/// containment. A set of ids cannot see a repeated id at a new address,
+/// and a set of pairs cannot see one pair admitted twice, so each baseline
+/// occurrence is spent at most once.
+fn dsh_census_within(
+    current: &[(String, std::path::PathBuf)],
+    baseline: &[(String, std::path::PathBuf)],
+) -> bool {
+    let mut unspent: Vec<&(String, std::path::PathBuf)> = baseline.iter().collect();
+    current.iter().all(|entry| {
+        let held = unspent.iter().position(|held| *held == entry);
+        held.map(|at| unspent.swap_remove(at)).is_some()
+    })
 }
 
 /// The common tail of both dsh invocations: the harness and profile the
@@ -5313,6 +5502,28 @@ fn run_seat(
     session: Option<&str>,
     send: &mut impl FnMut(Body),
 ) {
+    run_seat_with(kind, start, send, |prompt, input, bindings, mut emit| {
+        invoke(kind, extra, prompt, input, session, bindings, &mut emit)
+    });
+}
+
+/// `run_seat` over the ONE thing it delegates: the invocation itself.
+/// Everything else a seat's terminal result turns on lives in this body —
+/// the prompt and secret bindings, decision 0053's checkpoint buffer, the
+/// delivered-file fact and the unsettled-launch guard — so a test that
+/// drives a real synthetic child through here meets production's own
+/// terminal rule, not a copy of it.
+fn run_seat_with(
+    kind: AdapterKind,
+    start: &Value,
+    send: &mut impl FnMut(Body),
+    invoke: impl FnOnce(
+        &str,
+        &Value,
+        &[secret::BoundSecret],
+        &mut dyn FnMut(&Value),
+    ) -> Result<Invocation, String>,
+) {
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
@@ -5391,79 +5602,71 @@ fn run_seat(
     let prompt = render_prompt(&input, kind);
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
-    let invocation = match invoke(
-        kind,
-        extra,
-        &prompt,
-        &input,
-        session,
-        &bindings,
-        &mut |data: &Value| {
-            let mut data = data.clone();
-            // Every fold emits a JSON object and the seat record (0034)
-            // is defined on objects, so there is no non-object
-            // checkpoint to branch on.
-            let checkpoint = data
-                .as_object_mut()
-                .expect("driver checkpoints are JSON objects");
-            checkpoint.entry("model").or_insert_with(|| {
-                Value::String(
-                    if kind == AdapterKind::Exec {
-                        MODEL_NOT_APPLICABLE
-                    } else {
-                        MODEL_NOT_REPORTED
-                    }
-                    .to_string(),
-                )
-            });
-            // The same default, one field over (decision 0035 ruling 3).
-            // A fold that read its harness's echo has already written
-            // the level; this is what every other row says — `not
-            // applicable` for exec, which has no model turn, and `not
-            // reported` for a row its harness echoed no level for: the
-            // rows before the first request goes out, and every row of
-            // a lane that echoes nothing at all.
-            checkpoint.entry("effort").or_insert_with(|| {
-                Value::String(
-                    if kind == AdapterKind::Exec {
-                        EFFORT_NOT_APPLICABLE
-                    } else {
-                        EFFORT_NOT_REPORTED
-                    }
-                    .to_string(),
-                )
-            });
-            let starts = data
-                .get("step")
-                .and_then(Value::as_str)
-                .is_some_and(begins_work);
-            if began_work || starts {
-                began_work = true;
-                if !accepted_sent {
-                    accepted_sent = true;
-                    send(Body::Accepted {
-                        effect_id: effect_id.clone(),
-                        attempt_id: attempt_id.clone(),
-                        session_ref: None,
-                    });
+    let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
+        let mut data = data.clone();
+        // Every fold emits a JSON object and the seat record (0034)
+        // is defined on objects, so there is no non-object
+        // checkpoint to branch on.
+        let checkpoint = data
+            .as_object_mut()
+            .expect("driver checkpoints are JSON objects");
+        checkpoint.entry("model").or_insert_with(|| {
+            Value::String(
+                if kind == AdapterKind::Exec {
+                    MODEL_NOT_APPLICABLE
+                } else {
+                    MODEL_NOT_REPORTED
                 }
-                for row in buffered.drain(..) {
-                    send(Body::Checkpoint {
-                        effect_id: effect_id.clone(),
-                        attempt_id: attempt_id.clone(),
-                        data: row,
-                    });
+                .to_string(),
+            )
+        });
+        // The same default, one field over (decision 0035 ruling 3).
+        // A fold that read its harness's echo has already written
+        // the level; this is what every other row says — `not
+        // applicable` for exec, which has no model turn, and `not
+        // reported` for a row its harness echoed no level for: the
+        // rows before the first request goes out, and every row of
+        // a lane that echoes nothing at all.
+        checkpoint.entry("effort").or_insert_with(|| {
+            Value::String(
+                if kind == AdapterKind::Exec {
+                    EFFORT_NOT_APPLICABLE
+                } else {
+                    EFFORT_NOT_REPORTED
                 }
+                .to_string(),
+            )
+        });
+        let starts = data
+            .get("step")
+            .and_then(Value::as_str)
+            .is_some_and(begins_work);
+        if began_work || starts {
+            began_work = true;
+            if !accepted_sent {
+                accepted_sent = true;
+                send(Body::Accepted {
+                    effect_id: effect_id.clone(),
+                    attempt_id: attempt_id.clone(),
+                    session_ref: None,
+                });
+            }
+            for row in buffered.drain(..) {
                 send(Body::Checkpoint {
                     effect_id: effect_id.clone(),
                     attempt_id: attempt_id.clone(),
-                    data,
+                    data: row,
                 });
-            } else {
-                buffered.push(data);
             }
-        },
-    ) {
+            send(Body::Checkpoint {
+                effect_id: effect_id.clone(),
+                attempt_id: attempt_id.clone(),
+                data,
+            });
+        } else {
+            buffered.push(data);
+        }
+    }) {
         Ok(invocation) => invocation,
         Err(error) => {
             // A driver that could not be invoked at all never opened a

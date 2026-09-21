@@ -5368,6 +5368,1066 @@ fn a_dsh_root_mismatch_that_delivers_a_result_is_still_a_mismatch() {
     );
 }
 
+/// The exact terminal reason `run_seat` gives a rejoin that never
+/// confirmed. Asserted whole: a refusal is proved by its reason, never by
+/// `is_err()` or a non-success status.
+#[cfg(unix)]
+const DSH_NEVER_CONFIRMED: &str =
+    "provider never confirmed the offered session; refusing to accept the invocation";
+
+/// The vocabulary every latch child is written in. The store verbs write
+/// whole rows in ONE `printf`, so a reading that races the child sees the
+/// row or does not see it, never half of it — `row` without `newline` is
+/// the one deliberate half-written tail. `await` blocks until the parent's
+/// observer has acknowledged a COMPLETED production observation, and a
+/// child that waits out its bound says so instead of hanging the suite.
+#[cfg(unix)]
+const DSH_LATCH_PRELUDE: &str = r#"#!/bin/sh
+ROOT='@ROOT@'
+HERE='@HERE@'
+NAME='@NAME@'
+DELIVERS=@DELIVERS@
+printf 'x\n' >> "$HERE/spawns"
+init() { printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$1"; }
+event() { printf '{"type":"system","subtype":"other"}\n'; }
+garbage() { printf 'this line is not JSON\n'; }
+nonutf8() { printf '\377\n'; }
+session() {
+  mkdir -p "$ROOT/$1/$2"
+  printf '{"type":"session","version":3,"id":"%s","delegationDepth":0}\n{"type":"permission/preset","seq":0}\n' "$3" > "$ROOT/$1/$2/$NAME"
+}
+row() {
+  printf '{"type":"assistant/message","seq":%s,"data":{"message":{"source":{"model":"deepseek-flash"}},"usage":{"inputTokens":5,"outputTokens":2}}}' "$2" >> "$ROOT/$1/session-1/$NAME"
+}
+newline() { printf '\n' >> "$ROOT/$1/session-1/$NAME"; }
+work() {
+  printf '{"type":"assistant/message","seq":%s,"data":{"message":{"source":{"model":"deepseek-flash"}},"usage":{"inputTokens":5,"outputTokens":2}}}\n' "$2" >> "$ROOT/$1/session-1/$NAME"
+}
+await() {
+  n=0
+  while [ ! -e "$HERE/ack" ]; do
+    n=$((n+1))
+    if [ "$n" -gt 3000 ]; then : > "$HERE/timed-out"; exit 9; fi
+    sleep 0.01
+  done
+  rm -f "$HERE/ack"
+}
+deliver() {
+  if [ "$DELIVERS" = 1 ]; then
+    printf '{"result":"complete","inputs":{},"notes":"delivered"}' > "$HERE/result.json"
+  fi
+}
+finish() {
+  deliver
+  printf '{"type":"result","subtype":"success","is_error":false,"session_id":"session-1"}\n'
+}
+"#;
+
+/// One latch exchange: the store before the spawn, the child's steps in
+/// the prelude's vocabulary, and which completed observations release the
+/// child's `await`s.
+#[cfg(unix)]
+struct DshLatchCase {
+    name: &'static str,
+    plant: fn(&Path),
+    /// `None` rejoins nothing (a cold launch); otherwise the offer is
+    /// `session-1` with this boundary.
+    offer: Option<Option<u64>>,
+    steps: &'static str,
+    acknowledge: fn(&DshObservation) -> bool,
+    /// How many matching observations are acknowledged, in order. The
+    /// child consumes one per `await`.
+    acks: usize,
+}
+
+/// What one real synthetic child left behind after production's OWN
+/// terminal body: every wire body `run_seat_with` sent, and every
+/// completed observation the watcher reported, in order.
+#[cfg(unix)]
+struct DshLatchRun {
+    _dir: tempfile::TempDir,
+    here: std::path::PathBuf,
+    root: std::path::PathBuf,
+    bodies: Vec<Body>,
+    observations: Vec<DshObservation>,
+    acknowledged: usize,
+}
+
+#[cfg(unix)]
+impl DshLatchRun {
+    fn checkpoints(&self) -> Vec<&Value> {
+        self.bodies
+            .iter()
+            .filter_map(|body| match body {
+                Body::Checkpoint { data, .. } => Some(data),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The terminal result: whether it succeeded, its payload, its error.
+    fn terminal(&self) -> (bool, Option<&Value>, Option<&str>) {
+        match self.bodies.last() {
+            Some(Body::Result {
+                status,
+                result,
+                error,
+                ..
+            }) => (
+                matches!(status, ResultStatus::Succeeded),
+                result.as_ref(),
+                error.as_deref(),
+            ),
+            other => panic!("the exchange ends in a result: {other:?}"),
+        }
+    }
+
+    /// The canonical address the reader reports for one stored session.
+    fn file(&self, project: &str, session: &str) -> std::path::PathBuf {
+        self.root.join(project).join(session).join(DSH_TRANSCRIPT)
+    }
+
+    /// The proof contract of every contrary-evidence exchange (design D7):
+    /// the named refusal, no payload, nothing published, one child, the
+    /// delivered file retained, and a child that really passed each
+    /// `await` on an acknowledged observation rather than timing out.
+    fn assert_refused(&self, label: &str, delivers: bool, acks: usize) {
+        let (succeeded, result, error) = self.terminal();
+        assert_eq!(
+            error,
+            Some(DSH_NEVER_CONFIRMED),
+            "{label}: the named terminal refusal: {:?}",
+            self.bodies
+        );
+        assert!(
+            !succeeded && result.is_none(),
+            "{label}: failed, with no payload"
+        );
+        for row in self.checkpoints() {
+            assert!(
+                row.get("root_session").is_none()
+                    && row.get("transcript").is_none()
+                    && row.get("launch").is_none(),
+                "{label}: no root_session, transcript locator or launch row: {row}"
+            );
+            assert!(
+                !begins_work(row["step"].as_str().unwrap_or_default()),
+                "{label}: no held work row and no session-finished row escapes: {row}"
+            );
+        }
+        assert_eq!(
+            self.bodies
+                .iter()
+                .filter(|body| matches!(body, Body::Accepted { .. }))
+                .count(),
+            1,
+            "{label}: the ordinary wire `accepted` keeps its meaning and order"
+        );
+        self.assert_one_child(label, acks);
+        assert_eq!(
+            std::fs::read_to_string(self.here.join("result.json")).ok(),
+            delivers
+                .then(|| r#"{"result":"complete","inputs":{},"notes":"delivered"}"#.to_string()),
+            "{label}: a delivered file is retained for diagnosis, never accepted"
+        );
+    }
+
+    fn assert_one_child(&self, label: &str, acks: usize) {
+        assert_eq!(
+            std::fs::read_to_string(self.here.join("spawns")).unwrap(),
+            "x\n",
+            "{label}: exactly one child, and no cold replacement"
+        );
+        assert_eq!(
+            self.acknowledged, acks,
+            "{label}: every awaited observation was really completed"
+        );
+        assert!(
+            !self.here.join("timed-out").exists() && !self.here.join("ack").exists(),
+            "{label}: the child passed each await on its acknowledgment"
+        );
+    }
+
+    fn dispositions(&self) -> Vec<DshDisposition> {
+        self.observations
+            .iter()
+            .map(|observation| observation.disposition)
+            .collect()
+    }
+}
+
+/// How many admitted occurrences in one observed census name `id`.
+#[cfg(unix)]
+fn census_count(observation: &DshObservation, id: &str) -> usize {
+    observation
+        .census
+        .iter()
+        .flatten()
+        .filter(|(header, _)| header == id)
+        .count()
+}
+
+#[cfg(unix)]
+fn plant_offer(home: &Path) {
+    plant_dsh_session(home, "seat", "--w--", "session-1", 27);
+}
+
+#[cfg(unix)]
+fn plant_offer_and_old_sibling(home: &Path) {
+    plant_offer(home);
+    plant_dsh_session(home, "seat", "--old--", "session-9", 3);
+}
+
+#[cfg(unix)]
+fn never(_: &DshObservation) -> bool {
+    false
+}
+
+/// Drive one case's REAL child through `run_seat_with` — production's own
+/// prompt, checkpoint buffer, delivered-file fact and unsettled-launch
+/// guard — observing exactly what the watcher consumed.
+#[cfg(unix)]
+fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
+    let dir = tempfile::tempdir().unwrap();
+    let here = dir.path().canonicalize().unwrap();
+    let root = here.join("seat");
+    (case.plant)(&here);
+    let body = DSH_LATCH_PRELUDE
+        .replace("@ROOT@", root.to_str().unwrap())
+        .replace("@HERE@", here.to_str().unwrap())
+        .replace("@NAME@", DSH_TRANSCRIPT)
+        .replace("@DELIVERS@", if delivers { "1" } else { "0" })
+        + case.steps;
+    let shim = executable(&here, "dsh-latch", &body);
+    let launch = dsh_stream_launch(
+        &shim,
+        &root,
+        case.offer.map(|_| "session-1"),
+        case.offer.flatten(),
+    );
+    let start = json!({
+        "effect_id": "effect", "attempt_id": "attempt",
+        "input": {"workdir": here, "result_path": here.join("result.json"),
+                  "allowed_results": ["complete"], "feature": "f", "phase": "work"}
+    });
+    let mut bodies = Vec::new();
+    let mut observations = Vec::new();
+    let mut acknowledged = 0usize;
+    run_seat_with(
+        AdapterKind::Dsh,
+        &start,
+        &mut |body| bodies.push(body),
+        |prompt, input, _bindings, mut emit| {
+            invoke_dsh_launch_observed(
+                launch,
+                prompt,
+                input["workdir"].as_str().unwrap(),
+                &mut emit,
+                |_| panic!("the qualified arm does not poll the child"),
+                &mut |observation: &DshObservation| {
+                    observations.push(observation.clone());
+                    if acknowledged < case.acks && (case.acknowledge)(observation) {
+                        acknowledged += 1;
+                        std::fs::write(here.join("ack"), b"observed").unwrap();
+                    }
+                },
+            )
+        },
+    );
+    DshLatchRun {
+        _dir: dir,
+        here,
+        root,
+        bodies,
+        observations,
+        acknowledged,
+    }
+}
+
+/// Run one contrary-evidence case on BOTH endings — a clean exit, and an
+/// otherwise valid delivered result file — under the whole proof contract,
+/// then hand each run to the case's own witness of what was consumed.
+///
+/// BOTH endings always run, and every failed ending is reported: a removal
+/// proof has to show what each ending loses, and an ending that never ran
+/// behind the first panic would show nothing.
+#[cfg(unix)]
+fn refused_on_both_endings(
+    cases: &[DshLatchCase],
+    witness: impl Fn(&DshLatchCase, &DshLatchRun, &str),
+) {
+    let failed: Vec<String> = cases
+        .iter()
+        .flat_map(|case| [(case, false), (case, true)])
+        .filter_map(|(case, delivers)| {
+            let ending = if delivers {
+                "delivered result"
+            } else {
+                "clean exit"
+            };
+            let label = format!("{}, {ending}", case.name);
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let run = run_dsh_latch(case, delivers);
+                run.assert_refused(&label, delivers, case.acks);
+                assert_eq!(
+                    run.dispositions().last(),
+                    Some(&DshDisposition::Refused),
+                    "{label}: and the watcher itself ended refused"
+                );
+                witness(case, &run, &label);
+            }))
+            .err()
+            .map(|_| label)
+        })
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "endings that lost their proof contract (each reported above): {failed:?}"
+    );
+}
+
+/// R1 (task 8.8(d), Pass C; design D7): output this driver could not read
+/// BEFORE the init event is not noise to skip on a rejoin. The child
+/// appends `assistant/message` 28 to the offered root, emits a line that
+/// is not JSON, and only then the matching init event — with no valid
+/// pre-init event in front, so no other guard can be the one refusing.
+/// Skipping the line skipped the one observation that would have seen the
+/// work, and the init behind it confirmed, published and folded it.
+///
+/// The second case keeps the store UNMOVED when the malformed line is
+/// read, and advances it only once that line's observation is complete —
+/// so a rule that merely looked at the store on a malformed line cannot
+/// stand in for the refusal.
+#[cfg(unix)]
+#[test]
+fn dsh_malformed_output_before_the_init_event_refuses_the_rejoin_for_good() {
+    refused_on_both_endings(
+        &[
+            DshLatchCase {
+                name: "R1 malformed pre-init work",
+                plant: plant_offer,
+                offer: Some(Some(27)),
+                steps: "work --w-- 28\ngarbage\ninit session-1\nfinish\n",
+                acknowledge: never,
+                acks: 0,
+            },
+            DshLatchCase {
+                name: "malformed pre-init output, store unmoved",
+                plant: plant_offer,
+                offer: Some(Some(27)),
+                steps: "garbage\nawait\nwork --w-- 28\ninit session-1\nevent\nfinish\n",
+                acknowledge: |observation| observation.line == DshStreamLine::Malformed,
+                acks: 1,
+            },
+        ],
+        |_, run, label| {
+            assert_eq!(
+                run.observations[0],
+                DshObservation {
+                    line: DshStreamLine::Malformed,
+                    census: None,
+                    last_seq: None,
+                    disposition: DshDisposition::Refused,
+                },
+                "{label}: the line itself refused, before and without any store reading"
+            );
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28),
+                "{label}: and the final store satisfies every positive fact"
+            );
+        },
+    );
+}
+
+/// R2: a contradiction that was OBSERVED is not retried away. The matching
+/// init event arrives beside a fresh `session-9`, with the offer still at
+/// its boundary. The child then waits for the watcher's completed reading
+/// of exactly that census before it deletes the sibling, advances the
+/// offer to 28 and emits another event — so the final store satisfies
+/// every positive confirmation fact, and the only thing refusing is the
+/// reading already taken.
+#[cfg(unix)]
+#[test]
+fn dsh_an_observed_fresh_sibling_refuses_the_rejoin_after_it_disappears() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "R2 disappearing sibling",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-9 session-9\ninit session-1\nawait\n\
+                    rm -rf \"$ROOT/--w--/session-9\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| census_count(observation, "session-9") == 1,
+            acks: 1,
+        }],
+        |_, run, label| {
+            let seen = &run.observations[0];
+            assert_eq!(
+                (seen.line, seen.disposition, seen.last_seq),
+                (DshStreamLine::Event, DshDisposition::Refused, None),
+                "{label}: the init line's own census refused, ahead of any sequence read"
+            );
+            let mut census = seen.census.clone().unwrap();
+            census.sort();
+            assert_eq!(
+                census,
+                vec![
+                    ("session-1".to_string(), run.file("--w--", "session-1")),
+                    ("session-9".to_string(), run.file("--w--", "session-9")),
+                ],
+                "{label}: the contradictory census the watcher really consumed"
+            );
+            // The repaired store confirms on every positive fact.
+            assert!(!run.file("--w--", "session-9").exists());
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28)
+            );
+            assert_eq!(
+                dsh_depth_zero_sessions(&run.root).unwrap(),
+                vec![("session-1".to_string(), run.file("--w--", "session-1"))]
+            );
+        },
+    );
+}
+
+/// R3, kept apart from R2: the census has to be able to SEE the
+/// contradiction. `session-9` already exists under `--old--`; the child
+/// opens another `session-9` under `--new--`. The set of session ids is
+/// unchanged, exactly one header names the offer and its sequence
+/// advances, the store stays readable and the stream valid — and it is
+/// still a fresh depth-zero entry, because entries are counted by address.
+#[cfg(unix)]
+#[test]
+fn dsh_a_fresh_entry_reusing_a_sibling_id_at_a_new_address_refuses_the_rejoin() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "R3 repeated id at a new address",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "session --new-- session-9 session-9\nwork --w-- 28\n\
+                    init session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        }],
+        |_, run, label| {
+            let seen = &run.observations[0];
+            let mut addresses: Vec<_> = seen
+                .census
+                .iter()
+                .flatten()
+                .filter(|(id, _)| id == "session-9")
+                .map(|(_, file)| file.clone())
+                .collect();
+            addresses.sort();
+            assert_eq!(
+                addresses,
+                vec![
+                    run.file("--new--", "session-9"),
+                    run.file("--old--", "session-9")
+                ],
+                "{label}: two admitted addresses behind one id"
+            );
+            assert_eq!(census_count(seen, "session-1"), 1, "{label}: one offer");
+            assert_eq!(seen.disposition, DshDisposition::Refused, "{label}");
+        },
+    );
+}
+
+/// The rule behind R2, at every other site that used to answer "not yet"
+/// to evidence that already said "never": each case shows the watcher a
+/// contradiction — or denies it a required reading — AFTER the matching
+/// init event, waits for that completed observation, then restores a store
+/// that satisfies every positive fact and emits another event.
+///
+/// The ambiguity is built at a BASELINE address (the old sibling's file is
+/// relabelled to name the offer), so no new-address reading can stand in
+/// for header cardinality; the sequence is otherwise nonconfirming while
+/// it is observed.
+#[cfg(unix)]
+#[test]
+fn dsh_contradictions_after_the_init_event_are_never_restored_away() {
+    let cases = [
+        DshLatchCase {
+            name: "offered header missing after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "mv \"$ROOT/--w--/session-1\" \"$HERE/hidden\"\ninit session-1\nawait\n\
+                    mv \"$HERE/hidden\" \"$ROOT/--w--/session-1\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| {
+                observation.census.is_some() && census_count(observation, "session-1") == 0
+            },
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "offered header ambiguous after init",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "session --old-- session-9 session-1\ninit session-1\nawait\n\
+                    session --old-- session-9 session-9\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| census_count(observation, "session-1") == 2,
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "census fails after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "mv \"$ROOT\" \"$ROOT.away\"\ninit session-1\nawait\n\
+                    mv \"$ROOT.away\" \"$ROOT\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| observation.census.is_none(),
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "offered sequence unreadable after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "row --w-- 28\ninit session-1\nawait\nnewline --w--\nevent\nfinish\n",
+            acknowledge: |observation| {
+                observation.census.is_some() && observation.last_seq.is_none()
+            },
+            acks: 1,
+        },
+        DshLatchCase {
+            name: "fresh sibling read on a malformed line after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "init session-1\nawait\nsession --w-- session-9 session-9\ngarbage\nawait\n\
+                    rm -rf \"$ROOT/--w--/session-9\"\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| {
+                observation.line == DshStreamLine::Malformed
+                    || observation.disposition == DshDisposition::Pending
+            },
+            acks: 2,
+        },
+    ];
+    refused_on_both_endings(&cases, |case, run, label| {
+        let refused = run
+            .observations
+            .iter()
+            .find(|observation| observation.disposition == DshDisposition::Refused)
+            .unwrap();
+        assert!(
+            (case.acknowledge)(refused),
+            "{label}: the awaited reading is the one that refused: {refused:?}"
+        );
+        if case
+            .name
+            .starts_with("fresh sibling read on a malformed line")
+        {
+            assert_eq!(
+                (refused.line, census_count(refused, "session-9")),
+                (DshStreamLine::Malformed, 1),
+                "{label}: the store WAS read behind the malformed line"
+            );
+        }
+        // Every positive fact holds in the store the child left.
+        assert_eq!(
+            dsh_depth_zero_sessions(&run.root)
+                .unwrap()
+                .iter()
+                .filter(|(id, _)| id == "session-1")
+                .count(),
+            1,
+            "{label}"
+        );
+        assert_eq!(
+            dsh_session_last_seq(&run.file("--w--", "session-1")),
+            Some(28),
+            "{label}"
+        );
+    });
+}
+
+/// The pre-init half of the same rule. The retired pre-init reading asked
+/// only whether the offered sequence had moved, so a fresh sibling beside
+/// an unmoved offer refused nothing: the child could delete it, and the
+/// init event and activity behind it confirmed. One rule now reads the
+/// store on both sides of the init event.
+#[cfg(unix)]
+#[test]
+fn dsh_a_fresh_sibling_observed_before_the_init_event_refuses_the_rejoin_for_good() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "fresh sibling before init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-9 session-9\nevent\nawait\n\
+                    rm -rf \"$ROOT/--w--/session-9\"\ninit session-1\nwork --w-- 28\nevent\n\
+                    finish\n",
+            acknowledge: |observation| census_count(observation, "session-9") == 1,
+            acks: 1,
+        }],
+        |_, run, label| {
+            let seen = &run.observations[0];
+            assert_eq!(
+                (seen.line, seen.disposition, census_count(seen, "session-9")),
+                (DshStreamLine::Event, DshDisposition::Refused, 1),
+                "{label}: valid non-init JSON reached the shared rule"
+            );
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28)
+            );
+        },
+    );
+}
+
+/// A stdout line the reader could not return ends the stream, as it always
+/// has — but a PENDING rejoin is refused before that break, so the settle
+/// behind the child's exit cannot confirm on a store the child advanced
+/// after the line nobody read.
+#[cfg(unix)]
+#[test]
+fn dsh_an_unreadable_stream_line_refuses_a_pending_rejoin_before_the_stream_ends() {
+    refused_on_both_endings(
+        &[DshLatchCase {
+            name: "unreadable line while pending",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "init session-1\nnonutf8\nawait\nwork --w-- 28\ndeliver\nexit 0\n",
+            acknowledge: |observation| observation.line == DshStreamLine::Unreadable,
+            acks: 1,
+        }],
+        |_, run, label| {
+            assert_eq!(
+                run.dispositions(),
+                vec![
+                    DshDisposition::Pending,
+                    DshDisposition::Refused,
+                    DshDisposition::Refused
+                ],
+                "{label}: pending on the init line, refused on the unread one, and \
+                 the end of the stream reopens nothing"
+            );
+            assert_eq!(
+                dsh_session_last_seq(&run.file("--w--", "session-1")),
+                Some(28),
+                "{label}: the store the final settle would have confirmed on"
+            );
+        },
+    );
+}
+
+/// Fact 1 is history, and history is not supplied later. An offer with no
+/// boundary, a store that could not be censused before the spawn, no
+/// baseline header naming the offer, or two of them is refused BEFORE the
+/// child runs — every observation reports it refused and reads nothing —
+/// whatever store the child builds afterwards. The ambiguous baseline is
+/// made unique both ways round, so resolving it to either header would
+/// confirm one of the two.
+#[cfg(unix)]
+#[test]
+fn dsh_a_rejoin_without_its_pre_spawn_baseline_is_refused_before_the_child_runs() {
+    fn plant_nothing(_: &Path) {}
+    fn plant_only_a_sibling(home: &Path) {
+        plant_dsh_session(home, "seat", "--old--", "session-9", 3);
+    }
+    fn plant_two_offers(home: &Path) {
+        plant_offer(home);
+        plant_dsh_session(home, "seat", "--other--", "session-1", 27);
+    }
+    let cases = [
+        DshLatchCase {
+            name: "no boundary beside the offer",
+            plant: plant_offer,
+            offer: Some(None),
+            steps: "init session-1\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "baseline census failed",
+            plant: plant_nothing,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-1 session-1\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "no baseline header names the offer",
+            plant: plant_only_a_sibling,
+            offer: Some(Some(27)),
+            steps: "session --w-- session-1 session-1\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "ambiguous baseline, the other header removed",
+            plant: plant_two_offers,
+            offer: Some(Some(27)),
+            steps: "rm -rf \"$ROOT/--other--\"\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "ambiguous baseline, the first header removed",
+            plant: plant_two_offers,
+            offer: Some(Some(27)),
+            steps: "rm -rf \"$ROOT/--w--\"\nwork --other-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+    ];
+    refused_on_both_endings(&cases, |case, run, label| {
+        assert!(
+            !run.observations.is_empty()
+                && run.observations.iter().all(|observation| {
+                    observation.disposition == DshDisposition::Refused
+                        && observation.census.is_none()
+                }),
+            "{label}: refused from the first observation, and the store is \
+                 never consulted for history it cannot supply: {:?}",
+            run.observations
+        );
+        let survivor = if case.name.ends_with("first header removed") {
+            "--other--"
+        } else {
+            "--w--"
+        };
+        let mut expected = vec![("session-1".to_string(), run.file(survivor, "session-1"))];
+        if case.name.starts_with("no baseline header") {
+            expected.push(("session-9".to_string(), run.file("--old--", "session-9")));
+        }
+        let mut found = dsh_depth_zero_sessions(&run.root).unwrap();
+        found.sort();
+        assert_eq!(
+            found, expected,
+            "{label}: exactly one header names the offer"
+        );
+        assert_eq!(
+            dsh_session_last_seq(&run.file(survivor, "session-1")),
+            Some(28),
+            "{label}: a store that would otherwise confirm"
+        );
+    });
+}
+
+/// The remaining identity comparisons of the counted census, each with a
+/// readable store, a valid stream, one offered header and an advanced
+/// sequence: an admitted ALIAS repeats an exact canonical `(id, file)`
+/// occurrence, which a set of pairs would absorb; a REPLACEMENT moves a
+/// sibling to a new address while the unique ids and the entry count stay
+/// what they were; and the OFFERED header itself moves, which the retained
+/// offered address refuses on its own. These compare the admitted census;
+/// they are not Pass D's containment or inode-identity matrix.
+#[cfg(unix)]
+#[test]
+fn dsh_census_identity_counts_occurrences_and_addresses_not_distinct_ids() {
+    let cases = [
+        DshLatchCase {
+            name: "an alias repeats one canonical occurrence",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "ln -s session-9 \"$ROOT/--old--/alias\"\nwork --w-- 28\n\
+                    init session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "a sibling is replaced at a new address",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "mkdir \"$ROOT/--moved--\"\n\
+                    mv \"$ROOT/--old--/session-9\" \"$ROOT/--moved--/session-9\"\n\
+                    work --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "the offered header moves to a new address",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "mkdir \"$ROOT/--moved--\"\n\
+                    mv \"$ROOT/--w--/session-1\" \"$ROOT/--moved--/session-1\"\n\
+                    work --moved-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+    ];
+    refused_on_both_endings(&cases, |case, run, label| {
+        let seen = &run.observations[0];
+        assert_eq!(seen.disposition, DshDisposition::Refused, "{label}");
+        let mut census = seen.census.clone().unwrap();
+        census.sort();
+        let expected = match case.name {
+            "an alias repeats one canonical occurrence" => vec![
+                ("session-1".to_string(), run.file("--w--", "session-1")),
+                ("session-9".to_string(), run.file("--old--", "session-9")),
+                ("session-9".to_string(), run.file("--old--", "session-9")),
+            ],
+            "a sibling is replaced at a new address" => vec![
+                ("session-1".to_string(), run.file("--w--", "session-1")),
+                ("session-9".to_string(), run.file("--moved--", "session-9")),
+            ],
+            _ => vec![("session-1".to_string(), run.file("--moved--", "session-1"))],
+        };
+        assert_eq!(
+            census, expected,
+            "{label}: the occurrences the watcher consumed"
+        );
+    });
+}
+
+/// The latch is not unconditional rejection, and containment is not
+/// whole-store equality. Through the same terminal body: valid pre-init
+/// noise, an unchanged unrelated sibling and delayed activity wait and
+/// then confirm, with both pending snapshots observed in order; an
+/// ordinary init event consumed AFTER its current activity was stored
+/// confirms at once; losing an unrelated baseline sibling alone refuses
+/// nothing; and malformed noise after the init event supplies no fact but
+/// still lets the store behind it confirm.
+#[cfg(unix)]
+#[test]
+fn dsh_a_consistent_pending_rejoin_still_confirms_through_the_terminal_body() {
+    let cases = [
+        DshLatchCase {
+            name: "pre-init noise, a sibling and delayed activity",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "event\nawait\ninit session-1\nawait\nwork --w-- 28\nevent\nfinish\n",
+            acknowledge: |observation| observation.disposition == DshDisposition::Pending,
+            acks: 2,
+        },
+        DshLatchCase {
+            name: "init consumed after its activity was stored",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "work --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "an unrelated baseline sibling is gone",
+            plant: plant_offer_and_old_sibling,
+            offer: Some(Some(27)),
+            steps: "rm -rf \"$ROOT/--old--\"\nwork --w-- 28\ninit session-1\nfinish\n",
+            acknowledge: never,
+            acks: 0,
+        },
+        DshLatchCase {
+            name: "malformed noise after init",
+            plant: plant_offer,
+            offer: Some(Some(27)),
+            steps: "init session-1\nawait\ngarbage\nawait\nwork --w-- 28\ngarbage\ngarbage\n\
+                    finish\n",
+            acknowledge: |observation| observation.disposition == DshDisposition::Pending,
+            acks: 2,
+        },
+    ];
+    for case in &cases {
+        let run = run_dsh_latch(case, true);
+        let label = case.name;
+        let (succeeded, result, error) = run.terminal();
+        assert!(
+            succeeded && error.is_none(),
+            "{label}: a confirmed rejoin is accepted: {:?}",
+            run.bodies
+        );
+        assert_eq!(result.unwrap()["result"], "complete", "{label}");
+        run.assert_one_child(label, case.acks);
+        let rows = run.checkpoints();
+        let order: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row["step"].as_str())
+            .filter(|step| matches!(*step, "transcript" | "harness-started" | "seat-turn"))
+            .collect();
+        // The fold still takes the FIRST depth-zero transcript the
+        // enumeration reaches, not the offered one, so beside an unrelated
+        // sibling which file it tails is the filesystem's choice. That is
+        // 9.6's warm retained-store integration, not this confirmation:
+        // the work row is asserted only where the store holds one session.
+        let sibling = case.name.starts_with("pre-init noise");
+        assert_eq!(
+            order[..2],
+            ["transcript", "harness-started"],
+            "{label}: one launch, in D7's order: location, then launch"
+        );
+        assert!(
+            order[2..].iter().all(|step| *step == "seat-turn") && (sibling || order.len() == 3),
+            "{label}: and current work only behind them: {order:?}"
+        );
+        let launch = rows
+            .iter()
+            .find(|row| row["step"] == "harness-started")
+            .unwrap();
+        let located = rows.iter().find(|row| row["step"] == "transcript").unwrap();
+        assert_eq!(launch["launch"], "resumed", "{label}");
+        assert_eq!(launch["root_session"]["id"], "session-1", "{label}");
+        assert_eq!(
+            launch["transcript"], located["transcript"],
+            "{label}: the root and its exact admitted address on ONE checkpoint"
+        );
+        assert_eq!(launch["transcript"]["locator"], "seat", "{label}");
+        assert_eq!(
+            run.dispositions().last(),
+            Some(&DshDisposition::Confirmed),
+            "{label}"
+        );
+        match case.name {
+            "pre-init noise, a sibling and delayed activity" => {
+                let baseline = {
+                    let mut entries = vec![
+                        ("session-1".to_string(), run.file("--w--", "session-1")),
+                        ("session-9".to_string(), run.file("--old--", "session-9")),
+                    ];
+                    entries.sort();
+                    entries
+                };
+                let facts: Vec<_> = run.observations[..3]
+                    .iter()
+                    .map(|observation| {
+                        let mut census = observation.census.clone().unwrap();
+                        census.sort();
+                        assert_eq!(census, baseline, "{label}: the unchanged census");
+                        (
+                            observation.line,
+                            observation.last_seq,
+                            observation.disposition,
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    facts,
+                    vec![
+                        (DshStreamLine::Event, Some(27), DshDisposition::Pending),
+                        (DshStreamLine::Event, Some(27), DshDisposition::Pending),
+                        (DshStreamLine::Event, Some(28), DshDisposition::Confirmed),
+                    ],
+                    "{label}: both pending snapshots, in order, then the confirmation"
+                );
+            }
+            "malformed noise after init" => {
+                let confirmed = run
+                    .observations
+                    .iter()
+                    .find(|observation| observation.disposition == DshDisposition::Confirmed)
+                    .unwrap();
+                assert_eq!(
+                    (confirmed.line, confirmed.last_seq),
+                    (DshStreamLine::Malformed, Some(28)),
+                    "{label}: the store behind the noise is what confirmed"
+                );
+                assert_eq!(
+                    (
+                        run.observations[1].line,
+                        run.observations[1].disposition,
+                        run.observations[1].last_seq
+                    ),
+                    (DshStreamLine::Malformed, DshDisposition::Pending, Some(27)),
+                    "{label}: and consistent noise only waits"
+                );
+            }
+            "an unrelated baseline sibling is gone" => assert_eq!(
+                run.observations[0].census,
+                Some(vec![(
+                    "session-1".to_string(),
+                    run.file("--w--", "session-1")
+                )]),
+                "{label}: containment, not whole-store equality"
+            ),
+            _ => assert_eq!(
+                (
+                    run.observations[0].last_seq,
+                    run.observations[0].disposition
+                ),
+                (Some(28), DshDisposition::Confirmed),
+                "{label}: the init line's own reading confirmed"
+            ),
+        }
+    }
+}
+
+/// What the latch leaves exactly where it was, through the same terminal
+/// body: a cold launch has no offered root to contradict, so a malformed
+/// line is skipped and a non-UTF-8 line ends the stream, and both are
+/// accepted cold; and a DIFFERENT root keeps its own terminal reason on
+/// both endings, distinct from a rejoin that never confirmed.
+#[cfg(unix)]
+#[test]
+fn dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour() {
+    fn plant_root(home: &Path) {
+        std::fs::create_dir_all(home.join("seat")).unwrap();
+    }
+    for (name, steps, rooted) in [
+        (
+            "cold malformed line",
+            "garbage\ninit session-7\nfinish\n",
+            true,
+        ),
+        ("cold non-UTF-8 line", "nonutf8\ndeliver\nexit 0\n", false),
+    ] {
+        let run = run_dsh_latch(
+            &DshLatchCase {
+                name,
+                plant: plant_root,
+                offer: None,
+                steps,
+                acknowledge: never,
+                acks: 0,
+            },
+            true,
+        );
+        let (succeeded, result, error) = run.terminal();
+        assert!(succeeded && error.is_none(), "{name}: {:?}", run.bodies);
+        assert_eq!(result.unwrap()["result"], "complete", "{name}");
+        run.assert_one_child(name, 0);
+        assert!(
+            run.dispositions()
+                .iter()
+                .all(|disposition| *disposition == DshDisposition::Cold),
+            "{name}: a cold launch is never refused, pending or confirmed"
+        );
+        let rows = run.checkpoints();
+        let launch = rows
+            .iter()
+            .find(|row| row["step"] == "harness-started")
+            .unwrap();
+        assert_eq!(launch["launch"], "cold", "{name}");
+        assert_eq!(
+            launch.get("root_session").is_some(),
+            rooted,
+            "{name}: the init behind a skipped line names the root; nothing \
+             behind an unreadable one is read"
+        );
+    }
+    for delivers in [false, true] {
+        let run = run_dsh_latch(
+            &DshLatchCase {
+                name: "root mismatch",
+                plant: plant_offer,
+                offer: Some(Some(27)),
+                steps: "init session-2\nwork --w-- 28\nevent\nfinish\n",
+                acknowledge: never,
+                acks: 0,
+            },
+            delivers,
+        );
+        let (succeeded, result, error) = run.terminal();
+        assert_eq!(
+            error,
+            Some(
+                "provider named a different session than the offered root; \
+                 refusing to accept the invocation"
+            ),
+            "the mismatch keeps its own reason"
+        );
+        assert!(!succeeded && result.is_none());
+        run.assert_one_child("root mismatch", 0);
+        assert!(run.checkpoints().iter().all(|row| {
+            row.get("root_session").is_none()
+                && row.get("transcript").is_none()
+                && row.get("launch").is_none()
+        }));
+        assert!(
+            run.dispositions()
+                .iter()
+                .all(|disposition| *disposition == DshDisposition::Mismatched),
+            "a settled mismatch is never reopened: {:?}",
+            run.observations
+        );
+    }
+}
+
 /// AS4's unstructured-DSH-error case and LE3's cannot-classify-a-refusal
 /// case: a nonzero exit carrying stderr prose is not a measured machine
 /// session rejection, so the driver classifies nothing and performs no
