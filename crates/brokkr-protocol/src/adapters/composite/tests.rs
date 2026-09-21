@@ -7735,6 +7735,259 @@ fn the_apple_arm_answers_an_oversized_component_by_its_construction_bound() {
     }
 }
 
+/// The refusal each pinned errno ENDS IN, read from the lookup itself
+/// under every library's arm — the searched name's exhaustion and denial
+/// formatting, and the direct name's own, not the switch's intermediate
+/// answer.
+///
+/// The Apple-arm audit of PR #311 cited `step` and `lookup_failure` for
+/// EACCES, ENOENT and ENOTDIR (review 2026-09-21, R2). Those two answer
+/// the SWITCH's question — continue, stop, or unpinned — and a
+/// continuation is not a refusal: what a caller actually reads is
+/// `Search::find`'s exhaustion, which reports a remembered denial over
+/// any later cause, or `lookup_in`'s direct-name formatting of a
+/// `Candidate::Passed` that had no next entry to walk to. Those final
+/// strings are what the differential matrix compares on macOS, so they
+/// are what the Apple arm owes an assertion, and the injected arm proves
+/// them on this host.
+///
+/// The loading refusal is here for the same reason. ENOEXEC never
+/// reaches `step` at all: a candidate whose content is neither a `#!`
+/// script nor a loadable image is refused by `native_obstruction` before
+/// any execution, on every arm alike, and the audit's `step(Apple,
+/// NOEXEC)` row described the switch rather than the path an
+/// unrecognized executable actually takes.
+#[cfg(unix)]
+#[test]
+fn each_pinned_errno_ends_in_the_same_refusal_on_every_librarys_arm() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = FixtureRoot::new();
+    let here = root.path();
+    // A missing directory (ENOENT), a regular file spelled as one
+    // (ENOTDIR), a candidate this process may not execute (EACCES), a
+    // runnable B, and an executable file whose content no loader reads.
+    let missing = here.join("nowhere");
+    let file = here.join("file");
+    fs::write(&file, b"a file, not a directory\n").unwrap();
+    let denied_in = here.join("denied");
+    fs::create_dir_all(&denied_in).unwrap();
+    let denied = denied_in.join("dsh");
+    fs::write(&denied, b"#!/bin/sh\ntrue\n").unwrap();
+    fs::set_permissions(&denied, fs::Permissions::from_mode(0o644)).unwrap();
+    let b = here.join("b");
+    fs::create_dir_all(&b).unwrap();
+    let real = stage_executable(&b, "dsh", b"#!/bin/sh\ntrue\n")
+        .canonicalize()
+        .unwrap();
+    let unloadable_in = here.join("unloadable");
+    fs::create_dir_all(&unloadable_in).unwrap();
+    let unloadable = stage_executable(&unloadable_in, "dsh", b"\x7fnot a script, not an image\n");
+    // A component longer than the kernel takes, under a directory that
+    // exists, so the kernel measures it and answers ENAMETOOLONG.
+    let overlong = b.join("y".repeat(300));
+    assert_eq!(
+        errno_of(&fs::metadata(&overlong).unwrap_err()),
+        Some(rustix::io::Errno::NAMETOOLONG),
+        "the fixture is a name this host's kernel refuses by length"
+    );
+
+    let search = |library: Library, operation: Operation, entries: String| Search {
+        entries: OsString::from(entries),
+        default: false,
+        library,
+        operation,
+        env_reference: PathBuf::from(ENV_REFERENCE),
+    };
+    let find = |command: &str, library, operation, entries: String| {
+        lookup_in(
+            command,
+            &search(library, operation, entries),
+            &mut Vec::new(),
+        )
+    };
+    // The exhaustion `Search::find` answers with, built from the same
+    // kernel error the candidate itself gives this host.
+    let ended = |candidate: &Path| {
+        format!(
+            "the DSH layout is unreadable: 'dsh' is not on PATH (the search ended at {}: {})",
+            candidate.display(),
+            fs::metadata(candidate).unwrap_err()
+        )
+    };
+    let denial = format!(
+        "the DSH layout is unreadable: 'dsh' is not executable by this process on PATH: {}: is \
+         not executable by this process",
+        denied.display()
+    );
+    let directly = |candidate: &Path, why: String| {
+        format!(
+            "the DSH layout is unreadable: {}: {why}",
+            candidate.display()
+        )
+    };
+    let loading = "is not a loadable native image: neither a #! script nor a native image";
+
+    for library in [Library::Apple, Library::Glibc, Library::Musl, LIBRARY] {
+        for operation in [Operation::Spawn, Operation::Exec] {
+            let at = |what: &str| format!("{library:?} under {operation:?}: {what}");
+            // SEARCHED. EACCES, ENOENT and ENOTDIR sit in every pinned
+            // continue-set, so every arm walks the same entries past the
+            // same causes and ends in the same words: the remembered
+            // denial where one entry denied, the LAST cause otherwise.
+            assert_eq!(
+                refused(find(
+                    "dsh",
+                    library,
+                    operation,
+                    format!("{}:{}", denied_in.display(), missing.display()),
+                )),
+                denial,
+                "{}",
+                at("a denied entry is reported over a later absence")
+            );
+            assert_eq!(
+                refused(find(
+                    "dsh",
+                    library,
+                    operation,
+                    format!("{}:{}", missing.display(), denied_in.display()),
+                )),
+                denial,
+                "{}",
+                at("and over an earlier one")
+            );
+            assert_eq!(
+                refused(find(
+                    "dsh",
+                    library,
+                    operation,
+                    missing.display().to_string()
+                )),
+                ended(&missing.join("dsh")),
+                "{}",
+                at("an exhausted search keeps ENOENT's own words")
+            );
+            assert_eq!(
+                refused(find("dsh", library, operation, file.display().to_string())),
+                ended(&file.join("dsh")),
+                "{}",
+                at("and ENOTDIR's")
+            );
+            // All three walked past, and the entry behind them selected:
+            // the continuations are continuations on every arm.
+            assert_eq!(
+                find(
+                    "dsh",
+                    library,
+                    operation,
+                    format!(
+                        "{}:{}:{}:{}",
+                        missing.display(),
+                        file.display(),
+                        denied_in.display(),
+                        b.display()
+                    ),
+                )
+                .unwrap()
+                .path,
+                real,
+                "{}",
+                at("the search walks past all three to B")
+            );
+            // A candidate no loader reads STOPS the search on every arm,
+            // ahead of the runnable B behind it: the refusal is the
+            // loading one, and no errno switch is consulted for it.
+            assert_eq!(
+                refused(find(
+                    "dsh",
+                    library,
+                    operation,
+                    format!("{}:{}", unloadable_in.display(), b.display()),
+                )),
+                directly(&unloadable, loading.to_string()),
+                "{}",
+                at("an unloadable candidate is refused before B is reached")
+            );
+
+            // DIRECT. No library's switch runs, so each of these is the
+            // one answer `lookup_in` formats, and it is the same answer
+            // on every arm.
+            let direct = |candidate: &Path| {
+                refused(find(
+                    candidate.to_str().unwrap(),
+                    library,
+                    operation,
+                    b.display().to_string(),
+                ))
+            };
+            assert_eq!(
+                direct(&missing.join("dsh")),
+                directly(
+                    &missing.join("dsh"),
+                    fs::metadata(missing.join("dsh")).unwrap_err().to_string()
+                ),
+                "{}",
+                at("a direct name's ENOENT")
+            );
+            assert_eq!(
+                direct(&file.join("dsh")),
+                directly(
+                    &file.join("dsh"),
+                    fs::metadata(file.join("dsh")).unwrap_err().to_string()
+                ),
+                "{}",
+                at("a direct name's ENOTDIR")
+            );
+            assert_eq!(
+                direct(&denied),
+                directly(&denied, "is not executable by this process".to_string()),
+                "{}",
+                at("a direct name's EACCES")
+            );
+            assert_eq!(
+                direct(&b),
+                directly(&b, "is not a regular file".to_string()),
+                "{}",
+                at("a direct name that is a directory")
+            );
+            assert_eq!(
+                direct(&overlong),
+                directly(
+                    &overlong,
+                    format!(
+                        "metadata answers {}, on which the platform's lookup stops",
+                        std::io::Error::from_raw_os_error(
+                            rustix::io::Errno::NAMETOOLONG.raw_os_error()
+                        )
+                    )
+                ),
+                "{}",
+                at("a direct name's terminal ENAMETOOLONG")
+            );
+            assert_eq!(
+                direct(&unloadable),
+                directly(&unloadable, loading.to_string()),
+                "{}",
+                at("a direct name no loader reads")
+            );
+            assert_eq!(
+                find(
+                    b.join("dsh").to_str().unwrap(),
+                    library,
+                    operation,
+                    String::new(),
+                )
+                .unwrap()
+                .path,
+                real,
+                "{}",
+                at("and the direct name that loads is selected")
+            );
+        }
+    }
+}
+
 /// A native image's loader is read as the kernel reads it, from the
 /// image's own `PT_INTERP`, and every answer the loader can give is a
 /// named refusal or an admission — never a guess. The candidates are

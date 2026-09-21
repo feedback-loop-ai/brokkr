@@ -693,8 +693,20 @@ impl std::fmt::Debug for Outcome {
 
 /// Invoke one oracle and RECORD it: the child prints the cell's
 /// identifier so the parent can count it against the inventory.
+///
+/// The identifier is printed as soon as the invocation COMPLETES, ahead
+/// of identifying what ran. The two panics below are this cell's own
+/// finding, collected by the caller like any other; printing after them
+/// would also take the identifier out of the parent's inventory, so one
+/// unidentified sentinel read as two findings — its panic and a missing
+/// cell — and the second was a consequence of the first (review
+/// 2026-09-21, R1).
 fn oracle(command: &mut Command, cell: &str) -> Outcome {
-    let outcome = match matrix_spawn(command) {
+    let spawned = matrix_spawn(command);
+    // On its own line: libtest leaves `test … ... ` unterminated ahead
+    // of a `--nocapture` test's first output.
+    println!("\nmatrix-oracle: {cell}");
+    match spawned {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let id = match stdout.lines().find_map(|line| line.strip_prefix("MARK:")) {
@@ -712,11 +724,7 @@ fn oracle(command: &mut Command, cell: &str) -> Outcome {
             Outcome::Ran(id)
         }
         Err(error) => Outcome::Failed(error),
-    };
-    // On its own line: libtest leaves `test … ... ` unterminated ahead
-    // of a `--nocapture` test's first output.
-    println!("\nmatrix-oracle: {cell}");
-    outcome
+    }
 }
 
 /// How a cell was classified, for the tally.
@@ -1324,40 +1332,58 @@ fn parent() {
     // one layout and hide the rest (PR #311, three passes, 2026-09-21).
     let mut failures: Vec<String> = Vec::new();
     let mut run = |case: &str, path: Option<OsString>| {
-        let mut child = Command::new(std::env::current_exe().unwrap());
-        child
-            .args([
-                "adapters::composite::tests::native_matrix::native_executable_resolution_matches_command_matrix",
-                "--exact",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .current_dir(&cwd)
-            .env(CASE, case);
-        match &path {
-            Some(path) => child.env("PATH", path),
-            None => child.env_remove("PATH"),
+        // The INVOCATION is collected too: a child this parent cannot
+        // even spawn is one case's finding, and the layouts after it
+        // are still run and still reported (review 2026-09-21, R1).
+        let said = collecting(&mut failures, &format!("case {case}"), || {
+            let mut child = Command::new(std::env::current_exe().unwrap());
+            child
+                .args([
+                    "adapters::composite::tests::native_matrix::native_executable_resolution_matches_command_matrix",
+                    "--exact",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .current_dir(&cwd)
+                .env(CASE, case);
+            match &path {
+                Some(path) => child.env("PATH", path),
+                None => child.env_remove("PATH"),
+            };
+            let output = spawn_retrying_etxtbsy(&mut child);
+            let said = String::from_utf8_lossy(&output.stdout).into_owned()
+                + &String::from_utf8_lossy(&output.stderr);
+            (output.status.success(), said)
+        });
+        let Some((ran, said)) = said else {
+            return;
         };
-        let output = spawn_retrying_etxtbsy(&mut child);
-        let said = String::from_utf8_lossy(&output.stdout).into_owned()
-            + &String::from_utf8_lossy(&output.stderr);
         if !(said.contains("1 passed") || said.contains("1 failed")) {
             failures.push(format!(
                 "case {case}: the child filtered the test away rather than running it: {said}"
             ));
-        } else if !output.status.success() {
+        } else if !ran {
             failures.push(format!("case {case}: {said}"));
         }
+        // The report this child wrote is VALIDATED as it is read, and a
+        // report the parent cannot read is recorded beside the cells
+        // rather than ending the run at the line it appeared on: a
+        // duplicated identifier or an unreadable tally is a finding of
+        // its own, and the layouts after it are still worth a look.
         for line in said.lines() {
             if let Some(id) = line.strip_prefix("matrix-oracle: ") {
-                assert!(
-                    executed.insert(id.to_string()),
-                    "oracle {id} reported twice"
-                );
+                if !executed.insert(id.to_string()) {
+                    failures.push(format!("case {case}: oracle {id} reported twice"));
+                }
             }
             if let Some(counts) = line.strip_prefix("matrix-tally: ") {
                 for (slot, count) in counts.split(' ').enumerate() {
-                    tally[slot] += count.parse::<usize>().unwrap();
+                    match (tally.get_mut(slot), count.parse::<usize>()) {
+                        (Some(total), Ok(count)) => *total += count,
+                        _ => failures.push(format!(
+                            "case {case}: a tally line this parent cannot read: {line}"
+                        )),
+                    }
                 }
             }
         }
@@ -1530,7 +1556,14 @@ fn child_layout(index: usize, removed: bool) {
         let mut placed: Vec<PathBuf> = Vec::new();
         let mut obstructed: Option<PathBuf> = None;
         let places_a = layout.files.iter().any(|(slot, _)| *slot == Slot::A);
-        if !name.contains('\0') {
+        // The fixtures are staged under collection too, and what was
+        // placed is recorded as it is placed, so a staging failure is
+        // this cell's finding, the cells after it still run, and
+        // whatever reached the filesystem is still removed below.
+        let staged = collecting(&mut failures, &format!("n{n}-l{index} fixtures"), || {
+            if name.contains('\0') {
+                return;
+            }
             for (slot_index, (slot, body)) in layout.files.iter().enumerate() {
                 // `Target` and `A` coincide for a direct spelling: a
                 // layout placing both keeps A there, and the cwd body is
@@ -1583,7 +1616,7 @@ fn child_layout(index: usize, removed: bool) {
                 }
                 placed.push(at);
             }
-        }
+        });
         let cell = Cell {
             name,
             direct,
@@ -1601,29 +1634,48 @@ fn child_layout(index: usize, removed: bool) {
             let planted = fs::metadata(root.join("nowhere-errno-plant")).unwrap_err();
             assert_eq!(errno_of(&planted), Some(rustix::io::Errno::NOENT));
         };
+        // Each form's whole OPERATION under collection — the planted
+        // errno, the oracle and the resolution together — so an oracle
+        // that spawns nothing, runs an unidentified file or exits
+        // unsuccessfully is this form's one finding and neither the end
+        // of this cell's other form nor of the names after it (review
+        // 2026-09-21, R1). A form with no outcome has nothing to
+        // compare, and its comparison is skipped rather than invented.
+        //
         // The INHERITED form: production's invocation and production's
         // resolver, both reading this process's own environment.
         let id = cell_id(n, index, &form("inherited"));
-        plant(&id);
-        let native = oracle(Command::new(name).arg("--list").stdin(Stdio::null()), &id);
-        let resolved = resolve_executable(name);
+        let inherited = staged.and_then(|()| {
+            collecting(&mut failures, &id, || {
+                plant(&id);
+                let native = oracle(Command::new(name).arg("--list").stdin(Stdio::null()), &id);
+                (native, resolve_executable(name))
+            })
+        });
         // The EXPLICIT form: the same `PATH` set on the `Command`, and the
         // resolver handed the same value under its `execvp` operation.
         let id_explicit = cell_id(n, index, &form("explicit"));
-        let mut command = Command::new(name);
-        command.arg("--list").stdin(Stdio::null());
-        match &path {
-            Some(path) => command.env("PATH", path),
-            None => command.env_remove("PATH"),
-        };
-        plant(&id_explicit);
-        let explicit = oracle(&mut command, &id_explicit);
-        let resolved_explicit = resolve_executable_in(name, path.clone());
+        let explicit = staged.and_then(|()| {
+            collecting(&mut failures, &id_explicit, || {
+                let mut command = Command::new(name);
+                command.arg("--list").stdin(Stdio::null());
+                match &path {
+                    Some(path) => command.env("PATH", path),
+                    None => command.env_remove("PATH"),
+                };
+                plant(&id_explicit);
+                let native = oracle(&mut command, &id_explicit);
+                (native, resolve_executable_in(name, path.clone()))
+            })
+        });
 
-        for (label, operation, native, resolved) in [
-            (&id, Operation::Spawn, &native, &resolved),
-            (&id_explicit, Operation::Exec, &explicit, &resolved_explicit),
+        for (label, operation, invoked) in [
+            (&id, Operation::Spawn, &inherited),
+            (&id_explicit, Operation::Exec, &explicit),
         ] {
+            let Some((native, resolved)) = invoked else {
+                continue;
+            };
             let kind = collecting(&mut failures, label, || match removed {
                 // A same-fixture removal control is a parity cell: a
                 // fresh oracle runs the same B (or A through the fitting
@@ -1709,15 +1761,20 @@ fn child_layout(index: usize, removed: bool) {
                 count(kind);
             }
         }
-        collecting(&mut failures, &id, || {
-            if LIBRARY == Library::Glibc {
-                assert_eq!(
-                    resolved_explicit.as_ref().ok(),
-                    resolved.as_ref().ok(),
-                    "{id}: both forms select alike on glibc"
-                );
-            }
-        });
+        // Both forms' resolutions, where both forms have one: a form
+        // whose invocation failed has recorded that failure already, and
+        // comparing it with the other would report the same thing twice.
+        if let (Some((_, resolved)), Some((_, resolved_explicit))) = (&inherited, &explicit) {
+            collecting(&mut failures, &id, || {
+                if LIBRARY == Library::Glibc {
+                    assert_eq!(
+                        resolved_explicit.as_ref().ok(),
+                        resolved.as_ref().ok(),
+                        "{id}: both forms select alike on glibc"
+                    );
+                }
+            });
+        }
 
         for at in placed {
             let _ = fs::remove_file(&at);
@@ -1813,6 +1870,12 @@ fn child_controls() {
             std::env::consts::OS
         );
     };
+    // Each control's whole operation — its oracle and its resolution as
+    // well as its comparison — sits inside its own `collecting`, for the
+    // reason the cross-product cells do: a control whose oracle spawns
+    // nothing or runs an unidentified file is one finding, and the
+    // twelve controls after it are still worth the same pass (review
+    // 2026-09-21, R1).
     let nowhere = root.join("controls-nowhere");
     assert!(!nowhere.exists());
     let file = root.join("controls-file");
@@ -1842,15 +1905,13 @@ fn child_controls() {
     // entry decides. Under the existing controls directory the kernel
     // answers ENAMETOOLONG, on which glibc stops.
     let overlong = "x".repeat(300);
-    let native = oracle(
-        Command::new(&overlong).arg("--list").stdin(Stdio::null()),
-        "control:overlong-bare-name",
-    );
-    let resolved = resolve_executable(&overlong);
-    collecting(
-        &mut failures,
-        "control:overlong-bare-name",
-        || match LIBRARY {
+    collecting(&mut failures, "control:overlong-bare-name", || {
+        let native = oracle(
+            Command::new(&overlong).arg("--list").stdin(Stdio::null()),
+            "control:overlong-bare-name",
+        );
+        let resolved = resolve_executable(&overlong);
+        match LIBRARY {
             Library::Glibc => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name: {native:?}");
@@ -1863,53 +1924,53 @@ fn child_controls() {
                 assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
             }
             _ => record("overlong-bare-name", &native, &resolved),
-        },
-    );
+        }
+    });
 
     // Under a missing directory the name is never measured: ENOENT,
     // walked past, and the search is exhausted as NotFound.
-    let native = oracle(
-        Command::new(&overlong)
-            .arg("--list")
-            .stdin(Stdio::null())
-            .env("PATH", &nowhere),
-        "control:overlong-under-missing-prefix",
-    );
-    let resolved = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
     collecting(
         &mut failures,
         "control:overlong-under-missing-prefix",
-        || match LIBRARY {
-            Library::Glibc => {
-                let Outcome::Failed(error) = &native else {
-                    panic!(
+        || {
+            let native = oracle(
+                Command::new(&overlong)
+                    .arg("--list")
+                    .stdin(Stdio::null())
+                    .env("PATH", &nowhere),
+                "control:overlong-under-missing-prefix",
+            );
+            let resolved = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
+            match LIBRARY {
+                Library::Glibc => {
+                    let Outcome::Failed(error) = &native else {
+                        panic!(
                         "the native child ran a 300-byte name under a missing prefix: {native:?}"
                     );
-                };
-                assert_eq!(errno_of(error), Some(rustix::io::Errno::NOENT), "{error}");
-                assert_eq!(
-                    refused(resolved),
-                    exhausted(&overlong, &nowhere.join(&overlong))
-                );
+                    };
+                    assert_eq!(errno_of(error), Some(rustix::io::Errno::NOENT), "{error}");
+                    assert_eq!(
+                        refused(resolved),
+                        exhausted(&overlong, &nowhere.join(&overlong))
+                    );
+                }
+                _ => record("overlong-under-missing-prefix", &native, &resolved),
             }
-            _ => record("overlong-under-missing-prefix", &native, &resolved),
         },
     );
 
     // Under a file spelled as a directory: ENOTDIR, walked past, and the
     // exhaustion keeps THAT cause.
-    let native = oracle(
-        Command::new(&overlong)
-            .arg("--list")
-            .stdin(Stdio::null())
-            .env("PATH", &file),
-        "control:overlong-under-file-prefix",
-    );
-    let resolved = resolve_executable_in(&overlong, Some(file.clone().into_os_string()));
-    collecting(
-        &mut failures,
-        "control:overlong-under-file-prefix",
-        || match LIBRARY {
+    collecting(&mut failures, "control:overlong-under-file-prefix", || {
+        let native = oracle(
+            Command::new(&overlong)
+                .arg("--list")
+                .stdin(Stdio::null())
+                .env("PATH", &file),
+            "control:overlong-under-file-prefix",
+        );
+        let resolved = resolve_executable_in(&overlong, Some(file.clone().into_os_string()));
+        match LIBRARY {
             Library::Glibc => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name under a file prefix: {native:?}");
@@ -1921,37 +1982,39 @@ fn child_controls() {
                 );
             }
             _ => record("overlong-under-file-prefix", &native, &resolved),
-        },
-    );
+        }
+    });
 
     // Missing, then existing: the miss is walked past and the existing
     // directory's ENAMETOOLONG stops the search.
     let missing_then_existing =
         OsString::from(format!("{}:{}", nowhere.display(), controls.display()));
-    let native = oracle(
-        Command::new(&overlong)
-            .arg("--list")
-            .stdin(Stdio::null())
-            .env("PATH", &missing_then_existing),
-        "control:overlong-missing-then-existing",
-    );
-    let resolved = resolve_executable_in(&overlong, Some(missing_then_existing));
     collecting(
         &mut failures,
         "control:overlong-missing-then-existing",
-        || match LIBRARY {
-            Library::Glibc => {
-                let Outcome::Failed(error) = &native else {
-                    panic!("the native child ran a 300-byte name: {native:?}");
-                };
-                assert_eq!(
-                    errno_of(error),
-                    Some(rustix::io::Errno::NAMETOOLONG),
-                    "{error}"
-                );
-                assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
+        || {
+            let native = oracle(
+                Command::new(&overlong)
+                    .arg("--list")
+                    .stdin(Stdio::null())
+                    .env("PATH", &missing_then_existing),
+                "control:overlong-missing-then-existing",
+            );
+            let resolved = resolve_executable_in(&overlong, Some(missing_then_existing.clone()));
+            match LIBRARY {
+                Library::Glibc => {
+                    let Outcome::Failed(error) = &native else {
+                        panic!("the native child ran a 300-byte name: {native:?}");
+                    };
+                    assert_eq!(
+                        errno_of(error),
+                        Some(rustix::io::Errno::NAMETOOLONG),
+                        "{error}"
+                    );
+                    assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
+                }
+                _ => record("overlong-missing-then-existing", &native, &resolved),
             }
-            _ => record("overlong-missing-then-existing", &native, &resolved),
         },
     );
 
@@ -1959,27 +2022,29 @@ fn child_controls() {
     // ENAMETOOLONG to the kernel, on which native stops — and a native
     // stop at the cwd candidate is preserved as that cause, not renamed
     // to the cwd reason.
-    let native = oracle(
-        Command::new(&overlong)
-            .arg("--list")
-            .stdin(Stdio::null())
-            .env("PATH", ""),
-        "control:overlong-at-cwd",
-    );
-    let resolved = resolve_executable_in(&overlong, Some(OsString::new()));
-    collecting(&mut failures, "control:overlong-at-cwd", || match LIBRARY {
-        Library::Glibc => {
-            let Outcome::Failed(error) = &native else {
-                panic!("the native child ran a 300-byte name from cwd: {native:?}");
-            };
-            assert_eq!(
-                errno_of(error),
-                Some(rustix::io::Errno::NAMETOOLONG),
-                "{error}"
-            );
-            assert_eq!(refused(resolved), terminal(Path::new(&overlong)));
+    collecting(&mut failures, "control:overlong-at-cwd", || {
+        let native = oracle(
+            Command::new(&overlong)
+                .arg("--list")
+                .stdin(Stdio::null())
+                .env("PATH", ""),
+            "control:overlong-at-cwd",
+        );
+        let resolved = resolve_executable_in(&overlong, Some(OsString::new()));
+        match LIBRARY {
+            Library::Glibc => {
+                let Outcome::Failed(error) = &native else {
+                    panic!("the native child ran a 300-byte name from cwd: {native:?}");
+                };
+                assert_eq!(
+                    errno_of(error),
+                    Some(rustix::io::Errno::NAMETOOLONG),
+                    "{error}"
+                );
+                assert_eq!(refused(resolved), terminal(Path::new(&overlong)));
+            }
+            _ => record("overlong-at-cwd", &native, &resolved),
         }
-        _ => record("overlong-at-cwd", &native, &resolved),
     });
 
     // With only an oversized component there is no candidate at all,
@@ -2003,20 +2068,18 @@ fn child_controls() {
             rustix::io::Errno::NOTDIR,
         ),
     ] {
-        let expected = fs::metadata(&plant).unwrap_err();
-        assert_eq!(errno_of(&expected), Some(planted));
-        let native = oracle(
-            Command::new(&overlong)
-                .arg("--list")
-                .stdin(Stdio::null())
-                .env("PATH", &skipped),
-            &format!("control:{what}"),
-        );
-        let resolved = resolve_executable_in(&overlong, Some(skipped.clone()));
-        collecting(
-            &mut failures,
-            &format!("control:{what}"),
-            || match LIBRARY {
+        collecting(&mut failures, &format!("control:{what}"), || {
+            let expected = fs::metadata(&plant).unwrap_err();
+            assert_eq!(errno_of(&expected), Some(planted));
+            let native = oracle(
+                Command::new(&overlong)
+                    .arg("--list")
+                    .stdin(Stdio::null())
+                    .env("PATH", &skipped),
+                &format!("control:{what}"),
+            );
+            let resolved = resolve_executable_in(&overlong, Some(skipped.clone()));
+            match LIBRARY {
                 Library::Glibc => {
                     let Outcome::Failed(error) = &native else {
                         panic!("{what}: the native child ran a 300-byte name with no candidate: {native:?}");
@@ -2036,24 +2099,25 @@ fn child_controls() {
                     );
                 }
                 _ => record(what, &native, &resolved),
-            },
-        );
+            }
+        });
     }
 
     // The same name as an explicit path: `execve` itself answers
     // ENAMETOOLONG, and the resolver's one candidate stops by that cause.
-    let spelled = controls.join(&overlong);
-    let native = oracle(
-        Command::new(&spelled).arg("--list").stdin(Stdio::null()),
-        "control:overlong-explicit-path",
-    );
-    let resolved = resolve_executable(spelled.to_str().unwrap());
+    //
     // A DIRECT name is answered by `execve` on every arm, so the
     // terminal refusal is the same on every arm: this control is a
     // library-independent expectation, not glibc's (the Apple-arm audit,
     // 2026-09-21; `the_lookup_rule_is_each_librarys_own_switch_arm_by_arm`
     // proves the same refusal under each injected library on Linux).
+    let spelled = controls.join(&overlong);
     collecting(&mut failures, "control:overlong-explicit-path", || {
+        let native = oracle(
+            Command::new(&spelled).arg("--list").stdin(Stdio::null()),
+            "control:overlong-explicit-path",
+        );
+        let resolved = resolve_executable(spelled.to_str().unwrap());
         let Outcome::Failed(error) = &native else {
             panic!("the native child ran an overlong explicit path: {native:?}");
         };
@@ -2070,15 +2134,13 @@ fn child_controls() {
     // existing controls directory even though nothing of that name is
     // there — and never by a length rule of the resolver's own.
     let boundary = "y".repeat(256);
-    let native = oracle(
-        Command::new(&boundary).arg("--list").stdin(Stdio::null()),
-        "control:name-max-boundary",
-    );
-    let resolved = resolve_executable(&boundary);
-    collecting(
-        &mut failures,
-        "control:name-max-boundary",
-        || match LIBRARY {
+    collecting(&mut failures, "control:name-max-boundary", || {
+        let native = oracle(
+            Command::new(&boundary).arg("--list").stdin(Stdio::null()),
+            "control:name-max-boundary",
+        );
+        let resolved = resolve_executable(&boundary);
+        match LIBRARY {
             Library::Glibc => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 256-byte name: {native:?}");
@@ -2091,23 +2153,23 @@ fn child_controls() {
                 assert_eq!(refused(resolved), terminal(&controls.join(&boundary)));
             }
             _ => record("name-max-boundary", &native, &resolved),
-        },
-    );
+        }
+    });
 
     // The valid-length positive: a 255-byte name that EXISTS on the
     // search runs natively and is selected, so length continuation and
     // length refusal are both measured against a name that runs.
     let valid = "z".repeat(255);
-    let planted = stage_executable(
-        &controls,
-        &valid,
-        b"#!/bin/sh\nprintf 'MARK:valid-255\\n'\n",
-    );
-    let native = oracle(
-        Command::new(&valid).arg("--list").stdin(Stdio::null()),
-        "control:valid-length-name",
-    );
     collecting(&mut failures, "control:valid-length-name", || {
+        let planted = stage_executable(
+            &controls,
+            &valid,
+            b"#!/bin/sh\nprintf 'MARK:valid-255\\n'\n",
+        );
+        let native = oracle(
+            Command::new(&valid).arg("--list").stdin(Stdio::null()),
+            "control:valid-length-name",
+        );
         let Outcome::Ran(marker) = &native else {
             panic!("the native child runs a 255-byte name on its search: {native:?}");
         };
@@ -2127,18 +2189,16 @@ fn child_controls() {
         ("exhaustion-file-then-missing", &file, &nowhere),
     ] {
         let path = OsString::from(format!("{}:{}", first.display(), second.display()));
-        let native = oracle(
-            Command::new("dsh")
-                .arg("--list")
-                .stdin(Stdio::null())
-                .env("PATH", &path),
-            &format!("control:{what}"),
-        );
-        let resolved = resolve_executable_in("dsh", Some(path));
-        collecting(
-            &mut failures,
-            &format!("control:{what}"),
-            || match LIBRARY {
+        collecting(&mut failures, &format!("control:{what}"), || {
+            let native = oracle(
+                Command::new("dsh")
+                    .arg("--list")
+                    .stdin(Stdio::null())
+                    .env("PATH", &path),
+                &format!("control:{what}"),
+            );
+            let resolved = resolve_executable_in("dsh", Some(path.clone()));
+            match LIBRARY {
                 Library::Glibc => {
                     let Outcome::Failed(error) = &native else {
                         panic!("{what}: the native child ran a dsh: {native:?}");
@@ -2152,23 +2212,23 @@ fn child_controls() {
                     assert_eq!(refused(resolved), exhausted("dsh", &second.join("dsh")));
                 }
                 _ => record(what, &native, &resolved),
-            },
-        );
+            }
+        });
     }
 
     // The default-search positive AO requires beside the all-negative
     // absent-PATH cells: `sh` runs with PATH removed, and the resolver
     // selects the very file it ran, with a same-name cwd decoy present.
-    stage_executable(&cwd, "sh", b"#!/bin/sh\nprintf 'MARK:decoy\\n'\n");
-    let output = matrix_spawn(
-        Command::new("sh")
-            .args(["-c", "readlink /proc/$$/exe 2>/dev/null || echo unknown"])
-            .env_remove("PATH"),
-    )
-    .expect("a native child finds sh with no PATH");
-    println!("\nmatrix-oracle: control:default-search-sh");
-    let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
     collecting(&mut failures, "control:default-search-sh", || {
+        stage_executable(&cwd, "sh", b"#!/bin/sh\nprintf 'MARK:decoy\\n'\n");
+        let output = matrix_spawn(
+            Command::new("sh")
+                .args(["-c", "readlink /proc/$$/exe 2>/dev/null || echo unknown"])
+                .env_remove("PATH"),
+        )
+        .expect("a native child finds sh with no PATH");
+        println!("\nmatrix-oracle: control:default-search-sh");
+        let ran = String::from_utf8_lossy(&output.stdout).trim().to_string();
         assert!(output.status.success() && !ran.contains("decoy"), "{ran}");
         let selected = resolve_executable_in("sh", None).unwrap();
         assert_ne!(selected, cwd.join("sh").canonicalize().unwrap());
